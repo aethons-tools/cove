@@ -13,9 +13,10 @@ that runs hardened Claude Code sandboxes across multiple VM backends
 from a single YAML description.
 The intended user experience:
 
-1. Write a `.yml` that describes a sandbox (name, backend, secrets it needs).
-2. `atsbx create <sandbox>.yml` provisions the VM.
-3. `atsbx connect <sandbox>.yml` SSHes in,
+1. Add a `.atsbx/` kit directory whose `config.yml` describes the sandbox
+   (name, backend, secrets it needs).
+2. `atsbx create` (run in the repo) provisions the VM.
+3. `atsbx connect` SSHes in,
    injects secrets as environment variables,
    and launches `claude` interactively.
 
@@ -31,7 +32,7 @@ is identical across backends.
 
 - The `Backend` interface and a backend registry.
 - The **Colima** backend, end to end (native Docker; no `sbx`).
-- The three-layer `.build` assembly from files embedded in the binary.
+- The layered `.build` assembly from files embedded in the binary.
 - Commands: `build`, `create`, `connect`, `destroy`, `status`.
 - Auto-managed SSH keypair,
   per-sandbox host-key TOFU,
@@ -45,6 +46,8 @@ is identical across backends.
   (captured in Appendix A as the manual technique; `connect` injects env only).
 - Declarative **repo cloning** into an isolated workspace
   (Appendix B; for now the agent clones once secrets are present).
+- The **`.local/` override layer** — the slot is reserved and documented (§3.6),
+  but its merge semantics are deferred.
 - `envsubst` templating (removed — see §6.3).
 
 ## 3. Concepts
@@ -58,41 +61,67 @@ and destroy it.
 The first and only implemented backend is **Colima** (local Docker via Colima).
 Firecracker and Fly come later behind the same interface.
 
-### 3.2 The kit, as three embedded layers
+### 3.2 The kit is a directory
+
+The kit is **always a directory**, by convention `.atsbx/` at the repo root:
+
+```
+repo/
+  .atsbx/
+    config.yml        # the spec: name, backend, secrets (§4)
+    image-files/      # committed local overrides (layer 2), overlaid onto the VM root
+    .local/           # DEFERRED override layer (§3.7)
+      config.yml
+      image-files/
+    .build/           # assembled context output (gitignored)
+```
+
+`config.yml` lives inside the kit;
+`image-files/` is the conventional source of the user's local overrides,
+mirroring `claude-code-oci`'s `image-files/ → /` overlay.
+`atsbx` writes a `.gitignore` into `.atsbx/` covering `.build/` and `.local/`.
+
+**Discovery.**
+A command with no kit path **walks up from the cwd to the nearest `.atsbx/`**
+(git-like), so it works from subdirectories;
+an explicit kit-directory path on the command line overrides discovery.
+
+### 3.3 The build context, as layered overlays
 
 There is no separate "base image" to manage.
-Each `create` assembles a fresh build context in `.build/`
-by stacking three layers, **last writer wins**:
+Each `create` assembles a fresh build context in `<kit>/.build/`
+by stacking overlays, **last writer wins**:
 
 1. **Overridable defaults** — extracted from the binary first.
    Sensible defaults the user may replace:
    `CLAUDE.md`, `settings.json`, stock skills, a default entrypoint, etc.
-2. **Local files** — the user's per-project overrides
-   (the optional `files:` directory from the `.yml`), copied second;
+2. **Local files** — the kit's `image-files/`, copied second;
    they shadow any default at the same path.
-3. **Non-overridable hardening** — extracted from the binary **last**,
+3. *(deferred)* **`.local/image-files/`** — uncommitted overrides (§3.7);
+   the slot sits here but is inert until its merge semantics are designed.
+4. **Non-overridable hardening** — extracted from the binary **last**,
    so it overwrites anything beneath it:
    `nftables.conf`, `squid.conf`, sshd hardening,
    the security-critical entrypoint, and `sshd` `AcceptEnv` config.
 
-Layer 3 extracting last is a **security boundary**:
+The final layer extracting last is a **security boundary**:
 a user's local files can never weaken the egress lock or sshd hardening,
 because the locked files always land on top.
 Both embedded layers ship inside the `atsbx` binary via Go `embed.FS`
 (vendored from `agent-infrastructure` at `atsbx` build time),
 so the hardening cannot be misplaced or forgotten — a foolproof default.
 
-After the three layers, `create` performs one programmatic step:
+After the overlays, `create` performs one programmatic step:
 it writes the **managed public key**
-into the context's `home/agent/.ssh/authorized_keys` (§3.5).
+into the context's `home/agent/.ssh/authorized_keys` (§3.6).
 This is an explicit assembly step owned by `atsbx`,
 not a templated or user-managed file,
-which keeps the three-layer precedence pure.
+which keeps the overlay precedence pure.
 
-### 3.3 Workspace modes (create-time)
+### 3.4 Workspace modes (create-time)
 
 The working directory is realized one of two ways,
-chosen at `create` time, not in the `.yml`
+chosen at `create` time, not in `config.yml`
 (so a spec is portable across machines):
 
 - **Isolated (default)** — `workspace` is a backend-managed volume.
@@ -109,11 +138,11 @@ is always a backend-managed persistent volume mounted at `/agent-data`
 (`CLAUDE_CONFIG_DIR`), seeded from the image's `.init-agent-data`.
 It preserves Claude session history/config
 and is the hedge against ephemeral rootfs on Fly.
-It never appears in the `.yml`.
+It never appears in `config.yml`.
 
-### 3.4 Secrets
+### 3.5 Secrets
 
-The `.yml` declares secrets **by name plus a host command** that produces the value.
+`config.yml` declares secrets **by name plus a host command** that produces the value.
 Values are **resolved just in time** at `connect`
 (never at `create`, which stays secret-free)
 by running the command and capturing stdout.
@@ -124,7 +153,7 @@ the protected surface is the host
 (no values in `ps`/shell history)
 and at-rest storage (no value ever persisted).
 
-### 3.5 Managed SSH keypair
+### 3.6 Managed SSH keypair
 
 `atsbx` owns a dedicated keypair at `~/.config/atsbx/id_ed25519`,
 created on first use.
@@ -132,16 +161,31 @@ Its public half is written into every build context's `authorized_keys` during `
 `connect` authenticates with the private half.
 The user never handles SSH keys.
 
-## 4. The `.yml` schema
+### 3.7 The `.local/` override layer (deferred)
 
+`.atsbx/.local/` is a **source-control-excluded** override layer:
+a `config.yml` and an `image-files/` tree that a developer keeps off VCS
+(machine-specific tweaks, personal defaults).
+It slots into the precedence between the committed `image-files/`
+and the non-overridable hardening (§3.3).
+
+It is **documented now but deferred**: the hard part is the **merge semantics**
+(how `.local/config.yml` blends with the committed `config.yml`, list vs scalar
+override rules, deep vs shallow) — the class of feature GitLab's CI
+`include`/`override` history shows is easy to get badly wrong.
+We name the slot and exclude it from source control today;
+the blending rules are designed in a later spec.
+
+## 4. The `config.yml` schema
+
+`config.yml` lives inside the kit directory (`.atsbx/config.yml`).
 Lean: identity and wiring only.
-No secret values, no hardening knobs, no workspace mode.
+No secret values, no hardening knobs, no workspace mode, no local-files path
+(the kit's `image-files/` is the layer-2 source by convention — §3.2).
 
 ```yaml
 name: claude-on-myrepo          # sandbox/VM name; also keys per-sandbox known_hosts
 backend: colima                 # colima | firecracker | fly  (only colima now)
-
-files: ./sandbox-files          # OPTIONAL: local override layer (layer 2). Omit for none.
 
 secrets:                        # declared by NAME; values resolved at connect time
   - name: GITHUB_TOKEN
@@ -154,8 +198,6 @@ Rules:
 
 - `name` and `backend` are required.
   Unknown `backend` → clear error listing supported backends.
-- `files` is optional;
-  relative paths resolve against the `.yml`'s directory so specs are cwd-independent.
 - `secrets[].command` is an **argv array**, not a shell string —
   no quoting surprises;
   executed directly, stdout captured, trailing newline trimmed.
@@ -164,13 +206,16 @@ Rules:
 
 ## 5. Command surface
 
+Every command takes an optional **kit directory**;
+omitted, it is discovered by walking up from cwd to the nearest `.atsbx/` (§3.2).
+
 | Command | Behavior |
 |---|---|
-| `atsbx build <sandbox>.yml` | Assemble `.build/` from the three layers (+ local files) and inject the managed public key. No backend, no VM. For authoring/inspection. |
-| `atsbx create <sandbox>.yml [--workspace/--ws <path>]` | `build`, then hand the `.build` path to the backend to create the VM. Secret-free. `--workspace <path>` selects Shared mode (hard error on Fly). |
-| `atsbx connect <sandbox>.yml` | Resolve secrets, `Dial` the backend for an endpoint, verify host key (TOFU), inject env, launch `claude` interactively. Run every session. |
-| `atsbx destroy <sandbox>.yml` | Backend `Destroy` for the sandbox's VM. |
-| `atsbx status <sandbox>.yml` | Backend `GetStatus`: `Running` / `Stopped` / `Absent`. |
+| `atsbx build [kit-dir]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM. For authoring/inspection. |
+| `atsbx create [kit-dir] [--workspace/--ws <path>]` | `build`, then hand the `.build` path to the backend to create the VM. Secret-free. `--workspace <path>` selects Shared mode (hard error on Fly). |
+| `atsbx connect [kit-dir]` | Resolve secrets, `Dial` the backend for an endpoint, verify host key (TOFU), inject env, launch `claude` interactively. Run every session. |
+| `atsbx destroy [kit-dir]` | Backend `Destroy` for the sandbox's VM. |
+| `atsbx status [kit-dir]` | Backend `GetStatus`: `Running` / `Stopped` / `Absent`. |
 
 `--dry-run` remains global (before or after the subcommand)
 and prints planned actions — including exact backend/SSH commands —
@@ -183,9 +228,9 @@ without executing.
 Extends the existing pure-plan / execution split.
 
 ```
-main.go                       parse argv, load .yml, select backend, dispatch
-internal/spec/                parse + validate the .yml (pure)
-internal/assemble/            three-layer .build assembly from embed.FS; key injection
+main.go                       parse argv, discover kit, select backend, dispatch
+internal/kit/                 locate kit dir (cwd walk-up); load+validate config.yml (pure)
+internal/assemble/            layered .build assembly from embed.FS; key injection
   (embeds)                    overridable/ and hardening/ file trees (vendored)
 internal/backend/             Backend interface + registry
   internal/backend/colima/    Colima impl: docker build / run / inspect / rm
@@ -196,7 +241,7 @@ internal/runner/              existing Runner interface (OS impl + Fake)
 ```
 
 Dependency direction:
-`spec`, `sshargs`, `secret` are leaves;
+`kit`, `sshargs`, `secret` are leaves;
 `assemble` uses `embed.FS` + `runner`;
 `backend/*` use `runner`;
 `connect` uses `secret`, `sshargs`, `backend`, `runner`;
@@ -346,7 +391,8 @@ secrets arrive only via `connect`.
 ## 9. Error handling
 
 - Unknown `backend:` → error listing supported backends; non-zero exit.
-- Missing/invalid `.yml`, missing required fields → usage + non-zero exit.
+- No `.atsbx/` found on cwd walk-up (and none given) → actionable error.
+- Missing/invalid `config.yml`, missing required fields → usage + non-zero exit.
 - `--workspace` on the Fly backend → hard error
   (documented; enforced once Fly exists).
 - Any secret command failing (nonzero exit) → abort `connect` before SSH,
@@ -360,9 +406,11 @@ secrets arrive only via `connect`.
 
 All tests run without Docker/Colima or a live VM, via the `Fake` runner.
 
-- **spec:** valid/invalid YAML, required fields, unknown backend,
-  relative-path resolution, secrets parsed as argv arrays.
-- **assemble:** three layers compose with correct last-writer-wins precedence;
+- **kit:** kit discovery (cwd walk-up; explicit path overrides);
+  valid/invalid `config.yml`, required fields, unknown backend,
+  secrets parsed as argv arrays.
+- **assemble:** active layers compose with correct last-writer-wins precedence
+  (overridable defaults < kit `image-files/` < non-overridable hardening);
   non-overridable files always win over local files and defaults;
   public key injected into `authorized_keys`;
   verbatim copy (no substitution).
@@ -408,11 +456,11 @@ rewrite SSH→HTTPS and feed the PAT from the injected env:
 This keeps the host on SSH and the VM on HTTPS+PAT against the same shared repo,
 with the token never on disk.
 A future iteration may have `connect` apply this automatically
-from a `.yml` `git:` block.
+from a `config.yml` `git:` block.
 
 ## Appendix B — declarative repo clone (deferred)
 
-A future `repo:` field in the `.yml`
+A future `repo:` field in `config.yml`
 plus a connect-time first-run clone
 (clone into an empty isolated workspace using resolved secrets)
 would make sandboxes reproducible/unattended.
