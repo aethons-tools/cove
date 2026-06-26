@@ -153,6 +153,23 @@ the protected surface is the host
 (no values in `ps`/shell history)
 and at-rest storage (no value ever persisted).
 
+**Security — resolver commands are an execution vector.**
+A `secrets[].command` runs on the **host** at `connect`.
+If it ships in a committed `config.yml`,
+then cloning an untrusted repo and running `atsbx connect`
+executes arbitrary commands chosen by the repo author —
+a command-injection / supply-chain risk.
+
+Today (before `.local`), the `command` lives in `config.yml`,
+which is safe **only for repos you trust** (your own); this is a stated assumption.
+**When the `.local/` layer lands (§3.7), the rule becomes:**
+a committed `config.yml` may declare each secret's `name`
+(and an optional human-readable `description`) **but not its `command`**;
+the `command` may come **only** from the source-control-excluded `.local/config.yml`.
+A `command` present in a committed `config.yml` is then **rejected**.
+This guarantees the only resolver a repo can trigger
+is one the local user authored on their own machine.
+
 ### 3.6 Managed SSH keypair
 
 `atsbx` owns a dedicated keypair at `~/.config/atsbx/id_ed25519`,
@@ -176,6 +193,12 @@ override rules, deep vs shallow) — the class of feature GitLab's CI
 We name the slot and exclude it from source control today;
 the blending rules are designed in a later spec.
 
+When this layer lands it becomes the **only** source of secret resolver
+`command`s (§3.5): committed `config.yml` carries secret `name`/`description`,
+`.local/config.yml` carries the `command`.
+That is the primary motivation for getting `.local` right,
+not just a convenience for machine-specific overrides.
+
 ## 4. The `config.yml` schema
 
 `config.yml` lives inside the kit directory (`.atsbx/config.yml`).
@@ -189,8 +212,10 @@ backend: colima                 # colima | firecracker | fly  (only colima now)
 
 secrets:                        # declared by NAME; values resolved at connect time
   - name: GITHUB_TOKEN
+    # command is TRUSTED today; moves to .local/config.yml once supported (§3.5)
     command: ["op", "read", "op://Personal/github-pat/token"]
   - name: ANTHROPIC_API_KEY
+    description: Anthropic API key   # human-readable; safe to commit
     command: ["pass", "show", "anthropic/api-key"]
 ```
 
@@ -202,6 +227,12 @@ Rules:
   no quoting surprises;
   executed directly, stdout captured, trailing newline trimmed.
   A nonzero exit aborts `connect` before any SSH happens (fail closed).
+- `secrets[].description` is an optional human-readable string.
+  Today (pre-`.local`) `command` lives here and is **trusted** —
+  only run `connect` against repos you trust (§3.5).
+  Once `.local/` lands, `command` moves out: committed `config.yml` keeps
+  `name`/`description`, `.local/config.yml` supplies `command`,
+  and a committed `command` is rejected.
 - The file contains no secret values and is safe to commit.
 
 ## 5. Command surface
@@ -397,6 +428,8 @@ secrets arrive only via `connect`.
   (documented; enforced once Fly exists).
 - Any secret command failing (nonzero exit) → abort `connect` before SSH,
   naming the failed secret; never partially inject.
+- *(once `.local/` lands)* a `command` in a committed `config.yml` → rejected,
+  pointing the user to declare it in `.local/config.yml` (§3.5).
 - VM not `Running` at `connect` → actionable message to `create`/start first.
 - Host-key mismatch on reconnect → loud failure (do not auto-accept).
 - Backend/`ssh` non-zero exit → propagate the exit code;
