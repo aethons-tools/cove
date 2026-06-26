@@ -6,6 +6,12 @@ conversation's context is lost.
 **Repo:** `/home/agent/workspace/sbx` (module `github.com/aethons-tools/at-sbx`, binary `atsbx`).
 **Branch:** `design/atsbx-sandboxes` (NOT merged to `main`).
 
+> **THIS FILE IS THE DURABLE MEMORY.** In this prototype sandbox `/agent-data`
+> is wiped when the session ends, so the agent's normal memory store
+> (`/agent-data/projects/.../memory/`) does NOT persist. Everything needed to
+> resume lives in this committed repo doc. If the workspace itself is also
+> ephemeral, push this branch to a remote (egress to `github.com` is allowed).
+
 ## TL;DR — where we are
 
 Brainstorming and planning are **done and committed**.
