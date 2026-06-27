@@ -14,6 +14,11 @@ type Transport interface {
 	Launch(t sshargs.Target, env map[string]string) error
 }
 
+// workspaceDir is where the kit's workspace volume is mounted inside the VM (see
+// the colima backend). Sessions start here so the agent — and the raw debug
+// shell — land in the project, not the home directory.
+const workspaceDir = "/home/agent/workspace"
+
 // launchCmd is the remote program a transport exec's. Empty means the agent
 // (claude); `connect --raw` sets it to "bash" to drop into a debug shell with
 // the same injected environment the agent would see.
@@ -22,6 +27,13 @@ func launchCmd(cmd string) string {
 		return "claude"
 	}
 	return cmd
+}
+
+// remoteExec is the tail of a transport's remote command: cd into the workspace,
+// then exec the launch program. Using && (not ;) fails loudly if the workspace
+// mount is missing rather than silently dropping the session in the home dir.
+func remoteExec(cmd string) string {
+	return "cd " + workspaceDir + " && exec " + launchCmd(cmd)
 }
 
 // SendEnv forwards secrets via ssh SendEnv: values live only in the ssh child's
@@ -42,7 +54,7 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	for _, k := range names {
 		childEnv = append(childEnv, k+"="+env[k])
 	}
-	args := sshargs.InteractiveSendEnv(t, names, "exec "+launchCmd(s.Cmd))
+	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd))
 	return s.R.RunEnv(childEnv, "ssh", args...)
 }
 
@@ -76,7 +88,7 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 		return err
 	}
 	// 2) interactive: source the file, remove it, then launch the program.
-	remote := "set -a; . " + file + "; rm -f " + file + "; exec " + launchCmd(s.Cmd)
+	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
 }

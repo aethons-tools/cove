@@ -35,12 +35,13 @@ func TestSendEnvLaunch(t *testing.T) {
 			t.Fatalf("secret value leaked onto argv: %v", f.Calls[0].Args)
 		}
 	}
-	// SendEnv flags present for both names; remote command launches claude.
+	// SendEnv flags present for both names; remote command cd's into the
+	// workspace then launches claude.
 	joined := f.Calls[0].Args
 	if !hasPair(joined, "SendEnv=GITHUB_TOKEN") || !hasPair(joined, "SendEnv=X") {
 		t.Fatalf("SendEnv flags missing: %v", joined)
 	}
-	if joined[len(joined)-1] != "exec claude" {
+	if joined[len(joined)-1] != "cd /home/agent/workspace && exec claude" {
 		t.Fatalf("remote cmd = %q", joined[len(joined)-1])
 	}
 }
@@ -71,8 +72,8 @@ func TestSendEnvLaunchRawBash(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := f.Calls[0].Args
-	if args[len(args)-1] != "exec bash" {
-		t.Fatalf("raw SendEnv should launch bash, got %q", args[len(args)-1])
+	if args[len(args)-1] != "cd /home/agent/workspace && exec bash" {
+		t.Fatalf("raw SendEnv should cd to workspace and launch bash, got %q", args[len(args)-1])
 	}
 }
 
@@ -81,10 +82,23 @@ func TestStdinScriptRawBash(t *testing.T) {
 	if err := (StdinScript{R: f, Cmd: "bash"}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
 		t.Fatal(err)
 	}
-	// Second call is the interactive launch; its remote script ends in exec bash.
+	// Second call is the interactive launch; its remote script cd's into the
+	// workspace then exec's bash.
 	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
-	if !strings.HasSuffix(remote, "exec bash") {
-		t.Fatalf("raw StdinScript should exec bash, got %q", remote)
+	if !strings.HasSuffix(remote, "cd /home/agent/workspace && exec bash") {
+		t.Fatalf("raw StdinScript should cd to workspace and exec bash, got %q", remote)
+	}
+}
+
+func TestStdinScriptStartsInWorkspace(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	// The interactive launch (second call) must cd into the workspace before exec.
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if !strings.HasSuffix(remote, "cd /home/agent/workspace && exec claude") {
+		t.Fatalf("session should start in workspace, got %q", remote)
 	}
 }
 
