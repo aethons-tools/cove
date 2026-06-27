@@ -174,8 +174,11 @@ func configDir() string {
 func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	buildDir := filepath.Join(kitDir, ".build")
 	if dryRun {
-		fmt.Fprintf(stdout, "would assemble %s and inject managed key\n", buildDir)
+		fmt.Fprintf(stdout, "would write %s/.gitignore, assemble %s, and inject managed key\n", kitDir, buildDir)
 		return nil
+	}
+	if err := kit.EnsureGitignore(kitDir); err != nil {
+		return err
 	}
 	_, pub, err := keys.Ensure(r, configDir())
 	if err != nil {
