@@ -16,9 +16,30 @@ conversation's context is lost.
 
 Brainstorming and planning are **done and committed**.
 Implementation has **not started**.
-Execution is **blocked** only by the Go toolchain not being installed in this
-egress-locked sandbox (details below).
-The user is going to install Go on the image, then we resume.
+
+**UPDATE 2026-06-27 — the blocker is RESOLVED. Ready to execute.**
+- Go **1.26.4 (linux/arm64) is installed** (`go version` works).
+- The `gopkg.in/yaml.v3` dependency fetch is **solved without any allowlist change**:
+  `GOPROXY=direct` + `GOSUMDB=off` makes `go get` resolve `gopkg.in/yaml.v3@v3.0.1`
+  through the allowlisted `github.com` (go-yaml/yaml).
+  It is already downloaded and `go.sum` was generated then reverted to pristine;
+  the module sits cached in `GOMODCACHE`.
+  **Plan Task 2 stands as written** — no vendoring, no hand-rolled parser.
+  (The three options in the old BLOCKER section below are moot.)
+- `/home/agent` is NOT writable,
+  so default `GOPATH=~/go` and `GOENV=~/.config/go/env` cannot be created.
+  Fix: **GOPATH redirected to `/home/agent/workspace/.gopath`** (writable, outside the repo).
+  `GOCACHE` (`~/.cache/go-build`) works by default.
+- The Go env vars are written into **`$CLAUDE_CONFIG_DIR/settings.json`**
+  (here `CLAUDE_CONFIG_DIR=/agent-data`, so `/agent-data/settings.json`)
+  in the `env` block: `GOPATH`, `GOPROXY=direct`, `GOSUMDB=off`, `GOFLAGS=-mod=mod`.
+  Two caveats: settings.json `env` is read at **session start** (not mid-session),
+  AND `/agent-data` is **wiped at session end** (same reason this checkpoint, not
+  agent memory, is the durable store) — so it is NOT a cross-session persistence
+  mechanism. **The reliable way to run go here is to prefix the env inline:**
+  `GOPATH=/home/agent/workspace/.gopath GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go test ./...`
+  (Note: `~/.claude/` is NOT the config dir because `CLAUDE_CONFIG_DIR` overrides it.)
+- Existing pre-work tests pass (`internal/runner`, `internal/sbx`, `internal/kit`).
 
 The authoritative artifacts (read these first):
 
