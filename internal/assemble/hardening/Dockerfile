@@ -28,14 +28,17 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
 # Don't phone home for background updates from inside the sandbox; rebuild the
-# image to update Claude Code instead. This keeps the runtime allow-list tight
-# (no claude.ai needed at runtime). Use DISABLE_UPDATES=1 to also block manual.
+# image to update Claude Code instead. (claude.ai is still reached at runtime for
+# the subscription OAuth login flow — see the squid allow-list.) Use
+# DISABLE_UPDATES=1 to also block manual updates.
 ENV DISABLE_AUTOUPDATER=1
 
-# SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH and
-# force every login shell + the SSH session through the local proxy.
+# SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH,
+# point claude at its state on the persistent volume, and force every login
+# shell + the SSH session through the local proxy.
 RUN printf '%s\n' \
   'PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
+  'CLAUDE_CONFIG_DIR=/agent-data' \
   'http_proxy=http://127.0.0.1:3128' \
   'https_proxy=http://127.0.0.1:3128' \
   'HTTP_PROXY=http://127.0.0.1:3128' \

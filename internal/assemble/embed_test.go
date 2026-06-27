@@ -55,3 +55,37 @@ func TestAllowlistPermitsClaudeAI(t *testing.T) {
 		t.Errorf("allowed_domains.txt must permit claude.ai for OAuth login; got:\n%s", b)
 	}
 }
+
+// TestEntrypointStartsSSHD guards that the container's main process is sshd (the
+// whole connect design reaches the VM over SSH) and that the state-volume seed
+// is restart-safe (guarded by a marker, not an unconditional copy that crashes
+// under `set -e` on the second boot).
+func TestEntrypointStartsSSHD(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
+	if err != nil {
+		t.Fatalf("entrypoint.sh not embedded: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "exec /usr/sbin/sshd -D") {
+		t.Errorf("entrypoint must exec sshd as the main process; got:\n%s", s)
+	}
+	if strings.Contains(s, "-i bash -c") {
+		t.Errorf("entrypoint must not drop to an interactive bash instead of sshd")
+	}
+	if !strings.Contains(s, "/agent-data/.seeded") {
+		t.Errorf("entrypoint must guard the state-volume seed with a marker")
+	}
+}
+
+// TestDockerfileSetsConfigDir guards that CLAUDE_CONFIG_DIR points at the
+// persistent volume for every ssh session (via /etc/environment), so the OAuth
+// login and the agent session agree on where credentials live.
+func TestDockerfileSetsConfigDir(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+	if err != nil {
+		t.Fatalf("Dockerfile not embedded: %v", err)
+	}
+	if !strings.Contains(string(b), "CLAUDE_CONFIG_DIR=/agent-data") {
+		t.Errorf("Dockerfile must put CLAUDE_CONFIG_DIR=/agent-data in /etc/environment; got:\n%s", b)
+	}
+}
