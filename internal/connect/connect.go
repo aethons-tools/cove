@@ -13,16 +13,17 @@ import (
 )
 
 const (
-	// credsCheck probes for stored Claude Code credentials over a
-	// non-interactive ssh. It always exits 0 and reports state on stdout, so a
-	// non-zero ssh exit means the connection itself failed (not "no creds").
-	// CLAUDE_CONFIG_DIR is /agent-data in the image; the fallback keeps the probe
-	// correct if it is ever unset.
-	credsCheck = `test -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" && echo atsbx-authed || echo atsbx-noauth`
+	// authProbe reports whether the sandbox is already logged in, using claude's
+	// own validated status check (`claude auth status` exits 0 when logged in,
+	// non-zero otherwise). This beats statting a credentials file: it validates
+	// (catches expired creds) and is not coupled to where creds are stored. The
+	// wrapper always exits 0 and reports state on stdout, so a non-zero ssh exit
+	// still means the connection itself failed, not "not logged in".
+	authProbe  = `if claude auth status >/dev/null 2>&1; then echo atsbx-authed; else echo atsbx-noauth; fi`
 	authedMark = "atsbx-authed"
-	// loginCmd is the interactive subscription/OAuth login. It is forced because
-	// managed-settings.json sets forceLoginMethod=claudeai.
-	loginCmd = "claude auth login"
+	// loginCmd is the interactive subscription/OAuth login. --claudeai is claude's
+	// default; it is stated explicitly to match managed forceLoginMethod=claudeai.
+	loginCmd = "claude auth login --claudeai"
 )
 
 // Options configures a connect.
@@ -82,7 +83,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 // /agent-data volume across reconnects. No secrets are injected for the login
 // itself.
 func ensureAuthenticated(r runner.Runner, tgt sshargs.Target) error {
-	out, err := r.Output("ssh", append(sshargs.Base(tgt), credsCheck)...)
+	out, err := r.Output("ssh", append(sshargs.Base(tgt), authProbe)...)
 	if err != nil {
 		return fmt.Errorf("checking sandbox auth status: %w", err)
 	}
