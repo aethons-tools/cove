@@ -19,6 +19,25 @@ build-all:
 run *ARGS: build
     "dist/$(go env GOOS)-$(go env GOARCH)/at-cove" {{ARGS}}
 
+# install the host binary onto your PATH so `at-cove` is this build.
+# Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
+# Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
+# or `BINDIR=~/.local/bin just install`.
+install: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bin="${BINDIR:-$(go env GOBIN)}"
+    [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
+    src="dist/$(go env GOOS)-$(go env GOARCH)/at-cove"
+    mkdir -p "$bin"
+    install -m 0755 "$src" "$bin/at-cove"
+    echo "installed $src -> $bin/at-cove"
+    if command -v at-cove >/dev/null 2>&1; then
+      echo "on PATH: $(command -v at-cove) ($(at-cove version))"
+    else
+      echo "warning: $bin is not on your PATH — add it or use BINDIR=/usr/local/bin"
+    fi
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
