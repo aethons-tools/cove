@@ -1,5 +1,5 @@
 // Package runner abstracts execution of external commands so the rest of
-// atsbx can be tested without sbx (or any binary) installed.
+// cove can be tested without sbx (or any binary) installed.
 package runner
 
 import (

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // Transport injects env and launches claude interactively over SSH.
@@ -43,7 +43,7 @@ type StdinScript struct{ R runner.Runner }
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 	// host+port keeps the path distinct across concurrently-connected sandboxes
 	// (Colima maps every sandbox to 127.0.0.1 on a different port).
-	file := fmt.Sprintf("/dev/shm/atsbx-env-%s-%d", t.Host, t.Port)
+	file := fmt.Sprintf("/dev/shm/cove-env-%s-%d", t.Host, t.Port)
 	names := make([]string, 0, len(env))
 	for k := range env {
 		names = append(names, k)

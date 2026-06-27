@@ -1,14 +1,14 @@
-# atsbx — Design
+# cove — Design
 
 **Date:** 2026-06-22
 **Status:** Approved (pre-implementation)
 **Repo:** `~/local-repos/aethons-tools/sbx`
-**Module path:** `github.com/aethons-tools/at-sbx`
-**Binary:** `atsbx`
+**Module path:** `github.com/aethons-tools/cove`
+**Binary:** `cove`
 
 ## 1. Purpose
 
-`atsbx` is a small, dependency-free Go CLI that wraps the `sbx` Docker sandbox
+`cove` is a small, dependency-free Go CLI that wraps the `sbx` Docker sandbox
 tool. It customizes a "kit" for the local machine (environment-variable
 templating + pack) and manages sandbox VMs through four commands: `build`,
 `create`, `run`, and `delete`.
@@ -21,10 +21,10 @@ symmetry.
 
 | Command | Args | Behavior |
 |---|---|---|
-| `atsbx build [kitdir]` | `kitdir` optional, defaults to cwd | Template + pack the kit |
-| `atsbx create <name> <kitdir> [volume...]` | `name` & `kitdir` required; `volume` optional, repeatable, defaults to `.` (cwd) | Build, then start a new sandbox |
-| `atsbx run <name>` | `name` required | Pass-through to `sbx run <name>` |
-| `atsbx delete <name>` | `name` required | Pass-through to `sbx remove <name>` |
+| `cove build [kitdir]` | `kitdir` optional, defaults to cwd | Template + pack the kit |
+| `cove create <name> <kitdir> [volume...]` | `name` & `kitdir` required; `volume` optional, repeatable, defaults to `.` (cwd) | Build, then start a new sandbox |
+| `cove run <name>` | `name` required | Pass-through to `sbx run <name>` |
+| `cove delete <name>` | `name` required | Pass-through to `sbx remove <name>` |
 
 A global `--dry-run` flag (accepted before or after the subcommand) prints the
 planned actions — including the exact `sbx` argv and "would template N files" —
@@ -59,8 +59,8 @@ Derived from the existing zsh build script, reimplemented in Go.
 
 ### 2.3 `run` / `delete`
 
-- `atsbx run <name>` → `sbx run <name>`
-- `atsbx delete <name>` → `sbx remove <name>`
+- `cove run <name>` → `sbx run <name>`
+- `cove delete <name>` → `sbx remove <name>`
 
 ## 3. Architecture
 
@@ -71,7 +71,7 @@ logic is unit-testable without `sbx` installed.
 
 ```
 sbx/                          repo root
-  go.mod                      module github.com/aethons-tools/at-sbx
+  go.mod                      module github.com/aethons-tools/cove
   main.go                     flag parsing + subcommand dispatch; wires real runner
   internal/kit/               templating (envsubst) + build orchestration
   internal/sbx/               pure argv builders: Pack(), Run(), CreateRun(), Remove()

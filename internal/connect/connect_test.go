@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // calledWith reports whether any recorded call carried an argument containing s.
@@ -67,7 +67,7 @@ func TestConnectHappyPath(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
 	// Outputs are consumed in order: [0] the secret command, [1] the auth probe.
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-authed\n"}}}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
 	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestConnectHappyPath(t *testing.T) {
 func TestConnectFirstSessionRunsLogin(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-noauth\n"}}}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-noauth\n"}}}
 	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestConnectFirstSessionRunsLogin(t *testing.T) {
 func TestConnectSkipsLoginWhenAuthed(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-authed\n"}}}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
 	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestConnectRequiresRunning(t *testing.T) {
 func TestConnectCreatesKnownHostsDir(t *testing.T) {
 	dir := t.TempDir()
 	b := &fakeBackend{state: backend.StateRunning}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}, {Stdout: "atsbx-authed"}}}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}, {Stdout: "cove-authed"}}}
 	if err := Connect(b, r, &fakeTransport{}, opts(dir)); err != nil {
 		t.Fatal(err)
 	}

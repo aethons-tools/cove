@@ -1,4 +1,4 @@
-# System git config (atsbx hardening layer).
+# System git config (cove hardening layer).
 #
 # The sandbox permits egress only over HTTPS through the local proxy
 # (.github.com on 443; https_proxy is set in /etc/environment). SSH git
@@ -17,4 +17,4 @@
 # GITHUB_TOKEN as a secret in config.yml to enable private-repo access.
 [credential "https://github.com"]
 	helper = ""
-	helper = /usr/local/bin/atsbx-git-credential.sh
+	helper = /usr/local/bin/cove-git-credential.sh

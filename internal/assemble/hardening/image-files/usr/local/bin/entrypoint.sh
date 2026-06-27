@@ -21,10 +21,10 @@ mkdir -p /var/log/squid && chown proxy:proxy /var/log/squid
 squid -f /etc/squid/squid.conf
 
 # Ensure SSH host keys exist (idempotent; a freshly built image may not have
-# them yet). atsbx pins them per-sandbox via known_hosts TOFU on first connect.
+# them yet). cove pins them per-sandbox via known_hosts TOFU on first connect.
 ssh-keygen -A
 
-# Hand off to sshd in the foreground as the container's main process. atsbx
+# Hand off to sshd in the foreground as the container's main process. cove
 # reaches this sshd over the mapped port, injects secrets, and launches claude
 # per `connect`. CLAUDE_CONFIG_DIR=/agent-data is supplied to every session via
 # /etc/environment (pam_env), so claude finds its state on the volume.

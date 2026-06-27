@@ -1,22 +1,22 @@
-# atsbx — YAML-driven multi-backend sandboxes — Design
+# cove — YAML-driven multi-backend sandboxes — Design
 
 **Date:** 2026-06-26
 **Status:** Proposed (pre-implementation)
-**Repo:** `aethons-tools/at-sbx` (binary `atsbx`)
-**Supersedes (extends):** `2026-06-22-atsbx-design.md`
+**Repo:** `aethons-tools/cove` (binary `at-cove`)
+**Supersedes (extends):** `2026-06-22-cove-design.md`
 
 ## 1. Purpose
 
-Turn `atsbx` from an `sbx` wrapper
+Turn `cove` from an `sbx` wrapper
 into a small, dependency-light tool
 that runs hardened Claude Code sandboxes across multiple VM backends
 from a single YAML description.
 The intended user experience:
 
-1. Add a `.atsbx/` kit directory whose `config.yml` describes the sandbox
+1. Add a `.cove/` kit directory whose `config.yml` describes the sandbox
    (name, backend, secrets it needs).
-2. `atsbx create` (run in the repo) provisions the VM.
-3. `atsbx connect` SSHes in,
+2. `cove create` (run in the repo) provisions the VM.
+3. `cove connect` SSHes in,
    injects secrets as environment variables,
    and launches `claude` interactively.
 
@@ -63,11 +63,11 @@ Firecracker and Fly come later behind the same interface.
 
 ### 3.2 The kit is a directory
 
-The kit is **always a directory**, by convention `.atsbx/` at the repo root:
+The kit is **always a directory**, by convention `.cove/` at the repo root:
 
 ```
 repo/
-  .atsbx/
+  .cove/
     config.yml        # the spec: name, backend, secrets (§4)
     image-files/      # committed local overrides (layer 2), overlaid onto the VM root
     .local/           # DEFERRED override layer (§3.7)
@@ -79,10 +79,10 @@ repo/
 `config.yml` lives inside the kit;
 `image-files/` is the conventional source of the user's local overrides,
 mirroring `claude-code-oci`'s `image-files/ → /` overlay.
-`atsbx` writes a `.gitignore` into `.atsbx/` covering `.build/` and `.local/`.
+`cove` writes a `.gitignore` into `.cove/` covering `.build/` and `.local/`.
 
 **Discovery.**
-A command with no kit path **walks up from the cwd to the nearest `.atsbx/`**
+A command with no kit path **walks up from the cwd to the nearest `.cove/`**
 (git-like), so it works from subdirectories;
 an explicit kit-directory path on the command line overrides discovery.
 
@@ -107,14 +107,14 @@ by stacking overlays, **last writer wins**:
 The final layer extracting last is a **security boundary**:
 a user's local files can never weaken the egress lock or sshd hardening,
 because the locked files always land on top.
-Both embedded layers ship inside the `atsbx` binary via Go `embed.FS`
-(vendored from `agent-infrastructure` at `atsbx` build time),
+Both embedded layers ship inside the `cove` binary via Go `embed.FS`
+(vendored from `agent-infrastructure` at `cove` build time),
 so the hardening cannot be misplaced or forgotten — a foolproof default.
 
 After the overlays, `create` performs one programmatic step:
 it writes the **managed public key**
 into the context's `home/agent/.ssh/authorized_keys` (§3.6).
-This is an explicit assembly step owned by `atsbx`,
+This is an explicit assembly step owned by `cove`,
 not a templated or user-managed file,
 which keeps the overlay precedence pure.
 
@@ -156,7 +156,7 @@ and at-rest storage (no value ever persisted).
 **Security — resolver commands are an execution vector.**
 A `secrets[].command` runs on the **host** at `connect`.
 If it ships in a committed `config.yml`,
-then cloning an untrusted repo and running `atsbx connect`
+then cloning an untrusted repo and running `cove connect`
 executes arbitrary commands chosen by the repo author —
 a command-injection / supply-chain risk.
 
@@ -172,7 +172,7 @@ is one the local user authored on their own machine.
 
 ### 3.6 Managed SSH keypair
 
-`atsbx` owns a dedicated keypair at `~/.config/atsbx/id_ed25519`,
+`cove` owns a dedicated keypair at `~/.config/cove/id_ed25519`,
 created on first use.
 Its public half is written into every build context's `authorized_keys` during `create`;
 `connect` authenticates with the private half.
@@ -180,7 +180,7 @@ The user never handles SSH keys.
 
 ### 3.7 The `.local/` override layer (deferred)
 
-`.atsbx/.local/` is a **source-control-excluded** override layer:
+`.cove/.local/` is a **source-control-excluded** override layer:
 a `config.yml` and an `image-files/` tree that a developer keeps off VCS
 (machine-specific tweaks, personal defaults).
 It slots into the precedence between the committed `image-files/`
@@ -201,7 +201,7 @@ not just a convenience for machine-specific overrides.
 
 ## 4. The `config.yml` schema
 
-`config.yml` lives inside the kit directory (`.atsbx/config.yml`).
+`config.yml` lives inside the kit directory (`.cove/config.yml`).
 Lean: identity and wiring only.
 No secret values, no hardening knobs, no workspace mode, no local-files path
 (the kit's `image-files/` is the layer-2 source by convention — §3.2).
@@ -238,15 +238,15 @@ Rules:
 ## 5. Command surface
 
 Every command takes an optional **kit directory**;
-omitted, it is discovered by walking up from cwd to the nearest `.atsbx/` (§3.2).
+omitted, it is discovered by walking up from cwd to the nearest `.cove/` (§3.2).
 
 | Command | Behavior |
 |---|---|
-| `atsbx build [kit-dir]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM. For authoring/inspection. |
-| `atsbx create [kit-dir] [--workspace/--ws <path>]` | `build`, then hand the `.build` path to the backend to create the VM. Secret-free. `--workspace <path>` selects Shared mode (hard error on Fly). |
-| `atsbx connect [kit-dir]` | Resolve secrets, `Dial` the backend for an endpoint, verify host key (TOFU), inject env, launch `claude` interactively. Run every session. |
-| `atsbx destroy [kit-dir]` | Backend `Destroy` for the sandbox's VM. |
-| `atsbx status [kit-dir]` | Backend `GetStatus`: `Running` / `Stopped` / `Absent`. |
+| `cove build [kit-dir]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM. For authoring/inspection. |
+| `cove create [kit-dir] [--workspace/--ws <path>]` | `build`, then hand the `.build` path to the backend to create the VM. Secret-free. `--workspace <path>` selects Shared mode (hard error on Fly). |
+| `cove connect [kit-dir]` | Resolve secrets, `Dial` the backend for an endpoint, verify host key (TOFU), inject env, launch `claude` interactively. Run every session. |
+| `cove destroy [kit-dir]` | Backend `Destroy` for the sandbox's VM. |
+| `cove status [kit-dir]` | Backend `GetStatus`: `Running` / `Stopped` / `Absent`. |
 
 `--dry-run` remains global (before or after the subcommand)
 and prints planned actions — including exact backend/SSH commands —
@@ -343,9 +343,9 @@ Backend-agnostic, in `internal/connect`:
    `backend.Dial(name)` → `Endpoint` + `cleanup`; `defer cleanup()`.
    If `GetStatus` is not `Running`,
    return an actionable error
-   ("run `atsbx create` / start the VM first").
+   ("run `cove create` / start the VM first").
 3. **Verify host key (TOFU).**
-   Use a per-sandbox known_hosts file at `~/.config/atsbx/known_hosts.d/<name>`
+   Use a per-sandbox known_hosts file at `~/.config/cove/known_hosts.d/<name>`
    with `StrictHostKeyChecking=accept-new`.
    First connection pins the key; later mismatches fail loudly.
    Destroying and recreating the VM resets the pin.
@@ -359,7 +359,7 @@ Backend-agnostic, in `internal/connect`:
 
 `connect` drives the `ssh` client directly
 (argv built in `internal/sshargs`):
-`-i ~/.config/atsbx/id_ed25519`, `-p <port>`, `agent@<host>`,
+`-i ~/.config/cove/id_ed25519`, `-p <port>`, `agent@<host>`,
 the per-sandbox `UserKnownHostsFile`, and `StrictHostKeyChecking=accept-new`.
 
 ### 7.2 Transport interface
@@ -379,12 +379,12 @@ type Transport interface {
   Inject via a transient tmpfs file:
   a first non-interactive `ssh` writes `export NAME=...` lines
   (fed over **stdin**, so values never appear on any argv)
-  to `/dev/shm/atsbx-env-<rand>` (mode 600);
+  to `/dev/shm/cove-env-<rand>` (mode 600);
   a second interactive `ssh -tt` does `set -a; . <file>; rm -f <file>; exec claude`.
   Values touch only tmpfs (RAM) and are removed immediately after sourcing.
   Keeps the interactive TTY clean for `claude`.
 - **Fallback — `SendEnv` (proven, simple).**
-  `atsbx` places resolved values in its **own** process environment,
+  `cove` places resolved values in its **own** process environment,
   then runs `ssh -tt` with `SendEnv NAME` per secret.
   Values never appear on any argv;
   the VM's `sshd` accepts them via an `AcceptEnv` allowlist
@@ -402,7 +402,7 @@ the interface guarantees the fallback is a drop-in.
 Native Docker (Colima provides the Docker host),
 mirroring the working `claude-code-oci` recipes — no `sbx`.
 
-- **Create:** `docker build -t atsbx/<name> <BuildDir>`
+- **Create:** `docker build -t cove/<name> <BuildDir>`
   (the assembled context includes the `Dockerfile` from the embedded layers),
   then `docker run -d --name <name> --init --cap-add=NET_ADMIN --dns 1.1.1.1 -p <hostport>:2222`
   with volumes:
@@ -422,7 +422,7 @@ secrets arrive only via `connect`.
 ## 9. Error handling
 
 - Unknown `backend:` → error listing supported backends; non-zero exit.
-- No `.atsbx/` found on cwd walk-up (and none given) → actionable error.
+- No `.cove/` found on cwd walk-up (and none given) → actionable error.
 - Missing/invalid `config.yml`, missing required fields → usage + non-zero exit.
 - `--workspace` on the Fly backend → hard error
   (documented; enforced once Fly exists).
@@ -462,10 +462,10 @@ All tests run without Docker/Colima or a live VM, via the `Fake` runner.
 
 - The root `agent-infrastructure` justfile recipes
   (`build`/`create`/`run`/`destroy`)
-  and the `sbx`-based path are superseded by `atsbx` subcommands.
+  and the `sbx`-based path are superseded by `cove` subcommands.
 - `claude-code-oci/image-files` + `Dockerfile` become the source of the embedded layers
   (split into overridable vs non-overridable trees),
-  vendored into `atsbx` at build time.
+  vendored into `cove` at build time.
 - `internal/sbx` and `internal/kit/template.go` retire;
   nothing else depends on them.
 

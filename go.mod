@@ -1,4 +1,4 @@
-module github.com/aethons-tools/at-sbx
+module github.com/aethons-tools/cove
 
 go 1.22
 

@@ -1,4 +1,4 @@
-// Command atsbx runs hardened Claude Code sandboxes from a .atsbx kit
+// Command at-cove runs hardened Claude Code sandboxes from a .cove kit
 // directory across pluggable VM backends.
 package main
 
@@ -10,27 +10,27 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/aethons-tools/at-sbx/internal/assemble"
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	_ "github.com/aethons-tools/at-sbx/internal/backend/colima" // register colima
-	"github.com/aethons-tools/at-sbx/internal/connect"
-	"github.com/aethons-tools/at-sbx/internal/keys"
-	"github.com/aethons-tools/at-sbx/internal/kit"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
+	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/backend"
+	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
+	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/keys"
+	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
 )
 
-const usage = `atsbx — run hardened Claude Code sandboxes
+const usage = `at-cove — run hardened Claude Code sandboxes
 
 Usage:
-  atsbx build    [kit-dir]
-  atsbx create   [kit-dir] [--workspace|--ws <path>]
-  atsbx connect  [kit-dir]
-  atsbx recreate [kit-dir] [--workspace|--ws <path>]
-  atsbx destroy  [kit-dir]
-  atsbx status   [kit-dir]
+  at-cove build    [kit-dir]
+  at-cove create   [kit-dir] [--workspace|--ws <path>]
+  at-cove connect  [kit-dir]
+  at-cove recreate [kit-dir] [--workspace|--ws <path>]
+  at-cove destroy  [kit-dir]
+  at-cove status   [kit-dir]
 
-If kit-dir is omitted, atsbx walks up from the cwd to the nearest .atsbx/.
+If kit-dir is omitted, at-cove walks up from the cwd to the nearest .cove/.
 recreate rebuilds the VM from the kit while keeping its volumes (state — incl.
 saved login — and workspace).
 
@@ -54,7 +54,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			dryRun = true
 		case a == "--workspace" || a == "--ws":
 			if i+1 >= len(argv) {
-				fmt.Fprintln(stderr, "atsbx: --workspace requires a path")
+				fmt.Fprintln(stderr, "at-cove: --workspace requires a path")
 				return 2
 			}
 			i++
@@ -74,22 +74,22 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	if len(rest) == 1 {
 		start = rest[0]
 	} else if len(rest) > 1 {
-		fmt.Fprintf(stderr, "atsbx: %s takes at most one kit-dir\n", cmd)
+		fmt.Fprintf(stderr, "at-cove: %s takes at most one kit-dir\n", cmd)
 		return 2
 	}
 	kitDir, err := resolveKit(start)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "at-cove:", err)
 		return 1
 	}
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "at-cove:", err)
 		return 1
 	}
 	factory, err := backend.Get(cfg.Backend)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "at-cove:", err)
 		return 1
 	}
 	b := factory(r)
@@ -108,7 +108,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "status":
 		err = doStatus(b, cfg.Name, dryRun, stdout)
 	default:
-		fmt.Fprintf(stderr, "atsbx: unknown command %q\n\n%s", cmd, usage)
+		fmt.Fprintf(stderr, "at-cove: unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
 
@@ -117,15 +117,15 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		if errors.As(err, &xe) {
 			return xe.ExitCode()
 		}
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "at-cove:", err)
 		return 1
 	}
 	return 0
 }
 
 func resolveKit(start string) (string, error) {
-	// An explicit path that already ends in .atsbx (or contains config.yml) is used directly.
-	if filepath.Base(start) == ".atsbx" {
+	// An explicit path that already ends in .cove (or contains config.yml) is used directly.
+	if filepath.Base(start) == ".cove" {
 		return start, nil
 	}
 	if _, err := os.Stat(filepath.Join(start, "config.yml")); err == nil {
@@ -136,10 +136,10 @@ func resolveKit(start string) (string, error) {
 
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "atsbx")
+		return filepath.Join(x, "cove")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "atsbx")
+	return filepath.Join(home, ".config", "cove")
 }
 
 func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {

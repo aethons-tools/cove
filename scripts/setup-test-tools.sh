@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# setup-test-tools.sh — install the tooling atsbx end-to-end testing needs.
+# setup-test-tools.sh — install the tooling cove end-to-end testing needs.
 #
 # Installs:
 #   - podman + podman-docker (a `docker` shim) so the Colima backend's
 #     `docker {build,run,port,inspect,rm}` calls work without Docker Desktop;
 #     plus the rootless plumbing (uidmap, fuse-overlayfs, slirp4netns).
-#   - shellcheck — lints entrypoint.sh and the remote shell atsbx emits.
+#   - shellcheck — lints entrypoint.sh and the remote shell cove emits.
 #   - hadolint   — lints the embedded Dockerfile (from GitHub releases).
 #   - jq         — validate managed-settings.json / config.yml by hand.
 #
@@ -20,7 +20,7 @@
 #   hadolint   internal/assemble/hardening/Dockerfile
 #
 # Rootless-podman caveat: the sandbox image locks egress with nftables+squid
-# inside the container's netns (needs --cap-add=NET_ADMIN, which atsbx already
+# inside the container's netns (needs --cap-add=NET_ADMIN, which cove already
 # passes). Rootless networking (slirp4netns/pasta) differs from Docker's bridge;
 # if the in-container egress lockdown misbehaves, retry with `sudo podman` (the
 # `docker` shim respects sudo) or run the VM with rootful podman.

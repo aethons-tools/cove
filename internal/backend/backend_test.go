@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 type stub struct{}

@@ -1,11 +1,11 @@
-# atsbx Multi-Backend Sandboxes Implementation Plan
+# cove Multi-Backend Sandboxes Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:**
-Evolve `atsbx` from an `sbx` wrapper
+Evolve `cove` from an `sbx` wrapper
 into a tool that runs hardened Claude Code sandboxes
-from a discoverable `.atsbx/` kit directory across pluggable VM backends (Colima first),
+from a discoverable `.cove/` kit directory across pluggable VM backends (Colima first),
 with secrets resolved at `connect` time and injected over SSH.
 
 **Architecture:**
@@ -30,13 +30,13 @@ SSH via the system `ssh`/`ssh-keygen`;
 containers via the system `docker` (provided by Colima).
 No container/SSH Go libraries.
 
-**Reference spec:** `docs/superpowers/specs/2026-06-26-atsbx-sandboxes-design.md`.
+**Reference spec:** `docs/superpowers/specs/2026-06-26-cove-sandboxes-design.md`.
 
 ## Global Constraints
 
 Every task's requirements implicitly include this section.
 
-- Module path: `github.com/aethons-tools/at-sbx`; binary is `atsbx` (build with `go build -o atsbx .`).
+- Module path: `github.com/aethons-tools/cove`; binary is `cove` (build with `go build -o at-cove .`).
 - Go version floor: `go 1.22`.
 - **Exactly one third-party dependency:** `gopkg.in/yaml.v3` (for `config.yml`). Everything else is standard library or shells out via `Runner`.
 - **`agent-infrastructure/` is READ-ONLY. Do not modify any file under it.** Where its image files are needed (`Dockerfile`, `image-files/`, `nftables.conf`, `squid.conf`, `allowed_domains.txt`, `entrypoint.sh`), **copy them into the `sbx` repo** under `internal/assemble/{overridable,hardening}/` and modify the copies there.
@@ -56,7 +56,7 @@ Every task's requirements implicitly include this section.
 |---|---|
 | `internal/runner/runner.go` | `Runner` interface + `OS`/`Fake`. Extended with `Output` (capture stdout) and `RunEnv` (stream stdio with extra env). |
 | `internal/kit/config.go` | `Config`/`Secret` types; `ParseConfig` (unmarshal + validate). |
-| `internal/kit/discover.go` | `Discover` (cwd walk-up to `.atsbx/`); `Load` (read+parse `config.yml`). |
+| `internal/kit/discover.go` | `Discover` (cwd walk-up to `.cove/`); `Load` (read+parse `config.yml`). |
 | `internal/sshargs/sshargs.go` | Pure argv builders for the `ssh` client (`Target`, `Base`, `InteractiveSendEnv`). |
 | `internal/secret/secret.go` | `Spec` type; `Resolve` (run each command via `Runner`, capture, trim, fail closed). |
 | `internal/backend/backend.go` | `Backend` interface, `State`/`WorkspaceMode`/`WorkspaceMount`/`Endpoint`/`CreateContext`, factory registry. |
@@ -395,7 +395,7 @@ git commit -m "feat(kit): config.yml types, parsing, and validation"
 **Interfaces:**
 - Consumes: `ParseConfig` (Task 2).
 - Produces:
-  - `func Discover(start string) (kitDir string, err error)` — walk up from `start` to the nearest `.atsbx/` directory; returns its path.
+  - `func Discover(start string) (kitDir string, err error)` — walk up from `start` to the nearest `.cove/` directory; returns its path.
   - `func Load(kitDir string) (Config, error)` — read `<kitDir>/config.yml` and `ParseConfig` it.
 
 - [ ] **Step 1: Write the failing test**
@@ -413,8 +413,8 @@ import (
 
 func TestDiscoverWalksUp(t *testing.T) {
 	root := t.TempDir()
-	atsbx := filepath.Join(root, ".atsbx")
-	if err := os.MkdirAll(atsbx, 0o755); err != nil {
+	cove := filepath.Join(root, ".cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sub := filepath.Join(root, "a", "b")
@@ -425,14 +425,14 @@ func TestDiscoverWalksUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != atsbx {
-		t.Fatalf("Discover = %q, want %q", got, atsbx)
+	if got != cove {
+		t.Fatalf("Discover = %q, want %q", got, cove)
 	}
 }
 
 func TestDiscoverNotFound(t *testing.T) {
 	if _, err := Discover(t.TempDir()); err == nil {
-		t.Error("expected error when no .atsbx exists")
+		t.Error("expected error when no .cove exists")
 	}
 }
 
@@ -470,21 +470,21 @@ import (
 	"path/filepath"
 )
 
-// Discover walks up from start to the nearest directory containing a .atsbx/
-// child, returning the path to that .atsbx directory.
+// Discover walks up from start to the nearest directory containing a .cove/
+// child, returning the path to that .cove directory.
 func Discover(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
 	}
 	for {
-		cand := filepath.Join(dir, ".atsbx")
+		cand := filepath.Join(dir, ".cove")
 		if info, err := os.Stat(cand); err == nil && info.IsDir() {
 			return cand, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("no .atsbx/ found in %s or any parent", start)
+			return "", fmt.Errorf("no .cove/ found in %s or any parent", start)
 		}
 		dir = parent
 	}
@@ -510,7 +510,7 @@ Expected: PASS.
 ```bash
 gofmt -w internal/kit/discover.go internal/kit/discover_test.go
 git add internal/kit/discover.go internal/kit/discover_test.go
-git commit -m "feat(kit): .atsbx discovery (cwd walk-up) and config load"
+git commit -m "feat(kit): .cove discovery (cwd walk-up) and config load"
 ```
 
 ---
@@ -669,7 +669,7 @@ package secret
 import (
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func TestResolveTrimsAndMaps(t *testing.T) {
@@ -716,7 +716,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 // Spec is a secret name and the argv that produces its value.
@@ -787,7 +787,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 type stub struct{}
@@ -836,7 +836,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 type State int
@@ -930,7 +930,7 @@ This task copies the hardened image files from the **read-only** `agent-infrastr
 - Create: `internal/assemble/hardening/image-files/etc/squid/squid.conf`
 - Create: `internal/assemble/hardening/image-files/etc/squid/allowed_domains.txt`
 - Create: `internal/assemble/hardening/image-files/usr/local/bin/entrypoint.sh`
-- Create: `internal/assemble/hardening/image-files/etc/ssh/sshd_config.d/atsbx.conf`
+- Create: `internal/assemble/hardening/image-files/etc/ssh/sshd_config.d/cove.conf`
 - Create: `internal/assemble/overridable/image-files/home/agent/.init-agent-data/CLAUDE.md` (and `settings.json`, `.claude.json`, `skills/…` as present)
 - Create: `internal/assemble/embed.go`
 - Test: `internal/assemble/embed_test.go`
@@ -956,7 +956,7 @@ puts the overlay at `<buildDir>/image-files`).
 
 - [ ] **Step 2: Add the sshd AcceptEnv drop-in (enables the SendEnv transport)**
 
-Create `internal/assemble/hardening/image-files/etc/ssh/sshd_config.d/atsbx.conf`:
+Create `internal/assemble/hardening/image-files/etc/ssh/sshd_config.d/cove.conf`:
 
 ```
 # Accept any client-forwarded env var (the in-VM agent is not a threat in this
@@ -991,7 +991,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/Dockerfile",
 		"hardening/image-files/etc/nftables.conf",
 		"hardening/image-files/etc/squid/squid.conf",
-		"hardening/image-files/etc/ssh/sshd_config.d/atsbx.conf",
+		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
 	} {
 		if _, err := fs.Stat(hardeningFS, p); err != nil {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
@@ -1067,7 +1067,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func TestEnsureUsesExistingKey(t *testing.T) {
@@ -1124,14 +1124,14 @@ Expected: FAIL (`Ensure` undefined).
 Create `internal/keys/keys.go`:
 
 ```go
-// Package keys manages atsbx's dedicated SSH keypair.
+// Package keys manages cove's dedicated SSH keypair.
 package keys
 
 import (
 	"os"
 	"path/filepath"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 // Ensure returns the path to <dir>/id_ed25519 and its public key bytes,
@@ -1142,7 +1142,7 @@ func Ensure(r runner.Runner, dir string) (string, []byte, error) {
 	}
 	priv := filepath.Join(dir, "id_ed25519")
 	if _, err := os.Stat(priv); os.IsNotExist(err) {
-		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "atsbx", "-f", priv); err != nil {
+		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "cove", "-f", priv); err != nil {
 			return "", nil, err
 		}
 	} else if err != nil {
@@ -1395,8 +1395,8 @@ package colima
 import (
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func TestCreateIsolated(t *testing.T) {
@@ -1497,8 +1497,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func init() {
@@ -1509,7 +1509,7 @@ type Colima struct{ r runner.Runner }
 
 func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
 
-func image(name string) string { return "atsbx/" + name }
+func image(name string) string { return "cove/" + name }
 
 func (c *Colima) Create(ctx backend.CreateContext) error {
 	if err := c.r.Run("docker", "build", "-t", image(ctx.Name), ctx.BuildDir); err != nil {
@@ -1602,8 +1602,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 func TestSendEnvLaunch(t *testing.T) {
@@ -1663,8 +1663,8 @@ package connect
 import (
 	"sort"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // Transport injects env and launches claude interactively over SSH.
@@ -1731,10 +1731,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 type fakeBackend struct {
@@ -1848,10 +1848,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // Options configures a connect.
@@ -1876,7 +1876,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		return err
 	}
 	if state != backend.StateRunning {
-		return fmt.Errorf("sandbox %q is not running; run `atsbx create` or start the VM first", o.Name)
+		return fmt.Errorf("sandbox %q is not running; run `cove create` or start the VM first", o.Name)
 	}
 
 	ep, cleanup, err := b.Dial(o.Name)
@@ -1926,7 +1926,7 @@ Replace the `sbx`-wrapper dispatcher with the new subcommands. Keep the existing
 
 **Interfaces:**
 - Consumes: `kit`, `assemble`, `keys`, `backend`, `backend/colima` (side-effect import), `connect`, `secret`, `runner`.
-- Produces: CLI `atsbx build|create|connect|destroy|status [kit-dir] [--workspace/--ws PATH] [--dry-run]`.
+- Produces: CLI `cove build|create|connect|destroy|status [kit-dir] [--workspace/--ws PATH] [--dry-run]`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1942,17 +1942,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func writeKit(t *testing.T, dir string) {
 	t.Helper()
-	atsbx := filepath.Join(dir, ".atsbx")
-	if err := os.MkdirAll(atsbx, 0o755); err != nil {
+	cove := filepath.Join(dir, ".cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	yml := "name: box\nbackend: colima\n"
-	if err := os.WriteFile(filepath.Join(atsbx, "config.yml"), []byte(yml), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1962,7 +1962,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", filepath.Join(dir, ".atsbx")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -1973,11 +1973,11 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 
 func TestUnknownBackendErrors(t *testing.T) {
 	dir := t.TempDir()
-	atsbx := filepath.Join(dir, ".atsbx")
-	os.MkdirAll(atsbx, 0o755)
-	os.WriteFile(filepath.Join(atsbx, "config.yml"), []byte("name: box\nbackend: bogus\n"), 0o644)
+	cove := filepath.Join(dir, ".cove")
+	os.MkdirAll(cove, 0o755)
+	os.WriteFile(filepath.Join(cove, "config.yml"), []byte("name: box\nbackend: bogus\n"), 0o644)
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", atsbx}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", cove}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "bogus") {
 		t.Fatalf("expected unknown-backend error, code=%d stderr=%q", code, errOut.String())
 	}
@@ -1988,7 +1988,7 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".atsbx")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -2013,7 +2013,7 @@ Expected: FAIL (old `run` signature / behavior differs).
 Replace `main.go` with:
 
 ```go
-// Command atsbx runs hardened Claude Code sandboxes from a .atsbx kit
+// Command cove runs hardened Claude Code sandboxes from a .cove kit
 // directory across pluggable VM backends.
 package main
 
@@ -2025,26 +2025,26 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/aethons-tools/at-sbx/internal/assemble"
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	_ "github.com/aethons-tools/at-sbx/internal/backend/colima" // register colima
-	"github.com/aethons-tools/at-sbx/internal/connect"
-	"github.com/aethons-tools/at-sbx/internal/keys"
-	"github.com/aethons-tools/at-sbx/internal/kit"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
+	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/backend"
+	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
+	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/keys"
+	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
 )
 
-const usage = `atsbx — run hardened Claude Code sandboxes
+const usage = `cove — run hardened Claude Code sandboxes
 
 Usage:
-  atsbx build   [kit-dir]
-  atsbx create  [kit-dir] [--workspace|--ws <path>]
-  atsbx connect [kit-dir]
-  atsbx destroy [kit-dir]
-  atsbx status  [kit-dir]
+  cove build   [kit-dir]
+  cove create  [kit-dir] [--workspace|--ws <path>]
+  cove connect [kit-dir]
+  cove destroy [kit-dir]
+  cove status  [kit-dir]
 
-If kit-dir is omitted, atsbx walks up from the cwd to the nearest .atsbx/.
+If kit-dir is omitted, cove walks up from the cwd to the nearest .cove/.
 
 Global flags:
   --dry-run   print planned actions without executing
@@ -2066,7 +2066,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			dryRun = true
 		case a == "--workspace" || a == "--ws":
 			if i+1 >= len(argv) {
-				fmt.Fprintln(stderr, "atsbx: --workspace requires a path")
+				fmt.Fprintln(stderr, "cove: --workspace requires a path")
 				return 2
 			}
 			i++
@@ -2086,22 +2086,22 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	if len(rest) == 1 {
 		start = rest[0]
 	} else if len(rest) > 1 {
-		fmt.Fprintf(stderr, "atsbx: %s takes at most one kit-dir\n", cmd)
+		fmt.Fprintf(stderr, "cove: %s takes at most one kit-dir\n", cmd)
 		return 2
 	}
 	kitDir, err := resolveKit(start)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "cove:", err)
 		return 1
 	}
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "cove:", err)
 		return 1
 	}
 	factory, err := backend.Get(cfg.Backend)
 	if err != nil {
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "cove:", err)
 		return 1
 	}
 	b := factory(r)
@@ -2118,7 +2118,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "status":
 		err = doStatus(b, cfg.Name, dryRun, stdout)
 	default:
-		fmt.Fprintf(stderr, "atsbx: unknown command %q\n\n%s", cmd, usage)
+		fmt.Fprintf(stderr, "cove: unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
 
@@ -2127,15 +2127,15 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		if errors.As(err, &xe) {
 			return xe.ExitCode()
 		}
-		fmt.Fprintln(stderr, "atsbx:", err)
+		fmt.Fprintln(stderr, "cove:", err)
 		return 1
 	}
 	return 0
 }
 
 func resolveKit(start string) (string, error) {
-	// An explicit path that already ends in .atsbx (or contains config.yml) is used directly.
-	if filepath.Base(start) == ".atsbx" {
+	// An explicit path that already ends in .cove (or contains config.yml) is used directly.
+	if filepath.Base(start) == ".cove" {
 		return start, nil
 	}
 	if _, err := os.Stat(filepath.Join(start, "config.yml")); err == nil {
@@ -2146,10 +2146,10 @@ func resolveKit(start string) (string, error) {
 
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "atsbx")
+		return filepath.Join(x, "cove")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "atsbx")
+	return filepath.Join(home, ".config", "cove")
 }
 
 func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
@@ -2242,7 +2242,7 @@ Expected: PASS.
 
 Run:
 ```bash
-go build -o atsbx . && go test ./...
+go build -o at-cove . && go test ./...
 ```
 Expected: build succeeds; all packages PASS (note: `internal/sbx` and old `internal/kit` files removed in Task 14 may still exist here — if they fail to compile because they reference removed APIs, proceed to Task 14, then re-run).
 
@@ -2286,7 +2286,7 @@ git rm internal/sbx/sbx.go internal/sbx/sbx_test.go \
 
 Run:
 ```bash
-go build -o atsbx . && go test ./...
+go build -o at-cove . && go test ./...
 ```
 Expected: build succeeds; **all** packages PASS.
 
@@ -2344,13 +2344,13 @@ Expected: FAIL (`StdinScript` undefined).
 - [ ] **Step 3: Implement `StdinScript`**
 
 Add to `internal/connect/transport.go`. The first `ssh` writes the export
-script to `/dev/shm/atsbx-env-<name>` via stdin (so values never hit argv); the
+script to `/dev/shm/cove-env-<name>` via stdin (so values never hit argv); the
 second interactive `ssh -tt` sources then removes it and `exec claude`. This
 needs a `Runner` method that streams a provided stdin reader; add
 `RunStdin(stdin io.Reader, name string, args ...string) error` to the `Runner`
 interface (OS: set `cmd.Stdin = stdin`; Fake: record the call). Build the
 write-side argv with `sshargs.Base(t)` plus the remote command
-`cat > /dev/shm/atsbx-env-<name>` and the interactive side with
+`cat > /dev/shm/cove-env-<name>` and the interactive side with
 `sshargs.Base(t)` + `-tt` + `set -a; . <file>; rm -f <file>; exec claude`.
 
 ```go
@@ -2360,14 +2360,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 type StdinScript struct{ R runner.Runner }
 
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
-	file := "/dev/shm/atsbx-env-" + t.Host // unique enough per session host:port
+	file := "/dev/shm/cove-env-" + t.Host // unique enough per session host:port
 	names := make([]string, 0, len(env))
 	for k := range env {
 		names = append(names, k)
@@ -2417,7 +2417,7 @@ git commit -m "feat(connect): stdin/tmpfs transport (spec primary)"
 ## Final verification
 
 - [ ] Run the full suite: `go test ./...` → all PASS.
-- [ ] Build: `go build -o atsbx .` → succeeds.
-- [ ] Dry-run smoke (no Docker needed), from a repo containing `.atsbx/config.yml`:
-  `./atsbx --dry-run create` and `./atsbx --dry-run connect` → prints planned actions, exit 0.
+- [ ] Build: `go build -o at-cove .` → succeeds.
+- [ ] Dry-run smoke (no Docker needed), from a repo containing `.cove/config.yml`:
+  `./at-cove --dry-run create` and `./at-cove --dry-run connect` → prints planned actions, exit 0.
 - [ ] Confirm `agent-infrastructure/` is unchanged: `git -C ../agent-infrastructure status --porcelain` (run from `sbx`) → no output attributable to this work.

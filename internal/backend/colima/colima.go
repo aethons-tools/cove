@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 func init() {
@@ -18,7 +18,7 @@ type Colima struct{ r runner.Runner }
 
 func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
 
-func image(name string) string { return "atsbx/" + name }
+func image(name string) string { return "cove/" + name }
 
 func (c *Colima) Create(ctx backend.CreateContext) error {
 	if err := c.r.Run("docker", "build", "-t", image(ctx.Name), ctx.BuildDir); err != nil {

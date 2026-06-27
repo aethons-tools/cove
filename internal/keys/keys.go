@@ -1,11 +1,11 @@
-// Package keys manages atsbx's dedicated SSH keypair.
+// Package keys manages cove's dedicated SSH keypair.
 package keys
 
 import (
 	"os"
 	"path/filepath"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 // Ensure returns the path to <dir>/id_ed25519 and its public key bytes,
@@ -16,7 +16,7 @@ func Ensure(r runner.Runner, dir string) (string, []byte, error) {
 	}
 	priv := filepath.Join(dir, "id_ed25519")
 	if _, err := os.Stat(priv); os.IsNotExist(err) {
-		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "atsbx", "-f", priv); err != nil {
+		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "cove", "-f", priv); err != nil {
 			return "", nil, err
 		}
 	} else if err != nil {

@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // sshdServer is a running throwaway sshd and the knobs the tests need.
@@ -103,7 +103,7 @@ SetEnv PATH=%s:/usr/bin:/bin
 	}
 }
 
-// writeFakeClaude drops a stand-in `claude` that records what atsbx asks of it:
+// writeFakeClaude drops a stand-in `claude` that records what cove asks of it:
 //   - `auth status`         -> exit 0 if <dir>/authed.marker exists, else 1
 //   - `auth login ...`      -> create the marker, append to login.log
 //   - (no args, i.e. agent) -> dump its environment to agent-env.txt
@@ -125,11 +125,11 @@ esac
 
 func TestRealSSHBaseConnects(t *testing.T) {
 	s := startSSHD(t)
-	out, err := runner.OS{}.Output("ssh", append(sshargs.Base(s.Target), "echo", "atsbx-ok")...)
+	out, err := runner.OS{}.Output("ssh", append(sshargs.Base(s.Target), "echo", "cove-ok")...)
 	if err != nil {
 		t.Fatalf("ssh connect via sshargs.Base failed: %v", err)
 	}
-	if !strings.Contains(out, "atsbx-ok") {
+	if !strings.Contains(out, "cove-ok") {
 		t.Fatalf("unexpected remote output: %q", out)
 	}
 }
@@ -150,22 +150,22 @@ func TestRealSSHTOFUWritesKnownHosts(t *testing.T) {
 
 func TestRealSendEnvDeliversSecretViaAcceptEnv(t *testing.T) {
 	s := startSSHD(t)
-	if err := (SendEnv{R: runner.OS{}}).Launch(s.Target, map[string]string{"ATSBX_SECRET": "s3cr3t"}); err != nil {
+	if err := (SendEnv{R: runner.OS{}}).Launch(s.Target, map[string]string{"COVE_SECRET": "s3cr3t"}); err != nil {
 		t.Fatalf("SendEnv.Launch failed: %v", err)
 	}
 	env := mustRead(t, filepath.Join(s.Dir, "agent-env.txt"))
-	if !strings.Contains(env, "ATSBX_SECRET=s3cr3t") {
+	if !strings.Contains(env, "COVE_SECRET=s3cr3t") {
 		t.Fatalf("secret not delivered to the remote env via SendEnv:\n%s", env)
 	}
 }
 
 func TestRealStdinScriptDeliversSecretViaTmpfs(t *testing.T) {
 	s := startSSHD(t)
-	if err := (StdinScript{R: runner.OS{}}).Launch(s.Target, map[string]string{"ATSBX_SECRET": "v3ry"}); err != nil {
+	if err := (StdinScript{R: runner.OS{}}).Launch(s.Target, map[string]string{"COVE_SECRET": "v3ry"}); err != nil {
 		t.Fatalf("StdinScript.Launch failed: %v", err)
 	}
 	env := mustRead(t, filepath.Join(s.Dir, "agent-env.txt"))
-	if !strings.Contains(env, "ATSBX_SECRET=v3ry") {
+	if !strings.Contains(env, "COVE_SECRET=v3ry") {
 		t.Fatalf("secret not delivered to the remote env via StdinScript:\n%s", env)
 	}
 }

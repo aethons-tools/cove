@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/backend"
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/secret"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 const (
@@ -19,8 +19,8 @@ const (
 	// (catches expired creds) and is not coupled to where creds are stored. The
 	// wrapper always exits 0 and reports state on stdout, so a non-zero ssh exit
 	// still means the connection itself failed, not "not logged in".
-	authProbe  = `if claude auth status >/dev/null 2>&1; then echo atsbx-authed; else echo atsbx-noauth; fi`
-	authedMark = "atsbx-authed"
+	authProbe  = `if claude auth status >/dev/null 2>&1; then echo cove-authed; else echo cove-noauth; fi`
+	authedMark = "cove-authed"
 	// loginCmd is the interactive subscription/OAuth login. --claudeai is claude's
 	// default; it is stated explicitly to match managed forceLoginMethod=claudeai.
 	loginCmd = "claude auth login --claudeai"
@@ -48,7 +48,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		return err
 	}
 	if state != backend.StateRunning {
-		return fmt.Errorf("sandbox %q is not running; run `atsbx create` or start the VM first", o.Name)
+		return fmt.Errorf("sandbox %q is not running; run `at-cove create` or start the VM first", o.Name)
 	}
 
 	ep, cleanup, err := b.Dial(o.Name)

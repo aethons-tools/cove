@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 type State int

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/aethons-tools/at-sbx/internal/runner"
-	"github.com/aethons-tools/at-sbx/internal/sshargs"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 func TestSendEnvLaunch(t *testing.T) {

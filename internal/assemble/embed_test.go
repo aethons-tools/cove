@@ -14,7 +14,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/Dockerfile",
 		"hardening/image-files/etc/nftables.conf",
 		"hardening/image-files/etc/squid/squid.conf",
-		"hardening/image-files/etc/ssh/sshd_config.d/atsbx.conf",
+		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
 		"hardening/image-files/etc/claude-code/managed-settings.json",
 	} {
 		if _, err := fs.Stat(hardeningFS, p); err != nil {
@@ -79,7 +79,7 @@ func TestGitConfigForcesHTTPS(t *testing.T) {
 // TestGitCredentialHelperWired guards that the token credential helper is shipped
 // and referenced from the gitconfig (scoped to github.com over HTTPS).
 func TestGitCredentialHelperWired(t *testing.T) {
-	helper, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/atsbx-git-credential.sh")
+	helper, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
 	if err != nil {
 		t.Fatalf("credential helper not embedded: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestGitCredentialHelperWired(t *testing.T) {
 	if !strings.Contains(s, `[credential "https://github.com"]`) {
 		t.Errorf("gitconfig must scope the helper to github.com; got:\n%s", s)
 	}
-	if !strings.Contains(s, "helper = /usr/local/bin/atsbx-git-credential.sh") {
+	if !strings.Contains(s, "helper = /usr/local/bin/cove-git-credential.sh") {
 		t.Errorf("gitconfig must reference the credential helper; got:\n%s", s)
 	}
 }
@@ -108,11 +108,11 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	helperSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/atsbx-git-credential.sh")
+	helperSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	helperPath := filepath.Join(dir, "atsbx-git-credential.sh")
+	helperPath := filepath.Join(dir, "cove-git-credential.sh")
 	if err := os.WriteFile(helperPath, helperSrc, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Point the (absolute) helper path at the materialized copy for the test.
-	cfg := strings.ReplaceAll(string(cfgSrc), "/usr/local/bin/atsbx-git-credential.sh", helperPath)
+	cfg := strings.ReplaceAll(string(cfgSrc), "/usr/local/bin/cove-git-credential.sh", helperPath)
 	cfgPath := filepath.Join(dir, "gitconfig")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)

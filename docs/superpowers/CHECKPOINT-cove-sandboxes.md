@@ -1,10 +1,10 @@
-# CHECKPOINT — atsbx multi-backend sandboxes
+# CHECKPOINT — cove multi-backend sandboxes
 
 **Written:** 2026-06-26
-**Purpose:** Resume the atsbx sandboxes work in a fresh session after this
+**Purpose:** Resume the cove sandboxes work in a fresh session after this
 conversation's context is lost.
-**Repo:** `/home/agent/workspace/sbx` (module `github.com/aethons-tools/at-sbx`, binary `atsbx`).
-**Branch:** `design/atsbx-sandboxes` (NOT merged to `main`).
+**Repo:** `/home/agent/workspace/sbx` (module `github.com/aethons-tools/cove`, binary `at-cove`).
+**Branch:** `design/cove-sandboxes` (NOT merged to `main`).
 
 > **THIS FILE IS THE DURABLE MEMORY.** In this prototype sandbox `/agent-data`
 > is wiped when the session ends, so the agent's normal memory store
@@ -20,7 +20,7 @@ SSH git (port 22) and git:// are dropped by nftables.
 Both halves now ship in the non-overridable hardening layer:
 - `/etc/gitconfig` `url."https://github.com/".insteadOf` rewrites
   `git@github.com:`, `ssh://git@github.com/`, `git://github.com/` → HTTPS (`769ca4d`).
-- `/usr/local/bin/atsbx-git-credential.sh` credential helper (`6d70542`):
+- `/usr/local/bin/cove-git-credential.sh` credential helper (`6d70542`):
   authenticates github.com HTTPS with `GITHUB_TOKEN` from the connect-session env,
   memory-only (username=x-access-token, password=$GITHUB_TOKEN), never on disk;
   `helper = ""` reset drops inherited helpers; withholds creds (fails closed) when
@@ -64,7 +64,7 @@ this egress-locked dev box can't push (no key + port 22 blocked) — the USER pu
 ---
 
 **UPDATE 2026-06-27 — `recreate` command added (`3347768`).**
-`atsbx recreate [kit-dir] [--workspace|--ws <path>]` destroys the container and
+`cove recreate [kit-dir] [--workspace|--ws <path>]` destroys the container and
 creates it again while KEEPING the named volumes
 (`<name>-state`→`/agent-data` with the saved OAuth login, and `<name>-workspace`),
 because `Destroy` is `docker rm -f` (never `-v`).
@@ -81,7 +81,7 @@ so this is the UAT rebuild loop.
 
 **UPDATE 2026-06-27 (latest) — POST-IMPLEMENTATION: OAuth + sshd + first-session login.**
 Five follow-on commits after the 14 plan tasks (`9a23d11`, `6b539dd`, `ce7c6e1`, plus the two earlier doc commits),
-all on `design/atsbx-sandboxes`,
+all on `design/cove-sandboxes`,
 suite/vet/build green,
 `agent-infrastructure/` still byte-for-byte unchanged:
 - **Optional plan Task 15 (stdin/tmpfs transport) is now DONE** and wired as the default in `doConnect` (`03fc820`);
@@ -111,12 +111,12 @@ the Go tests only guard the wiring (file presence, argv shape, login/skip logic)
 ---
 
 **UPDATE 2026-06-27 (later) — IMPLEMENTATION COMPLETE.**
-All 14 required plan tasks are implemented and committed on `design/atsbx-sandboxes`
+All 14 required plan tasks are implemented and committed on `design/cove-sandboxes`
 (13 `feat`/`chore` commits, `58b658d`..`c3d1031`),
 each via a fresh subagent (TDD).
 Final verification all green:
 `go test ./...` PASS (10 packages),
-`go build -o atsbx .` OK,
+`go build -o at-cove .` OK,
 `go vet ./...` clean,
 `--dry-run create`/`connect` smoke OK,
 and `agent-infrastructure/` byte-for-byte unchanged vs the pre-work baseline.
@@ -159,33 +159,33 @@ Implementation is **done** (see the COMPLETE note above).
 
 The authoritative artifacts (read these first):
 
-- Spec: `docs/superpowers/specs/2026-06-26-atsbx-sandboxes-design.md`
-- Plan: `docs/superpowers/plans/2026-06-26-atsbx-sandboxes.md`
+- Spec: `docs/superpowers/specs/2026-06-26-cove-sandboxes-design.md`
+- Plan: `docs/superpowers/plans/2026-06-26-cove-sandboxes.md`
 
-## Relevant commits on `design/atsbx-sandboxes`
+## Relevant commits on `design/cove-sandboxes`
 
 ```
-4591b6a docs: implementation plan for multi-backend atsbx sandboxes
+4591b6a docs: implementation plan for multi-backend cove sandboxes
 6eea3f4 docs: document secret-command injection risk and .local mitigation
-bfe9cc1 docs: kit is a discoverable .atsbx/ directory
-e58f834 docs: design for YAML-driven multi-backend atsbx sandboxes
-724be68 feat: add atsbx CLI dispatcher with dry-run and exit-code propagation  (pre-existing)
+bfe9cc1 docs: kit is a discoverable .cove/ directory
+e58f834 docs: design for YAML-driven multi-backend cove sandboxes
+724be68 feat: add cove CLI dispatcher with dry-run and exit-code propagation  (pre-existing)
 ```
 
-The pre-existing `atsbx` (build/create/run/delete wrapping `sbx`) is described in
-the older `docs/superpowers/specs/2026-06-22-atsbx-design.md`; the new spec
+The pre-existing `cove` (build/create/run/delete wrapping `sbx`) is described in
+the older `docs/superpowers/specs/2026-06-22-cove-design.md`; the new spec
 supersedes it.
 
 ## What was decided (so you don't relitigate)
 
-- **atsbx owns the mechanism**; `agent-infrastructure/` ships image/kit files.
+- **cove owns the mechanism**; `agent-infrastructure/` ships image/kit files.
 - **`agent-infrastructure/` is READ-ONLY.** Copy needed files into `sbx` and
   modify the copies there. (User's explicit instruction; enforced in the plan's
   Global Constraints + Task 7 + final verification.)
 - **Multi-backend abstraction; SSH is the universal interface.** Scope of this
   spec = the `Backend` interface + uniform `connect` + the **Colima** backend.
   Firecracker and Fly are follow-on specs.
-- **Kit = a directory** (`.atsbx/` at repo root, cwd walk-up discovery):
+- **Kit = a directory** (`.cove/` at repo root, cwd walk-up discovery):
   `config.yml` + `image-files/` overlay + gitignored `.build/`.
 - **`.build` assembly = layered overlays, last writer wins:** embedded
   overridable defaults → kit `image-files/` → (deferred `.local/`) → embedded
@@ -198,7 +198,7 @@ supersedes it.
   just-in-time at `connect`, injected memory-only. Primary transport =
   stdin/tmpfs, fallback = `SendEnv` (both behind a `Transport` interface; plan
   ships `SendEnv` first, stdin as optional Task 15).
-- **Managed SSH keypair** at `~/.config/atsbx/id_ed25519` (auto-generated);
+- **Managed SSH keypair** at `~/.config/cove/id_ed25519` (auto-generated);
   public half injected into the build context's `authorized_keys`.
 - **Per-sandbox known_hosts TOFU** (`accept-new`).
 - **Security note (documented, deferred):** a committed `secrets[].command` is a
@@ -245,7 +245,7 @@ every task except the one dependency fetch:**
 
 ## How to resume (next session)
 
-1. `cd /home/agent/workspace/sbx && git checkout design/atsbx-sandboxes`.
+1. `cd /home/agent/workspace/sbx && git checkout design/cove-sandboxes`.
 2. Verify the toolchain: `go version` (need >= 1.22). If missing, the user still
    needs to install it.
 3. Read the spec and the plan (paths above).
