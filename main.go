@@ -29,6 +29,7 @@ Usage:
   at-cove recreate [kit-dir] [--workspace|--ws <path>]
   at-cove destroy  [kit-dir]
   at-cove status   [kit-dir]
+  at-cove version
 
 If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
 recreate rebuilds the VM from the kit while keeping its volumes (state — incl.
@@ -36,7 +37,12 @@ saved login — and workspace).
 
 Global flags:
   --dry-run   print planned actions without executing
+  --version   print the at-cove version and exit
 `
+
+// version is the at-cove build version, stamped at build time via
+// -ldflags "-X main.version=...". Defaults to "dev" for plain `go build`.
+var version = "dev"
 
 func main() {
 	code := run(os.Args[1:], runner.OS{}, os.LookupEnv, exec.LookPath, os.Stdout, os.Stderr)
@@ -45,6 +51,7 @@ func main() {
 
 func run(argv []string, r runner.Runner, lookup func(string) (string, bool), lookPath func(string) (string, error), stdout, stderr io.Writer) int {
 	dryRun := false
+	showVersion := false
 	var args []string
 	wsPath := ""
 	for i := 0; i < len(argv); i++ {
@@ -52,6 +59,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		switch {
 		case a == "--dry-run" || a == "-dry-run":
 			dryRun = true
+		case a == "--version":
+			showVersion = true
 		case a == "--workspace" || a == "--ws":
 			if i+1 >= len(argv) {
 				fmt.Fprintln(stderr, "at-cove: --workspace requires a path")
@@ -63,11 +72,21 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			args = append(args, a)
 		}
 	}
+	if showVersion {
+		fmt.Fprintln(stdout, "at-cove "+version)
+		return 0
+	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
+
+	// version needs no kit or backend.
+	if cmd == "version" {
+		fmt.Fprintln(stdout, "at-cove "+version)
+		return 0
+	}
 
 	// Resolve the kit directory (explicit arg or discovery).
 	start := "."

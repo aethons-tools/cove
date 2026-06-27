@@ -19,8 +19,9 @@ cd "$(dirname "$0")/.."  # repo root
 
 OUT="${OUT:-dist}"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-# -trimpath: reproducible paths; -s -w: strip symbol/debug tables (smaller binary).
-LDFLAGS="-s -w"
+# -trimpath: reproducible paths; -s -w: strip symbol/debug tables (smaller
+# binary); -X main.version: stamp the version reported by `at-cove version`.
+LDFLAGS="-s -w -X main.version=${VERSION}"
 
 TARGETS=(
   darwin/amd64

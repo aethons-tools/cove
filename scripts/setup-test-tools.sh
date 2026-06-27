@@ -9,6 +9,7 @@
 #   - shellcheck — lints entrypoint.sh and the remote shell cove emits.
 #   - hadolint   — lints the embedded Dockerfile (from GitHub releases).
 #   - jq         — validate managed-settings.json / config.yml by hand.
+#   - just       — task runner for the justfile (build/test/lint/integration).
 #
 # Target: Debian/Ubuntu (the image base is ubuntu:24.04). Arch-aware (arm64/amd64).
 # Idempotent and safe to re-run. Uses sudo for system installs.
@@ -49,7 +50,7 @@ log "Installing apt packages (podman + rootless plumbing, shellcheck, jq)"
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   podman podman-docker uidmap fuse-overlayfs slirp4netns \
-  shellcheck jq ca-certificates curl
+  shellcheck jq just ca-certificates curl
 
 # Silence podman-docker's "Emulate Docker CLI using podman" banner on every call.
 if [ ! -e /etc/containers/nodocker ]; then

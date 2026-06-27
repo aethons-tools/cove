@@ -67,6 +67,25 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 
 func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
 
+func TestVersionSubcommand(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"version"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "at-cove "+version) {
+		t.Fatalf("version output=%q want to contain %q", out.String(), "at-cove "+version)
+	}
+}
+
+func TestVersionFlag(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"--version"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 || !strings.Contains(out.String(), "at-cove "+version) {
+		t.Fatalf("--version: code=%d out=%q", code, out.String())
+	}
+}
+
 // seedConfigDir points configDir() at a temp dir pre-loaded with a keypair, so
 // keys.Ensure does not shell out to ssh-keygen during non-dry-run tests.
 func seedConfigDir(t *testing.T) {
