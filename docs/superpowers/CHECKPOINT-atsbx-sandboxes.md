@@ -14,7 +14,35 @@ conversation's context is lost.
 
 ## TL;DR — where we are
 
-**UPDATE 2026-06-27 (newest) — `recreate` command added (`3347768`).**
+**UPDATE 2026-06-27 (newest) — real-ssh test harness + verified auth probe + setup script.**
+- `claude` CLI is present in this dev sandbox;
+  verified against it (v2.1.193):
+  `claude auth login` is real (`--claudeai` is the default),
+  and `claude auth status` exits 0 when logged in / non-zero otherwise.
+- `connect.ensureAuthenticated` now probes via `claude auth status` instead of
+  statting a credentials file (`12be572`) —
+  validated, path-agnostic, retires the "confirm creds path" caveat.
+  Login is explicit `claude auth login --claudeai`.
+- **Real-ssh integration harness** (`dddac4d`),
+  `internal/connect/integration_test.go`, build tag `integration`
+  (run: `go test -tags integration ./internal/connect/ -v`).
+  Boots an unprivileged throwaway sshd on loopback with a fake `claude`
+  (via sshd `SetEnv PATH`) and drives it with the real ssh client;
+  6 tests PASS here — Base connects, TOFU writes known_hosts,
+  SendEnv delivers via AcceptEnv, StdinScript delivers via tmpfs,
+  Connect logs in on first session and skips when authed.
+  This runs here AND in CI (no Docker); default `go test ./...` stays hermetic.
+- `scripts/setup-test-tools.sh` (`58ef34a`):
+  installs podman + podman-docker (a `docker` shim for the Colima backend),
+  shellcheck, hadolint, jq — Debian/Ubuntu, arch-aware, idempotent.
+- Remaining gap needs a container runtime only:
+  full `create`→container→`connect` against a real image
+  (podman covers the SSH/lifecycle mechanics; the in-container nft/squid egress
+  lockdown is the part to watch under rootless).
+
+---
+
+**UPDATE 2026-06-27 — `recreate` command added (`3347768`).**
 `atsbx recreate [kit-dir] [--workspace|--ws <path>]` destroys the container and
 creates it again while KEEPING the named volumes
 (`<name>-state`→`/agent-data` with the saved OAuth login, and `<name>-workspace`),
