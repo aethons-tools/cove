@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/state"
 )
 
-func writeKit(t *testing.T, dir string) {
+func writeKit(t *testing.T, dir string) string {
 	t.Helper()
 	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
@@ -20,14 +21,57 @@ func writeKit(t *testing.T, dir string) {
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return cove
+}
+
+// writeState records a created instance so the state-driven commands have
+// something to operate on.
+func writeState(t *testing.T, kitDir, backendName, container string, secrets ...state.Secret) {
+	t.Helper()
+	if err := state.Save(kitDir, state.State{
+		Name: container, Backend: backendName, Container: container,
+		Image: "at-cove-for-" + container, WorkspaceMode: "isolated", Secrets: secrets,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
+
+func dockerArg0Index(calls []runner.Call, arg0 string) int {
+	for i, c := range calls {
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == arg0 {
+			return i
+		}
+	}
+	return -1
+}
+
+// seedConfigDir points configDir() at a temp dir pre-loaded with a keypair, so
+// keys.Ensure does not shell out to ssh-keygen during non-dry-run tests.
+func seedConfigDir(t *testing.T) {
+	t.Helper()
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	coveCfg := filepath.Join(cfgHome, "at-cove")
+	if err := os.MkdirAll(coveCfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coveCfg, "id_ed25519"), []byte("PRIV"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coveCfg, "id_ed25519.pub"), []byte("ssh-ed25519 AAAA test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStatusDispatchesToBackend(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box")
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -36,13 +80,22 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	}
 }
 
+func TestStatusAbsentWhenNoState(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	var out, errOut bytes.Buffer
+	code := run([]string{"status", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 || !strings.Contains(out.String(), "absent") {
+		t.Fatalf("status with no state: code=%d out=%q", code, out.String())
+	}
+}
+
 func TestUnknownBackendErrors(t *testing.T) {
 	dir := t.TempDir()
-	cove := filepath.Join(dir, ".at-cove")
-	os.MkdirAll(cove, 0o755)
-	os.WriteFile(filepath.Join(cove, "config.yml"), []byte("name: box\nbackend: bogus\n"), 0o644)
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "bogus", "box") // state names an unknown backend
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", cove}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "bogus") {
 		t.Fatalf("expected unknown-backend error, code=%d stderr=%q", code, errOut.String())
 	}
@@ -50,10 +103,10 @@ func TestUnknownBackendErrors(t *testing.T) {
 
 func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -65,14 +118,75 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	}
 }
 
-func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
+func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("create must build + run; calls=%+v", f.Calls)
+	}
+	st, err := state.Load(kitDir)
+	if err != nil {
+		t.Fatalf("state not written: %v", err)
+	}
+	if st.Container != "box" || st.Image != "at-cove-for-box" || st.Backend != "colima" {
+		t.Fatalf("state = %+v", st)
+	}
+	var o2, e2 bytes.Buffer
+	code := run([]string{"create", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
+	if code == 0 || !strings.Contains(e2.String(), "already created") {
+		t.Fatalf("second create should refuse; code=%d stderr=%q", code, e2.String())
+	}
+}
+
+func TestDestroyRemovesContainerImageAndState(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "rm") == -1 || dockerArg0Index(f.Calls, "rmi") == -1 {
+		t.Fatalf("destroy must rm + rmi; calls=%+v", f.Calls)
+	}
+	if state.Exists(kitDir) {
+		t.Fatal("destroy must delete the state file")
+	}
+}
+
+func TestDestroyBlockedByActiveConnection(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box")
+	lock, err := state.AcquireShared(kitDir) // simulate an open connection
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	var out, errOut bytes.Buffer
+	code := run([]string{"destroy", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), "active connection") {
+		t.Fatalf("destroy should refuse with an active connection; code=%d stderr=%q", code, errOut.String())
+	}
+	if !state.Exists(kitDir) {
+		t.Fatal("a blocked destroy must not delete the state file")
+	}
+}
 
 func TestDryRunConnectRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "--raw", "--no-auth", "connect", filepath.Join(dir, ".at-cove")},
+	code := run([]string{"--dry-run", "--raw", "--no-auth", "connect", kitDir},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
@@ -105,39 +219,12 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
-// seedConfigDir points configDir() at a temp dir pre-loaded with a keypair, so
-// keys.Ensure does not shell out to ssh-keygen during non-dry-run tests.
-func seedConfigDir(t *testing.T) {
-	t.Helper()
-	cfgHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	coveCfg := filepath.Join(cfgHome, "at-cove")
-	if err := os.MkdirAll(coveCfg, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(coveCfg, "id_ed25519"), []byte("PRIV"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(coveCfg, "id_ed25519.pub"), []byte("ssh-ed25519 AAAA test\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func dockerArg0Index(calls []runner.Call, arg0 string) int {
-	for i, c := range calls {
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == arg0 {
-			return i
-		}
-	}
-	return -1
-}
-
 func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -151,12 +238,12 @@ func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 
 func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box") // already created -> recreate must destroy first
 	seedConfigDir(t)
-	// GetStatus -> running (docker inspect prints "true"); then rm, build, run.
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -164,7 +251,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	buildIdx := dockerArg0Index(f.Calls, "build")
 	runIdx := dockerArg0Index(f.Calls, "run")
 	if rmIdx == -1 {
-		t.Fatalf("recreate must destroy the container; calls=%+v", f.Calls)
+		t.Fatalf("recreate must destroy the existing container; calls=%+v", f.Calls)
 	}
 	if buildIdx == -1 || runIdx == -1 {
 		t.Fatalf("recreate must create the container; calls=%+v", f.Calls)
@@ -181,17 +268,16 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 
 func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
 	seedConfigDir(t)
-	// GetStatus -> absent (docker inspect errors); then build+run, NO rm.
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+	f := &runner.Fake{} // no state -> nothing to destroy
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
 	if dockerArg0Index(f.Calls, "rm") != -1 {
-		t.Fatalf("must not destroy when no container exists; calls=%+v", f.Calls)
+		t.Fatalf("must not destroy when nothing is created; calls=%+v", f.Calls)
 	}
 	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
 		t.Fatalf("recreate must still create the container; calls=%+v", f.Calls)

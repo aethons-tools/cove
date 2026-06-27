@@ -18,17 +18,20 @@ type Colima struct{ r runner.Runner }
 
 func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
 
-func image(name string) string { return "cove/" + name }
+// image is the human-readable tag for a kit's image — readable in
+// `docker images`/`ps` for troubleshooting.
+func image(name string) string { return "at-cove-for-" + name }
 
-func (c *Colima) Create(ctx backend.CreateContext) error {
-	if err := c.r.Run("docker", "build", "-t", image(ctx.Name), ctx.BuildDir); err != nil {
-		return err
+func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
+	img := image(ctx.Name)
+	if err := c.r.Run("docker", "build", "-t", img, ctx.BuildDir); err != nil {
+		return backend.Instance{}, err
 	}
 	ws := ctx.Name + "-workspace:/home/agent/workspace"
 	if ctx.Workspace.Mode == backend.Shared {
 		ws = ctx.Workspace.HostPath + ":/home/agent/workspace"
 	}
-	return c.r.Run("docker", "run", "-d",
+	if err := c.r.Run("docker", "run", "-d",
 		"--name", ctx.Name,
 		"--init",
 		"--cap-add=NET_ADMIN",
@@ -36,8 +39,16 @@ func (c *Colima) Create(ctx backend.CreateContext) error {
 		"-p", "127.0.0.1::2222",
 		"-v", ctx.Name+"-state:/agent-data",
 		"-v", ws,
-		image(ctx.Name),
-	)
+		img,
+	); err != nil {
+		return backend.Instance{}, err
+	}
+	return backend.Instance{
+		Backend:   "colima",
+		Container: ctx.Name,
+		Image:     img,
+		Workspace: ctx.Workspace,
+	}, nil
 }
 
 func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
@@ -57,8 +68,17 @@ func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: hostport[:i], Port: port, User: "agent"}, func() {}, nil
 }
 
-func (c *Colima) Destroy(name string) error {
-	return c.r.Run("docker", "rm", "-f", name)
+func (c *Colima) Destroy(inst backend.Instance) error {
+	// Force-remove the container (never -v: named volumes survive). Then remove
+	// the image so the namespace stays clean — best-effort, since the build cache
+	// is separate and a missing image shouldn't fail the teardown.
+	if err := c.r.Run("docker", "rm", "-f", inst.Container); err != nil {
+		return err
+	}
+	if inst.Image != "" {
+		_ = c.r.Run("docker", "rmi", inst.Image)
+	}
+	return nil
 }
 
 func (c *Colima) GetStatus(name string) (backend.State, error) {

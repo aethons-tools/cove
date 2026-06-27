@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/assemble"
 	"github.com/aethons-tools/cove/internal/backend"
@@ -18,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/state"
 )
 
 const usage = `at-cove — run hardened Claude Code sandboxes
@@ -32,8 +34,10 @@ Usage:
   at-cove version
 
 If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
-recreate rebuilds the VM from the kit while keeping its volumes (state — incl.
-saved login — and workspace).
+create records the running instance in .at-cove/.state/state.json; connect,
+destroy, and status operate on that, not on config.yml. recreate rebuilds the
+VM from the kit while keeping its volumes (state — incl. saved login — and
+workspace).
 
 Global flags:
   --dry-run   print planned actions without executing
@@ -92,7 +96,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	}
 	cmd, rest := args[0], args[1:]
 
-	// version needs no kit or backend.
+	// version needs no kit.
 	if cmd == "version" {
 		fmt.Fprintln(stdout, "at-cove "+version)
 		return 0
@@ -111,31 +115,20 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		fmt.Fprintln(stderr, "at-cove:", err)
 		return 1
 	}
-	cfg, err := kit.Load(kitDir)
-	if err != nil {
-		fmt.Fprintln(stderr, "at-cove:", err)
-		return 1
-	}
-	factory, err := backend.Get(cfg.Backend)
-	if err != nil {
-		fmt.Fprintln(stderr, "at-cove:", err)
-		return 1
-	}
-	b := factory(r)
 
 	switch cmd {
 	case "build":
 		err = doBuild(kitDir, r, dryRun, stdout)
 	case "create":
-		err = doCreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
+		err = doCreate(kitDir, r, wsPath, dryRun, stdout)
 	case "connect":
-		err = doConnect(cfg, b, r, dryRun, raw, noAuth, stdout)
+		err = doConnect(kitDir, r, dryRun, raw, noAuth, stdout)
 	case "recreate":
-		err = doRecreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
+		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
 	case "destroy":
-		err = doSimple(b.Destroy, cfg.Name, "destroy", dryRun, stdout)
+		err = doDestroy(kitDir, r, dryRun, stdout)
 	case "status":
-		err = doStatus(b, cfg.Name, dryRun, stdout)
+		err = doStatus(kitDir, r, dryRun, stdout)
 	default:
 		fmt.Fprintf(stderr, "at-cove: unknown command %q\n\n%s", cmd, usage)
 		return 2
@@ -171,6 +164,14 @@ func configDir() string {
 	return filepath.Join(home, ".config", "at-cove")
 }
 
+func getBackend(name string, r runner.Runner) (backend.Backend, error) {
+	f, err := backend.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	return f(r), nil
+}
+
 func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	buildDir := filepath.Join(kitDir, ".build")
 	if dryRun {
@@ -187,8 +188,14 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 	return assemble.Assemble(kitDir, buildDir, pub)
 }
 
-func doCreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
-	buildDir := filepath.Join(kitDir, ".build")
+func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return err
+	}
+	if state.Exists(kitDir) {
+		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", cfg.Name)
+	}
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if wsPath != "" {
 		abs, err := filepath.Abs(wsPath)
@@ -198,42 +205,63 @@ func doCreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runner,
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would assemble %s then backend.Create(%s)\n", buildDir, cfg.Name)
+		fmt.Fprintf(stdout, "would build then create %s (backend %s) and write %s\n", cfg.Name, cfg.Backend, state.Path(kitDir))
 		return nil
+	}
+	b, err := getBackend(cfg.Backend, r)
+	if err != nil {
+		return err
 	}
 	if err := doBuild(kitDir, r, false, stdout); err != nil {
 		return err
 	}
-	return b.Create(backend.CreateContext{Name: cfg.Name, BuildDir: buildDir, Workspace: ws})
-}
-
-// doRecreate destroys the sandbox container and creates it again, KEEPING the
-// volumes. The named volumes — state at /agent-data (including the saved OAuth
-// login) and the isolated workspace — survive because Destroy removes only the
-// container (docker rm -f, never -v). The destroy is skipped when no container
-// exists, so recreate works from any state. --workspace is honored just like
-// create.
-func doRecreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
-	if dryRun {
-		fmt.Fprintf(stdout, "would destroy %s (keeping volumes) then recreate\n", cfg.Name)
-		return nil
-	}
-	st, err := b.GetStatus(cfg.Name)
+	inst, err := b.Create(backend.CreateContext{
+		Name: cfg.Name, BuildDir: filepath.Join(kitDir, ".build"), Workspace: ws,
+	})
 	if err != nil {
 		return err
 	}
-	if st != backend.StateAbsent {
-		if err := b.Destroy(cfg.Name); err != nil {
-			return err
-		}
-	}
-	return doCreate(kitDir, cfg, b, r, wsPath, false, stdout)
+	return saveState(kitDir, cfg, inst)
 }
 
-// doConnect launches an interactive session in the sandbox. With raw it drops
-// into bash instead of claude (to debug what the agent sees); with noAuth it
-// skips the `claude auth login` step. Both still resolve and inject secrets.
-func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun, raw, noAuth bool, stdout io.Writer) error {
+// saveState snapshots the created instance and the kit's secret specs (names +
+// resolver commands, never values) into the kit state file.
+func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
+	st := state.State{
+		Name:          cfg.Name,
+		Backend:       inst.Backend,
+		Container:     inst.Container,
+		Image:         inst.Image,
+		WorkspaceMode: "isolated",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if inst.Workspace.Mode == backend.Shared {
+		st.WorkspaceMode = "shared"
+		st.WorkspaceHostPath = inst.Workspace.HostPath
+	}
+	for _, s := range cfg.Secrets {
+		st.Secrets = append(st.Secrets, state.Secret{Name: s.Name, Command: s.Command})
+	}
+	return state.Save(kitDir, st)
+}
+
+func instanceFromState(st state.State) backend.Instance {
+	ws := backend.WorkspaceMount{Mode: backend.Isolated}
+	if st.WorkspaceMode == "shared" {
+		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
+	}
+	return backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, Workspace: ws}
+}
+
+// doConnect launches an interactive session in the sandbox, driven by the
+// recorded state (not the kit). It holds a SHARED lock on the state file for the
+// whole session, so destroy can't tear the sandbox down underneath it. With raw
+// it drops into bash instead of claude; with noAuth it skips `claude auth login`.
+func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout io.Writer) error {
+	st, err := state.Load(kitDir)
+	if err != nil {
+		return err
+	}
 	launch := "claude"
 	if raw {
 		launch = "bash"
@@ -244,15 +272,29 @@ func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun, raw, 
 			auth = "no auth"
 		}
 		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s)\n",
-			len(cfg.Secrets), cfg.Name, launch, auth)
+			len(st.Secrets), st.Container, launch, auth)
 		return nil
 	}
+	b, err := getBackend(st.Backend, r)
+	if err != nil {
+		return err
+	}
+
+	lock, err := state.AcquireShared(kitDir)
+	if err != nil {
+		if errors.Is(err, state.ErrLocked) {
+			return fmt.Errorf("sandbox %q is being destroyed; try again shortly", st.Container)
+		}
+		return err
+	}
+	defer lock.Release()
+
 	priv, _, err := keys.Ensure(r, configDir())
 	if err != nil {
 		return err
 	}
-	specs := make([]secret.Spec, len(cfg.Secrets))
-	for i, s := range cfg.Secrets {
+	specs := make([]secret.Spec, len(st.Secrets))
+	for i, s := range st.Secrets {
 		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
 	}
 	cmd := ""
@@ -260,7 +302,7 @@ func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun, raw, 
 		cmd = "bash"
 	}
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd}, connect.Options{
-		Name:          cfg.Name,
+		Container:     st.Container,
 		Secrets:       specs,
 		IdentityFile:  priv,
 		KnownHostsDir: filepath.Join(configDir(), "known_hosts.d"),
@@ -268,20 +310,76 @@ func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun, raw, 
 	})
 }
 
-func doSimple(fn func(string) error, name, verb string, dryRun bool, stdout io.Writer) error {
+// doDestroy tears the sandbox down under an EXCLUSIVE lock: it refuses if any
+// connection holds the shared lock. It removes the container (keeping volumes)
+// and image, then deletes the state file.
+func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	st, err := state.Load(kitDir)
+	if err != nil {
+		return err
+	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would %s %s\n", verb, name)
+		fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
+			st.Container, st.Image, state.Path(kitDir))
 		return nil
 	}
-	return fn(name)
+	b, err := getBackend(st.Backend, r)
+	if err != nil {
+		return err
+	}
+
+	lock, err := state.AcquireExclusive(kitDir)
+	if err != nil {
+		if errors.Is(err, state.ErrLocked) {
+			return fmt.Errorf("refusing to destroy %s: it has active connection(s)", st.Container)
+		}
+		return err
+	}
+	defer lock.Release()
+
+	if err := b.Destroy(instanceFromState(st)); err != nil {
+		return err
+	}
+	return state.Delete(kitDir)
 }
 
-func doStatus(b backend.Backend, name string, dryRun bool, stdout io.Writer) error {
+// doRecreate tears down the existing instance (under the exclusive lock, so it
+// refuses with active connections) and creates a fresh one, keeping volumes.
+func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return err
+	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would query status of %s\n", name)
+		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", cfg.Name)
 		return nil
 	}
-	st, err := b.GetStatus(name)
+	if state.Exists(kitDir) {
+		if err := doDestroy(kitDir, r, false, stdout); err != nil {
+			return err
+		}
+	}
+	return doCreate(kitDir, r, wsPath, false, stdout)
+}
+
+func doStatus(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	st, err := state.Load(kitDir)
+	if errors.Is(err, state.ErrNotCreated) {
+		fmt.Fprintln(stdout, "absent (not created)")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		fmt.Fprintf(stdout, "would query status of %s\n", st.Container)
+		return nil
+	}
+	b, err := getBackend(st.Backend, r)
+	if err != nil {
+		return err
+	}
+	vmState, err := b.GetStatus(st.Container)
 	if err != nil {
 		return err
 	}
@@ -290,6 +388,6 @@ func doStatus(b backend.Backend, name string, dryRun bool, stdout io.Writer) err
 		backend.StateStopped: "stopped",
 		backend.StateRunning: "running",
 	}
-	fmt.Fprintln(stdout, labels[st])
+	fmt.Fprintf(stdout, "%s  (image %s)\n", labels[vmState], st.Image)
 	return nil
 }

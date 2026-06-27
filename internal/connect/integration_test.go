@@ -173,8 +173,10 @@ func TestRealStdinScriptDeliversSecretViaTmpfs(t *testing.T) {
 // liveBackend dials the throwaway sshd instead of a real VM.
 type liveBackend struct{ ep backend.Endpoint }
 
-func (liveBackend) Create(backend.CreateContext) error      { return nil }
-func (liveBackend) Destroy(string) error                    { return nil }
+func (liveBackend) Create(backend.CreateContext) (backend.Instance, error) {
+	return backend.Instance{}, nil
+}
+func (liveBackend) Destroy(backend.Instance) error          { return nil }
 func (liveBackend) GetStatus(string) (backend.State, error) { return backend.StateRunning, nil }
 func (b liveBackend) Dial(string) (backend.Endpoint, func(), error) {
 	return b.ep, func() {}, nil
@@ -183,7 +185,7 @@ func (b liveBackend) Dial(string) (backend.Endpoint, func(), error) {
 func TestRealConnectFirstSessionLogsInThenLaunches(t *testing.T) {
 	s := startSSHD(t)
 	b := liveBackend{ep: backend.Endpoint{Host: s.Target.Host, Port: s.Target.Port, User: s.Target.User}}
-	o := Options{Name: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
+	o := Options{Container: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
 	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, o); err != nil {
 		t.Fatalf("Connect (first session): %v", err)
 	}
@@ -199,7 +201,7 @@ func TestRealConnectAuthedSkipsLogin(t *testing.T) {
 	s := startSSHD(t)
 	mustWriteFile(t, filepath.Join(s.Dir, "authed.marker"), "x") // already logged in
 	b := liveBackend{ep: backend.Endpoint{Host: s.Target.Host, Port: s.Target.Port, User: s.Target.User}}
-	o := Options{Name: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
+	o := Options{Container: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
 	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, o); err != nil {
 		t.Fatalf("Connect (authed): %v", err)
 	}

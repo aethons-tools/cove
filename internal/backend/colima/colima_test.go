@@ -10,14 +10,14 @@ import (
 func TestCreateIsolated(t *testing.T) {
 	f := &runner.Fake{}
 	b := New(f)
-	err := b.Create(backend.CreateContext{
+	inst, err := b.Create(backend.CreateContext{
 		Name: "box", BuildDir: "/b",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Calls[0].Name != "docker" || f.Calls[0].Args[0] != "build" {
+	if f.Calls[0].Name != "docker" || f.Calls[0].Args[0] != "build" || !contains(f.Calls[0].Args, "at-cove-for-box") {
 		t.Fatalf("build call = %+v", f.Calls[0])
 	}
 	run := f.Calls[1].Args
@@ -27,14 +27,19 @@ func TestCreateIsolated(t *testing.T) {
 	if !contains(run, "box-state:/agent-data") {
 		t.Fatalf("state volume missing: %v", run)
 	}
+	if inst.Container != "box" || inst.Image != "at-cove-for-box" || inst.Backend != "colima" {
+		t.Fatalf("instance = %+v", inst)
+	}
 }
 
 func TestCreateShared(t *testing.T) {
 	f := &runner.Fake{}
-	New(f).Create(backend.CreateContext{
+	if _, err := New(f).Create(backend.CreateContext{
 		Name: "box", BuildDir: "/b",
 		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if !contains(f.Calls[1].Args, "/host/repo:/home/agent/workspace") {
 		t.Fatalf("shared bind missing: %v", f.Calls[1].Args)
 	}
@@ -79,26 +84,29 @@ func TestRegistered(t *testing.T) {
 
 // TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: Destroy
 // force-removes the container but never its named volumes (no -v/--volumes), so
-// /agent-data (saved login) and the workspace survive a recreate.
+// /agent-data (saved login) and the workspace survive a recreate. It also removes
+// the image to keep the namespace clean.
 func TestDestroyKeepsVolumes(t *testing.T) {
 	f := &runner.Fake{}
-	if err := New(f).Destroy("box"); err != nil {
+	err := New(f).Destroy(backend.Instance{Container: "box", Image: "at-cove-for-box"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Calls) != 1 {
-		t.Fatalf("expected one docker call, got %+v", f.Calls)
+	if len(f.Calls) != 2 {
+		t.Fatalf("expected rm + rmi, got %+v", f.Calls)
 	}
-	c := f.Calls[0]
-	if c.Name != "docker" || c.Args[0] != "rm" {
-		t.Fatalf("destroy call = %+v", c)
+	rm := f.Calls[0]
+	if rm.Name != "docker" || rm.Args[0] != "rm" || !contains(rm.Args, "-f") || !contains(rm.Args, "box") {
+		t.Fatalf("destroy should force-remove the container: %+v", rm)
 	}
-	if !contains(c.Args, "-f") || !contains(c.Args, "box") {
-		t.Fatalf("destroy should force-remove the named container: %v", c.Args)
-	}
-	for _, a := range c.Args {
+	for _, a := range rm.Args {
 		if a == "-v" || a == "--volumes" {
-			t.Fatalf("destroy must not remove volumes: %v", c.Args)
+			t.Fatalf("destroy must not remove volumes: %v", rm.Args)
 		}
+	}
+	rmi := f.Calls[1]
+	if rmi.Name != "docker" || rmi.Args[0] != "rmi" || !contains(rmi.Args, "at-cove-for-box") {
+		t.Fatalf("destroy should remove the image: %+v", rmi)
 	}
 }
 
