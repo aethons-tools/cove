@@ -1,0 +1,12 @@
+# System git config (atsbx hardening layer).
+#
+# The sandbox permits egress only over HTTPS through the local proxy
+# (.github.com on 443; https_proxy is set in /etc/environment). SSH git
+# (git@github.com: / ssh://, port 22) and the git:// protocol are dropped by the
+# nftables egress rule, so rewrite those forms to HTTPS. This makes clones,
+# fetches, and pushes work over the allow-listed path without per-repo tweaks.
+# insteadOf applies to fetch and push alike.
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+	insteadOf = git://github.com/

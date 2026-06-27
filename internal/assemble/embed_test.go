@@ -56,6 +56,23 @@ func TestAllowlistPermitsClaudeAI(t *testing.T) {
 	}
 }
 
+// TestGitConfigForcesHTTPS guards that the system gitconfig rewrites SSH/git
+// remotes to HTTPS, the only egress the sandbox permits (port 22 and git:// are
+// dropped by the nftables rule).
+func TestGitConfigForcesHTTPS(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/gitconfig")
+	if err != nil {
+		t.Fatalf("gitconfig not embedded: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `[url "https://github.com/"]`) {
+		t.Errorf("gitconfig must rewrite to https://github.com/; got:\n%s", s)
+	}
+	if !strings.Contains(s, "insteadOf = git@github.com:") {
+		t.Errorf("gitconfig must rewrite git@github.com: to HTTPS; got:\n%s", s)
+	}
+}
+
 // TestEntrypointStartsSSHD guards that the container's main process is sshd (the
 // whole connect design reaches the VM over SSH) and that the state-volume seed
 // is restart-safe (guarded by a marker, not an unconditional copy that crashes
