@@ -7,8 +7,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Secret declares an environment variable the sandbox needs and the host
-// command that produces its value. Command is trusted today (pre-.local).
+// Secret declares an environment variable the sandbox needs. Command is
+// optional: when omitted, the secret is a demand to be supplied by the user's
+// ~/.config/at-cove/secrets.yml at connect time (or it warns and is left unset).
+// When present, Command is the host argv that produces the value (trusted today,
+// pre-.local).
 type Secret struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
@@ -40,9 +43,6 @@ func ParseConfig(data []byte) (Config, error) {
 	for i, s := range cfg.Secrets {
 		if s.Name == "" {
 			return Config{}, fmt.Errorf("config.yml: secrets[%d]: name is required", i)
-		}
-		if len(s.Command) == 0 {
-			return Config{}, fmt.Errorf("config.yml: secret %q: command is required", s.Name)
 		}
 	}
 	return cfg, nil
