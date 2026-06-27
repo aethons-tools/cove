@@ -50,6 +50,16 @@ func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
 		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
 }
+
+// Regression guard: literal secret values must NOT be declarable in the kit;
+// they belong only in the user's ~/.config/at-cove/secrets.yml. KnownFields(true)
+// rejects the unknown `value:` key, so this passes from the start.
+func TestParseConfigRejectsSecretValueField(t *testing.T) {
+	data := []byte("name: x\nbackend: colima\nsecrets:\n  - name: T\n    value: ghp_secret\n")
+	if _, err := ParseConfig(data); err == nil {
+		t.Fatal("a literal value: in config.yml must be rejected")
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
