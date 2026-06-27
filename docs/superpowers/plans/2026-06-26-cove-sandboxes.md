@@ -2146,10 +2146,10 @@ func resolveKit(start string) (string, error) {
 
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "cove")
+		return filepath.Join(x, "at-cove")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "cove")
+	return filepath.Join(home, ".config", "at-cove")
 }
 
 func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {

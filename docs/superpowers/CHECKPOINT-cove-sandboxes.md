@@ -198,7 +198,7 @@ supersedes it.
   just-in-time at `connect`, injected memory-only. Primary transport =
   stdin/tmpfs, fallback = `SendEnv` (both behind a `Transport` interface; plan
   ships `SendEnv` first, stdin as optional Task 15).
-- **Managed SSH keypair** at `~/.config/cove/id_ed25519` (auto-generated);
+- **Managed SSH keypair** at `~/.config/at-cove/id_ed25519` (auto-generated);
   public half injected into the build context's `authorized_keys`.
 - **Per-sandbox known_hosts TOFU** (`accept-new`).
 - **Security note (documented, deferred):** a committed `secrets[].command` is a

@@ -172,7 +172,7 @@ is one the local user authored on their own machine.
 
 ### 3.6 Managed SSH keypair
 
-`cove` owns a dedicated keypair at `~/.config/cove/id_ed25519`,
+`cove` owns a dedicated keypair at `~/.config/at-cove/id_ed25519`,
 created on first use.
 Its public half is written into every build context's `authorized_keys` during `create`;
 `connect` authenticates with the private half.
@@ -345,7 +345,7 @@ Backend-agnostic, in `internal/connect`:
    return an actionable error
    ("run `cove create` / start the VM first").
 3. **Verify host key (TOFU).**
-   Use a per-sandbox known_hosts file at `~/.config/cove/known_hosts.d/<name>`
+   Use a per-sandbox known_hosts file at `~/.config/at-cove/known_hosts.d/<name>`
    with `StrictHostKeyChecking=accept-new`.
    First connection pins the key; later mismatches fail loudly.
    Destroying and recreating the VM resets the pin.
@@ -359,7 +359,7 @@ Backend-agnostic, in `internal/connect`:
 
 `connect` drives the `ssh` client directly
 (argv built in `internal/sshargs`):
-`-i ~/.config/cove/id_ed25519`, `-p <port>`, `agent@<host>`,
+`-i ~/.config/at-cove/id_ed25519`, `-p <port>`, `agent@<host>`,
 the per-sandbox `UserKnownHostsFile`, and `StrictHostKeyChecking=accept-new`.
 
 ### 7.2 Transport interface

@@ -73,7 +73,7 @@ func seedConfigDir(t *testing.T) {
 	t.Helper()
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	coveCfg := filepath.Join(cfgHome, "cove")
+	coveCfg := filepath.Join(cfgHome, "at-cove")
 	if err := os.MkdirAll(coveCfg, 0o700); err != nil {
 		t.Fatal(err)
 	}
