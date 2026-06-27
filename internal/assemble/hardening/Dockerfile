@@ -1,0 +1,59 @@
+FROM ubuntu:24.04
+
+# Base tooling: sshd, git, curl (for the installer), and the egress stack.
+# Node/npm are intentionally NOT installed: the native Claude Code binary ships
+# its own runtime, and the npm install path is deprecated as of v2.1.15.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openssh-server ca-certificates curl git nftables squid sudo \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root user the agent runs as (so --dangerously-skip-permissions is allowed)
+RUN useradd -m -s /bin/bash agent
+
+# Pre-install Claude Code (native) at BUILD time, as the agent user.
+# Fly's builders have open network, so this fetch happens BEFORE the runtime
+# egress lock. The desktop app then finds 'claude' already present instead of
+# bootstrapping through the locked-down proxy.
+RUN su - agent -c 'curl -fsSL https://claude.ai/install.sh | bash'
+
+# Make the binary findable regardless of how sshd sets PATH for the session.
+RUN ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude
+
+# sshd: key-only auth, no root login, listen on 2222
+# (Fly already uses port 22 on the machine's private interface)
+RUN mkdir -p /run/sshd \
+ && sed -i 's/^#\?Port .*/Port 2222/'                       /etc/ssh/sshd_config \
+ && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+ && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
+
+# Don't phone home for background updates from inside the sandbox; rebuild the
+# image to update Claude Code instead. This keeps the runtime allow-list tight
+# (no claude.ai needed at runtime). Use DISABLE_UPDATES=1 to also block manual.
+ENV DISABLE_AUTOUPDATER=1
+
+# SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH and
+# force every login shell + the SSH session through the local proxy.
+RUN printf '%s\n' \
+  'PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
+  'http_proxy=http://127.0.0.1:3128' \
+  'https_proxy=http://127.0.0.1:3128' \
+  'HTTP_PROXY=http://127.0.0.1:3128' \
+  'HTTPS_PROXY=http://127.0.0.1:3128' \
+  'no_proxy=localhost,127.0.0.1,::1,.internal' \
+  'NO_PROXY=localhost,127.0.0.1,::1,.internal' \
+  >> /etc/environment
+
+COPY image-files/. /.
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+ && chown -R agent:agent /home/agent/.ssh \
+ && chmod 700 /home/agent/.ssh \
+ && chmod 600 /home/agent/.ssh/authorized_keys
+
+
+RUN chmod +x /.install-files/install.sh && \
+    /.install-files/install.sh && \
+    rm -rf /.install-files
+
+EXPOSE 2222
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

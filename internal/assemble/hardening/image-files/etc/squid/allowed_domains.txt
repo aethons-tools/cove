@@ -1,0 +1,15 @@
+# Leading dot = match the domain and all subdomains.
+# api.anthropic.com, etc.
+.anthropic.com
+.claude.com
+
+# git over HTTPS + raw content + codeload (api./codeload. are *.github.com)
+.github.com
+.githubusercontent.com
+
+# Go dependencies
+gopkg.in
+
+# PyPI, if the agent installs Python packages
+.pythonhosted.org
+pypi.org
