@@ -33,6 +33,18 @@ RUN mkdir -p /run/sshd \
 # DISABLE_UPDATES=1 to also block manual updates.
 ENV DISABLE_AUTOUPDATER=1
 
+
+COPY image-files/. /.
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+ && chown -R agent:agent /home/agent/.ssh \
+ && chmod 700 /home/agent/.ssh \
+ && chmod 600 /home/agent/.ssh/authorized_keys
+
+
+RUN chmod +x /.install-files/install.sh && \
+    /.install-files/install.sh && \
+    rm -rf /.install-files
+
 # SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH,
 # point claude at its state on the persistent volume, and force every login
 # shell + the SSH session through the local proxy.
@@ -46,17 +58,6 @@ RUN printf '%s\n' \
   'no_proxy=localhost,127.0.0.1,::1,.internal' \
   'NO_PROXY=localhost,127.0.0.1,::1,.internal' \
   >> /etc/environment
-
-COPY image-files/. /.
-RUN chmod +x /usr/local/bin/entrypoint.sh \
- && chown -R agent:agent /home/agent/.ssh \
- && chmod 700 /home/agent/.ssh \
- && chmod 600 /home/agent/.ssh/authorized_keys
-
-
-RUN chmod +x /.install-files/install.sh && \
-    /.install-files/install.sh && \
-    rm -rf /.install-files
 
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

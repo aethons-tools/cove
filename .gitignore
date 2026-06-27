@@ -1,5 +1,5 @@
-/at-cove
 .DS_Store
-.worktrees/
-.idea/
+/.worktrees/
+/.claude/worktrees/
+/.idea/
 /dist/
