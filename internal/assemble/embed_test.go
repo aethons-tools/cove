@@ -156,6 +156,37 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 	}
 }
 
+// TestClaudeJSONPrunedAndBlended guards that the managed .claude.json holds only
+// startup-experience overrides (install/identity fields are pruned, to be supplied
+// by the real install) and that the Dockerfile blends the install's ~/.claude.json
+// under it via jq.
+func TestClaudeJSONPrunedAndBlended(t *testing.T) {
+	cj, err := fs.ReadFile(overridableFS, "overridable/image-files/home/agent/.init-agent-data/.claude.json")
+	if err != nil {
+		t.Fatalf(".claude.json not embedded: %v", err)
+	}
+	s := string(cj)
+	for _, want := range []string{"hasCompletedOnboarding", "hasTrustDialogAccepted"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("managed .claude.json should keep %q; got:\n%s", want, s)
+		}
+	}
+	for _, gone := range []string{"machineID", "userID", "firstStartTime", "migrationVersion"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("managed .claude.json must be pruned of install/identity field %q; got:\n%s", gone, s)
+		}
+	}
+
+	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := string(df)
+	if !strings.Contains(d, "jq -s") || !strings.Contains(d, "/home/agent/.claude.json") {
+		t.Errorf("Dockerfile must blend ~/.claude.json with jq; got:\n%s", d)
+	}
+}
+
 // TestEntrypointStartsSSHD guards that the container's main process is sshd (the
 // whole connect design reaches the VM over SSH) and that the state-volume seed
 // is restart-safe (guarded by a marker, not an unconditional copy that crashes

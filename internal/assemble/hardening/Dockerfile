@@ -5,7 +5,7 @@ FROM ubuntu:24.04
 # its own runtime, and the npm install path is deprecated as of v2.1.15.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server ca-certificates curl git nftables squid sudo \
+      openssh-server ca-certificates curl git nftables squid sudo jq \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user the agent runs as (so --dangerously-skip-permissions is allowed)
@@ -39,6 +39,18 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
  && chown -R agent:agent /home/agent/.ssh \
  && chmod 700 /home/agent/.ssh \
  && chmod 600 /home/agent/.ssh/authorized_keys
+
+# Blend the install-generated ~/.claude.json (machineID, userID, first-start
+# time, migration flags, …) UNDER our startup-experience overrides, so that the
+# valuable per-install data survives once CLAUDE_CONFIG_DIR redirects claude to
+# /agent-data. Our keys win on conflict (jq `*` is a deep merge, right side
+# wins). The entrypoint later seeds .init-agent-data/. into /agent-data.
+RUN if [ -f /home/agent/.claude.json ]; then \
+      jq -s '.[0] * .[1]' /home/agent/.claude.json /home/agent/.init-agent-data/.claude.json \
+        > /tmp/claude.json \
+      && mv /tmp/claude.json /home/agent/.init-agent-data/.claude.json; \
+    fi \
+ && chown agent:agent /home/agent/.init-agent-data/.claude.json
 
 
 RUN chmod +x /.install-files/install.sh && \

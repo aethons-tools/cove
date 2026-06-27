@@ -5,15 +5,5 @@
     "/home/agent/workspace": {
       "hasTrustDialogAccepted": true
     }
-  },
-  "installMethod": "native",
-  "autoUpdates": false,
-  "firstStartTime": "2026-06-25T22:56:00.763Z",
-  "machineID": "28232aa4d448078bbec51affba0697556d9fa86f8c816034252a0f138fe8a4ac",
-  "opusProMigrationComplete": true,
-  "sonnet1m45MigrationComplete": true,
-  "seenNotifications": {},
-  "migrationVersion": 13,
-  "userID": "08c056f7ac0730be01ed77d27e2de93c9d8b63b0962f1a707cdcce6919ef2b43",
-  "autoUpdatesProtectedForNative": true
+  }
 }
