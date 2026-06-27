@@ -350,6 +350,16 @@ func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdo
 	if err != nil {
 		return err
 	}
+	// Recreate keeps volumes, but a shared workspace is a host bind-mount, not a
+	// volume — it must be re-specified at `docker run`. When the caller does not
+	// pass --ws, recover the previously shared workspace from state so recreate
+	// preserves it instead of silently reverting to an isolated volume. This must
+	// happen before doDestroy, which deletes the state file.
+	if wsPath == "" {
+		if st, err := state.Load(kitDir); err == nil && st.WorkspaceMode == "shared" {
+			wsPath = st.WorkspaceHostPath
+		}
+	}
 	if dryRun {
 		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", cfg.Name)
 		return nil

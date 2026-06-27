@@ -266,6 +266,91 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	}
 }
 
+// writeSharedState records a previously created instance whose workspace was a
+// shared bind-mount (i.e. `create --ws <hostPath>`).
+func writeSharedState(t *testing.T, kitDir, container, hostPath string) {
+	t.Helper()
+	if err := state.Save(kitDir, state.State{
+		Name: container, Backend: "colima", Container: container,
+		Image: "at-cove-for-" + container, WorkspaceMode: "shared", WorkspaceHostPath: hostPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dockerRunHasArg reports whether the `docker run` call carries the given arg.
+func dockerRunHasArg(t *testing.T, calls []runner.Call, want string) bool {
+	t.Helper()
+	i := dockerArg0Index(calls, "run")
+	if i == -1 {
+		t.Fatalf("no docker run call; calls=%+v", calls)
+	}
+	for _, a := range calls[i].Args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Recreate keeps volumes, but a shared bind-mount is not a volume — it must be
+// re-specified at `docker run`. Without --ws, recreate must recover the shared
+// workspace from state instead of silently falling back to an isolated volume.
+func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	hostPath := filepath.Join(dir, "myrepo")
+	if err := os.MkdirAll(hostPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSharedState(t, kitDir, "box", hostPath)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	wantMount := hostPath + ":/home/agent/workspace"
+	if !dockerRunHasArg(t, f.Calls, wantMount) {
+		t.Fatalf("recreate dropped the shared workspace; want mount %q in run args", wantMount)
+	}
+	st, err := state.Load(kitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WorkspaceMode != "shared" || st.WorkspaceHostPath != hostPath {
+		t.Fatalf("recreate must persist the shared workspace; state=%+v", st)
+	}
+}
+
+// An explicit --ws on recreate overrides whatever the prior state recorded.
+func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	oldPath := filepath.Join(dir, "old")
+	newPath := filepath.Join(dir, "new")
+	for _, p := range []string{oldPath, newPath} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeSharedState(t, kitDir, "box", oldPath)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"recreate", kitDir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if !dockerRunHasArg(t, f.Calls, newPath+":/home/agent/workspace") {
+		t.Fatalf("explicit --ws must win over state; calls=%+v", f.Calls)
+	}
+	if dockerRunHasArg(t, f.Calls, oldPath+":/home/agent/workspace") {
+		t.Fatalf("recreate used the stale workspace from state; calls=%+v", f.Calls)
+	}
+}
+
 func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
