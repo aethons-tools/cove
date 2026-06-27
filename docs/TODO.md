@@ -1,9 +1,8 @@
-* Git credential helper for pushing from the dev sandbox is not working:
-  * `git push origin main` over HTTPS fails with `could not read Username for 'https://github.com'`
-    — no credential helper / `GITHUB_TOKEN` is configured on the host, and there is no interactive prompt.
-  * SSH (port 22) is blocked by the egress lock, so the SSH remote is not an option either.
-  * Need a working push path from here: e.g. a credential helper that feeds a PAT via the HTTPS proxy,
-    or document that pushes happen from a machine with normal network access.
+* This kit's `config.yml` does not declare a `GITHUB_TOKEN` secret:
+  * Without it there is no token for git auth, so `git push origin main` over HTTPS fails with
+    `could not read Username for 'https://github.com'`.
+  * Add a `GITHUB_TOKEN` secret to `.at-cove/config.yml` (resolved from the host at connect time)
+    to enable git over HTTPS. To be configured from the host machine.
 
 * Special `.claude.json` file handling:
   * the `claude` install writes a `.claude.json` file to the home directory; it has valuable information in it
