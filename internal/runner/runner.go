@@ -9,9 +9,13 @@ import (
 	"os/exec"
 )
 
-// Runner executes a command, returning an error if it fails.
+// Runner executes external commands.
 type Runner interface {
 	Run(name string, args ...string) error
+	// RunEnv is Run with extra "KEY=VALUE" entries appended to the child env.
+	RunEnv(extraEnv []string, name string, args ...string) error
+	// Output runs the command and returns its captured stdout.
+	Output(name string, args ...string) (string, error)
 }
 
 // ExitError reports that a command exited with a non-zero status. It carries
@@ -42,19 +46,68 @@ func (OS) Run(name string, args ...string) error {
 	return err
 }
 
+func (OS) RunEnv(extraEnv []string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), extraEnv...)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return err
+}
+
+func (OS) Output(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return string(out), &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return string(out), err
+}
+
 // Call records a single Run invocation for the Fake runner.
 type Call struct {
 	Name string
 	Args []string
+	Env  []string
+}
+
+// FakeResult is one queued result for Fake.Output.
+type FakeResult struct {
+	Stdout string
+	Err    error
 }
 
 // Fake is a test Runner that records every call and returns Err.
 type Fake struct {
-	Calls []Call
-	Err   error
+	Calls   []Call
+	Err     error
+	Outputs []FakeResult // consumed in order by Output
+	out     int
 }
 
 func (f *Fake) Run(name string, args ...string) error {
 	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
 	return f.Err
+}
+
+func (f *Fake) RunEnv(extraEnv []string, name string, args ...string) error {
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Env: append([]string(nil), extraEnv...)})
+	return f.Err
+}
+
+func (f *Fake) Output(name string, args ...string) (string, error) {
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
+	if f.out < len(f.Outputs) {
+		r := f.Outputs[f.out]
+		f.out++
+		return r.Stdout, r.Err
+	}
+	return "", f.Err
 }

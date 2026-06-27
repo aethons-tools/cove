@@ -64,3 +64,35 @@ func TestOSSuccess(t *testing.T) {
 		t.Fatalf("got %v, want nil", err)
 	}
 }
+
+func TestOSOutputCaptures(t *testing.T) {
+	out, err := OS{}.Output("sh", "-c", "printf hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "hello" {
+		t.Fatalf("Output = %q, want %q", out, "hello")
+	}
+}
+
+func TestFakeOutputReturnsQueuedResults(t *testing.T) {
+	f := &Fake{Outputs: []FakeResult{{Stdout: "one"}, {Stdout: "two"}}}
+	a, _ := f.Output("docker", "port", "x")
+	b, _ := f.Output("docker", "inspect", "x")
+	if a != "one" || b != "two" {
+		t.Fatalf("got %q,%q want one,two", a, b)
+	}
+	if len(f.Calls) != 2 || f.Calls[0].Name != "docker" {
+		t.Fatalf("calls not recorded: %+v", f.Calls)
+	}
+}
+
+func TestFakeRunEnvRecordsEnv(t *testing.T) {
+	f := &Fake{}
+	if err := f.RunEnv([]string{"K=V"}, "ssh", "host"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 || len(f.Calls[0].Env) != 1 || f.Calls[0].Env[0] != "K=V" {
+		t.Fatalf("env not recorded: %+v", f.Calls)
+	}
+}
