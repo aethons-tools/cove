@@ -14,6 +14,22 @@ conversation's context is lost.
 
 ## TL;DR — where we are
 
+**UPDATE 2026-06-27 (newest) — `recreate` command added (`3347768`).**
+`atsbx recreate [kit-dir] [--workspace|--ws <path>]` destroys the container and
+creates it again while KEEPING the named volumes
+(`<name>-state`→`/agent-data` with the saved OAuth login, and `<name>-workspace`),
+because `Destroy` is `docker rm -f` (never `-v`).
+It composes the existing Destroy + Create primitives at the CLI level
+(no `Backend` interface change),
+skips the destroy when no container exists (works from any state),
+and honors `--workspace` like create.
+Guarded by `TestDestroyKeepsVolumes` (colima: no `-v`/`--volumes`) plus
+destroy-then-create ordering and skip-when-absent integration tests.
+Workspace is durable (confirmed by the user),
+so this is the UAT rebuild loop.
+
+---
+
 **UPDATE 2026-06-27 (latest) — POST-IMPLEMENTATION: OAuth + sshd + first-session login.**
 Five follow-on commits after the 14 plan tasks (`9a23d11`, `6b539dd`, `ce7c6e1`, plus the two earlier doc commits),
 all on `design/atsbx-sandboxes`,
