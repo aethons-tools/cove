@@ -20,6 +20,7 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/state"
+	"github.com/aethons-tools/cove/internal/usersecret"
 )
 
 const usage = `at-cove — run hardened Claude Code sandboxes
@@ -122,7 +123,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "create":
 		err = doCreate(kitDir, r, wsPath, dryRun, stdout)
 	case "connect":
-		err = doConnect(kitDir, r, dryRun, raw, noAuth, stdout)
+		err = doConnect(kitDir, r, dryRun, raw, noAuth, stdout, stderr)
 	case "recreate":
 		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
 	case "destroy":
@@ -254,14 +255,33 @@ func instanceFromState(st state.State) backend.Instance {
 }
 
 // doConnect launches an interactive session in the sandbox, driven by the
-// recorded state (not the kit). It holds a SHARED lock on the state file for the
-// whole session, so destroy can't tear the sandbox down underneath it. With raw
-// it drops into bash instead of claude; with noAuth it skips `claude auth login`.
-func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout io.Writer) error {
+// recorded state (not the kit). It resolves each demanded secret from its kit
+// command or, failing that, the user's ~/.config/at-cove/secrets.yml; secrets
+// with neither warn (non-fatal) and are left unset. It holds a SHARED lock on
+// the state file for the whole session, so destroy can't tear the sandbox down
+// underneath it. With raw it drops into bash instead of claude; with noAuth it
+// skips `claude auth login`.
+func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout, stderr io.Writer) error {
 	st, err := state.Load(kitDir)
 	if err != nil {
 		return err
 	}
+
+	// Demand (from state) resolved against supply (the user's secrets.yml).
+	demanded := make([]secret.Spec, len(st.Secrets))
+	for i, s := range st.Secrets {
+		demanded[i] = secret.Spec{Name: s.Name, Command: s.Command}
+	}
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	store, err := usersecret.Load(secretsPath)
+	if err != nil {
+		return err
+	}
+	specs, unresolved := store.Plan(demanded)
+	for _, name := range unresolved {
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded by the kit but has no command and no entry in %s; it will not be set\n", name, secretsPath)
+	}
+
 	launch := "claude"
 	if raw {
 		launch = "bash"
@@ -272,7 +292,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout 
 			auth = "no auth"
 		}
 		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s)\n",
-			len(st.Secrets), st.Container, launch, auth)
+			len(specs), st.Container, launch, auth)
 		return nil
 	}
 	b, err := getBackend(st.Backend, r)
@@ -292,10 +312,6 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout 
 	priv, _, err := keys.Ensure(r, configDir())
 	if err != nil {
 		return err
-	}
-	specs := make([]secret.Spec, len(st.Secrets))
-	for i, s := range st.Secrets {
-		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
 	}
 	cmd := ""
 	if raw {

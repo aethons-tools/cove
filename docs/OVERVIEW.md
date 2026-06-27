@@ -88,6 +88,34 @@ A nonzero exit aborts `connect` before any SSH happens — fail closed.
 > so an untrusted repo can never trigger a resolver you didn't author.
 > See the design spec.
 
+### Supplying secret values — `~/.config/at-cove/secrets.yml`
+
+A secret in `config.yml` may be declared with just a `name` (no `command`) —
+a *demand* for that secret,
+to be supplied from the user-owned `~/.config/at-cove/secrets.yml`.
+The kit's secret list is the authoritative demand;
+the file is the supply,
+and is consulted **only** for demanded names
+(entries it holds for other names are inert).
+
+```yaml
+# ~/.config/at-cove/secrets.yml
+GITHUB_TOKEN: ghp_xxxxxxxxxxxxxxxxxxxx                     # string -> literal value
+ANTHROPIC_API_KEY: ["pass", "show", "anthropic/api-key"]  # array  -> resolver argv
+```
+
+Per demanded secret, precedence is:
+a `config.yml` `command` wins;
+otherwise a string in `secrets.yml` is injected literally
+and an array is run as the resolver command;
+otherwise the secret is **unresolved** —
+`connect` prints a warning and leaves it unset.
+A missing file is fine (treated as empty);
+a malformed file aborts `connect`.
+
+> **Note:** literal values sit in plaintext on disk — keep the file `chmod 600`.
+> Resolver *commands* (from either source) still produce values only in memory.
+
 ## Command surface
 
 Every command takes an optional kit directory (otherwise discovered by cwd walk-up).

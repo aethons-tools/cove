@@ -88,9 +88,12 @@ Rules:
 
 - A **scalar** value is taken as its string form
   (a value that looks numeric, e.g. a PIN, is treated as a string — no quoting required).
-- An **array** value must be a sequence of strings;
-  it is the resolver argv.
-- Any other shape (a mapping, a nested structure, a non-string array element) is a **malformed entry** and is an error (§6),
+- An **array** value is the resolver argv.
+  Scalar elements are taken in their string form (mirroring scalar values),
+  so `["op", 5]` becomes `["op", "5"]`.
+- A value that is neither a scalar nor a sequence (e.g. a mapping),
+  or a sequence containing a **non-scalar** element (a nested list or mapping),
+  is a **malformed entry** and is an error (§6),
   named by its key.
 - The file is optional.
   A **missing file is equivalent to an empty map** and is not an error.
@@ -179,7 +182,7 @@ though `Plan` never emits a non-literal spec with an empty command.
 
 ## 6. Error handling
 
-- **Malformed `secrets.yml`** (bad YAML, or a value that is neither a scalar nor a string sequence) →
+- **Malformed `secrets.yml`** (bad YAML, or a value that is neither a scalar nor a sequence of scalars) →
   abort with a clear error naming the key;
   non-zero exit, even under `--dry-run`.
 - **Missing `secrets.yml`** → empty store; no error.

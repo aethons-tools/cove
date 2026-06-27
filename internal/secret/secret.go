@@ -9,17 +9,26 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-// Spec is a secret name and the argv that produces its value.
+// Spec is a secret name and how to produce its value: either a literal Value
+// (when Literal is set) or a host Command to run.
 type Spec struct {
 	Name    string
 	Command []string
+	Value   string
+	Literal bool
 }
 
-// Resolve runs each spec's command and returns name->value. Any failure aborts
-// with an error naming the secret; no partial map is returned.
+// Resolve produces name->value for each spec. A literal spec contributes its
+// Value directly (no command run); otherwise the spec's command is executed and
+// its trimmed stdout used. Any command failure aborts with an error naming the
+// secret; no partial map is returned.
 func Resolve(r runner.Runner, specs []Spec) (map[string]string, error) {
 	env := make(map[string]string, len(specs))
 	for _, s := range specs {
+		if s.Literal {
+			env[s.Name] = s.Value
+			continue
+		}
 		if len(s.Command) == 0 {
 			return nil, fmt.Errorf("secret %q: empty command", s.Name)
 		}

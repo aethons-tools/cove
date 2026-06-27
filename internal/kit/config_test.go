@@ -30,10 +30,9 @@ secrets:
 
 func TestParseConfigRejectsMissingFields(t *testing.T) {
 	cases := map[string]string{
-		"no name":           "backend: colima\n",
-		"no backend":        "name: x\n",
-		"secret no name":    "name: x\nbackend: colima\nsecrets:\n  - command: [\"a\"]\n",
-		"secret no command": "name: x\nbackend: colima\nsecrets:\n  - name: T\n",
+		"no name":        "backend: colima\n",
+		"no backend":     "name: x\n",
+		"secret no name": "name: x\nbackend: colima\nsecrets:\n  - command: [\"a\"]\n",
 	}
 	for label, data := range cases {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -45,5 +44,26 @@ func TestParseConfigRejectsMissingFields(t *testing.T) {
 func TestParseConfigRejectsUnknownField(t *testing.T) {
 	if _, err := ParseConfig([]byte("name: x\nbackend: colima\nbogus: 1\n")); err == nil {
 		t.Error("expected error on unknown field")
+	}
+}
+
+func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
+	data := []byte("name: x\nbackend: colima\nsecrets:\n  - name: GITHUB_TOKEN\n")
+	cfg, err := ParseConfig(data)
+	if err != nil {
+		t.Fatalf("name-only secret should be valid: %v", err)
+	}
+	if len(cfg.Secrets) != 1 || cfg.Secrets[0].Name != "GITHUB_TOKEN" || len(cfg.Secrets[0].Command) != 0 {
+		t.Fatalf("secrets = %+v", cfg.Secrets)
+	}
+}
+
+// Regression guard: literal secret values must NOT be declarable in the kit;
+// they belong only in the user's ~/.config/at-cove/secrets.yml. KnownFields(true)
+// rejects the unknown `value:` key, so this passes from the start.
+func TestParseConfigRejectsSecretValueField(t *testing.T) {
+	data := []byte("name: x\nbackend: colima\nsecrets:\n  - name: T\n    value: ghp_secret\n")
+	if _, err := ParseConfig(data); err == nil {
+		t.Fatal("a literal value: in config.yml must be rejected")
 	}
 }
