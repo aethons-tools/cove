@@ -31,9 +31,5 @@
   "model": "opus",
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true
-  },
-  "trustedWorkspacePatterns": [
-    "/home/agent/workspace",
-    "/home/agent/workspace/**"
-  ]
+  }
 }
