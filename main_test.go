@@ -183,6 +183,7 @@ func TestDestroyBlockedByActiveConnection(t *testing.T) {
 func TestDryRunConnectRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // hermetic: no real ~/.config/at-cove/secrets.yml
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -366,5 +367,48 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	}
 	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
 		t.Fatalf("recreate must still create the container; calls=%+v", f.Calls)
+	}
+}
+
+func TestDryRunConnectWarnsUnresolvedSecret(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"}) // demanded, no command
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())                                   // empty config dir -> no secrets.yml
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "GITHUB_TOKEN") || !strings.Contains(errOut.String(), "will not be set") {
+		t.Fatalf("expected unresolved warning on stderr; got %q", errOut.String())
+	}
+	if !strings.Contains(out.String(), "would resolve 0 secrets") {
+		t.Fatalf("resolvable count should be 0; got %q", out.String())
+	}
+}
+
+func TestConnectMalformedSecretsFileAborts(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	coveCfg := filepath.Join(cfgHome, "at-cove")
+	if err := os.MkdirAll(coveCfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coveCfg, "secrets.yml"), []byte("GITHUB_TOKEN:\n  nested: bad\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("malformed secrets.yml should abort; out=%q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "GITHUB_TOKEN") {
+		t.Fatalf("error should name the bad key; stderr=%q", errOut.String())
 	}
 }
