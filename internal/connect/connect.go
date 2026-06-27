@@ -32,6 +32,7 @@ type Options struct {
 	Secrets       []secret.Spec
 	IdentityFile  string
 	KnownHostsDir string // per-sandbox known_hosts files live here
+	SkipAuth      bool   // skip the interactive `claude auth login` step (--no-auth)
 }
 
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
@@ -70,8 +71,10 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		KnownHostsFile: knownHosts,
 	}
 
-	if err := ensureAuthenticated(r, tgt); err != nil {
-		return err
+	if !o.SkipAuth {
+		if err := ensureAuthenticated(r, tgt); err != nil {
+			return err
+		}
 	}
 	return t.Launch(tgt, env)
 }

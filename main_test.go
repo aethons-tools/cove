@@ -67,6 +67,25 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 
 func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
 
+func TestDryRunConnectRawNoAuth(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "--raw", "--no-auth", "connect", filepath.Join(dir, ".at-cove")},
+		f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run executed commands: %+v", f.Calls)
+	}
+	s := out.String()
+	if !strings.Contains(s, "bash") || !strings.Contains(s, "no auth") {
+		t.Fatalf("dry-run connect --raw --no-auth message = %q", s)
+	}
+}
+
 func TestVersionSubcommand(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"version"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)

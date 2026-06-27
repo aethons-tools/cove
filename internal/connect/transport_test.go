@@ -2,11 +2,16 @@ package connect
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
+
+func rawTarget() sshargs.Target {
+	return sshargs.Target{Host: "h", User: "agent", Port: 22, IdentityFile: "/id", KnownHostsFile: "/kh"}
+}
 
 func TestSendEnvLaunch(t *testing.T) {
 	f := &runner.Fake{}
@@ -57,6 +62,29 @@ func TestStdinScriptNoValueOnArgv(t *testing.T) {
 				t.Fatalf("secret value leaked onto argv: %v", c.Args)
 			}
 		}
+	}
+}
+
+func TestSendEnvLaunchRawBash(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (SendEnv{R: f, Cmd: "bash"}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	args := f.Calls[0].Args
+	if args[len(args)-1] != "exec bash" {
+		t.Fatalf("raw SendEnv should launch bash, got %q", args[len(args)-1])
+	}
+}
+
+func TestStdinScriptRawBash(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Cmd: "bash"}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	// Second call is the interactive launch; its remote script ends in exec bash.
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if !strings.HasSuffix(remote, "exec bash") {
+		t.Fatalf("raw StdinScript should exec bash, got %q", remote)
 	}
 }
 

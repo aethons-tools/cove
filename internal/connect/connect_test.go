@@ -109,6 +109,27 @@ func TestConnectSkipsLoginWhenAuthed(t *testing.T) {
 	}
 }
 
+func TestConnectSkipAuth(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	// Only the secret output; no auth probe should be consumed.
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}}}
+	o := opts(t.TempDir())
+	o.SkipAuth = true
+	if err := Connect(b, r, tr, o); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, "claude auth status") {
+		t.Fatal("--no-auth must not run the auth probe")
+	}
+	if calledWith(r.Calls, loginCmd) {
+		t.Fatal("--no-auth must not run login")
+	}
+	if !tr.launched {
+		t.Fatal("must still launch after skipping auth")
+	}
+}
+
 func TestConnectAuthProbeFailureAborts(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}

@@ -25,7 +25,7 @@ const usage = `at-cove — run hardened Claude Code sandboxes
 Usage:
   at-cove build    [kit-dir]
   at-cove create   [kit-dir] [--workspace|--ws <path>]
-  at-cove connect  [kit-dir]
+  at-cove connect  [kit-dir] [--raw] [--no-auth]
   at-cove recreate [kit-dir] [--workspace|--ws <path>]
   at-cove destroy  [kit-dir]
   at-cove status   [kit-dir]
@@ -38,6 +38,10 @@ saved login — and workspace).
 Global flags:
   --dry-run   print planned actions without executing
   --version   print the at-cove version and exit
+
+connect flags:
+  --raw       launch bash instead of claude (debug what the agent sees)
+  --no-auth   skip the claude auth login step
 `
 
 // version is the at-cove build version, stamped at build time via
@@ -52,6 +56,8 @@ func main() {
 func run(argv []string, r runner.Runner, lookup func(string) (string, bool), lookPath func(string) (string, error), stdout, stderr io.Writer) int {
 	dryRun := false
 	showVersion := false
+	raw := false
+	noAuth := false
 	var args []string
 	wsPath := ""
 	for i := 0; i < len(argv); i++ {
@@ -61,6 +67,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			dryRun = true
 		case a == "--version":
 			showVersion = true
+		case a == "--raw":
+			raw = true
+		case a == "--no-auth":
+			noAuth = true
 		case a == "--workspace" || a == "--ws":
 			if i+1 >= len(argv) {
 				fmt.Fprintln(stderr, "at-cove: --workspace requires a path")
@@ -119,7 +129,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "create":
 		err = doCreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
 	case "connect":
-		err = doConnect(cfg, b, r, dryRun, stdout)
+		err = doConnect(cfg, b, r, dryRun, raw, noAuth, stdout)
 	case "recreate":
 		err = doRecreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
 	case "destroy":
@@ -217,9 +227,21 @@ func doRecreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runne
 	return doCreate(kitDir, cfg, b, r, wsPath, false, stdout)
 }
 
-func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun bool, stdout io.Writer) error {
+// doConnect launches an interactive session in the sandbox. With raw it drops
+// into bash instead of claude (to debug what the agent sees); with noAuth it
+// skips the `claude auth login` step. Both still resolve and inject secrets.
+func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun, raw, noAuth bool, stdout io.Writer) error {
+	launch := "claude"
+	if raw {
+		launch = "bash"
+	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s\n", len(cfg.Secrets), cfg.Name)
+		auth := "with auth"
+		if noAuth {
+			auth = "no auth"
+		}
+		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s)\n",
+			len(cfg.Secrets), cfg.Name, launch, auth)
 		return nil
 	}
 	priv, _, err := keys.Ensure(r, configDir())
@@ -230,11 +252,16 @@ func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun bool, 
 	for i, s := range cfg.Secrets {
 		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
 	}
-	return connect.Connect(b, r, connect.StdinScript{R: r}, connect.Options{
+	cmd := ""
+	if raw {
+		cmd = "bash"
+	}
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd}, connect.Options{
 		Name:          cfg.Name,
 		Secrets:       specs,
 		IdentityFile:  priv,
 		KnownHostsDir: filepath.Join(configDir(), "known_hosts.d"),
+		SkipAuth:      noAuth,
 	})
 }
 

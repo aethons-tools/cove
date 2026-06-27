@@ -9,15 +9,28 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
-// Transport injects env and launches claude interactively over SSH.
+// Transport injects env and launches the remote program interactively over SSH.
 type Transport interface {
 	Launch(t sshargs.Target, env map[string]string) error
+}
+
+// launchCmd is the remote program a transport exec's. Empty means the agent
+// (claude); `connect --raw` sets it to "bash" to drop into a debug shell with
+// the same injected environment the agent would see.
+func launchCmd(cmd string) string {
+	if cmd == "" {
+		return "claude"
+	}
+	return cmd
 }
 
 // SendEnv forwards secrets via ssh SendEnv: values live only in the ssh child's
 // environment (never on argv, never on disk). The VM's sshd AcceptEnv allowlist
 // (shipped in the hardening layer) accepts them.
-type SendEnv struct{ R runner.Runner }
+type SendEnv struct {
+	R   runner.Runner
+	Cmd string // remote program to exec; "" => claude
+}
 
 func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	names := make([]string, 0, len(env))
@@ -29,16 +42,19 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	for _, k := range names {
 		childEnv = append(childEnv, k+"="+env[k])
 	}
-	args := sshargs.InteractiveSendEnv(t, names, "exec claude")
+	args := sshargs.InteractiveSendEnv(t, names, "exec "+launchCmd(s.Cmd))
 	return s.R.RunEnv(childEnv, "ssh", args...)
 }
 
 // StdinScript is the spec's primary transport: it writes an env-export script
 // into the VM's tmpfs (/dev/shm) over ssh stdin — so secret values never appear
 // on argv — then opens an interactive ssh that sources the file, removes it, and
-// exec's claude. The file lives only in tmpfs and is deleted before the shell
-// hands off to claude.
-type StdinScript struct{ R runner.Runner }
+// exec's the program. The file lives only in tmpfs and is deleted before the
+// shell hands off.
+type StdinScript struct {
+	R   runner.Runner
+	Cmd string // remote program to exec; "" => claude
+}
 
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 	// host+port keeps the path distinct across concurrently-connected sandboxes
@@ -59,8 +75,8 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 	if err := s.R.RunStdin(strings.NewReader(script.String()), "ssh", writeArgs...); err != nil {
 		return err
 	}
-	// 2) interactive: source the file, remove it, then launch claude.
-	remote := "set -a; . " + file + "; rm -f " + file + "; exec claude"
+	// 2) interactive: source the file, remove it, then launch the program.
+	remote := "set -a; . " + file + "; rm -f " + file + "; exec " + launchCmd(s.Cmd)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
 }
