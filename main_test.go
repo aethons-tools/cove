@@ -12,7 +12,7 @@ import (
 
 func writeKit(t *testing.T, dir string) {
 	t.Helper()
-	cove := filepath.Join(dir, ".cove")
+	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -38,7 +38,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 
 func TestUnknownBackendErrors(t *testing.T) {
 	dir := t.TempDir()
-	cove := filepath.Join(dir, ".cove")
+	cove := filepath.Join(dir, ".at-cove")
 	os.MkdirAll(cove, 0o755)
 	os.WriteFile(filepath.Join(cove, "config.yml"), []byte("name: box\nbackend: bogus\n"), 0o644)
 	var out, errOut bytes.Buffer
@@ -53,7 +53,7 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -99,7 +99,7 @@ func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "recreate", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -118,7 +118,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	// GetStatus -> running (docker inspect prints "true"); then rm, build, run.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -148,7 +148,7 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	// GetStatus -> absent (docker inspect errors); then build+run, NO rm.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}

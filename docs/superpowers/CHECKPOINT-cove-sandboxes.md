@@ -167,7 +167,7 @@ The authoritative artifacts (read these first):
 ```
 4591b6a docs: implementation plan for multi-backend cove sandboxes
 6eea3f4 docs: document secret-command injection risk and .local mitigation
-bfe9cc1 docs: kit is a discoverable .cove/ directory
+bfe9cc1 docs: kit is a discoverable .at-cove/ directory
 e58f834 docs: design for YAML-driven multi-backend cove sandboxes
 724be68 feat: add cove CLI dispatcher with dry-run and exit-code propagation  (pre-existing)
 ```
@@ -185,7 +185,7 @@ supersedes it.
 - **Multi-backend abstraction; SSH is the universal interface.** Scope of this
   spec = the `Backend` interface + uniform `connect` + the **Colima** backend.
   Firecracker and Fly are follow-on specs.
-- **Kit = a directory** (`.cove/` at repo root, cwd walk-up discovery):
+- **Kit = a directory** (`.at-cove/` at repo root, cwd walk-up discovery):
   `config.yml` + `image-files/` overlay + gitignored `.build/`.
 - **`.build` assembly = layered overlays, last writer wins:** embedded
   overridable defaults → kit `image-files/` → (deferred `.local/`) → embedded

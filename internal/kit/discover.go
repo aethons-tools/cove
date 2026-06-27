@@ -6,21 +6,21 @@ import (
 	"path/filepath"
 )
 
-// Discover walks up from start to the nearest directory containing a .cove/
-// child, returning the path to that .cove directory.
+// Discover walks up from start to the nearest directory containing a .at-cove/
+// child, returning the path to that .at-cove directory.
 func Discover(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
 	}
 	for {
-		cand := filepath.Join(dir, ".cove")
+		cand := filepath.Join(dir, ".at-cove")
 		if info, err := os.Stat(cand); err == nil && info.IsDir() {
 			return cand, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("no .cove/ found in %s or any parent", start)
+			return "", fmt.Errorf("no .at-cove/ found in %s or any parent", start)
 		}
 		dir = parent
 	}

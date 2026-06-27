@@ -1,4 +1,4 @@
-// Command at-cove runs hardened Claude Code sandboxes from a .cove kit
+// Command at-cove runs hardened Claude Code sandboxes from a .at-cove kit
 // directory across pluggable VM backends.
 package main
 
@@ -30,7 +30,7 @@ Usage:
   at-cove destroy  [kit-dir]
   at-cove status   [kit-dir]
 
-If kit-dir is omitted, at-cove walks up from the cwd to the nearest .cove/.
+If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
 recreate rebuilds the VM from the kit while keeping its volumes (state — incl.
 saved login — and workspace).
 
@@ -124,8 +124,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 }
 
 func resolveKit(start string) (string, error) {
-	// An explicit path that already ends in .cove (or contains config.yml) is used directly.
-	if filepath.Base(start) == ".cove" {
+	// An explicit path that already ends in .at-cove (or contains config.yml) is used directly.
+	if filepath.Base(start) == ".at-cove" {
 		return start, nil
 	}
 	if _, err := os.Stat(filepath.Join(start, "config.yml")); err == nil {

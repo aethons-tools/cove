@@ -13,7 +13,7 @@ that runs hardened Claude Code sandboxes across multiple VM backends
 from a single YAML description.
 The intended user experience:
 
-1. Add a `.cove/` kit directory whose `config.yml` describes the sandbox
+1. Add a `.at-cove/` kit directory whose `config.yml` describes the sandbox
    (name, backend, secrets it needs).
 2. `cove create` (run in the repo) provisions the VM.
 3. `cove connect` SSHes in,
@@ -63,11 +63,11 @@ Firecracker and Fly come later behind the same interface.
 
 ### 3.2 The kit is a directory
 
-The kit is **always a directory**, by convention `.cove/` at the repo root:
+The kit is **always a directory**, by convention `.at-cove/` at the repo root:
 
 ```
 repo/
-  .cove/
+  .at-cove/
     config.yml        # the spec: name, backend, secrets (§4)
     image-files/      # committed local overrides (layer 2), overlaid onto the VM root
     .local/           # DEFERRED override layer (§3.7)
@@ -79,10 +79,10 @@ repo/
 `config.yml` lives inside the kit;
 `image-files/` is the conventional source of the user's local overrides,
 mirroring `claude-code-oci`'s `image-files/ → /` overlay.
-`cove` writes a `.gitignore` into `.cove/` covering `.build/` and `.local/`.
+`cove` writes a `.gitignore` into `.at-cove/` covering `.build/` and `.local/`.
 
 **Discovery.**
-A command with no kit path **walks up from the cwd to the nearest `.cove/`**
+A command with no kit path **walks up from the cwd to the nearest `.at-cove/`**
 (git-like), so it works from subdirectories;
 an explicit kit-directory path on the command line overrides discovery.
 
@@ -180,7 +180,7 @@ The user never handles SSH keys.
 
 ### 3.7 The `.local/` override layer (deferred)
 
-`.cove/.local/` is a **source-control-excluded** override layer:
+`.at-cove/.local/` is a **source-control-excluded** override layer:
 a `config.yml` and an `image-files/` tree that a developer keeps off VCS
 (machine-specific tweaks, personal defaults).
 It slots into the precedence between the committed `image-files/`
@@ -201,7 +201,7 @@ not just a convenience for machine-specific overrides.
 
 ## 4. The `config.yml` schema
 
-`config.yml` lives inside the kit directory (`.cove/config.yml`).
+`config.yml` lives inside the kit directory (`.at-cove/config.yml`).
 Lean: identity and wiring only.
 No secret values, no hardening knobs, no workspace mode, no local-files path
 (the kit's `image-files/` is the layer-2 source by convention — §3.2).
@@ -238,7 +238,7 @@ Rules:
 ## 5. Command surface
 
 Every command takes an optional **kit directory**;
-omitted, it is discovered by walking up from cwd to the nearest `.cove/` (§3.2).
+omitted, it is discovered by walking up from cwd to the nearest `.at-cove/` (§3.2).
 
 | Command | Behavior |
 |---|---|
@@ -422,7 +422,7 @@ secrets arrive only via `connect`.
 ## 9. Error handling
 
 - Unknown `backend:` → error listing supported backends; non-zero exit.
-- No `.cove/` found on cwd walk-up (and none given) → actionable error.
+- No `.at-cove/` found on cwd walk-up (and none given) → actionable error.
 - Missing/invalid `config.yml`, missing required fields → usage + non-zero exit.
 - `--workspace` on the Fly backend → hard error
   (documented; enforced once Fly exists).

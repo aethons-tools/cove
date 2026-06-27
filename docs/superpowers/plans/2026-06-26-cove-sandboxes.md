@@ -5,7 +5,7 @@
 **Goal:**
 Evolve `cove` from an `sbx` wrapper
 into a tool that runs hardened Claude Code sandboxes
-from a discoverable `.cove/` kit directory across pluggable VM backends (Colima first),
+from a discoverable `.at-cove/` kit directory across pluggable VM backends (Colima first),
 with secrets resolved at `connect` time and injected over SSH.
 
 **Architecture:**
@@ -56,7 +56,7 @@ Every task's requirements implicitly include this section.
 |---|---|
 | `internal/runner/runner.go` | `Runner` interface + `OS`/`Fake`. Extended with `Output` (capture stdout) and `RunEnv` (stream stdio with extra env). |
 | `internal/kit/config.go` | `Config`/`Secret` types; `ParseConfig` (unmarshal + validate). |
-| `internal/kit/discover.go` | `Discover` (cwd walk-up to `.cove/`); `Load` (read+parse `config.yml`). |
+| `internal/kit/discover.go` | `Discover` (cwd walk-up to `.at-cove/`); `Load` (read+parse `config.yml`). |
 | `internal/sshargs/sshargs.go` | Pure argv builders for the `ssh` client (`Target`, `Base`, `InteractiveSendEnv`). |
 | `internal/secret/secret.go` | `Spec` type; `Resolve` (run each command via `Runner`, capture, trim, fail closed). |
 | `internal/backend/backend.go` | `Backend` interface, `State`/`WorkspaceMode`/`WorkspaceMount`/`Endpoint`/`CreateContext`, factory registry. |
@@ -395,7 +395,7 @@ git commit -m "feat(kit): config.yml types, parsing, and validation"
 **Interfaces:**
 - Consumes: `ParseConfig` (Task 2).
 - Produces:
-  - `func Discover(start string) (kitDir string, err error)` — walk up from `start` to the nearest `.cove/` directory; returns its path.
+  - `func Discover(start string) (kitDir string, err error)` — walk up from `start` to the nearest `.at-cove/` directory; returns its path.
   - `func Load(kitDir string) (Config, error)` — read `<kitDir>/config.yml` and `ParseConfig` it.
 
 - [ ] **Step 1: Write the failing test**
@@ -413,7 +413,7 @@ import (
 
 func TestDiscoverWalksUp(t *testing.T) {
 	root := t.TempDir()
-	cove := filepath.Join(root, ".cove")
+	cove := filepath.Join(root, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestDiscoverWalksUp(t *testing.T) {
 
 func TestDiscoverNotFound(t *testing.T) {
 	if _, err := Discover(t.TempDir()); err == nil {
-		t.Error("expected error when no .cove exists")
+		t.Error("expected error when no .at-cove exists")
 	}
 }
 
@@ -470,21 +470,21 @@ import (
 	"path/filepath"
 )
 
-// Discover walks up from start to the nearest directory containing a .cove/
-// child, returning the path to that .cove directory.
+// Discover walks up from start to the nearest directory containing a .at-cove/
+// child, returning the path to that .at-cove directory.
 func Discover(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
 	}
 	for {
-		cand := filepath.Join(dir, ".cove")
+		cand := filepath.Join(dir, ".at-cove")
 		if info, err := os.Stat(cand); err == nil && info.IsDir() {
 			return cand, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("no .cove/ found in %s or any parent", start)
+			return "", fmt.Errorf("no .at-cove/ found in %s or any parent", start)
 		}
 		dir = parent
 	}
@@ -510,7 +510,7 @@ Expected: PASS.
 ```bash
 gofmt -w internal/kit/discover.go internal/kit/discover_test.go
 git add internal/kit/discover.go internal/kit/discover_test.go
-git commit -m "feat(kit): .cove discovery (cwd walk-up) and config load"
+git commit -m "feat(kit): .at-cove discovery (cwd walk-up) and config load"
 ```
 
 ---
@@ -1947,7 +1947,7 @@ import (
 
 func writeKit(t *testing.T, dir string) {
 	t.Helper()
-	cove := filepath.Join(dir, ".cove")
+	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1962,7 +1962,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -1973,7 +1973,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 
 func TestUnknownBackendErrors(t *testing.T) {
 	dir := t.TempDir()
-	cove := filepath.Join(dir, ".cove")
+	cove := filepath.Join(dir, ".at-cove")
 	os.MkdirAll(cove, 0o755)
 	os.WriteFile(filepath.Join(cove, "config.yml"), []byte("name: box\nbackend: bogus\n"), 0o644)
 	var out, errOut bytes.Buffer
@@ -1988,7 +1988,7 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", filepath.Join(dir, ".at-cove")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -2013,7 +2013,7 @@ Expected: FAIL (old `run` signature / behavior differs).
 Replace `main.go` with:
 
 ```go
-// Command cove runs hardened Claude Code sandboxes from a .cove kit
+// Command cove runs hardened Claude Code sandboxes from a .at-cove kit
 // directory across pluggable VM backends.
 package main
 
@@ -2044,7 +2044,7 @@ Usage:
   cove destroy [kit-dir]
   cove status  [kit-dir]
 
-If kit-dir is omitted, cove walks up from the cwd to the nearest .cove/.
+If kit-dir is omitted, cove walks up from the cwd to the nearest .at-cove/.
 
 Global flags:
   --dry-run   print planned actions without executing
@@ -2134,8 +2134,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 }
 
 func resolveKit(start string) (string, error) {
-	// An explicit path that already ends in .cove (or contains config.yml) is used directly.
-	if filepath.Base(start) == ".cove" {
+	// An explicit path that already ends in .at-cove (or contains config.yml) is used directly.
+	if filepath.Base(start) == ".at-cove" {
 		return start, nil
 	}
 	if _, err := os.Stat(filepath.Join(start, "config.yml")); err == nil {
@@ -2418,6 +2418,6 @@ git commit -m "feat(connect): stdin/tmpfs transport (spec primary)"
 
 - [ ] Run the full suite: `go test ./...` → all PASS.
 - [ ] Build: `go build -o at-cove .` → succeeds.
-- [ ] Dry-run smoke (no Docker needed), from a repo containing `.cove/config.yml`:
+- [ ] Dry-run smoke (no Docker needed), from a repo containing `.at-cove/config.yml`:
   `./at-cove --dry-run create` and `./at-cove --dry-run connect` → prints planned actions, exit 0.
 - [ ] Confirm `agent-infrastructure/` is unchanged: `git -C ../agent-infrastructure status --porcelain` (run from `sbx`) → no output attributable to this work.

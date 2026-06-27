@@ -8,7 +8,7 @@ import (
 
 func TestDiscoverWalksUp(t *testing.T) {
 	root := t.TempDir()
-	cove := filepath.Join(root, ".cove")
+	cove := filepath.Join(root, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestDiscoverWalksUp(t *testing.T) {
 
 func TestDiscoverNotFound(t *testing.T) {
 	if _, err := Discover(t.TempDir()); err == nil {
-		t.Error("expected error when no .cove exists")
+		t.Error("expected error when no .at-cove exists")
 	}
 }
 
