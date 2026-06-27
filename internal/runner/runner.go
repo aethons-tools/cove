@@ -5,6 +5,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
@@ -16,6 +17,9 @@ type Runner interface {
 	RunEnv(extraEnv []string, name string, args ...string) error
 	// Output runs the command and returns its captured stdout.
 	Output(name string, args ...string) (string, error)
+	// RunStdin is Run with the child's stdin connected to the given reader
+	// (or the process's os.Stdin when stdin is nil, for interactive use).
+	RunStdin(stdin io.Reader, name string, args ...string) error
 }
 
 // ExitError reports that a command exited with a non-zero status. It carries
@@ -71,6 +75,23 @@ func (OS) Output(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+func (OS) RunStdin(stdin io.Reader, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	} else {
+		cmd.Stdin = os.Stdin
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return err
+}
+
 // Call records a single Run invocation for the Fake runner.
 type Call struct {
 	Name string
@@ -99,6 +120,11 @@ func (f *Fake) Run(name string, args ...string) error {
 
 func (f *Fake) RunEnv(extraEnv []string, name string, args ...string) error {
 	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Env: append([]string(nil), extraEnv...)})
+	return f.Err
+}
+
+func (f *Fake) RunStdin(stdin io.Reader, name string, args ...string) error {
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
 	return f.Err
 }
 

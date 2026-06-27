@@ -2,6 +2,7 @@ package runner
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,22 @@ func TestFakeRunEnvRecordsEnv(t *testing.T) {
 	}
 	if len(f.Calls) != 1 || len(f.Calls[0].Env) != 1 || f.Calls[0].Env[0] != "K=V" {
 		t.Fatalf("env not recorded: %+v", f.Calls)
+	}
+}
+
+func TestFakeRunStdinRecordsCall(t *testing.T) {
+	f := &Fake{}
+	if err := f.RunStdin(strings.NewReader("export X=1\n"), "ssh", "host", "cat > /x"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "ssh" || f.Calls[0].Args[0] != "host" {
+		t.Fatalf("call not recorded: %+v", f.Calls)
+	}
+}
+
+func TestOSRunStdinFeedsStdin(t *testing.T) {
+	// `cat` echoes stdin to stdout; with stdout not captured this just must not error.
+	if err := (OS{}).RunStdin(strings.NewReader("hi"), "cat"); err != nil {
+		t.Fatal(err)
 	}
 }

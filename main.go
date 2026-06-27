@@ -183,7 +183,7 @@ func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun bool, 
 	for i, s := range cfg.Secrets {
 		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
 	}
-	return connect.Connect(b, r, connect.SendEnv{R: r}, connect.Options{
+	return connect.Connect(b, r, connect.StdinScript{R: r}, connect.Options{
 		Name:          cfg.Name,
 		Secrets:       specs,
 		IdentityFile:  priv,

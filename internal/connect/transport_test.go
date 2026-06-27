@@ -40,6 +40,26 @@ func TestSendEnvLaunch(t *testing.T) {
 	}
 }
 
+func TestStdinScriptNoValueOnArgv(t *testing.T) {
+	f := &runner.Fake{}
+	tr := StdinScript{R: f}
+	tgt := sshargs.Target{Host: "h", User: "agent", Port: 22, IdentityFile: "/id", KnownHostsFile: "/kh"}
+	if err := tr.Launch(tgt, map[string]string{"GITHUB_TOKEN": "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	// Two ssh calls: write-to-tmpfs, then interactive source+launch.
+	if len(f.Calls) != 2 {
+		t.Fatalf("expected 2 ssh calls, got %d", len(f.Calls))
+	}
+	for _, c := range f.Calls {
+		for _, a := range c.Args {
+			if a == "tok" {
+				t.Fatalf("secret value leaked onto argv: %v", c.Args)
+			}
+		}
+	}
+}
+
 func hasPair(args []string, v string) bool {
 	for _, a := range args {
 		if a == v {
