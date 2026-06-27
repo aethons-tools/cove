@@ -14,8 +14,28 @@ conversation's context is lost.
 
 ## TL;DR — where we are
 
+**UPDATE 2026-06-27 (later) — IMPLEMENTATION COMPLETE.**
+All 14 required plan tasks are implemented and committed on `design/atsbx-sandboxes`
+(13 `feat`/`chore` commits, `58b658d`..`c3d1031`),
+each via a fresh subagent (TDD).
+Final verification all green:
+`go test ./...` PASS (10 packages),
+`go build -o atsbx .` OK,
+`go vet ./...` clean,
+`--dry-run create`/`connect` smoke OK,
+and `agent-infrastructure/` byte-for-byte unchanged vs the pre-work baseline.
+Only the **optional** plan Task 15 (stdin/tmpfs transport) is left undone —
+`SendEnv` is the shipping transport per the spec.
+The new packages:
+runner(ext), kit(config/discover), sshargs, secret, backend(+colima), assemble(embed+layered), keys, connect(transport+orchestration), and a rewritten main.go.
+The old `internal/sbx` and old `internal/kit/{build,create,template}.go` were retired in the final task.
+Branch is NOT merged to `main`,
+and there is still NO git remote (cannot push).
+
+---
+
 Brainstorming and planning are **done and committed**.
-Implementation has **not started**.
+Implementation is **done** (see the COMPLETE note above).
 
 **UPDATE 2026-06-27 — the blocker is RESOLVED. Ready to execute.**
 - Go **1.26.4 (linux/arm64) is installed** (`go version` works).
