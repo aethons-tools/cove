@@ -30,3 +30,17 @@ func TestResolveFailsClosed(t *testing.T) {
 		t.Fatal("expected error when a resolver command fails")
 	}
 }
+
+func TestResolveLiteralValueRunsNoCommand(t *testing.T) {
+	f := &runner.Fake{}
+	env, err := Resolve(f, []Spec{{Name: "GITHUB_TOKEN", Value: "ghp_x", Literal: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["GITHUB_TOKEN"] != "ghp_x" {
+		t.Fatalf("env = %v", env)
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("a literal secret must not run a command; calls=%+v", f.Calls)
+	}
+}
