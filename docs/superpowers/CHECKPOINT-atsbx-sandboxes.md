@@ -14,7 +14,28 @@ conversation's context is lost.
 
 ## TL;DR — where we are
 
-**UPDATE 2026-06-27 (newest) — real-ssh test harness + verified auth probe + setup script.**
+**UPDATE 2026-06-27 (newest) — git over HTTPS + GitHub PAT (was a deferred appendix).**
+The sandbox egress only allows HTTPS via the proxy (.github.com:443);
+SSH git (port 22) and git:// are dropped by nftables.
+Both halves now ship in the non-overridable hardening layer:
+- `/etc/gitconfig` `url."https://github.com/".insteadOf` rewrites
+  `git@github.com:`, `ssh://git@github.com/`, `git://github.com/` → HTTPS (`769ca4d`).
+- `/usr/local/bin/atsbx-git-credential.sh` credential helper (`6d70542`):
+  authenticates github.com HTTPS with `GITHUB_TOKEN` from the connect-session env,
+  memory-only (username=x-access-token, password=$GITHUB_TOKEN), never on disk;
+  `helper = ""` reset drops inherited helpers; withholds creds (fails closed) when
+  the token is unset.
+  **To enable private repos, declare a `GITHUB_TOKEN` secret in `config.yml`** —
+  but note managed `forceLoginMethod=claudeai` blocks `ANTHROPIC_API_KEY`, NOT
+  `GITHUB_TOKEN`, so a git token secret is fine.
+Guarded by embed content tests plus a real `git credential fill` test
+(token supplied for github.com, withheld when unset; skips if git absent).
+Remote is `git@github.com:aethons-tools/cove.git` (SSH);
+this egress-locked dev box can't push (no key + port 22 blocked) — the USER pushes.
+
+---
+
+**UPDATE 2026-06-27 — real-ssh test harness + verified auth probe + setup script.**
 - `claude` CLI is present in this dev sandbox;
   verified against it (v2.1.193):
   `claude auth login` is real (`--claudeai` is the default),
