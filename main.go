@@ -23,13 +23,16 @@ import (
 const usage = `atsbx — run hardened Claude Code sandboxes
 
 Usage:
-  atsbx build   [kit-dir]
-  atsbx create  [kit-dir] [--workspace|--ws <path>]
-  atsbx connect [kit-dir]
-  atsbx destroy [kit-dir]
-  atsbx status  [kit-dir]
+  atsbx build    [kit-dir]
+  atsbx create   [kit-dir] [--workspace|--ws <path>]
+  atsbx connect  [kit-dir]
+  atsbx recreate [kit-dir] [--workspace|--ws <path>]
+  atsbx destroy  [kit-dir]
+  atsbx status   [kit-dir]
 
 If kit-dir is omitted, atsbx walks up from the cwd to the nearest .atsbx/.
+recreate rebuilds the VM from the kit while keeping its volumes (state — incl.
+saved login — and workspace).
 
 Global flags:
   --dry-run   print planned actions without executing
@@ -98,6 +101,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		err = doCreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
 	case "connect":
 		err = doConnect(cfg, b, r, dryRun, stdout)
+	case "recreate":
+		err = doRecreate(kitDir, cfg, b, r, wsPath, dryRun, stdout)
 	case "destroy":
 		err = doSimple(b.Destroy, cfg.Name, "destroy", dryRun, stdout)
 	case "status":
@@ -168,6 +173,29 @@ func doCreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runner,
 		return err
 	}
 	return b.Create(backend.CreateContext{Name: cfg.Name, BuildDir: buildDir, Workspace: ws})
+}
+
+// doRecreate destroys the sandbox container and creates it again, KEEPING the
+// volumes. The named volumes — state at /agent-data (including the saved OAuth
+// login) and the isolated workspace — survive because Destroy removes only the
+// container (docker rm -f, never -v). The destroy is skipped when no container
+// exists, so recreate works from any state. --workspace is honored just like
+// create.
+func doRecreate(kitDir string, cfg kit.Config, b backend.Backend, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+	if dryRun {
+		fmt.Fprintf(stdout, "would destroy %s (keeping volumes) then recreate\n", cfg.Name)
+		return nil
+	}
+	st, err := b.GetStatus(cfg.Name)
+	if err != nil {
+		return err
+	}
+	if st != backend.StateAbsent {
+		if err := b.Destroy(cfg.Name); err != nil {
+			return err
+		}
+	}
+	return doCreate(kitDir, cfg, b, r, wsPath, false, stdout)
 }
 
 func doConnect(cfg kit.Config, b backend.Backend, r runner.Runner, dryRun bool, stdout io.Writer) error {

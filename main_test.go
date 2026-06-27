@@ -66,3 +66,96 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 }
 
 func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
+
+// seedConfigDir points configDir() at a temp dir pre-loaded with a keypair, so
+// keys.Ensure does not shell out to ssh-keygen during non-dry-run tests.
+func seedConfigDir(t *testing.T) {
+	t.Helper()
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	atsbxCfg := filepath.Join(cfgHome, "atsbx")
+	if err := os.MkdirAll(atsbxCfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(atsbxCfg, "id_ed25519"), []byte("PRIV"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(atsbxCfg, "id_ed25519.pub"), []byte("ssh-ed25519 AAAA test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dockerArg0Index(calls []runner.Call, arg0 string) int {
+	for i, c := range calls {
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == arg0 {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestDryRunRecreatePrintsNoExec(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "recreate", filepath.Join(dir, ".atsbx")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run executed commands: %+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "would") || !strings.Contains(out.String(), "keeping volumes") {
+		t.Fatalf("dry-run should describe a volume-keeping recreate: %q", out.String())
+	}
+}
+
+func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	seedConfigDir(t)
+	// GetStatus -> running (docker inspect prints "true"); then rm, build, run.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"recreate", filepath.Join(dir, ".atsbx")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	rmIdx := dockerArg0Index(f.Calls, "rm")
+	buildIdx := dockerArg0Index(f.Calls, "build")
+	runIdx := dockerArg0Index(f.Calls, "run")
+	if rmIdx == -1 {
+		t.Fatalf("recreate must destroy the container; calls=%+v", f.Calls)
+	}
+	if buildIdx == -1 || runIdx == -1 {
+		t.Fatalf("recreate must create the container; calls=%+v", f.Calls)
+	}
+	if rmIdx > buildIdx {
+		t.Fatalf("destroy must precede create; calls=%+v", f.Calls)
+	}
+	for _, a := range f.Calls[rmIdx].Args {
+		if a == "-v" || a == "--volumes" {
+			t.Fatalf("recreate must keep volumes: %v", f.Calls[rmIdx].Args)
+		}
+	}
+}
+
+func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	seedConfigDir(t)
+	// GetStatus -> absent (docker inspect errors); then build+run, NO rm.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"recreate", filepath.Join(dir, ".atsbx")}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "rm") != -1 {
+		t.Fatalf("must not destroy when no container exists; calls=%+v", f.Calls)
+	}
+	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("recreate must still create the container; calls=%+v", f.Calls)
+	}
+}

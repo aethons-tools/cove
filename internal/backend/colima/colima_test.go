@@ -77,6 +77,31 @@ func TestRegistered(t *testing.T) {
 	}
 }
 
+// TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: Destroy
+// force-removes the container but never its named volumes (no -v/--volumes), so
+// /agent-data (saved login) and the workspace survive a recreate.
+func TestDestroyKeepsVolumes(t *testing.T) {
+	f := &runner.Fake{}
+	if err := New(f).Destroy("box"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected one docker call, got %+v", f.Calls)
+	}
+	c := f.Calls[0]
+	if c.Name != "docker" || c.Args[0] != "rm" {
+		t.Fatalf("destroy call = %+v", c)
+	}
+	if !contains(c.Args, "-f") || !contains(c.Args, "box") {
+		t.Fatalf("destroy should force-remove the named container: %v", c.Args)
+	}
+	for _, a := range c.Args {
+		if a == "-v" || a == "--volumes" {
+			t.Fatalf("destroy must not remove volumes: %v", c.Args)
+		}
+	}
+}
+
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {
