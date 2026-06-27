@@ -4,11 +4,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aethons-tools/at-sbx/internal/backend"
 	"github.com/aethons-tools/at-sbx/internal/runner"
 	"github.com/aethons-tools/at-sbx/internal/secret"
 	"github.com/aethons-tools/at-sbx/internal/sshargs"
+)
+
+const (
+	// credsCheck probes for stored Claude Code credentials over a
+	// non-interactive ssh. It always exits 0 and reports state on stdout, so a
+	// non-zero ssh exit means the connection itself failed (not "no creds").
+	// CLAUDE_CONFIG_DIR is /agent-data in the image; the fallback keeps the probe
+	// correct if it is ever unset.
+	credsCheck = `test -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" && echo atsbx-authed || echo atsbx-noauth`
+	authedMark = "atsbx-authed"
+	// loginCmd is the interactive subscription/OAuth login. It is forced because
+	// managed-settings.json sets forceLoginMethod=claudeai.
+	loginCmd = "claude auth login"
 )
 
 // Options configures a connect.
@@ -54,5 +68,31 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		IdentityFile:   o.IdentityFile,
 		KnownHostsFile: knownHosts,
 	}
+
+	if err := ensureAuthenticated(r, tgt); err != nil {
+		return err
+	}
 	return t.Launch(tgt, env)
+}
+
+// ensureAuthenticated runs the interactive `claude auth login` the first time a
+// sandbox is used, and is a no-op afterwards. It probes for stored credentials
+// over a non-interactive ssh and only launches the OAuth flow when none exist,
+// so the login dance happens once per sandbox — credentials persist on the
+// /agent-data volume across reconnects. No secrets are injected for the login
+// itself.
+func ensureAuthenticated(r runner.Runner, tgt sshargs.Target) error {
+	out, err := r.Output("ssh", append(sshargs.Base(tgt), credsCheck)...)
+	if err != nil {
+		return fmt.Errorf("checking sandbox auth status: %w", err)
+	}
+	if strings.Contains(out, authedMark) {
+		return nil
+	}
+	// First use: run the subscription OAuth login interactively (PTY). nil stdin
+	// makes RunStdin attach the real terminal so the user can paste the code.
+	if err := r.RunStdin(nil, "ssh", sshargs.Interactive(tgt, loginCmd)...); err != nil {
+		return fmt.Errorf("interactive login (%s): %w", loginCmd, err)
+	}
+	return nil
 }

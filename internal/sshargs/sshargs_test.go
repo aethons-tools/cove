@@ -25,6 +25,23 @@ func TestBase(t *testing.T) {
 	}
 }
 
+func TestInteractive(t *testing.T) {
+	got := Interactive(target(), "claude auth login")
+	want := []string{
+		"-tt",
+		"-i", "/k/id",
+		"-p", "49153",
+		"-o", "UserKnownHostsFile=/k/kh",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "IdentitiesOnly=yes",
+		"agent@127.0.0.1",
+		"claude auth login",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Interactive = %v\nwant %v", got, want)
+	}
+}
+
 func TestInteractiveSendEnv(t *testing.T) {
 	got := InteractiveSendEnv(target(), []string{"GITHUB_TOKEN", "X"}, "exec claude")
 	want := []string{

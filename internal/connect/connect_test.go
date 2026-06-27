@@ -3,6 +3,7 @@ package connect
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/at-sbx/internal/backend"
@@ -10,6 +11,18 @@ import (
 	"github.com/aethons-tools/at-sbx/internal/secret"
 	"github.com/aethons-tools/at-sbx/internal/sshargs"
 )
+
+// calledWith reports whether any recorded call carried an argument containing s.
+func calledWith(calls []runner.Call, s string) bool {
+	for _, c := range calls {
+		for _, a := range c.Args {
+			if strings.Contains(a, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 type fakeBackend struct {
 	state        backend.State
@@ -53,7 +66,8 @@ func opts(dir string) Options {
 func TestConnectHappyPath(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}}}
+	// Outputs are consumed in order: [0] the secret command, [1] the auth probe.
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-authed\n"}}}
 	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +76,52 @@ func TestConnectHappyPath(t *testing.T) {
 	}
 	if !b.cleaned {
 		t.Fatal("Dial cleanup not invoked")
+	}
+	if calledWith(r.Calls, loginCmd) {
+		t.Fatal("must not run login when the sandbox is already authenticated")
+	}
+}
+
+func TestConnectFirstSessionRunsLogin(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-noauth\n"}}}
+	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	if !calledWith(r.Calls, loginCmd) {
+		t.Fatalf("first session must run %q; calls=%+v", loginCmd, r.Calls)
+	}
+	if !tr.launched {
+		t.Fatal("agent must still launch after a successful login")
+	}
+}
+
+func TestConnectSkipsLoginWhenAuthed(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "atsbx-authed\n"}}}
+	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, loginCmd) {
+		t.Fatal("must skip login when credentials already exist")
+	}
+}
+
+func TestConnectAuthProbeFailureAborts(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	// Secret resolves, but the auth probe's ssh fails (e.g. connection error).
+	r := &runner.Fake{
+		Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Err: &runner.ExitError{Code: 255}}},
+	}
+	err := Connect(b, r, tr, opts(t.TempDir()))
+	if err == nil {
+		t.Fatal("expected error when the auth probe fails")
+	}
+	if calledWith(r.Calls, loginCmd) || tr.launched {
+		t.Fatal("must not attempt login or launch when the probe connection fails")
 	}
 }
 
@@ -90,7 +150,7 @@ func TestConnectRequiresRunning(t *testing.T) {
 func TestConnectCreatesKnownHostsDir(t *testing.T) {
 	dir := t.TempDir()
 	b := &fakeBackend{state: backend.StateRunning}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}}}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}, {Stdout: "atsbx-authed"}}}
 	if err := Connect(b, r, &fakeTransport{}, opts(dir)); err != nil {
 		t.Fatal(err)
 	}
