@@ -14,6 +14,37 @@ conversation's context is lost.
 
 ## TL;DR — where we are
 
+**UPDATE 2026-06-27 (latest) — POST-IMPLEMENTATION: OAuth + sshd + first-session login.**
+Five follow-on commits after the 14 plan tasks (`9a23d11`, `6b539dd`, `ce7c6e1`, plus the two earlier doc commits),
+all on `design/atsbx-sandboxes`,
+suite/vet/build green,
+`agent-infrastructure/` still byte-for-byte unchanged:
+- **Optional plan Task 15 (stdin/tmpfs transport) is now DONE** and wired as the default in `doConnect` (`03fc820`);
+  `SendEnv` remains the fallback type.
+- **Require subscription OAuth** (`9a23d11`):
+  shipped non-overridable `etc/claude-code/managed-settings.json` in the hardening layer with `forceLoginMethod=claudeai` (only *managed* settings enforce it and block API-key fallback);
+  added `claude.ai` to the squid allow-list;
+  dropped the contradictory `forceLoginMethod=console` from the overridable user settings.
+  Implication:
+  a kit must NOT inject `ANTHROPIC_API_KEY` on this path —
+  managed settings *block startup* if it is present.
+- **sshd is now the container main process** (`6b539dd`):
+  the entrypoint had been dropping to `bash` and never starting sshd (nothing could connect).
+  Now `exec /usr/sbin/sshd -D -e`,
+  host keys via `ssh-keygen -A`,
+  the state-volume seed is restart-safe (guarded by a `/agent-data/.seeded` marker — the old unconditional `cp -a` crashed under `set -e` on the second boot),
+  and `CLAUDE_CONFIG_DIR=/agent-data` is exported via `/etc/environment` (pam_env) so every ssh session (incl. `ssh host 'exec claude'`) finds creds on the volume.
+- **First-session OAuth login** (`ce7c6e1`):
+  `connect.ensureAuthenticated` probes `test -f $CLAUDE_CONFIG_DIR/.credentials.json` over a non-interactive ssh and runs interactive `claude auth login` (PTY, via new `sshargs.Interactive`) only when unauthenticated;
+  idempotent because creds persist on `/agent-data`.
+
+Two things need confirming against a LIVE image (flagged in the commit messages, not hermetically testable here):
+the exact login command `claude auth login` and the creds path `$CLAUDE_CONFIG_DIR/.credentials.json` (both one-line constants in `internal/connect/connect.go`);
+and full end-to-end `connect` needs a Docker host —
+the Go tests only guard the wiring (file presence, argv shape, login/skip logic).
+
+---
+
 **UPDATE 2026-06-27 (later) — IMPLEMENTATION COMPLETE.**
 All 14 required plan tasks are implemented and committed on `design/atsbx-sandboxes`
 (13 `feat`/`chore` commits, `58b658d`..`c3d1031`),
@@ -24,8 +55,8 @@ Final verification all green:
 `go vet ./...` clean,
 `--dry-run create`/`connect` smoke OK,
 and `agent-infrastructure/` byte-for-byte unchanged vs the pre-work baseline.
-Only the **optional** plan Task 15 (stdin/tmpfs transport) is left undone —
-`SendEnv` is the shipping transport per the spec.
+At the time of this note the optional plan Task 15 (stdin/tmpfs transport) was the
+only remaining item; it has since been completed — see the "latest" block above.
 The new packages:
 runner(ext), kit(config/discover), sshargs, secret, backend(+colima), assemble(embed+layered), keys, connect(transport+orchestration), and a rewritten main.go.
 The old `internal/sbx` and old `internal/kit/{build,create,template}.go` were retired in the final task.
