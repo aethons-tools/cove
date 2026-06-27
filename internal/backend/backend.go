@@ -46,12 +46,24 @@ type CreateContext struct {
 	Workspace WorkspaceMount
 }
 
-// Backend provisions and manages VMs of one technology.
+// Instance identifies a provisioned VM. Create returns it; the CLI records it in
+// the kit's state file, and connect/destroy/status drive the backend from it
+// (rather than from the kit config), so a live sandbox is independent of kit edits.
+type Instance struct {
+	Backend   string
+	Container string // backend handle (docker container name)
+	Image     string // built image reference (tag)
+	Workspace WorkspaceMount
+}
+
+// Backend provisions and manages VMs of one technology. Dial/GetStatus take the
+// container handle from a recorded Instance; Destroy takes the whole Instance so
+// it can also clean up the image.
 type Backend interface {
-	Create(ctx CreateContext) error
-	Dial(name string) (Endpoint, func(), error)
-	Destroy(name string) error
-	GetStatus(name string) (State, error)
+	Create(ctx CreateContext) (Instance, error)
+	Dial(container string) (Endpoint, func(), error)
+	Destroy(inst Instance) error
+	GetStatus(container string) (State, error)
 }
 
 // Factory constructs a Backend bound to a Runner.

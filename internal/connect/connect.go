@@ -26,9 +26,10 @@ const (
 	loginCmd = "claude auth login --claudeai"
 )
 
-// Options configures a connect.
+// Options configures a connect. Container/Secrets come from the recorded state,
+// not the kit config.
 type Options struct {
-	Name          string
+	Container     string // backend container handle (from state)
 	Secrets       []secret.Spec
 	IdentityFile  string
 	KnownHostsDir string // per-sandbox known_hosts files live here
@@ -44,15 +45,15 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		return err
 	}
 
-	state, err := b.GetStatus(o.Name)
+	state, err := b.GetStatus(o.Container)
 	if err != nil {
 		return err
 	}
 	if state != backend.StateRunning {
-		return fmt.Errorf("sandbox %q is not running; run `at-cove create` or start the VM first", o.Name)
+		return fmt.Errorf("sandbox %q is not running; run `at-cove create` or start the VM first", o.Container)
 	}
 
-	ep, cleanup, err := b.Dial(o.Name)
+	ep, cleanup, err := b.Dial(o.Container)
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 	if err := os.MkdirAll(o.KnownHostsDir, 0o700); err != nil {
 		return err
 	}
-	knownHosts := filepath.Join(o.KnownHostsDir, o.Name)
+	knownHosts := filepath.Join(o.KnownHostsDir, o.Container)
 
 	tgt := sshargs.Target{
 		Host:           ep.Host,

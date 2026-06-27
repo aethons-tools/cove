@@ -32,8 +32,10 @@ type fakeBackend struct {
 	dialCalled   bool
 }
 
-func (b *fakeBackend) Create(backend.CreateContext) error { return nil }
-func (b *fakeBackend) Destroy(string) error               { return nil }
+func (b *fakeBackend) Create(backend.CreateContext) (backend.Instance, error) {
+	return backend.Instance{}, nil
+}
+func (b *fakeBackend) Destroy(backend.Instance) error { return nil }
 func (b *fakeBackend) GetStatus(string) (backend.State, error) {
 	b.statusCalled = true
 	return b.state, nil
@@ -56,7 +58,7 @@ func (t *fakeTransport) Launch(_ sshargs.Target, env map[string]string) error {
 
 func opts(dir string) Options {
 	return Options{
-		Name:          "box",
+		Container:     "box",
 		Secrets:       []secret.Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}}},
 		IdentityFile:  "/id",
 		KnownHostsDir: filepath.Join(dir, "known_hosts.d"),
