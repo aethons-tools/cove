@@ -3,6 +3,10 @@
 .anthropic.com
 .claude.com
 
+# claude.ai subscription OAuth login (NOT covered by .claude.com — different TLD).
+# Required because managed-settings.json forces forceLoginMethod=claudeai.
+claude.ai
+
 # git over HTTPS + raw content + codeload (api./codeload. are *.github.com)
 .github.com
 .githubusercontent.com

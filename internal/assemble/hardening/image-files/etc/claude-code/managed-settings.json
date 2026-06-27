@@ -1,7 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "forceLoginMethod": "claudeai",
   "agentPushNotifEnabled": true,
   "alwaysThinkingEnabled": true,
+  "autoUpdates": false,
   "disableAgentView": true,
   "disableAutoMode": "disable",
   "disableRemoteControl": false,
@@ -13,20 +15,25 @@
   "spinnerTipsEnabled": false,
   "theme": "dark",
   "env": {
-    "ANTHROPIC_LOG": "warn",
-      "GOPATH": "/home/agent/workspace/.gopath",
-      "GOPROXY": "direct",
-      "GOSUMDB": "off",
-      "GOFLAGS": "-mod=mod"
+    "CLOUD_ML_REGION": "us",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_UPDATES": "1"
   },
   "permissions": {
     "allow": [],
-    "deny": []
+    "deny": [],
+    "defaultMode": "bypassPermissions"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "bypassPermissionsModeAccepted": true,
+
+  "model": "opus",
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
   },
   "trustedWorkspacePatterns": [
     "/home/agent/workspace",
     "/home/agent/workspace/**"
-  ],
-
-  "model": "opus"
+  ]
 }
