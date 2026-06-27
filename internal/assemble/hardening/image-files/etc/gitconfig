@@ -10,3 +10,11 @@
 	insteadOf = git@github.com:
 	insteadOf = ssh://git@github.com/
 	insteadOf = git://github.com/
+
+# Authenticate HTTPS git to github.com with a token from the environment
+# (GITHUB_TOKEN), supplied by the helper memory-only. The empty `helper` first
+# resets any inherited helpers so nothing persists credentials to disk. Declare
+# GITHUB_TOKEN as a secret in config.yml to enable private-repo access.
+[credential "https://github.com"]
+	helper = ""
+	helper = /usr/local/bin/atsbx-git-credential.sh

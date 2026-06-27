@@ -2,6 +2,9 @@ package assemble
 
 import (
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,6 +73,86 @@ func TestGitConfigForcesHTTPS(t *testing.T) {
 	}
 	if !strings.Contains(s, "insteadOf = git@github.com:") {
 		t.Errorf("gitconfig must rewrite git@github.com: to HTTPS; got:\n%s", s)
+	}
+}
+
+// TestGitCredentialHelperWired guards that the token credential helper is shipped
+// and referenced from the gitconfig (scoped to github.com over HTTPS).
+func TestGitCredentialHelperWired(t *testing.T) {
+	helper, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/atsbx-git-credential.sh")
+	if err != nil {
+		t.Fatalf("credential helper not embedded: %v", err)
+	}
+	if !strings.Contains(string(helper), "GITHUB_TOKEN") {
+		t.Errorf("credential helper must read GITHUB_TOKEN; got:\n%s", helper)
+	}
+	cfg, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/gitconfig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(cfg)
+	if !strings.Contains(s, `[credential "https://github.com"]`) {
+		t.Errorf("gitconfig must scope the helper to github.com; got:\n%s", s)
+	}
+	if !strings.Contains(s, "helper = /usr/local/bin/atsbx-git-credential.sh") {
+		t.Errorf("gitconfig must reference the credential helper; got:\n%s", s)
+	}
+}
+
+// TestGitCredentialHelperYieldsToken runs real `git credential fill` against the
+// shipped gitconfig + helper to prove the token is supplied for github.com and
+// withheld when GITHUB_TOKEN is unset. Skips if git is unavailable.
+func TestGitCredentialHelperYieldsToken(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+
+	helperSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/atsbx-git-credential.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperPath := filepath.Join(dir, "atsbx-git-credential.sh")
+	if err := os.WriteFile(helperPath, helperSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/gitconfig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Point the (absolute) helper path at the materialized copy for the test.
+	cfg := strings.ReplaceAll(string(cfgSrc), "/usr/local/bin/atsbx-git-credential.sh", helperPath)
+	cfgPath := filepath.Join(dir, "gitconfig")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fill := func(token string) string {
+		cmd := exec.Command("git", "credential", "fill")
+		// Minimal env (do NOT inherit a stray GITHUB_TOKEN); keep PATH for the
+		// helper's `/usr/bin/env bash` shebang.
+		env := []string{
+			"PATH=" + os.Getenv("PATH"),
+			"HOME=" + dir,
+			"GIT_CONFIG_SYSTEM=" + cfgPath,
+			"GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_TERMINAL_PROMPT=0",
+		}
+		if token != "" {
+			env = append(env, "GITHUB_TOKEN="+token)
+		}
+		cmd.Env = env
+		cmd.Stdin = strings.NewReader("protocol=https\nhost=github.com\n\n")
+		out, _ := cmd.CombinedOutput() // non-zero exit is expected when no token
+		return string(out)
+	}
+
+	if got := fill("tok_ABC123"); !strings.Contains(got, "password=tok_ABC123") ||
+		!strings.Contains(got, "username=x-access-token") {
+		t.Fatalf("helper did not supply the token for github.com:\n%s", got)
+	}
+	if got := fill(""); strings.Contains(got, "password=") {
+		t.Fatalf("helper must withhold credentials when GITHUB_TOKEN is unset:\n%s", got)
 	}
 }
 
