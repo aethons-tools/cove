@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# build.sh — cross-compile at-cove for every supported host target.
+# build.sh — build at-cove, host-sensitive by default.
 #
 # at-cove is pure Go (no cgo; it shells out to ssh/docker), so Go's built-in
-# cross-compilation just works — no toolchain or framework needed. One binary
-# per target, each in its own directory:
+# cross-compilation just works — no toolchain or framework needed. Every binary
+# lands in a directory keyed by its OS/arch:
 #
 #   dist/<os>-<arch>/at-cove
 #
-# Targets (GOOS/GOARCH; darwin == macOS):
-#   darwin/amd64  darwin/arm64  linux/amd64  linux/arm64
+# The DEFAULT build targets the current host (go env GOOS/GOARCH). That keeps a
+# mac and a linux box (e.g. the cove VM) that share the same output folder from
+# stepping on each other: the mac writes dist/darwin-arm64/, the linux box writes
+# dist/linux-amd64/, and neither overwrites the other's binary.
 #
 # Usage:
-#   scripts/build.sh            # build all targets into ./dist
-#   OUT=/tmp/out scripts/build.sh   # override the output root
+#   scripts/build.sh                 # current host only (host-sensitive)
+#   scripts/build.sh all             # cross-compile every supported target
+#   scripts/build.sh darwin/arm64 linux/amd64   # specific targets
+#   OUT=/path scripts/build.sh       # override the output root (default: dist)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."  # repo root
@@ -23,14 +27,17 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 # binary); -X main.version: stamp the version reported by `at-cove version`.
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
-TARGETS=(
-  darwin/amd64
-  darwin/arm64
-  linux/amd64
-  linux/arm64
-)
+ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
+
+# Choose targets from the args (default: just the current host).
+case "${1:-}" in
+  "" | host) TARGETS=("$(go env GOOS)/$(go env GOARCH)") ;;
+  all)       TARGETS=("${ALL_TARGETS[@]}") ;;
+  *)         TARGETS=("$@") ;;
+esac
 
 echo "Building at-cove ${VERSION}"
+built=()
 for t in "${TARGETS[@]}"; do
   os="${t%/*}"
   arch="${t#*/}"
@@ -39,8 +46,9 @@ for t in "${TARGETS[@]}"; do
   echo "  building ${t} -> ${dir}/at-cove"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
     go build -trimpath -ldflags "$LDFLAGS" -o "$dir/at-cove" .
+  built+=("$dir/at-cove")
 done
 
 echo
-echo "Done. Artifacts under ${OUT}/:"
-find "$OUT" -type f -name at-cove -exec ls -lh {} +
+echo "Done. Built this run:"
+ls -lh "${built[@]}"

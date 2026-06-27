@@ -6,13 +6,13 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# cross-compile every host target into dist/<os>-<arch>/at-cove
+# build for the current host into dist/<os>-<arch>/at-cove (host-sensitive)
 build:
     ./scripts/build.sh
 
-# build the native binary into ./at-cove for local use
-dev:
-    go build -o at-cove .
+# cross-compile every supported target into dist/<os>-<arch>/at-cove
+build-all:
+    ./scripts/build.sh all
 
 # hermetic unit tests (no docker/network/ssh)
 test:
