@@ -290,10 +290,24 @@ func TestLoadMappingValueErrors(t *testing.T) {
 	}
 }
 
-func TestLoadNonStringArrayElementErrors(t *testing.T) {
-	_, err := Load(write(t, `TOK: ["op", 5]`+"\n"))
+func TestLoadScalarArrayElementCoerces(t *testing.T) {
+	// yaml.v3 coerces a scalar element into its string form, mirroring how a
+	// scalar value coerces (e.g. PIN: 1234 -> "1234"). This is accepted, not an
+	// error: ["op", 5] -> ["op", "5"].
+	s, err := Load(write(t, `TOK: ["op", 5]`+"\n"))
+	if err != nil {
+		t.Fatalf("scalar array elements should coerce, not error: %v", err)
+	}
+	if len(s["TOK"].Command) != 2 || s["TOK"].Command[1] != "5" {
+		t.Fatalf("entry = %+v", s["TOK"])
+	}
+}
+
+func TestLoadNestedArrayElementErrors(t *testing.T) {
+	// A non-scalar element (a nested list) cannot be a string -> error.
+	_, err := Load(write(t, "TOK:\n  - op\n  - [1, 2]\n"))
 	if err == nil {
-		t.Fatal("expected error on a non-string array element")
+		t.Fatal("expected error on a non-scalar (nested) array element")
 	}
 }
 ```
@@ -368,7 +382,7 @@ func Load(path string) (Store, error) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `export PATH=$PATH:/usr/local/go/bin && go test ./internal/usersecret/ -v`
-Expected: PASS (all seven tests).
+Expected: PASS (all eight tests).
 
 - [ ] **Step 5: Commit**
 
