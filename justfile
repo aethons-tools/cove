@@ -14,6 +14,11 @@ build:
 build-all:
     ./scripts/build.sh all
 
+# build for the host, then run that binary, forwarding ARGS.
+# e.g. `just run status`  or  `just run -- --dry-run create`
+run *ARGS: build
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-cove" {{ARGS}}
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
