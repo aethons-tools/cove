@@ -15,6 +15,24 @@ const setupEmptyProbe = `[ -z "$(ls -A ` + workspaceDir + ` 2>/dev/null)" ] && e
 
 const setupEmptyMark = "cove-empty"
 
+// runInjected writes env to a tmpfs script over ssh (values arrive via stdin,
+// never on argv), then runs remoteTail in a shell that sources and removes the
+// script first. The run attaches EMPTY stdin, so a credential or other prompt
+// fails fast instead of hanging an unattended caller. label distinguishes the
+// tmpfs file and error messages across concurrent uses.
+func runInjected(r runner.Runner, tgt sshargs.Target, env map[string]string, label, remoteTail string) error {
+	file := fmt.Sprintf("/dev/shm/cove-%s-%s-%d", label, tgt.Host, tgt.Port)
+	writeArgs := append(sshargs.Base(tgt), "umask 077; cat > "+file)
+	if err := r.RunStdin(strings.NewReader(envScript(env)), "ssh", writeArgs...); err != nil {
+		return fmt.Errorf("writing %s env: %w", label, err)
+	}
+	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteTail
+	if err := r.RunStdin(strings.NewReader(""), "ssh", append(sshargs.Base(tgt), remote)...); err != nil {
+		return fmt.Errorf("running %s: %w", label, err)
+	}
+	return nil
+}
+
 // RunSetup populates an isolated workspace by running setupCmd in it, once,
 // when the workspace is empty. It is a no-op when setupCmd is empty or the
 // workspace already has contents (so reconnects don't re-clone). Secrets are
@@ -32,15 +50,5 @@ func RunSetup(r runner.Runner, tgt sshargs.Target, env map[string]string, setupC
 	if !strings.Contains(out, setupEmptyMark) {
 		return nil // already populated; leave it alone
 	}
-
-	file := fmt.Sprintf("/dev/shm/cove-setup-%s-%d", tgt.Host, tgt.Port)
-	writeArgs := append(sshargs.Base(tgt), "umask 077; cat > "+file)
-	if err := r.RunStdin(strings.NewReader(envScript(env)), "ssh", writeArgs...); err != nil {
-		return fmt.Errorf("writing setup env: %w", err)
-	}
-	remote := "set -a; . " + file + "; rm -f " + file + "; cd " + workspaceDir + " && " + setupCmd
-	if err := r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...); err != nil {
-		return fmt.Errorf("running setup (%s): %w", setupCmd, err)
-	}
-	return nil
+	return runInjected(r, tgt, env, "setup", "cd "+workspaceDir+" && "+setupCmd)
 }
