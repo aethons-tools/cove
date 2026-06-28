@@ -31,8 +31,8 @@ Usage:
   at-cove create   [kit-dir] [--workspace|--ws <path>]
   at-cove connect  [kit-dir] [--raw] [--no-auth] [--fresh]
   at-cove recreate [kit-dir] [--workspace|--ws <path>]
-  at-cove destroy  [kit-dir]
-  at-cove status   [kit-dir]
+  at-cove destroy  [kit-dir] [--loop <name>]
+  at-cove status   [kit-dir] [--loop <name>]
   at-cove version
 
 If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
@@ -49,6 +49,8 @@ connect flags:
   --raw       launch bash instead of claude (debug what the agent sees)
   --no-auth   skip the claude auth login step
   --fresh     start a new session instead of resuming the last one
+
+  --loop <name>  act on the named loop instance (destroy, status)
 `
 
 // version is the at-cove build version, stamped at build time via
@@ -68,6 +70,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	fresh := false
 	var args []string
 	wsPath := ""
+	loopName := ""
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		switch {
@@ -88,6 +91,13 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}
 			i++
 			wsPath = argv[i]
+		case a == "--loop":
+			if i+1 >= len(argv) {
+				fmt.Fprintln(stderr, "at-cove: --loop requires a name")
+				return 2
+			}
+			i++
+			loopName = argv[i]
 		default:
 			args = append(args, a)
 		}
@@ -122,6 +132,19 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		return 1
 	}
 
+	inst := state.Interactive
+	if loopName != "" {
+		if err := state.ValidLoopName(loopName); err != nil {
+			fmt.Fprintln(stderr, "at-cove:", err)
+			return 2
+		}
+		if cmd != "destroy" && cmd != "status" {
+			fmt.Fprintln(stderr, "at-cove: --loop is only valid for destroy and status")
+			return 2
+		}
+		inst = state.LoopInstance(loopName)
+	}
+
 	switch cmd {
 	case "build":
 		err = doBuild(kitDir, r, dryRun, stdout)
@@ -132,9 +155,9 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "recreate":
 		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
 	case "destroy":
-		err = doDestroy(kitDir, r, dryRun, stdout)
+		err = doDestroyInstance(kitDir, r, inst, dryRun, stdout)
 	case "status":
-		err = doStatus(kitDir, r, dryRun, stdout)
+		err = doStatusInstance(kitDir, r, inst, dryRun, stdout)
 	default:
 		fmt.Fprintf(stderr, "at-cove: unknown command %q\n\n%s", cmd, usage)
 		return 2
@@ -343,17 +366,24 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	})
 }
 
-// doDestroy tears the sandbox down under an EXCLUSIVE lock: it refuses if any
-// connection holds the shared lock. It removes the container (keeping volumes)
-// and image, then deletes the state file.
-func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
-	st, err := state.Load(kitDir)
+// doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
+// if any connection (or a running loop) holds the shared lock. It removes the
+// container (keeping volumes), removes the image for the interactive instance
+// but NOT for a loop instance (which shares the kit image), then deletes the
+// state file.
+func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
+	st, err := state.LoadFor(kitDir, inst)
 	if err != nil {
 		return err
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
-			st.Container, st.Image, state.Path(kitDir))
+		if inst == state.Interactive {
+			fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
+				st.Container, st.Image, state.PathFor(kitDir, inst))
+		} else {
+			fmt.Fprintf(stdout, "would destroy %s (keeping volumes and the shared image) and delete %s\n",
+				st.Container, state.PathFor(kitDir, inst))
+		}
 		return nil
 	}
 	b, err := getBackend(st.Backend, r)
@@ -361,7 +391,7 @@ func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) er
 		return err
 	}
 
-	lock, err := state.AcquireExclusive(kitDir)
+	lock, err := state.AcquireExclusiveFor(kitDir, inst)
 	if err != nil {
 		if errors.Is(err, state.ErrLocked) {
 			return fmt.Errorf("refusing to destroy %s: it has active connection(s)", st.Container)
@@ -370,10 +400,18 @@ func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) er
 	}
 	defer lock.Release()
 
-	if err := b.Destroy(instanceFromState(st)); err != nil {
+	bi := instanceFromState(st)
+	if inst != state.Interactive {
+		bi.Image = "" // loop instances share the kit image; never remove it on teardown
+	}
+	if err := b.Destroy(bi); err != nil {
 		return err
 	}
-	return state.Delete(kitDir)
+	return state.DeleteFor(kitDir, inst)
+}
+
+func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	return doDestroyInstance(kitDir, r, state.Interactive, dryRun, stdout)
 }
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it
@@ -405,8 +443,8 @@ func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdo
 	return doCreate(kitDir, r, wsPath, false, stdout)
 }
 
-func doStatus(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
-	st, err := state.Load(kitDir)
+func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
+	st, err := state.LoadFor(kitDir, inst)
 	if errors.Is(err, state.ErrNotCreated) {
 		fmt.Fprintln(stdout, "absent (not created)")
 		return nil
