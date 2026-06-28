@@ -120,11 +120,16 @@ func TestStdinScriptResumesWhenEnabled(t *testing.T) {
 	if !strings.Contains(remote, "exec claude --continue") {
 		t.Fatalf("resume should pass --continue: %q", remote)
 	}
-	if !strings.Contains(remote, "else exec claude; fi") {
+	if !strings.Contains(remote, "done; exec claude; }") {
 		t.Fatalf("resume must fall back to a fresh claude when no session exists: %q", remote)
 	}
 	if !strings.Contains(remote, "/projects/*/*.jsonl") {
 		t.Fatalf("resume must guard on an existing session transcript: %q", remote)
+	}
+	// nullglob-immune: a literal, unexpanded pattern is rejected by the -e test
+	// rather than treated as a match.
+	if !strings.Contains(remote, `[ -e "$f" ]`) {
+		t.Fatalf("resume detection must be nullglob-immune: %q", remote)
 	}
 }
 
@@ -148,7 +153,7 @@ func TestSendEnvResumesWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	remote := f.Calls[0].Args[len(f.Calls[0].Args)-1]
-	if !strings.Contains(remote, "exec claude --continue") || !strings.Contains(remote, "else exec claude; fi") {
+	if !strings.Contains(remote, "exec claude --continue") || !strings.Contains(remote, "done; exec claude; }") {
 		t.Fatalf("SendEnv resume should pass --continue with fallback: %q", remote)
 	}
 }
