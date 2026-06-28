@@ -37,6 +37,7 @@ type Options struct {
 	KnownHostsDir string    // per-sandbox known_hosts files live here
 	SkipAuth      bool      // skip the interactive `claude auth login` step (--no-auth)
 	Stderr        io.Writer // where the host-sleep warning is written; nil => os.Stderr
+	Setup         string    // command to seed an empty isolated workspace; "" => no setup (also blanked for --ws)
 }
 
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
@@ -79,6 +80,10 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 		if err := ensureAuthenticated(r, tgt); err != nil {
 			return err
 		}
+	}
+
+	if err := RunSetup(r, tgt, env, o.Setup); err != nil {
+		return err
 	}
 
 	// Keep the host awake for the session only: idle work happens between here
