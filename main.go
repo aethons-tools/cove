@@ -683,6 +683,7 @@ func doLoop(kitDir string, r runner.Runner, loopName string, once, keep bool, in
 	}
 
 	triggers := 0
+	var lastAgentErr error
 	tick := func() bool {
 		if stopped() || triggers >= maxDrain {
 			return false
@@ -709,6 +710,7 @@ func doLoop(kitDir string, r runner.Runner, loopName string, once, keep bool, in
 		triggers++
 		fmt.Fprintf(stdout, "loop %q: triggered, running agent\n", loopName)
 		if err := connect.RunAgent(r, tgt, env, lp.Prompt); err != nil {
+			lastAgentErr = err
 			fmt.Fprintf(stderr, "loop %q: agent: %v\n", loopName, err)
 		}
 		return true
@@ -720,6 +722,9 @@ func doLoop(kitDir string, r runner.Runner, loopName string, once, keep bool, in
 	}
 
 	loop.Run(once, interval, tick, sleepReset)
+	if once && lastAgentErr != nil {
+		return fmt.Errorf("loop %q: an agent run failed: %w", loopName, lastAgentErr)
+	}
 	return nil
 }
 
