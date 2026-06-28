@@ -29,7 +29,7 @@ const usage = `at-cove — run hardened Claude Code sandboxes
 Usage:
   at-cove build    [kit-dir]
   at-cove create   [kit-dir] [--workspace|--ws <path>]
-  at-cove connect  [kit-dir] [--raw] [--no-auth]
+  at-cove connect  [kit-dir] [--raw] [--no-auth] [--fresh]
   at-cove recreate [kit-dir] [--workspace|--ws <path>]
   at-cove destroy  [kit-dir]
   at-cove status   [kit-dir]
@@ -48,6 +48,7 @@ Global flags:
 connect flags:
   --raw       launch bash instead of claude (debug what the agent sees)
   --no-auth   skip the claude auth login step
+  --fresh     start a new session instead of resuming the last one
 `
 
 // version is the at-cove build version, stamped at build time via
@@ -64,6 +65,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	showVersion := false
 	raw := false
 	noAuth := false
+	fresh := false
 	var args []string
 	wsPath := ""
 	for i := 0; i < len(argv); i++ {
@@ -77,6 +79,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			raw = true
 		case a == "--no-auth":
 			noAuth = true
+		case a == "--fresh":
+			fresh = true
 		case a == "--workspace" || a == "--ws":
 			if i+1 >= len(argv) {
 				fmt.Fprintln(stderr, "at-cove: --workspace requires a path")
@@ -124,7 +128,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "create":
 		err = doCreate(kitDir, r, wsPath, dryRun, stdout)
 	case "connect":
-		err = doConnect(kitDir, r, dryRun, raw, noAuth, stdout, stderr)
+		err = doConnect(kitDir, r, dryRun, raw, noAuth, fresh, stdout, stderr)
 	case "recreate":
 		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
 	case "destroy":
@@ -262,7 +266,7 @@ func instanceFromState(st state.State) backend.Instance {
 // the state file for the whole session, so destroy can't tear the sandbox down
 // underneath it. With raw it drops into bash instead of claude; with noAuth it
 // skips `claude auth login`.
-func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout, stderr io.Writer) error {
+func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, stdout, stderr io.Writer) error {
 	st, err := state.Load(kitDir)
 	if err != nil {
 		return err
@@ -287,13 +291,18 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout,
 	if raw {
 		launch = "bash"
 	}
+	resume := !raw && !fresh
 	if dryRun {
 		auth := "with auth"
 		if noAuth {
 			auth = "no auth"
 		}
-		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s)\n",
-			len(specs), st.Container, launch, auth)
+		session := "resuming"
+		if !resume {
+			session = "fresh"
+		}
+		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s, %s)\n",
+			len(specs), st.Container, launch, auth, session)
 		return nil
 	}
 	b, err := getBackend(st.Backend, r)
@@ -318,7 +327,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout,
 	if raw {
 		cmd = "bash"
 	}
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd}, awake.New(), connect.Options{
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume}, awake.New(), connect.Options{
 		Container:     st.Container,
 		Secrets:       specs,
 		IdentityFile:  priv,

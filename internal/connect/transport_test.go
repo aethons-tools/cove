@@ -110,3 +110,59 @@ func hasPair(args []string, v string) bool {
 	}
 	return false
 }
+
+func TestStdinScriptResumesWhenEnabled(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Resume: true}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if !strings.Contains(remote, "exec claude --continue") {
+		t.Fatalf("resume should pass --continue: %q", remote)
+	}
+	if !strings.Contains(remote, "else exec claude; fi") {
+		t.Fatalf("resume must fall back to a fresh claude when no session exists: %q", remote)
+	}
+	if !strings.Contains(remote, "/projects/*/*.jsonl") {
+		t.Fatalf("resume must guard on an existing session transcript: %q", remote)
+	}
+}
+
+func TestStdinScriptFreshDoesNotResume(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if strings.Contains(remote, "--continue") {
+		t.Fatalf("fresh launch must not pass --continue: %q", remote)
+	}
+	if !strings.HasSuffix(remote, "cd /home/agent/workspace && exec claude") {
+		t.Fatalf("fresh launch should exec plain claude: %q", remote)
+	}
+}
+
+func TestSendEnvResumesWhenEnabled(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (SendEnv{R: f, Resume: true}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[0].Args[len(f.Calls[0].Args)-1]
+	if !strings.Contains(remote, "exec claude --continue") || !strings.Contains(remote, "else exec claude; fi") {
+		t.Fatalf("SendEnv resume should pass --continue with fallback: %q", remote)
+	}
+}
+
+func TestRawNeverResumes(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Cmd: "bash", Resume: true}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if strings.Contains(remote, "--continue") {
+		t.Fatalf("raw bash must never resume: %q", remote)
+	}
+	if !strings.HasSuffix(remote, "cd /home/agent/workspace && exec bash") {
+		t.Fatalf("raw should exec bash: %q", remote)
+	}
+}

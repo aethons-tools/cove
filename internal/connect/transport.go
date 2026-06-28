@@ -19,29 +19,44 @@ type Transport interface {
 // shell — land in the project, not the home directory.
 const workspaceDir = "/home/agent/workspace"
 
-// launchCmd is the remote program a transport exec's. Empty means the agent
-// (claude); `connect --raw` sets it to "bash" to drop into a debug shell with
-// the same injected environment the agent would see.
-func launchCmd(cmd string) string {
-	if cmd == "" {
-		return "claude"
+// resumeProbe succeeds when the persistent config dir holds any prior Claude
+// Code session transcript. CLAUDE_CONFIG_DIR is baked into the sandbox image
+// (=/agent-data); the :- fallback keeps detection working if it is absent from
+// this shell. We test for any session under projects/*/*.jsonl rather than
+// replicating Claude Code's internal per-directory folder hash: the sandbox's
+// only project dir is the workspace (sessions always start there), so "any
+// session exists" is equivalent and robust to that hash changing.
+const resumeProbe = `ls "${CLAUDE_CONFIG_DIR:-/agent-data}"/projects/*/*.jsonl >/dev/null 2>&1`
+
+// launchProgram returns the remote shell tail that exec's the session program.
+// Empty cmd means the agent (claude); a non-empty cmd (e.g. "bash" from --raw)
+// is a whole-program replacement that never resumes. When resume is set, claude
+// reopens the most-recent session for the workspace dir if one exists, else
+// starts fresh — making a first-ever connect deterministic.
+func launchProgram(cmd string, resume bool) string {
+	if cmd != "" {
+		return "exec " + cmd
 	}
-	return cmd
+	if !resume {
+		return "exec claude"
+	}
+	return "if " + resumeProbe + "; then exec claude --continue; else exec claude; fi"
 }
 
 // remoteExec is the tail of a transport's remote command: cd into the workspace,
 // then exec the launch program. Using && (not ;) fails loudly if the workspace
 // mount is missing rather than silently dropping the session in the home dir.
-func remoteExec(cmd string) string {
-	return "cd " + workspaceDir + " && exec " + launchCmd(cmd)
+func remoteExec(cmd string, resume bool) string {
+	return "cd " + workspaceDir + " && " + launchProgram(cmd, resume)
 }
 
 // SendEnv forwards secrets via ssh SendEnv: values live only in the ssh child's
 // environment (never on argv, never on disk). The VM's sshd AcceptEnv allowlist
 // (shipped in the hardening layer) accepts them.
 type SendEnv struct {
-	R   runner.Runner
-	Cmd string // remote program to exec; "" => claude
+	R      runner.Runner
+	Cmd    string // remote program to exec; "" => claude
+	Resume bool   // when launching claude, resume the most-recent session if one exists
 }
 
 func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
@@ -54,7 +69,7 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	for _, k := range names {
 		childEnv = append(childEnv, k+"="+env[k])
 	}
-	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd))
+	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd, s.Resume))
 	return s.R.RunEnv(childEnv, "ssh", args...)
 }
 
@@ -64,8 +79,9 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 // exec's the program. The file lives only in tmpfs and is deleted before the
 // shell hands off.
 type StdinScript struct {
-	R   runner.Runner
-	Cmd string // remote program to exec; "" => claude
+	R      runner.Runner
+	Cmd    string // remote program to exec; "" => claude
+	Resume bool   // when launching claude, resume the most-recent session if one exists
 }
 
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
@@ -88,7 +104,7 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 		return err
 	}
 	// 2) interactive: source the file, remove it, then launch the program.
-	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd)
+	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
 }

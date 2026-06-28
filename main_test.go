@@ -389,6 +389,39 @@ func TestDryRunConnectWarnsUnresolvedSecret(t *testing.T) {
 	}
 }
 
+func TestDryRunConnectResumesByDefault(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "resuming") {
+		t.Fatalf("default connect should resume; msg=%q", out.String())
+	}
+}
+
+func TestDryRunConnectFresh(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "--fresh", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, "fresh") || strings.Contains(s, "resuming") {
+		t.Fatalf("--fresh connect should be fresh; msg=%q", s)
+	}
+}
+
 func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
