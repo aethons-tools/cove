@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 const schemaVersion = 1
@@ -150,3 +151,20 @@ func DeleteFor(kitDir string, inst Instance) error {
 
 // Delete removes the interactive instance's state file. Idempotent.
 func Delete(kitDir string) error { return DeleteFor(kitDir, Interactive) }
+
+// HasLoopInstances reports whether any loop instance state file (loop-*.json)
+// exists in the kit. Used so the interactive destroy can keep the shared kit
+// image while loop instances still depend on it.
+func HasLoopInstances(kitDir string) bool {
+	entries, err := os.ReadDir(Dir(kitDir))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasPrefix(n, "loop-") && strings.HasSuffix(n, ".json") {
+			return true
+		}
+	}
+	return false
+}

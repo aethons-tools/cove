@@ -153,3 +153,22 @@ func TestValidLoopName(t *testing.T) {
 		}
 	}
 }
+
+func TestHasLoopInstances(t *testing.T) {
+	dir := t.TempDir()
+	if HasLoopInstances(dir) {
+		t.Fatal("no .state dir yet: should be false")
+	}
+	if err := SaveFor(dir, Interactive, State{Name: "x", Backend: "colima", Container: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if HasLoopInstances(dir) {
+		t.Fatal("only the interactive instance exists: should be false")
+	}
+	if err := SaveFor(dir, LoopInstance("foo"), State{Name: "x", Backend: "colima", Container: "x-loop-foo"}); err != nil {
+		t.Fatal(err)
+	}
+	if !HasLoopInstances(dir) {
+		t.Fatal("a loop instance exists: should be true")
+	}
+}

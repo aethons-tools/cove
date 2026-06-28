@@ -377,7 +377,7 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryR
 		return err
 	}
 	if dryRun {
-		if inst == state.Interactive {
+		if inst == state.Interactive && !state.HasLoopInstances(kitDir) {
 			fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
 				st.Container, st.Image, state.PathFor(kitDir, inst))
 		} else {
@@ -403,6 +403,8 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryR
 	bi := instanceFromState(st)
 	if inst != state.Interactive {
 		bi.Image = "" // loop instances share the kit image; never remove it on teardown
+	} else if state.HasLoopInstances(kitDir) {
+		bi.Image = "" // loop instances still depend on the shared kit image; keep it
 	}
 	if err := b.Destroy(bi); err != nil {
 		return err
