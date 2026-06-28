@@ -464,3 +464,78 @@ func TestSaveStateSnapshotsSetup(t *testing.T) {
 		t.Fatalf("state Setup = %q", st.Setup)
 	}
 }
+
+func TestDestroyLoopInstancePreservesImage(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
+		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"destroy", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	var rm, rmi bool
+	for _, c := range f.Calls {
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rm" {
+			rm = true
+		}
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rmi" {
+			rmi = true
+		}
+	}
+	if !rm {
+		t.Fatal("loop container should be removed")
+	}
+	if rmi {
+		t.Fatal("shared image must NOT be removed on loop teardown")
+	}
+	if state.ExistsFor(kitDir, state.LoopInstance("foo")) {
+		t.Fatal("loop state should be deleted")
+	}
+}
+
+func TestStatusLoopInstance(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
+		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"status", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "running") {
+		t.Fatalf("status = %q", out.String())
+	}
+}
+
+func TestLoopFlagRejectsBadName(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"destroy", "--loop", "../etc", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("invalid loop name must error")
+	}
+}
+
+func TestLoopFlagRejectedForOtherCommands(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--loop", "foo", "build", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("--loop on a non-destroy/status command must error")
+	}
+}
