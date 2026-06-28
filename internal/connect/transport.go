@@ -19,14 +19,27 @@ type Transport interface {
 // shell — land in the project, not the home directory.
 const workspaceDir = "/home/agent/workspace"
 
-// resumeProbe succeeds when the persistent config dir holds any prior Claude
-// Code session transcript. CLAUDE_CONFIG_DIR is baked into the sandbox image
-// (=/agent-data); the :- fallback keeps detection working if it is absent from
-// this shell. We test for any session under projects/*/*.jsonl rather than
-// replicating Claude Code's internal per-directory folder hash: the sandbox's
-// only project dir is the workspace (sessions always start there), so "any
-// session exists" is equivalent and robust to that hash changing.
-const resumeProbe = `ls "${CLAUDE_CONFIG_DIR:-/agent-data}"/projects/*/*.jsonl >/dev/null 2>&1`
+// resumeLaunch resumes the most-recent Claude Code session when a transcript
+// exists, else starts a fresh one — making a first-ever connect deterministic.
+// CLAUDE_CONFIG_DIR is baked into the sandbox image (=/agent-data); the :-
+// fallback keeps detection working if it is absent from this shell.
+//
+// Two deliberate shapes:
+//   - The for/`[ -e ]` form is immune to `nullglob`: with no matching session
+//     the loop either skips its body (nullglob on) or tests the literal,
+//     unexpanded pattern and fails the -e check (nullglob off). Both fall
+//     through to a fresh `exec claude`, so detection never wrongly resumes and
+//     never blocks.
+//   - It globs for ANY session under projects/*/*.jsonl rather than replicating
+//     Claude Code's internal per-directory folder hash. `claude --continue` is
+//     itself cwd-scoped, and the sandbox's only project dir is the workspace
+//     (sessions always start from /home/agent/workspace) — so "any session
+//     exists" stands in for "the workspace has a session". Do not broaden the
+//     glob past that workspace-is-the-only-project assumption.
+//
+// The brace group keeps the enclosing `cd <workspace> &&` guarding the whole
+// thing: a cd failure must abort, not silently run claude in the home dir.
+const resumeLaunch = `{ for f in "${CLAUDE_CONFIG_DIR:-/agent-data}"/projects/*/*.jsonl; do [ -e "$f" ] && exec claude --continue; done; exec claude; }`
 
 // launchProgram returns the remote shell tail that exec's the session program.
 // Empty cmd means the agent (claude); a non-empty cmd (e.g. "bash" from --raw)
@@ -40,7 +53,7 @@ func launchProgram(cmd string, resume bool) string {
 	if !resume {
 		return "exec claude"
 	}
-	return "if " + resumeProbe + "; then exec claude --continue; else exec claude; fi"
+	return resumeLaunch
 }
 
 // remoteExec is the tail of a transport's remote command: cd into the workspace,
