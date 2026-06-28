@@ -315,11 +315,13 @@ func createLoopInstance(kitDir string, r runner.Runner, cfg kit.Config, loopName
 	if state.ExistsFor(kitDir, state.LoopInstance(loopName)) {
 		return state.State{}, fmt.Errorf("loop %q already has an instance; run `at-cove destroy --loop %s` first", loopName, loopName)
 	}
-	if err := doBuild(kitDir, r, false, stdout); err != nil {
-		return state.State{}, err
-	}
+	// Resolve the backend before building (matching doCreate), so a bad backend
+	// name fails fast instead of after an orphaned `docker build`.
 	b, err := getBackend(cfg.Backend, r)
 	if err != nil {
+		return state.State{}, err
+	}
+	if err := doBuild(kitDir, r, false, stdout); err != nil {
 		return state.State{}, err
 	}
 	inst, err := b.Create(backend.CreateContext{
