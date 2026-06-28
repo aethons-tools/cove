@@ -29,8 +29,8 @@ func (l *Lock) Release() error {
 	return err
 }
 
-func acquire(kitDir string, how int) (*Lock, error) {
-	f, err := os.OpenFile(Path(kitDir), os.O_RDWR, 0)
+func acquireFor(kitDir string, inst Instance, how int) (*Lock, error) {
+	f, err := os.OpenFile(PathFor(kitDir, inst), os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotCreated
 	}
@@ -47,9 +47,20 @@ func acquire(kitDir string, how int) (*Lock, error) {
 	return &Lock{f: f}, nil
 }
 
-// AcquireShared takes a shared (read) lock — many connects may hold it at once.
-func AcquireShared(kitDir string) (*Lock, error) { return acquire(kitDir, syscall.LOCK_SH) }
+// AcquireSharedFor takes a shared (read) lock on the given instance's state
+// file — many holders may share it at once.
+func AcquireSharedFor(kitDir string, inst Instance) (*Lock, error) {
+	return acquireFor(kitDir, inst, syscall.LOCK_SH)
+}
 
-// AcquireExclusive takes an exclusive (write) lock; returns ErrLocked if any
-// shared or exclusive lock is held (i.e. while connections are open).
-func AcquireExclusive(kitDir string) (*Lock, error) { return acquire(kitDir, syscall.LOCK_EX) }
+// AcquireExclusiveFor takes an exclusive (write) lock on the given instance's
+// state file; returns ErrLocked if any shared or exclusive lock is held.
+func AcquireExclusiveFor(kitDir string, inst Instance) (*Lock, error) {
+	return acquireFor(kitDir, inst, syscall.LOCK_EX)
+}
+
+// AcquireShared takes a shared lock on the interactive instance.
+func AcquireShared(kitDir string) (*Lock, error) { return AcquireSharedFor(kitDir, Interactive) }
+
+// AcquireExclusive takes an exclusive lock on the interactive instance.
+func AcquireExclusive(kitDir string) (*Lock, error) { return AcquireExclusiveFor(kitDir, Interactive) }
