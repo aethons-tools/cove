@@ -10,8 +10,10 @@ package state
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 const schemaVersion = 1
@@ -46,8 +48,28 @@ type Instance string
 // operate on today.
 const Interactive Instance = ""
 
-// LoopInstance returns the Instance for the named loop.
+// LoopInstance returns the Instance for the named loop. name must be a valid
+// loop name (see ValidLoopName); callers validate config/CLI-supplied names
+// before calling. Construct instances only via LoopInstance or Interactive —
+// the Instance type is exported for use as a parameter, not for ad-hoc
+// construction.
 func LoopInstance(name string) Instance { return Instance("loop-" + name) }
+
+// loopNamePattern bounds loop names to a filesystem- and container-safe charset:
+// a name must start alphanumeric and contain only letters, digits, '-' or '_',
+// up to 64 chars. This guarantees LoopInstance never yields a path that escapes
+// .state/ and that the name is safe to embed in container/volume names later.
+var loopNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+// ValidLoopName reports an error if name is not an acceptable loop name. Callers
+// MUST validate names from config or the CLI with this before passing them to
+// LoopInstance, which assumes a valid name.
+func ValidLoopName(name string) error {
+	if !loopNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid loop name %q: must start alphanumeric and contain only letters, digits, '-' or '_' (max 64 chars)", name)
+	}
+	return nil
+}
 
 // file is the state filename for this instance, inside the kit's .state dir.
 func (i Instance) file() string {

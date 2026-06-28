@@ -138,3 +138,18 @@ func TestLoadForMissingInstance(t *testing.T) {
 		t.Fatalf("missing loop load: want ErrNotCreated, got %v", err)
 	}
 }
+
+func TestValidLoopName(t *testing.T) {
+	good := []string{"foo", "ci-fixer", "queue_1", "A1", "state"}
+	for _, n := range good {
+		if err := ValidLoopName(n); err != nil {
+			t.Errorf("ValidLoopName(%q) = %v, want nil", n, err)
+		}
+	}
+	bad := []string{"", "foo/bar", "../etc", "foo/../../x", "-leading", "has space", "a/b", "x..y/../z"}
+	for _, n := range bad {
+		if err := ValidLoopName(n); err == nil {
+			t.Errorf("ValidLoopName(%q) = nil, want error", n)
+		}
+	}
+}
