@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,71 @@ func TestLockSharedMultipleExclusiveBlocks(t *testing.T) {
 func TestAcquireMissingState(t *testing.T) {
 	if _, err := AcquireShared(t.TempDir()); !errors.Is(err, ErrNotCreated) {
 		t.Fatalf("want ErrNotCreated, got %v", err)
+	}
+}
+
+func TestInstanceFilenames(t *testing.T) {
+	dir := t.TempDir()
+	if got := PathFor(dir, Interactive); got != Path(dir) {
+		t.Fatalf("Interactive PathFor = %q, want Path() %q", got, Path(dir))
+	}
+	if got := PathFor(dir, Interactive); !strings.HasSuffix(got, "/.state/state.json") {
+		t.Fatalf("interactive path = %q, want .../.state/state.json", got)
+	}
+	if got := PathFor(dir, LoopInstance("foo")); !strings.HasSuffix(got, "/.state/loop-foo.json") {
+		t.Fatalf("loop path = %q, want .../.state/loop-foo.json", got)
+	}
+}
+
+func TestNamedInstancesAreIsolated(t *testing.T) {
+	dir := t.TempDir()
+	foo := LoopInstance("foo")
+	if err := SaveFor(dir, Interactive, State{Name: "box", Backend: "colima", Container: "box"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveFor(dir, foo, State{Name: "box", Backend: "colima", Container: "box-loop-foo"}); err != nil {
+		t.Fatal(err)
+	}
+	if !ExistsFor(dir, Interactive) || !ExistsFor(dir, foo) {
+		t.Fatal("both instances should exist")
+	}
+	got, err := LoadFor(dir, foo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Container != "box-loop-foo" {
+		t.Fatalf("loop load returned wrong state: %+v", got)
+	}
+	// Deleting the loop must not touch the interactive instance.
+	if err := DeleteFor(dir, foo); err != nil {
+		t.Fatal(err)
+	}
+	if ExistsFor(dir, foo) {
+		t.Fatal("loop instance should be gone")
+	}
+	if !ExistsFor(dir, Interactive) {
+		t.Fatal("interactive instance must survive loop delete")
+	}
+}
+
+func TestLoadForMissingInstance(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := LoadFor(dir, LoopInstance("nope")); !errors.Is(err, ErrNotCreated) {
+		t.Fatalf("missing loop load: want ErrNotCreated, got %v", err)
+	}
+}
+
+func TestValidLoopName(t *testing.T) {
+	good := []string{"foo", "ci-fixer", "queue_1", "A1", "state"}
+	for _, n := range good {
+		if err := ValidLoopName(n); err != nil {
+			t.Errorf("ValidLoopName(%q) = %v, want nil", n, err)
+		}
+	}
+	bad := []string{"", "foo/bar", "../etc", "foo/../../x", "-leading", "has space", "a/b", "x..y/../z"}
+	for _, n := range bad {
+		if err := ValidLoopName(n); err == nil {
+			t.Errorf("ValidLoopName(%q) = nil, want error", n)
+		}
 	}
 }
