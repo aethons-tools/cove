@@ -377,7 +377,7 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryR
 		return err
 	}
 	if dryRun {
-		if inst == state.Interactive {
+		if inst == state.Interactive && !state.HasLoopInstances(kitDir) {
 			fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
 				st.Container, st.Image, state.PathFor(kitDir, inst))
 		} else {

@@ -565,3 +565,27 @@ func TestDestroyInteractivePreservesImageWhenLoopsExist(t *testing.T) {
 		t.Fatal("interactive destroy must NOT remove the shared image while a loop instance exists")
 	}
 }
+
+func TestDestroyInteractiveDryRunHonestAboutSharedImage(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box") // interactive
+	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
+		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "destroy", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	s := out.String()
+	if strings.Contains(s, "remove image") {
+		t.Fatalf("dry-run must not claim image removal while loops exist: %q", s)
+	}
+	if !strings.Contains(s, "shared image") {
+		t.Fatalf("dry-run should say the shared image is kept: %q", s)
+	}
+}
