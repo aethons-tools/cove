@@ -83,6 +83,10 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 
 	// Keep the host awake for the session only: idle work happens between here
 	// and Launch returning. A failed assertion is a warning, never fatal.
+	// The deferred release runs when Launch returns, covering the whole
+	// session: Launch opens an interactive PTY ssh, so a Ctrl-C goes to the
+	// remote tty rather than this process — Launch only returns when the
+	// session itself ends, which is exactly when the assertion should drop.
 	stderr := o.Stderr
 	if stderr == nil {
 		stderr = os.Stderr
