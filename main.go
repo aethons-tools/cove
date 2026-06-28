@@ -239,6 +239,7 @@ func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
 		Container:     inst.Container,
 		Image:         inst.Image,
 		WorkspaceMode: "isolated",
+		Setup:         cfg.Setup,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 	if inst.Workspace.Mode == backend.Shared {

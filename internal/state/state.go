@@ -35,6 +35,7 @@ type State struct {
 	Image             string   `json:"image"`
 	WorkspaceMode     string   `json:"workspaceMode"`               // "isolated" | "shared"
 	WorkspaceHostPath string   `json:"workspaceHostPath,omitempty"` // set iff shared
+	Setup             string   `json:"setup,omitempty"`             // command snapshotted from config.yml to seed an isolated workspace
 	Secrets           []Secret `json:"secrets,omitempty"`
 	CreatedAt         string   `json:"createdAt"`
 }
