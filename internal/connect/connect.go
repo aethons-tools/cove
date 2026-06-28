@@ -2,10 +2,12 @@ package connect
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/awake"
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -32,14 +34,15 @@ type Options struct {
 	Container     string // backend container handle (from state)
 	Secrets       []secret.Spec
 	IdentityFile  string
-	KnownHostsDir string // per-sandbox known_hosts files live here
-	SkipAuth      bool   // skip the interactive `claude auth login` step (--no-auth)
+	KnownHostsDir string    // per-sandbox known_hosts files live here
+	SkipAuth      bool      // skip the interactive `claude auth login` step (--no-auth)
+	Stderr        io.Writer // where the host-sleep warning is written; nil => os.Stderr
 }
 
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
 // claude with the secrets injected. Secret resolution happens before any SSH so
 // a failure aborts cleanly (fail closed).
-func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
+func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor, o Options) error {
 	env, err := secret.Resolve(r, o.Secrets)
 	if err != nil {
 		return err
@@ -76,6 +79,18 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, o Options) error {
 		if err := ensureAuthenticated(r, tgt); err != nil {
 			return err
 		}
+	}
+
+	// Keep the host awake for the session only: idle work happens between here
+	// and Launch returning. A failed assertion is a warning, never fatal.
+	stderr := o.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	if release, err := aw.Inhibit(); err != nil {
+		fmt.Fprintf(stderr, "at-cove: warning: could not prevent host sleep: %v\n", err)
+	} else {
+		defer release()
 	}
 	return t.Launch(tgt, env)
 }

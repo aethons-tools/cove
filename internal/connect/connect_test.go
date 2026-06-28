@@ -1,8 +1,11 @@
 package connect
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -45,14 +48,35 @@ func (b *fakeBackend) Dial(string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "h", Port: 22, User: "agent"}, func() { b.cleaned = true }, b.dialErr
 }
 
+// rec records the ordered lifecycle events of a Connect so tests can assert
+// the sleep assertion brackets the launch.
+type rec struct{ ev []string }
+
+type fakeInhibitor struct {
+	r   *rec
+	err error
+}
+
+func (f *fakeInhibitor) Inhibit() (func(), error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.r.ev = append(f.r.ev, "inhibit")
+	return func() { f.r.ev = append(f.r.ev, "release") }, nil
+}
+
 type fakeTransport struct {
 	launched bool
 	gotEnv   map[string]string
+	r        *rec // optional; records "launch" when set
 }
 
 func (t *fakeTransport) Launch(_ sshargs.Target, env map[string]string) error {
 	t.launched = true
 	t.gotEnv = env
+	if t.r != nil {
+		t.r.ev = append(t.r.ev, "launch")
+	}
 	return nil
 }
 
@@ -70,7 +94,7 @@ func TestConnectHappyPath(t *testing.T) {
 	tr := &fakeTransport{}
 	// Outputs are consumed in order: [0] the secret command, [1] the auth probe.
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
-	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
 	if !tr.launched || tr.gotEnv["GITHUB_TOKEN"] != "tok" {
@@ -88,7 +112,7 @@ func TestConnectFirstSessionRunsLogin(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-noauth\n"}}}
-	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
 	if !calledWith(r.Calls, loginCmd) {
@@ -103,7 +127,7 @@ func TestConnectSkipsLoginWhenAuthed(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
-	if err := Connect(b, r, tr, opts(t.TempDir())); err != nil {
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
 	if calledWith(r.Calls, loginCmd) {
@@ -118,7 +142,7 @@ func TestConnectSkipAuth(t *testing.T) {
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}}}
 	o := opts(t.TempDir())
 	o.SkipAuth = true
-	if err := Connect(b, r, tr, o); err != nil {
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
 		t.Fatal(err)
 	}
 	if calledWith(r.Calls, "claude auth status") {
@@ -139,7 +163,7 @@ func TestConnectAuthProbeFailureAborts(t *testing.T) {
 	r := &runner.Fake{
 		Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Err: &runner.ExitError{Code: 255}}},
 	}
-	err := Connect(b, r, tr, opts(t.TempDir()))
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir()))
 	if err == nil {
 		t.Fatal("expected error when the auth probe fails")
 	}
@@ -152,7 +176,7 @@ func TestConnectSecretFailureAbortsBeforeDial(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	err := Connect(b, r, tr, opts(t.TempDir()))
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir()))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -164,7 +188,7 @@ func TestConnectSecretFailureAbortsBeforeDial(t *testing.T) {
 func TestConnectRequiresRunning(t *testing.T) {
 	b := &fakeBackend{state: backend.StateStopped}
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}}}
-	err := Connect(b, r, &fakeTransport{}, opts(t.TempDir()))
+	err := Connect(b, r, &fakeTransport{}, &fakeInhibitor{r: &rec{}}, opts(t.TempDir()))
 	if err == nil || b.dialCalled {
 		t.Fatalf("stopped VM should error before Dial; err=%v dial=%v", err, b.dialCalled)
 	}
@@ -174,10 +198,42 @@ func TestConnectCreatesKnownHostsDir(t *testing.T) {
 	dir := t.TempDir()
 	b := &fakeBackend{state: backend.StateRunning}
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}, {Stdout: "cove-authed"}}}
-	if err := Connect(b, r, &fakeTransport{}, opts(dir)); err != nil {
+	if err := Connect(b, r, &fakeTransport{}, &fakeInhibitor{r: &rec{}}, opts(dir)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "known_hosts.d")); err != nil {
 		t.Fatalf("known_hosts dir not created: %v", err)
+	}
+}
+
+func TestConnectInhibitsSleepAroundLaunch(t *testing.T) {
+	r := &rec{}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{r: r}
+	run := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
+	if err := Connect(b, run, tr, &fakeInhibitor{r: r}, opts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"inhibit", "launch", "release"}
+	if !reflect.DeepEqual(r.ev, want) {
+		t.Fatalf("event order = %v, want %v", r.ev, want)
+	}
+}
+
+func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	run := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
+	var errBuf bytes.Buffer
+	o := opts(t.TempDir())
+	o.Stderr = &errBuf
+	if err := Connect(b, run, tr, &fakeInhibitor{err: errors.New("no caffeinate")}, o); err != nil {
+		t.Fatal(err)
+	}
+	if !tr.launched {
+		t.Fatal("must launch even when the sleep assertion fails")
+	}
+	if !strings.Contains(errBuf.String(), "could not prevent host sleep") {
+		t.Fatalf("expected warning; stderr=%q", errBuf.String())
 	}
 }
