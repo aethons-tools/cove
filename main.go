@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/awake"
 	"github.com/aethons-tools/cove/internal/backend"
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
 	"github.com/aethons-tools/cove/internal/connect"
@@ -317,12 +318,13 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth bool, stdout,
 	if raw {
 		cmd = "bash"
 	}
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd}, connect.Options{
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd}, awake.New(), connect.Options{
 		Container:     st.Container,
 		Secrets:       specs,
 		IdentityFile:  priv,
 		KnownHostsDir: filepath.Join(configDir(), "known_hosts.d"),
 		SkipAuth:      noAuth,
+		Stderr:        stderr,
 	})
 }
 
