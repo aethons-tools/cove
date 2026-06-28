@@ -1,6 +1,9 @@
 package kit
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestParseConfigValid(t *testing.T) {
 	data := []byte(`
@@ -85,5 +88,67 @@ func TestParseConfigSetupOptional(t *testing.T) {
 	}
 	if cfg.Setup != "" {
 		t.Fatalf("Setup should default empty, got %q", cfg.Setup)
+	}
+}
+
+func TestParseConfigLoops(t *testing.T) {
+	data := []byte(`
+name: x
+backend: colima
+loops:
+  default:
+    interval: 5m
+    check: "test -e q"
+    prompt: "do it"
+  fresh:
+    interval: 30s
+    check: "c"
+    prompt: "p"
+    setup: "git clone https://x ."
+    fresh-workspace: true
+`)
+	cfg, err := ParseConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Loops) != 2 {
+		t.Fatalf("loops = %+v", cfg.Loops)
+	}
+	d := cfg.Loops["default"]
+	if d.ParsedInterval() != 5*time.Minute {
+		t.Fatalf("default interval = %v, want 5m", d.ParsedInterval())
+	}
+	if d.Check != "test -e q" || d.Prompt != "do it" {
+		t.Fatalf("default loop = %+v", d)
+	}
+	f := cfg.Loops["fresh"]
+	if !f.FreshWorkspace || f.Setup != "git clone https://x ." || f.ParsedInterval() != 30*time.Second {
+		t.Fatalf("fresh loop = %+v", f)
+	}
+}
+
+func TestParseConfigLoopValidation(t *testing.T) {
+	bad := map[string]string{
+		"bad interval":  "name: x\nbackend: colima\nloops:\n  a:\n    interval: nope\n    check: c\n    prompt: p\n",
+		"zero interval": "name: x\nbackend: colima\nloops:\n  a:\n    interval: 0s\n    check: c\n    prompt: p\n",
+		"no interval":   "name: x\nbackend: colima\nloops:\n  a:\n    check: c\n    prompt: p\n",
+		"no check":      "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    prompt: p\n",
+		"no prompt":     "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    check: c\n",
+		"unknown field": "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    check: c\n    prompt: p\n    bogus: 1\n",
+	}
+	for label, data := range bad {
+		if _, err := ParseConfig([]byte(data)); err == nil {
+			t.Errorf("%s: expected error, got nil", label)
+		}
+	}
+}
+
+func TestParseConfigNoLoopsOK(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: x\nbackend: colima\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Loops) != 0 {
+		t.Fatalf("loops should be empty, got %+v", cfg.Loops)
 	}
 }
