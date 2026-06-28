@@ -403,6 +403,8 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryR
 	bi := instanceFromState(st)
 	if inst != state.Interactive {
 		bi.Image = "" // loop instances share the kit image; never remove it on teardown
+	} else if state.HasLoopInstances(kitDir) {
+		bi.Image = "" // loop instances still depend on the shared kit image; keep it
 	}
 	if err := b.Destroy(bi); err != nil {
 		return err
