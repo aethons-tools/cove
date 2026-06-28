@@ -110,26 +110,26 @@ func TestDestroyKeepsVolumes(t *testing.T) {
 	}
 }
 
-func TestCreateUsesProvidedImage(t *testing.T) {
+func TestCreateSharesImageViaKit(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f)
 	_, err := c.Create(backend.CreateContext{
 		Name:      "box-loop-foo",
 		BuildDir:  "/b",
-		Image:     "at-cove-for-box",
+		Kit:       "box",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// build tags the SHARED image, not one derived from the instance name.
+	// Build tags the SHARED kit image (derived from Kit), not from the instance Name.
 	if f.Calls[0].Args[0] != "build" || !contains(f.Calls[0].Args, "at-cove-for-box") {
 		t.Fatalf("build call = %+v", f.Calls[0])
 	}
 	if contains(f.Calls[0].Args, "at-cove-for-box-loop-foo") {
 		t.Fatalf("must not derive a per-loop image tag: %+v", f.Calls[0])
 	}
-	// container and volumes still derive from Name.
+	// Container and volumes still derive from Name.
 	run := f.Calls[1].Args
 	if !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-state:/agent-data") {
 		t.Fatalf("container/volumes must derive from Name: %v", run)

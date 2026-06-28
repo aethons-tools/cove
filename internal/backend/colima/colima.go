@@ -23,10 +23,11 @@ func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
 func image(name string) string { return "at-cove-for-" + name }
 
 func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
-	img := ctx.Image
-	if img == "" {
-		img = image(ctx.Name)
+	kit := ctx.Kit
+	if kit == "" {
+		kit = ctx.Name
 	}
+	img := image(kit)
 	if err := c.r.Run("docker", "build", "-t", img, ctx.BuildDir); err != nil {
 		return backend.Instance{}, err
 	}
