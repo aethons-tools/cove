@@ -34,7 +34,7 @@ type Options struct {
 	Container     string // backend container handle (from state)
 	Secrets       []secret.Spec
 	IdentityFile  string
-	KnownHostsDir string // per-sandbox known_hosts files live here
+	KnownHostsDir string    // per-sandbox known_hosts files live here
 	SkipAuth      bool      // skip the interactive `claude auth login` step (--no-auth)
 	Stderr        io.Writer // where the host-sleep warning is written; nil => os.Stderr
 }
