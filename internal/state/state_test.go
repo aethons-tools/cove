@@ -172,3 +172,22 @@ func TestHasLoopInstances(t *testing.T) {
 		t.Fatal("a loop instance exists: should be true")
 	}
 }
+
+func TestOtherLoopInstancesExist(t *testing.T) {
+	dir := t.TempDir()
+	if OtherLoopInstancesExist(dir, LoopInstance("foo")) {
+		t.Fatal("no dir yet: false")
+	}
+	if err := SaveFor(dir, LoopInstance("foo"), State{Name: "x", Backend: "colima", Container: "x-loop-foo"}); err != nil {
+		t.Fatal(err)
+	}
+	if OtherLoopInstancesExist(dir, LoopInstance("foo")) {
+		t.Fatal("only foo exists, excluding foo: false")
+	}
+	if err := SaveFor(dir, LoopInstance("bar"), State{Name: "x", Backend: "colima", Container: "x-loop-bar"}); err != nil {
+		t.Fatal(err)
+	}
+	if !OtherLoopInstancesExist(dir, LoopInstance("foo")) {
+		t.Fatal("bar exists besides foo: true")
+	}
+}

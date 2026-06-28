@@ -470,6 +470,7 @@ func TestSaveStateSnapshotsSetup(t *testing.T) {
 func TestDestroyLoopInstancePreservesImage(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box") // interactive instance present
 	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
 		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
 	}); err != nil {
@@ -498,6 +499,31 @@ func TestDestroyLoopInstancePreservesImage(t *testing.T) {
 	}
 	if state.ExistsFor(kitDir, state.LoopInstance("foo")) {
 		t.Fatal("loop state should be deleted")
+	}
+}
+
+func TestDestroyLastLoopInstanceRemovesImage(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir) // config only — NO interactive instance state
+	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
+		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"destroy", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	var rmi bool
+	for _, c := range f.Calls {
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rmi" {
+			rmi = true
+		}
+	}
+	if !rmi {
+		t.Fatal("destroying the LAST instance (no interactive, no other loop) must remove the shared image")
 	}
 }
 

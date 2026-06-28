@@ -168,3 +168,21 @@ func HasLoopInstances(kitDir string) bool {
 	}
 	return false
 }
+
+// OtherLoopInstancesExist reports whether any loop instance other than `except`
+// has a state file in the kit. Used so destroying the last instance can reclaim
+// the shared kit image.
+func OtherLoopInstancesExist(kitDir string, except Instance) bool {
+	entries, err := os.ReadDir(Dir(kitDir))
+	if err != nil {
+		return false
+	}
+	exceptFile := except.file()
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasPrefix(n, "loop-") && strings.HasSuffix(n, ".json") && n != exceptFile {
+			return true
+		}
+	}
+	return false
+}
