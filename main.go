@@ -253,16 +253,17 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 	return saveState(kitDir, cfg, inst)
 }
 
-// saveState snapshots the created instance and the kit's secret specs (names +
-// resolver commands, never values) into the kit state file.
-func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
+// buildState assembles the state snapshot for a created instance: the backend
+// handles, the workspace mode, the setup command to seed an isolated workspace,
+// and the kit's secret specs (names + resolver commands, never values).
+func buildState(cfg kit.Config, inst backend.Instance, setup string) state.State {
 	st := state.State{
 		Name:          cfg.Name,
 		Backend:       inst.Backend,
 		Container:     inst.Container,
 		Image:         inst.Image,
 		WorkspaceMode: "isolated",
-		Setup:         cfg.Setup,
+		Setup:         setup,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 	if inst.Workspace.Mode == backend.Shared {
@@ -272,7 +273,73 @@ func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
 	for _, s := range cfg.Secrets {
 		st.Secrets = append(st.Secrets, state.Secret{Name: s.Name, Command: s.Command})
 	}
-	return state.Save(kitDir, st)
+	return st
+}
+
+// saveState snapshots the created interactive instance into the kit state file.
+func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
+	return state.Save(kitDir, buildState(cfg, inst, cfg.Setup))
+}
+
+// loopContainer is the backend container/volume name for a named loop: it
+// suffixes the kit name so loop instances never collide with the interactive
+// instance or each other, while sharing the kit image (CreateContext.Kit).
+func loopContainer(kitName, loopName string) string {
+	return kitName + "-loop-" + loopName
+}
+
+// declaresSecret reports whether the kit declares a secret with the given name.
+func declaresSecret(cfg kit.Config, name string) bool {
+	for _, s := range cfg.Secrets {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// createLoopInstance provisions a dedicated, isolated sandbox for one named loop:
+// it builds the shared kit image, runs a loop-suffixed container with its own
+// volumes, and records a loop state file with the resolved setup command. It
+// fails fast (before any build) when the loop is undefined, ANTHROPIC_API_KEY is
+// not declared (an unattended run cannot log in interactively), or the loop
+// instance already exists.
+func createLoopInstance(kitDir string, r runner.Runner, cfg kit.Config, loopName string, stdout io.Writer) (state.State, error) {
+	lp, ok := cfg.Loops[loopName]
+	if !ok {
+		return state.State{}, fmt.Errorf("no loop %q defined in config.yml", loopName)
+	}
+	if !declaresSecret(cfg, "ANTHROPIC_API_KEY") {
+		return state.State{}, fmt.Errorf("loop %q requires ANTHROPIC_API_KEY to be declared in config.yml secrets (unattended runs cannot log in interactively)", loopName)
+	}
+	if state.ExistsFor(kitDir, state.LoopInstance(loopName)) {
+		return state.State{}, fmt.Errorf("loop %q already has an instance; run `at-cove destroy --loop %s` first", loopName, loopName)
+	}
+	if err := doBuild(kitDir, r, false, stdout); err != nil {
+		return state.State{}, err
+	}
+	b, err := getBackend(cfg.Backend, r)
+	if err != nil {
+		return state.State{}, err
+	}
+	inst, err := b.Create(backend.CreateContext{
+		Name:      loopContainer(cfg.Name, loopName),
+		Kit:       cfg.Name,
+		BuildDir:  filepath.Join(kitDir, ".build"),
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		return state.State{}, err
+	}
+	setup := lp.Setup
+	if setup == "" {
+		setup = cfg.Setup
+	}
+	st := buildState(cfg, inst, setup)
+	if err := state.SaveFor(kitDir, state.LoopInstance(loopName), st); err != nil {
+		return state.State{}, err
+	}
+	return st, nil
 }
 
 func instanceFromState(st state.State) backend.Instance {
