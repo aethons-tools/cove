@@ -101,25 +101,33 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 	// host+port keeps the path distinct across concurrently-connected sandboxes
 	// (Colima maps every sandbox to 127.0.0.1 on a different port).
 	file := fmt.Sprintf("/dev/shm/cove-env-%s-%d", t.Host, t.Port)
-	names := make([]string, 0, len(env))
-	for k := range env {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	var script strings.Builder
-	for _, k := range names {
-		fmt.Fprintf(&script, "export %s=%s\n", k, shellQuote(env[k]))
-	}
+	script := envScript(env)
 
 	// 1) write the script into tmpfs (values arrive via stdin, never on argv).
 	writeArgs := append(sshargs.Base(t), "umask 077; cat > "+file)
-	if err := s.R.RunStdin(strings.NewReader(script.String()), "ssh", writeArgs...); err != nil {
+	if err := s.R.RunStdin(strings.NewReader(script), "ssh", writeArgs...); err != nil {
 		return err
 	}
 	// 2) interactive: source the file, remove it, then launch the program.
 	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
+}
+
+// envScript renders env as a sourceable shell script: one `export K=V` line per
+// name, sorted for determinism, values single-quoted so no value ever reaches
+// argv. Shared by the StdinScript transport and RunSetup.
+func envScript(env map[string]string) string {
+	names := make([]string, 0, len(env))
+	for k := range env {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, k := range names {
+		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(env[k]))
+	}
+	return b.String()
 }
 
 // shellQuote single-quotes s for safe inclusion in a POSIX shell script.

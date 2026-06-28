@@ -239,6 +239,7 @@ func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
 		Container:     inst.Container,
 		Image:         inst.Image,
 		WorkspaceMode: "isolated",
+		Setup:         cfg.Setup,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 	if inst.Workspace.Mode == backend.Shared {
@@ -327,6 +328,10 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if raw {
 		cmd = "bash"
 	}
+	setupCmd := st.Setup
+	if st.WorkspaceMode == "shared" {
+		setupCmd = "" // the host bind-mount already holds the code
+	}
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume}, awake.New(), connect.Options{
 		Container:     st.Container,
 		Secrets:       specs,
@@ -334,6 +339,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		KnownHostsDir: filepath.Join(configDir(), "known_hosts.d"),
 		SkipAuth:      noAuth,
 		Stderr:        stderr,
+		Setup:         setupCmd,
 	})
 }
 

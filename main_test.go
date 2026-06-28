@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/state"
 )
@@ -443,5 +445,22 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "GITHUB_TOKEN") {
 		t.Fatalf("error should name the bad key; stderr=%q", errOut.String())
+	}
+}
+
+func TestSaveStateSnapshotsSetup(t *testing.T) {
+	dir := t.TempDir()
+	cfg := kit.Config{Name: "box", Backend: "colima", Setup: "git clone https://x ."}
+	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
+	if err := saveState(dir, cfg, inst); err != nil {
+		t.Fatal(err)
+	}
+	st, err := state.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Setup != "git clone https://x ." {
+		t.Fatalf("state Setup = %q", st.Setup)
 	}
 }

@@ -22,6 +22,7 @@ type Secret struct {
 type Config struct {
 	Name    string   `yaml:"name"`
 	Backend string   `yaml:"backend"`
+	Setup   string   `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets []Secret `yaml:"secrets"`
 }
 
