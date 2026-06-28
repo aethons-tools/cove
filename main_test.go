@@ -701,3 +701,61 @@ func TestCreateLoopInstanceUnknownLoop(t *testing.T) {
 		t.Fatal("unknown loop must error")
 	}
 }
+
+func TestDryRunLoop(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLoopKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "loop", "default", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run executed commands: %+v", f.Calls)
+	}
+	s := out.String()
+	if !strings.Contains(s, "would run loop \"default\"") || !strings.Contains(s, "5m0s") {
+		t.Fatalf("dry-run message = %q", s)
+	}
+}
+
+func TestDryRunLoopIntervalOverride(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLoopKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "--interval", "30s", "loop", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	// name omitted => "default"; interval overridden to 30s.
+	if !strings.Contains(out.String(), "30s") {
+		t.Fatalf("--interval should override; msg=%q", out.String())
+	}
+}
+
+func TestLoopUnknownNameErrors(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLoopKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "loop", "nope", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("unknown loop name must error")
+	}
+}
+
+func TestLoopBadIntervalErrors(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLoopKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--interval", "nonsense", "loop", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("bad --interval must error")
+	}
+}
