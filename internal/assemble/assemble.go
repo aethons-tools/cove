@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // Assemble builds the context in buildDir from the layered overlays (last
 // writer wins) and injects the managed public key.
-func Assemble(kitDir, buildDir string, pub []byte) error {
+func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}
@@ -40,6 +42,10 @@ func Assemble(kitDir, buildDir string, pub []byte) error {
 	// Layer 3 (deferred): .local/image-files — intentionally not applied yet.
 	// Layer 4: non-overridable hardening (Dockerfile + image-files), wins.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
+		return err
+	}
+
+	if err := writeAllowedDomains(buildDir, img.AllowedDomains); err != nil {
 		return err
 	}
 
@@ -112,6 +118,24 @@ func collisions(kitDir string) ([]string, error) {
 	}
 	sort.Strings(hits)
 	return hits, nil
+}
+
+// writeAllowedDomains writes the kit's additive squid allow-list. Always written
+// (empty list → header only) so the sealed squid.conf can reference it
+// unconditionally without squid erroring on a missing ACL file.
+func writeAllowedDomains(buildDir string, domains []string) error {
+	dst := filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("# Kit-declared egress domains (config.yml image.allowed-domains).\n")
+	b.WriteString("# Additive to the sealed base allowed_domains.txt; leading dot = subdomains.\n")
+	for _, d := range domains {
+		b.WriteString(d)
+		b.WriteString("\n")
+	}
+	return os.WriteFile(dst, []byte(b.String()), 0o644)
 }
 
 // copyTree copies a real directory tree from src to dst, preserving modes.

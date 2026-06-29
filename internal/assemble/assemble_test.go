@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 func read(t *testing.T, p string) string {
@@ -23,7 +25,7 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	// Local override: a benign file that does not collide with hardening.
 	mustWrite(t, filepath.Join(kitDir, "image-files/home/agent/note.txt"), "local")
 
-	if err := Assemble(kitDir, buildDir, []byte("ssh-ed25519 AAAA k\n")); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("ssh-ed25519 AAAA k\n"), kit.ImageConfig{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +49,7 @@ func TestAssembleRejectsCollision(t *testing.T) {
 	// etc/nftables.conf is shipped by the hardening layer; shadowing it must fail.
 	mustWrite(t, filepath.Join(kitDir, "image-files/etc/nftables.conf"), "PWNED")
 
-	err := Assemble(kitDir, buildDir, []byte("k\n"))
+	err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{})
 	if err == nil {
 		t.Fatal("expected a collision error, got nil")
 	}
@@ -63,5 +65,37 @@ func mustWrite(t *testing.T, p, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAssembleAllowedDomains(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	img := kit.ImageConfig{AllowedDomains: []string{".example.com", "pkg.go.dev"}}
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
+	if !strings.Contains(got, ".example.com") || !strings.Contains(got, "pkg.go.dev") {
+		t.Fatalf("kit allow-list = %q", got)
+	}
+}
+
+func TestAssembleAllowedDomainsAlwaysWritten(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	// File must exist even with no domains, so squid.conf never references a missing file.
+	if _, err := os.Stat(filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt")); err != nil {
+		t.Fatalf("kit allow-list must always be written: %v", err)
+	}
+}
+
+func TestSquidConfReferencesKitFile(t *testing.T) {
+	got := read(t, "hardening/image-files/etc/squid/squid.conf")
+	if !strings.Contains(got, "allowed_domains.kit.txt") {
+		t.Fatalf("squid.conf must reference the kit allow-list: %q", got)
 	}
 }

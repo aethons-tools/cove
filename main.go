@@ -263,6 +263,10 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 		fmt.Fprintf(stdout, "would write %s/.gitignore, assemble %s, and inject managed key\n", kitDir, buildDir)
 		return nil
 	}
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return err
+	}
 	if err := kit.EnsureGitignore(kitDir); err != nil {
 		return err
 	}
@@ -270,7 +274,7 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-	return assemble.Assemble(kitDir, buildDir, pub)
+	return assemble.Assemble(kitDir, buildDir, pub, cfg.Image)
 }
 
 func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
