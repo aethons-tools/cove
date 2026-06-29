@@ -76,5 +76,13 @@ RUN printf '%s\n' \
   'NO_PROXY=localhost,127.0.0.1,::1,.internal' \
   >> /etc/environment
 
+# Fold kit-declared PATH/env (config.yml image.paths/image.env) into
+# /etc/environment, so pam_env exposes them to every session — the mechanism
+# bashrc cannot reach for non-interactive SSH command execution.
+RUN /usr/local/lib/cove/apply-image-env.sh
+
+# Drop cove's build-time consumables from the final image.
+RUN rm -rf /.cove
+
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

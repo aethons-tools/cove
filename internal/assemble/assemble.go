@@ -57,6 +57,10 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return err
 	}
 
+	if err := writeImageEnv(buildDir, img.Paths, img.Env); err != nil {
+		return err
+	}
+
 	// Managed key injection.
 	ak := filepath.Join(buildDir, "image-files/home/agent/.ssh/authorized_keys")
 	if err := os.MkdirAll(filepath.Dir(ak), 0o700); err != nil {
@@ -170,6 +174,37 @@ func writeSetupManifest(kitDir, buildDir string, scripts []string) error {
 		return err
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
+}
+
+// writeImageEnv writes the kit's additive PATH segments and env vars for the
+// build-time apply helper. Both files are always written (empty when unset).
+// Paths keep declaration order; env is sorted by key for a deterministic image.
+func writeImageEnv(buildDir string, paths []string, env map[string]string) error {
+	dir := filepath.Join(buildDir, "image-files/.cove")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	var pb strings.Builder
+	for _, p := range paths {
+		pb.WriteString(p)
+		pb.WriteString("\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "paths"), []byte(pb.String()), 0o644); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var eb strings.Builder
+	for _, k := range keys {
+		eb.WriteString(k)
+		eb.WriteString("=")
+		eb.WriteString(env[k])
+		eb.WriteString("\n")
+	}
+	return os.WriteFile(filepath.Join(dir, "env"), []byte(eb.String()), 0o644)
 }
 
 // copyTree copies a real directory tree from src to dst, preserving modes.

@@ -133,3 +133,23 @@ func TestAssembleRejectsReservedCove(t *testing.T) {
 		t.Fatalf("expected reserved-namespace error, got %v", err)
 	}
 }
+
+func TestAssembleImageEnv(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	img := kit.ImageConfig{
+		Paths: []string{"/usr/local/go/bin", "/home/agent/go/bin"},
+		Env:   map[string]string{"GOROOT": "/usr/local/go", "GOPATH": "/home/agent/go"},
+	}
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
+		t.Fatal(err)
+	}
+	paths := read(t, filepath.Join(buildDir, "image-files/.cove/paths"))
+	if paths != "/usr/local/go/bin\n/home/agent/go/bin\n" {
+		t.Fatalf("paths = %q", paths)
+	}
+	env := read(t, filepath.Join(buildDir, "image-files/.cove/env"))
+	if env != "GOPATH=/home/agent/go\nGOROOT=/usr/local/go\n" { // sorted by key
+		t.Fatalf("env = %q", env)
+	}
+}
