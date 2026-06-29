@@ -44,7 +44,14 @@ func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
 
 func dockerArg0Index(calls []runner.Call, arg0 string) int {
 	for i, c := range calls {
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == arg0 {
+		if c.Name != "docker" {
+			continue
+		}
+		a := c.Args
+		if len(a) >= 2 && a[0] == "--context" { // skip the pinned colima context
+			a = a[2:]
+		}
+		if len(a) > 0 && a[0] == arg0 {
 			return i
 		}
 	}
@@ -73,7 +80,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box")
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
 	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
@@ -81,6 +88,24 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "running") {
 		t.Fatalf("status output = %q", out.String())
+	}
+}
+
+// TestColimaDownPrintsActionableError guards that a stopped colima surfaces the
+// "colima start" guidance to the user — not swallowed by main's ExitError path.
+func TestColimaDownPrintsActionableError(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box")
+	// The preflight `docker info` fails (colima unreachable).
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("status must fail when colima is unreachable")
+	}
+	if !strings.Contains(errOut.String(), "colima start") {
+		t.Fatalf("must print actionable colima guidance; stderr=%q", errOut.String())
 	}
 }
 
@@ -482,15 +507,8 @@ func TestDestroyLoopInstancePreservesImage(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
-	var rm, rmi bool
-	for _, c := range f.Calls {
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rm" {
-			rm = true
-		}
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rmi" {
-			rmi = true
-		}
-	}
+	rm := dockerArg0Index(f.Calls, "rm") != -1
+	rmi := dockerArg0Index(f.Calls, "rmi") != -1
 	if !rm {
 		t.Fatal("loop container should be removed")
 	}
@@ -516,12 +534,7 @@ func TestDestroyLastLoopInstanceRemovesImage(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
-	var rmi bool
-	for _, c := range f.Calls {
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rmi" {
-			rmi = true
-		}
-	}
+	rmi := dockerArg0Index(f.Calls, "rmi") != -1
 	if !rmi {
 		t.Fatal("destroying the LAST instance (no interactive, no other loop) must remove the shared image")
 	}
@@ -535,7 +548,7 @@ func TestStatusLoopInstance(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
 	code := run([]string{"status", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
@@ -583,12 +596,7 @@ func TestDestroyInteractivePreservesImageWhenLoopsExist(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
-	var rmi bool
-	for _, c := range f.Calls {
-		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "rmi" {
-			rmi = true
-		}
-	}
+	rmi := dockerArg0Index(f.Calls, "rmi") != -1
 	if rmi {
 		t.Fatal("interactive destroy must NOT remove the shared image while a loop instance exists")
 	}

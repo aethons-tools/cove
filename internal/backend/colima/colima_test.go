@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -17,15 +18,16 @@ func TestCreateIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Calls[0].Name != "docker" || f.Calls[0].Args[0] != "build" || !contains(f.Calls[0].Args, "at-cove-for-box") {
-		t.Fatalf("build call = %+v", f.Calls[0])
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "at-cove-for-box") {
+		t.Fatalf("build call = %+v", f.Calls)
 	}
-	run := f.Calls[1].Args
-	if !contains(run, "-v") || !contains(run, "box-workspace:/home/agent/workspace") {
-		t.Fatalf("isolated workspace volume missing: %v", run)
+	run := dockerCall(f.Calls, "run")
+	if run == nil || !contains(run, "box-workspace:/home/agent/workspace") || !contains(run, "box-state:/agent-data") {
+		t.Fatalf("isolated run call = %+v", f.Calls)
 	}
-	if !contains(run, "box-state:/agent-data") {
-		t.Fatalf("state volume missing: %v", run)
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
 	}
 	if inst.Container != "box" || inst.Image != "at-cove-for-box" || inst.Backend != "colima" {
 		t.Fatalf("instance = %+v", inst)
@@ -40,13 +42,15 @@ func TestCreateShared(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !contains(f.Calls[1].Args, "/host/repo:/home/agent/workspace") {
-		t.Fatalf("shared bind missing: %v", f.Calls[1].Args)
+	run := dockerCall(f.Calls, "run")
+	if run == nil || !contains(run, "/host/repo:/home/agent/workspace") {
+		t.Fatalf("shared bind missing: %+v", f.Calls)
 	}
 }
 
 func TestDialParsesDockerPort(t *testing.T) {
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
+	// Outputs consumed in order: preflight `info`, then `port`.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "127.0.0.1:49153\n"}}}
 	ep, cleanup, err := New(f).Dial("box")
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +72,12 @@ func TestGetStatus(t *testing.T) {
 		{out: "", err: &runner.ExitError{Code: 1}, want: backend.StateAbsent},
 	}
 	for _, c := range cases {
-		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: c.out, Err: c.err}}}
-		got, _ := New(f).GetStatus("box")
+		// Outputs consumed in order: preflight `info` (ok), then `inspect`.
+		f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: c.out, Err: c.err}}}
+		got, err := New(f).GetStatus("box")
+		if err != nil {
+			t.Fatalf("status(%q,%v) errored: %v", c.out, c.err, err)
+		}
 		if got != c.want {
 			t.Fatalf("status(%q,%v) = %v want %v", c.out, c.err, got, c.want)
 		}
@@ -92,21 +100,18 @@ func TestDestroyKeepsVolumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Calls) != 2 {
-		t.Fatalf("expected rm + rmi, got %+v", f.Calls)
+	rm := dockerCall(f.Calls, "rm")
+	if rm == nil || !contains(rm, "-f") || !contains(rm, "box") {
+		t.Fatalf("destroy should force-remove the container: %+v", f.Calls)
 	}
-	rm := f.Calls[0]
-	if rm.Name != "docker" || rm.Args[0] != "rm" || !contains(rm.Args, "-f") || !contains(rm.Args, "box") {
-		t.Fatalf("destroy should force-remove the container: %+v", rm)
-	}
-	for _, a := range rm.Args {
+	for _, a := range rm {
 		if a == "-v" || a == "--volumes" {
-			t.Fatalf("destroy must not remove volumes: %v", rm.Args)
+			t.Fatalf("destroy must not remove volumes: %v", rm)
 		}
 	}
-	rmi := f.Calls[1]
-	if rmi.Name != "docker" || rmi.Args[0] != "rmi" || !contains(rmi.Args, "at-cove-for-box") {
-		t.Fatalf("destroy should remove the image: %+v", rmi)
+	rmi := dockerCall(f.Calls, "rmi")
+	if rmi == nil || !contains(rmi, "at-cove-for-box") {
+		t.Fatalf("destroy should remove the image: %+v", f.Calls)
 	}
 }
 
@@ -123,16 +128,57 @@ func TestCreateSharesImageViaKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Build tags the SHARED kit image (derived from Kit), not from the instance Name.
-	if f.Calls[0].Args[0] != "build" || !contains(f.Calls[0].Args, "at-cove-for-box") {
-		t.Fatalf("build call = %+v", f.Calls[0])
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "at-cove-for-box") {
+		t.Fatalf("build call = %+v", f.Calls)
 	}
-	if contains(f.Calls[0].Args, "at-cove-for-box-loop-foo") {
-		t.Fatalf("must not derive a per-loop image tag: %+v", f.Calls[0])
+	if contains(build, "at-cove-for-box-loop-foo") {
+		t.Fatalf("must not derive a per-loop image tag: %v", build)
 	}
 	// Container and volumes still derive from Name.
-	run := f.Calls[1].Args
-	if !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-state:/agent-data") {
-		t.Fatalf("container/volumes must derive from Name: %v", run)
+	run := dockerCall(f.Calls, "run")
+	if run == nil || !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-state:/agent-data") {
+		t.Fatalf("container/volumes must derive from Name: %+v", f.Calls)
+	}
+}
+
+// TestPinsContext: every docker call carries --context colima, so cove never
+// uses a different daemon than colima.
+func TestPinsContext(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Create(backend.CreateContext{Name: "box", BuildDir: "/b"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) == 0 || !allPinned(f.Calls) {
+		t.Fatalf("docker calls must pin --context colima: %+v", f.Calls)
+	}
+	// The very first call is the preflight `info`.
+	if info := dockerCall(f.Calls, "info"); info == nil {
+		t.Fatalf("expected a preflight `docker info`: %+v", f.Calls)
+	}
+}
+
+// TestPreflightFailsActionably: when colima is unreachable, operations fail with
+// a message that names `colima start`, instead of a cryptic docker error.
+func TestPreflightFailsActionably(t *testing.T) {
+	mkFail := func() *runner.Fake {
+		return &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+	}
+	// Create
+	if _, err := New(mkFail()).Create(backend.CreateContext{Name: "box", BuildDir: "/b"}); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("Create should fail actionably; err=%v", err)
+	}
+	// Dial
+	if _, _, err := New(mkFail()).Dial("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("Dial should fail actionably; err=%v", err)
+	}
+	// Destroy
+	if err := New(mkFail()).Destroy(backend.Instance{Container: "box"}); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("Destroy should fail actionably; err=%v", err)
+	}
+	// GetStatus now surfaces the unreachable error instead of a misleading "absent".
+	if _, err := New(mkFail()).GetStatus("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("GetStatus should fail actionably; err=%v", err)
 	}
 }
 
@@ -143,4 +189,35 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// dockerCall returns the args of the first `docker <sub>` call, skipping the
+// pinned `--context colima` prefix, or nil if absent.
+func dockerCall(calls []runner.Call, sub string) []string {
+	for _, c := range calls {
+		if c.Name != "docker" {
+			continue
+		}
+		a := c.Args
+		if len(a) >= 2 && a[0] == "--context" {
+			a = a[2:]
+		}
+		if len(a) > 0 && a[0] == sub {
+			return a
+		}
+	}
+	return nil
+}
+
+// allPinned reports whether every docker call begins with `--context colima`.
+func allPinned(calls []runner.Call) bool {
+	for _, c := range calls {
+		if c.Name != "docker" {
+			continue
+		}
+		if len(c.Args) < 2 || c.Args[0] != "--context" || c.Args[1] != dockerContext {
+			return false
+		}
+	}
+	return true
 }
