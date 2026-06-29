@@ -40,8 +40,7 @@ COPY image-files/. /.
 # the pre-existing /home/agent — leaving the agent unable to write to its own
 # $HOME. Restore it (and .ssh, whose contents COPY also re-owned).
 RUN chmod +x /usr/local/bin/entrypoint.sh \
- && chown agent:agent /home/agent \
- && chown -R agent:agent /home/agent/.ssh \
+ && chown -R agent:agent /home/agent \
  && chmod 700 /home/agent/.ssh \
  && chmod 600 /home/agent/.ssh/authorized_keys
 
@@ -58,9 +57,9 @@ RUN if [ -f /home/agent/.claude.json ]; then \
  && chown agent:agent /home/agent/.init-agent-data/.claude.json
 
 
-RUN chmod +x /.install-files/install.sh && \
-    /.install-files/install.sh && \
-    rm -rf /.install-files
+# Run kit-declared setup scripts (config.yml image.setup-script) as root, each
+# in place. Replaces the old hardcoded /.install-files/install.sh convention.
+RUN /usr/local/lib/cove/run-setup.sh
 
 # SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH,
 # point claude at its state on the persistent volume, and force every login

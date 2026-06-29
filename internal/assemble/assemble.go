@@ -28,6 +28,10 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return fmt.Errorf("kit image-files collide with the sealed hardening layer (these would be silently overwritten — rename or remove them): %s", strings.Join(hits, ", "))
 	}
 
+	if _, err := os.Stat(filepath.Join(kitDir, "image-files", ".cove")); err == nil {
+		return fmt.Errorf("kit image-files/.cove is reserved for cove-generated build files; rename or remove it")
+	}
+
 	// Layer 1: overridable defaults (strip the "overridable/" prefix).
 	if err := copyEmbed(overridableFS, "overridable", buildDir); err != nil {
 		return err
@@ -46,6 +50,10 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 	}
 
 	if err := writeAllowedDomains(buildDir, img.AllowedDomains); err != nil {
+		return err
+	}
+
+	if err := writeSetupManifest(kitDir, buildDir, img.SetupScript); err != nil {
 		return err
 	}
 
@@ -134,6 +142,32 @@ func writeAllowedDomains(buildDir string, domains []string) error {
 	for _, d := range domains {
 		b.WriteString(d)
 		b.WriteString("\n")
+	}
+	return os.WriteFile(dst, []byte(b.String()), 0o644)
+}
+
+// writeSetupManifest writes the ordered list of in-image absolute script paths
+// for the build-time runner. Each entry is interpreted relative to the kit's
+// image-files root: on disk kitDir/image-files/<entry>, in the image /<entry>
+// (the file is placed there by `COPY image-files/. /.`). Always written (empty
+// list → empty file) so the runner can read it unconditionally.
+func writeSetupManifest(kitDir, buildDir string, scripts []string) error {
+	var b strings.Builder
+	for _, s := range scripts {
+		onDisk := filepath.Join(kitDir, "image-files", filepath.FromSlash(s))
+		info, err := os.Stat(onDisk)
+		if err != nil {
+			return fmt.Errorf("image.setup-script %q: %w", s, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("image.setup-script %q: is a directory, not a script", s)
+		}
+		b.WriteString(path.Clean("/" + filepath.ToSlash(s)))
+		b.WriteString("\n")
+	}
+	dst := filepath.Join(buildDir, "image-files/.cove/setup-manifest")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
 }

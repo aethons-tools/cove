@@ -99,3 +99,37 @@ func TestSquidConfReferencesKitFile(t *testing.T) {
 		t.Fatalf("squid.conf must reference the kit allow-list: %q", got)
 	}
 }
+
+func TestAssembleSetupManifest(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	mustWrite(t, filepath.Join(kitDir, "image-files/.install-files/install.sh"), "#!/bin/bash\n")
+	img := kit.ImageConfig{SetupScript: []string{".install-files/install.sh"}}
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(buildDir, "image-files/.cove/setup-manifest"))
+	if got != "/.install-files/install.sh\n" {
+		t.Fatalf("manifest = %q", got)
+	}
+}
+
+func TestAssembleSetupMissingScript(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	img := kit.ImageConfig{SetupScript: []string{".install-files/nope.sh"}}
+	err := Assemble(kitDir, buildDir, []byte("k\n"), img)
+	if err == nil || !strings.Contains(err.Error(), "nope.sh") {
+		t.Fatalf("expected missing-script error naming the path, got %v", err)
+	}
+}
+
+func TestAssembleRejectsReservedCove(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	mustWrite(t, filepath.Join(kitDir, "image-files/.cove/x"), "nope")
+	err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{})
+	if err == nil || !strings.Contains(err.Error(), ".cove") {
+		t.Fatalf("expected reserved-namespace error, got %v", err)
+	}
+}
