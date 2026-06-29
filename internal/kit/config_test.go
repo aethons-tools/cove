@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -150,5 +151,53 @@ func TestParseConfigNoLoopsOK(t *testing.T) {
 	}
 	if len(cfg.Loops) != 0 {
 		t.Fatalf("loops should be empty, got %+v", cfg.Loops)
+	}
+}
+
+func TestParseConfigImage(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+backend: colima
+image:
+  setup-script:
+    - .install-files/install.sh
+  paths:
+    - /usr/local/go/bin
+  env:
+    GOROOT: /usr/local/go
+  allowed-domains:
+    - .example.com
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Image.SetupScript) != 1 || cfg.Image.SetupScript[0] != ".install-files/install.sh" {
+		t.Fatalf("SetupScript = %v", cfg.Image.SetupScript)
+	}
+	if len(cfg.Image.Paths) != 1 || cfg.Image.Paths[0] != "/usr/local/go/bin" {
+		t.Fatalf("Paths = %v", cfg.Image.Paths)
+	}
+	if cfg.Image.Env["GOROOT"] != "/usr/local/go" {
+		t.Fatalf("Env = %v", cfg.Image.Env)
+	}
+	if len(cfg.Image.AllowedDomains) != 1 || cfg.Image.AllowedDomains[0] != ".example.com" {
+		t.Fatalf("AllowedDomains = %v", cfg.Image.AllowedDomains)
+	}
+}
+
+func TestParseConfigImageAbsent(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nbackend: colima\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Image.SetupScript) != 0 || len(cfg.Image.Paths) != 0 || len(cfg.Image.Env) != 0 || len(cfg.Image.AllowedDomains) != 0 {
+		t.Fatalf("absent image must be zero-valued, got %+v", cfg.Image)
+	}
+}
+
+func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  setup-script:\n    - \"\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "setup-script") {
+		t.Fatalf("expected empty setup-script error, got %v", err)
 	}
 }

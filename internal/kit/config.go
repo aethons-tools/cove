@@ -3,6 +3,7 @@ package kit
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -40,6 +41,16 @@ func (l Loop) ParsedInterval() time.Duration {
 	return d
 }
 
+// ImageConfig declares additive, build-time customisations of the sandbox image.
+// cove translates each field to the correct sealed mechanism; every field is
+// additive to the hardened baseline and never overrides it.
+type ImageConfig struct {
+	SetupScript    []string          `yaml:"setup-script"`    // kit-relative scripts run as root at build, in place
+	Paths          []string          `yaml:"paths"`           // appended to PATH in /etc/environment
+	Env            map[string]string `yaml:"env"`             // KEY=VALUE written to /etc/environment
+	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name    string          `yaml:"name"`
@@ -47,6 +58,7 @@ type Config struct {
 	Setup   string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets []Secret        `yaml:"secrets"`
 	Loops   map[string]Loop `yaml:"loops"`
+	Image   ImageConfig     `yaml:"image"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -79,6 +91,26 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		if lp.Prompt == "" {
 			return Config{}, fmt.Errorf("config.yml: loops[%q]: prompt is required", name)
+		}
+	}
+	for i, s := range cfg.Image.SetupScript {
+		if strings.TrimSpace(s) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.setup-script[%d]: must not be empty", i)
+		}
+	}
+	for i, p := range cfg.Image.Paths {
+		if strings.TrimSpace(p) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.paths[%d]: must not be empty", i)
+		}
+	}
+	for k := range cfg.Image.Env {
+		if strings.TrimSpace(k) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.env: keys must not be empty")
+		}
+	}
+	for i, d := range cfg.Image.AllowedDomains {
+		if strings.TrimSpace(d) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.allowed-domains[%d]: must not be empty", i)
 		}
 	}
 	return cfg, nil
