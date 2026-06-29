@@ -63,7 +63,11 @@ type Instance struct {
 type Backend interface {
 	Create(ctx CreateContext) (Instance, error)
 	Dial(container string) (Endpoint, func(), error)
-	Destroy(inst Instance) error
+	// Destroy removes the instance's container and (for the interactive instance)
+	// its image. When keepVolumes is true the named volumes survive — `recreate`
+	// relies on this so the saved login on /agent-data persists. When false, a
+	// real `destroy` also removes the instance's named volumes.
+	Destroy(inst Instance, keepVolumes bool) error
 	GetStatus(container string) (State, error)
 }
 

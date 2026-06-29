@@ -211,7 +211,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	case "recreate":
 		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
 	case "destroy":
-		err = doDestroyInstance(kitDir, r, inst, dryRun, stdout)
+		err = doDestroyInstance(kitDir, r, inst, false, dryRun, stdout)
 	case "status":
 		err = doStatusInstance(kitDir, r, inst, dryRun, stdout)
 	default:
@@ -500,18 +500,22 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 // container (keeping volumes), removes the image for the interactive instance
 // but NOT for a loop instance (which shares the kit image), then deletes the
 // state file.
-func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
+func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keepVolumes, dryRun bool, stdout io.Writer) error {
 	st, err := state.LoadFor(kitDir, inst)
 	if err != nil {
 		return err
 	}
+	volumes := "removing volumes"
+	if keepVolumes {
+		volumes = "keeping volumes"
+	}
 	if dryRun {
 		if inst == state.Interactive && !state.HasLoopInstances(kitDir) {
-			fmt.Fprintf(stdout, "would destroy %s (keeping volumes), remove image %s, and delete %s\n",
-				st.Container, st.Image, state.PathFor(kitDir, inst))
+			fmt.Fprintf(stdout, "would destroy %s (%s), remove image %s, and delete %s\n",
+				st.Container, volumes, st.Image, state.PathFor(kitDir, inst))
 		} else {
-			fmt.Fprintf(stdout, "would destroy %s (keeping volumes and the shared image) and delete %s\n",
-				st.Container, state.PathFor(kitDir, inst))
+			fmt.Fprintf(stdout, "would destroy %s (%s and the shared image) and delete %s\n",
+				st.Container, volumes, state.PathFor(kitDir, inst))
 		}
 		return nil
 	}
@@ -540,14 +544,17 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, dryR
 	} else if state.HasLoopInstances(kitDir) {
 		bi.Image = "" // loop instances still depend on the shared kit image; keep it
 	}
-	if err := b.Destroy(bi); err != nil {
+	if err := b.Destroy(bi, keepVolumes); err != nil {
 		return err
 	}
 	return state.DeleteFor(kitDir, inst)
 }
 
-func doDestroy(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
-	return doDestroyInstance(kitDir, r, state.Interactive, dryRun, stdout)
+// doDestroy tears the interactive instance down for the user-facing `destroy`
+// command: it purges the instance's volumes (keepVolumes=false). recreate calls
+// the keepVolumes=true path directly so the saved login survives.
+func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout io.Writer) error {
+	return doDestroyInstance(kitDir, r, state.Interactive, keepVolumes, dryRun, stdout)
 }
 
 // maxDrain caps consecutive triggers in a single drain, a safety valve so an
@@ -605,7 +612,7 @@ func doLoop(kitDir string, r runner.Runner, loopName string, once, keep bool, in
 		return err
 	}
 	if !keep {
-		defer func() { _ = doDestroyInstance(kitDir, r, inst, false, io.Discard) }()
+		defer func() { _ = doDestroyInstance(kitDir, r, inst, false, false, io.Discard) }()
 	}
 
 	// Block destroy/recreate of this instance while the loop runs.
@@ -754,7 +761,7 @@ func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdo
 		return nil
 	}
 	if state.Exists(kitDir) {
-		if err := doDestroy(kitDir, r, false, stdout); err != nil {
+		if err := doDestroy(kitDir, r, true, false, stdout); err != nil {
 			return err
 		}
 	}

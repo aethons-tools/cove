@@ -106,16 +106,24 @@ func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: hostport[:i], Port: port, User: "agent"}, func() {}, nil
 }
 
-func (c *Colima) Destroy(inst backend.Instance) error {
+func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	// Force-remove the container (never -v: named volumes survive). Then remove
-	// the image so the namespace stays clean — best-effort, since the build cache
-	// is separate and a missing image shouldn't fail the teardown.
+	// Force-remove the container (the rm itself never carries -v; volumes are
+	// named, not anonymous, so -v wouldn't touch them anyway). recreate passes
+	// keepVolumes=true so /agent-data (saved login) and the workspace survive.
 	if err := c.r.Run("docker", dargs("rm", "-f", inst.Container)...); err != nil {
 		return err
 	}
+	// A real destroy purges the instance's named volumes now that the container
+	// (their only user) is gone. Best-effort: `-workspace` is absent for a shared
+	// (bind-mount) workspace, so a missing volume must not fail the teardown.
+	if !keepVolumes {
+		_ = c.r.Run("docker", dargs("volume", "rm", "-f", inst.Container+"-state", inst.Container+"-workspace")...)
+	}
+	// Remove the image so the namespace stays clean — best-effort, since the build
+	// cache is separate and a missing image shouldn't fail the teardown.
 	if inst.Image != "" {
 		_ = c.r.Run("docker", dargs("rmi", inst.Image)...)
 	}

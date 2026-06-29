@@ -186,6 +186,20 @@ func TestDestroyRemovesContainerImageAndState(t *testing.T) {
 	if dockerArg0Index(f.Calls, "rm") == -1 || dockerArg0Index(f.Calls, "rmi") == -1 {
 		t.Fatalf("destroy must rm + rmi; calls=%+v", f.Calls)
 	}
+	// A real destroy purges the instance's named volumes (no orphaned -state/-workspace).
+	vol := dockerArg0Index(f.Calls, "volume")
+	if vol == -1 {
+		t.Fatalf("destroy must remove the instance volumes; calls=%+v", f.Calls)
+	}
+	gotState := false
+	for _, a := range f.Calls[vol].Args {
+		if a == "box-state" {
+			gotState = true
+		}
+	}
+	if !gotState {
+		t.Fatalf("destroy must remove the box-state (/agent-data) volume; calls=%+v", f.Calls[vol].Args)
+	}
 	if state.Exists(kitDir) {
 		t.Fatal("destroy must delete the state file")
 	}
@@ -294,6 +308,10 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 		if a == "-v" || a == "--volumes" {
 			t.Fatalf("recreate must keep volumes: %v", f.Calls[rmIdx].Args)
 		}
+	}
+	// recreate must NOT purge volumes (the saved login on /agent-data survives).
+	if dockerArg0Index(f.Calls, "volume") != -1 {
+		t.Fatalf("recreate must keep volumes (no `docker volume rm`): %+v", f.Calls)
 	}
 }
 

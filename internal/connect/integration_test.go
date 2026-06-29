@@ -176,7 +176,7 @@ type liveBackend struct{ ep backend.Endpoint }
 func (liveBackend) Create(backend.CreateContext) (backend.Instance, error) {
 	return backend.Instance{}, nil
 }
-func (liveBackend) Destroy(backend.Instance) error          { return nil }
+func (liveBackend) Destroy(backend.Instance, bool) error    { return nil }
 func (liveBackend) GetStatus(string) (backend.State, error) { return backend.StateRunning, nil }
 func (b liveBackend) Dial(string) (backend.Endpoint, func(), error) {
 	return b.ep, func() {}, nil

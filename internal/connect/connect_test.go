@@ -38,7 +38,7 @@ type fakeBackend struct {
 func (b *fakeBackend) Create(backend.CreateContext) (backend.Instance, error) {
 	return backend.Instance{}, nil
 }
-func (b *fakeBackend) Destroy(backend.Instance) error { return nil }
+func (b *fakeBackend) Destroy(backend.Instance, bool) error { return nil }
 func (b *fakeBackend) GetStatus(string) (backend.State, error) {
 	b.statusCalled = true
 	return b.state, nil

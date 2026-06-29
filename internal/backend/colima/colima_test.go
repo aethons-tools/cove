@@ -90,13 +90,13 @@ func TestRegistered(t *testing.T) {
 	}
 }
 
-// TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: Destroy
-// force-removes the container but never its named volumes (no -v/--volumes), so
-// /agent-data (saved login) and the workspace survive a recreate. It also removes
-// the image to keep the namespace clean.
+// TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: with
+// keepVolumes=true, Destroy force-removes the container but never its named
+// volumes (no -v/--volumes, no `volume rm`), so /agent-data (saved login) and the
+// workspace survive a recreate. It also removes the image to keep the namespace clean.
 func TestDestroyKeepsVolumes(t *testing.T) {
 	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{Container: "box", Image: "at-cove-for-box"})
+	err := New(f).Destroy(backend.Instance{Container: "box", Image: "at-cove-for-box"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +109,47 @@ func TestDestroyKeepsVolumes(t *testing.T) {
 			t.Fatalf("destroy must not remove volumes: %v", rm)
 		}
 	}
+	if vol := dockerCall(f.Calls, "volume"); vol != nil {
+		t.Fatalf("keepVolumes must not issue `docker volume rm`: %v", vol)
+	}
 	rmi := dockerCall(f.Calls, "rmi")
 	if rmi == nil || !contains(rmi, "at-cove-for-box") {
 		t.Fatalf("destroy should remove the image: %+v", f.Calls)
+	}
+}
+
+// TestDestroyPurgesVolumes: a real `destroy` (keepVolumes=false) removes the
+// instance's named volumes — `<container>-state` (/agent-data, the saved login)
+// and `<container>-workspace` — so nothing lingers. The container is still
+// force-removed first (volumes can't be removed while in use).
+func TestDestroyPurgesVolumes(t *testing.T) {
+	f := &runner.Fake{}
+	err := New(f).Destroy(backend.Instance{Container: "box", Image: "at-cove-for-box"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rmIdx, volIdx := -1, -1
+	for i, c := range f.Calls {
+		if c.Name != "docker" {
+			continue
+		}
+		a := c.Args[2:] // skip --context colima
+		if a[0] == "rm" {
+			rmIdx = i
+		}
+		if a[0] == "volume" {
+			volIdx = i
+		}
+	}
+	vol := dockerCall(f.Calls, "volume")
+	if vol == nil || !contains(vol, "rm") || !contains(vol, "box-state") || !contains(vol, "box-workspace") {
+		t.Fatalf("destroy must remove the -state and -workspace volumes: %+v", f.Calls)
+	}
+	if rmIdx == -1 || volIdx == -1 || rmIdx > volIdx {
+		t.Fatalf("container rm must precede volume rm: %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
 	}
 }
 
@@ -175,7 +213,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 		t.Fatalf("Dial should fail actionably; err=%v", err)
 	}
 	// Destroy
-	if err := New(mkFail()).Destroy(backend.Instance{Container: "box"}); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if err := New(mkFail()).Destroy(backend.Instance{Container: "box"}, false); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("Destroy should fail actionably; err=%v", err)
 	}
 	// GetStatus now surfaces the unreachable error instead of a misleading "absent".

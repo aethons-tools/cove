@@ -7,7 +7,7 @@ secrets:
 image:
   setup-script:
     - .install-files/install.sh
-    - rm -rf /.install-files
+    # TODO - rm -rf /.install-files
   paths:
     - /usr/local/go/bin
     - /home/agent/go/bin

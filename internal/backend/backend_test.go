@@ -11,7 +11,7 @@ type stub struct{}
 
 func (stub) Create(CreateContext) (Instance, error) { return Instance{}, nil }
 func (stub) Dial(string) (Endpoint, func(), error)  { return Endpoint{}, func() {}, nil }
-func (stub) Destroy(Instance) error                 { return nil }
+func (stub) Destroy(Instance, bool) error           { return nil }
 func (stub) GetStatus(string) (State, error)        { return StateAbsent, nil }
 
 func TestRegistryGetKnown(t *testing.T) {
