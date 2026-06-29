@@ -40,7 +40,8 @@ COPY image-files/. /.
 # the pre-existing /home/agent — leaving the agent unable to write to its own
 # $HOME. Restore it (and .ssh, whose contents COPY also re-owned).
 RUN chmod +x /usr/local/bin/entrypoint.sh \
- && chown -R agent:agent /home/agent \
+ && chown agent:agent /home/agent \
+ && chown -R agent:agent /home/agent/.ssh \
  && chmod 700 /home/agent/.ssh \
  && chmod 600 /home/agent/.ssh/authorized_keys
 
