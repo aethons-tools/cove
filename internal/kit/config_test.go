@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -150,5 +151,126 @@ func TestParseConfigNoLoopsOK(t *testing.T) {
 	}
 	if len(cfg.Loops) != 0 {
 		t.Fatalf("loops should be empty, got %+v", cfg.Loops)
+	}
+}
+
+func TestParseConfigImage(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+backend: colima
+image:
+  setup-script:
+    - .install-files/install.sh
+  paths:
+    - /usr/local/go/bin
+  env:
+    GOROOT: /usr/local/go
+  allowed-domains:
+    - .example.com
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Image.SetupScript) != 1 || cfg.Image.SetupScript[0] != ".install-files/install.sh" {
+		t.Fatalf("SetupScript = %v", cfg.Image.SetupScript)
+	}
+	if len(cfg.Image.Paths) != 1 || cfg.Image.Paths[0] != "/usr/local/go/bin" {
+		t.Fatalf("Paths = %v", cfg.Image.Paths)
+	}
+	if cfg.Image.Env["GOROOT"] != "/usr/local/go" {
+		t.Fatalf("Env = %v", cfg.Image.Env)
+	}
+	if len(cfg.Image.AllowedDomains) != 1 || cfg.Image.AllowedDomains[0] != ".example.com" {
+		t.Fatalf("AllowedDomains = %v", cfg.Image.AllowedDomains)
+	}
+}
+
+func TestParseConfigImageAbsent(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nbackend: colima\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Image.SetupScript) != 0 || len(cfg.Image.Paths) != 0 || len(cfg.Image.Env) != 0 || len(cfg.Image.AllowedDomains) != 0 {
+		t.Fatalf("absent image must be zero-valued, got %+v", cfg.Image)
+	}
+}
+
+func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  setup-script:\n    - \"\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "setup-script") {
+		t.Fatalf("expected empty setup-script error, got %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsReservedEnvKey(t *testing.T) {
+	// PATH is a base-owned key; overriding it would produce a second PATH= line.
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    PATH: /evil\n"))
+	if err == nil {
+		t.Fatal("expected error for reserved PATH env key, got nil")
+	}
+	if !strings.Contains(err.Error(), "PATH") {
+		t.Fatalf("error should mention PATH, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "overridden") {
+		t.Fatalf("error should mention 'overridden', got: %v", err)
+	}
+
+	// Proxy keys are also base-owned (egress gate).
+	_, err = ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    https_proxy: http://x\n"))
+	if err == nil {
+		t.Fatal("expected error for reserved https_proxy env key, got nil")
+	}
+	if !strings.Contains(err.Error(), "https_proxy") {
+		t.Fatalf("error should mention https_proxy, got: %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsEnvValueNewline(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    FOO: \"a\\nb\"\n"))
+	if err == nil {
+		t.Fatal("expected error for env value with newline, got nil")
+	}
+	if !strings.Contains(err.Error(), "newline") {
+		t.Fatalf("error should mention 'newline', got: %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsPathNewline(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  paths:\n    - \"a\\nb\"\n"))
+	if err == nil {
+		t.Fatal("expected error for path with newline, got nil")
+	}
+	if !strings.Contains(err.Error(), "newline") {
+		t.Fatalf("error should mention 'newline', got: %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsEmptyPath(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  paths:\n    - \"\"\n"))
+	if err == nil {
+		t.Fatal("expected error for empty path entry, got nil")
+	}
+	if !strings.Contains(err.Error(), "paths") {
+		t.Fatalf("error should mention 'paths', got: %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsEmptyEnvKey(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    \"\": x\n"))
+	if err == nil {
+		t.Fatal("expected error for empty env key, got nil")
+	}
+	if !strings.Contains(err.Error(), "env") {
+		t.Fatalf("error should mention 'env', got: %v", err)
+	}
+}
+
+func TestParseConfigImageRejectsEmptyDomain(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  allowed-domains:\n    - \"\"\n"))
+	if err == nil {
+		t.Fatal("expected error for empty domain entry, got nil")
+	}
+	if !strings.Contains(err.Error(), "allowed-domains") {
+		t.Fatalf("error should mention 'allowed-domains', got: %v", err)
 	}
 }

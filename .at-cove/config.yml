@@ -3,3 +3,13 @@ backend: colima
 
 secrets:
   - name: GITHUB_TOKEN
+
+image:
+  setup-script:
+    - .install-files/install.sh
+  paths:
+    - /usr/local/go/bin
+    - /home/agent/go/bin
+  env:
+    GOROOT: /usr/local/go
+    GOPATH: /home/agent/go

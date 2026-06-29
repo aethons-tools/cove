@@ -58,9 +58,9 @@ RUN if [ -f /home/agent/.claude.json ]; then \
  && chown agent:agent /home/agent/.init-agent-data/.claude.json
 
 
-RUN chmod +x /.install-files/install.sh && \
-    /.install-files/install.sh && \
-    rm -rf /.install-files
+# Run kit-declared setup scripts (config.yml image.setup-script) as root, each
+# in place. Replaces the old hardcoded /.install-files/install.sh convention.
+RUN /usr/local/lib/cove/run-setup.sh
 
 # SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH,
 # point claude at its state on the persistent volume, and force every login
@@ -75,6 +75,14 @@ RUN printf '%s\n' \
   'no_proxy=localhost,127.0.0.1,::1,.internal' \
   'NO_PROXY=localhost,127.0.0.1,::1,.internal' \
   >> /etc/environment
+
+# Fold kit-declared PATH/env (config.yml image.paths/image.env) into
+# /etc/environment, so pam_env exposes them to every session — the mechanism
+# bashrc cannot reach for non-interactive SSH command execution.
+RUN /usr/local/lib/cove/apply-image-env.sh
+
+# Drop cove's build-time consumables from the final image.
+RUN rm -rf /.cove
 
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

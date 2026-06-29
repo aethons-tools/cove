@@ -3,6 +3,7 @@ package kit
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -40,6 +41,33 @@ func (l Loop) ParsedInterval() time.Duration {
 	return d
 }
 
+// baseEnvKeys are the /etc/environment variables the sealed hardening layer
+// owns. A kit's image.env may not set these: overriding them would breach the
+// additive guarantee (e.g. an image.env PATH would, since pam_env is last-wins,
+// produce a second PATH= line and clobber the base PATH; a proxy var would
+// weaken the egress gate). Keep in sync with the Dockerfile's /etc/environment
+// block.
+var baseEnvKeys = map[string]bool{
+	"PATH":              true,
+	"CLAUDE_CONFIG_DIR": true,
+	"http_proxy":        true,
+	"https_proxy":       true,
+	"HTTP_PROXY":        true,
+	"HTTPS_PROXY":       true,
+	"no_proxy":          true,
+	"NO_PROXY":          true,
+}
+
+// ImageConfig declares additive, build-time customisations of the sandbox image.
+// cove translates each field to the correct sealed mechanism; every field is
+// additive to the hardened baseline and never overrides it.
+type ImageConfig struct {
+	SetupScript    []string          `yaml:"setup-script"`    // kit-relative scripts run as root at build, in place
+	Paths          []string          `yaml:"paths"`           // appended to PATH in /etc/environment
+	Env            map[string]string `yaml:"env"`             // KEY=VALUE written to /etc/environment
+	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name    string          `yaml:"name"`
@@ -47,6 +75,7 @@ type Config struct {
 	Setup   string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets []Secret        `yaml:"secrets"`
 	Loops   map[string]Loop `yaml:"loops"`
+	Image   ImageConfig     `yaml:"image"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -79,6 +108,38 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		if lp.Prompt == "" {
 			return Config{}, fmt.Errorf("config.yml: loops[%q]: prompt is required", name)
+		}
+	}
+	for i, s := range cfg.Image.SetupScript {
+		if strings.TrimSpace(s) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.setup-script[%d]: must not be empty", i)
+		}
+	}
+	for i, p := range cfg.Image.Paths {
+		if strings.TrimSpace(p) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.paths[%d]: must not be empty", i)
+		}
+		if strings.Contains(p, "\n") {
+			return Config{}, fmt.Errorf("config.yml: image.paths[%d]: must not contain a newline", i)
+		}
+	}
+	for k, v := range cfg.Image.Env {
+		if strings.TrimSpace(k) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.env: keys must not be empty")
+		}
+		if strings.ContainsAny(k, "=\n") {
+			return Config{}, fmt.Errorf("config.yml: image.env: key %q must not contain '=' or a newline", k)
+		}
+		if baseEnvKeys[k] {
+			return Config{}, fmt.Errorf("config.yml: image.env: %q is owned by the base image and cannot be overridden", k)
+		}
+		if strings.Contains(v, "\n") {
+			return Config{}, fmt.Errorf("config.yml: image.env: value for %q must not contain a newline", k)
+		}
+	}
+	for i, d := range cfg.Image.AllowedDomains {
+		if strings.TrimSpace(d) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.allowed-domains[%d]: must not be empty", i)
 		}
 	}
 	return cfg, nil
