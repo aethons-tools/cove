@@ -17,6 +17,11 @@ type Runner interface {
 	RunEnv(extraEnv []string, name string, args ...string) error
 	// Output runs the command and returns its captured stdout.
 	Output(name string, args ...string) (string, error)
+	// Probe runs the command purely for its exit status, discarding both stdout
+	// and stderr. Use it for reachability checks (e.g. `docker info`) whose
+	// output — including benign daemon warnings on stderr — would otherwise leak
+	// to the terminal, unlike Output which streams the child's stderr live.
+	Probe(name string, args ...string) error
 	// RunStdin is Run with the child's stdin connected to the given reader
 	// (or the process's os.Stdin when stdin is nil, for interactive use).
 	RunStdin(stdin io.Reader, name string, args ...string) error
@@ -75,6 +80,18 @@ func (OS) Output(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+func (OS) Probe(name string, args ...string) error {
+	// stdout/stderr left nil so exec discards them: a probe cares only about the
+	// exit status, and the child's stderr (docker daemon warnings, etc.) is noise.
+	cmd := exec.Command(name, args...)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return err
+}
+
 func (OS) RunStdin(stdin io.Reader, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	if stdin != nil {
@@ -124,6 +141,11 @@ func (f *Fake) RunEnv(extraEnv []string, name string, args ...string) error {
 }
 
 func (f *Fake) RunStdin(stdin io.Reader, name string, args ...string) error {
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
+	return f.Err
+}
+
+func (f *Fake) Probe(name string, args ...string) error {
 	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
 	return f.Err
 }

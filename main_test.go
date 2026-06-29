@@ -80,7 +80,8 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box")
-	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "true\n"}}}
+	// preflight `docker info` is a Probe (no Output consumed); `inspect` is the Output.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
 	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
@@ -97,8 +98,8 @@ func TestColimaDownPrintsActionableError(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box")
-	// The preflight `docker info` fails (colima unreachable).
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+	// The preflight `docker info` Probe fails (colima unreachable).
+	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	var out, errOut bytes.Buffer
 	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
@@ -548,7 +549,8 @@ func TestStatusLoopInstance(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "true\n"}}}
+	// preflight `docker info` is a Probe (no Output consumed); `inspect` is the Output.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
 	code := run([]string{"status", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {

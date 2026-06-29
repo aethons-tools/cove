@@ -11,9 +11,6 @@ claude.ai
 .github.com
 .githubusercontent.com
 
-# Go dependencies
-gopkg.in
-
 # PyPI, if the agent installs Python packages
 .pythonhosted.org
 pypi.org

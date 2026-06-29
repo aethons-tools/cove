@@ -34,7 +34,10 @@ func dargs(args ...string) []string {
 // fall through to another daemon or emit a cryptic error. `docker info` exits
 // non-zero only when the daemon behind the context is unreachable.
 func (c *Colima) preflight() error {
-	if _, err := c.r.Output("docker", dargs("info")...); err != nil {
+	// Probe (not Output): we want only the exit status. `docker info` writes
+	// benign daemon warnings (e.g. "bridge-nf-call-iptables is disabled") to
+	// stderr, which Output would stream to the terminal on every connect.
+	if err := c.r.Probe("docker", dargs("info")...); err != nil {
 		// %v, not %w: wrapping the *ExitError would make main treat this as a
 		// child command that already printed its own message and exit silently
 		// with the code — swallowing this guidance. A plain error gets printed.

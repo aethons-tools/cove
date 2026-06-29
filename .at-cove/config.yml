@@ -7,9 +7,13 @@ secrets:
 image:
   setup-script:
     - .install-files/install.sh
+    - rm -rf /.install-files
   paths:
     - /usr/local/go/bin
     - /home/agent/go/bin
   env:
     GOROOT: /usr/local/go
     GOPATH: /home/agent/go
+  allowed-domains:
+    # Go dependencies
+    - gopkg.in

@@ -49,8 +49,8 @@ func TestCreateShared(t *testing.T) {
 }
 
 func TestDialParsesDockerPort(t *testing.T) {
-	// Outputs consumed in order: preflight `info`, then `port`.
-	f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: "127.0.0.1:49153\n"}}}
+	// preflight `info` is a Probe (no Output consumed); `port` is the only Output.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
 	ep, cleanup, err := New(f).Dial("box")
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestGetStatus(t *testing.T) {
 		{out: "", err: &runner.ExitError{Code: 1}, want: backend.StateAbsent},
 	}
 	for _, c := range cases {
-		// Outputs consumed in order: preflight `info` (ok), then `inspect`.
-		f := &runner.Fake{Outputs: []runner.FakeResult{{}, {Stdout: c.out, Err: c.err}}}
+		// preflight `info` is a Probe (no Output consumed); `inspect` is the Output.
+		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: c.out, Err: c.err}}}
 		got, err := New(f).GetStatus("box")
 		if err != nil {
 			t.Fatalf("status(%q,%v) errored: %v", c.out, c.err, err)
@@ -161,8 +161,10 @@ func TestPinsContext(t *testing.T) {
 // TestPreflightFailsActionably: when colima is unreachable, operations fail with
 // a message that names `colima start`, instead of a cryptic docker error.
 func TestPreflightFailsActionably(t *testing.T) {
+	// preflight probes with `docker info`; an unreachable daemon makes that Probe
+	// return Fake.Err, which every operation must surface actionably.
 	mkFail := func() *runner.Fake {
-		return &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
+		return &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	}
 	// Create
 	if _, err := New(mkFail()).Create(backend.CreateContext{Name: "box", BuildDir: "/b"}); err == nil || !strings.Contains(err.Error(), "colima start") {

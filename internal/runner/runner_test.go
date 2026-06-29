@@ -2,6 +2,8 @@ package runner
 
 import (
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -45,6 +47,51 @@ func TestFakeReturnsConfiguredError(t *testing.T) {
 	err := f.Run("sbx", "run")
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("got %v, want %v", err, sentinel)
+	}
+}
+
+// TestProbeDiscardsStderr guards the reachability-probe contract: Probe is used
+// for checks like `docker info` whose stderr (e.g. benign "bridge-nf-call-iptables
+// is disabled" daemon warnings) is pure noise. Unlike Output, it must not leak the
+// child's stderr to the terminal.
+func TestProbeDiscardsStderr(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	probeErr := OS{}.Probe("sh", "-c", "echo bridge-nf-noise >&2")
+	w.Close()
+	os.Stderr = old
+	leaked, _ := io.ReadAll(r)
+	if probeErr != nil {
+		t.Fatalf("Probe of a succeeding command errored: %v", probeErr)
+	}
+	if len(leaked) != 0 {
+		t.Fatalf("Probe leaked child stderr to os.Stderr: %q", leaked)
+	}
+}
+
+func TestProbePropagatesExitCode(t *testing.T) {
+	var xe *ExitError
+	err := OS{}.Probe("sh", "-c", "exit 5")
+	if !errors.As(err, &xe) {
+		t.Fatalf("got %T (%v), want *ExitError", err, err)
+	}
+	if xe.ExitCode() != 5 {
+		t.Fatalf("ExitCode() = %d, want 5", xe.ExitCode())
+	}
+}
+
+func TestFakeProbeRecordsAndReturnsErr(t *testing.T) {
+	sentinel := errors.New("unreachable")
+	f := &Fake{Err: sentinel}
+	if err := f.Probe("docker", "info"); !errors.Is(err, sentinel) {
+		t.Fatalf("got %v, want %v", err, sentinel)
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "docker" || !equal(f.Calls[0].Args, []string{"info"}) {
+		t.Fatalf("Probe should record the call: %+v", f.Calls)
 	}
 }
 
