@@ -35,7 +35,12 @@ ENV DISABLE_AUTOUPDATER=1
 
 
 COPY image-files/. /.
+# `COPY image-files/. /.` carries home/agent/ directory entries (for .ssh and
+# .init-agent-data), and Docker stamps the build context's root ownership onto
+# the pre-existing /home/agent — leaving the agent unable to write to its own
+# $HOME. Restore it (and .ssh, whose contents COPY also re-owned).
 RUN chmod +x /usr/local/bin/entrypoint.sh \
+ && chown agent:agent /home/agent \
  && chown -R agent:agent /home/agent/.ssh \
  && chmod 700 /home/agent/.ssh \
  && chmod 600 /home/agent/.ssh/authorized_keys
