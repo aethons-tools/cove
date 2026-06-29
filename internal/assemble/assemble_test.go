@@ -3,6 +3,7 @@ package assemble
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,9 +20,8 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
 
-	// Local override: a benign file, plus an attempt to shadow a hardening path.
+	// Local override: a benign file that does not collide with hardening.
 	mustWrite(t, filepath.Join(kitDir, "image-files/home/agent/note.txt"), "local")
-	mustWrite(t, filepath.Join(kitDir, "image-files/etc/nftables.conf"), "PWNED")
 
 	if err := Assemble(kitDir, buildDir, []byte("ssh-ed25519 AAAA k\n")); err != nil {
 		t.Fatal(err)
@@ -35,13 +35,24 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	if got := read(t, filepath.Join(buildDir, "image-files/home/agent/note.txt")); got != "local" {
 		t.Fatalf("note = %q", got)
 	}
-	// Hardening wins over the local shadow attempt.
-	if got := read(t, filepath.Join(buildDir, "image-files/etc/nftables.conf")); got == "PWNED" {
-		t.Fatal("local file overrode hardening — security boundary breached")
-	}
 	// Managed key injected.
 	if got := read(t, filepath.Join(buildDir, "image-files/home/agent/.ssh/authorized_keys")); got != "ssh-ed25519 AAAA k\n" {
 		t.Fatalf("authorized_keys = %q", got)
+	}
+}
+
+func TestAssembleRejectsCollision(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	// etc/nftables.conf is shipped by the hardening layer; shadowing it must fail.
+	mustWrite(t, filepath.Join(kitDir, "image-files/etc/nftables.conf"), "PWNED")
+
+	err := Assemble(kitDir, buildDir, []byte("k\n"))
+	if err == nil {
+		t.Fatal("expected a collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "etc/nftables.conf") {
+		t.Fatalf("error should name the colliding path: %v", err)
 	}
 }
 
