@@ -21,8 +21,8 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
 		}
 	}
-	if _, err := fs.Stat(overridableFS, "overridable/image-files/home/agent/.init-agent-data/CLAUDE.md"); err != nil {
-		t.Errorf("overridableFS missing CLAUDE.md: %v", err)
+	if _, err := fs.Stat(overridableFS, "overridable/image-files/home/agent/.init-agent-data/SANDBOX.md"); err != nil {
+		t.Errorf("overridableFS missing SANDBOX.md: %v", err)
 	}
 }
 
