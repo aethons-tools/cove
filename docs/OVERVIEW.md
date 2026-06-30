@@ -215,6 +215,21 @@ and runs interactive `claude auth login --claudeai` only when needed;
 the credentials persist on the `/agent-data` volume,
 so subsequent connects skip it.
 
+To make one login reusable across sandboxes (and across recreates),
+`connect` keeps a host-side copy at `~/.config/at-cove/credentials.json` (mode `0600`):
+it **seeds** that file into the VM (`/agent-data/.credentials.json`) *before* the auth probe,
+so a login obtained on any sandbox validates the next one without re-prompting,
+and it **saves** the VM's copy back to the host after a fresh login
+or whenever a session rotates the token —
+keeping the shared copy current as the OAuth refresh token rolls over.
+When the credentials finally expire, the probe fails and the normal login flow re-mints them.
+`--no-auth` skips this entirely.
+
+> **Note:** this writes your subscription credentials to the host disk
+> (distinct from injected *secrets*, which stay memory-only).
+> The file is the user's own OAuth tokens, in the user-owned config dir at `0600` —
+> the same trust boundary as the saved login already on the VM volume.
+
 > **Implication:** a kit must **not** inject `ANTHROPIC_API_KEY` on this path —
 > managed settings block startup if it is present.
 > A `GITHUB_TOKEN` secret is fine,

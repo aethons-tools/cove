@@ -156,6 +156,136 @@ func TestConnectSkipAuth(t *testing.T) {
 	}
 }
 
+// callIndex returns the index of the first recorded call whose args contain s,
+// or -1 if none does.
+func callIndex(calls []runner.Call, s string) int {
+	for i, c := range calls {
+		for _, a := range c.Args {
+			if strings.Contains(a, s) {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+const seedMark = "cat > " + credsVMPath
+
+// With a saved host credentials file, Connect seeds it into the VM before the
+// auth probe (so a login from another sandbox is reused), pipes the exact saved
+// bytes, and skips login when the seeded creds validate.
+func TestConnectSeedsSavedCredentialsBeforeProbe(t *testing.T) {
+	dir := t.TempDir()
+	credsFile := filepath.Join(dir, "credentials.json")
+	want := `{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}`
+	if err := os.WriteFile(credsFile, []byte(want), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
+	o := opts(dir)
+	o.CredentialsFile = credsFile
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
+		t.Fatal(err)
+	}
+	seedIdx, probeIdx := callIndex(r.Calls, seedMark), callIndex(r.Calls, authProbe)
+	if seedIdx == -1 {
+		t.Fatalf("saved credentials were not seeded into the VM; calls=%+v", r.Calls)
+	}
+	if probeIdx == -1 || seedIdx > probeIdx {
+		t.Fatalf("seed must precede the auth probe; seed=%d probe=%d", seedIdx, probeIdx)
+	}
+	if got := r.Calls[seedIdx].Stdin; got != want {
+		t.Fatalf("seeded %q into the VM, want %q", got, want)
+	}
+	if calledWith(r.Calls, loginCmd) {
+		t.Fatal("must not run login when seeded credentials validate")
+	}
+}
+
+// On a first-ever login (no saved host file), Connect runs login and then saves
+// the VM's fresh credentials back to the host at mode 0600.
+func TestConnectSavesCredentialsAfterLogin(t *testing.T) {
+	dir := t.TempDir()
+	credsFile := filepath.Join(dir, "credentials.json") // does not exist yet
+	creds := `{"claudeAiOauth":{"refreshToken":"fresh"}}`
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	// Outputs: [0] secret, [1] auth probe (noauth), [2] post-login cat, [3] session-end cat.
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "tok\n"}, {Stdout: "cove-noauth\n"}, {Stdout: creds}, {Stdout: creds},
+	}}
+	o := opts(dir)
+	o.CredentialsFile = credsFile
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
+		t.Fatal(err)
+	}
+	if !calledWith(r.Calls, loginCmd) {
+		t.Fatal("first session must run login")
+	}
+	got, err := os.ReadFile(credsFile)
+	if err != nil {
+		t.Fatalf("credentials not saved to host: %v", err)
+	}
+	if string(got) != creds {
+		t.Fatalf("saved %q, want %q", got, creds)
+	}
+	if info, _ := os.Stat(credsFile); info.Mode().Perm() != 0o600 {
+		t.Fatalf("saved credentials mode %v, want 0600", info.Mode().Perm())
+	}
+}
+
+// When the session refreshes (rotates) the VM credentials, Connect persists the
+// new copy to the host at session end even though no interactive login ran.
+func TestConnectSavesRotatedCredentialsAtSessionEnd(t *testing.T) {
+	dir := t.TempDir()
+	credsFile := filepath.Join(dir, "credentials.json")
+	old, rotated := `{"v":1}`, `{"v":2}`
+	if err := os.WriteFile(credsFile, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	// Outputs: [0] secret, [1] auth probe (authed), [2] session-end cat -> rotated.
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}, {Stdout: rotated},
+	}}
+	o := opts(dir)
+	o.CredentialsFile = credsFile
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, loginCmd) {
+		t.Fatal("authed session must not run login")
+	}
+	got, _ := os.ReadFile(credsFile)
+	if string(got) != rotated {
+		t.Fatalf("session end must persist rotated credentials; got %q want %q", got, rotated)
+	}
+}
+
+// --no-auth disables the whole credentials dance: no seed, no VM creds access.
+func TestConnectSkipAuthSkipsCredentials(t *testing.T) {
+	dir := t.TempDir()
+	credsFile := filepath.Join(dir, "credentials.json")
+	if err := os.WriteFile(credsFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}}}
+	o := opts(dir)
+	o.CredentialsFile = credsFile
+	o.SkipAuth = true
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, credsVMPath) {
+		t.Fatal("--no-auth must not seed or read VM credentials")
+	}
+}
+
 func TestConnectAuthProbeFailureAborts(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}

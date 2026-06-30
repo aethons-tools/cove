@@ -485,13 +485,14 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		setupCmd = "" // the host bind-mount already holds the code
 	}
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume}, awake.New(), connect.Options{
-		Container:     st.Container,
-		Secrets:       specs,
-		IdentityFile:  priv,
-		KnownHostsDir: filepath.Join(configDir(), "known_hosts.d"),
-		SkipAuth:      noAuth,
-		Stderr:        stderr,
-		Setup:         setupCmd,
+		Container:       st.Container,
+		Secrets:         specs,
+		IdentityFile:    priv,
+		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
+		SkipAuth:        noAuth,
+		Stderr:          stderr,
+		Setup:           setupCmd,
+		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 	})
 }
 

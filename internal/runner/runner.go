@@ -111,9 +111,10 @@ func (OS) RunStdin(stdin io.Reader, name string, args ...string) error {
 
 // Call records a single Run invocation for the Fake runner.
 type Call struct {
-	Name string
-	Args []string
-	Env  []string
+	Name  string
+	Args  []string
+	Env   []string
+	Stdin string // bytes the caller piped via RunStdin (empty for other methods or a nil reader)
 }
 
 // FakeResult is one queued result for Fake.Output.
@@ -141,7 +142,12 @@ func (f *Fake) RunEnv(extraEnv []string, name string, args ...string) error {
 }
 
 func (f *Fake) RunStdin(stdin io.Reader, name string, args ...string) error {
-	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
+	var in string
+	if stdin != nil {
+		b, _ := io.ReadAll(stdin)
+		in = string(b)
+	}
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Stdin: in})
 	return f.Err
 }
 
