@@ -1,11 +1,12 @@
 FROM ubuntu:24.04
 
-# Base tooling: sshd, git, curl (for the installer), and the egress stack.
-# Node/npm are intentionally NOT installed: the native Claude Code binary ships
-# its own runtime, and the npm install path is deprecated as of v2.1.15.
+# Base tooling: sshd, git, the GitHub CLI, curl (for the installer), and the
+# egress stack. Node/npm are intentionally NOT installed: the native Claude Code
+# binary ships its own runtime, and the npm install path is deprecated as of
+# v2.1.15. gh comes from Ubuntu 24.04's own repos (no extra apt source needed).
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server ca-certificates curl git nftables squid sudo jq \
+      openssh-server ca-certificates curl git gh nftables squid sudo jq \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user the agent runs as (so --dangerously-skip-permissions is allowed)
