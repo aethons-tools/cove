@@ -378,10 +378,16 @@ In `main.go` `doBuild`, load the config and pass `cfg.Image`. Replace the body a
 
 (`kit` is already imported in `main.go`.)
 
-Edit `internal/assemble/hardening/image-files/etc/squid/squid.conf` line 5 to:
+Edit `internal/assemble/hardening/image-files/etc/squid/squid.conf` to reference the kit file via a **second** ACL with its own `http_access allow`
+(the single-line multi-file `dstdomain` form only loads the first file at runtime —
+kit domains get silently denied even though `squid -k parse` is clean):
 
 ```
-acl allowed_domains dstdomain "/etc/squid/allowed_domains.txt" "/etc/squid/allowed_domains.kit.txt"
+acl allowed_domains     dstdomain "/etc/squid/allowed_domains.txt"
+acl allowed_kit_domains dstdomain "/etc/squid/allowed_domains.kit.txt"
+...
+http_access allow allowed_domains
+http_access allow allowed_kit_domains
 ```
 
 - [ ] **Step 4: Run assemble tests + full build**
@@ -877,7 +883,7 @@ git commit -m "chore(kit): move Go env to image.paths/env; drop the bashrc footg
 - Strictly additive / sealed hardening → enforced by design across Tasks 3–5 (separate files referenced/appended; collision check Task 1; reserved `.cove/` Task 4). ✓
 - setup-script (in place, root, build-time, replaces hardcoded line) → Task 4. ✓
 - paths + env (single merged PATH line, pam_env) → Task 5. ✓
-- allowed-domains (separate kit file, multi-file `dstdomain`) → Task 3. ✓
+- allowed-domains (separate kit file, second `dstdomain` ACL + own `http_access allow`) → Task 3. ✓
 - Collision check (separable) → Task 1. ✓
 - Error handling (missing script, reserved namespace, collision) → Tasks 1/4. ✓
 - Testing (config parse, assemble Fake-FS, collision, PATH single-line via bash helper tests, hadolint) → Tasks 1–5. ✓

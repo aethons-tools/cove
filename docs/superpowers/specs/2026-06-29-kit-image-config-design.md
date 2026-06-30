@@ -130,13 +130,20 @@ because `squid.conf` references it directly.
 
 - cove always writes `etc/squid/allowed_domains.kit.txt` (empty when no domains),
   one host per line, leading-dot = match subdomains (same convention as the base file).
-- The sealed `squid.conf` ACL references **both** files so the base list is never touched:
+- The sealed `squid.conf` references **both** files via two ACLs, each `allow`ed in turn, so the base list is never touched:
   ```
-  acl allowed_domains dstdomain "/etc/squid/allowed_domains.txt" "/etc/squid/allowed_domains.kit.txt"
+  acl allowed_domains     dstdomain "/etc/squid/allowed_domains.txt"
+  acl allowed_kit_domains dstdomain "/etc/squid/allowed_domains.kit.txt"
+  http_access allow allowed_domains
+  http_access allow allowed_kit_domains
   ```
-- This is the multi-file `dstdomain` form
+- Each ACL points at exactly **one** file.
+  The single-line multi-file form (`acl … dstdomain "base" "kit"`) only loads the first file at runtime —
+  `squid -k parse` reports no error,
+  but every kit-declared domain is silently denied.
+  A separate ACL + `http_access allow` per file is the working form
   (chosen over a `conf.d/*.conf` include for simplicity: bare host lists, no per-snippet squid syntax).
-  The file is always present so squid never errors on a missing ACL file.
+  The kit file is always present so squid never errors on a missing ACL file.
 
 ## Collision Check (separable; the "no surprises" guard)
 
