@@ -13,6 +13,25 @@ what the project is, the kit format, the command surface, the security model, th
 
 ## Working in this repo
 
+- **This repo *builds* sandboxes — keep template files distinct from the repo's own files.**
+  Everything under `internal/assemble/*/image-files/` is *payload*:
+  a template tree copied into the sandbox VMs that `at-cove` builds,
+  not configuration for this repo.
+  For example, `internal/assemble/hardening/image-files/home/agent/.init-agent-data/CLAUDE.md`
+  and its `SANDBOX.md` are instructions *for an agent running inside a built sandbox* —
+  they are not instructions for you working in this repo (that's this file).
+  When reviewing or documenting, always say which side of the line a file is on,
+  and never edit a template as if it were this repo's config, or vice versa.
+
+- **No task is complete until the repo's docs are updated.**
+  Do not consider work done, and do not open a commit or PR,
+  until the documentation describing what you changed is updated in the *same* change.
+  Route the update to the doc that owns the subject
+  (start from [`docs/OVERVIEW.md`](docs/OVERVIEW.md)),
+  and keep `docs/` in sync — never leave docs describing the old behavior.
+  Note this covers *this repo's* docs; a change to the template tree above
+  updates the sandbox's docs, which is a separate concern.
+
 - **Build/test via `just`** (run `just` to list recipes):
   `just test` (hermetic unit tests), `just build`, `just run <args>`, `just lint`, `just integration` (real-ssh, needs ssh/sshd).
 - **Tests are hermetic by default** —

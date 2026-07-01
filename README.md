@@ -63,7 +63,8 @@ the login persists on a state volume across recreates.
 - **[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)** —
   building and testing, including the egress-locked-sandbox toolchain workarounds.
 - **[`AGENTS.md`](AGENTS.md)** —
-  orientation and working conventions for coding agents in this repo.
+  orientation and working conventions for coding agents in this repo
+  (the root `CLAUDE.md` just imports this).
 - **[`docs/superpowers/`](docs/superpowers/)** —
   the authoritative design spec and implementation plans.
 
