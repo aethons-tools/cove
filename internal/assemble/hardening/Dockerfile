@@ -62,6 +62,15 @@ RUN if [ -f /home/agent/.claude.json ]; then \
  && chown agent:agent /home/agent/.init-agent-data/.claude.json
 
 
+# Pre-install the plugin marketplace + the plugins enabled in
+# managed-settings.json at BUILD time (open network, before the runtime egress
+# lock), then fold them into the first-boot seed. Mirrors the build-time Claude
+# Code install above: without it, Claude Code's boot-time auto-installer would
+# clone plugins through the locked-down proxy at runtime, where two installer
+# invocations racing into one dir leave it half-written and the plugin never
+# installs. See docs/OVERVIEW.md ("Workspace and state volumes").
+RUN bash /usr/local/lib/cove/seed-plugins.sh
+
 # Run kit-declared setup scripts (config.yml image.setup-script) as root, each
 # in place. Replaces the old hardcoded /.install-files/install.sh convention.
 RUN /usr/local/lib/cove/run-setup.sh

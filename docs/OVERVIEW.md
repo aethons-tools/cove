@@ -184,6 +184,19 @@ A second volume, **`<name>-state`**, is always a persistent backend volume mount
 It preserves Claude session history and the saved OAuth login across recreates,
 and is seeded once (guarded by a `.seeded` marker).
 
+The seed also carries the Claude Code **plugins** enabled in managed settings
+(the `claude-plugins-official` marketplace and `superpowers`),
+pre-installed into the image at build time by `seed-plugins.sh`
+rather than left to Claude Code's boot-time auto-installer.
+That installer would clone the marketplace and each plugin through the egress proxy at runtime,
+where two installs racing into the same directory can leave it half-written
+(`could not lock config file .git/config`) —
+so the plugin never appears.
+Provisioning at build (open network, like the Claude Code binary itself),
+rewriting the recorded absolute paths to `/agent-data`,
+and folding the result into the seed
+sidesteps both the proxy round-trip and the race.
+
 ## Secret injection (the `connect` data flow)
 
 Backend-agnostic, in `internal/connect`:
