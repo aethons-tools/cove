@@ -16,13 +16,17 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/squid/squid.conf",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
 		"hardening/image-files/etc/claude-code/managed-settings.json",
+		// Agent-instruction docs are hardening-owned (moved from overridable in
+		// 63984c6) so a kit override cannot shadow them.
+		"hardening/image-files/home/agent/.init-agent-data/SANDBOX.md",
 	} {
 		if _, err := fs.Stat(hardeningFS, p); err != nil {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
 		}
 	}
-	if _, err := fs.Stat(overridableFS, "overridable/image-files/home/agent/.init-agent-data/SANDBOX.md"); err != nil {
-		t.Errorf("overridableFS missing SANDBOX.md: %v", err)
+	// The overridable layer still ships the replaceable user-settings default.
+	if _, err := fs.Stat(overridableFS, "overridable/image-files/home/agent/.init-agent-data/settings.json"); err != nil {
+		t.Errorf("overridableFS missing settings.json: %v", err)
 	}
 }
 
