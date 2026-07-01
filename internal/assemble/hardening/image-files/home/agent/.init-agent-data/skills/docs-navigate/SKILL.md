@@ -49,5 +49,5 @@ mode this system exists to prevent: it's slow, it fills context with noise, and 
 makes you act on stale or duplicated copies instead of the single source of truth.
 
 The full rules behind this (tiers, budgets, frontmatter) are in
-`/etc/claude-code/reference/progressive-disclosure.md` — but you rarely need them
+`/agent-data/reference/progressive-disclosure.md` — but you rarely need them
 just to read.

@@ -2,7 +2,7 @@
 """
 docs_audit.py — verify a docs tree is aggressively progressively disclosed.
 
-Checks the invariants from /etc/claude-code/reference/progressive-disclosure.md:
+Checks the invariants from /agent-data/reference/progressive-disclosure.md:
   ERRORS (fail the build):
     - missing or incomplete frontmatter
     - orphan docs (unreachable from INDEX.md)

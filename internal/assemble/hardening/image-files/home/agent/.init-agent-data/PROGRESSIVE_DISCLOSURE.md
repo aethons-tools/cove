@@ -24,8 +24,5 @@ only when a task needs them. Keep them that way.
   docs, and duplication.
 
 The full doctrine — tiers, size budgets, the frontmatter schema, when to
-split/merge — lives at `/etc/claude-code/reference/progressive-disclosure.md`.
+split/merge — lives at `/agent-data/reference/progressive-disclosure.md`.
 Read it before authoring or restructuring; you don't need it just to read docs.
-
-# Sandbox rules for agents
-@SANDBOX.md

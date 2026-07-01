@@ -2,7 +2,7 @@
 
 Copy-paste starting points. They exist so every new doc is born with correct,
 front-loaded frontmatter. The *rules* behind the fields live at
-`/etc/claude-code/reference/progressive-disclosure.md` — this file is only the
+`/agent-data/reference/progressive-disclosure.md` — this file is only the
 boilerplate.
 
 ## New leaf doc

@@ -6,7 +6,7 @@ description: Add, edit, restructure, or split repository documentation while kee
 # docs-author
 
 Write docs that stay a routing tree, not a book. Every change preserves the five
-invariants in `/etc/claude-code/reference/progressive-disclosure.md` — read that
+invariants in `/agent-data/reference/progressive-disclosure.md` — read that
 spec first if you haven't; it owns the tiers, budgets, and frontmatter schema this
 skill assumes.
 

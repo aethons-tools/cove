@@ -6,7 +6,7 @@ FROM ubuntu:24.04
 # v2.1.15. gh comes from Ubuntu 24.04's own repos (no extra apt source needed).
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server ca-certificates curl git gh nftables squid sudo jq python \
+      openssh-server ca-certificates curl git gh nftables squid sudo jq python3 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user the agent runs as (so --dangerously-skip-permissions is allowed)
@@ -44,10 +44,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
  && chown agent:agent /home/agent \
  && chown -R agent:agent /home/agent/.ssh \
  && chmod 700 /home/agent/.ssh \
- && chmod 600 /home/agent/.ssh/authorized_keys \
- && find /etc/claude-code -type d -exec chmod 0755 {} + \
- && find /etc/claude-code -type f -exec chmod 0644 {} + \
- && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py \
+ && chmod 600 /home/agent/.ssh/authorized_keys
+# && find /etc/claude-code -type d -exec chmod 0755 {} + \
+# && find /etc/claude-code -type f -exec chmod 0644 {} + \
+# && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py
 
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
 # time, migration flags, …) UNDER our startup-experience overrides, so that the

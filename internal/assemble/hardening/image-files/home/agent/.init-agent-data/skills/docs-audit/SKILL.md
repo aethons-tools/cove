@@ -6,7 +6,7 @@ description: Check that a repository's documentation is still aggressively progr
 # docs-audit
 
 Verify the docs tree still upholds the invariants in
-`/etc/claude-code/reference/progressive-disclosure.md`. Prefer the script over
+`/agent-data/reference/progressive-disclosure.md`. Prefer the script over
 manual review — it's deterministic and won't miss a dangling link the way a skim
 will.
 
