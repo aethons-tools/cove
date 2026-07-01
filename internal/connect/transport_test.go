@@ -102,6 +102,42 @@ func TestStdinScriptStartsInWorkspace(t *testing.T) {
 	}
 }
 
+func TestStdinScriptNamesSession(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Name: "mykit"}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if !strings.HasSuffix(remote, `cd /home/agent/workspace && exec claude -n 'mykit cove'`) {
+		t.Fatalf("claude launch should be named '<kit> cove': %q", remote)
+	}
+}
+
+func TestStdinScriptNamesResumedSession(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Name: "mykit", Resume: true}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if !strings.Contains(remote, `exec claude --continue -n 'mykit cove'`) {
+		t.Fatalf("resumed claude should carry the session name: %q", remote)
+	}
+	if !strings.Contains(remote, `done; exec claude -n 'mykit cove'; }`) {
+		t.Fatalf("fresh fallback should carry the session name: %q", remote)
+	}
+}
+
+func TestRawBashIgnoresName(t *testing.T) {
+	f := &runner.Fake{}
+	if err := (StdinScript{R: f, Cmd: "bash", Name: "mykit"}).Launch(rawTarget(), map[string]string{"X": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := f.Calls[1].Args[len(f.Calls[1].Args)-1]
+	if strings.Contains(remote, "mykit") {
+		t.Fatalf("raw bash is a program replacement and must not get a claude session name: %q", remote)
+	}
+}
+
 func hasPair(args []string, v string) bool {
 	for _, a := range args {
 		if a == v {

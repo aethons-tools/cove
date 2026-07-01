@@ -214,7 +214,7 @@ Backend-agnostic, in `internal/connect`:
    The primary transport writes `export NAME=…` lines over SSH **stdin** into a tmpfs file (`/dev/shm/cove-env-*`, mode 600);
    a second interactive `ssh -tt` sources it,
    removes it,
-   and `exec`s `claude`.
+   and `exec`s `claude` (named `-n "<kit> cove"` so a cove session is easy to tell apart from a remote-control one).
    A `SendEnv`/`AcceptEnv` transport is the proven fallback.
    Both keep values off every command line and off disk.
 

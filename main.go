@@ -484,7 +484,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if st.WorkspaceMode == "shared" {
 		setupCmd = "" // the host bind-mount already holds the code
 	}
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume}, awake.New(), connect.Options{
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: st.Name}, awake.New(), connect.Options{
 		Container:       st.Container,
 		Secrets:         specs,
 		IdentityFile:    priv,
