@@ -331,6 +331,9 @@ Designed but deferred (see the specs):
 the `.local/` override layer (and with it, moving secret `command`s out of committed config),
 the Firecracker and Fly backends,
 and declarative repo cloning.
+Further out, the [agent-orchestration design](orchestration/INDEX.md) proposes turning at-cove into a **dispatch substrate** for autonomous workers —
+non-interactive `run --detach`, per-run lifecycle verbs, and per-task scoped-token minting —
+a net-new direction beyond the deferred items above.
 
 ## Further reading
 
@@ -344,3 +347,8 @@ The authoritative design history lives under `docs/superpowers/`:
 - `plans/` — the implementation plans.
 - `CHECKPOINT-cove-sandboxes.md` —
   a detailed running log of implementation decisions and environment notes.
+
+Forward-looking design (layers *on* at-cove, not yet built):
+
+- [`orchestration/INDEX.md`](orchestration/INDEX.md) —
+  the Linear-driven agent workflow and the at-cove dispatch interface it needs.
