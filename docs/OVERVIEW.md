@@ -280,7 +280,9 @@ the OS implementation streams stdio and propagates exit codes;
 a `Fake` records calls for tests.
 
 ```
-main.go                       parse argv, discover kit, select backend, dispatch
+cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
+cmd/at-dispatch/              at-dispatch entry: dispatcher CLI skeleton (version + stubbed serve)
+internal/dispatch/            dispatcher control plane (skeleton; owned by docs/orchestration/)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry
@@ -293,13 +295,19 @@ internal/state/               per-kit state file + shared/exclusive locking
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
+This module builds **two binaries**. `at-cove` is the sandbox substrate.
+`at-dispatch` is a **separate executable** that *consumes* the `at-cove` CLI
+(it never imports at-cove's internals) to schedule Linear-driven work onto
+sandboxes — see the [orchestration design](orchestration/INDEX.md). It is a
+skeleton today.
+
 ## Building, testing, running
 
 Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build for the host into dist/<os>-<arch>/at-cove
+just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-dispatch}
 just build-all       # cross-compile every supported target
 just run <args>      # build the host binary, then run it with <args>
 just install         # install the host binary onto your PATH (no sudo by default)

@@ -19,6 +19,7 @@ It turns "workers run on hardened infra, credential-free" from a principle into 
 
 See the [Linear agent-workflow](linear-agent-workflow.md) for the lifecycle, the fan-out model, and the scheduler's role;
 this document owns only the dispatch substrate.
+In this repo the scheduler is realized as the **`at-dispatch`** binary — a separate executable that consumes the `at-cove` CLI; see [OVERVIEW's architecture](../OVERVIEW.md#architecture) for the repo layout.
 
 ## What at-cove is (grounding)
 

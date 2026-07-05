@@ -74,7 +74,7 @@ the login persists on a state volume across recreates.
 just test          # hermetic unit tests — no docker/network/ssh
 just integration   # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 just lint          # go vet + gofmt check + shellcheck/hadolint
-just build         # build for the host into dist/<os>-<arch>/at-cove
+just build         # build both binaries into dist/<os>-<arch>/{at-cove,at-dispatch}
 ```
 
 Tests are hermetic by default —
@@ -87,3 +87,6 @@ The `build` / `create` / `connect` / `recreate` / `destroy` / `status` surface
 and the Colima backend are implemented.
 The Firecracker and Fly backends, the `.local/` override layer, and declarative repo cloning
 are designed but deferred — see the specs.
+
+The repo also builds `at-dispatch`, a skeleton of the Linear-driven dispatcher
+(see [`docs/orchestration/`](docs/orchestration/INDEX.md)); it has no behavior yet.
