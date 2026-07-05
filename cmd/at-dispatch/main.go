@@ -35,6 +35,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, version)
 		return 0
 	case "serve":
+		// Skeleton: Serve() always returns ErrNotImplemented today, so printing
+		// err unconditionally is fine. When Serve() gains real logic, move this
+		// print inside the error branch — otherwise a nil (success) return prints
+		// "<nil>" to stderr and still exits 0.
 		err := dispatch.Serve()
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, dispatch.ErrNotImplemented) {
