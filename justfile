@@ -6,11 +6,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# build for the current host into dist/<os>-<arch>/at-cove (host-sensitive)
+# build for the current host into dist/<os>-<arch>/{at-cove,at-dispatch} (host-sensitive)
 build:
     ./scripts/build.sh
 
-# cross-compile every supported target into dist/<os>-<arch>/at-cove
+# cross-compile every supported target into dist/<os>-<arch>/{at-cove,at-dispatch}
 build-all:
     ./scripts/build.sh all
 
@@ -19,19 +19,25 @@ build-all:
 run *ARGS: build
     "dist/$(go env GOOS)-$(go env GOARCH)/at-cove" {{ARGS}}
 
-# install the host binary onto your PATH so `at-cove` is this build.
+# build, then run the at-dispatch binary, forwarding ARGS.
+# e.g. `just run-dispatch version`
+run-dispatch *ARGS: build
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-dispatch" {{ARGS}}
+
+# install the host binaries (at-cove, at-dispatch) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
-# or `BINDIR=~/.local/bin just install`.
 install: build
     #!/usr/bin/env bash
     set -euo pipefail
     bin="${BINDIR:-$(go env GOBIN)}"
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
-    src="dist/$(go env GOOS)-$(go env GOARCH)/at-cove"
+    plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    install -m 0755 "$src" "$bin/at-cove"
-    echo "installed $src -> $bin/at-cove"
+    for b in at-cove at-dispatch; do
+      install -m 0755 "dist/$plat/$b" "$bin/$b"
+      echo "installed dist/$plat/$b -> $bin/$b"
+    done
     if command -v at-cove >/dev/null 2>&1; then
       echo "on PATH: $(command -v at-cove) ($(at-cove version))"
     else

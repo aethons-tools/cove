@@ -28,6 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
+BINARIES=(at-cove at-dispatch)
 
 # Choose targets from the args (default: just the current host).
 case "${1:-}" in
@@ -36,17 +37,19 @@ case "${1:-}" in
   *)         TARGETS=("$@") ;;
 esac
 
-echo "Building at-cove ${VERSION}"
+echo "Building cove ${VERSION} (${BINARIES[*]})"
 built=()
 for t in "${TARGETS[@]}"; do
   os="${t%/*}"
   arch="${t#*/}"
   dir="${OUT}/${os}-${arch}"
   mkdir -p "$dir"
-  echo "  building ${t} -> ${dir}/at-cove"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$dir/at-cove" ./cmd/at-cove
-  built+=("$dir/at-cove")
+  for bin in "${BINARIES[@]}"; do
+    echo "  building ${t} -> ${dir}/${bin}"
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+      go build -trimpath -ldflags "$LDFLAGS" -o "$dir/$bin" "./cmd/$bin"
+    built+=("$dir/$bin")
+  done
 done
 
 echo
