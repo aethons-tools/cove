@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/dispatch/config"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
@@ -134,3 +135,110 @@ func (c *Client) PostComment(ctx context.Context, issueID, body string) error {
 	}
 	return nil
 }
+
+// issueNode is the shared GraphQL projection for an issue.
+type issueNode struct {
+	ID          string `json:"id"`
+	Identifier  string `json:"identifier"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Labels      struct {
+		Nodes []struct {
+			Name string `json:"name"`
+		} `json:"nodes"`
+	} `json:"labels"`
+	InverseRelations struct {
+		Nodes []struct {
+			Type  string `json:"type"`
+			Issue struct {
+				State struct {
+					Type string `json:"type"`
+				} `json:"state"`
+			} `json:"issue"`
+		} `json:"nodes"`
+	} `json:"inverseRelations"`
+}
+
+func (c *Client) toIssue(n issueNode) scheduler.Issue {
+	class := ""
+	for _, l := range n.Labels.Nodes {
+		if strings.HasPrefix(l.Name, c.prefix) {
+			class = strings.TrimPrefix(l.Name, c.prefix)
+			break
+		}
+	}
+	return scheduler.Issue{
+		ID: n.ID, Identifier: n.Identifier, Title: n.Title,
+		Description: n.Description, Class: class,
+	}
+}
+
+func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}}}}}`
+	var out struct {
+		Issues struct {
+			Nodes []issueNode `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.Ready}, &out); err != nil {
+		return nil, err
+	}
+	issues := make([]scheduler.Issue, 0, len(out.Issues.Nodes))
+	for _, n := range out.Issues.Nodes {
+		issues = append(issues, c.toIssue(n))
+	}
+	return issues, nil
+}
+
+// ListUnblockable returns BLOCKED issues all of whose "blocks" blockers are complete.
+func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error) {
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{state{type}}}}}}}`
+	var out struct {
+		Issues struct {
+			Nodes []issueNode `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.Blocked}, &out); err != nil {
+		return nil, err
+	}
+	var issues []scheduler.Issue
+	for _, n := range out.Issues.Nodes {
+		allDone := true
+		for _, rel := range n.InverseRelations.Nodes {
+			if rel.Type == "blocks" && rel.Issue.State.Type != "completed" {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			issues = append(issues, c.toIssue(n))
+		}
+	}
+	return issues, nil
+}
+
+func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error) {
+	const q = `query($id:String!){issue(id:$id){comments{nodes{body user{displayName}}}}}`
+	var out struct {
+		Issue struct {
+			Comments struct {
+				Nodes []struct {
+					Body string `json:"body"`
+					User struct {
+						DisplayName string `json:"displayName"`
+					} `json:"user"`
+				} `json:"nodes"`
+			} `json:"comments"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, q, map[string]any{"id": issueID}, &out); err != nil {
+		return nil, err
+	}
+	cs := make([]scheduler.Comment, 0, len(out.Issue.Comments.Nodes))
+	for _, n := range out.Issue.Comments.Nodes {
+		cs = append(cs, scheduler.Comment{Author: n.User.DisplayName, Body: n.Body})
+	}
+	return cs, nil
+}
+
+var _ scheduler.Tracker = (*Client)(nil)

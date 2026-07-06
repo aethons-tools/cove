@@ -111,3 +111,70 @@ func TestPostCommentSendsCommentCreate(t *testing.T) {
 		t.Fatalf("variables = %v; want issueId=i9 body=hello", vars)
 	}
 }
+
+func TestListReadyParsesIssuesAndClass(t *testing.T) {
+	const resp = `{"data":{"issues":{"nodes":[
+	 {"id":"i1","identifier":"AET-1","title":"T1","description":"D1","labels":{"nodes":[{"name":"class:implement"},{"name":"p1"}]}}
+	]}}}`
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		return jsonResp(resp), nil
+	})
+	got, err := c.ListReady(context.Background())
+	if err != nil {
+		t.Fatalf("ListReady: %v", err)
+	}
+	if len(got) != 1 || got[0].Identifier != "AET-1" || got[0].Class != "implement" {
+		t.Fatalf("ListReady = %+v; want one AET-1 with class implement", got)
+	}
+}
+
+func TestListUnblockableFiltersByBlockerState(t *testing.T) {
+	// b1: sole blocker is completed → unblockable. b2: a blocker still started → not.
+	const resp = `{"data":{"issues":{"nodes":[
+	 {"id":"b1","identifier":"AET-B1","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"state":{"type":"completed"}}}]}},
+	 {"id":"b2","identifier":"AET-B2","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"state":{"type":"started"}}}]}}
+	]}}}`
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		return jsonResp(resp), nil
+	})
+	got, err := c.ListUnblockable(context.Background())
+	if err != nil {
+		t.Fatalf("ListUnblockable: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "b1" {
+		t.Fatalf("ListUnblockable = %+v; want only b1", got)
+	}
+}
+
+func TestCommentsParsesThread(t *testing.T) {
+	const resp = `{"data":{"issue":{"comments":{"nodes":[
+	 {"body":"hi","user":{"displayName":"brent"}},
+	 {"body":"yo","user":{"displayName":"agent"}}]}}}}`
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		return jsonResp(resp), nil
+	})
+	got, err := c.Comments(context.Background(), "i1")
+	if err != nil {
+		t.Fatalf("Comments: %v", err)
+	}
+	if len(got) != 2 || got[0].Author != "brent" || got[1].Body != "yo" {
+		t.Fatalf("Comments = %+v", got)
+	}
+}
