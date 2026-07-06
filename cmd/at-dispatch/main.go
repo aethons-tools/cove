@@ -17,7 +17,7 @@ import (
 // version is stamped at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = `at-dispatch — Linear-driven dispatcher for at-cove sandboxes (skeleton)
+const usage = `at-dispatch — Linear-driven dispatcher for at-cove sandboxes
 
 Usage:
   at-dispatch version                 print the build version
@@ -26,6 +26,8 @@ Usage:
 See docs/orchestration/ for the design.
 `
 
+// run is the testable entry point: it returns a process exit code and writes
+// only to the provided streams (no direct os.Stdout/os.Stderr use).
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
