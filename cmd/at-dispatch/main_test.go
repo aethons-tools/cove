@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,15 +24,63 @@ func TestVersionPrintsStampedValue(t *testing.T) {
 	}
 }
 
-func TestServeReportsNotImplemented(t *testing.T) {
-	var out, errOut bytes.Buffer
-	code := run([]string{"serve"}, &out, &errOut)
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "at-dispatch.yml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
+const goodConfig = `
+tracker:
+  provider: linear
+  team: AET
+  token:          { command: ["true"] }
+  webhook-secret: { command: ["true"] }
+  poll-interval: 60s
+  states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+repo:
+  slug: aethons-tools/cove
+classes:
+  implement: { mode: autonomous, command: ["./x.sh"], timeout: 30m }
+concurrency: 1
+reaper-timeout: 45m
+`
+
+func TestServeLoadsValidConfig(t *testing.T) {
+	p := writeConfig(t, goodConfig)
+	var out, errOut bytes.Buffer
+	code := run([]string{"serve", "--config", p}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d; want 0 (stderr: %q)", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "aethons-tools/cove") || !strings.Contains(out.String(), "implement") {
+		t.Fatalf("stdout = %q; want repo + class summary", out.String())
+	}
+}
+
+func TestServeRejectsBadConfig(t *testing.T) {
+	p := writeConfig(t, "repo:\n  slug: not-a-slug\n")
+	var out, errOut bytes.Buffer
+	code := run([]string{"serve", "--config", p}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1", code)
 	}
-	if !strings.Contains(errOut.String(), "not implemented") {
-		t.Fatalf("stderr = %q; want it to mention 'not implemented'", errOut.String())
+	if !strings.Contains(errOut.String(), "config:") {
+		t.Fatalf("stderr = %q; want a config error", errOut.String())
+	}
+}
+
+func TestServeRequiresConfig(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"serve"}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d; want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "--config") {
+		t.Fatalf("stderr = %q; want mention of --config", errOut.String())
 	}
 }
 
