@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // validYAML is a complete, valid config used across tests.
 const validYAML = `
@@ -69,5 +72,40 @@ func TestParseConfigRejectsUnknownKey(t *testing.T) {
 	_, err := ParseConfig([]byte("repo:\n  slug: a/b\nbogus: 1\n"))
 	if err == nil {
 		t.Fatal("ParseConfig: expected error for unknown key, got nil")
+	}
+}
+
+func TestValidateRejects(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string // substring expected in the error
+	}{
+		{"bad provider", strings.Replace(validYAML, "provider: linear", "provider: jira", 1), "provider"},
+		{"missing team", strings.Replace(validYAML, "  team: AET\n", "", 1), "team"},
+		{"missing state role", strings.Replace(validYAML, "    blocked: Backlog\n", "", 1), "states.blocked"},
+		{"bad poll duration", strings.Replace(validYAML, "poll-interval: 60s", "poll-interval: soon", 1), "poll-interval"},
+		{"bad repo slug", strings.Replace(validYAML, "slug: aethons-tools/cove", "slug: cove", 1), "repo.slug"},
+		{"autonomous without command", strings.Replace(validYAML,
+			`implement: { mode: autonomous, command: ["./dispatch/implement.sh"], timeout: 30m, concurrency: 2 }`,
+			`implement: { mode: autonomous, timeout: 30m }`, 1), "command"},
+		{"interactive with command", strings.Replace(validYAML,
+			`spec:      { mode: interactive }`,
+			`spec:      { mode: interactive, command: ["x"] }`, 1), "command"},
+		{"bad mode", strings.Replace(validYAML,
+			`spec:      { mode: interactive }`, `spec:      { mode: sideways }`, 1), "mode"},
+		{"reserved secret name", strings.Replace(validYAML, "name: SOME_TOKEN", "name: DISPATCH_ISSUE", 1), "reserved"},
+		{"global concurrency zero", strings.Replace(validYAML, "concurrency: 4", "concurrency: 0", 1), "concurrency"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(tc.yaml))
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
 	}
 }
