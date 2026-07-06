@@ -96,6 +96,16 @@ func TestValidateRejects(t *testing.T) {
 			`spec:      { mode: interactive }`, `spec:      { mode: sideways }`, 1), "mode"},
 		{"reserved secret name", strings.Replace(validYAML, "name: SOME_TOKEN", "name: DISPATCH_ISSUE", 1), "reserved"},
 		{"global concurrency zero", strings.Replace(validYAML, "concurrency: 4", "concurrency: 0", 1), "concurrency"},
+		{"multi-segment slug", strings.Replace(validYAML, "slug: aethons-tools/cove", "slug: a/b/c", 1), "repo.slug"},
+		{"empty token command", strings.Replace(validYAML, `token:          { command: ["op","read","op://work/linear-token"] }`, `token:          { command: [] }`, 1), "token"},
+		{"empty webhook-secret command", strings.Replace(validYAML, `webhook-secret: { command: ["op","read","op://work/linear-webhook"] }`, `webhook-secret: { command: [] }`, 1), "webhook-secret"},
+		{"bad reaper-timeout", strings.Replace(validYAML, "reaper-timeout: 45m", "reaper-timeout: soon", 1), "reaper-timeout"},
+		{"bad class timeout", strings.Replace(validYAML, "timeout: 30m", "timeout: soon", 1), "timeout"},
+		{"negative class concurrency", strings.Replace(validYAML, "concurrency: 2", "concurrency: -1", 1), "concurrency"},
+		{"empty secret name", strings.Replace(validYAML, "name: SOME_TOKEN", `name: ""`, 1), "name"},
+		{"empty secret command", strings.Replace(validYAML, "- name: SOME_TOKEN\n    command: [\"op\",\"read\",\"op://work/x\"]", "- name: SOME_TOKEN\n    command: []", 1), "command"},
+		{"duplicate secret name", strings.Replace(validYAML, "secrets:\n  - name: SOME_TOKEN\n    command: [\"op\",\"read\",\"op://work/x\"]", "secrets:\n  - name: DUP\n    command: [\"x\"]\n  - name: DUP\n    command: [\"y\"]", 1), "duplicated"},
+		{"classes empty", strings.Replace(validYAML, "classes:\n  implement: { mode: autonomous, command: [\"./dispatch/implement.sh\"], timeout: 30m, concurrency: 2 }\n  spec:      { mode: interactive }", "classes: {}", 1), "class"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

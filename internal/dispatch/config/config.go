@@ -147,10 +147,12 @@ func (c Config) Validate() error {
 	if err := checkDuration("reaper-timeout", c.ReaperTimeout); err != nil {
 		return err
 	}
+	// Reachable only when Validate is called on a Config that skipped applyDefaults;
+	// ParseConfig always fills this first.
 	if c.Tracker.ClassLabelPrefix == "" {
 		return fmt.Errorf("config: tracker.class-label-prefix must not be empty")
 	}
-	if !strings.Contains(c.Repo.Slug, "/") || strings.HasPrefix(c.Repo.Slug, "/") || strings.HasSuffix(c.Repo.Slug, "/") {
+	if parts := strings.Split(c.Repo.Slug, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("config: repo.slug must be \"owner/name\", got %q", c.Repo.Slug)
 	}
 	if c.Concurrency < 1 {
