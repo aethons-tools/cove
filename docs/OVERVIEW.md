@@ -281,9 +281,12 @@ a `Fake` records calls for tests.
 
 ```
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
-cmd/at-dispatch/              at-dispatch entry: version + serve --config (loads/validates config)
+cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
 internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
 internal/dispatch/config/     at-dispatch config: schema, load/validate, DISPATCH_* env + result.json contract
+internal/dispatch/scheduler/  scheduler engine (poll → claim → run command → broker) + Tracker/Executor interfaces
+internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
+internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry

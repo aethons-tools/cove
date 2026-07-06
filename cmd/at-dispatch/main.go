@@ -1,6 +1,6 @@
 // Command at-dispatch is the Linear-driven dispatcher that schedules work onto
-// at-cove sandboxes. Today it loads and validates its config; the scheduler is
-// not implemented yet — see docs/orchestration/.
+// at-cove sandboxes. `serve --config` runs the scheduler (poll → dispatch →
+// broker) against Linear — see docs/orchestration/.
 package main
 
 import (
@@ -29,7 +29,7 @@ const usage = `at-dispatch — Linear-driven dispatcher for at-cove sandboxes
 
 Usage:
   at-dispatch version                 print the build version
-  at-dispatch serve --config <path>   load + validate the config (scheduler not implemented yet)
+  at-dispatch serve --config <path>   run the scheduler (poll → dispatch → broker)
 
 See docs/orchestration/ for the design.
 `

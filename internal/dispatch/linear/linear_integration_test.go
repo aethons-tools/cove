@@ -11,8 +11,8 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/config"
 )
 
-// TestLive hits real Linear. Run with: LINEAR_TOKEN=… LINEAR_TEAM=AET \
-//   go test -tags integration ./internal/dispatch/linear/ -run TestLive -v
+//	TestLive hits real Linear. Run with: LINEAR_TOKEN=… LINEAR_TEAM=AET \
+//	  go test -tags integration ./internal/dispatch/linear/ -run TestLive -v
 func TestLive(t *testing.T) {
 	token, team := os.Getenv("LINEAR_TOKEN"), os.Getenv("LINEAR_TEAM")
 	if token == "" || team == "" {
