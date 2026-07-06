@@ -4,14 +4,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/aethons-tools/cove/internal/dispatch/config"
+	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
+	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=...".
@@ -65,6 +73,7 @@ func doServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-dispatch serve: %v\n", err)
 		return 1
 	}
+
 	classes := make([]string, 0, len(cfg.Classes))
 	for name := range cfg.Classes {
 		classes = append(classes, name)
@@ -72,7 +81,36 @@ func doServe(args []string, stdout, stderr io.Writer) int {
 	sort.Strings(classes)
 	fmt.Fprintf(stdout, "at-dispatch: config OK for %s — %d class(es): %s\n",
 		cfg.Repo.Slug, len(classes), strings.Join(classes, ", "))
-	fmt.Fprintln(stdout, "scheduler not implemented yet — see docs/orchestration/")
+
+	// resolver: run a secret's argv on the host, return trimmed stdout (in memory).
+	resolve := func(argv []string) (string, error) {
+		out, err := runner.OS{}.Output(argv[0], argv[1:]...)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSuffix(out, "\n"), nil
+	}
+
+	token, err := resolve(cfg.Tracker.Token.Command)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-dispatch serve: resolve tracker token: %v\n", err)
+		return 1
+	}
+
+	tracker, err := linear.New(cfg, token, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-dispatch serve: connect to Linear: %v\n", err)
+		return 1
+	}
+
+	logger := log.New(stderr, "at-dispatch ", log.LstdFlags)
+	engine := scheduler.New(cfg, tracker, dexec.New(), resolve, logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.PollInterval)
+	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
+	logger.Printf("scheduler stopped")
 	return 0
 }
 

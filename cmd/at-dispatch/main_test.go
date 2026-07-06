@@ -49,15 +49,18 @@ concurrency: 1
 reaper-timeout: 45m
 `
 
-func TestServeLoadsValidConfig(t *testing.T) {
-	p := writeConfig(t, goodConfig)
+func TestServeTokenResolveFailure(t *testing.T) {
+	// Valid config, but the tracker token resolver command fails → serve exits 1
+	// before constructing the Linear client (no network needed).
+	cfg := strings.Replace(goodConfig, `token:          { command: ["true"] }`, `token:          { command: ["false"] }`, 1)
+	p := writeConfig(t, cfg)
 	var out, errOut bytes.Buffer
 	code := run([]string{"serve", "--config", p}, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit = %d; want 0 (stderr: %q)", code, errOut.String())
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "aethons-tools/cove") || !strings.Contains(out.String(), "implement") {
-		t.Fatalf("stdout = %q; want repo + class summary", out.String())
+	if !strings.Contains(errOut.String(), "token") {
+		t.Fatalf("stderr = %q; want a token-resolution error", errOut.String())
 	}
 }
 
