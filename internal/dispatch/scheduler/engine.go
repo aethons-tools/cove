@@ -146,6 +146,97 @@ func needsInputComment(res config.Result) string {
 		"**Safe state:** " + n.SafeState + "\n"
 }
 
+// Run polls every poll-interval until ctx is done, draining in-flight work on exit.
+func (e *Engine) Run(ctx context.Context) error {
+	d, _ := time.ParseDuration(e.cfg.Tracker.PollInterval) // validated by config
+	t := time.NewTicker(d)
+	defer t.Stop()
+	e.tick(ctx) // immediate first pass
+	for {
+		select {
+		case <-ctx.Done():
+			e.wait()
+			return ctx.Err()
+		case <-t.C:
+			e.tick(ctx)
+		}
+	}
+}
+
+// tick is one poll pass: reconcile BLOCKED→READY, then claim+dispatch ready
+// autonomous issues up to the concurrency caps.
+func (e *Engine) tick(ctx context.Context) {
+	if unb, err := e.tracker.ListUnblockable(ctx); err != nil {
+		e.log.Printf("list unblockable: %v", err)
+	} else {
+		for _, iss := range unb {
+			if err := e.tracker.Transition(ctx, iss.ID, RoleReady); err != nil {
+				e.log.Printf("unblock %s: %v", iss.Identifier, err)
+			}
+		}
+	}
+
+	ready, err := e.tracker.ListReady(ctx)
+	if err != nil {
+		e.log.Printf("list ready: %v", err)
+		return
+	}
+	for _, iss := range ready {
+		cl, ok := e.cfg.Classes[iss.Class]
+		if !ok || cl.Mode != "autonomous" {
+			continue // skip interactive / unknown classes
+		}
+		if !e.acquire(iss.Class) {
+			continue // caps full this tick
+		}
+		iss := iss
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			defer e.release(iss.Class)
+			defer func() {
+				if r := recover(); r != nil {
+					e.log.Printf("panic handling %s: %v", iss.Identifier, r)
+					// best-effort: park the issue for a human rather than crash the loop
+					e.transition(context.Background(), iss, RoleNeedsInput)
+				}
+			}()
+			e.handle(ctx, iss)
+		}()
+	}
+}
+
+// acquire takes a global slot and (if the class caps concurrency) a class slot,
+// without blocking. It returns false and holds nothing if either is full.
+func (e *Engine) acquire(class string) bool {
+	select {
+	case e.gsem <- struct{}{}:
+	default:
+		return false
+	}
+	cs := e.csem[class]
+	if cs == nil {
+		return true
+	}
+	select {
+	case cs <- struct{}{}:
+		return true
+	default:
+		<-e.gsem
+		return false
+	}
+}
+
+func (e *Engine) release(class string) {
+	if cs := e.csem[class]; cs != nil {
+		<-cs
+	}
+	<-e.gsem
+}
+
+// wait blocks until all in-flight dispatches finish (shutdown drain / tests).
+func (e *Engine) wait() { e.wg.Wait() }
+
 func errorComment(res config.Result, runErr error) string {
 	msg := res.Summary
 	if runErr != nil {
