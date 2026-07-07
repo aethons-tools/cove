@@ -59,3 +59,15 @@ func (f *fakeGit) Head(_ context.Context, _ string) (string, error) {
 	f.rec("Head")
 	return f.sha, f.err("Head")
 }
+
+// fakeCodeHost records whether OpenPR was called and returns configured values.
+type fakeCodeHost struct {
+	url    string
+	err    error
+	opened bool
+}
+
+func (f *fakeCodeHost) OpenPR(_ context.Context, _, _, _, _, _ string) (string, error) {
+	f.opened = true
+	return f.url, f.err
+}
