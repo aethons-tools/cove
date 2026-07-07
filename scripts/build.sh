@@ -28,7 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-cove at-dispatch)
+BINARIES=(at-cove at-dispatch at-work)
 
 # Choose targets from the args (default: just the current host).
 case "${1:-}" in
