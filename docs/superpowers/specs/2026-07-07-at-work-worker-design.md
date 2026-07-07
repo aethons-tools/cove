@@ -107,21 +107,35 @@ This is what keeps `at-work` agent-agnostic:
 
 ## 5. Flow (`implement`)
 
-1. **Parse** `input.json` (required fields; else `ERROR`).
-2. **Clone** `repo.name` at `source-branch` into a work dir (token via a temp
-   `GIT_ASKPASS`, never on argv); **create** `work-branch` off it. Refuse if
-   `work-branch` is empty or equals `source-branch` (branch-first guardrail — never
-   push the base).
-3. **Write** `issue.brief` to the `AT_WORK_BRIEF` file.
-4. **Run the agent** (air-gapped, bounded by `AT_WORK_TIMEOUT`); read its block.
-5. **Finish** by the agent's status:
-   - `OK` → require changes (else `ERROR`); commit; push `work-branch`; **open a PR**
+The setup is **idempotent and resume-aware**: `work-branch` may already exist because
+the agent is responding to a previous `NEEDS_INPUT` round (the human answered and the
+issue was re-dispatched). `at-work` refuses to run on a dirty checkout so state is
+never ambiguous.
+
+1. **Parse** `input.json` (required fields; else `ERROR`). Guardrail: `work-branch`
+   must be non-empty and ≠ `source-branch`.
+2. **Ensure the repo, clean.** If the work dir has no checkout → clone `repo.name`
+   into it (token via a temp `GIT_ASKPASS`, never on argv). If it already has the
+   checkout → verify it is `repo.name` and the **working tree + index are clean**
+   (else `ERROR` — never run on dirty state).
+3. **Sync the base:** check out `source-branch` and fast-forward it from origin.
+4. **Prepare the work branch** (resume-aware):
+   - If `work-branch` exists on origin → check it out and fast-forward it from origin
+     (**resume**: it carries WIP pushed on the previous `NEEDS_INPUT` round),
+     requiring a clean tree/index.
+   - Else → create `work-branch` off the freshly-synced `source-branch`.
+5. **Write** `issue.brief` to the `AT_WORK_BRIEF` file.
+6. **Run the agent** (air-gapped, bounded by `AT_WORK_TIMEOUT`); read its block.
+7. **Finish** by the agent's status:
+   - `OK` → commit any new changes; require `work-branch` to differ from
+     `source-branch` (else `ERROR` — nothing to PR); push `work-branch`; **open a PR**
      (base `source-branch`, head `work-branch`, title `"<key>: <title>"`, body =
-     `pr-message`); write `OK` with `work.pr-url`.
+     `pr-message`) — returning the existing PR's URL if one already exists for that
+     head; write `OK` with `work.pr-url`.
    - `NEEDS_INPUT` → commit any WIP; push `work-branch` (preserve safe state); write
      `NEEDS_INPUT` with `work.safe-state = <work-branch> @ <sha>`. **No PR.**
    - `ERROR` → write `ERROR`.
-6. **Safety-net:** any unexpected failure still writes a valid `ERROR` `output.json`.
+8. **Safety-net:** any unexpected failure still writes a valid `ERROR` `output.json`.
 
 ## 6. Architecture
 
@@ -140,24 +154,30 @@ type Agent interface {
     // brief and an output path; returns the agent's parsed block (or an error).
     Run(ctx context.Context, dir, briefPath, outputPath string) (AgentBlock, error)
 }
-type Git interface {
-    Clone(ctx context.Context, repo, sourceBranch, dir string) error
-    NewBranch(ctx context.Context, dir, branch string) error
-    HasChanges(ctx context.Context, dir string) (bool, error)
+type Git interface { // names indicative; finalized in the plan
+    EnsureClean(ctx context.Context, repo, dir string) error          // clone if absent; else verify identity + clean tree/index
+    Sync(ctx context.Context, dir, branch string) error               // checkout + fast-forward branch from origin
+    RemoteHasBranch(ctx context.Context, dir, branch string) (bool, error)
+    NewBranch(ctx context.Context, dir, branch, from string) error    // create branch off a synced ref
+    HasChanges(ctx context.Context, dir string) (bool, error)         // uncommitted changes present
+    DiffersFrom(ctx context.Context, dir, base string) (bool, error)  // current branch has commits beyond base
     Commit(ctx context.Context, dir, msg string) (sha string, err error)
     Push(ctx context.Context, dir, branch string) error
 }
 type CodeHost interface {
+    // OpenPR creates the PR, or returns the URL of an existing one for the same head.
     OpenPR(ctx context.Context, repo, base, head, title, body string) (prURL string, err error)
 }
 ```
 
 - **Real `Agent`** — `sh -c "$AT_WORK_AGENT_COMMAND"`, env = parent minus
   `AT_WORK_GIT_TOKEN` plus the agent vars; reads `AT_WORK_AGENT_OUTPUT`.
-- **Real `Git`** — shells `git`; clone/push authenticate via a temp `GIT_ASKPASS`
-  that echoes the token (never on argv, never logged).
+- **Real `Git`** — shells `git`; clone/fetch/push authenticate via a temp
+  `GIT_ASKPASS` that echoes the token (never on argv, never logged); syncs are
+  `--ff-only`.
 - **Real `CodeHost`** — a small GitHub client over `net/http` (`POST
-  /repos/{owner}/{repo}/pulls`); **no `gh` dependency**.
+  /repos/{owner}/{repo}/pulls`, with a lookup to return an existing PR for the head);
+  **no `gh` dependency**.
 
 `at-work` defines its **own** `Input`/`Output` types (kebab-case JSON as in §3); it
 does **not** reuse the scheduler's `config.Result` — the two contracts are decoupled.
@@ -178,9 +198,11 @@ does **not** reuse the scheduler's `config.Result` — the two contracts are dec
   `AgentBlock`; asserts the token is absent from its env), a fake `Git` (or a real
   local repo), and a fake `CodeHost` (returns a canned URL) drive `Run` tests
   asserting the `output.json` for **OK / NEEDS_INPUT / ERROR / no-changes /
-  agent-crash / default-branch-refused** paths.
+  agent-crash / default-branch-refused / resume (work-branch already exists) /
+  dirty-checkout-refused** paths.
 - **Real `Git`:** tested against a **local bare repo** in `t.TempDir()` (clone via a
-  `file://` path, branch, commit, push back) — no network.
+  `file://` path, sync, branch, commit, push back; plus resume — a pre-existing
+  remote branch is synced — and a dirty checkout is refused) — no network.
 - **GitHub `CodeHost`:** recorded-JSON unit tests via a fake `http.RoundTripper`;
   one `integration`-tagged live test (token + scratch repo via env, skipped by
   default).
