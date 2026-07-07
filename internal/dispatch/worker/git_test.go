@@ -100,3 +100,44 @@ func TestSyncResumesExistingRemoteBranch(t *testing.T) {
 		t.Fatalf("resume did not restore WIP: %v", err)
 	}
 }
+
+func TestChangeOps(t *testing.T) {
+	remote := newRemote(t)
+	g, _ := NewShellGit("")
+	dir := filepath.Join(t.TempDir(), "wt")
+	ctx := context.Background()
+	if err := g.EnsureClean(ctx, remote, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Sync(ctx, dir, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.NewBranch(ctx, dir, "implement/AET-1", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	if has, _ := g.HasChanges(ctx, dir); has {
+		t.Fatal("HasChanges = true on a clean tree")
+	}
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	if has, _ := g.HasChanges(ctx, dir); !has {
+		t.Fatal("HasChanges = false after editing")
+	}
+	sha, err := g.Commit(ctx, dir, "AET-1: add new")
+	if err != nil || sha == "" {
+		t.Fatalf("Commit: sha=%q err=%v", sha, err)
+	}
+	if head, _ := g.Head(ctx, dir); head != sha {
+		t.Fatalf("Head=%q; want committed sha %q", head, sha)
+	}
+	differs, err := g.DiffersFrom(ctx, dir, "main")
+	if err != nil || !differs {
+		t.Fatalf("DiffersFrom(main) = %v,%v; want true", differs, err)
+	}
+	if err := g.Push(ctx, dir, "implement/AET-1"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if has, _ := g.RemoteHasBranch(ctx, dir, "implement/AET-1"); !has {
+		t.Fatal("branch not on origin after push")
+	}
+}

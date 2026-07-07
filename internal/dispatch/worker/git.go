@@ -109,3 +109,41 @@ func (g *ShellGit) NewBranch(ctx context.Context, dir, branch, from string) erro
 	_, err := g.git(ctx, dir, "checkout", "-b", branch, from)
 	return err
 }
+
+func (g *ShellGit) HasChanges(ctx context.Context, dir string) (bool, error) {
+	out, err := g.git(ctx, dir, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+func (g *ShellGit) DiffersFrom(ctx context.Context, dir, base string) (bool, error) {
+	out, err := g.git(ctx, dir, "rev-list", "--count", base+"..HEAD")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "0", nil
+}
+
+func (g *ShellGit) Commit(ctx context.Context, dir, msg string) (string, error) {
+	if _, err := g.git(ctx, dir, "add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := g.git(ctx, dir, "commit", "-m", msg); err != nil {
+		return "", err
+	}
+	return g.Head(ctx, dir)
+}
+
+func (g *ShellGit) Push(ctx context.Context, dir, branch string) error {
+	_, err := g.git(ctx, dir, "push", "-u", "origin", branch)
+	return err
+}
+
+func (g *ShellGit) Head(ctx context.Context, dir string) (string, error) {
+	return g.git(ctx, dir, "rev-parse", "HEAD")
+}
+
+// ShellGit implements Git.
+var _ Git = (*ShellGit)(nil)
