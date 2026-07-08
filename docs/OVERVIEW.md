@@ -370,6 +370,11 @@ The authoritative design history lives under `docs/superpowers/`:
 - `CHECKPOINT-cove-sandboxes.md` —
   a detailed running log of implementation decisions and environment notes.
 
+Usage/reference (how to run the binaries):
+
+- [`usage/INDEX.md`](usage/INDEX.md) —
+  per-binary command surface, environment, and I/O contracts (with JSON Schemas).
+
 Forward-looking design (layers *on* at-cove, not yet built):
 
 - [`orchestration/INDEX.md`](orchestration/INDEX.md) —

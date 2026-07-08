@@ -66,7 +66,7 @@ The worker's contract is **at-work's**, not a bespoke `result.json`. The schedul
 - **`input.json`** — `issue{key, title, work-class, brief}` + `repo{name, source-branch, work-branch}`. The brief is the self-contained assembly of the issue, linked spec/plan, and comment thread.
 - **`output.json`** — a top-level `status` (`OK` | `NEEDS_INPUT` | `ERROR`) plus an `agent` block (the agent's self-report: `pr-message` or `needs-input{doing,blocker,need,tried}`) and a `work` block (what at-work did: `branch`, `pr-url`, `safe-state`, `error`).
 
-The worker does **no tracker I/O** — it writes `output.json`, pushes any branch/PR, and exits; the scheduler reads it and performs **all** tracker writes (the single-writer property). The scheduler's mapping of `output.json` → tracker transitions is owned by [scheduler-config.md](scheduler-config.md).
+The worker does **no tracker I/O** — it writes `output.json`, pushes any branch/PR, and exits; the scheduler reads it and performs **all** tracker writes (the single-writer property). The scheduler's mapping of `output.json` → tracker transitions is owned by [scheduler-config.md](scheduler-config.md). The exact CLI and the **JSON Schemas** for `input.json`, the agent's `outcome.json`, and `output.json` are in the [at-work usage doc](../usage/at-work.md).
 
 ## Three separated authorities
 
