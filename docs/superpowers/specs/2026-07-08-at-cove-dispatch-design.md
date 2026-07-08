@@ -112,13 +112,18 @@ per-project, per the design's "you supply the image"):
 
 **Config (`internal/dispatch/config`):**
 - `Class` (autonomous): `{mode, kit, timeout, concurrency}` — **`command` removed,
-  `kit` added** (path to the class's `.at-cove` kit).
+  `kit` added** (path to the class's `.at-cove` kit; a **relative `kit` resolves against
+  the config file's directory**, absolute is used as-is).
 - `RepoConfig`: add `source-branch` (the base branch to build work on).
+- Add top-level `dispatch-overhead` (Go duration, default `15m`): the build + VM-boot +
+  teardown margin added to a class's work timeout to bound the whole dispatch **process**
+  (see the scheduler timeout below).
 - **Remove** `Task`, `BuildEnv`, `ResolveSecrets`, the `Env*` consts, the top-level
   `secrets:` list, and `Result`/`Artifacts`/`NeedsInput`/`Usage`/`ReadResult` — all
   superseded. `Validate` updates: autonomous ⇒ `kit` set (not `command`); interactive ⇒
-  no `kit`; `repo.source-branch` required. The scheduler's **standing** secrets
-  (`tracker.token`, `tracker.webhook-secret`) are unchanged.
+  no `kit`; `repo.source-branch` required; `dispatch-overhead` a valid duration. The
+  scheduler's **standing** secrets (`tracker.token`, `tracker.webhook-secret`) are
+  unchanged.
 
 **Scheduler (`internal/dispatch/scheduler`)** — `handle` is rewired:
 1. Claim (`Transition → IN PROGRESS`).
@@ -126,18 +131,30 @@ per-project, per the design's "you supply the image"):
    `Issue{Key: identifier, Title, WorkClass: class, Brief: brief}`,
    `Repo{Name: cfg.Repo.Slug, SourceBranch: cfg.Repo.SourceBranch, WorkBranch: "<class>/<identifier>"}`.
 3. Write it to a temp `input.json`; run
-   `at-cove dispatch <class.kit> --in input.json --out output.json` via the existing
-   `Executor` (bounded by the class timeout).
-4. Read `worker.Output` from `output.json` (missing/invalid → treat as `ERROR`).
-5. **Broker to Linear:**
-   - `OK` → `PostComment(agent.pr-message + work.pr-url)`, `Transition → IN REVIEW`.
-   - `NEEDS_INPUT` → `PostComment` the ❓ block (`agent.needs-input` + `work.safe-state`),
-     `Transition → NEEDS INPUT`.
-   - `ERROR` (or missing output) → `PostComment` the diagnostic, `Transition → NEEDS INPUT`.
+   `at-cove dispatch <resolved-kit> --in input.json --out output.json --timeout <cl.Timeout>`
+   via the existing `Executor`. **Two timeouts:** `cl.Timeout` is the agent-**work** bound
+   (passed as `--timeout`); the `Executor` **process** context is bounded by
+   `cl.Timeout + dispatch-overhead`, so the process outlives the work window and teardown
+   always completes (a same-value timeout would SIGKILL mid-teardown and leak a container
+   until the next scavenge).
+4. Read `worker.Output` from `output.json` via a small `readOutput` helper (missing/invalid
+   → synthesize an `ERROR` Output, mirroring the old `ReadResult` default).
+5. **Broker to Linear** (status consts `worker.StatusOK`/`StatusNeedsInput`/`StatusError`):
+   - `OK` → `PostComment` (`✅ Done.` + `work.pr-url` + `work.branch` + `agent.pr-message`),
+     `Transition → IN REVIEW`.
+   - `NEEDS_INPUT` → `PostComment` the ❓ block (Doing/Blocker/Need/Tried from
+     `agent.needs-input` + `work.safe-state`), `Transition → NEEDS INPUT`.
+   - `ERROR` (or missing output / `runErr`) → `PostComment` the diagnostic
+     (`output.message` / `work.error` / `runErr`), `Transition → NEEDS INPUT`.
 
-The `Executor` and `Tracker` seams are unchanged (the `Executor` now runs `at-cove
-dispatch …` instead of the old class command). The scheduler **imports
-`internal/dispatch/worker`** for the `Input`/`Output` types (the accepted coupling).
+The scheduler **imports `internal/dispatch/worker`** for the `Input`/`Output` types (the
+accepted coupling). Consequent signature changes: `scheduler.New` **drops its `resolve`
+param** (it fed only the removed `ResolveSecrets(cfg.Secrets)`; the tracker token is
+resolved in the `cmd/at-dispatch` wiring, not the engine). The `Executor` interface is
+unchanged (`Run(ctx, argv, env)`); `handle` passes `nil` env — `at-cove dispatch` inherits
+the process env for `PATH`, and the kit owns all worker secrets. Interactive classes are
+unchanged: the scheduler dispatches **autonomous** classes only; interactive READY issues
+are left for a human.
 
 ## 6. Architecture / touchpoints
 
