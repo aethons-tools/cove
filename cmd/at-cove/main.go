@@ -19,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/awake"
 	"github.com/aethons-tools/cove/internal/backend"
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
@@ -31,50 +32,6 @@ import (
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
 
-const usage = `at-cove — run hardened Claude Code sandboxes
-
-Usage:
-  at-cove build    [kit-dir]
-  at-cove create   [kit-dir] [--workspace|--ws <path>]
-  at-cove connect  [kit-dir] [--raw] [--no-auth] [--fresh]
-  at-cove loop     [<name>] [kit-dir] [--once] [--keep] [--interval <dur>]
-  at-cove recreate [kit-dir] [--workspace|--ws <path>]
-  at-cove destroy  [kit-dir] [--loop <name>]
-  at-cove status   [kit-dir] [--loop <name>]
-  at-cove dispatch <kit-dir> --in <file> --out <file> [--timeout <dur>] [--grace <dur>]
-  at-cove dispatch <kit-dir> --reap [--grace <dur>]
-  at-cove version
-
-If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
-create records the running instance in .at-cove/.state/state.json; connect,
-destroy, and status operate on that, not on config.yml. recreate rebuilds the
-VM from the kit while keeping its volumes (state — incl. saved login — and
-workspace).
-
-Global flags:
-  --dry-run   print planned actions without executing
-  --version   print the at-cove version and exit
-
-connect flags:
-  --raw       launch bash instead of claude (debug what the agent sees)
-  --no-auth   skip the claude auth login step
-  --fresh     start a new session instead of resuming the last one
-
-  --loop <name>  act on the named loop instance (destroy, status)
-
-loop flags:
-  --once             run one drain (all currently-available work) and exit
-  --keep             reuse/leave the loop instance instead of auto-destroying it
-  --interval <dur>   override the loop's poll interval (e.g. 30s, 5m)
-
-dispatch flags:
-  --in <file>      path to the input.json to inject into the ephemeral VM
-  --out <file>     path to write the extracted output.json
-  --timeout <dur>  hard wall-clock cap for the dispatch command (default 30m)
-  --grace <dur>    age past which a labeled orphan container is scavenged (default 60m)
-  --reap           scavenge dispatch orphans and exit (does not need --in/--out)
-`
-
 // version is the at-cove build version, stamped at build time via
 // -ldflags "-X main.version=...". Defaults to "dev" for plain `go build`.
 var version = "dev"
@@ -85,168 +42,182 @@ func main() {
 }
 
 func run(argv []string, r runner.Runner, lookup func(string) (string, bool), lookPath func(string) (string, error), stdout, stderr io.Writer) int {
-	dryRun := false
-	showVersion := false
-	raw := false
-	noAuth := false
-	fresh := false
-	once := false
-	keep := false
-	intervalStr := ""
-	var args []string
-	wsPath := ""
-	loopName := ""
-	for i := 0; i < len(argv); i++ {
-		a := argv[i]
-		switch {
-		case a == "--dry-run" || a == "-dry-run":
-			dryRun = true
-		case a == "--version":
-			showVersion = true
-		case a == "--raw":
-			raw = true
-		case a == "--no-auth":
-			noAuth = true
-		case a == "--fresh":
-			fresh = true
-		case a == "--once":
-			once = true
-		case a == "--keep":
-			keep = true
-		case a == "--interval":
-			if i+1 >= len(argv) {
-				fmt.Fprintln(stderr, "at-cove: --interval requires a duration")
-				return 2
-			}
-			i++
-			intervalStr = argv[i]
-		case a == "--workspace" || a == "--ws":
-			if i+1 >= len(argv) {
-				fmt.Fprintln(stderr, "at-cove: --workspace requires a path")
-				return 2
-			}
-			i++
-			wsPath = argv[i]
-		case a == "--loop":
-			if i+1 >= len(argv) {
-				fmt.Fprintln(stderr, "at-cove: --loop requires a name")
-				return 2
-			}
-			i++
-			loopName = argv[i]
-		default:
-			args = append(args, a)
-		}
+	app := cli.App{
+		Name: "at-cove", Version: version,
+		Commands: []cli.Command{
+			{Name: "build", Brief: "assemble the kit's build context", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("build", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				kitDir, code := kitDirArg(pos, "build", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doBuild(kitDir, r, g.DryRun, out), errw)
+			}},
+			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("create", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
+				fs.StringVar(ws, "ws", "", "alias for --workspace")
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				kitDir, code := kitDirArg(pos, "create", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doCreate(kitDir, r, *ws, g.DryRun, out), errw)
+			}},
+			{Name: "connect", Brief: "open an interactive session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("connect", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				raw := fs.Bool("raw", false, "open a raw shell instead of the agent")
+				noAuth := fs.Bool("no-auth", false, "skip the interactive login step")
+				fresh := fs.Bool("fresh", false, "start a fresh agent session")
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				kitDir, code := kitDirArg(pos, "connect", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doConnect(kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
+			}},
+			{Name: "loop", Brief: "run the kit's autonomous loop", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("loop", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				once := fs.Bool("once", false, "run a single iteration and exit")
+				keep := fs.Bool("keep", false, "keep the sandbox after the loop exits")
+				interval := fs.String("interval", "", "override the loop interval (duration)")
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				// loop takes [<name>] [kit-dir]; a path-looking arg is the kit-dir.
+				loopArg, start := "", "."
+				switch len(pos) {
+				case 0:
+				case 1:
+					if filepath.IsAbs(pos[0]) || strings.Contains(pos[0], string(filepath.Separator)) {
+						start = pos[0]
+					} else {
+						loopArg = pos[0]
+					}
+				case 2:
+					loopArg, start = pos[0], pos[1]
+				default:
+					fmt.Fprintln(errw, "at-cove: loop takes [<name>] [kit-dir]")
+					return 2
+				}
+				kitDir, err := resolveKit(start)
+				if err != nil {
+					fmt.Fprintln(errw, "at-cove:", err)
+					return 1
+				}
+				var override time.Duration
+				if *interval != "" {
+					d, perr := time.ParseDuration(*interval)
+					if perr != nil || d <= 0 {
+						fmt.Fprintf(errw, "at-cove: --interval must be a positive duration: %q\n", *interval)
+						return 2
+					}
+					override = d
+				}
+				return exitCode("at-cove", doLoop(kitDir, r, loopArg, *once, *keep, override, g.DryRun, out, errw), errw)
+			}},
+			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
+				fs.StringVar(ws, "ws", "", "alias for --workspace")
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				kitDir, code := kitDirArg(pos, "recreate", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doRecreate(kitDir, r, *ws, g.DryRun, out), errw)
+			}},
+			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return instanceCmd("destroy", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
+					return doDestroyInstance(kitDir, r, inst, false, g.DryRun, out)
+				})
+			}},
+			{Name: "status", Brief: "print sandbox status", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return instanceCmd("status", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
+					return doStatusInstance(kitDir, r, inst, g.DryRun, out)
+				})
+			}},
+			{Name: "dispatch", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doDispatch(args, r, g.DryRun, out, errw)
+			}},
+		},
 	}
-	if showVersion {
-		fmt.Fprintln(stdout, "at-cove "+version)
-		return 0
-	}
-	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
-	cmd, rest := args[0], args[1:]
+	return app.Run(argv, stdout, stderr)
+}
 
-	// version needs no kit.
-	if cmd == "version" {
-		fmt.Fprintln(stdout, "at-cove "+version)
-		return 0
-	}
-
-	// dispatch has its own flags (--in/--out/--timeout/--grace/--reap) that the
-	// global-flag loop above does not know about, so they land in `rest`
-	// alongside the kit-dir; it parses them itself rather than going through
-	// the generic single-kit-dir positional resolution below.
-	if cmd == "dispatch" {
-		return doDispatch(rest, r, dryRun, stdout, stderr)
-	}
-
-	// Resolve positionals. Most commands take an optional kit-dir; `loop` takes
-	// an optional loop name first, then an optional kit-dir.
+// kitDirArg resolves an optional single kit-dir positional. Returns (dir, 0) on
+// success, ("", 2) for too many args, ("", 1) if resolveKit fails.
+func kitDirArg(pos []string, cmd string, stderr io.Writer) (string, int) {
 	start := "."
-	loopArg := ""
-	if cmd == "loop" {
-		switch len(rest) {
-		case 0:
-		case 1:
-			// If the single arg looks like a path (absolute, or contains a separator),
-			// treat it as the kit-dir; otherwise treat it as the loop name.
-			if filepath.IsAbs(rest[0]) || strings.Contains(rest[0], string(filepath.Separator)) {
-				start = rest[0]
-			} else {
-				loopArg = rest[0]
-			}
-		case 2:
-			loopArg, start = rest[0], rest[1]
-		default:
-			fmt.Fprintln(stderr, "at-cove: loop takes [<name>] [kit-dir]")
-			return 2
-		}
-	} else if len(rest) == 1 {
-		start = rest[0]
-	} else if len(rest) > 1 {
+	if len(pos) == 1 {
+		start = pos[0]
+	} else if len(pos) > 1 {
 		fmt.Fprintf(stderr, "at-cove: %s takes at most one kit-dir\n", cmd)
-		return 2
+		return "", 2
 	}
 	kitDir, err := resolveKit(start)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-cove:", err)
-		return 1
+		return "", 1
 	}
+	return kitDir, 0
+}
 
-	var intervalOverride time.Duration
-	if intervalStr != "" {
-		d, err := time.ParseDuration(intervalStr)
-		if err != nil || d <= 0 {
-			fmt.Fprintf(stderr, "at-cove: --interval must be a positive duration: %q\n", intervalStr)
-			return 2
-		}
-		intervalOverride = d
-	}
-
-	inst := state.Interactive
-	if loopName != "" {
-		if err := state.ValidLoopName(loopName); err != nil {
-			fmt.Fprintln(stderr, "at-cove:", err)
-			return 2
-		}
-		if cmd != "destroy" && cmd != "status" {
-			fmt.Fprintln(stderr, "at-cove: --loop is only valid for destroy and status")
-			return 2
-		}
-		inst = state.LoopInstance(loopName)
-	}
-
-	switch cmd {
-	case "build":
-		err = doBuild(kitDir, r, dryRun, stdout)
-	case "create":
-		err = doCreate(kitDir, r, wsPath, dryRun, stdout)
-	case "connect":
-		err = doConnect(kitDir, r, dryRun, raw, noAuth, fresh, stdout, stderr)
-	case "loop":
-		err = doLoop(kitDir, r, loopArg, once, keep, intervalOverride, dryRun, stdout, stderr)
-	case "recreate":
-		err = doRecreate(kitDir, r, wsPath, dryRun, stdout)
-	case "destroy":
-		err = doDestroyInstance(kitDir, r, inst, false, dryRun, stdout)
-	case "status":
-		err = doStatusInstance(kitDir, r, inst, dryRun, stdout)
-	default:
-		fmt.Fprintf(stderr, "at-cove: unknown command %q\n\n%s", cmd, usage)
+// instanceCmd handles destroy/status: they share the --loop flag and the
+// kit-dir positional, resolving to an interactive or loop instance.
+func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(errw)
+	loopName := fs.String("loop", "", "target the named loop instance instead of the interactive one")
+	pos, err := cli.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
-
-	if err != nil {
-		var xe *runner.ExitError
-		if errors.As(err, &xe) {
-			return xe.ExitCode()
-		}
-		fmt.Fprintln(stderr, "at-cove:", err)
-		return 1
+	kitDir, code := kitDirArg(pos, cmd, errw)
+	if code != 0 {
+		return code
 	}
-	return 0
+	inst := state.Interactive
+	if *loopName != "" {
+		if err := state.ValidLoopName(*loopName); err != nil {
+			fmt.Fprintln(errw, "at-cove:", err)
+			return 2
+		}
+		inst = state.LoopInstance(*loopName)
+	}
+	return exitCode("at-cove", do(kitDir, inst), errw)
+}
+
+// exitCode maps a doX error to a process exit code (unwrapping ExitError).
+func exitCode(name string, err error, stderr io.Writer) int {
+	if err == nil {
+		return 0
+	}
+	var xe *runner.ExitError
+	if errors.As(err, &xe) {
+		return xe.ExitCode()
+	}
+	fmt.Fprintln(stderr, name+":", err)
+	return 1
 }
 
 func resolveKit(start string) (string, error) {
@@ -836,12 +807,6 @@ func dispatchName(kitName string) string {
 // assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
 // convention.
 func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
-		return 2
-	}
-	kitDir := args[0]
-
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	inPath := fs.String("in", "", "path to the input.json to inject")
@@ -849,12 +814,17 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
-	if err := fs.Parse(args[1:]); err != nil {
+	pos, err := cli.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "at-cove dispatch: unexpected argument %q\n", fs.Arg(0))
+	if len(pos) < 1 {
+		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
 		return 2
+	}
+	kitDir, code := kitDirArg(pos, "dispatch", stderr)
+	if code != 0 {
+		return code
 	}
 	if !*reap && (*inPath == "" || *outPath == "") {
 		fmt.Fprintln(stderr, "at-cove dispatch: --in and --out are required (unless --reap)")

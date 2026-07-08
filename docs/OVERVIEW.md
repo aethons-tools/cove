@@ -131,9 +131,11 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove version` | Print the build version. |
 | `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject the input, run the kit's `dispatch.command`, extract the output, destroy. Scavenges crashed dispatch orphans. |
 
-Global `--dry-run` (before or after the subcommand) prints the planned actions —
+Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
 without executing anything.
+Flags specific to a command (e.g. `--raw`, `--ws`, `--loop`) go *after* the
+command name; each command only accepts its own flags.
 
 ### State vs. config
 

@@ -8,43 +8,26 @@ import (
 	"io"
 	"os"
 
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/github"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 )
 
 var version = "dev"
 
-const usage = `at-work — the at-dispatch git/PR worker
-
-Usage:
-  at-work prepare  <input.json>                 set up the branch + write .at-work/brief.md
-  at-work complete <input.json> <output.json>   read .at-work/outcome.json → commit/push/PR → output.json
-  at-work version
-
-Both steps run in the current directory. Env: AT_WORK_GIT_TOKEN (code-host token).
-`
-
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
-		return 2
+	app := cli.App{
+		Name: "at-work", Version: version,
+		Commands: []cli.Command{
+			{Name: "prepare", Brief: "clone/branch and write the brief", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doPrepare(args, errw)
+			}},
+			{Name: "complete", Brief: "broker the agent outcome into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doComplete(args, errw)
+			}},
+		},
 	}
-	switch args[0] {
-	case "version":
-		fmt.Fprintln(stdout, version)
-		return 0
-	case "prepare":
-		return doPrepare(args[1:], stderr)
-	case "complete":
-		return doComplete(args[1:], stderr)
-	case "-h", "--help", "help":
-		fmt.Fprint(stdout, usage)
-		return 0
-	default:
-		fmt.Fprintf(stderr, "at-work: unknown command %q\n\n", args[0])
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
+	return app.Run(args, stdout, stderr)
 }
 
 func gitClient(stderr io.Writer) (*worker.ShellGit, bool) {

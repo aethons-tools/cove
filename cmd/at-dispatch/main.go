@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/config"
 	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
@@ -25,36 +26,18 @@ import (
 // version is stamped at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = `at-dispatch — Linear-driven dispatcher for at-cove sandboxes
-
-Usage:
-  at-dispatch version                 print the build version
-  at-dispatch serve --config <path>   run the scheduler (poll → dispatch → broker)
-
-See docs/orchestration/ for the design.
-`
-
 // run is the testable entry point: it returns a process exit code and writes
 // only to the provided streams (no direct os.Stdout/os.Stderr use).
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
-		return 2
+	app := cli.App{
+		Name: "at-dispatch", Version: version,
+		Commands: []cli.Command{
+			{Name: "serve", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doServe(args, out, errw)
+			}},
+		},
 	}
-	switch args[0] {
-	case "version":
-		fmt.Fprintln(stdout, version)
-		return 0
-	case "serve":
-		return doServe(args[1:], stdout, stderr)
-	case "-h", "--help", "help":
-		fmt.Fprint(stdout, usage)
-		return 0
-	default:
-		fmt.Fprintf(stderr, "at-dispatch: unknown command %q\n\n", args[0])
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
+	return app.Run(args, stdout, stderr)
 }
 
 func doServe(args []string, stdout, stderr io.Writer) int {
