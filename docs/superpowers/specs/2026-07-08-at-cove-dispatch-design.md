@@ -91,22 +91,47 @@ dispatch:
 
 ## 4. Part 2 — the reference worker kit + `run-worker.sh`
 
-A reference kit demonstrating an autonomous worker (the image/toolchain/egress remain
-per-project, per the design's "you supply the image"):
-- **Image** bakes `at-work` (built or copied in via the kit's `setup-script`), the agent
-  (`claude`), `git`, and the project toolchain; `allowed-domains` covers Anthropic +
-  the code host + dependency registries.
-- **`config.yml`** declares `dispatch.command: ["run-worker.sh"]`, the `AT_WORK_GIT_TOKEN`
-  secret (host resolver), and `image.env: AT_WORK_AGENT_COMMAND`.
-- **`run-worker.sh`** (in `image-files/`):
+A reference kit at `kits/reference-worker/` demonstrating an autonomous worker (the
+target repo, toolchain, and egress list remain per-project — the kit shows the wiring):
+- **`config.yml`** declares `backend: colima`; `dispatch.command: ["run-worker.sh"]`;
+  the `AT_WORK_GIT_TOKEN` secret with a **host resolver** (`command: [gh, auth, token]`,
+  stdout injected in memory only); `image.env: {AT_WORK_AGENT_COMMAND: "run-agent.sh"}`;
+  `image.setup-script: [.install-files/install.sh]`; `image.allowed-domains` covering the
+  Anthropic API + the code host + dependency registries.
+- **`image-files/.install-files/install.sh`** bakes `git`, `claude`, and **`at-work`**
+  (via `go install github.com/aethons-tools/cove/cmd/at-work@<pinned-ref>` at build —
+  build-time egress is open; a host-built-binary copy is the documented alternative), plus
+  the target project's toolchain.
+- **`image-files/run-worker.sh`** — the `dispatch.command`:
   ```sh
   set -e
   at-work prepare  /in/input.json
-  env -u AT_WORK_GIT_TOKEN  sh -c "$AT_WORK_AGENT_COMMAND"   # agent, token stripped
+  env -u AT_WORK_GIT_TOKEN  run-agent.sh                   # the agent — token stripped
   at-work complete /in/input.json /out/output.json
   ```
   The token is present for `prepare`/`complete` (clone/push/PR) and **stripped** for the
   agent step — the air-gap, enforced here.
+- **`image-files/run-agent.sh`** — the **agent harness**: runs
+  `claude -p --dangerously-skip-permissions` with a prompt that embeds `.at-work/brief.md`
+  and the outcome contract, instructing the agent to do the work, run tests, and write
+  `.at-work/outcome.json` as `OK{pr-message}` / `NEEDS_INPUT{needs-input}` / `ERROR{message}`.
+  The agent writes the file itself (the only way to get a genuine structured
+  `NEEDS_INPUT`); `at-work complete`'s missing/invalid→`ERROR` is the safety net.
+
+**`dispatchrun` robustness (carry-forwards, landed here):** `dispatch` dials sshd
+immediately after `RunEphemeral`, so the first ssh can race container startup — add a
+bounded **`waitForSSH` retry** (`ConnectTimeout` + backoff) before seeding credentials
+(hermetically testable: fail-then-succeed against `runner.Fake`). Headless agent auth
+reuses the existing credential seed (`dispatch` seeds `credentials.json` into the VM); the
+runbook lists a valid seeded claude login as a prerequisite.
+
+**Validation — worker-side, gated + runbook (this sandbox cannot run it):** a
+`//go:build integration` env-gated test shells
+`at-cove dispatch kits/reference-worker --in testdata/input.json --out <tmp>` and asserts
+`output.json.status == "OK"` with `work.pr-url` set (a real PR on a scratch repo). Plus a
+`just e2e` recipe + `kits/reference-worker/RUNBOOK.md` (prerequisites: colima up, `gh auth`,
+a scratch repo, a seeded claude login). The `at-dispatch` scheduler → `at-cove dispatch`
+seam stays unit-tested (§5); the full Linear→PR live run is a documented follow-on.
 
 ## 5. Part 3 — rewire the scheduler + config
 
