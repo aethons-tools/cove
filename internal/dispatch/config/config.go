@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,12 +16,13 @@ import (
 
 // Config is the parsed contents of an at-dispatch config file.
 type Config struct {
-	Tracker       TrackerConfig    `yaml:"tracker"`
-	Repo          RepoConfig       `yaml:"repo"`
-	Secrets       []Secret         `yaml:"secrets"`
-	Classes       map[string]Class `yaml:"classes"`
-	Concurrency   int              `yaml:"concurrency"`
-	ReaperTimeout string           `yaml:"reaper-timeout"`
+	Tracker          TrackerConfig    `yaml:"tracker"`
+	Repo             RepoConfig       `yaml:"repo"`
+	Secrets          []Secret         `yaml:"secrets"`
+	Classes          map[string]Class `yaml:"classes"`
+	Concurrency      int              `yaml:"concurrency"`
+	ReaperTimeout    string           `yaml:"reaper-timeout"`
+	DispatchOverhead string           `yaml:"dispatch-overhead"` // build+boot+teardown margin added to a class's work timeout
 }
 
 // TrackerConfig wires at-dispatch to one tracker team.
@@ -46,7 +48,8 @@ type StateMap struct {
 
 // RepoConfig names the single repo this instance serves.
 type RepoConfig struct {
-	Slug string `yaml:"slug"`
+	Slug         string `yaml:"slug"`
+	SourceBranch string `yaml:"source-branch"` // base branch work is built on
 }
 
 // SecretRef is a resolver: Command's stdout is the value, produced in memory.
@@ -63,7 +66,8 @@ type Secret struct {
 // Class maps a handler class to how at-dispatch runs it.
 type Class struct {
 	Mode        string   `yaml:"mode"`    // "autonomous" | "interactive"
-	Command     []string `yaml:"command"` // required iff autonomous
+	Kit         string   `yaml:"kit"`     // path to the class's .at-cove kit (autonomous); relative resolves against the config dir
+	Command     []string `yaml:"command"` // DEPRECATED (removed in the rewire); kept transiently so the scheduler still builds
 	Timeout     string   `yaml:"timeout"` // Go duration; autonomous
 	Concurrency int      `yaml:"concurrency"`
 }
@@ -108,12 +112,27 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("config: read %s: %w", path, err)
 	}
-	return ParseConfig(data)
+	cfg, err := ParseConfig(data)
+	if err != nil {
+		return Config{}, err
+	}
+	// Resolve each class's kit relative to the config file's directory.
+	base := filepath.Dir(path)
+	for name, cl := range cfg.Classes {
+		if cl.Kit != "" && !filepath.IsAbs(cl.Kit) {
+			cl.Kit = filepath.Join(base, cl.Kit)
+			cfg.Classes[name] = cl
+		}
+	}
+	return cfg, nil
 }
 
 func (c *Config) applyDefaults() {
 	if c.Tracker.ClassLabelPrefix == "" {
 		c.Tracker.ClassLabelPrefix = defaultClassLabelPrefix
+	}
+	if c.DispatchOverhead == "" {
+		c.DispatchOverhead = "15m"
 	}
 }
 
@@ -154,6 +173,12 @@ func (c Config) Validate() error {
 	}
 	if parts := strings.Split(c.Repo.Slug, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("config: repo.slug must be \"owner/name\", got %q", c.Repo.Slug)
+	}
+	if strings.TrimSpace(c.Repo.SourceBranch) == "" {
+		return fmt.Errorf("config: repo.source-branch is required")
+	}
+	if err := checkDuration("dispatch-overhead", c.DispatchOverhead); err != nil {
+		return err
 	}
 	if c.Concurrency < 1 {
 		return fmt.Errorf("config: concurrency must be >= 1, got %d", c.Concurrency)

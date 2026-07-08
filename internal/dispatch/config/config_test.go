@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,6 +24,7 @@ tracker:
     blocked: Backlog
 repo:
   slug: aethons-tools/cove
+  source-branch: main
 secrets:
   - name: SOME_TOKEN
     command: ["op","read","op://work/x"]
@@ -117,5 +120,47 @@ func TestValidateRejects(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadConfigResolvesKitAndDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "at-dispatch.yml")
+	yaml := `
+tracker:
+  provider: linear
+  team: T
+  token: {command: ["echo","t"]}
+  webhook-secret: {command: ["echo","w"]}
+  poll-interval: 30s
+  states: {ready: R, in-progress: IP, in-review: IR, done: D, needs-input: NI, blocked: B}
+repo:
+  slug: owner/name
+  source-branch: main
+concurrency: 2
+reaper-timeout: 1h
+classes:
+  implement:
+    mode: autonomous
+    kit: ./kits/worker
+    command: ["placeholder"]
+    timeout: 30m
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Repo.SourceBranch != "main" {
+		t.Errorf("SourceBranch = %q", cfg.Repo.SourceBranch)
+	}
+	if cfg.DispatchOverhead != "15m" {
+		t.Errorf("DispatchOverhead default = %q; want 15m", cfg.DispatchOverhead)
+	}
+	want := filepath.Join(dir, "kits/worker")
+	if got := cfg.Classes["implement"].Kit; got != want {
+		t.Errorf("Kit = %q; want absolute %q", got, want)
 	}
 }

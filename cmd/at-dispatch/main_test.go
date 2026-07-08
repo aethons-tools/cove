@@ -43,6 +43,7 @@ tracker:
   states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
 repo:
   slug: aethons-tools/cove
+  source-branch: main
 classes:
   implement: { mode: autonomous, command: ["./x.sh"], timeout: 30m }
 concurrency: 1
