@@ -10,15 +10,15 @@ import (
 
 func TestRunInjectsEnvAndRuns(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.txt")
-	env := []string{"DISPATCH_ISSUE=AET-7", "DISPATCH_RESULT=" + out}
-	// a command that writes $DISPATCH_ISSUE to $DISPATCH_RESULT
-	err := New().Run(context.Background(), []string{"sh", "-c", `printf '%s' "$DISPATCH_ISSUE" > "$DISPATCH_RESULT"`}, env)
+	env := []string{"FOO=bar", "BAZ=" + out}
+	// a command that writes $FOO to $BAZ
+	err := New().Run(context.Background(), []string{"sh", "-c", `printf '%s' "$FOO" > "$BAZ"`}, env)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	got, _ := os.ReadFile(out)
-	if string(got) != "AET-7" {
-		t.Fatalf("output = %q; want AET-7 (env not injected?)", got)
+	if string(got) != "bar" {
+		t.Fatalf("output = %q; want bar (env not injected?)", got)
 	}
 }
 

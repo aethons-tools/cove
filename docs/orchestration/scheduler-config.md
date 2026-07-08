@@ -147,7 +147,7 @@ A map of handler class names to their dispatch modes and kits.
 - Path to the `.at-cove` kit directory for this class.
 - Relative paths resolve against the config file's directory at load time.
 - The kit is passed to `at-cove dispatch` by the scheduler and must contain a valid `.at-cove/config.yml`.
-- The kit is the trust boundary: it defines the container image, egress allowlist, and the `ISSUE=<key>` environment the worker receives.
+- The kit is the trust boundary: it defines the container image, egress allowlist, and receives the worker's task via injected `input.json`.
 
 **`timeout`** (`duration`, required for `autonomous`, not used for `interactive`)
 - The hard wall-clock cap for an instance of this class.
@@ -192,8 +192,8 @@ For each `READY` issue with a class label:
 4. If `mode: autonomous`:
    - Compute the wall-clock timeout: `timeout + dispatch-overhead`.
    - Load the kit from the path in `classes[class].kit`.
-   - Run `at-cove dispatch <kit> --in <issue-brief> --out --timeout <timeout>`.
-   - Read the worker's `/out/output.json` (built by at-work from the result).
+   - Run `at-cove dispatch <kit> --in input.json --out output.json --timeout <timeout>`.
+   - Read the worker's `output.json`.
    - Map the result's `status` (`OK` / `NEEDS_INPUT` / `ERROR`) to tracker state transitions.
    - Update the issue (post artifacts, move state, assign humans if needed).
 
