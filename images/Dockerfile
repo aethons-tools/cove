@@ -1,4 +1,44 @@
-FROM cove-base:latest
+FROM ubuntu:24.04 AS base
+ARG TARGETARCH
+ARG GO_VERSION=1.26.4
+ARG JDK_VERSION="25"
+ARG NODE_MAJOR_VERSION="22"
+LABEL authors="Aethon's Tools"
+
+# Base tooling: sshd, git, the GitHub CLI, curl (for the installer), and the
+# egress stack. Node/npm are intentionally NOT installed: the native Claude Code
+# binary ships its own runtime, and the npm install path is deprecated as of
+# v2.1.15. gh comes from Ubuntu 24.04's own repos (no extra apt source needed).
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openssh-server ca-certificates curl git gh nftables squid sudo \
+      podman podman-docker uidmap fuse-overlayfs slirp4netns shellcheck \
+      jq just python3 gnupg xz-utils unzip \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root user the agent runs as (so --dangerously-skip-permissions is allowed)
+RUN useradd -m -s /bin/bash agent
+
+# sshd: key-only auth, no root login, listen on 2222
+# (Fly already uses port 22 on the machine's private interface)
+RUN mkdir -p /run/sshd \
+    && sed -i 's/^#\?Port .*/Port 2222/'                       /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
+
+COPY /base-install-files/. /base-install-files/.
+WORKDIR /base-install-files
+RUN echo "$(pwd)"
+RUN ./install-go.sh
+RUN ./install-java.sh
+RUN ./install-node.sh
+RUN ./install-chrome.sh
+WORKDIR /
+RUN rm -rf /base-install-files
+
+
+
+FROM base AS agent
 
 # Pre-install Claude Code (native) at BUILD time, as the agent user.
 # Fly's builders have open network, so this fetch happens BEFORE the runtime
@@ -9,12 +49,6 @@ RUN su - agent -c 'curl -fsSL https://claude.ai/install.sh | bash'
 # Make the binary findable regardless of how sshd sets PATH for the session.
 RUN ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude
 
-# sshd: key-only auth, no root login, listen on 2222
-# (Fly already uses port 22 on the machine's private interface)
-RUN mkdir -p /run/sshd \
- && sed -i 's/^#\?Port .*/Port 2222/'                       /etc/ssh/sshd_config \
- && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
- && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
 # Don't phone home for background updates from inside the sandbox; rebuild the
 # image to update Claude Code instead. (claude.ai is still reached at runtime for
@@ -84,6 +118,9 @@ RUN /usr/local/lib/cove/apply-image-env.sh
 
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove
+
+COPY /.build-install-files/${TARGETARCH}/at-work /usr/local/bin/.
+RUN chmod 0775 /usr/local/bin/at-work
 
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
