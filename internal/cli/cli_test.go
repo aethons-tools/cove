@@ -62,6 +62,34 @@ func TestAppUnknownCommandAndNoArgs(t *testing.T) {
 	}
 }
 
+func TestAppDashHelpToStdout(t *testing.T) {
+	var rec string
+	app := testApp(&rec)
+	for _, f := range []string{"-h", "--help"} {
+		var out, errOut bytes.Buffer
+		code := app.Run([]string{f}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("%s: code=%d", f, code)
+		}
+		if !strings.Contains(out.String(), "greet") {
+			t.Fatalf("%s: usage not on stdout: out=%q err=%q", f, out.String(), errOut.String())
+		}
+	}
+}
+
+func TestAppUnknownGlobalFlag(t *testing.T) {
+	var rec string
+	app := testApp(&rec)
+	var out, errOut bytes.Buffer
+	code := app.Run([]string{"--nope"}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("--nope: code=%d want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "nope") {
+		t.Fatalf("--nope: error message not on stderr: %q", errOut.String())
+	}
+}
+
 func TestParseInterspersed(t *testing.T) {
 	for _, args := range [][]string{
 		{"./kit", "--raw"},

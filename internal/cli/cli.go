@@ -32,11 +32,17 @@ type App struct {
 // Run parses leading globals, handles version/help, then dispatches to a command.
 func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(a.Name, flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() { a.usage(stderr) }
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
 	dry := fs.Bool("dry-run", false, "print planned actions without executing")
 	ver := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(argv); err != nil {
+		if err == flag.ErrHelp { // -h / --help
+			a.usage(stdout)
+			return 0
+		}
+		fmt.Fprintf(stderr, "%s: %v\n\n", a.Name, err)
+		a.usage(stderr)
 		return 2
 	}
 	if *ver {
@@ -53,7 +59,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintln(stdout, a.Name+" "+a.Version)
 		return 0
-	case "help", "-h", "--help":
+	case "help":
 		a.usage(stdout)
 		return 0
 	}
