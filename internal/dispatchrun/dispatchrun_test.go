@@ -1,6 +1,7 @@
 package dispatchrun
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
 // fakeOps records DispatchOps calls; Dial returns a fixed endpoint.
@@ -129,6 +131,43 @@ func TestDispatchSecretNeverOnArgv(t *testing.T) {
 	}
 	if !foundInStdin {
 		t.Fatal("secret value was never injected via any call's stdin (expected the env script)")
+	}
+}
+
+// flakyRunner fails its first failFirst Run calls, then succeeds — for waitForSSH.
+type flakyRunner struct {
+	*runner.Fake
+	failFirst int
+	runs      int
+}
+
+func (f *flakyRunner) Run(name string, args ...string) error {
+	f.runs++
+	if f.runs <= f.failFirst {
+		return errors.New("connection refused")
+	}
+	return nil
+}
+
+func TestWaitForSSHRetriesThenSucceeds(t *testing.T) {
+	f := &flakyRunner{Fake: &runner.Fake{}, failFirst: 2}
+	err := waitForSSH(f, sshargs.Target{Host: "h", Port: 22}, 5, time.Millisecond, func(time.Duration) {})
+	if err != nil {
+		t.Fatalf("waitForSSH: %v", err)
+	}
+	if f.runs != 3 {
+		t.Fatalf("probed %d times; want 3 (2 fail + 1 success)", f.runs)
+	}
+}
+
+func TestWaitForSSHExhausts(t *testing.T) {
+	f := &flakyRunner{Fake: &runner.Fake{}, failFirst: 100}
+	err := waitForSSH(f, sshargs.Target{Host: "h", Port: 22}, 3, time.Millisecond, func(time.Duration) {})
+	if err == nil {
+		t.Fatal("expected an error when sshd never comes up")
+	}
+	if f.runs != 3 {
+		t.Fatalf("probed %d times; want exactly 3 attempts", f.runs)
 	}
 }
 

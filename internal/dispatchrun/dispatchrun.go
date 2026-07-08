@@ -23,6 +23,11 @@ import (
 const Label = "at-cove.dispatch"
 
 const (
+	sshReadyAttempts = 10
+	sshReadyDelay    = 2 * time.Second
+)
+
+const (
 	inputVMPath  = "/in/input.json"
 	outputVMPath = "/out/output.json"
 	credsVMPath  = "/agent-data/.credentials.json"
@@ -90,6 +95,10 @@ func Dispatch(o Options) error {
 		IdentityFile: o.IdentityFile, KnownHostsFile: filepath.Join(o.KnownHostsDir, o.Name),
 	}
 
+	if err := waitForSSH(o.R, tgt, sshReadyAttempts, sshReadyDelay, time.Sleep); err != nil {
+		return err
+	}
+
 	if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 		return fmt.Errorf("seed agent credentials: %w", err)
 	}
@@ -111,6 +120,25 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("dispatch produced no output at %s", outputVMPath)
 	}
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)
+}
+
+// waitForSSH probes the VM's sshd with a trivial command until it succeeds or
+// attempts are exhausted, sleeping delay between tries. The container's sshd may
+// not be accepting connections the instant RunEphemeral returns. sleep is injected
+// so tests run without real delay.
+func waitForSSH(r runner.Runner, tgt sshargs.Target, attempts int, delay time.Duration, sleep func(time.Duration)) error {
+	probe := append([]string{"-o", "ConnectTimeout=5"}, sshargs.Base(tgt)...)
+	probe = append(probe, "true")
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = r.Run("ssh", probe...); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			sleep(delay)
+		}
+	}
+	return fmt.Errorf("sshd not ready after %d attempts: %w", attempts, err)
 }
 
 // seedFile copies a host file into the VM (mode 077, via stdin, never on argv).
