@@ -1,0 +1,26 @@
+# Reference worker kit for `at-cove dispatch`. This is a TEMPLATE: complete the
+# base image, the claude install, the pinned at-work ref, the target project's
+# toolchain, and the full allowed-domains for your project. See RUNBOOK.md.
+name: reference-worker
+backend: colima
+
+secrets:
+  # Code-host token used ONLY by at-work prepare/complete (clone/push/PR). Resolved
+  # on the host at dispatch, injected in memory. The agent step never sees it.
+  - name: AT_WORK_GIT_TOKEN
+    description: GitHub token for clone/push/PR
+    command: ["gh", "auth", "token"]
+
+image:
+  setup-script:
+    - .install-files/install.sh
+  env:
+    AT_WORK_AGENT_COMMAND: run-agent.sh
+  allowed-domains:
+    - api.anthropic.com   # the agent (claude)
+    - api.github.com      # at-work PR API
+    - github.com          # at-work clone/push
+    # + your target project's dependency registries (e.g. proxy.golang.org, registry.npmjs.org)
+
+dispatch:
+  command: ["run-worker.sh"]
