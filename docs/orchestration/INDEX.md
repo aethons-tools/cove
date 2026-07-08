@@ -15,14 +15,15 @@ It was extracted from a specific project's design and **genericized**: anything 
 
 This is a **forward-looking design**, not a description of shipped behavior. It layers on at-cove; for what at-cove actually does today — the real command surface and the secret model the dispatch interface builds on — start at [`../OVERVIEW.md`](../OVERVIEW.md).
 
-## The two documents
+## The three documents
 
 | Doc | What it owns | Read when |
 |-----|--------------|-----------|
 | [linear-agent-workflow.md](linear-agent-workflow.md) | The workflow: the uniform issue lifecycle, the idea → issues → subissues fan-out, assignment by handler class, the dedicated-scheduler dispatch model, the stop-and-write-needs-back protocol, dependency-gated readiness. | You need the *what and why* — how work flows and how agents are scheduled. |
 | [at-cove-dispatch-interface.md](at-cove-dispatch-interface.md) | The substrate: the at-cove command surface, the run-parameter passthrough, per-task credential minting, the three-authority split, and the worker result-handoff schema. | You need the *how* — the concrete contract by which the scheduler launches workers on at-cove. |
+| [scheduler-config.md](scheduler-config.md) | The at-dispatch configuration schema: tracker wiring, repo metadata, handler-class-to-kit binding, concurrency/timeout settings, secret resolution, and loading/validation. | You are setting up an at-dispatch instance, adding a class, configuring state mappings, or adjusting timeouts. |
 
-Read the workflow first; it references the dispatch interface for mechanics.
+Read the workflow first; it references the dispatch interface for mechanics. The config document is a reference for operators.
 
 ## The idea in one paragraph
 

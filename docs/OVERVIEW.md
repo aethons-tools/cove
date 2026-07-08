@@ -286,8 +286,8 @@ cmd/at-cove/                  at-cove entry: parse argv, discover kit, select ba
 internal/dispatchrun/         `at-cove dispatch` orchestration (scavenge → run → inject → exec → extract → destroy)
 cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
 internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
-internal/dispatch/config/     at-dispatch config: schema, load/validate, DISPATCH_* env + result.json contract
-internal/dispatch/scheduler/  scheduler engine (poll → claim → run command → broker) + Tracker/Executor interfaces
+internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution, load/validate
+internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-work/                  at-work entry: prepare / complete (git/PR worker)
