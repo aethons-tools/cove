@@ -52,6 +52,10 @@ test:
 integration:
     go test -tags integration ./internal/connect/ -v
 
+# End-to-end dispatch of the reference worker kit (needs real infra; see kits/reference-worker/RUNBOOK.md).
+e2e:
+    E2E_REPO=${E2E_REPO:?set E2E_REPO=<org>/<scratch-repo>} go test -tags integration ./internal/dispatchrun/ -run TestE2EReferenceWorker -v
+
 # go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent)
 lint:
     go vet ./...
