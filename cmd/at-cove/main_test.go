@@ -231,7 +231,7 @@ func TestDryRunConnectRawNoAuth(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "--raw", "--no-auth", "connect", kitDir},
+	code := run([]string{"--dry-run", "connect", "--raw", "--no-auth", kitDir},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
@@ -460,7 +460,7 @@ func TestDryRunConnectFresh(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "--fresh", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "connect", "--fresh", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -595,9 +595,9 @@ func TestLoopFlagRejectedForOtherCommands(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--loop", "foo", "build", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code == 0 {
-		t.Fatal("--loop on a non-destroy/status command must error")
+	code := run([]string{"build", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("--loop on a non-destroy/status command must error with exit 2, got %d", code)
 	}
 }
 
@@ -755,7 +755,7 @@ func TestDryRunLoopIntervalOverride(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "--interval", "30s", "loop", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "loop", "--interval", "30s", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -920,7 +920,7 @@ func TestLoopBadIntervalErrors(t *testing.T) {
 	kitDir := writeLoopKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--interval", "nonsense", "loop", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"loop", "--interval", "nonsense", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatal("bad --interval must error")
 	}
