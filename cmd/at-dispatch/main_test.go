@@ -19,8 +19,8 @@ func TestVersionPrintsStampedValue(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d; want 0 (stderr: %q)", code, errOut.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "1.2.3" {
-		t.Fatalf("stdout = %q; want %q", got, "1.2.3")
+	if got := strings.TrimSpace(out.String()); got != "at-dispatch 1.2.3" {
+		t.Fatalf("stdout = %q; want %q", got, "at-dispatch 1.2.3")
 	}
 }
 
@@ -96,8 +96,8 @@ func TestUnknownCommandPrintsUsage(t *testing.T) {
 		t.Fatalf("exit = %d; want 2", code)
 	}
 	if !strings.Contains(errOut.String(), "unknown command") ||
-		!strings.Contains(errOut.String(), "Usage:") {
-		t.Fatalf("stderr = %q; want 'unknown command' and 'Usage:'", errOut.String())
+		!strings.Contains(errOut.String(), "usage:") {
+		t.Fatalf("stderr = %q; want 'unknown command' and 'usage:'", errOut.String())
 	}
 }
 
@@ -108,7 +108,7 @@ func TestNoArgsPrintsUsage(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d; want 2", code)
 	}
-	if !strings.Contains(errOut.String(), "Usage:") {
+	if !strings.Contains(errOut.String(), "usage:") {
 		t.Fatalf("stderr = %q; want usage text", errOut.String())
 	}
 }
