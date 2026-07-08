@@ -311,6 +311,8 @@ This module builds **two binaries**. `at-cove` is the sandbox substrate.
 sandboxes — see the [orchestration design](orchestration/INDEX.md). It is a
 skeleton today.
 
+A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
+
 ## Building, testing, running
 
 Logic lives in `scripts/` so CI never needs `just` installed.
