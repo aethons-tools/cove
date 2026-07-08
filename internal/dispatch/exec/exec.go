@@ -10,9 +10,8 @@ import (
 	osexec "os/exec"
 )
 
-// Executor runs commands via os/exec. Command stdout/stderr stream to Log (default
-// os.Stderr) for observability; the command's structured result goes to its
-// DISPATCH_RESULT file, not stdout.
+// Executor runs commands via os/exec with an injected environment and context timeout.
+// Command stdout/stderr stream to Log (default os.Stderr) for observability.
 type Executor struct {
 	Log io.Writer
 }

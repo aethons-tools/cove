@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/runner"
 )
@@ -69,6 +70,18 @@ type Backend interface {
 	// real `destroy` also removes the instance's named volumes.
 	Destroy(inst Instance, keepVolumes bool) error
 	GetStatus(container string) (State, error)
+}
+
+// DispatchOps is the ephemeral-container surface `at-cove dispatch` needs, beyond
+// the persistent Create/Destroy lifecycle. A Backend may implement it.
+type DispatchOps interface {
+	BuildImage(buildDir, tag string) error
+	RunEphemeral(image, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published
+	Dial(container string) (Endpoint, func(), error)
+	RemoveContainer(name string) error // docker rm -f; no image/volume removal
+	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
+	// exceeds olderThan. Returns the count removed.
+	ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error)
 }
 
 // Factory constructs a Backend bound to a Runner.

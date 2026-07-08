@@ -274,3 +274,13 @@ func TestParseConfigImageRejectsEmptyDomain(t *testing.T) {
 		t.Fatalf("error should mention 'allowed-domains', got: %v", err)
 	}
 }
+
+func TestParseConfigDispatch(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: w\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if len(cfg.Dispatch.Command) != 1 || cfg.Dispatch.Command[0] != "run-worker.sh" {
+		t.Fatalf("Dispatch.Command = %v; want [run-worker.sh]", cfg.Dispatch.Command)
+	}
+}

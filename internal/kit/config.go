@@ -68,14 +68,21 @@ type ImageConfig struct {
 	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
 }
 
+// DispatchConfig declares how `at-cove dispatch` performs a unit of work: the
+// command run inside the VM, which reads /in/input.json and writes /out/output.json.
+type DispatchConfig struct {
+	Command []string `yaml:"command"`
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name    string          `yaml:"name"`
-	Backend string          `yaml:"backend"`
-	Setup   string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
-	Secrets []Secret        `yaml:"secrets"`
-	Loops   map[string]Loop `yaml:"loops"`
-	Image   ImageConfig     `yaml:"image"`
+	Name     string          `yaml:"name"`
+	Backend  string          `yaml:"backend"`
+	Setup    string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
+	Secrets  []Secret        `yaml:"secrets"`
+	Loops    map[string]Loop `yaml:"loops"`
+	Image    ImageConfig     `yaml:"image"`
+	Dispatch DispatchConfig  `yaml:"dispatch"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are

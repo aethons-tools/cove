@@ -777,6 +777,144 @@ func TestLoopUnknownNameErrors(t *testing.T) {
 	}
 }
 
+func TestDispatchRequiresInAndOut(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d; want 2 (missing --in/--out)", code)
+	}
+	// Note: a bare "--in" substring check would also match "--interval" in the
+	// generic unknown-command usage fallback, so this pins the exact message.
+	if !strings.Contains(errOut.String(), "--in and --out are required") {
+		t.Fatalf("stderr = %q; want mention of --in/--out being required", errOut.String())
+	}
+}
+
+func TestDispatchRequiresKitDir(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d; want 2 (missing kit-dir)", code)
+	}
+	if !strings.Contains(errOut.String(), "expected <kit-dir>") {
+		t.Fatalf("stderr = %q; want the dispatch-specific missing-kit-dir message", errOut.String())
+	}
+}
+
+// --reap must not require --in/--out: it only scavenges labeled orphans.
+func TestDispatchReapDoesNotRequireInOut(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	// preflight `docker info` is a Probe (no Output consumed); `docker ps` is the
+	// one Output call ScavengeLabeled makes (empty => no orphans to remove).
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: ""}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d; want 0, stderr=%s", code, errOut.String())
+	}
+}
+
+func TestDispatchRequiresDispatchCommand(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir) // no dispatch.command declared
+	inFile := filepath.Join(dir, "in.json")
+	outFile := filepath.Join(dir, "out.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (no dispatch.command)", code)
+	}
+	if !strings.Contains(errOut.String(), "dispatch.command") {
+		t.Fatalf("stderr = %q; want mention of dispatch.command", errOut.String())
+	}
+}
+
+func TestDispatchUnsupportedBackendErrors(t *testing.T) {
+	dir := t.TempDir()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nbackend: bogus\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", cove, "--in", inFile, "--out", filepath.Join(dir, "out.json")},
+		&runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (unsupported backend), stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "bogus") {
+		t.Fatalf("stderr = %q; want mention of the bad backend name", errOut.String())
+	}
+}
+
+// TestDryRunDispatchPrintsNoExec guards Fix A: --dry-run dispatch must print
+// the plan and exit 0 without touching the backend, assembling, or resolving
+// secrets (no calls recorded on the fake runner at all).
+func TestDryRunDispatchPrintsNoExec(t *testing.T) {
+	dir := t.TempDir()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "dispatch", cove, "--in", inFile, "--out", outFile},
+		f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run dispatch executed commands: %+v", f.Calls)
+	}
+	if _, err := os.Stat(outFile); err == nil {
+		t.Fatal("dry-run dispatch must not write the output file")
+	}
+	s := out.String()
+	if !strings.Contains(s, "would") || !strings.Contains(s, inFile) || !strings.Contains(s, outFile) {
+		t.Fatalf("dry-run dispatch should describe the planned actions incl. --in/--out: %q", s)
+	}
+}
+
+// TestDryRunDispatchReapPrintsNoExec guards --dry-run dispatch --reap: it must
+// not call Reap (no ScavengeLabeled == no Output call on the fake).
+func TestDryRunDispatchReapPrintsNoExec(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "dispatch", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run dispatch --reap executed commands: %+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "would") {
+		t.Fatalf("dry-run dispatch --reap should describe the planned scavenge: %q", out.String())
+	}
+}
+
 func TestLoopBadIntervalErrors(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeLoopKit(t, dir)

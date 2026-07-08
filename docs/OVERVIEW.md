@@ -129,6 +129,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
+| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject the input, run the kit's `dispatch.command`, extract the output, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before or after the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -267,6 +268,7 @@ Backends self-register into a registry keyed by the `backend:` string.
   and a published `localhost:<port>` mapped to the in-VM `sshd`.
   `Dial` returns that port;
   `Destroy` is `docker rm -f` (volumes retained).
+  Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`.
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
@@ -281,12 +283,16 @@ a `Fake` records calls for tests.
 
 ```
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
+internal/dispatchrun/         `at-cove dispatch` orchestration (scavenge → run → inject → exec → extract → destroy)
 cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
 internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
-internal/dispatch/config/     at-dispatch config: schema, load/validate, DISPATCH_* env + result.json contract
-internal/dispatch/scheduler/  scheduler engine (poll → claim → run command → broker) + Tracker/Executor interfaces
+internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution, load/validate
+internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
+cmd/at-work/                  at-work entry: prepare / complete (git/PR worker)
+internal/dispatch/worker/     at-work orchestration: Prepare + Complete, Git/CodeHost interfaces
+internal/dispatch/github/     at-work's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry
@@ -304,6 +310,8 @@ This module builds **two binaries**. `at-cove` is the sandbox substrate.
 (it never imports at-cove's internals) to schedule Linear-driven work onto
 sandboxes — see the [orchestration design](orchestration/INDEX.md). It is a
 skeleton today.
+
+A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
 ## Building, testing, running
 
