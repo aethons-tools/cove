@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 )
 
@@ -24,6 +23,14 @@ type fakeTracker struct {
 	transitions []transition
 	posts       []post
 	failClaim   bool // Transition to RoleInProgress returns an error
+
+	lastRole    Role   // most recent role transitioned to (any issue)
+	lastComment string // most recent comment body posted (any issue)
+}
+
+// newFakeTracker returns an empty fakeTracker ready to drive a single-issue test.
+func newFakeTracker() *fakeTracker {
+	return &fakeTracker{comments: map[string][]Comment{}}
 }
 
 func (f *fakeTracker) ListReady(context.Context) ([]Issue, error)       { return f.ready, nil }
@@ -38,12 +45,14 @@ func (f *fakeTracker) Transition(_ context.Context, id string, r Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.transitions = append(f.transitions, transition{id, r})
+	f.lastRole = r
 	return nil
 }
 func (f *fakeTracker) PostComment(_ context.Context, id, body string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posts = append(f.posts, post{id, body})
+	f.lastComment = body
 	return nil
 }
 func (f *fakeTracker) roles(id string) []Role {
@@ -74,17 +83,21 @@ type fakeErr string
 
 func (e fakeErr) Error() string { return string(e) }
 
-// fakeExecutor mimics a dispatch command: it optionally writes canned JSON to the
-// DISPATCH_RESULT path from env, then returns runErr.
+// fakeExecutor simulates `at-cove dispatch`: it reads the --in input.json and
+// writes OutJSON to the --out path. RunErr (if set) is returned after writing.
 type fakeExecutor struct {
-	resultJSON string
-	runErr     error
-	panicMsg   string        // if non-empty, Run panics (to test recovery)
-	started    chan struct{} // if non-nil, closed when Run starts
-	release    chan struct{} // if non-nil, Run blocks until this is closed
+	OutJSON  string // what to write to the --out path ("" => write nothing)
+	RunErr   error
+	GotInput string // captured contents of the --in file
+	GotArgv  []string
+
+	panicMsg string        // if non-empty, Run panics (to test recovery)
+	started  chan struct{} // if non-nil, closed when Run starts
+	release  chan struct{} // if non-nil, Run blocks until this is closed
 }
 
-func (f *fakeExecutor) Run(ctx context.Context, _ []string, env []string) error {
+func (f *fakeExecutor) Run(ctx context.Context, argv []string, _ []string) error {
+	f.GotArgv = argv
 	if f.panicMsg != "" {
 		panic(f.panicMsg)
 	}
@@ -102,19 +115,20 @@ func (f *fakeExecutor) Run(ctx context.Context, _ []string, env []string) error 
 			return ctx.Err()
 		}
 	}
-	if f.resultJSON != "" {
-		if p := envVal(env, "DISPATCH_RESULT"); p != "" {
-			_ = os.WriteFile(p, []byte(f.resultJSON), 0o600)
+	var inPath, outPath string
+	for i := 0; i < len(argv)-1; i++ {
+		switch argv[i] {
+		case "--in":
+			inPath = argv[i+1]
+		case "--out":
+			outPath = argv[i+1]
 		}
 	}
-	return f.runErr
-}
-
-func envVal(env []string, key string) string {
-	for _, e := range env {
-		if strings.HasPrefix(e, key+"=") {
-			return e[len(key)+1:]
-		}
+	if b, err := os.ReadFile(inPath); err == nil {
+		f.GotInput = string(b)
 	}
-	return ""
+	if f.OutJSON != "" && outPath != "" {
+		_ = os.WriteFile(outPath, []byte(f.OutJSON), 0o600)
+	}
+	return f.RunErr
 }

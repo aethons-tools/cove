@@ -14,65 +14,86 @@ import (
 func testConfig() config.Config {
 	return config.Config{
 		Tracker: config.TrackerConfig{PollInterval: "1m"},
-		Repo:    config.RepoConfig{Slug: "aethons-tools/cove"},
+		Repo:    config.RepoConfig{Slug: "aethons-tools/cove", SourceBranch: "main"},
 		Classes: map[string]config.Class{
-			"implement": {Mode: "autonomous", Command: []string{"true"}, Timeout: "30m"},
+			"implement": {Mode: "autonomous", Kit: "/kits/implement", Timeout: "30m"},
 			"spec":      {Mode: "interactive"},
 		},
-		Concurrency: 4,
+		Concurrency:      4,
+		DispatchOverhead: "15m",
 	}
 }
 
-func newTestEngine(cfg config.Config, tr Tracker, ex Executor) *Engine {
+// newEngine builds an Engine against an explicit config (for tests that need to
+// tweak concurrency, poll-interval, etc).
+func newEngine(cfg config.Config, tr Tracker, ex Executor) *Engine {
 	return New(cfg, tr, ex, func([]string) (string, error) { return "", nil }, log.New(io.Discard, "", 0))
 }
 
-func TestHandleOK(t *testing.T) {
-	tr := &fakeTracker{}
-	ex := &fakeExecutor{resultJSON: `{"status":"ok","artifacts":{"prUrl":"https://x/pr/9"},"summary":"done"}`}
-	e := newTestEngine(testConfig(), tr, ex)
+// newTestEngine builds an Engine against the default testConfig() (an autonomous
+// "implement" class with a kit set, 30m timeout, repo source-branch "main", and a
+// 15m dispatch-overhead).
+func newTestEngine(t *testing.T, tr Tracker, ex Executor) *Engine {
+	t.Helper()
+	return newEngine(testConfig(), tr, ex)
+}
 
-	e.handle(context.Background(), Issue{ID: "i1", Identifier: "AET-9", Class: "implement"})
+func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{"pr-url":"https://x/pull/1","branch":"implement/AET-9"},"agent":{"status":"OK","pr-message":"did the thing"}}`}
+	eng := newTestEngine(t, tr, ex)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "Add X", Class: "implement"})
 
-	if got := tr.roles("i1"); len(got) != 2 || got[0] != RoleInProgress || got[1] != RoleInReview {
-		t.Fatalf("transitions = %v; want [InProgress InReview]", got)
+	// input.json the scheduler built
+	if !strings.Contains(ex.GotInput, `"work-branch": "implement/AET-9"`) ||
+		!strings.Contains(ex.GotInput, `"source-branch": "main"`) ||
+		!strings.Contains(ex.GotInput, `"key": "AET-9"`) {
+		t.Fatalf("input.json wrong:\n%s", ex.GotInput)
 	}
-	if p := tr.lastPost("i1"); !strings.Contains(p, "https://x/pr/9") {
-		t.Fatalf("comment = %q; want the prUrl", p)
+	// argv carried the kit + --timeout
+	joined := strings.Join(ex.GotArgv, " ")
+	if !strings.Contains(joined, "at-cove dispatch") || !strings.Contains(joined, "--timeout 30m") {
+		t.Fatalf("argv wrong: %v", ex.GotArgv)
+	}
+	// brokered: IN REVIEW + a comment with the PR
+	if tr.lastRole != RoleInReview {
+		t.Errorf("role = %v; want IN REVIEW", tr.lastRole)
+	}
+	if !strings.Contains(tr.lastComment, "https://x/pull/1") {
+		t.Errorf("comment missing PR: %q", tr.lastComment)
 	}
 }
 
 func TestHandleNeedsInput(t *testing.T) {
-	tr := &fakeTracker{}
-	ex := &fakeExecutor{resultJSON: `{"status":"needs_input","needsInput":{"blocker":"ambiguous","need":"pick A or B"}}`}
-	e := newTestEngine(testConfig(), tr, ex)
-
-	e.handle(context.Background(), Issue{ID: "i2", Identifier: "AET-2", Class: "implement"})
-
-	if got := tr.roles("i2"); len(got) != 2 || got[1] != RoleNeedsInput {
-		t.Fatalf("transitions = %v; want ...NeedsInput", got)
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":"NEEDS_INPUT","work":{"safe-state":"implement/AET-9 @ abc"},"agent":{"status":"NEEDS_INPUT","needs-input":{"doing":"d","blocker":"b","need":"n","tried":"tr"}}}`}
+	eng := newTestEngine(t, tr, ex)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+	if tr.lastRole != RoleNeedsInput {
+		t.Errorf("role = %v; want NEEDS INPUT", tr.lastRole)
 	}
-	if p := tr.lastPost("i2"); !strings.Contains(p, "pick A or B") || !strings.Contains(p, "NEEDS INPUT") {
-		t.Fatalf("comment = %q; want the needs-input block", p)
+	if !strings.Contains(tr.lastComment, "**Blocker:** b") || !strings.Contains(tr.lastComment, "implement/AET-9 @ abc") {
+		t.Errorf("needs-input comment wrong: %q", tr.lastComment)
 	}
 }
 
-func TestHandleCommandErrorGoesToNeedsInput(t *testing.T) {
-	tr := &fakeTracker{}
-	ex := &fakeExecutor{runErr: errors.New("boom")} // no result file written → error
-	e := newTestEngine(testConfig(), tr, ex)
-
-	e.handle(context.Background(), Issue{ID: "i3", Identifier: "AET-3", Class: "implement"})
-
-	if got := tr.roles("i3"); len(got) != 2 || got[1] != RoleNeedsInput {
-		t.Fatalf("transitions = %v; want ...NeedsInput", got)
+func TestHandleMissingOutputIsError(t *testing.T) {
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: "", RunErr: errors.New("boom")} // writes no output.json
+	eng := newTestEngine(t, tr, ex)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+	if tr.lastRole != RoleNeedsInput {
+		t.Errorf("role = %v; want NEEDS INPUT (error path)", tr.lastRole)
+	}
+	if !strings.Contains(tr.lastComment, "⚠️") {
+		t.Errorf("expected error comment, got %q", tr.lastComment)
 	}
 }
 
 func TestHandleFailedClaimStops(t *testing.T) {
 	tr := &fakeTracker{failClaim: true}
-	ex := &fakeExecutor{resultJSON: `{"status":"ok"}`}
-	e := newTestEngine(testConfig(), tr, ex)
+	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`}
+	e := newTestEngine(t, tr, ex)
 
 	e.handle(context.Background(), Issue{ID: "i4", Identifier: "AET-4", Class: "implement"})
 
@@ -90,8 +111,8 @@ func TestTickReconcilesAndDispatches(t *testing.T) {
 			{ID: "x1", Identifier: "AET-X1", Class: "unknown"}, // unknown → skipped
 		},
 	}
-	ex := &fakeExecutor{resultJSON: `{"status":"ok"}`}
-	e := newTestEngine(testConfig(), tr, ex)
+	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`}
+	e := newTestEngine(t, tr, ex)
 
 	e.tick(context.Background())
 	e.wait()
@@ -119,8 +140,8 @@ func TestTickRespectsGlobalConcurrency(t *testing.T) {
 	}}
 	release := make(chan struct{})
 	started := make(chan struct{})
-	ex := &fakeExecutor{resultJSON: `{"status":"ok"}`, release: release, started: started}
-	e := newTestEngine(cfg, tr, ex)
+	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`, release: release, started: started}
+	e := newEngine(cfg, tr, ex)
 
 	e.tick(context.Background()) // one slot: only one issue claimed, the other skipped this tick
 	<-started                    // the single claimed issue's command has begun (its claim is recorded)
@@ -139,7 +160,7 @@ func TestTickRespectsGlobalConcurrency(t *testing.T) {
 
 func TestTickRecoversPanic(t *testing.T) {
 	tr := &fakeTracker{ready: []Issue{{ID: "p1", Identifier: "AET-P1", Class: "implement"}}}
-	e := newTestEngine(testConfig(), tr, &fakeExecutor{panicMsg: "kaboom"})
+	e := newTestEngine(t, tr, &fakeExecutor{panicMsg: "kaboom"})
 
 	e.tick(context.Background())
 	e.wait() // must not crash; the panic is recovered
@@ -153,7 +174,7 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	cfg := testConfig()
 	cfg.Tracker.PollInterval = "1h" // long, so only the immediate first tick runs
 	tr := &fakeTracker{}
-	e := newTestEngine(cfg, tr, &fakeExecutor{resultJSON: `{"status":"ok"}`})
+	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled

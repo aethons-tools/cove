@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/config"
+	"github.com/aethons-tools/cove/internal/dispatch/worker"
 )
 
 // Engine polls a Tracker and dispatches ready autonomous work.
@@ -44,7 +46,7 @@ func New(cfg config.Config, t Tracker, e Executor, resolve func([]string) (strin
 	}
 }
 
-// handle runs one issue synchronously: claim → brief → command → broker.
+// handle runs one issue synchronously: claim → brief → at-cove dispatch → broker.
 func (e *Engine) handle(ctx context.Context, iss Issue) {
 	if err := e.tracker.Transition(ctx, iss.ID, RoleInProgress); err != nil {
 		e.log.Printf("claim %s: %v", iss.Identifier, err)
@@ -60,46 +62,51 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 
 	dir, err := os.MkdirTemp("", "at-dispatch-")
 	if err != nil {
-		e.broker(ctx, iss, config.Result{}, fmt.Errorf("tempdir: %w", err))
+		e.broker(ctx, iss, errorOutput(fmt.Errorf("tempdir: %w", err)), nil)
 		return
 	}
 	defer os.RemoveAll(dir)
-	briefPath := filepath.Join(dir, "brief.md")
-	resultPath := filepath.Join(dir, "result.json")
-	if err := os.WriteFile(briefPath, []byte(brief), 0o600); err != nil {
-		e.broker(ctx, iss, config.Result{}, fmt.Errorf("write brief: %w", err))
-		return
-	}
+	inPath := filepath.Join(dir, "input.json")
+	outPath := filepath.Join(dir, "output.json")
 
-	secrets, err := config.ResolveSecrets(e.cfg.Secrets, e.resolve)
+	in := worker.Input{
+		Issue: worker.IssueInput{Key: iss.Identifier, Title: iss.Title, WorkClass: iss.Class, Brief: brief},
+		Repo: worker.RepoInput{
+			Name: e.cfg.Repo.Slug, SourceBranch: e.cfg.Repo.SourceBranch,
+			WorkBranch: iss.Class + "/" + iss.Identifier,
+		},
+	}
+	data, err := json.MarshalIndent(in, "", "  ")
 	if err != nil {
-		e.broker(ctx, iss, config.Result{}, fmt.Errorf("resolve secrets: %w", err))
+		e.broker(ctx, iss, errorOutput(fmt.Errorf("marshal input: %w", err)), nil)
 		return
 	}
-	env := config.BuildEnv(config.Task{
-		Issue: iss.Identifier, Class: iss.Class, Repo: e.cfg.Repo.Slug,
-		Timeout: cl.Timeout, BriefPath: briefPath, ResultPath: resultPath,
-	}, secrets)
+	if err := os.WriteFile(inPath, data, 0o600); err != nil {
+		e.broker(ctx, iss, errorOutput(fmt.Errorf("write input: %w", err)), nil)
+		return
+	}
 
-	d, _ := time.ParseDuration(cl.Timeout) // validated by config
-	rctx, cancel := context.WithTimeout(ctx, d)
+	work, _ := time.ParseDuration(cl.Timeout)             // validated by config
+	over, _ := time.ParseDuration(e.cfg.DispatchOverhead) // validated by config
+	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
-	runErr := e.exec.Run(rctx, cl.Command, env)
+	argv := []string{"at-cove", "dispatch", cl.Kit, "--in", inPath, "--out", outPath, "--timeout", cl.Timeout}
+	runErr := e.exec.Run(rctx, argv, nil)
 
-	e.broker(ctx, iss, config.ReadResult(resultPath), runErr)
+	e.broker(ctx, iss, readOutput(outPath), runErr)
 }
 
-// broker performs the tracker writes for one result. Single writer.
-func (e *Engine) broker(ctx context.Context, iss Issue, res config.Result, runErr error) {
+// broker performs the tracker writes for one dispatch outcome. Single writer.
+func (e *Engine) broker(ctx context.Context, iss Issue, out worker.Output, runErr error) {
 	switch {
-	case runErr == nil && res.Status == config.StatusOK:
-		e.post(ctx, iss, okComment(res))
+	case runErr == nil && out.Status == worker.StatusOK:
+		e.post(ctx, iss, okComment(out))
 		e.transition(ctx, iss, RoleInReview)
-	case res.Status == config.StatusNeedsInput:
-		e.post(ctx, iss, needsInputComment(res))
+	case out.Status == worker.StatusNeedsInput:
+		e.post(ctx, iss, needsInputComment(out))
 		e.transition(ctx, iss, RoleNeedsInput)
 	default:
-		e.post(ctx, iss, errorComment(res, runErr))
+		e.post(ctx, iss, errorComment(out, runErr))
 		e.transition(ctx, iss, RoleNeedsInput)
 	}
 }
@@ -115,35 +122,34 @@ func (e *Engine) post(ctx context.Context, iss Issue, body string) {
 	}
 }
 
-func okComment(res config.Result) string {
+func okComment(out worker.Output) string {
 	var b strings.Builder
 	b.WriteString("✅ Done.\n\n")
-	if res.Artifacts.PRURL != "" {
-		b.WriteString("PR: " + res.Artifacts.PRURL + "\n")
+	if out.Work.PRURL != "" {
+		b.WriteString("PR: " + out.Work.PRURL + "\n")
 	}
-	if res.Artifacts.Branch != "" {
-		b.WriteString("Branch: " + res.Artifacts.Branch + "\n")
+	if out.Work.Branch != "" {
+		b.WriteString("Branch: " + out.Work.Branch + "\n")
 	}
-	if res.Artifacts.DocPath != "" {
-		b.WriteString("Doc: " + res.Artifacts.DocPath + "\n")
-	}
-	if res.Summary != "" {
-		b.WriteString("\n" + res.Summary + "\n")
+	if out.Agent != nil && out.Agent.PRMessage != "" {
+		b.WriteString("\n" + out.Agent.PRMessage + "\n")
 	}
 	return b.String()
 }
 
-func needsInputComment(res config.Result) string {
-	n := res.NeedsInput
-	if n == nil {
-		return "❓ NEEDS INPUT\n\n" + res.Summary
+func needsInputComment(out worker.Output) string {
+	b := "❓ NEEDS INPUT\n\n"
+	if out.Agent != nil && out.Agent.NeedsInput != nil {
+		n := out.Agent.NeedsInput
+		b += "**Doing:** " + n.Doing + "\n" +
+			"**Blocker:** " + n.Blocker + "\n" +
+			"**Need:** " + n.Need + "\n" +
+			"**Tried:** " + n.Tried + "\n"
 	}
-	return "❓ NEEDS INPUT\n\n" +
-		"**Doing:** " + n.Doing + "\n" +
-		"**Blocker:** " + n.Blocker + "\n" +
-		"**Need:** " + n.Need + "\n" +
-		"**Tried:** " + n.Tried + "\n" +
-		"**Safe state:** " + n.SafeState + "\n"
+	if out.Work.SafeState != "" {
+		b += "**Safe state:** " + out.Work.SafeState + "\n"
+	}
+	return b
 }
 
 // Run polls every poll-interval until ctx is done, draining in-flight work on exit.
@@ -237,13 +243,37 @@ func (e *Engine) release(class string) {
 // wait blocks until all in-flight dispatches finish (shutdown drain / tests).
 func (e *Engine) wait() { e.wg.Wait() }
 
-func errorComment(res config.Result, runErr error) string {
-	msg := res.Summary
-	if runErr != nil {
-		msg = "command failed: " + runErr.Error()
-		if res.Summary != "" {
-			msg += " (" + res.Summary + ")"
-		}
+func errorComment(out worker.Output, runErr error) string {
+	msg := out.Message
+	if msg == "" && out.Work.Error != "" {
+		msg = out.Work.Error
 	}
-	return "⚠️ Dispatch error — routed to NEEDS INPUT.\n\n" + msg + "\n"
+	if msg == "" && runErr != nil {
+		msg = runErr.Error()
+	}
+	if msg == "" {
+		msg = "dispatch failed"
+	}
+	return "⚠️ ERROR\n\n" + msg + "\n"
+}
+
+// readOutput reads a worker.Output from path, synthesizing an ERROR output when
+// the file is missing, unreadable, invalid, or has no status.
+func readOutput(path string) worker.Output {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return errorOutput(fmt.Errorf("no dispatch output: %w", err))
+	}
+	var out worker.Output
+	if err := json.Unmarshal(data, &out); err != nil {
+		return errorOutput(fmt.Errorf("invalid dispatch output: %w", err))
+	}
+	if out.Status == "" {
+		return errorOutput(fmt.Errorf("dispatch output has no status"))
+	}
+	return out
+}
+
+func errorOutput(err error) worker.Output {
+	return worker.Output{Status: worker.StatusError, Message: err.Error()}
 }
