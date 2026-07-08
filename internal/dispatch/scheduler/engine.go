@@ -20,7 +20,6 @@ type Engine struct {
 	cfg     config.Config
 	tracker Tracker
 	exec    Executor
-	resolve func([]string) (string, error)
 	log     *log.Logger
 
 	gsem chan struct{}            // global concurrency
@@ -28,8 +27,8 @@ type Engine struct {
 	wg   sync.WaitGroup
 }
 
-// New builds an Engine. resolve turns a secret's argv into its value (host side).
-func New(cfg config.Config, t Tracker, e Executor, resolve func([]string) (string, error), logger *log.Logger) *Engine {
+// New builds an Engine.
+func New(cfg config.Config, t Tracker, e Executor, logger *log.Logger) *Engine {
 	gcap := cfg.Concurrency
 	if gcap < 1 {
 		gcap = 1
@@ -41,7 +40,7 @@ func New(cfg config.Config, t Tracker, e Executor, resolve func([]string) (strin
 		}
 	}
 	return &Engine{
-		cfg: cfg, tracker: t, exec: e, resolve: resolve, log: logger,
+		cfg: cfg, tracker: t, exec: e, log: logger,
 		gsem: make(chan struct{}, gcap), csem: csem,
 	}
 }

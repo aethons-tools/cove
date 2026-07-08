@@ -27,7 +27,7 @@ func testConfig() config.Config {
 // newEngine builds an Engine against an explicit config (for tests that need to
 // tweak concurrency, poll-interval, etc).
 func newEngine(cfg config.Config, tr Tracker, ex Executor) *Engine {
-	return New(cfg, tr, ex, func([]string) (string, error) { return "", nil }, log.New(io.Discard, "", 0))
+	return New(cfg, tr, ex, log.New(io.Discard, "", 0))
 }
 
 // newTestEngine builds an Engine against the default testConfig() (an autonomous

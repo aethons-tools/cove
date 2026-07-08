@@ -104,7 +104,7 @@ func doServe(args []string, stdout, stderr io.Writer) int {
 	}
 
 	logger := log.New(stderr, "at-dispatch ", log.LstdFlags)
-	engine := scheduler.New(cfg, tracker, dexec.New(), resolve, logger)
+	engine := scheduler.New(cfg, tracker, dexec.New(), logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

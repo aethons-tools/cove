@@ -1,6 +1,6 @@
 // Package config defines and loads the at-dispatch configuration: the tracker
-// wiring, the repo, per-class dispatch commands, secrets, and the DISPATCH_*
-// command contract. It is at-cove-agnostic — a class's command is the only seam.
+// wiring, the repo, and per-class dispatch kits. It is at-cove-agnostic — a
+// class's kit is the only seam.
 package config
 
 import (
@@ -18,7 +18,6 @@ import (
 type Config struct {
 	Tracker          TrackerConfig    `yaml:"tracker"`
 	Repo             RepoConfig       `yaml:"repo"`
-	Secrets          []Secret         `yaml:"secrets"`
 	Classes          map[string]Class `yaml:"classes"`
 	Concurrency      int              `yaml:"concurrency"`
 	ReaperTimeout    string           `yaml:"reaper-timeout"`
@@ -57,38 +56,15 @@ type SecretRef struct {
 	Command []string `yaml:"command"`
 }
 
-// Secret is a named resolver injected as env into every dispatch command.
-type Secret struct {
-	Name    string   `yaml:"name"`
-	Command []string `yaml:"command"`
-}
-
 // Class maps a handler class to how at-dispatch runs it.
 type Class struct {
-	Mode        string   `yaml:"mode"`    // "autonomous" | "interactive"
-	Kit         string   `yaml:"kit"`     // path to the class's .at-cove kit (autonomous); relative resolves against the config dir
-	Command     []string `yaml:"command"` // DEPRECATED (removed in the rewire); kept transiently so the scheduler still builds
-	Timeout     string   `yaml:"timeout"` // Go duration; autonomous
-	Concurrency int      `yaml:"concurrency"`
+	Mode        string `yaml:"mode"`    // "autonomous" | "interactive"
+	Kit         string `yaml:"kit"`     // path to the class's .at-cove kit (autonomous); relative resolves against the config dir
+	Timeout     string `yaml:"timeout"` // Go duration; autonomous
+	Concurrency int    `yaml:"concurrency"`
 }
 
 const defaultClassLabelPrefix = "class:"
-
-// Env var names at-dispatch sets for every dispatch command.
-const (
-	EnvIssue   = "DISPATCH_ISSUE"
-	EnvClass   = "DISPATCH_CLASS"
-	EnvRepo    = "DISPATCH_REPO"
-	EnvTimeout = "DISPATCH_TIMEOUT"
-	EnvBrief   = "DISPATCH_BRIEF"
-	EnvResult  = "DISPATCH_RESULT"
-)
-
-// reservedEnvNames are the env names at-dispatch owns; a secret may not use one.
-var reservedEnvNames = map[string]bool{
-	EnvIssue: true, EnvClass: true, EnvRepo: true,
-	EnvTimeout: true, EnvBrief: true, EnvResult: true,
-}
 
 // ParseConfig strict-decodes config bytes and applies defaults. Validation is
 // applied here too once Validate exists (see Validate).
@@ -183,22 +159,6 @@ func (c Config) Validate() error {
 	if c.Concurrency < 1 {
 		return fmt.Errorf("config: concurrency must be >= 1, got %d", c.Concurrency)
 	}
-	seen := map[string]bool{}
-	for i, s := range c.Secrets {
-		if s.Name == "" {
-			return fmt.Errorf("config: secrets[%d].name is required", i)
-		}
-		if reservedEnvNames[s.Name] {
-			return fmt.Errorf("config: secrets[%d].name %q is a reserved DISPATCH_* name", i, s.Name)
-		}
-		if seen[s.Name] {
-			return fmt.Errorf("config: secrets[%d].name %q is duplicated", i, s.Name)
-		}
-		seen[s.Name] = true
-		if len(s.Command) == 0 {
-			return fmt.Errorf("config: secrets[%d] (%s).command is required", i, s.Name)
-		}
-	}
 	if len(c.Classes) == 0 {
 		return fmt.Errorf("config: at least one class is required")
 	}
@@ -208,15 +168,15 @@ func (c Config) Validate() error {
 		}
 		switch cl.Mode {
 		case "autonomous":
-			if len(cl.Command) == 0 {
-				return fmt.Errorf("config: classes[%q]: autonomous class requires a command", name)
+			if strings.TrimSpace(cl.Kit) == "" {
+				return fmt.Errorf("config: classes[%q]: autonomous class requires a kit", name)
 			}
 			if err := checkDuration(fmt.Sprintf("classes[%q].timeout", name), cl.Timeout); err != nil {
 				return err
 			}
 		case "interactive":
-			if len(cl.Command) != 0 {
-				return fmt.Errorf("config: classes[%q]: interactive class must not set a command", name)
+			if strings.TrimSpace(cl.Kit) != "" {
+				return fmt.Errorf("config: classes[%q]: interactive class must not set a kit", name)
 			}
 		default:
 			return fmt.Errorf("config: classes[%q].mode must be \"autonomous\" or \"interactive\", got %q", name, cl.Mode)
