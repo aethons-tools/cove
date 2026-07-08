@@ -129,6 +129,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
+| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject the input, run the kit's `dispatch.command`, extract the output, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before or after the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -267,6 +268,7 @@ Backends self-register into a registry keyed by the `backend:` string.
   and a published `localhost:<port>` mapped to the in-VM `sshd`.
   `Dial` returns that port;
   `Destroy` is `docker rm -f` (volumes retained).
+  Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`.
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
@@ -281,6 +283,7 @@ a `Fake` records calls for tests.
 
 ```
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
+internal/dispatchrun/         `at-cove dispatch` orchestration (scavenge → run → inject → exec → extract → destroy)
 cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
 internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
 internal/dispatch/config/     at-dispatch config: schema, load/validate, DISPATCH_* env + result.json contract
