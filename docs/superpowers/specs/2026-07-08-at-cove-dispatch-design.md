@@ -49,23 +49,38 @@ at-cove dispatch <kit-dir> --in <input.json> --out <output.json> [--timeout <dur
 Blocking, one-shot. Steps (reusing at-cove's existing machinery):
 1. Load the kit config; it **must** declare `dispatch.command` (else error). Ensure the
    image is built (`docker build` the assembled context — cached across dispatches).
-2. Run a **fresh, ephemeral** container from the image (unique name; **not** recorded in
-   `.state/state.json` — dispatch owns its lifecycle) with the hardening applied.
-3. Resolve the kit's declared secrets on the host (memory-only, exactly like `connect`);
-   **seed the agent's credentials** into the VM (reuse `connect`'s credential seed) so
-   the agent authenticates non-interactively.
-4. **Write `--in` into the VM** at `/in/input.json` over ssh stdin (values never on
+2. **Scavenge crash orphans:** force-remove any container labeled `at-cove.dispatch`
+   whose age exceeds a **grace window** (> the max dispatch timeout). This self-heals
+   containers leaked by a previously-crashed dispatch; the age gate guarantees a
+   concurrent in-flight sibling is never reaped.
+3. Run a **fresh, ephemeral** container from the image — a unique name, the label
+   `at-cove.dispatch`, `--rm`, and **no persistent/named volume** (so a force-remove
+   reclaims everything), **not** recorded in `.state/state.json` (dispatch owns its
+   lifecycle), hardening applied.
+4. Resolve the kit's declared secrets on the host (memory-only, exactly like `connect`);
+   **seed the agent's credentials** into the container's filesystem (reuse `connect`'s
+   credential seed) so the agent authenticates non-interactively.
+5. **Write `--in` into the VM** at `/in/input.json` over ssh stdin (values never on
    argv/disk beyond the VM), then run the kit's `dispatch.command` via `connect`'s
    `Transport` (secrets sourced into the env, then `exec` the command), bounded by
    `--timeout`.
-5. On exit, **extract `/out/output.json`** via `ssh cat` → the `--out` local path.
-6. **Destroy** the container (and any ephemeral volume).
-7. Exit `0` iff the command succeeded **and** the output file was produced; else nonzero
+6. On exit, **extract `/out/output.json`** via `ssh cat` → the `--out` local path.
+7. **Destroy** the container (force-remove by name) — on every path, including failure
+   and timeout (deferred cleanup).
+8. Exit `0` iff the command succeeded **and** the output file was produced; else nonzero
    with a diagnostic on stderr.
 
 File I/O is **SSH-based** (write-via-stdin, read-via-`cat`) so it stays
 backend-agnostic — no `docker cp`. `/in/input.json` and `/out/output.json` are the
 **convention** the kit's entrypoint relies on. at-cove treats both files as opaque.
+
+**Crash scavenging.** The container is labeled + volume-less, so it is reclaimable by
+label alone. Three layers reap it: (a) the deferred force-remove on normal exit/timeout;
+(b) `--rm` if the container stops on its own; (c) the age-based scavenge that every
+subsequent `at-cove dispatch` runs at startup (step 2). The same scavenge logic is also
+exposed as **`at-cove dispatch --reap`** (remove all labeled orphans and exit) for an
+operator or a cron to call directly. Because dispatch carries no state volume, no volume
+ever leaks.
 
 **Kit config gains a `dispatch:` block:**
 ```yaml
@@ -140,9 +155,11 @@ kits/reference-worker/          reference kit + run-worker.sh (image is per-proj
 ## 7. Testing
 
 - **`at-cove dispatch` orchestration** — plan/execution split like the rest of at-cove:
-  the create→seed→write-in→exec→read-out→destroy sequence is unit-tested against the
-  `runner.Fake` (assert the exact backend/ssh argv sequence, incl. that the container is
-  destroyed on both success and failure). A real VM run is `integration`-tagged.
+  the scavenge→create→seed→write-in→exec→read-out→destroy sequence is unit-tested against
+  the `runner.Fake` (assert the exact backend/ssh argv sequence, incl. the startup
+  scavenge removing labeled containers past the grace window, and that this run's
+  container is force-removed on both success and failure). A real VM run is
+  `integration`-tagged.
 - **Scheduler `handle`** stays hermetic: the fake `Executor` simulates `at-cove dispatch`
   (reads the `input.json` it's handed, writes a chosen `output.json`); broker tests
   assert the Linear transitions + comments for `OK` / `NEEDS_INPUT` / `ERROR` /
