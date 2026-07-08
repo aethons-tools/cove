@@ -159,7 +159,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	// alongside the kit-dir; it parses them itself rather than going through
 	// the generic single-kit-dir positional resolution below.
 	if cmd == "dispatch" {
-		return doDispatch(rest, r, stdout, stderr)
+		return doDispatch(rest, r, dryRun, stdout, stderr)
 	}
 
 	// Resolve positionals. Most commands take an optional kit-dir; `loop` takes
@@ -831,8 +831,11 @@ func dispatchName(kitName string) string {
 // crashed dispatch orphans). It parses the kit-dir positional itself (rather
 // than through the shared single-kit-dir resolution in run(), which does not
 // know about these flags), assembles the build context and resolves secrets
-// exactly as `create`/`connect` do, then hands off to dispatchrun.
-func doDispatch(args []string, r runner.Runner, stdout, stderr io.Writer) int {
+// exactly as `create`/`connect` do, then hands off to dispatchrun. With dryRun
+// it prints the planned actions and returns before touching the backend,
+// assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
+// convention.
+func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
 		return 2
@@ -863,6 +866,22 @@ func doDispatch(args []string, r runner.Runner, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
+
+	if dryRun {
+		if *reap {
+			fmt.Fprintf(stdout, "would scavenge %s dispatch orphans older than %s\n", cfg.Name, *grace)
+			return 0
+		}
+		if len(cfg.Dispatch.Command) == 0 {
+			fmt.Fprintf(stderr, "at-cove: kit %q declares no dispatch.command\n", cfg.Name)
+			return 1
+		}
+		img := "at-cove-for-" + cfg.Name
+		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run dispatch.command %q, extract %s, then destroy the container\n",
+			cfg.Name, kitDir, img, *inPath, cfg.Dispatch.Command, *outPath)
+		return 0
+	}
+
 	b, err := getBackend(cfg.Backend, r)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)

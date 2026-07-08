@@ -104,7 +104,10 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("dispatch command: %w", err)
 	}
 	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+outputVMPath)...)
-	if err != nil || strings.TrimSpace(out) == "" {
+	if err != nil {
+		return fmt.Errorf("extract output at %s: %w", outputVMPath, err)
+	}
+	if strings.TrimSpace(out) == "" {
 		return fmt.Errorf("dispatch produced no output at %s", outputVMPath)
 	}
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)

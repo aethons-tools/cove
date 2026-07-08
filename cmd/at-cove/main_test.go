@@ -859,6 +859,62 @@ func TestDispatchUnsupportedBackendErrors(t *testing.T) {
 	}
 }
 
+// TestDryRunDispatchPrintsNoExec guards Fix A: --dry-run dispatch must print
+// the plan and exit 0 without touching the backend, assembling, or resolving
+// secrets (no calls recorded on the fake runner at all).
+func TestDryRunDispatchPrintsNoExec(t *testing.T) {
+	dir := t.TempDir()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "dispatch", cove, "--in", inFile, "--out", outFile},
+		f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run dispatch executed commands: %+v", f.Calls)
+	}
+	if _, err := os.Stat(outFile); err == nil {
+		t.Fatal("dry-run dispatch must not write the output file")
+	}
+	s := out.String()
+	if !strings.Contains(s, "would") || !strings.Contains(s, inFile) || !strings.Contains(s, outFile) {
+		t.Fatalf("dry-run dispatch should describe the planned actions incl. --in/--out: %q", s)
+	}
+}
+
+// TestDryRunDispatchReapPrintsNoExec guards --dry-run dispatch --reap: it must
+// not call Reap (no ScavengeLabeled == no Output call on the fake).
+func TestDryRunDispatchReapPrintsNoExec(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "dispatch", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run dispatch --reap executed commands: %+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "would") {
+		t.Fatalf("dry-run dispatch --reap should describe the planned scavenge: %q", out.String())
+	}
+}
+
 func TestLoopBadIntervalErrors(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeLoopKit(t, dir)

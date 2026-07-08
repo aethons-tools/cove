@@ -10,6 +10,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
 )
 
 // fakeOps records DispatchOps calls; Dial returns a fixed endpoint.
@@ -83,6 +84,51 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	}
 	if !ops.removed {
 		t.Fatal("container must be removed even on failure")
+	}
+}
+
+// TestDispatchSecretNeverOnArgv locks the "secrets never on argv" guarantee: a
+// declared secret's resolved value must reach the VM only via the env-script
+// stdin body that runWork pipes over ssh (see writeVM/runWork in
+// dispatchrun.go), and must never appear in any recorded call's argv — the
+// resolver command's own args, the ssh invocations, or anything else.
+func TestDispatchSecretNeverOnArgv(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "input.json", `{}`)
+	out := dir + "/output.json"
+	const secretValue = "s3cr3t-token-value"
+	// Outputs is consumed in call order: secret.Resolve's r.Output (the
+	// resolver command) runs first, then the final `cat /out/output.json`.
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: secretValue + "\n"},
+		{Stdout: `{"status":"OK"}`},
+	}}
+	ops := &fakeOps{}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg:      kit.Config{Name: "w", Dispatch: kit.DispatchConfig{Command: []string{"run-worker.sh"}}},
+		BuildDir: dir, Name: "disp-secret",
+		Secrets:   []secret.Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}}},
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	foundInStdin := false
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, secretValue) {
+			foundInStdin = true
+		}
+		if strings.Contains(strings.Join(c.Args, " "), secretValue) {
+			t.Fatalf("secret value leaked onto argv: name=%s args=%v", c.Name, c.Args)
+		}
+	}
+	if !foundInStdin {
+		t.Fatal("secret value was never injected via any call's stdin (expected the env script)")
 	}
 }
 
