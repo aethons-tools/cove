@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend"
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
 	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/loop"
@@ -39,6 +41,8 @@ Usage:
   at-cove recreate [kit-dir] [--workspace|--ws <path>]
   at-cove destroy  [kit-dir] [--loop <name>]
   at-cove status   [kit-dir] [--loop <name>]
+  at-cove dispatch <kit-dir> --in <file> --out <file> [--timeout <dur>] [--grace <dur>]
+  at-cove dispatch <kit-dir> --reap [--grace <dur>]
   at-cove version
 
 If kit-dir is omitted, at-cove walks up from the cwd to the nearest .at-cove/.
@@ -62,6 +66,13 @@ loop flags:
   --once             run one drain (all currently-available work) and exit
   --keep             reuse/leave the loop instance instead of auto-destroying it
   --interval <dur>   override the loop's poll interval (e.g. 30s, 5m)
+
+dispatch flags:
+  --in <file>      path to the input.json to inject into the ephemeral VM
+  --out <file>     path to write the extracted output.json
+  --timeout <dur>  hard wall-clock cap for the dispatch command (default 30m)
+  --grace <dur>    age past which a labeled orphan container is scavenged (default 60m)
+  --reap           scavenge dispatch orphans and exit (does not need --in/--out)
 `
 
 // version is the at-cove build version, stamped at build time via
@@ -141,6 +152,14 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	if cmd == "version" {
 		fmt.Fprintln(stdout, "at-cove "+version)
 		return 0
+	}
+
+	// dispatch has its own flags (--in/--out/--timeout/--grace/--reap) that the
+	// global-flag loop above does not know about, so they land in `rest`
+	// alongside the kit-dir; it parses them itself rather than going through
+	// the generic single-kit-dir positional resolution below.
+	if cmd == "dispatch" {
+		return doDispatch(rest, r, stdout, stderr)
 	}
 
 	// Resolve positionals. Most commands take an optional kit-dir; `loop` takes
@@ -797,4 +816,106 @@ func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRu
 	}
 	fmt.Fprintf(stdout, "%s  (image %s)\n", labels[vmState], st.Image)
 	return nil
+}
+
+// dispatchName derives a container name unique to one dispatch run: the kit
+// name for readability, plus the pid and a nanosecond timestamp so concurrent
+// dispatches of the same kit (even from separate processes) never collide.
+func dispatchName(kitName string) string {
+	return fmt.Sprintf("at-cove-dispatch-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
+}
+
+// doDispatch runs `at-cove dispatch <kit-dir> --in <f> --out <f> [--timeout]
+// [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
+// command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
+// crashed dispatch orphans). It parses the kit-dir positional itself (rather
+// than through the shared single-kit-dir resolution in run(), which does not
+// know about these flags), assembles the build context and resolves secrets
+// exactly as `create`/`connect` do, then hands off to dispatchrun.
+func doDispatch(args []string, r runner.Runner, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
+		return 2
+	}
+	kitDir := args[0]
+
+	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	inPath := fs.String("in", "", "path to the input.json to inject")
+	outPath := fs.String("out", "", "path to write the extracted output.json")
+	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
+	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
+	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "at-cove dispatch: unexpected argument %q\n", fs.Arg(0))
+		return 2
+	}
+	if !*reap && (*inPath == "" || *outPath == "") {
+		fmt.Fprintln(stderr, "at-cove dispatch: --in and --out are required (unless --reap)")
+		return 2
+	}
+
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	b, err := getBackend(cfg.Backend, r)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	ops, ok := b.(backend.DispatchOps)
+	if !ok {
+		fmt.Fprintf(stderr, "at-cove: backend %q does not support dispatch\n", cfg.Backend)
+		return 1
+	}
+
+	if *reap {
+		if err := dispatchrun.Reap(ops, *grace, time.Now()); err != nil {
+			fmt.Fprintf(stderr, "at-cove: reap: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	if len(cfg.Dispatch.Command) == 0 {
+		fmt.Fprintf(stderr, "at-cove: kit %q declares no dispatch.command\n", cfg.Name)
+		return 1
+	}
+
+	// Assemble the build context (public key injected), as `build`/`create` do.
+	buildDir := filepath.Join(kitDir, ".build")
+	priv, pub, err := keys.Ensure(r, configDir())
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	if err := assemble.Assemble(kitDir, buildDir, pub, cfg.Image); err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+
+	specs := make([]secret.Spec, len(cfg.Secrets))
+	for i, s := range cfg.Secrets {
+		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
+	}
+
+	err = dispatchrun.Dispatch(dispatchrun.Options{
+		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: dispatchName(cfg.Name),
+		Secrets:         specs,
+		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
+		IdentityFile:    priv,
+		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
+		InputPath:       *inPath, OutputPath: *outPath,
+		Timeout: *timeout, GraceWindow: *grace, Now: time.Now(),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
+		return 1
+	}
+	return 0
 }
