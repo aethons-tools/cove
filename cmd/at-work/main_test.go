@@ -14,7 +14,7 @@ func TestVersion(t *testing.T) {
 	if code := run([]string{"version"}, &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if strings.TrimSpace(out.String()) != "1.2.3" {
+	if strings.TrimSpace(out.String()) != "at-work 1.2.3" {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }
@@ -24,7 +24,7 @@ func TestUnknownCommand(t *testing.T) {
 	if code := run([]string{"bogus"}, &out, &errOut); code != 2 {
 		t.Fatalf("exit = %d; want 2", code)
 	}
-	if !strings.Contains(errOut.String(), "Usage:") {
+	if !strings.Contains(errOut.String(), "usage:") {
 		t.Fatalf("stderr = %q", errOut.String())
 	}
 }
