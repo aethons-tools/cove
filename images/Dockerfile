@@ -36,6 +36,9 @@ RUN ./install-chrome.sh
 WORKDIR /
 RUN rm -rf /base-install-files
 
+COPY /.build-install-files/${TARGETARCH}/at-work /usr/local/bin/.
+RUN chmod 0775 /usr/local/bin/at-work
+
 
 
 FROM base AS agent
@@ -119,8 +122,7 @@ RUN /usr/local/lib/cove/apply-image-env.sh
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove
 
-COPY /.build-install-files/${TARGETARCH}/at-work /usr/local/bin/.
-RUN chmod 0775 /usr/local/bin/at-work
+
 
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
