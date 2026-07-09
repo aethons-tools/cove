@@ -1,163 +1,117 @@
 ---
-summary: at-work usage — the prepare/complete/version CLI, the AT_WORK_GIT_TOKEN credential, the cwd file handoff (.at-work/brief.md out, .at-work/outcome.json in), and the JSON Schemas for input.json, the agent's outcome.json, and output.json.
-read_when: You are invoking at-work directly, writing an agent that must produce .at-work/outcome.json, or building the input.json / consuming the output.json for a worker run.
-owns: the at-work CLI usage and the JSON Schemas for its input.json, agent outcome.json, and output.json
+summary: at-work usage — the prepare/complete/version CLI, the AT_WORK_GIT_TOKEN credential, and the cwd file handoff under .at-work/ (JSON or YAML): task.json in; worker-result.json and task-result.json out. The per-file JSON Schemas live in the linked contract docs.
+read_when: You are invoking at-work directly, or you need the file-handoff flow and the JSON/YAML file-format rules before reading a contract schema.
+owns: the at-work CLI usage, the .at-work/ file handoff, and the JSON/YAML file-format + unknown-field rules (the per-file JSON Schemas are owned by at-work-inputs.md and at-work-output.md)
 prereqs: none — for how at-work is dispatched inside a sandbox see ../orchestration/at-cove-dispatch-interface.md
 tier: leaf
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
-# at-work usage
+# `at-work` usage
 
-`at-work` turns one unit of work into a pull request. It owns all git and code-host
-interaction (clone, branch, commit, push, open PR) **around** an agent run that
-something else performs — it never runs the agent. The handoff is a file convention in
-the **current directory**: `prepare` writes the brief, the agent writes its outcome,
-`complete` reads it. For the design rationale and how it is dispatched in a hardened
+`at-work` turns one unit of work into a pull request. 
+It owns all git and code-host interaction (clone, branch, commit, push, open PR)
+**around** a **worker** run that something else drives — at-work never runs the worker itself.
+The *worker* is whatever performs the work: today an LLM agent, but equally a deterministic
+process or a human. The handoff is a file convention in the **current directory**, which
+should be the root of the code repo to work on.
+
+For one "unit of work", the calling orchestrator:
+
+1. Writes the work spec to `.at-work/task.json`
+2. Executes `at-work prepare`, which puts the code repo in the correct state
+   (cloned, checked out to the work branch)
+3. Executes the **worker** (an agent, a script, or a human), pointed at `.at-work/task.json`
+   (its instructions are the `task.brief` field; the rest is context); the worker writes its
+   result to `.at-work/worker-result.json`
+4. Executes `at-work complete`, which:
+   * Reads `.at-work/task.json` and `.at-work/worker-result.json`
+   * Pushes the branch
+   * If the result indicates success, opens a PR/MR; writes `.at-work/task-result.json` with PR/MR info
+   * If the result indicates input is needed, writes `.at-work/task-result.json` with context information
+   * Otherwise, writes `.at-work/task-result.json` with information about the error that occurred
+
+For the design rationale and how it is dispatched in a hardened
 sandbox, see the [dispatch interface](../orchestration/at-cove-dispatch-interface.md).
 
 ## Commands
 
-All commands operate on the **current working directory** (the shared work dir for the
-three steps). One credential env var, used by `prepare`/`complete` only:
+`at-work` runs in the **current working directory** — the root of the target repo — and
+communicates entirely through files under `.at-work/`; it takes **no path arguments**. One
+environment variable is required by `prepare` and `complete`:
 
-```
-AT_WORK_GIT_TOKEN   # code-host token for clone/push/PR (never on argv/logs)
-```
+- `AT_WORK_GIT_TOKEN` — a code-host API token for the target repo, scoped for read, push,
+  and PR/MR creation. Never passed on argv or logged.
 
-| Command | Reads | Does | Writes |
-|---------|-------|------|--------|
-| `at-work prepare <input.json>` | `input.json` | clone (if absent) → sync `source-branch` → create/resume `work-branch` | `.at-work/brief.md` |
-| `at-work complete <input.json> <output.json>` | `input.json`, `.at-work/outcome.json` | on `OK`: commit → push → open PR; on `NEEDS_INPUT`: commit WIP → push | `<output.json>` |
-| `at-work version` | — | — | prints `at-work <version>` |
+### `at-work prepare`
 
-Between the two, whatever runs the agent reads `.at-work/brief.md`, edits and tests the
-repo, and writes `.at-work/outcome.json`. `complete` **always** writes a valid
-`output.json`: a missing or invalid `outcome.json` becomes a structured `ERROR`.
+Put the repo in the right state for the worker.
 
-**Exit codes:** `2` bad arguments; `1` a setup/IO failure in `prepare` (or a failed
-`output.json` write in `complete`); `0` otherwise. `complete` returns `0` even when the
-`output.json` status is `NEEDS_INPUT`/`ERROR` — the status lives in the file.
+Reads `.at-work/task.json`. Clones the repo if the directory has no checkout, syncs
+`repo.source-branch`, then creates `repo.work-branch` — or fast-forwards it, if it already
+exists from a prior round. Refuses a dirty checkout, or a `work-branch` equal to
+`source-branch`. (`prepare` does no content extraction — the worker reads the brief straight
+from `.at-work/task.json`.)
 
-**Status (top-level `output.json.status`):** `OK` iff `outcome.json` is `OK` **and** a PR
-was opened (`work.pr-url` set); `NEEDS_INPUT` iff the outcome says so; otherwise `ERROR`.
+*Exit:* `0` ready · `1` a setup or IO failure · `2` bad usage.
 
-## Inputs
+### `at-work complete`
 
-### `input.json` — the task (both commands read it)
+Broker the worker's result into a branch push and, on success, a pull/merge request.
 
-Unknown fields are ignored. Schema (JSON Schema 2020-12):
+Reads `.at-work/task.json` and `.at-work/worker-result.json`, pushes `work-branch`, and acts
+on the worker's `status`: `ok` → open the PR/MR (returning an existing one if already open);
+`needs-input` → leave the pushed WIP branch, no PR; `error` → no PR. It **always** writes
+`.at-work/task-result.json`, deriving the top-level `status`: `ok` when the worker said `ok`
+(carrying `pr-url` if a PR was opened); `needs-input` when the worker said so; otherwise
+`error` — including when `worker-result.json` is missing or invalid, or at-work itself fails.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["issue", "repo"],
-  "properties": {
-    "issue": {
-      "type": "object",
-      "required": ["key", "title", "work-class", "brief"],
-      "properties": {
-        "key":        { "type": "string", "description": "issue identifier, e.g. AET-33" },
-        "title":      { "type": "string", "description": "used as the PR title" },
-        "work-class": { "type": "string", "description": "handler class, e.g. implement" },
-        "brief":      { "type": "string", "description": "self-contained markdown brief for the agent" }
-      }
-    },
-    "repo": {
-      "type": "object",
-      "required": ["name", "source-branch", "work-branch"],
-      "properties": {
-        "name":          { "type": "string", "description": "owner/name, e.g. aethons-tools/loom" },
-        "source-branch": { "type": "string", "description": "base branch to build the work on" },
-        "work-branch":   { "type": "string", "description": "branch to create/push; must differ from source-branch" }
-      }
-    }
-  }
-}
+*Exit:* `0` — even for a `needs-input`/`error` result; the status lives in the file · `1`
+only if `.at-work/task-result.json` cannot be written · `2` bad usage.
+
+### `at-work version`
+
+Print `at-work <version>` and exit.
+
+## File format
+
+The `.at-work/` contract files may be **JSON or YAML** (`task.json` or `task.yml`, and so
+on). at-work parses either — YAML 1.2 is a superset of JSON, so JSON content is valid YAML —
+and **errors if both** the `.json` and `.yml` form of the same file exist. The per-file JSON
+Schemas (in the linked contract docs) describe the **shape**; they apply to either
+serialization. YAML is the readable choice for `task.brief`, which becomes a block scalar
+instead of an escaped one-liner:
+
+```yaml
+task:
+  brief: |
+    Read `docs/specs/add-x.md` and implement.
+    Keep the change minimal; add a test.
 ```
 
-```json
-{ "issue": { "key": "AET-33", "title": "Add thing X", "work-class": "implement",
-             "brief": "…full markdown brief…" },
-  "repo":  { "name": "aethons-tools/loom", "source-branch": "main", "work-branch": "implement/AET-33" } }
-```
+- The **caller** picks the format of `task.{json,yml}`; the **worker** picks the format of
+  `worker-result.{json,yml}` (JSON is often the robust choice for a machine to emit).
+- **at-work writes `task-result` in the `task` file's extension** — a `task.yml` yields a
+  `task-result.yml`, rendering even a JSON `worker-result` echo as readable YAML, which makes
+  a `needs-input` handoff pleasant to troubleshoot.
 
-### `.at-work/outcome.json` — the agent's self-report (`complete` reads it)
+**Unknown fields:** at-work **rejects** unknown fields in `task.json` and `task-result.json`
+(closed schemas); `worker-result.json` is the deliberate exception — it **accepts any fields**
+the worker emits, and at-work reads only the recognized ones.
 
-The agent writes this after working the brief. Schema:
+**YAML caution:** quote any value that could read as a bool/number/date (a branch named
+`no`, `1.0`, or `2026-07-09`) so it stays a string. This doc names the files `.json` for
+brevity; everything applies equally to `.yml`.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["status"],
-  "properties": {
-    "status":     { "enum": ["OK", "NEEDS_INPUT", "ERROR"] },
-    "pr-message": { "type": "string", "description": "proposed PR body; used when status = OK" },
-    "needs-input": {
-      "type": "object",
-      "description": "present when status = NEEDS_INPUT",
-      "required": ["doing", "blocker", "need", "tried"],
-      "properties": {
-        "doing":   { "type": "string" },
-        "blocker": { "type": "string" },
-        "need":    { "type": "string" },
-        "tried":   { "type": "string" }
-      }
-    },
-    "message":    { "type": "string", "description": "present when status = ERROR" }
-  }
-}
-```
+## Contract files
 
-```json
-{ "status": "OK", "pr-message": "Implements X by …" }
-{ "status": "NEEDS_INPUT", "needs-input": { "doing": "…", "blocker": "…", "need": "…", "tried": "…" } }
-{ "status": "ERROR", "message": "…" }
-```
+Three `.at-work/` files, each with its JSON Schema and examples:
 
-## Output
+| File | Written by | Read by | Purpose |
+|------|-----------|---------|---------|
+| `task.json` | orchestrator | `prepare`, worker, `complete` | the work spec — issue, repo, worker/task classes, brief |
+| `worker-result.json` | worker | `complete` | the worker's self-report — `ok` / `needs-input` / `error` |
+| `task-result.json` | `complete` | orchestrator | at-work's authoritative outcome + the echoed `worker-result` |
 
-### `output.json` — written by `complete`
-
-A top-level authoritative `status`, an optional `message`, the `agent` block (the
-outcome above, echoed), and a `work` block describing what at-work did. Schema:
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["status", "work"],
-  "properties": {
-    "status":  { "enum": ["OK", "NEEDS_INPUT", "ERROR"], "description": "authoritative" },
-    "message": { "type": "string" },
-    "agent":   { "description": "the agent's outcome.json (schema above); omitted if none" },
-    "work": {
-      "type": "object",
-      "properties": {
-        "branch":     { "type": "string", "description": "the work-branch" },
-        "pr-url":     { "type": "string", "description": "opened/existing PR (OK only)" },
-        "safe-state": { "type": "string", "description": "<work-branch> @ <sha> (NEEDS_INPUT)" },
-        "error":      { "type": "string", "description": "diagnostic (ERROR)" }
-      }
-    }
-  }
-}
-```
-
-```json
-// OK — agent finished; at-work pushed + opened the PR
-{ "status": "OK", "message": "opened PR #42",
-  "agent": { "status": "OK", "pr-message": "…" },
-  "work":  { "branch": "implement/AET-33", "pr-url": "https://github.com/aethons-tools/loom/pull/42" } }
-
-// NEEDS_INPUT — agent stopped; at-work pushed the WIP branch, no PR
-{ "status": "NEEDS_INPUT",
-  "agent": { "status": "NEEDS_INPUT", "needs-input": { "doing": "…", "blocker": "…", "need": "…", "tried": "…" } },
-  "work":  { "branch": "implement/AET-33", "safe-state": "implement/AET-33 @ 1a2b3c4" } }
-
-// ERROR — no/invalid outcome, or a mechanical failure
-{ "status": "ERROR", "message": "no agent outcome",
-  "work":  { "branch": "implement/AET-33" } }
-```
+- [**at-work inputs**](at-work-inputs.md) — the `task.json` and `worker-result.json` schemas + examples.
+- [**at-work output**](at-work-output.md) — the `task-result.json` schema + examples.

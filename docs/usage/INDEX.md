@@ -4,7 +4,7 @@ read_when: You are running one of the cove binaries directly (not developing it)
 owns: the map of the per-binary usage docs
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: section
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 # Usage reference
@@ -16,4 +16,6 @@ environment, and the concrete input/output contracts (with JSON Schemas). This i
 
 | Doc | What it covers | Read when |
 |-----|----------------|-----------|
-| [at-work.md](at-work.md) | The `at-work` git/PR worker: the `prepare`/`complete`/`version` CLI, the `AT_WORK_GIT_TOKEN` credential, the `.at-work/` file handoff, and the JSON Schemas for `input.json`, the agent's `outcome.json`, and `output.json`. | You are invoking `at-work`, writing an agent that produces `.at-work/outcome.json`, or building/consuming its `input.json`/`output.json`. |
+| [at-work.md](at-work.md) | The `at-work` git/PR worker — usage: the `prepare`/`complete`/`version` CLI, the `AT_WORK_GIT_TOKEN` credential, the `.at-work/` file handoff, and the JSON-or-YAML file-format rules. | You are invoking `at-work`, or need the handoff flow / file-format rules before reading a contract schema. |
+| [at-work-inputs.md](at-work-inputs.md) | The JSON Schemas + examples for the two files `at-work` reads: `task.json` (the work spec) and `worker-result.json` (the worker's self-report). | You are building a `task.json`, or writing a worker that produces `worker-result.json`. |
+| [at-work-output.md](at-work-output.md) | The JSON Schema + examples for `task-result.json` — `at-work`'s authoritative outcome (`ok`/`needs-input`/`error`) with the echoed `worker-result`. | You are consuming `at-work`'s result — brokering its status, or troubleshooting a run. |
