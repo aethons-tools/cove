@@ -70,6 +70,21 @@ func TestErrorResult(t *testing.T) {
 	}
 }
 
+func TestWorkerResultFrom(t *testing.T) {
+	// nil → not ok
+	if _, ok := WorkerResultFrom(nil); ok {
+		t.Fatal("nil raw should be not-ok")
+	}
+	// a decoded needs-input echo (as it arrives from json.Unmarshal into `any`)
+	raw := map[string]any{"status": map[string]any{"needs-input": map[string]any{
+		"doing": "d", "blocker": "b", "need": "n", "tried": "tr",
+	}}}
+	wr, ok := WorkerResultFrom(raw)
+	if !ok || wr.Status.NeedsInput == nil || wr.Status.NeedsInput.Blocker != "b" {
+		t.Fatalf("decode: ok=%v wr=%+v", ok, wr.Status)
+	}
+}
+
 func TestWriteTaskResultMirrorsExtension(t *testing.T) {
 	tr := TaskResult{
 		Status:       TaskStatus{OK: &TaskOK{Message: "opened", PRURL: "https://x/pull/1"}},

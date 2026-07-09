@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,13 +14,9 @@ type WorkerResult struct {
 	Status WorkerStatus `json:"status" yaml:"status"`
 }
 
-// WorkerStatus is a tagged union — exactly one of ok / needs-input / error.
-//
-// NOTE: the variant payload types are named WorkerNeedsInput/WorkerError, not the
-// brief's literal NeedsInput/StatusError — those names collide with pre-existing
-// declarations in types.go (the v1 `type NeedsInput struct{...}` and
-// `const StatusError = "ERROR"`), which this plan is additive to and must not edit.
-// Wire format (json/yaml kebab-case tags) is unchanged from the brief.
+// WorkerStatus is a tagged union — exactly one of ok / needs-input / error. The
+// variant payload types are WorkerOK / WorkerNeedsInput / WorkerError; wire format is
+// kebab-case json/yaml tags (see docs/usage/at-work-inputs.md).
 type WorkerStatus struct {
 	OK         *WorkerOK         `json:"ok,omitempty" yaml:"ok,omitempty"`
 	NeedsInput *WorkerNeedsInput `json:"needs-input,omitempty" yaml:"needs-input,omitempty"`
@@ -161,4 +158,22 @@ func WriteTaskResult(dir, ext string, tr TaskResult) error {
 func TaskExt(dir string) (string, error) {
 	_, ext, err := resolveContract(dir, "task")
 	return ext, err
+}
+
+// WorkerResultFrom decodes an echoed raw worker-result (a TaskResult.WorkerResult,
+// which arrives as a map[string]any after JSON/YAML decoding) back into a typed
+// WorkerResult. ok is false if raw is nil or not decodable.
+func WorkerResultFrom(raw any) (WorkerResult, bool) {
+	if raw == nil {
+		return WorkerResult{}, false
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return WorkerResult{}, false
+	}
+	var wr WorkerResult
+	if json.Unmarshal(b, &wr) != nil {
+		return WorkerResult{}, false
+	}
+	return wr, true
 }

@@ -3,7 +3,7 @@ package scheduler
 import "strings"
 
 // assembleBrief renders the self-contained markdown brief that is assembled
-// into the worker's input.json (the issue.brief field).
+// into the worker's task.json (the task.brief field).
 func assembleBrief(iss Issue, repo string, comments []Comment) string {
 	var b strings.Builder
 	b.WriteString("# " + iss.Identifier + " — " + iss.Title + "\n\n")

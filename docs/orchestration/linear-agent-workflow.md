@@ -166,8 +166,8 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
                                  │  • LLM agent, one-shot            │
                                  │  • fresh checkout, scoped token    │
                                  │  • no tracker I/O (broker)        │
-                                 │  • → output.json:                  │
-                                 │      OK | NEEDS_INPUT | ERROR       │
+                                 │  • → task-result.json:             │
+                                 │      ok | needs-input | error       │
                                  └────────────────────────────────┘
 ```
 
@@ -176,7 +176,7 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
 - **Webhook receiver** — the one inbound component. Verifies the signature, enqueues an event, wakes the scheduler. No business logic, no LLM.
 - **Dedicated scheduler (non-LLM)** — talks the tracker API directly. It is the **only writer of claims**, which makes claiming race-free (below). Responsibilities: auto `BLOCKED → READY`; claim `READY → IN PROGRESS` and enqueue for autonomous classes; assign + notify for interactive classes; reap stale claims. Runs cheaply 24/7.
 - **Dispatch queue** — durable, on our infra. Its **single-delivery** guarantee means exactly one worker gets each job — no distributed lock, no compare-and-swap against the tracker.
-- **Worker fleet** — hardened at-cove containers running the LLM agents. Each pulls a job, works from a **self-contained brief** the scheduler assembled (issue description + linked spec/plan + comment thread), runs the class-specific handler in a fresh checkout, one-shot. A worker holds **no tracker credentials** and does no tracker I/O; it returns a structured `output.json` and the scheduler brokers every tracker write. See the [at-cove dispatch interface](at-cove-dispatch-interface.md#worker-contract).
+- **Worker fleet** — hardened at-cove containers running the LLM agents. Each pulls a job, works from a **self-contained brief** the scheduler assembled (issue description + linked spec/plan + comment thread), runs the class-specific handler in a fresh checkout, one-shot. A worker holds **no tracker credentials** and does no tracker I/O; it returns a structured `task-result.json` and the scheduler brokers every tracker write. See the [at-cove dispatch interface](at-cove-dispatch-interface.md#worker-contract).
 
 **Trigger model:** **webhooks for liveness, poll as backstop.** The receiver wakes the scheduler on events for near-instant dispatch; a low-frequency reconcile poll catches anything missed (dropped webhooks, restarts) so the system never wedges waiting on a lost event.
 
@@ -186,7 +186,7 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
 
 **Autonomous (bot classes) — Plan, Implement, and other headless stages.**
 A worker pulls the job, runs one-shot with the right handler (planning for plan; implement-and-test for implement, ending by opening the PR — branch-first, never the default branch, one PR per issue).
-On success it writes its artifacts (branch and PR URL) to `output.json`; the scheduler reads the result and brokers the tracker update — post artifacts, and move `IN PROGRESS → IN REVIEW` (or `→ DONE` for stages with no review).
+On success it writes its artifacts (branch and PR URL) to `task-result.json`; the scheduler reads the result and brokers the tracker update — post artifacts, and move `IN PROGRESS → IN REVIEW` (or `→ DONE` for stages with no review).
 On a wall it runs the stop-and-write-needs-back protocol.
 
 **Interactive (human classes) — Spec, and human Review.**
@@ -198,12 +198,12 @@ The human opens a chat session on our infra pointed at the issue, pulls context,
 The defining behavior of the autonomous mode. When a worker cannot proceed — an ambiguous requirement, a missing decision, an egress wall, a gate it cannot get green, or an out-of-scope discovery — it does **not** guess or thrash. It:
 
 1. **Stops.**
-2. Emits a **structured `NEEDS_INPUT` payload** in `output.json` (the `agent.needs-input` block) using a fixed template:
+2. Emits a **structured `needs-input` result** (the worker-result's `needs-input` block, echoed into `task-result.json`) using a fixed template:
    - **Doing:** what it was working on.
    - **Blocker:** the specific thing preventing progress.
    - **Need:** exactly what it needs from a human, phrased so a one-line reply unblocks it.
    - **Tried:** what it already attempted.
-   - **Safe state:** branch name, WIP commit pushed (or nothing changed).
+   - **Commit:** the pushed WIP commit SHA (the retrace point, stable even if the branch later moves), recorded by at-work.
 3. Leaves the branch in the documented safe state so no work is lost, and **exits cleanly.**
 
 The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPUT` comment formatted from the payload, moves the issue to **NEEDS INPUT**, and **assigns a human**. It never dispatches a `NEEDS INPUT` issue.
