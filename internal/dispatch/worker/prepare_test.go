@@ -8,13 +8,6 @@ import (
 	"testing"
 )
 
-func implementInput() Input {
-	return Input{
-		Issue: IssueInput{Key: "AET-1", Title: "T", WorkClass: "implement", Brief: "the brief"},
-		Repo:  RepoInput{Name: "o/r", SourceBranch: "main", WorkBranch: "implement/AET-1"},
-	}
-}
-
 func implementTask() Task {
 	return Task{
 		Issue:  TaskIssue{Key: "AET-1", Title: "T"},

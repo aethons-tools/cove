@@ -145,3 +145,10 @@ type TaskError struct {
 func WriteTaskResult(dir, ext string, tr TaskResult) error {
 	return encodeFile(filepath.Join(dir, workSubdir, "task-result"+ext), tr)
 }
+
+// TaskExt returns the extension (".json" or ".yml") of the task file in dir's .at-work,
+// so complete can write task-result in the same format.
+func TaskExt(dir string) (string, error) {
+	_, ext, err := resolveContract(dir, "task")
+	return ext, err
+}

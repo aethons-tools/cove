@@ -36,9 +36,9 @@ func TestPrepareRejectsExtraArgs(t *testing.T) {
 	}
 }
 
-func TestCompleteRequiresTwoPaths(t *testing.T) {
+func TestCompleteRejectsExtraArgs(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"complete", "only-one.json"}, &out, &errOut); code != 2 {
-		t.Fatalf("exit = %d; want 2 (missing output path)", code)
+	if code := run([]string{"complete", "x"}, &out, &errOut); code != 2 {
+		t.Fatalf("exit = %d; want 2 (complete takes no arguments)", code)
 	}
 }

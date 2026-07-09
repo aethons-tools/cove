@@ -7,76 +7,83 @@ type CodeHost interface {
 	OpenPR(ctx context.Context, repo, base, head, title, body string) (prURL string, err error)
 }
 
-// Complete reads the agent's outcome and finishes the work: commit/push and, on OK,
-// open a PR. It always returns a valid Output (never a Go error).
-func Complete(ctx context.Context, dir string, in Input, git Git, ch CodeHost) Output {
-	out := Output{Work: Work{Branch: in.Repo.WorkBranch}}
-	oc, ok, err := ReadOutcome(dir)
+// Complete reads the worker's result and finishes the work: commit/push and, when the
+// worker proposed a PR, open it. It always returns a valid TaskResult (never a Go error),
+// echoing the raw worker-result.
+func Complete(ctx context.Context, dir string, task Task, git Git, ch CodeHost) TaskResult {
+	wr, raw, ok, err := ReadWorkerResult(dir)
 	if err != nil {
-		return errOut(out, "unreadable agent outcome: "+err.Error())
+		return taskErr(nil, "unreadable worker result", err.Error())
 	}
 	if !ok {
-		return errOut(out, "no agent outcome")
+		return taskErr(nil, "no worker result", "")
 	}
-	out.Agent = &oc
-
-	switch oc.Status {
-	case StatusOK:
-		return completeOK(ctx, dir, in, git, ch, out, oc)
-	case StatusNeedsInput:
-		return completeNeedsInput(ctx, dir, in, git, out)
-	default: // ERROR or unknown
-		msg := oc.Message
-		if msg == "" {
-			msg = "agent reported status " + oc.Status
+	variant, verr := wr.Status.Active()
+	if verr != nil {
+		return taskErr(raw, "invalid worker result", verr.Error())
+	}
+	switch variant {
+	case "ok":
+		return completeOK(ctx, dir, task, git, ch, wr, raw)
+	case "needs-input":
+		return completeNeedsInput(ctx, dir, task, git, raw)
+	default: // error
+		msg := ""
+		if wr.Status.Error != nil {
+			msg = wr.Status.Error.Message
 		}
-		return errOut(out, msg)
+		return taskErr(raw, "worker could not execute task", msg)
 	}
 }
 
-func completeOK(ctx context.Context, dir string, in Input, git Git, ch CodeHost, out Output, oc Outcome) Output {
+func completeOK(ctx context.Context, dir string, task Task, git Git, ch CodeHost, wr WorkerResult, raw any) TaskResult {
 	if has, err := git.HasChanges(ctx, dir); err != nil {
-		return errOut(out, "status: "+err.Error())
+		return taskErr(raw, "check for changes", err.Error())
 	} else if has {
-		if _, err := git.Commit(ctx, dir, in.Issue.Key+": "+in.Issue.Title); err != nil {
-			return errOut(out, "commit: "+err.Error())
+		if _, err := git.Commit(ctx, dir, task.Issue.Key+": "+task.Issue.Title); err != nil {
+			return taskErr(raw, "commit", err.Error())
 		}
 	}
-	differs, err := git.DiffersFrom(ctx, dir, in.Repo.SourceBranch)
-	if err != nil {
-		return errOut(out, "diff: "+err.Error())
+	if err := git.Push(ctx, dir, task.Repo.WorkBranch); err != nil {
+		return taskErr(raw, "push", err.Error())
 	}
-	if !differs {
-		return errOut(out, "agent reported OK but produced no changes")
+	okStatus := &TaskOK{Message: "pushed " + task.Repo.WorkBranch}
+	if pr := wr.Status.OK.PullRequest; pr != nil {
+		differs, err := git.DiffersFrom(ctx, dir, task.Repo.SourceBranch)
+		if err != nil {
+			return taskErr(raw, "diff", err.Error())
+		}
+		if differs {
+			url, err := ch.OpenPR(ctx, task.Repo.Name, task.Repo.SourceBranch, task.Repo.WorkBranch, pr.Title, pr.Message)
+			if err != nil {
+				return taskErr(raw, "open PR", err.Error())
+			}
+			okStatus.PRURL = url
+			okStatus.Message = "opened PR"
+		} else {
+			okStatus.Message = "no changes to open a PR"
+		}
 	}
-	if err := git.Push(ctx, dir, in.Repo.WorkBranch); err != nil {
-		return errOut(out, "push: "+err.Error())
-	}
-	prURL, err := ch.OpenPR(ctx, in.Repo.Name, in.Repo.SourceBranch, in.Repo.WorkBranch,
-		in.Issue.Key+": "+in.Issue.Title, oc.PRMessage)
-	if err != nil {
-		return errOut(out, "open PR: "+err.Error())
-	}
-	out.Status = StatusOK
-	out.Message = "opened PR"
-	out.Work.PRURL = prURL
-	return out
+	return TaskResult{Status: TaskStatus{OK: okStatus}, WorkerResult: raw}
 }
 
-func completeNeedsInput(ctx context.Context, dir string, in Input, git Git, out Output) Output {
+func completeNeedsInput(ctx context.Context, dir string, task Task, git Git, raw any) TaskResult {
 	if has, err := git.HasChanges(ctx, dir); err == nil && has {
-		_, _ = git.Commit(ctx, dir, "WIP "+in.Issue.Key)
+		_, _ = git.Commit(ctx, dir, "WIP "+task.Issue.Key)
 	}
-	_ = git.Push(ctx, dir, in.Repo.WorkBranch) // best-effort; safe state lives on origin
+	_ = git.Push(ctx, dir, task.Repo.WorkBranch) // best-effort; the WIP lives on origin
 	head, _ := git.Head(ctx, dir)
-	out.Status = StatusNeedsInput
-	out.Work.SafeState = in.Repo.WorkBranch + " @ " + head
-	return out
+	return TaskResult{
+		Status:       TaskStatus{NeedsInput: &TaskNeedsInput{Message: "worker needs input; WIP pushed to " + task.Repo.WorkBranch, Commit: head}},
+		WorkerResult: raw,
+	}
 }
 
-func errOut(out Output, msg string) Output {
-	out.Status = StatusError
-	out.Message = msg
-	out.Work.Error = msg
-	return out
+// taskErr builds an ERROR TaskResult. detail is the underlying diagnostic (omitted if "").
+func taskErr(raw any, msg, detail string) TaskResult {
+	e := &TaskError{Message: msg}
+	if detail != "" {
+		e.Detail = detail
+	}
+	return TaskResult{Status: TaskStatus{Error: e}, WorkerResult: raw}
 }

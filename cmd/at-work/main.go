@@ -61,13 +61,18 @@ func doPrepare(args []string, stderr io.Writer) int {
 }
 
 func doComplete(args []string, stderr io.Writer) int {
-	if len(args) != 2 {
-		fmt.Fprintln(stderr, "at-work complete: expected <input.json> <output.json>")
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "at-work complete: takes no arguments (reads .at-work/, writes .at-work/task-result)")
 		return 2
 	}
-	in, err := worker.ReadInput(args[0])
+	task, err := worker.ReadTask(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "at-work: %v\n", err)
+		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
+		return 1
+	}
+	ext, err := worker.TaskExt(".")
+	if err != nil {
+		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
 		return 1
 	}
 	g, ok := gitClient(stderr)
@@ -75,9 +80,9 @@ func doComplete(args []string, stderr io.Writer) int {
 		return 1
 	}
 	ch := github.New(os.Getenv("AT_WORK_GIT_TOKEN"), nil)
-	out := worker.Complete(context.Background(), ".", in, g, ch)
-	if err := worker.WriteOutput(args[1], out); err != nil {
-		fmt.Fprintf(stderr, "at-work: write output: %v\n", err)
+	tr := worker.Complete(context.Background(), ".", task, g, ch)
+	if err := worker.WriteTaskResult(".", ext, tr); err != nil {
+		fmt.Fprintf(stderr, "at-work: write task-result: %v\n", err)
 		return 1
 	}
 	return 0
