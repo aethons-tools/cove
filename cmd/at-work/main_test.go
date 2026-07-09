@@ -29,10 +29,10 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestPrepareRequiresInputPath(t *testing.T) {
+func TestPrepareRejectsExtraArgs(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"prepare"}, &out, &errOut); code != 2 {
-		t.Fatalf("exit = %d; want 2 (missing input path)", code)
+	if code := run([]string{"prepare", "x"}, &out, &errOut); code != 2 {
+		t.Fatalf("exit = %d; want 2 (prepare takes no arguments)", code)
 	}
 }
 

@@ -40,20 +40,20 @@ func gitClient(stderr io.Writer) (*worker.ShellGit, bool) {
 }
 
 func doPrepare(args []string, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "at-work prepare: expected <input.json>")
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "at-work prepare: takes no arguments (reads .at-work/task.json)")
 		return 2
 	}
-	in, err := worker.ReadInput(args[0])
+	task, err := worker.ReadTask(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "at-work: %v\n", err)
+		fmt.Fprintf(stderr, "at-work prepare: %v\n", err)
 		return 1
 	}
 	g, ok := gitClient(stderr)
 	if !ok {
 		return 1
 	}
-	if err := worker.Prepare(context.Background(), ".", in, g); err != nil {
+	if err := worker.Prepare(context.Background(), ".", task, g); err != nil {
 		fmt.Fprintf(stderr, "at-work prepare: %v\n", err)
 		return 1
 	}
