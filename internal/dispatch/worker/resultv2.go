@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -161,4 +162,22 @@ func WriteTaskResult(dir, ext string, tr TaskResult) error {
 func TaskExt(dir string) (string, error) {
 	_, ext, err := resolveContract(dir, "task")
 	return ext, err
+}
+
+// WorkerResultFrom decodes an echoed raw worker-result (a TaskResult.WorkerResult,
+// which arrives as a map[string]any after JSON/YAML decoding) back into a typed
+// WorkerResult. ok is false if raw is nil or not decodable.
+func WorkerResultFrom(raw any) (WorkerResult, bool) {
+	if raw == nil {
+		return WorkerResult{}, false
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return WorkerResult{}, false
+	}
+	var wr WorkerResult
+	if json.Unmarshal(b, &wr) != nil {
+		return WorkerResult{}, false
+	}
+	return wr, true
 }

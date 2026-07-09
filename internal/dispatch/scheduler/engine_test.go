@@ -40,39 +40,40 @@ func newTestEngine(t *testing.T, tr Tracker, ex Executor) *Engine {
 
 func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 	tr := newFakeTracker()
-	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{"pr-url":"https://x/pull/1","branch":"implement/AET-9"},"agent":{"status":"OK","pr-message":"did the thing"}}`}
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{"pr-url":"https://x/pull/1","message":"opened PR"}},` +
+		`"worker-result":{"status":{"ok":{"pull-request":{"title":"T","message":"did the thing"}}}}}`}
 	eng := newTestEngine(t, tr, ex)
 	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "Add X", Class: "implement"})
 
-	// input.json the scheduler built
+	// task.json the scheduler built (v2 nested shape)
 	if !strings.Contains(ex.GotInput, `"work-branch": "implement/AET-9"`) ||
 		!strings.Contains(ex.GotInput, `"source-branch": "main"`) ||
-		!strings.Contains(ex.GotInput, `"key": "AET-9"`) {
-		t.Fatalf("input.json wrong:\n%s", ex.GotInput)
+		!strings.Contains(ex.GotInput, `"key": "AET-9"`) ||
+		!strings.Contains(ex.GotInput, `"class": "implement"`) {
+		t.Fatalf("task.json wrong:\n%s", ex.GotInput)
 	}
-	// argv carried the kit + --timeout
 	joined := strings.Join(ex.GotArgv, " ")
 	if !strings.Contains(joined, "at-cove dispatch") || !strings.Contains(joined, "--timeout 30m") {
 		t.Fatalf("argv wrong: %v", ex.GotArgv)
 	}
-	// brokered: IN REVIEW + a comment with the PR
 	if tr.lastRole != RoleInReview {
 		t.Errorf("role = %v; want IN REVIEW", tr.lastRole)
 	}
-	if !strings.Contains(tr.lastComment, "https://x/pull/1") {
-		t.Errorf("comment missing PR: %q", tr.lastComment)
+	if !strings.Contains(tr.lastComment, "https://x/pull/1") || !strings.Contains(tr.lastComment, "did the thing") {
+		t.Errorf("comment missing PR/message: %q", tr.lastComment)
 	}
 }
 
 func TestHandleNeedsInput(t *testing.T) {
 	tr := newFakeTracker()
-	ex := &fakeExecutor{OutJSON: `{"status":"NEEDS_INPUT","work":{"safe-state":"implement/AET-9 @ abc"},"agent":{"status":"NEEDS_INPUT","needs-input":{"doing":"d","blocker":"b","need":"n","tried":"tr"}}}`}
+	ex := &fakeExecutor{OutJSON: `{"status":{"needs-input":{"message":"WIP pushed","commit":"abc123"}},` +
+		`"worker-result":{"status":{"needs-input":{"doing":"d","blocker":"b","need":"n","tried":"tr"}}}}`}
 	eng := newTestEngine(t, tr, ex)
 	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
 	if tr.lastRole != RoleNeedsInput {
 		t.Errorf("role = %v; want NEEDS INPUT", tr.lastRole)
 	}
-	if !strings.Contains(tr.lastComment, "**Blocker:** b") || !strings.Contains(tr.lastComment, "implement/AET-9 @ abc") {
+	if !strings.Contains(tr.lastComment, "**Blocker:** b") || !strings.Contains(tr.lastComment, "abc123") {
 		t.Errorf("needs-input comment wrong: %q", tr.lastComment)
 	}
 }
@@ -92,7 +93,7 @@ func TestHandleMissingOutputIsError(t *testing.T) {
 
 func TestHandleFailedClaimStops(t *testing.T) {
 	tr := &fakeTracker{failClaim: true}
-	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`}
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
 	e := newTestEngine(t, tr, ex)
 
 	e.handle(context.Background(), Issue{ID: "i4", Identifier: "AET-4", Class: "implement"})
@@ -111,7 +112,7 @@ func TestTickReconcilesAndDispatches(t *testing.T) {
 			{ID: "x1", Identifier: "AET-X1", Class: "unknown"}, // unknown → skipped
 		},
 	}
-	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`}
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
 	e := newTestEngine(t, tr, ex)
 
 	e.tick(context.Background())
@@ -140,7 +141,7 @@ func TestTickRespectsGlobalConcurrency(t *testing.T) {
 	}}
 	release := make(chan struct{})
 	started := make(chan struct{})
-	ex := &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`, release: release, started: started}
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`, release: release, started: started}
 	e := newEngine(cfg, tr, ex)
 
 	e.tick(context.Background()) // one slot: only one issue claimed, the other skipped this tick
@@ -174,7 +175,7 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 	cfg := testConfig()
 	cfg.Tracker.PollInterval = "1h" // long, so only the immediate first tick runs
 	tr := &fakeTracker{}
-	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":"OK","work":{}}`})
+	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled

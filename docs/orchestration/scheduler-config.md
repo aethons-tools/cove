@@ -4,7 +4,7 @@ read_when: You are setting up a new at-dispatch instance, adding a handler class
 owns: the at-dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
 prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-dispatch-interface.md (the kit and run-parameter model the config keys into)
 tier: leaf
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 # at-dispatch Scheduler Configuration
@@ -147,7 +147,7 @@ A map of handler class names to their dispatch modes and kits.
 - Path to the `.at-cove` kit directory for this class.
 - Relative paths resolve against the config file's directory at load time.
 - The kit is passed to `at-cove dispatch` by the scheduler and must contain a valid `.at-cove/config.yml`.
-- The kit is the trust boundary: it defines the container image, egress allowlist, and receives the worker's task via injected `input.json`.
+- The kit is the trust boundary: it defines the container image, egress allowlist, and receives the worker's task via an injected `task.json` (schema: [`docs/usage/at-work-inputs.md`](../usage/at-work-inputs.md)).
 
 **`timeout`** (`duration`, required for `autonomous`, not used for `interactive`)
 - The hard wall-clock cap for an instance of this class.
@@ -192,9 +192,10 @@ For each `READY` issue with a class label:
 4. If `mode: autonomous`:
    - Compute the wall-clock timeout: `timeout + dispatch-overhead`.
    - Load the kit from the path in `classes[class].kit`.
-   - Run `at-cove dispatch <kit> --in input.json --out output.json --timeout <timeout>`.
-   - Read the worker's `output.json`.
-   - Map the result's `status` (`OK` / `NEEDS_INPUT` / `ERROR`) to tracker state transitions.
+   - Run `at-cove dispatch <kit> --in task.json --out task-result.json --timeout <timeout>`.
+   - Read the worker's `task-result.json`.
+   - Map the result's tagged-union `status` (`ok` / `needs-input` / `error`) to tracker state transitions.
+     See [`docs/usage/at-work-inputs.md`](../usage/at-work-inputs.md) and [`docs/usage/at-work-output.md`](../usage/at-work-output.md) for the `task.json`/`task-result.json` schemas.
    - Update the issue (post artifacts, move state, assign humans if needed).
 
 The scheduler never holds a code-host token; secrets are confined to the kit (for secret injection) or the minter process (for per-task token generation via run-parameter passthrough).

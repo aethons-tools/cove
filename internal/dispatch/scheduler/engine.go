@@ -61,27 +61,29 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 
 	dir, err := os.MkdirTemp("", "at-dispatch-")
 	if err != nil {
-		e.broker(ctx, iss, errorOutput(fmt.Errorf("tempdir: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("tempdir: %w", err)), nil)
 		return
 	}
 	defer os.RemoveAll(dir)
-	inPath := filepath.Join(dir, "input.json")
-	outPath := filepath.Join(dir, "output.json")
+	inPath := filepath.Join(dir, "task.json")
+	outPath := filepath.Join(dir, "task-result.json")
 
-	in := worker.Input{
-		Issue: worker.IssueInput{Key: iss.Identifier, Title: iss.Title, WorkClass: iss.Class, Brief: brief},
-		Repo: worker.RepoInput{
+	task := worker.Task{
+		Issue: worker.TaskIssue{Key: iss.Identifier, Title: iss.Title},
+		Repo: worker.TaskRepo{
 			Name: e.cfg.Repo.Slug, SourceBranch: e.cfg.Repo.SourceBranch,
 			WorkBranch: iss.Class + "/" + iss.Identifier,
 		},
+		Worker: worker.TaskWorker{Class: iss.Class},
+		Task:   worker.TaskSpec{Brief: brief},
 	}
-	data, err := json.MarshalIndent(in, "", "  ")
+	data, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
-		e.broker(ctx, iss, errorOutput(fmt.Errorf("marshal input: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("marshal task: %w", err)), nil)
 		return
 	}
 	if err := os.WriteFile(inPath, data, 0o600); err != nil {
-		e.broker(ctx, iss, errorOutput(fmt.Errorf("write input: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("write task: %w", err)), nil)
 		return
 	}
 
@@ -95,17 +97,18 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	e.broker(ctx, iss, readOutput(outPath), runErr)
 }
 
-// broker performs the tracker writes for one dispatch outcome. Single writer.
-func (e *Engine) broker(ctx context.Context, iss Issue, out worker.Output, runErr error) {
+// broker performs the tracker writes for one dispatch result. Single writer.
+func (e *Engine) broker(ctx context.Context, iss Issue, tr worker.TaskResult, runErr error) {
+	variant, _ := tr.Status.ActiveTask()
 	switch {
-	case runErr == nil && out.Status == worker.StatusOK:
-		e.post(ctx, iss, okComment(out))
+	case runErr == nil && variant == "ok":
+		e.post(ctx, iss, okComment(tr))
 		e.transition(ctx, iss, RoleInReview)
-	case out.Status == worker.StatusNeedsInput:
-		e.post(ctx, iss, needsInputComment(out))
+	case variant == "needs-input":
+		e.post(ctx, iss, needsInputComment(tr))
 		e.transition(ctx, iss, RoleNeedsInput)
 	default:
-		e.post(ctx, iss, errorComment(out, runErr))
+		e.post(ctx, iss, errorComment(tr, runErr))
 		e.transition(ctx, iss, RoleNeedsInput)
 	}
 }
@@ -121,32 +124,40 @@ func (e *Engine) post(ctx context.Context, iss Issue, body string) {
 	}
 }
 
-func okComment(out worker.Output) string {
+func okComment(tr worker.TaskResult) string {
 	var b strings.Builder
 	b.WriteString("✅ Done.\n\n")
-	if out.Work.PRURL != "" {
-		b.WriteString("PR: " + out.Work.PRURL + "\n")
+	if tr.Status.OK != nil {
+		if tr.Status.OK.PRURL != "" {
+			b.WriteString("PR: " + tr.Status.OK.PRURL + "\n")
+		}
+		if tr.Status.OK.Message != "" {
+			b.WriteString(tr.Status.OK.Message + "\n")
+		}
 	}
-	if out.Work.Branch != "" {
-		b.WriteString("Branch: " + out.Work.Branch + "\n")
-	}
-	if out.Agent != nil && out.Agent.PRMessage != "" {
-		b.WriteString("\n" + out.Agent.PRMessage + "\n")
+	if wr, ok := worker.WorkerResultFrom(tr.WorkerResult); ok &&
+		wr.Status.OK != nil && wr.Status.OK.PullRequest != nil && wr.Status.OK.PullRequest.Message != "" {
+		b.WriteString("\n" + wr.Status.OK.PullRequest.Message + "\n")
 	}
 	return b.String()
 }
 
-func needsInputComment(out worker.Output) string {
+func needsInputComment(tr worker.TaskResult) string {
 	b := "❓ NEEDS INPUT\n\n"
-	if out.Agent != nil && out.Agent.NeedsInput != nil {
-		n := out.Agent.NeedsInput
+	if wr, ok := worker.WorkerResultFrom(tr.WorkerResult); ok && wr.Status.NeedsInput != nil {
+		n := wr.Status.NeedsInput
 		b += "**Doing:** " + n.Doing + "\n" +
 			"**Blocker:** " + n.Blocker + "\n" +
 			"**Need:** " + n.Need + "\n" +
 			"**Tried:** " + n.Tried + "\n"
 	}
-	if out.Work.SafeState != "" {
-		b += "**Safe state:** " + out.Work.SafeState + "\n"
+	if tr.Status.NeedsInput != nil {
+		if tr.Status.NeedsInput.Message != "" {
+			b += "**Handoff:** " + tr.Status.NeedsInput.Message + "\n"
+		}
+		if tr.Status.NeedsInput.Commit != "" {
+			b += "**Commit:** " + tr.Status.NeedsInput.Commit + "\n"
+		}
 	}
 	return b
 }
@@ -242,10 +253,13 @@ func (e *Engine) release(class string) {
 // wait blocks until all in-flight dispatches finish (shutdown drain / tests).
 func (e *Engine) wait() { e.wg.Wait() }
 
-func errorComment(out worker.Output, runErr error) string {
-	msg := out.Message
-	if msg == "" && out.Work.Error != "" {
-		msg = out.Work.Error
+func errorComment(tr worker.TaskResult, runErr error) string {
+	msg := ""
+	if tr.Status.Error != nil {
+		msg = tr.Status.Error.Message
+		if tr.Status.Error.Detail != "" {
+			msg += ": " + tr.Status.Error.Detail
+		}
 	}
 	if msg == "" && runErr != nil {
 		msg = runErr.Error()
@@ -256,23 +270,23 @@ func errorComment(out worker.Output, runErr error) string {
 	return "⚠️ ERROR\n\n" + msg + "\n"
 }
 
-// readOutput reads a worker.Output from path, synthesizing an ERROR output when
-// the file is missing, unreadable, invalid, or has no status.
-func readOutput(path string) worker.Output {
+// readOutput reads a worker.TaskResult from path, synthesizing an ERROR result when
+// the file is missing, unreadable, invalid, or has no valid status.
+func readOutput(path string) worker.TaskResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errorOutput(fmt.Errorf("no dispatch output: %w", err))
+		return errorResult(fmt.Errorf("no dispatch output: %w", err))
 	}
-	var out worker.Output
-	if err := json.Unmarshal(data, &out); err != nil {
-		return errorOutput(fmt.Errorf("invalid dispatch output: %w", err))
+	var tr worker.TaskResult
+	if err := json.Unmarshal(data, &tr); err != nil {
+		return errorResult(fmt.Errorf("invalid dispatch output: %w", err))
 	}
-	if out.Status == "" {
-		return errorOutput(fmt.Errorf("dispatch output has no status"))
+	if _, err := tr.Status.ActiveTask(); err != nil {
+		return errorResult(fmt.Errorf("dispatch output: %w", err))
 	}
-	return out
+	return tr
 }
 
-func errorOutput(err error) worker.Output {
-	return worker.Output{Status: worker.StatusError, Message: err.Error()}
+func errorResult(err error) worker.TaskResult {
+	return worker.ErrorResult(err.Error(), "")
 }
