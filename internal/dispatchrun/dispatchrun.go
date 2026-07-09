@@ -28,10 +28,8 @@ const (
 )
 
 const (
-	inputVMPath  = "/in/input.json"
-	outputVMPath = "/out/output.json"
-	credsVMPath  = "/agent-data/.credentials.json"
-	envVMPath    = "/dev/shm/at-cove-dispatch-env"
+	credsVMPath = "/agent-data/.credentials.json"
+	envVMPath   = "/dev/shm/at-cove-dispatch-env"
 )
 
 type Options struct {
@@ -62,6 +60,9 @@ func Reap(ops backend.DispatchOps, grace time.Duration, now time.Time) error {
 func Dispatch(o Options) error {
 	if len(o.Cfg.Dispatch.Command) == 0 {
 		return fmt.Errorf("kit %q declares no dispatch.command", o.Cfg.Name)
+	}
+	if o.Cfg.Dispatch.Input == "" || o.Cfg.Dispatch.Output == "" {
+		return fmt.Errorf("kit %q must declare dispatch.input and dispatch.output", o.Cfg.Name)
 	}
 	// Scavenge crash orphans (best-effort; never blocks a live dispatch).
 	_, _ = o.Ops.ScavengeLabeled(Label, o.GraceWindow, o.Now)
@@ -106,18 +107,19 @@ func Dispatch(o Options) error {
 	if err != nil {
 		return err
 	}
-	if err := writeVM(o.R, tgt, input, inputVMPath); err != nil {
+	if err := writeVM(o.R, tgt, input, o.Cfg.Dispatch.Input); err != nil {
 		return fmt.Errorf("inject input: %w", err)
 	}
-	if err := runWork(o.R, tgt, env, o.Cfg.Dispatch.Command, o.Timeout); err != nil {
+	outDir := filepath.Dir(o.Cfg.Dispatch.Output)
+	if err := runWork(o.R, tgt, env, o.Cfg.Dispatch.Command, outDir, o.Timeout); err != nil {
 		return fmt.Errorf("dispatch command: %w", err)
 	}
-	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+outputVMPath)...)
+	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+o.Cfg.Dispatch.Output)...)
 	if err != nil {
-		return fmt.Errorf("extract output at %s: %w", outputVMPath, err)
+		return fmt.Errorf("extract output at %s: %w", o.Cfg.Dispatch.Output, err)
 	}
 	if strings.TrimSpace(out) == "" {
-		return fmt.Errorf("dispatch produced no output at %s", outputVMPath)
+		return fmt.Errorf("dispatch produced no output at %s", o.Cfg.Dispatch.Output)
 	}
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)
 }
@@ -164,8 +166,8 @@ func writeVM(r runner.Runner, tgt sshargs.Target, data []byte, vmPath string) er
 }
 
 // runWork runs the kit's dispatch command with secrets sourced from a tmpfs env
-// script (never on argv), bounded by timeout, /out ready for the output.
-func runWork(r runner.Runner, tgt sshargs.Target, env map[string]string, cmd []string, timeout time.Duration) error {
+// script (never on argv), bounded by timeout, outDir ready for the output.
+func runWork(r runner.Runner, tgt sshargs.Target, env map[string]string, cmd []string, outDir string, timeout time.Duration) error {
 	if err := writeVM(r, tgt, []byte(envScript(env)), envVMPath); err != nil {
 		return err
 	}
@@ -173,8 +175,8 @@ func runWork(r runner.Runner, tgt sshargs.Target, env map[string]string, cmd []s
 	if secs <= 0 {
 		secs = 1800
 	}
-	remote := fmt.Sprintf("set -a; . %s; rm -f %s; mkdir -p /out; timeout %d %s",
-		envVMPath, envVMPath, secs, shellJoin(cmd))
+	remote := fmt.Sprintf("set -a; . %s; rm -f %s; mkdir -p %s; timeout %d %s",
+		envVMPath, envVMPath, shellQuote(outDir), secs, shellJoin(cmd))
 	return r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...)
 }
 

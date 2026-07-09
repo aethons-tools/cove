@@ -1,10 +1,10 @@
 ---
-summary: The substrate by which a dedicated scheduler dispatches one-shot worker agents through at-cove — the shipped `at-cove dispatch` command (synchronous, one-shot, ephemeral hardened container from a kit), the kit-declared entrypoint and the credential air-gap, at-work's input.json/output.json worker contract, the three-authority credential model, and per-class isolation. The parametrized per-task token minter is the intended credential design and is deferred.
-read_when: You are implementing or reviewing how the scheduler launches workers on hardened at-cove/Colima containers — the `at-cove dispatch` command it calls, how the input/output handoff works, how the worker is air-gapped from the code-host token, or the credential model (shipped token vs. the deferred minter).
+summary: The substrate by which a dedicated scheduler dispatches one-shot worker agents through at-cove — the shipped `at-cove dispatch` command (synchronous, one-shot, ephemeral hardened container from a kit), the kit-declared entrypoint and the credential air-gap, the `.at-work/task.json` → `task-result.json` worker contract at the kit-configured `dispatch.input`/`dispatch.output` VM paths, the three-authority credential model, and per-class isolation. The parametrized per-task token minter is the intended credential design and is deferred.
+read_when: You are implementing or reviewing how the scheduler launches workers on hardened at-cove/Colima containers — the `at-cove dispatch` command it calls, how the input/output handoff works (including where the kit declares the VM-side file paths), how the worker is air-gapped from the code-host token, or the credential model (shipped token vs. the deferred minter).
 owns: the at-cove dispatch substrate contract, the kit-declared dispatch entrypoint + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 # at-cove Dispatch Interface
@@ -39,34 +39,31 @@ at-cove dispatch <kit-dir> --in <input.json> --out <output.json> [--timeout <dur
 One invocation, start to finish:
 1. **Scavenge** crash orphans — remove any container labeled `at-cove.dispatch` older than `--grace` (self-healing after a crashed prior run).
 2. **Build** the kit's image (docker-cached) and **run a fresh ephemeral container** — labeled, `--rm`, **no persistent volume**, not recorded in `.state` (dispatch owns its lifecycle).
-3. **Inject** the kit's declared secrets (in memory) and **write `--in` to `/in/input.json`** over SSH stdin.
+3. **Inject** the kit's declared secrets (in memory) and **write `--in` to the kit's declared `dispatch.input` VM path** over SSH stdin.
 4. **Run the kit-declared entrypoint** (`dispatch.command`), the secrets sourced from a tmpfs env script, bounded by `--timeout`.
-5. **Extract `/out/output.json`** to `--out`; **destroy** the container on every exit path.
+5. **Extract the kit's declared `dispatch.output`** VM path to `--out`; **destroy** the container on every exit path.
 
-at-cove treats the two files as **opaque** — it never parses them and knows nothing about the worker. `--reap` runs only the scavenge and exits. File I/O is SSH-based (backend-agnostic). Full design: [`../superpowers/specs/2026-07-08-at-cove-dispatch-design.md`](../superpowers/specs/2026-07-08-at-cove-dispatch-design.md).
+at-cove itself is VM-layout-generic: the kit's `config.yml` declares the VM-side `dispatch.input`/`dispatch.output` paths (the seam is now `.at-work/task.json` in, `.at-work/task-result.json` out — see the [at-work usage doc](../usage/at-work.md)), and at-cove treats both files as **opaque**, never parsing them. `--reap` runs only the scavenge and exits. File I/O is SSH-based (backend-agnostic). Full design: [`../superpowers/specs/2026-07-08-at-cove-dispatch-design.md`](../superpowers/specs/2026-07-08-at-cove-dispatch-design.md).
 
 ## The kit-declared entrypoint and the credential air-gap
 
-The kit's `config.yml` declares `dispatch.command` — the entrypoint at-cove runs inside the container. *What* it does (whether it uses at-work, how it reads the work-class) is the kit's concern; at-cove stays generic.
+The kit's `config.yml` declares `dispatch.command` (the entrypoint at-cove runs inside the container) and the `dispatch.input`/`dispatch.output` VM paths at-cove injects/extracts. *What* the entrypoint does (whether it uses at-work, how it reads the work-class) is the kit's concern; at-cove stays generic — it only needs the paths, not their contents.
 
 The reference worker entrypoint (`run-worker.sh`) sequences the git/PR worker around the agent, and is where the **credential air-gap** lives:
 
 ```sh
-at-work prepare  /in/input.json                          # clone/branch — has the token
-env -u AT_WORK_GIT_TOKEN  "$AT_WORK_AGENT_COMMAND"       # the agent — token stripped
-at-work complete /in/input.json /out/output.json         # commit/push/PR — has the token
+at-work prepare                                      # clone/branch — has the token
+env -u AT_WORK_GIT_TOKEN  "$AT_WORK_AGENT_COMMAND"    # the agent — token stripped
+at-work complete                                      # commit/push/PR — has the token
 ```
 
-The untrusted-brief-ingesting **agent never holds the code-host token**; only `at-work`'s clone/push/PR steps do. `at-work` owns all git and code-host interaction; see its design at [`../superpowers/specs/2026-07-07-at-work-worker-design.md`](../superpowers/specs/2026-07-07-at-work-worker-design.md).
+`at-work` runs cwd-relative against `.at-work/`, so `run-worker.sh` `cd`s to the workdir the kit's `dispatch.input`/`dispatch.output` point into before invoking it. The untrusted-brief-ingesting **agent never holds the code-host token**; only `at-work`'s clone/push/PR steps do. `at-work` owns all git and code-host interaction; see its design at [`../superpowers/specs/2026-07-07-at-work-worker-design.md`](../superpowers/specs/2026-07-07-at-work-worker-design.md).
 
 ## Worker contract
 
-The worker's contract is **at-work's**, not a bespoke `result.json`. The scheduler builds `input.json`; the worker writes `output.json`:
+The worker's contract is **at-work's**, not a bespoke `result.json`. The scheduler builds the task file at the kit's `dispatch.input` path; the worker's result ends up at `dispatch.output`. The file shapes, the JSON Schemas, and the `.at-work/` file-handoff convention (`task.json` → `worker-result.json` → `task-result.json`) are owned by the [at-work usage doc](../usage/at-work.md) and its linked [inputs](../usage/at-work-inputs.md)/[output](../usage/at-work-output.md) contract docs — not restated here.
 
-- **`input.json`** — `issue{key, title, work-class, brief}` + `repo{name, source-branch, work-branch}`. The brief is the self-contained assembly of the issue, linked spec/plan, and comment thread.
-- **`output.json`** — a top-level `status` (`OK` | `NEEDS_INPUT` | `ERROR`) plus an `agent` block (the agent's self-report: `pr-message` or `needs-input{doing,blocker,need,tried}`) and a `work` block (what at-work did: `branch`, `pr-url`, `safe-state`, `error`).
-
-The worker does **no tracker I/O** — it writes `output.json`, pushes any branch/PR, and exits; the scheduler reads it and performs **all** tracker writes (the single-writer property). The scheduler's mapping of `output.json` → tracker transitions is owned by [scheduler-config.md](scheduler-config.md). The exact CLI and the **JSON Schemas** for `input.json`, the agent's `outcome.json`, and `output.json` are in the [at-work usage doc](../usage/at-work.md).
+The worker does **no tracker I/O** — it writes its result, pushes any branch/PR, and exits; the scheduler reads `task-result.json` and performs **all** tracker writes (the single-writer property). The scheduler's mapping of the result → tracker transitions is owned by [scheduler-config.md](scheduler-config.md).
 
 ## Three separated authorities
 
@@ -87,6 +84,6 @@ No component holds two authorities; untrusted input reaches only the least-privi
 
 ## Status — shipped vs. deferred
 
-- **Shipped:** `at-cove dispatch` (synchronous one-shot, ephemeral container, crash-scavenge); the kit `dispatch.command` entrypoint; at-work's `input.json`/`output.json` contract; the scheduler wiring ([scheduler-config.md](scheduler-config.md)); container-per-task isolation.
+- **Shipped:** `at-cove dispatch` (synchronous one-shot, ephemeral container, crash-scavenge); the kit-declared `dispatch.command` entrypoint and `dispatch.input`/`dispatch.output` VM paths; at-work's `.at-work/task.json` → `task-result.json` contract; the scheduler wiring ([scheduler-config.md](scheduler-config.md)); container-per-task isolation.
 - **Deferred:** the reference worker kit + `run-worker.sh` and the end-to-end integration run; the parametrized token minter and the `COVE_RUN_*` run-parameter passthrough; per-run `--egress-profile`; multi-code-host (GitHub-only today).
 - **Dropped:** run-ids, `run --detach`, and the `status`/`result`/`logs`/`kill`/`ls` lifecycle-verb registry — superfluous under synchronous dispatch.
