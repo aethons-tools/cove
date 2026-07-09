@@ -320,8 +320,8 @@ func buildState(cfg kit.Config, inst backend.Instance, setup string) state.State
 		st.WorkspaceMode = "shared"
 		st.WorkspaceHostPath = inst.Workspace.HostPath
 	}
-	for _, s := range cfg.Secrets {
-		st.Secrets = append(st.Secrets, state.Secret{Name: s.Name, Command: s.Command})
+	for name, s := range cfg.Secrets {
+		st.Secrets = append(st.Secrets, state.Secret{Name: name, Command: s.Command})
 	}
 	return st
 }
@@ -340,12 +340,8 @@ func loopContainer(kitName, loopName string) string {
 
 // declaresSecret reports whether the kit declares a secret with the given name.
 func declaresSecret(cfg kit.Config, name string) bool {
-	for _, s := range cfg.Secrets {
-		if s.Name == name {
-			return true
-		}
-	}
-	return false
+	_, ok := cfg.Secrets[name]
+	return ok
 }
 
 // createLoopInstance provisions a dedicated, isolated sandbox for one named loop:
@@ -888,9 +884,9 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		return 1
 	}
 
-	specs := make([]secret.Spec, len(cfg.Secrets))
-	for i, s := range cfg.Secrets {
-		specs[i] = secret.Spec{Name: s.Name, Command: s.Command}
+	specs := make([]secret.Spec, 0, len(cfg.Secrets))
+	for name, s := range cfg.Secrets {
+		specs = append(specs, secret.Spec{Name: name, Command: s.Command})
 	}
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{

@@ -2,7 +2,7 @@ name: claude-on-at-cove
 backend: colima
 
 secrets:
-  - name: GITHUB_TOKEN
+  GITHUB_TOKEN: {}
 
 image:
   setup-scripts:

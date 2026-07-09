@@ -11,9 +11,9 @@ func TestParseConfigValid(t *testing.T) {
 name: claude-on-myrepo
 backend: colima
 secrets:
-  - name: GITHUB_TOKEN
+  GITHUB_TOKEN:
     command: ["op", "read", "x"]
-  - name: ANTHROPIC_API_KEY
+  ANTHROPIC_API_KEY:
     description: Anthropic key
     command: ["pass", "show", "y"]
 `)
@@ -24,11 +24,11 @@ secrets:
 	if cfg.Name != "claude-on-myrepo" || cfg.Backend != "colima" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	if len(cfg.Secrets) != 2 || cfg.Secrets[0].Name != "GITHUB_TOKEN" {
+	if len(cfg.Secrets) != 2 || len(cfg.Secrets["GITHUB_TOKEN"].Command) != 3 {
 		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
-	if cfg.Secrets[1].Description != "Anthropic key" {
-		t.Fatalf("description not parsed: %+v", cfg.Secrets[1])
+	if cfg.Secrets["ANTHROPIC_API_KEY"].Description != "Anthropic key" {
+		t.Fatalf("description not parsed: %+v", cfg.Secrets["ANTHROPIC_API_KEY"])
 	}
 }
 
@@ -36,7 +36,7 @@ func TestParseConfigRejectsMissingFields(t *testing.T) {
 	cases := map[string]string{
 		"no name":        "backend: colima\n",
 		"no backend":     "name: x\n",
-		"secret no name": "name: x\nbackend: colima\nsecrets:\n  - command: [\"a\"]\n",
+		"secret no name": "name: x\nbackend: colima\nsecrets:\n  \"\":\n    command: [\"a\"]\n",
 	}
 	for label, data := range cases {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -52,12 +52,13 @@ func TestParseConfigRejectsUnknownField(t *testing.T) {
 }
 
 func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
-	data := []byte("name: x\nbackend: colima\nsecrets:\n  - name: GITHUB_TOKEN\n")
+	data := []byte("name: x\nbackend: colima\nsecrets:\n  GITHUB_TOKEN: {}\n")
 	cfg, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("name-only secret should be valid: %v", err)
 	}
-	if len(cfg.Secrets) != 1 || cfg.Secrets[0].Name != "GITHUB_TOKEN" || len(cfg.Secrets[0].Command) != 0 {
+	s, ok := cfg.Secrets["GITHUB_TOKEN"]
+	if len(cfg.Secrets) != 1 || !ok || len(s.Command) != 0 {
 		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
 }
@@ -66,7 +67,7 @@ func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
 // they belong only in the user's ~/.config/at-cove/secrets.yml. KnownFields(true)
 // rejects the unknown `value:` key, so this passes from the start.
 func TestParseConfigRejectsSecretValueField(t *testing.T) {
-	data := []byte("name: x\nbackend: colima\nsecrets:\n  - name: T\n    value: ghp_secret\n")
+	data := []byte("name: x\nbackend: colima\nsecrets:\n  T:\n    value: ghp_secret\n")
 	if _, err := ParseConfig(data); err == nil {
 		t.Fatal("a literal value: in config.yml must be rejected")
 	}

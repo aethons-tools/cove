@@ -653,7 +653,7 @@ func writeLoopKit(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	yml := "name: box\nbackend: colima\n" +
-		"secrets:\n  - name: ANTHROPIC_API_KEY\n  - name: GITHUB_TOKEN\n" +
+		"secrets:\n  ANTHROPIC_API_KEY: {}\n  GITHUB_TOKEN: {}\n" +
 		"loops:\n  default:\n    interval: 5m\n    check: \"test -e q\"\n    prompt: \"do it\"\n    setup: \"git clone https://x .\"\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)

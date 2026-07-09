@@ -9,13 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Secret declares an environment variable the sandbox needs. Command is
-// optional: when omitted, the secret is a demand to be supplied by the user's
-// ~/.config/at-cove/secrets.yml at connect time (or it warns and is left unset).
-// When present, Command is the host argv that produces the value (trusted today,
-// pre-.local).
-type Secret struct {
-	Name        string   `yaml:"name"`
+// SecretConfig configures how a declared secret (keyed by its env var name in the
+// secrets map) resolves. Command, when present, is the host argv whose stdout is the
+// value; when omitted the value is supplied from ~/.config/at-cove/secrets.yml.
+type SecretConfig struct {
 	Description string   `yaml:"description"`
 	Command     []string `yaml:"command"`
 }
@@ -81,13 +78,13 @@ type DispatchConfig struct {
 
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name     string          `yaml:"name"`
-	Backend  string          `yaml:"backend"`
-	Setup    string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
-	Secrets  []Secret        `yaml:"secrets"`
-	Loops    map[string]Loop `yaml:"loops"`
-	Image    ImageConfig     `yaml:"image"`
-	Dispatch DispatchConfig  `yaml:"dispatch"`
+	Name     string                  `yaml:"name"`
+	Backend  string                  `yaml:"backend"`
+	Setup    string                  `yaml:"setup"` // optional: command run once to populate an isolated workspace
+	Secrets  map[string]SecretConfig `yaml:"secrets"`
+	Loops    map[string]Loop         `yaml:"loops"`
+	Image    ImageConfig             `yaml:"image"`
+	Dispatch DispatchConfig          `yaml:"dispatch"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -105,9 +102,9 @@ func ParseConfig(data []byte) (Config, error) {
 	if cfg.Backend == "" {
 		return Config{}, fmt.Errorf("config.yml: backend is required")
 	}
-	for i, s := range cfg.Secrets {
-		if s.Name == "" {
-			return Config{}, fmt.Errorf("config.yml: secrets[%d]: name is required", i)
+	for name := range cfg.Secrets {
+		if strings.TrimSpace(name) == "" {
+			return Config{}, fmt.Errorf("config.yml: secrets: a secret name (map key) must not be empty")
 		}
 	}
 	for name, lp := range cfg.Loops {

@@ -7,7 +7,7 @@ backend: colima
 secrets:
   # Code-host token used ONLY by at-work prepare/complete (clone/push/PR). Resolved
   # on the host at dispatch, injected in memory. The agent step never sees it.
-  - name: AT_WORK_GIT_TOKEN
+  AT_WORK_GIT_TOKEN:
     description: GitHub token for clone/push/PR
     command: ["gh", "auth", "token"]
 
