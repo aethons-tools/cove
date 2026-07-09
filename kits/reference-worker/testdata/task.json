@@ -1,0 +1,17 @@
+{
+  "issue": {
+    "key": "DEMO-1",
+    "title": "Add a greeting helper"
+  },
+  "repo": {
+    "name": "<your-org>/<scratch-repo>",
+    "source-branch": "main",
+    "work-branch": "implement/DEMO-1"
+  },
+  "worker": {
+    "class": "implement"
+  },
+  "task": {
+    "brief": "Add a function `Greet(name string) string` returning \"Hello, <name>!\" with a unit test. Keep it minimal."
+  }
+}
