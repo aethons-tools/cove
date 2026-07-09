@@ -51,7 +51,7 @@ so they work from subdirectories.
 ```
 repo/
   .at-cove/
-    config.yml        # the spec: name, backend, secrets
+    config.yml        # the spec: name, secrets, workers, image
     image-files/      # your local overrides, overlaid onto the VM root (image-files/ → /)
     .state/           # records the running instance (state.json) + lockfile (gitignored)
     .build/           # assembled build context (gitignored)
@@ -66,55 +66,22 @@ No secret *values*, no hardening knobs, no workspace mode.
 
 ```yaml
 name: claude-on-myrepo          # sandbox/VM name; also keys the per-sandbox known_hosts
-backend: colima                 # colima | firecracker | fly  (only colima is implemented)
-
-secrets:                        # declared by NAME; values resolved at connect time
-  - name: GITHUB_TOKEN
-    command: ["op", "read", "op://Personal/github-pat/token"]
-  - name: ANTHROPIC_API_KEY     # NOTE: blocked on this path — see "Authentication" below
-    description: Anthropic API key
-    command: ["pass", "show", "anthropic/api-key"]
 ```
 
-Each secret's `command` is an **argv array** (not a shell string) run on the host;
-its stdout (trailing newline trimmed) becomes the value.
-A nonzero exit aborts `connect` before any SSH happens — fail closed.
+`name` is the only required field;
+`secrets`, `workers` (the classes `at-cove dispatch` can launch), and `image`
+(additive build customization) are optional.
+The full field-by-field schema, validation, and a complete example live in
+[`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
+secret declaration and value resolution (including `~/.config/at-cove/secrets.yml`) in
+[`docs/usage/at-cove-secrets.md`](usage/at-cove-secrets.md).
 
 > **Security caveat (current state):**
-> the resolver `command` lives in the committed `config.yml`,
-> so it is a host-execution vector.
-> Only run `at-cove connect` against repos you **trust** (your own).
-> The planned `.local/` layer will move `command` out of the committed file
-> so an untrusted repo can never trigger a resolver you didn't author.
-> See the design spec.
-
-### Supplying secret values — `~/.config/at-cove/secrets.yml`
-
-A secret in `config.yml` may be declared with just a `name` (no `command`) —
-a *demand* for that secret,
-to be supplied from the user-owned `~/.config/at-cove/secrets.yml`.
-The kit's secret list is the authoritative demand;
-the file is the supply,
-and is consulted **only** for demanded names
-(entries it holds for other names are inert).
-
-```yaml
-# ~/.config/at-cove/secrets.yml
-GITHUB_TOKEN: ghp_xxxxxxxxxxxxxxxxxxxx                     # string -> literal value
-ANTHROPIC_API_KEY: ["pass", "show", "anthropic/api-key"]  # array  -> resolver argv
-```
-
-Per demanded secret, precedence is:
-a `config.yml` `command` wins;
-otherwise a string in `secrets.yml` is injected literally
-and an array is run as the resolver command;
-otherwise the secret is **unresolved** —
-`connect` prints a warning and leaves it unset.
-A missing file is fine (treated as empty);
-a malformed file aborts `connect`.
-
-> **Note:** literal values sit in plaintext on disk — keep the file `chmod 600`.
-> Resolver *commands* (from either source) still produce values only in memory.
+> a secret resolver `command` lives in the committed `config.yml`,
+> so it is a host-execution vector —
+> only run `at-cove connect` against repos you **trust** (your own).
+> The planned `.local/` layer will move `command` out of the committed file.
+> See [at-cove-secrets.md](usage/at-cove-secrets.md).
 
 ## Command surface
 
