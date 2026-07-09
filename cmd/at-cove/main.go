@@ -9,10 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/assemble"
@@ -24,10 +21,8 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
-	"github.com/aethons-tools/cove/internal/loop"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
-	"github.com/aethons-tools/cove/internal/sshargs"
 	"github.com/aethons-tools/cove/internal/state"
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
@@ -93,48 +88,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return code
 				}
 				return exitCode("at-cove", doConnect(kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
-			}},
-			{Name: "loop", Brief: "run the kit's autonomous loop", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				fs := flag.NewFlagSet("loop", flag.ContinueOnError)
-				fs.SetOutput(errw)
-				once := fs.Bool("once", false, "run a single iteration and exit")
-				keep := fs.Bool("keep", false, "keep the sandbox after the loop exits")
-				interval := fs.String("interval", "", "override the loop interval (duration)")
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
-				}
-				// loop takes [<name>] [kit-dir]; a path-looking arg is the kit-dir.
-				loopArg, start := "", "."
-				switch len(pos) {
-				case 0:
-				case 1:
-					if filepath.IsAbs(pos[0]) || strings.Contains(pos[0], string(filepath.Separator)) {
-						start = pos[0]
-					} else {
-						loopArg = pos[0]
-					}
-				case 2:
-					loopArg, start = pos[0], pos[1]
-				default:
-					fmt.Fprintln(errw, "at-cove: loop takes [<name>] [kit-dir]")
-					return 2
-				}
-				kitDir, err := resolveKit(start)
-				if err != nil {
-					fmt.Fprintln(errw, "at-cove:", err)
-					return 1
-				}
-				var override time.Duration
-				if *interval != "" {
-					d, perr := time.ParseDuration(*interval)
-					if perr != nil || d <= 0 {
-						fmt.Fprintf(errw, "at-cove: --interval must be a positive duration: %q\n", *interval)
-						return 2
-					}
-					override = d
-				}
-				return exitCode("at-cove", doLoop(kitDir, r, loopArg, *once, *keep, override, g.DryRun, out, errw), errw)
 			}},
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
@@ -336,65 +289,6 @@ func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
 	return state.Save(kitDir, buildState(cfg, inst, cfg.Setup))
 }
 
-// loopContainer is the backend container/volume name for a named loop: it
-// suffixes the kit name so loop instances never collide with the interactive
-// instance or each other, while sharing the kit image (CreateContext.Kit).
-func loopContainer(kitName, loopName string) string {
-	return kitName + "-loop-" + loopName
-}
-
-// declaresSecret reports whether the kit declares a secret with the given name.
-func declaresSecret(cfg kit.Config, name string) bool {
-	_, ok := cfg.Secrets[name]
-	return ok
-}
-
-// createLoopInstance provisions a dedicated, isolated sandbox for one named loop:
-// it builds the shared kit image, runs a loop-suffixed container with its own
-// volumes, and records a loop state file with the resolved setup command. It
-// fails fast (before any build) when the loop is undefined, ANTHROPIC_API_KEY is
-// not declared (an unattended run cannot log in interactively), or the loop
-// instance already exists.
-func createLoopInstance(kitDir string, r runner.Runner, cfg kit.Config, loopName string, stdout io.Writer) (state.State, error) {
-	lp, ok := cfg.Loops[loopName]
-	if !ok {
-		return state.State{}, fmt.Errorf("no loop %q defined in config.yml", loopName)
-	}
-	if !declaresSecret(cfg, "ANTHROPIC_API_KEY") {
-		return state.State{}, fmt.Errorf("loop %q requires ANTHROPIC_API_KEY to be declared in config.yml secrets (unattended runs cannot log in interactively)", loopName)
-	}
-	if state.ExistsFor(kitDir, state.LoopInstance(loopName)) {
-		return state.State{}, fmt.Errorf("loop %q already has an instance; run `at-cove destroy --loop %s` first", loopName, loopName)
-	}
-	// Resolve the backend before building (matching doCreate), so a bad backend
-	// name fails fast instead of after an orphaned `docker build`.
-	b, err := getBackend(defaultBackend, r)
-	if err != nil {
-		return state.State{}, err
-	}
-	if err := doBuild(kitDir, r, false, stdout); err != nil {
-		return state.State{}, err
-	}
-	inst, err := b.Create(backend.CreateContext{
-		Name:      loopContainer(cfg.Name, loopName),
-		Kit:       cfg.Name,
-		BuildDir:  filepath.Join(kitDir, ".build"),
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		return state.State{}, err
-	}
-	setup := lp.Setup
-	if setup == "" {
-		setup = cfg.Setup
-	}
-	st := buildState(cfg, inst, setup)
-	if err := state.SaveFor(kitDir, state.LoopInstance(loopName), st); err != nil {
-		return state.State{}, err
-	}
-	return st, nil
-}
-
 func instanceFromState(st state.State) backend.Instance {
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if st.WorkspaceMode == "shared" {
@@ -547,188 +441,6 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 // the keepVolumes=true path directly so the saved login survives.
 func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout io.Writer) error {
 	return doDestroyInstance(kitDir, r, state.Interactive, keepVolumes, dryRun, stdout)
-}
-
-// maxDrain caps consecutive triggers in a single drain, a safety valve so an
-// unattended loop whose check never clears cannot spin forever; it resets each
-// poll.
-const maxDrain = 1000
-
-// doLoop runs a scheduled, unattended agent loop against a dedicated sandbox: it
-// auto-creates the loop instance (or reuses one with --keep), drains the loop's
-// check — running the agent on each trigger — then polls every interval, until
-// SIGINT/SIGTERM. It holds the host awake for the duration and, unless --keep,
-// destroys the instance on exit.
-func doLoop(kitDir string, r runner.Runner, loopName string, once, keep bool, intervalOverride time.Duration, dryRun bool, stdout, stderr io.Writer) error {
-	cfg, err := kit.Load(kitDir)
-	if err != nil {
-		return err
-	}
-	if loopName == "" {
-		loopName = "default"
-	}
-	lp, ok := cfg.Loops[loopName]
-	if !ok {
-		return fmt.Errorf("no loop %q defined in config.yml", loopName)
-	}
-	interval := lp.ParsedInterval()
-	if intervalOverride > 0 {
-		interval = intervalOverride
-	}
-	if dryRun {
-		fmt.Fprintf(stdout, "would run loop %q every %s (once=%v, keep=%v): check %q, prompt %q\n",
-			loopName, interval, once, keep, lp.Check, lp.Prompt)
-		return nil
-	}
-
-	inst := state.LoopInstance(loopName)
-	exists := state.ExistsFor(kitDir, inst)
-	if exists && !keep {
-		return fmt.Errorf("loop %q already has an instance; run `at-cove destroy --loop %s` or pass --keep to reuse it", loopName, loopName)
-	}
-
-	// Hold the host awake for the whole loop.
-	if release, err := awake.New().Inhibit(); err != nil {
-		fmt.Fprintf(stderr, "at-cove: warning: could not prevent host sleep: %v\n", err)
-	} else {
-		defer release()
-	}
-
-	var st state.State
-	if exists {
-		st, err = state.LoadFor(kitDir, inst)
-	} else {
-		st, err = createLoopInstance(kitDir, r, cfg, loopName, stdout)
-	}
-	if err != nil {
-		return err
-	}
-	if !keep {
-		defer func() { _ = doDestroyInstance(kitDir, r, inst, false, false, io.Discard) }()
-	}
-
-	// Block destroy/recreate of this instance while the loop runs.
-	lock, err := state.AcquireSharedFor(kitDir, inst)
-	if err != nil {
-		return err
-	}
-	defer lock.Release()
-
-	// Resolve secrets once for the run; ANTHROPIC_API_KEY must actually resolve.
-	demanded := make([]secret.Spec, len(st.Secrets))
-	for i, s := range st.Secrets {
-		demanded[i] = secret.Spec{Name: s.Name, Command: s.Command}
-	}
-	store, err := usersecret.Load(filepath.Join(configDir(), "secrets.yml"))
-	if err != nil {
-		return err
-	}
-	specs, _ := store.Plan(demanded)
-	env, err := secret.Resolve(r, specs)
-	if err != nil {
-		return err
-	}
-	if env["ANTHROPIC_API_KEY"] == "" {
-		return fmt.Errorf("loop %q: ANTHROPIC_API_KEY did not resolve to a value (declare it in config.yml and provide it via the resolver command or secrets.yml)", loopName)
-	}
-
-	priv, _, err := keys.Ensure(r, configDir())
-	if err != nil {
-		return err
-	}
-	b, err := getBackend(st.Backend, r)
-	if err != nil {
-		return err
-	}
-	ep, cleanup, err := b.Dial(st.Container)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	knownHostsDir := filepath.Join(configDir(), "known_hosts.d")
-	if err := os.MkdirAll(knownHostsDir, 0o700); err != nil {
-		return err
-	}
-	tgt := sshargs.Target{
-		Host:           ep.Host,
-		User:           ep.User,
-		Port:           ep.Port,
-		IdentityFile:   priv,
-		KnownHostsFile: filepath.Join(knownHostsDir, st.Container),
-	}
-
-	// Graceful stop: a watcher closes done on SIGINT/SIGTERM; both the drain and
-	// the poll observe it.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sig)
-	done := make(chan struct{})
-	go func() {
-		<-sig
-		fmt.Fprintf(stderr, "loop %q: stopping after the current tick\n", loopName)
-		close(done)
-	}()
-	stopped := func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}
-	sleep := func(d time.Duration) bool {
-		select {
-		case <-done:
-			return false
-		case <-time.After(d):
-			return true
-		}
-	}
-
-	triggers := 0
-	var lastAgentErr error
-	tick := func() bool {
-		if stopped() || triggers >= maxDrain {
-			return false
-		}
-		if lp.FreshWorkspace {
-			if err := connect.ResetLoopWorkspace(r, tgt); err != nil {
-				fmt.Fprintf(stderr, "loop %q: reset: %v\n", loopName, err)
-				return false
-			}
-		}
-		if err := connect.SeedLoopWorkspace(r, tgt, env, st.Setup); err != nil {
-			fmt.Fprintf(stderr, "loop %q: seed: %v\n", loopName, err)
-			return false
-		}
-		triggered, err := connect.RunCheck(r, tgt, env, lp.Check)
-		if err != nil {
-			fmt.Fprintf(stderr, "loop %q: check: %v\n", loopName, err)
-			return false
-		}
-		if !triggered {
-			triggers = 0
-			return false
-		}
-		triggers++
-		fmt.Fprintf(stdout, "loop %q: triggered, running agent\n", loopName)
-		if err := connect.RunAgent(r, tgt, env, lp.Prompt); err != nil {
-			lastAgentErr = err
-			fmt.Fprintf(stderr, "loop %q: agent: %v\n", loopName, err)
-		}
-		return true
-	}
-	// reset the drain cap on each poll.
-	sleepReset := func(d time.Duration) bool {
-		triggers = 0
-		return sleep(d)
-	}
-
-	loop.Run(once, interval, tick, sleepReset)
-	if once && lastAgentErr != nil {
-		return fmt.Errorf("loop %q: an agent run failed: %w", loopName, lastAgentErr)
-	}
-	return nil
 }
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it

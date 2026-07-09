@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,27 +14,6 @@ import (
 type SecretConfig struct {
 	Description string   `yaml:"description"`
 	Command     []string `yaml:"command"`
-}
-
-// Loop declares a scheduled, unattended agent run for `at-cove loop`. Interval
-// is a Go duration string (e.g. "5m"). Check exits 0 to trigger the agent run;
-// Prompt is passed to `claude -p`. Setup, when set, overrides the kit-level
-// setup for this loop's workspace; FreshWorkspace re-seeds the workspace before
-// each trigger.
-type Loop struct {
-	Interval       string `yaml:"interval"`
-	Check          string `yaml:"check"`
-	Prompt         string `yaml:"prompt"`
-	Setup          string `yaml:"setup"`
-	FreshWorkspace bool   `yaml:"fresh-workspace"`
-}
-
-// ParsedInterval returns the loop's interval as a time.Duration. It assumes the
-// config passed ParseConfig (which rejects unparseable or non-positive
-// intervals), so a parse error is reported as a zero duration.
-func (l Loop) ParsedInterval() time.Duration {
-	d, _ := time.ParseDuration(l.Interval)
-	return d
 }
 
 // baseEnvKeys are the /etc/environment variables the sealed hardening layer
@@ -81,7 +59,6 @@ type Config struct {
 	Name     string                  `yaml:"name"`
 	Setup    string                  `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets  map[string]SecretConfig `yaml:"secrets"`
-	Loops    map[string]Loop         `yaml:"loops"`
 	Image    ImageConfig             `yaml:"image"`
 	Dispatch DispatchConfig          `yaml:"dispatch"`
 }
@@ -101,18 +78,6 @@ func ParseConfig(data []byte) (Config, error) {
 	for name := range cfg.Secrets {
 		if strings.TrimSpace(name) == "" {
 			return Config{}, fmt.Errorf("config.yml: secrets: a secret name (map key) must not be empty")
-		}
-	}
-	for name, lp := range cfg.Loops {
-		d, err := time.ParseDuration(lp.Interval)
-		if err != nil || d <= 0 {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: interval must be a positive Go duration (e.g. 5m), got %q", name, lp.Interval)
-		}
-		if lp.Check == "" {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: check is required", name)
-		}
-		if lp.Prompt == "" {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: prompt is required", name)
 		}
 	}
 	for i, s := range cfg.Image.SetupScripts {
