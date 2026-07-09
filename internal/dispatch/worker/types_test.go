@@ -34,15 +34,7 @@ func TestReadOutcome(t *testing.T) {
 	}
 }
 
-func TestWriteBriefAndOutput(t *testing.T) {
-	dir := t.TempDir()
-	if err := WriteBrief(dir, "the brief"); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(filepath.Join(dir, workSubdir, "brief.md"))
-	if string(got) != "the brief" {
-		t.Fatalf("brief = %q", got)
-	}
+func TestWriteOutput(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.json")
 	if err := WriteOutput(out, Output{Status: StatusOK, Work: Work{PRURL: "u"}}); err != nil {
 		t.Fatal(err)

@@ -63,7 +63,6 @@ const (
 	StatusError      = "ERROR"
 )
 
-func briefPath(dir string) string   { return filepath.Join(dir, workSubdir, "brief.md") }
 func outcomePath(dir string) string { return filepath.Join(dir, workSubdir, "outcome.json") }
 
 // ReadInput reads and decodes input.json.
@@ -93,14 +92,6 @@ func ReadOutcome(dir string) (Outcome, bool, error) {
 		return Outcome{}, false, fmt.Errorf("parse outcome: %w", err)
 	}
 	return oc, true, nil
-}
-
-// WriteBrief writes the brief to .at-work/brief.md, creating the dir.
-func WriteBrief(dir, brief string) error {
-	if err := os.MkdirAll(filepath.Join(dir, workSubdir), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(briefPath(dir), []byte(brief), 0o600)
 }
 
 // WriteOutput marshals out to path (pretty-printed).
