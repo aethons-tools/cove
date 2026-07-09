@@ -61,13 +61,18 @@ Broker the worker's result into a branch push and, on success, a pull/merge requ
 
 Reads `.at-work/task.json` and `.at-work/worker-result.json`, pushes `work-branch`, and acts
 on the worker's `status`: `ok` → open the PR/MR (returning an existing one if already open);
-`needs-input` → leave the pushed WIP branch, no PR; `error` → no PR. It **always** writes
-`.at-work/task-result.json`, deriving the top-level `status`: `ok` when the worker said `ok`
-(carrying `pr-url` if a PR was opened); `needs-input` when the worker said so; otherwise
-`error` — including when `worker-result.json` is missing or invalid, or at-work itself fails.
+`needs-input` → leave the pushed WIP branch, no PR; `error` → no PR. It **always** writes a
+`task-result`, deriving the top-level `status`: `ok` when the worker said `ok` (carrying
+`pr-url` if a PR was opened); `needs-input` when the worker said so; otherwise `error` —
+including when `worker-result.json` is missing or invalid, or at-work itself fails. This holds
+even when `.at-work/task.json` itself is missing or unreadable: `complete` can no longer tell
+which extension `task-result` should mirror, so it writes `.at-work/task-result.json` (JSON is
+the default) with an `error` status describing the read failure — the orchestrator always gets
+a structured result, never nothing.
 
 *Exit:* `0` — even for a `needs-input`/`error` result; the status lives in the file · `1`
-only if `.at-work/task-result.json` cannot be written · `2` bad usage.
+only if the `task-result` write itself fails (there is then no result to deliver) · `2` bad
+usage (extra arguments).
 
 ### `at-work version`
 

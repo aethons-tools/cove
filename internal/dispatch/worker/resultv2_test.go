@@ -45,6 +45,31 @@ func TestReadWorkerResultAbsent(t *testing.T) {
 	}
 }
 
+func TestWriteTaskResultCreatesDir(t *testing.T) {
+	dir := t.TempDir() // no .at-work/ yet
+	tr := ErrorResult("boom", "detail")
+	if err := WriteTaskResult(dir, ".json", tr); err != nil {
+		t.Fatalf("WriteTaskResult: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".at-work", "task-result.json")); err != nil {
+		t.Fatalf("task-result not written: %v", err)
+	}
+}
+
+func TestErrorResult(t *testing.T) {
+	tr := ErrorResult("msg", "det")
+	v, err := tr.Status.ActiveTask()
+	if err != nil || v != "error" {
+		t.Fatalf("variant = %q err=%v; want error", v, err)
+	}
+	if tr.Status.Error.Message != "msg" || tr.Status.Error.Detail != "det" {
+		t.Fatalf("error = %+v", tr.Status.Error)
+	}
+	if tr.WorkerResult != nil {
+		t.Fatalf("ErrorResult must not echo a worker-result: %v", tr.WorkerResult)
+	}
+}
+
 func TestWriteTaskResultMirrorsExtension(t *testing.T) {
 	tr := TaskResult{
 		Status:       TaskStatus{OK: &TaskOK{Message: "opened", PRURL: "https://x/pull/1"}},

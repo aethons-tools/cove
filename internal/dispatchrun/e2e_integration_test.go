@@ -22,12 +22,13 @@ func TestE2EReferenceWorker(t *testing.T) {
 		t.Skip("set E2E_REPO=<org>/<scratch-repo> to run the end-to-end dispatch")
 	}
 	dir := t.TempDir()
-	in := filepath.Join(dir, "input.json")
-	out := filepath.Join(dir, "output.json")
+	in := filepath.Join(dir, "task.json")
+	out := filepath.Join(dir, "task-result.json")
 
-	input := `{"issue":{"key":"DEMO-1","title":"Add a greeting helper","work-class":"implement",` +
-		`"brief":"Add Greet(name string) string returning \"Hello, <name>!\" with a test."},` +
-		`"repo":{"name":"` + repo + `","source-branch":"main","work-branch":"implement/DEMO-1"}}`
+	input := `{"issue":{"key":"DEMO-1","title":"Add a greeting helper"},` +
+		`"repo":{"name":"` + repo + `","source-branch":"main","work-branch":"implement/DEMO-1"},` +
+		`"worker":{"class":"implement"},` +
+		`"task":{"brief":"Add Greet(name string) string returning \"Hello, <name>!\" with a test."}}`
 	if err := os.WriteFile(in, []byte(input), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,24 +42,25 @@ func TestE2EReferenceWorker(t *testing.T) {
 
 	data, err := os.ReadFile(out)
 	if err != nil {
-		t.Fatalf("read output.json: %v", err)
+		t.Fatalf("read task-result.json: %v", err)
 	}
 	var res struct {
-		Status string `json:"status"`
-		Work   struct {
-			PRURL string `json:"pr-url"`
-		} `json:"work"`
+		Status struct {
+			OK *struct {
+				PRURL string `json:"pr-url"`
+			} `json:"ok"`
+		} `json:"status"`
 	}
 	if err := json.Unmarshal(data, &res); err != nil {
-		t.Fatalf("parse output.json: %v\n%s", err, data)
+		t.Fatalf("parse task-result.json: %v\n%s", err, data)
 	}
-	if res.Status != "OK" {
-		t.Fatalf("status = %q; want OK\n%s", res.Status, data)
+	if res.Status.OK == nil {
+		t.Fatalf("status is not ok\n%s", data)
 	}
-	if res.Work.PRURL == "" {
-		t.Fatalf("no PR url in output\n%s", data)
+	if res.Status.OK.PRURL == "" {
+		t.Fatalf("no pr-url in task-result\n%s", data)
 	}
-	t.Logf("opened PR: %s", res.Work.PRURL)
+	t.Logf("opened PR: %s", res.Status.OK.PRURL)
 }
 
 // repoRoot returns the module root (two levels up from this package).

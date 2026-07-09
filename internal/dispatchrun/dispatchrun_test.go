@@ -41,14 +41,18 @@ func TestDispatchHappyPath(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "input.json", `{"issue":{}}`)
 	out := dir + "/output.json"
-	// the ssh `cat /out/output.json` returns the worker's output
+	// the ssh `cat /home/agent/work/.at-work/task-result.json` returns the worker's output
 	r := &runner.Fake{}
-	setOutputForCat(r, `{"status":"OK"}`) // helper: make any `cat /out/output.json` ssh return this
+	setOutputForCat(r, `{"status":"OK"}`) // helper: make any `cat .../task-result.json` ssh return this
 	ops := &fakeOps{}
 
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Dispatch: kit.DispatchConfig{Command: []string{"run-worker.sh"}}},
+		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
+			Command: []string{"run-worker.sh"},
+			Input:   "/home/agent/work/.at-work/task.json",
+			Output:  "/home/agent/work/.at-work/task-result.json",
+		}},
 		BuildDir: dir, Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
@@ -68,6 +72,9 @@ func TestDispatchHappyPath(t *testing.T) {
 	if !strings.Contains(joined, "run-worker.sh") || !strings.Contains(joined, "timeout ") {
 		t.Fatalf("dispatch command not run with timeout:\n%s", joined)
 	}
+	if !strings.Contains(allCalls(r), "cat /home/agent/work/.at-work/task-result.json") {
+		t.Fatalf("did not extract from the configured output path:\n%s", allCalls(r))
+	}
 }
 
 func TestDispatchRemovesContainerOnFailure(t *testing.T) {
@@ -77,7 +84,11 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Dispatch: kit.DispatchConfig{Command: []string{"x"}}},
+		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
+			Command: []string{"x"},
+			Input:   "/home/agent/work/.at-work/task.json",
+			Output:  "/home/agent/work/.at-work/task-result.json",
+		}},
 		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
@@ -100,7 +111,7 @@ func TestDispatchSecretNeverOnArgv(t *testing.T) {
 	out := dir + "/output.json"
 	const secretValue = "s3cr3t-token-value"
 	// Outputs is consumed in call order: secret.Resolve's r.Output (the
-	// resolver command) runs first, then the final `cat /out/output.json`.
+	// resolver command) runs first, then the final `cat .../task-result.json`.
 	r := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: secretValue + "\n"},
 		{Stdout: `{"status":"OK"}`},
@@ -109,7 +120,11 @@ func TestDispatchSecretNeverOnArgv(t *testing.T) {
 
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Dispatch: kit.DispatchConfig{Command: []string{"run-worker.sh"}}},
+		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
+			Command: []string{"run-worker.sh"},
+			Input:   "/home/agent/work/.at-work/task.json",
+			Output:  "/home/agent/work/.at-work/task-result.json",
+		}},
 		BuildDir: dir, Name: "disp-secret",
 		Secrets:   []secret.Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}}},
 		InputPath: in, OutputPath: out,
@@ -175,7 +190,7 @@ func TestWaitForSSHExhausts(t *testing.T) {
 //
 // runner.Fake.Outputs is an ordered []FakeResult consumed by Output() calls in
 // call order (a counter, not a keyed map). In this orchestration the only
-// r.Output(...) call is the final `ssh ... cat /out/output.json` (secret
+// r.Output(...) call is the final `ssh ... cat .../task-result.json` (secret
 // resolution uses r.Output too, but these tests declare no Secrets), so queuing
 // exactly one FakeResult reliably serves that one call.
 
@@ -199,7 +214,7 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// setOutputForCat queues r's next Output(...) result (the `cat /out/output.json`
+// setOutputForCat queues r's next Output(...) result (the `cat .../task-result.json`
 // ssh invocation) to return stdout.
 func setOutputForCat(r *runner.Fake, stdout string) {
 	r.Outputs = append(r.Outputs, runner.FakeResult{Stdout: stdout})

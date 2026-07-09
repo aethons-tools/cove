@@ -12,7 +12,7 @@ import (
 
 // Git is the git surface at-work needs. See ShellGit for the real implementation.
 type Git interface {
-	EnsureClean(ctx context.Context, remote, dir string) error // clone if absent; else verify clean
+	EnsureClean(ctx context.Context, remote, dir string) error // init in place if absent; else verify clean
 	Sync(ctx context.Context, dir, branch string) error        // checkout + fast-forward from origin
 	RemoteHasBranch(ctx context.Context, dir, branch string) (bool, error)
 	NewBranch(ctx context.Context, dir, branch, from string) error
@@ -73,11 +73,19 @@ func (g *ShellGit) git(ctx context.Context, dir string, args ...string) (string,
 
 func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		// Init in place: the orchestrator has already injected .at-work/ here, so a
+		// `git clone` (which refuses a non-empty dir) won't work. Sync() then fetches
+		// and checks out the base branch.
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		_, err := g.git(ctx, "", "clone", remote, dir)
-		return err
+		if _, err := g.git(ctx, dir, "init", "-q"); err != nil {
+			return err
+		}
+		if _, err := g.git(ctx, dir, "remote", "add", "origin", remote); err != nil {
+			return err
+		}
+		return excludeAtWork(dir)
 	}
 	status, err := g.git(ctx, dir, "status", "--porcelain")
 	if err != nil {
@@ -87,6 +95,22 @@ func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
 		return fmt.Errorf("refusing to run: %s has uncommitted changes", dir)
 	}
 	return nil
+}
+
+// excludeAtWork adds the .at-work/ handoff dir to the repo's local excludes so its
+// files never appear in git status or get committed into the work branch.
+func excludeAtWork(dir string) error {
+	p := filepath.Join(dir, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString("\n/" + workSubdir + "/\n")
+	return err
 }
 
 func (g *ShellGit) Sync(ctx context.Context, dir, branch string) error {
