@@ -2,7 +2,6 @@
 # base image, the claude install, the pinned at-work ref, the target project's
 # toolchain, and the full allowed-domains for your project. See RUNBOOK.md.
 name: reference-worker
-backend: colima
 
 secrets:
   # Code-host token used ONLY by at-work prepare/complete (clone/push/PR). Resolved

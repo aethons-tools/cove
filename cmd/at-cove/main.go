@@ -36,6 +36,11 @@ import (
 // -ldflags "-X main.version=...". Defaults to "dev" for plain `go build`.
 var version = "dev"
 
+// defaultBackend is the VM backend at-cove uses. The backend is no longer a
+// config knob; colima is the only supported backend for now, though the
+// backend.Get registry remains multi-backend internally.
+const defaultBackend = "colima"
+
 func main() {
 	code := run(os.Args[1:], runner.OS{}, os.LookupEnv, exec.LookPath, os.Stdout, os.Stderr)
 	os.Exit(code)
@@ -284,10 +289,10 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would build then create %s (backend %s) and write %s\n", cfg.Name, cfg.Backend, state.Path(kitDir))
+		fmt.Fprintf(stdout, "would build then create %s and write %s\n", cfg.Name, state.Path(kitDir))
 		return nil
 	}
-	b, err := getBackend(cfg.Backend, r)
+	b, err := getBackend(defaultBackend, r)
 	if err != nil {
 		return err
 	}
@@ -363,7 +368,7 @@ func createLoopInstance(kitDir string, r runner.Runner, cfg kit.Config, loopName
 	}
 	// Resolve the backend before building (matching doCreate), so a bad backend
 	// name fails fast instead of after an orphaned `docker build`.
-	b, err := getBackend(cfg.Backend, r)
+	b, err := getBackend(defaultBackend, r)
 	if err != nil {
 		return state.State{}, err
 	}
@@ -848,14 +853,14 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		return 0
 	}
 
-	b, err := getBackend(cfg.Backend, r)
+	b, err := getBackend(defaultBackend, r)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
 	ops, ok := b.(backend.DispatchOps)
 	if !ok {
-		fmt.Fprintf(stderr, "at-cove: backend %q does not support dispatch\n", cfg.Backend)
+		fmt.Fprintf(stderr, "at-cove: backend %q does not support dispatch\n", defaultBackend)
 		return 1
 	}
 

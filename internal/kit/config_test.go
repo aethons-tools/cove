@@ -9,7 +9,6 @@ import (
 func TestParseConfigValid(t *testing.T) {
 	data := []byte(`
 name: claude-on-myrepo
-backend: colima
 secrets:
   GITHUB_TOKEN:
     command: ["op", "read", "x"]
@@ -21,7 +20,7 @@ secrets:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Name != "claude-on-myrepo" || cfg.Backend != "colima" {
+	if cfg.Name != "claude-on-myrepo" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	if len(cfg.Secrets) != 2 || len(cfg.Secrets["GITHUB_TOKEN"].Command) != 3 {
@@ -34,9 +33,8 @@ secrets:
 
 func TestParseConfigRejectsMissingFields(t *testing.T) {
 	cases := map[string]string{
-		"no name":        "backend: colima\n",
-		"no backend":     "name: x\n",
-		"secret no name": "name: x\nbackend: colima\nsecrets:\n  \"\":\n    command: [\"a\"]\n",
+		"no name":        "setup: \"git clone https://x .\"\n",
+		"secret no name": "name: x\nsecrets:\n  \"\":\n    command: [\"a\"]\n",
 	}
 	for label, data := range cases {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -46,13 +44,13 @@ func TestParseConfigRejectsMissingFields(t *testing.T) {
 }
 
 func TestParseConfigRejectsUnknownField(t *testing.T) {
-	if _, err := ParseConfig([]byte("name: x\nbackend: colima\nbogus: 1\n")); err == nil {
+	if _, err := ParseConfig([]byte("name: x\nbogus: 1\n")); err == nil {
 		t.Error("expected error on unknown field")
 	}
 }
 
 func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
-	data := []byte("name: x\nbackend: colima\nsecrets:\n  GITHUB_TOKEN: {}\n")
+	data := []byte("name: x\nsecrets:\n  GITHUB_TOKEN: {}\n")
 	cfg, err := ParseConfig(data)
 	if err != nil {
 		t.Fatalf("name-only secret should be valid: %v", err)
@@ -67,14 +65,14 @@ func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
 // they belong only in the user's ~/.config/at-cove/secrets.yml. KnownFields(true)
 // rejects the unknown `value:` key, so this passes from the start.
 func TestParseConfigRejectsSecretValueField(t *testing.T) {
-	data := []byte("name: x\nbackend: colima\nsecrets:\n  T:\n    value: ghp_secret\n")
+	data := []byte("name: x\nsecrets:\n  T:\n    value: ghp_secret\n")
 	if _, err := ParseConfig(data); err == nil {
 		t.Fatal("a literal value: in config.yml must be rejected")
 	}
 }
 
 func TestParseConfigSetup(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\nbackend: colima\nsetup: \"git clone https://x .\"\n"))
+	cfg, err := ParseConfig([]byte("name: k\nsetup: \"git clone https://x .\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +82,7 @@ func TestParseConfigSetup(t *testing.T) {
 }
 
 func TestParseConfigSetupOptional(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\nbackend: colima\n"))
+	cfg, err := ParseConfig([]byte("name: k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +94,6 @@ func TestParseConfigSetupOptional(t *testing.T) {
 func TestParseConfigLoops(t *testing.T) {
 	data := []byte(`
 name: x
-backend: colima
 loops:
   default:
     interval: 5m
@@ -131,12 +128,12 @@ loops:
 
 func TestParseConfigLoopValidation(t *testing.T) {
 	bad := map[string]string{
-		"bad interval":  "name: x\nbackend: colima\nloops:\n  a:\n    interval: nope\n    check: c\n    prompt: p\n",
-		"zero interval": "name: x\nbackend: colima\nloops:\n  a:\n    interval: 0s\n    check: c\n    prompt: p\n",
-		"no interval":   "name: x\nbackend: colima\nloops:\n  a:\n    check: c\n    prompt: p\n",
-		"no check":      "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    prompt: p\n",
-		"no prompt":     "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    check: c\n",
-		"unknown field": "name: x\nbackend: colima\nloops:\n  a:\n    interval: 1m\n    check: c\n    prompt: p\n    bogus: 1\n",
+		"bad interval":  "name: x\nloops:\n  a:\n    interval: nope\n    check: c\n    prompt: p\n",
+		"zero interval": "name: x\nloops:\n  a:\n    interval: 0s\n    check: c\n    prompt: p\n",
+		"no interval":   "name: x\nloops:\n  a:\n    check: c\n    prompt: p\n",
+		"no check":      "name: x\nloops:\n  a:\n    interval: 1m\n    prompt: p\n",
+		"no prompt":     "name: x\nloops:\n  a:\n    interval: 1m\n    check: c\n",
+		"unknown field": "name: x\nloops:\n  a:\n    interval: 1m\n    check: c\n    prompt: p\n    bogus: 1\n",
 	}
 	for label, data := range bad {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -146,7 +143,7 @@ func TestParseConfigLoopValidation(t *testing.T) {
 }
 
 func TestParseConfigNoLoopsOK(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: x\nbackend: colima\n"))
+	cfg, err := ParseConfig([]byte("name: x\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +155,6 @@ func TestParseConfigNoLoopsOK(t *testing.T) {
 func TestParseConfigImage(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k
-backend: colima
 image:
   setup-scripts:
     - .install-files/install.sh
@@ -187,7 +183,7 @@ image:
 }
 
 func TestParseConfigImageAbsent(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\nbackend: colima\n"))
+	cfg, err := ParseConfig([]byte("name: k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +193,7 @@ func TestParseConfigImageAbsent(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  setup-scripts:\n    - \"\"\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  setup-scripts:\n    - \"\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "setup-scripts") {
 		t.Fatalf("expected empty setup-scripts error, got %v", err)
 	}
@@ -205,7 +201,7 @@ func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
 
 func TestParseConfigImageRejectsReservedEnvKey(t *testing.T) {
 	// PATH is a base-owned key; overriding it would produce a second PATH= line.
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    PATH: /evil\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    PATH: /evil\n"))
 	if err == nil {
 		t.Fatal("expected error for reserved PATH env key, got nil")
 	}
@@ -217,7 +213,7 @@ func TestParseConfigImageRejectsReservedEnvKey(t *testing.T) {
 	}
 
 	// Proxy keys are also base-owned (egress gate).
-	_, err = ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    https_proxy: http://x\n"))
+	_, err = ParseConfig([]byte("name: k\nimage:\n  env:\n    https_proxy: http://x\n"))
 	if err == nil {
 		t.Fatal("expected error for reserved https_proxy env key, got nil")
 	}
@@ -227,7 +223,7 @@ func TestParseConfigImageRejectsReservedEnvKey(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsEnvValueNewline(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    FOO: \"a\\nb\"\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    FOO: \"a\\nb\"\n"))
 	if err == nil {
 		t.Fatal("expected error for env value with newline, got nil")
 	}
@@ -237,7 +233,7 @@ func TestParseConfigImageRejectsEnvValueNewline(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsPathNewline(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  paths:\n    - \"a\\nb\"\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  paths:\n    - \"a\\nb\"\n"))
 	if err == nil {
 		t.Fatal("expected error for path with newline, got nil")
 	}
@@ -247,7 +243,7 @@ func TestParseConfigImageRejectsPathNewline(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsEmptyPath(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  paths:\n    - \"\"\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  paths:\n    - \"\"\n"))
 	if err == nil {
 		t.Fatal("expected error for empty path entry, got nil")
 	}
@@ -257,7 +253,7 @@ func TestParseConfigImageRejectsEmptyPath(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsEmptyEnvKey(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  env:\n    \"\": x\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    \"\": x\n"))
 	if err == nil {
 		t.Fatal("expected error for empty env key, got nil")
 	}
@@ -267,7 +263,7 @@ func TestParseConfigImageRejectsEmptyEnvKey(t *testing.T) {
 }
 
 func TestParseConfigImageRejectsEmptyDomain(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  allowed-domains:\n    - \"\"\n"))
+	_, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains:\n    - \"\"\n"))
 	if err == nil {
 		t.Fatal("expected error for empty domain entry, got nil")
 	}
@@ -277,7 +273,7 @@ func TestParseConfigImageRejectsEmptyDomain(t *testing.T) {
 }
 
 func TestParseConfigDispatch(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: w\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"))
+	cfg, err := ParseConfig([]byte("name: w\ndispatch:\n  command: [\"run-worker.sh\"]\n"))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}

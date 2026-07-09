@@ -33,7 +33,7 @@ func TestDiscoverNotFound(t *testing.T) {
 
 func TestLoadReadsConfig(t *testing.T) {
 	kitDir := t.TempDir()
-	yml := "name: x\nbackend: colima\n"
+	yml := "name: x\n"
 	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}

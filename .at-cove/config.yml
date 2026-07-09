@@ -1,5 +1,4 @@
 name: claude-on-at-cove
-backend: colima
 
 secrets:
   GITHUB_TOKEN: {}

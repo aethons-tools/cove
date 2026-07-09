@@ -21,7 +21,7 @@ func writeKit(t *testing.T, dir string) string {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\n"
+	yml := "name: box\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +496,7 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 
 func TestSaveStateSnapshotsSetup(t *testing.T) {
 	dir := t.TempDir()
-	cfg := kit.Config{Name: "box", Backend: "colima", Setup: "git clone https://x ."}
+	cfg := kit.Config{Name: "box", Setup: "git clone https://x ."}
 	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
 	if err := saveState(dir, cfg, inst); err != nil {
@@ -652,7 +652,7 @@ func writeLoopKit(t *testing.T, dir string) string {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\n" +
+	yml := "name: box\n" +
 		"secrets:\n  ANTHROPIC_API_KEY: {}\n  GITHUB_TOKEN: {}\n" +
 		"loops:\n  default:\n    interval: 5m\n    check: \"test -e q\"\n    prompt: \"do it\"\n    setup: \"git clone https://x .\"\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
@@ -705,7 +705,7 @@ func TestCreateLoopInstanceRequiresAPIKey(t *testing.T) {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\nloops:\n  default:\n    interval: 1m\n    check: c\n    prompt: p\n"
+	yml := "name: box\nloops:\n  default:\n    interval: 1m\n    check: c\n    prompt: p\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -834,31 +834,6 @@ func TestDispatchRequiresDispatchCommand(t *testing.T) {
 	}
 }
 
-func TestDispatchUnsupportedBackendErrors(t *testing.T) {
-	dir := t.TempDir()
-	cove := filepath.Join(dir, ".at-cove")
-	if err := os.MkdirAll(cove, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := "name: box\nbackend: bogus\ndispatch:\n  command: [\"run-worker.sh\"]\n"
-	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	inFile := filepath.Join(dir, "in.json")
-	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", cove, "--in", inFile, "--out", filepath.Join(dir, "out.json")},
-		&runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 1 {
-		t.Fatalf("exit = %d; want 1 (unsupported backend), stderr=%s", code, errOut.String())
-	}
-	if !strings.Contains(errOut.String(), "bogus") {
-		t.Fatalf("stderr = %q; want mention of the bad backend name", errOut.String())
-	}
-}
-
 // TestDryRunDispatchPrintsNoExec guards Fix A: --dry-run dispatch must print
 // the plan and exit 0 without touching the backend, assembling, or resolving
 // secrets (no calls recorded on the fake runner at all).
@@ -868,7 +843,7 @@ func TestDryRunDispatchPrintsNoExec(t *testing.T) {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	yml := "name: box\ndispatch:\n  command: [\"run-worker.sh\"]\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -79,7 +79,6 @@ type DispatchConfig struct {
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name     string                  `yaml:"name"`
-	Backend  string                  `yaml:"backend"`
 	Setup    string                  `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets  map[string]SecretConfig `yaml:"secrets"`
 	Loops    map[string]Loop         `yaml:"loops"`
@@ -98,9 +97,6 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
-	}
-	if cfg.Backend == "" {
-		return Config{}, fmt.Errorf("config.yml: backend is required")
 	}
 	for name := range cfg.Secrets {
 		if strings.TrimSpace(name) == "" {
