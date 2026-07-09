@@ -80,7 +80,7 @@ func TestHandleNeedsInput(t *testing.T) {
 
 func TestHandleMissingOutputIsError(t *testing.T) {
 	tr := newFakeTracker()
-	ex := &fakeExecutor{OutJSON: "", RunErr: errors.New("boom")} // writes no output.json
+	ex := &fakeExecutor{OutJSON: "", RunErr: errors.New("boom")} // writes no task-result.json
 	eng := newTestEngine(t, tr, ex)
 	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
 	if tr.lastRole != RoleNeedsInput {
