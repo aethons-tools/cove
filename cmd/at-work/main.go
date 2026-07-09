@@ -1,5 +1,6 @@
-// Command at-work is the git/PR worker: `prepare` sets up a branch and drops the
-// brief; `complete` reads the agent's outcome and opens the PR. See docs/orchestration/.
+// Command at-work is the git/PR worker: `prepare` sets up the work branch from
+// .at-work/task.json; `complete` reads the worker's result and opens the PR. See
+// docs/usage/at-work.md.
 package main
 
 import (
@@ -19,10 +20,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	app := cli.App{
 		Name: "at-work", Version: version,
 		Commands: []cli.Command{
-			{Name: "prepare", Brief: "clone/branch and write the brief", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+			{Name: "prepare", Brief: "clone and set up the work branch from .at-work/task.json", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doPrepare(args, errw)
 			}},
-			{Name: "complete", Brief: "broker the agent outcome into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+			{Name: "complete", Brief: "broker the worker's result into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doComplete(args, errw)
 			}},
 		},

@@ -1,6 +1,6 @@
 // Package worker implements at-work: the git/PR steps (prepare, complete) that wrap
-// an agent run at-cove performs. It never runs the agent; the handoff is a cwd file
-// convention (.at-work/brief.md in, .at-work/outcome.json out).
+// a worker run at-cove performs. It never runs the worker; the handoff is a cwd file
+// convention under .at-work/ (task.json in, worker-result → task-result out).
 package worker
 
 import (
