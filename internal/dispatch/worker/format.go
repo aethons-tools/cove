@@ -61,5 +61,8 @@ func encodeFile(path string, v any) error {
 	} else if out, err = yaml.Marshal(v); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	return os.WriteFile(path, out, 0o600)
 }

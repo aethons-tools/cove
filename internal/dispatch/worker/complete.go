@@ -79,11 +79,10 @@ func completeNeedsInput(ctx context.Context, dir string, task Task, git Git, raw
 	}
 }
 
-// taskErr builds an ERROR TaskResult. detail is the underlying diagnostic (omitted if "").
+// taskErr builds an ERROR TaskResult, echoing the raw worker-result. detail is the
+// underlying diagnostic (omitted if "").
 func taskErr(raw any, msg, detail string) TaskResult {
-	e := &TaskError{Message: msg}
-	if detail != "" {
-		e.Detail = detail
-	}
-	return TaskResult{Status: TaskStatus{Error: e}, WorkerResult: raw}
+	tr := ErrorResult(msg, detail)
+	tr.WorkerResult = raw
+	return tr
 }

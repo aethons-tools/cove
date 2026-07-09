@@ -66,24 +66,30 @@ func doComplete(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-work complete: takes no arguments (reads .at-work/, writes .at-work/task-result)")
 		return 2
 	}
-	task, err := worker.ReadTask(".")
-	if err != nil {
-		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
-		return 1
-	}
+	// Resolve the task-result extension up front, defaulting to JSON, so we can
+	// ALWAYS write a task-result — even when the task file is missing/unreadable.
 	ext, err := worker.TaskExt(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
-		return 1
+		ext = ".json"
 	}
-	g, ok := gitClient(stderr)
-	if !ok {
-		return 1
+	task, err := worker.ReadTask(".")
+	if err != nil {
+		return writeResult(stderr, ext, worker.ErrorResult("at-work could not read the task", err.Error()))
+	}
+	g, err := worker.NewShellGit(os.Getenv("AT_WORK_GIT_TOKEN"))
+	if err != nil {
+		return writeResult(stderr, ext, worker.ErrorResult("at-work could not initialize git", err.Error()))
 	}
 	ch := github.New(os.Getenv("AT_WORK_GIT_TOKEN"), nil)
 	tr := worker.Complete(context.Background(), ".", task, g, ch)
+	return writeResult(stderr, ext, tr)
+}
+
+// writeResult writes tr to .at-work/task-result<ext>. Exit 1 ONLY if the write itself
+// fails (there is then no result to deliver); otherwise 0, whatever tr's status is.
+func writeResult(stderr io.Writer, ext string, tr worker.TaskResult) int {
 	if err := worker.WriteTaskResult(".", ext, tr); err != nil {
-		fmt.Fprintf(stderr, "at-work: write task-result: %v\n", err)
+		fmt.Fprintf(stderr, "at-work complete: write task-result: %v\n", err)
 		return 1
 	}
 	return 0

@@ -140,8 +140,18 @@ type TaskError struct {
 	Detail  string `json:"detail,omitempty" yaml:"detail,omitempty"`
 }
 
+// ErrorResult builds an ERROR TaskResult with no worker-result echo — for failures
+// at-work hits before or around the worker (e.g. it cannot read the task file).
+func ErrorResult(message, detail string) TaskResult {
+	e := &TaskError{Message: message}
+	if detail != "" {
+		e.Detail = detail
+	}
+	return TaskResult{Status: TaskStatus{Error: e}}
+}
+
 // WriteTaskResult writes tr to .at-work/task-result<ext> (ext is ".json" or ".yml",
-// mirroring the task file). The .at-work dir must already exist.
+// mirroring the task file), creating the .at-work dir if needed.
 func WriteTaskResult(dir, ext string, tr TaskResult) error {
 	return encodeFile(filepath.Join(dir, workSubdir, "task-result"+ext), tr)
 }
