@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -139,5 +140,44 @@ func TestChangeOps(t *testing.T) {
 	}
 	if has, _ := g.RemoteHasBranch(ctx, dir, "implement/AET-1"); !has {
 		t.Fatal("branch not on origin after push")
+	}
+}
+
+func TestEnsureCleanInitsInPlaceOverExisting(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	// Simulate the orchestrator having injected the task file before prepare runs.
+	if err := os.MkdirAll(filepath.Join(dir, ".at-work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".at-work", "task.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := NewShellGit("") // no token; no network is touched (no fetch here)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const remote = "https://example.invalid/o/r.git"
+	if err := g.EnsureClean(context.Background(), remote, dir); err != nil {
+		t.Fatalf("EnsureClean over a pre-existing .at-work/: %v", err)
+	}
+	// A repo was initialized in place.
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf(".git not created: %v", err)
+	}
+	// origin points at the remote.
+	if url, _ := g.git(context.Background(), dir, "remote", "get-url", "origin"); url != remote {
+		t.Fatalf("origin = %q; want %q", url, remote)
+	}
+	// .at-work/ is excluded, so it never shows as an untracked change.
+	status, err := g.git(context.Background(), dir, "status", "--porcelain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(status, ".at-work") {
+		t.Fatalf(".at-work/ must be excluded from git status; got:\n%s", status)
 	}
 }
