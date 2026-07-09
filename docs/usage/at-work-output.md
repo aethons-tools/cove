@@ -46,9 +46,10 @@ failure occurred before the worker ran. Schema:
           "type": "object",
           "description": "the worker stopped for a human; at-work pushed the WIP branch",
           "additionalProperties": false,
-          "required": ["message"],
+          "required": ["message", "commit"],
           "properties": {
-            "message": { "type": "string", "description": "human-readable summary of the handoff" }
+            "message": { "type": "string", "description": "human-readable summary of the handoff" },
+            "commit":  { "type": "string", "description": "SHA of the pushed WIP commit — the retrace point, stable even if the branch later moves" }
           }
         },
         "error": {
@@ -97,7 +98,8 @@ failure occurred before the worker ran. Schema:
 { 
   "status": {
     "needs-input": {
-      "message": "Added information to AET-2026 and moved to `Needs Input` status"
+      "message": "Added information to AET-2026 and moved to `Needs Input` status",
+      "commit": "1a2b3c4"
     }
   },
   "worker-result": { 
