@@ -57,7 +57,6 @@ type DispatchConfig struct {
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name     string                  `yaml:"name"`
-	Setup    string                  `yaml:"setup"` // optional: command run once to populate an isolated workspace
 	Secrets  map[string]SecretConfig `yaml:"secrets"`
 	Image    ImageConfig             `yaml:"image"`
 	Dispatch DispatchConfig          `yaml:"dispatch"`

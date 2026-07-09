@@ -367,33 +367,3 @@ func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
 		t.Fatalf("expected warning; stderr=%q", errBuf.String())
 	}
 }
-
-func TestConnectRunsSetupWhenConfigured(t *testing.T) {
-	b := &fakeBackend{state: backend.StateRunning}
-	tr := &fakeTransport{}
-	// Outputs consumed in order: secret, authProbe, setup emptiness probe.
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}, {Stdout: "cove-empty\n"}}}
-	o := opts(t.TempDir())
-	o.Setup = "git clone https://x ."
-	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, o); err != nil {
-		t.Fatal(err)
-	}
-	if !calledWith(r.Calls, "git clone https://x .") {
-		t.Fatal("setup must run when configured and the workspace is empty")
-	}
-	if !tr.launched {
-		t.Fatal("must still launch after setup")
-	}
-}
-
-func TestConnectNoSetupWhenUnset(t *testing.T) {
-	b := &fakeBackend{state: backend.StateRunning}
-	tr := &fakeTransport{}
-	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
-	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
-		t.Fatal(err)
-	}
-	if calledWith(r.Calls, "ls -A") {
-		t.Fatal("must not probe the workspace when no setup is configured")
-	}
-}

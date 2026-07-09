@@ -262,16 +262,15 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 }
 
 // buildState assembles the state snapshot for a created instance: the backend
-// handles, the workspace mode, the setup command to seed an isolated workspace,
-// and the kit's secret specs (names + resolver commands, never values).
-func buildState(cfg kit.Config, inst backend.Instance, setup string) state.State {
+// handles, the workspace mode, and the kit's secret specs (names + resolver
+// commands, never values).
+func buildState(cfg kit.Config, inst backend.Instance) state.State {
 	st := state.State{
 		Name:          cfg.Name,
 		Backend:       inst.Backend,
 		Container:     inst.Container,
 		Image:         inst.Image,
 		WorkspaceMode: "isolated",
-		Setup:         setup,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 	if inst.Workspace.Mode == backend.Shared {
@@ -286,7 +285,7 @@ func buildState(cfg kit.Config, inst backend.Instance, setup string) state.State
 
 // saveState snapshots the created interactive instance into the kit state file.
 func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
-	return state.Save(kitDir, buildState(cfg, inst, cfg.Setup))
+	return state.Save(kitDir, buildState(cfg, inst))
 }
 
 func instanceFromState(st state.State) backend.Instance {
@@ -365,10 +364,6 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if raw {
 		cmd = "bash"
 	}
-	setupCmd := st.Setup
-	if st.WorkspaceMode == "shared" {
-		setupCmd = "" // the host bind-mount already holds the code
-	}
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: st.Name}, awake.New(), connect.Options{
 		Container:       st.Container,
 		Secrets:         specs,
@@ -376,7 +371,6 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
 		SkipAuth:        noAuth,
 		Stderr:          stderr,
-		Setup:           setupCmd,
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 	})
 }

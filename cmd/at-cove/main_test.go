@@ -492,9 +492,11 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	}
 }
 
-func TestSaveStateSnapshotsSetup(t *testing.T) {
+func TestSaveStateSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	cfg := kit.Config{Name: "box", Setup: "git clone https://x ."}
+	cfg := kit.Config{Name: "box", Secrets: map[string]kit.SecretConfig{
+		"GITHUB_TOKEN": {Command: []string{"op", "read", "x"}},
+	}}
 	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
 	if err := saveState(dir, cfg, inst); err != nil {
@@ -504,8 +506,11 @@ func TestSaveStateSnapshotsSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Setup != "git clone https://x ." {
-		t.Fatalf("state Setup = %q", st.Setup)
+	if st.Name != "box" || st.Backend != "colima" || st.Container != "box" || st.Image != "img" {
+		t.Fatalf("state = %+v", st)
+	}
+	if len(st.Secrets) != 1 || st.Secrets[0].Name != "GITHUB_TOKEN" {
+		t.Fatalf("secrets not snapshotted: %+v", st.Secrets)
 	}
 }
 

@@ -138,7 +138,7 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 
 // envScript renders env as a sourceable shell script: one `export K=V` line per
 // name, sorted for determinism, values single-quoted so no value ever reaches
-// argv. Shared by the StdinScript transport and RunSetup.
+// argv.
 func envScript(env map[string]string) string {
 	names := make([]string, 0, len(env))
 	for k := range env {

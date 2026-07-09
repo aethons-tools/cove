@@ -32,7 +32,7 @@ secrets:
 
 func TestParseConfigRejectsMissingFields(t *testing.T) {
 	cases := map[string]string{
-		"no name":        "setup: \"git clone https://x .\"\n",
+		"no name":        "secrets:\n  GITHUB_TOKEN: {}\n",
 		"secret no name": "name: x\nsecrets:\n  \"\":\n    command: [\"a\"]\n",
 	}
 	for label, data := range cases {
@@ -70,23 +70,10 @@ func TestParseConfigRejectsSecretValueField(t *testing.T) {
 	}
 }
 
-func TestParseConfigSetup(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\nsetup: \"git clone https://x .\"\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Setup != "git clone https://x ." {
-		t.Fatalf("Setup = %q", cfg.Setup)
-	}
-}
-
-func TestParseConfigSetupOptional(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Setup != "" {
-		t.Fatalf("Setup should default empty, got %q", cfg.Setup)
+func TestParseConfigRejectsRemovedSetupField(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nsetup: \"git clone https://x .\"\n"))
+	if err == nil {
+		t.Fatal("expected error: setup is a removed/unknown field")
 	}
 }
 
