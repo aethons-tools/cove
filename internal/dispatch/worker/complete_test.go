@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,9 @@ func TestCompleteWorkerError(t *testing.T) {
 	if tr.Status.Error.Message != "worker could not execute task" {
 		t.Fatalf("error message = %q", tr.Status.Error.Message)
 	}
+	if !strings.Contains(tr.Status.Error.Detail, "cannot") {
+		t.Fatalf("error detail = %q; want it to preserve the worker's message %q", tr.Status.Error.Detail, "cannot")
+	}
 }
 
 // missing worker-result → error, no echo
@@ -96,5 +100,41 @@ func TestCompleteMissingWorkerResult(t *testing.T) {
 	tr := Complete(context.Background(), dir, implementTask(), &fakeGit{}, &fakeCodeHost{})
 	if v, _ := tr.Status.ActiveTask(); v != "error" || tr.WorkerResult != nil {
 		t.Fatalf("missing: %+v echo=%v", tr.Status, tr.WorkerResult)
+	}
+}
+
+// worker-result with a status that sets zero variants → error (invalid worker result),
+// but the raw worker-result IS echoed: decoding succeeded, only the tagged union is invalid.
+func TestCompleteInvalidWorkerResult(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkerResult(t, dir, `{"status":{}}`)
+	ch := &fakeCodeHost{}
+	tr := Complete(context.Background(), dir, implementTask(), &fakeGit{}, ch)
+	if v, _ := tr.Status.ActiveTask(); v != "error" {
+		t.Fatalf("invalid worker result: %+v", tr.Status)
+	}
+	if ch.opened {
+		t.Fatal("no PR should be opened for an invalid worker result")
+	}
+	if tr.WorkerResult == nil {
+		t.Fatal("raw worker-result should be echoed when the document decodes but the status union is invalid")
+	}
+}
+
+// unreadable (malformed) worker-result → error, no echo: decoding fails before any
+// usable worker content exists.
+func TestCompleteUnreadableWorkerResult(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkerResult(t, dir, `{not valid json`)
+	ch := &fakeCodeHost{}
+	tr := Complete(context.Background(), dir, implementTask(), &fakeGit{}, ch)
+	if v, _ := tr.Status.ActiveTask(); v != "error" {
+		t.Fatalf("unreadable worker result: %+v", tr.Status)
+	}
+	if ch.opened {
+		t.Fatal("no PR should be opened for an unreadable worker result")
+	}
+	if tr.WorkerResult != nil {
+		t.Fatalf("echo should be nil on decode failure, got %v", tr.WorkerResult)
 	}
 }
