@@ -1,6 +1,10 @@
 package worker
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestWorkerStatusActive(t *testing.T) {
 	if _, err := (WorkerStatus{}).Active(); err == nil {
@@ -38,5 +42,40 @@ func TestReadWorkerResultLenientAndRaw(t *testing.T) {
 func TestReadWorkerResultAbsent(t *testing.T) {
 	if _, _, ok, err := ReadWorkerResult(t.TempDir()); ok || err != nil {
 		t.Fatalf("absent: ok=%v err=%v (want false,nil)", ok, err)
+	}
+}
+
+func TestWriteTaskResultMirrorsExtension(t *testing.T) {
+	tr := TaskResult{
+		Status:       TaskStatus{OK: &TaskOK{Message: "opened", PRURL: "https://x/pull/1"}},
+		WorkerResult: map[string]any{"status": map[string]any{"ok": map[string]any{}}, "note": "kept"},
+	}
+	for _, ext := range []string{".json", ".yml"} {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".at-work"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteTaskResult(dir, ext, tr); err != nil {
+			t.Fatalf("%s: %v", ext, err)
+		}
+		p := filepath.Join(dir, ".at-work", "task-result"+ext)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("%s not written: %v", ext, err)
+		}
+		if ext == ".json" && b[0] != '{' {
+			t.Fatalf("json output not JSON: %q", b)
+		}
+		if ext == ".yml" && b[0] == '{' {
+			t.Fatalf("yaml output looks like JSON: %q", b)
+		}
+		// round-trips back (leniently) with the echo intact
+		var back TaskResult
+		if err := decodeFile(p, false, &back); err != nil {
+			t.Fatalf("%s reparse: %v", ext, err)
+		}
+		if v, _ := back.Status.ActiveTask(); v != "ok" || back.Status.OK.PRURL == "" {
+			t.Fatalf("%s round-trip status: %+v", ext, back.Status)
+		}
 	}
 }

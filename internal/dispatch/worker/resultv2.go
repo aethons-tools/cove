@@ -3,6 +3,7 @@ package worker
 import (
 	"errors"
 	"os"
+	"path/filepath"
 )
 
 // WorkerResult is the parsed .at-work/worker-result.json (or .yml) — the worker's
@@ -85,4 +86,62 @@ func ReadWorkerResult(dir string) (wr WorkerResult, raw any, ok bool, err error)
 		return WorkerResult{}, nil, false, err
 	}
 	return wr, raw, true, nil
+}
+
+// TaskResult is what `at-work complete` writes to .at-work/task-result.{json,yml} —
+// the authoritative outcome. STRICT on parse (see the schema in
+// docs/usage/at-work-output.md). WorkerResult is the raw worker-result, echoed.
+type TaskResult struct {
+	Status       TaskStatus `json:"status" yaml:"status"`
+	WorkerResult any        `json:"worker-result,omitempty" yaml:"worker-result,omitempty"`
+}
+
+// TaskStatus is a tagged union — exactly one of ok / needs-input / error.
+type TaskStatus struct {
+	OK         *TaskOK         `json:"ok,omitempty" yaml:"ok,omitempty"`
+	NeedsInput *TaskNeedsInput `json:"needs-input,omitempty" yaml:"needs-input,omitempty"`
+	Error      *TaskError      `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
+// ActiveTask returns the name of the single set variant, or an error otherwise.
+func (s TaskStatus) ActiveTask() (string, error) {
+	n := 0
+	name := ""
+	if s.OK != nil {
+		n++
+		name = "ok"
+	}
+	if s.NeedsInput != nil {
+		n++
+		name = "needs-input"
+	}
+	if s.Error != nil {
+		n++
+		name = "error"
+	}
+	if n != 1 {
+		return "", errors.New("status must set exactly one of ok / needs-input / error")
+	}
+	return name, nil
+}
+
+type TaskOK struct {
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
+	PRURL   string `json:"pr-url,omitempty" yaml:"pr-url,omitempty"`
+}
+
+type TaskNeedsInput struct {
+	Message string `json:"message" yaml:"message"`
+	Commit  string `json:"commit" yaml:"commit"`
+}
+
+type TaskError struct {
+	Message string `json:"message" yaml:"message"`
+	Detail  string `json:"detail,omitempty" yaml:"detail,omitempty"`
+}
+
+// WriteTaskResult writes tr to .at-work/task-result<ext> (ext is ".json" or ".yml",
+// mirroring the task file). The .at-work dir must already exist.
+func WriteTaskResult(dir, ext string, tr TaskResult) error {
+	return encodeFile(filepath.Join(dir, workSubdir, "task-result"+ext), tr)
 }
