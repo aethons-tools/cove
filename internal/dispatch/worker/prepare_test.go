@@ -8,17 +8,19 @@ import (
 	"testing"
 )
 
-func implementInput() Input {
-	return Input{
-		Issue: IssueInput{Key: "AET-1", Title: "T", WorkClass: "implement", Brief: "the brief"},
-		Repo:  RepoInput{Name: "o/r", SourceBranch: "main", WorkBranch: "implement/AET-1"},
+func implementTask() Task {
+	return Task{
+		Issue:  TaskIssue{Key: "AET-1", Title: "T"},
+		Repo:   TaskRepo{Name: "o/r", SourceBranch: "main", WorkBranch: "implement/AET-1"},
+		Worker: TaskWorker{Class: "implement"},
+		Task:   TaskSpec{Brief: "the brief"},
 	}
 }
 
 func TestPrepareFreshBranch(t *testing.T) {
 	dir := t.TempDir()
 	g := &fakeGit{remoteHas: false}
-	if err := Prepare(context.Background(), dir, implementInput(), g); err != nil {
+	if err := Prepare(context.Background(), dir, implementTask(), g); err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
 	joined := strings.Join(g.calls, ",")
@@ -26,14 +28,14 @@ func TestPrepareFreshBranch(t *testing.T) {
 		!strings.Contains(joined, "NewBranch:implement/AET-1") || strings.Contains(joined, "Sync:implement/AET-1") {
 		t.Fatalf("fresh-branch call sequence wrong: %v", g.calls)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, workSubdir, "brief.md")); string(b) != "the brief" {
-		t.Fatalf("brief not written: %q", b)
+	if _, err := os.Stat(filepath.Join(dir, ".at-work", "brief.md")); !os.IsNotExist(err) {
+		t.Fatalf("prepare must not write brief.md; stat err=%v", err)
 	}
 }
 
 func TestPrepareResumesExistingBranch(t *testing.T) {
 	g := &fakeGit{remoteHas: true}
-	if err := Prepare(context.Background(), t.TempDir(), implementInput(), g); err != nil {
+	if err := Prepare(context.Background(), t.TempDir(), implementTask(), g); err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(g.calls, ",")
@@ -43,9 +45,9 @@ func TestPrepareResumesExistingBranch(t *testing.T) {
 }
 
 func TestPrepareRefusesBadWorkBranch(t *testing.T) {
-	in := implementInput()
-	in.Repo.WorkBranch = "main" // equals source-branch
-	if err := Prepare(context.Background(), t.TempDir(), in, &fakeGit{}); err == nil {
+	task := implementTask()
+	task.Repo.WorkBranch = "main" // equals source-branch
+	if err := Prepare(context.Background(), t.TempDir(), task, &fakeGit{}); err == nil {
 		t.Fatal("Prepare should refuse work-branch == source-branch")
 	}
 }

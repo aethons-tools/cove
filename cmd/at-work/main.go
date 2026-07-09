@@ -1,5 +1,6 @@
-// Command at-work is the git/PR worker: `prepare` sets up a branch and drops the
-// brief; `complete` reads the agent's outcome and opens the PR. See docs/orchestration/.
+// Command at-work is the git/PR worker: `prepare` sets up the work branch from
+// .at-work/task.json; `complete` reads the worker's result and opens the PR. See
+// docs/usage/at-work.md.
 package main
 
 import (
@@ -19,10 +20,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	app := cli.App{
 		Name: "at-work", Version: version,
 		Commands: []cli.Command{
-			{Name: "prepare", Brief: "clone/branch and write the brief", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+			{Name: "prepare", Brief: "clone and set up the work branch from .at-work/task.json", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doPrepare(args, errw)
 			}},
-			{Name: "complete", Brief: "broker the agent outcome into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+			{Name: "complete", Brief: "broker the worker's result into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doComplete(args, errw)
 			}},
 		},
@@ -40,20 +41,20 @@ func gitClient(stderr io.Writer) (*worker.ShellGit, bool) {
 }
 
 func doPrepare(args []string, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "at-work prepare: expected <input.json>")
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "at-work prepare: takes no arguments (reads .at-work/task.json)")
 		return 2
 	}
-	in, err := worker.ReadInput(args[0])
+	task, err := worker.ReadTask(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "at-work: %v\n", err)
+		fmt.Fprintf(stderr, "at-work prepare: %v\n", err)
 		return 1
 	}
 	g, ok := gitClient(stderr)
 	if !ok {
 		return 1
 	}
-	if err := worker.Prepare(context.Background(), ".", in, g); err != nil {
+	if err := worker.Prepare(context.Background(), ".", task, g); err != nil {
 		fmt.Fprintf(stderr, "at-work prepare: %v\n", err)
 		return 1
 	}
@@ -61,13 +62,18 @@ func doPrepare(args []string, stderr io.Writer) int {
 }
 
 func doComplete(args []string, stderr io.Writer) int {
-	if len(args) != 2 {
-		fmt.Fprintln(stderr, "at-work complete: expected <input.json> <output.json>")
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "at-work complete: takes no arguments (reads .at-work/, writes .at-work/task-result)")
 		return 2
 	}
-	in, err := worker.ReadInput(args[0])
+	task, err := worker.ReadTask(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "at-work: %v\n", err)
+		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
+		return 1
+	}
+	ext, err := worker.TaskExt(".")
+	if err != nil {
+		fmt.Fprintf(stderr, "at-work complete: %v\n", err)
 		return 1
 	}
 	g, ok := gitClient(stderr)
@@ -75,9 +81,9 @@ func doComplete(args []string, stderr io.Writer) int {
 		return 1
 	}
 	ch := github.New(os.Getenv("AT_WORK_GIT_TOKEN"), nil)
-	out := worker.Complete(context.Background(), ".", in, g, ch)
-	if err := worker.WriteOutput(args[1], out); err != nil {
-		fmt.Fprintf(stderr, "at-work: write output: %v\n", err)
+	tr := worker.Complete(context.Background(), ".", task, g, ch)
+	if err := worker.WriteTaskResult(".", ext, tr); err != nil {
+		fmt.Fprintf(stderr, "at-work: write task-result: %v\n", err)
 		return 1
 	}
 	return 0

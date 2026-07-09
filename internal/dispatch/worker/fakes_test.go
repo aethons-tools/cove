@@ -65,9 +65,11 @@ type fakeCodeHost struct {
 	url    string
 	err    error
 	opened bool
+	title  string
 }
 
-func (f *fakeCodeHost) OpenPR(_ context.Context, _, _, _, _, _ string) (string, error) {
+func (f *fakeCodeHost) OpenPR(_ context.Context, _, _, _ string, title, _ string) (string, error) {
 	f.opened = true
+	f.title = title
 	return f.url, f.err
 }
