@@ -809,8 +809,8 @@ func dispatchName(kitName string) string {
 func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	inPath := fs.String("in", "", "path to the input.json to inject")
-	outPath := fs.String("out", "", "path to write the extracted output.json")
+	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
+	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")

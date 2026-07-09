@@ -94,7 +94,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	argv := []string{"at-cove", "dispatch", cl.Kit, "--in", inPath, "--out", outPath, "--timeout", cl.Timeout}
 	runErr := e.exec.Run(rctx, argv, nil)
 
-	e.broker(ctx, iss, readOutput(outPath), runErr)
+	e.broker(ctx, iss, readResult(outPath), runErr)
 }
 
 // broker performs the tracker writes for one dispatch result. Single writer.
@@ -270,9 +270,9 @@ func errorComment(tr worker.TaskResult, runErr error) string {
 	return "⚠️ ERROR\n\n" + msg + "\n"
 }
 
-// readOutput reads a worker.TaskResult from path, synthesizing an ERROR result when
+// readResult reads a worker.TaskResult from path, synthesizing an ERROR result when
 // the file is missing, unreadable, invalid, or has no valid status.
-func readOutput(path string) worker.TaskResult {
+func readResult(path string) worker.TaskResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return errorResult(fmt.Errorf("no dispatch output: %w", err))

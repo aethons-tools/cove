@@ -33,7 +33,7 @@ A **worker is therefore a container from the kit's image**, and **dispatch is a 
 Dispatch is **synchronous and one-shot** (shipped). The scheduler runs one blocking `at-cove dispatch` per issue in a bounded goroutine; there is **no** run-id registry, detach, or lifecycle-verb set (`status`/`result`/`logs`/`ls`/`kill`) — an earlier design considered them and they were dropped as unnecessary under the synchronous model.
 
 ```
-at-cove dispatch <kit-dir> --in <input.json> --out <output.json> [--timeout <dur>] [--grace <dur>] [--reap]
+at-cove dispatch <kit-dir> --in <task.json> --out <task-result.json> [--timeout <dur>] [--grace <dur>] [--reap]
 ```
 
 One invocation, start to finish:
