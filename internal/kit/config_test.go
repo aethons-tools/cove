@@ -159,7 +159,7 @@ func TestParseConfigImage(t *testing.T) {
 name: k
 backend: colima
 image:
-  setup-script:
+  setup-scripts:
     - .install-files/install.sh
   paths:
     - /usr/local/go/bin
@@ -171,8 +171,8 @@ image:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Image.SetupScript) != 1 || cfg.Image.SetupScript[0] != ".install-files/install.sh" {
-		t.Fatalf("SetupScript = %v", cfg.Image.SetupScript)
+	if len(cfg.Image.SetupScripts) != 1 || cfg.Image.SetupScripts[0] != ".install-files/install.sh" {
+		t.Fatalf("SetupScripts = %v", cfg.Image.SetupScripts)
 	}
 	if len(cfg.Image.Paths) != 1 || cfg.Image.Paths[0] != "/usr/local/go/bin" {
 		t.Fatalf("Paths = %v", cfg.Image.Paths)
@@ -190,15 +190,15 @@ func TestParseConfigImageAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Image.SetupScript) != 0 || len(cfg.Image.Paths) != 0 || len(cfg.Image.Env) != 0 || len(cfg.Image.AllowedDomains) != 0 {
+	if len(cfg.Image.SetupScripts) != 0 || len(cfg.Image.Paths) != 0 || len(cfg.Image.Env) != 0 || len(cfg.Image.AllowedDomains) != 0 {
 		t.Fatalf("absent image must be zero-valued, got %+v", cfg.Image)
 	}
 }
 
 func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  setup-script:\n    - \"\"\n"))
-	if err == nil || !strings.Contains(err.Error(), "setup-script") {
-		t.Fatalf("expected empty setup-script error, got %v", err)
+	_, err := ParseConfig([]byte("name: k\nbackend: colima\nimage:\n  setup-scripts:\n    - \"\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "setup-scripts") {
+		t.Fatalf("expected empty setup-scripts error, got %v", err)
 	}
 }
 

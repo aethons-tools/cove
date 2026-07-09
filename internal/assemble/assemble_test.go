@@ -104,7 +104,7 @@ func TestAssembleSetupManifest(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	mustWrite(t, filepath.Join(kitDir, "image-files/.install-files/install.sh"), "#!/bin/bash\n")
-	img := kit.ImageConfig{SetupScript: []string{".install-files/install.sh"}}
+	img := kit.ImageConfig{SetupScripts: []string{".install-files/install.sh"}}
 	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestAssembleSetupManifest(t *testing.T) {
 func TestAssembleSetupMissingScript(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	img := kit.ImageConfig{SetupScript: []string{".install-files/nope.sh"}}
+	img := kit.ImageConfig{SetupScripts: []string{".install-files/nope.sh"}}
 	err := Assemble(kitDir, buildDir, []byte("k\n"), img)
 	if err == nil || !strings.Contains(err.Error(), "nope.sh") {
 		t.Fatalf("expected missing-script error naming the path, got %v", err)

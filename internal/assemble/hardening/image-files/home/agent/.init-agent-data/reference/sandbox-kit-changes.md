@@ -1,7 +1,7 @@
 ---
 summary: How to make a persistent change to the at-cove sandbox by editing the kit's config.yml.
 read_when: A network request is blocked, or you need a tool / PATH entry / env var to survive a rebuild, and you are about to edit `.at-cove/config.yml`.
-owns: kit change workflow, the `image:` block schema (allowed-domains, setup-script, paths, env), the at-cove recreate rebuild step
+owns: kit change workflow, the `image:` block schema (allowed-domains, setup-scripts, paths, env), the at-cove recreate rebuild step
 prereqs: SANDBOX.md
 tier: leaf
 updated: 2026-07-01
@@ -45,7 +45,7 @@ image:
   # path relative to .at-cove/image-files/, run as root, in place. Put the
   # script under .at-cove/image-files/ (that tree is copied into the image root,
   # image-files/ -> /). Prefer this over a one-off install so the tool persists.
-  setup-script:
+  setup-scripts:
     - .install-files/install.sh
 
   # Directories appended to PATH for every session.

@@ -53,7 +53,7 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return err
 	}
 
-	if err := writeSetupManifest(kitDir, buildDir, img.SetupScript); err != nil {
+	if err := writeSetupManifest(kitDir, buildDir, img.SetupScripts); err != nil {
 		return err
 	}
 
@@ -161,10 +161,10 @@ func writeSetupManifest(kitDir, buildDir string, scripts []string) error {
 		onDisk := filepath.Join(kitDir, "image-files", filepath.FromSlash(s))
 		info, err := os.Stat(onDisk)
 		if err != nil {
-			return fmt.Errorf("image.setup-script %q: %w", s, err)
+			return fmt.Errorf("image.setup-scripts %q: %w", s, err)
 		}
 		if info.IsDir() {
-			return fmt.Errorf("image.setup-script %q: is a directory, not a script", s)
+			return fmt.Errorf("image.setup-scripts %q: is a directory, not a script", s)
 		}
 		b.WriteString(path.Clean("/" + filepath.ToSlash(s)))
 		b.WriteString("\n")

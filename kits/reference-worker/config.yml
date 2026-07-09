@@ -12,7 +12,7 @@ secrets:
     command: ["gh", "auth", "token"]
 
 image:
-  setup-script:
+  setup-scripts:
     - .install-files/install.sh
   env:
     AT_WORK_AGENT_COMMAND: run-agent.sh

@@ -62,7 +62,7 @@ var baseEnvKeys = map[string]bool{
 // cove translates each field to the correct sealed mechanism; every field is
 // additive to the hardened baseline and never overrides it.
 type ImageConfig struct {
-	SetupScript    []string          `yaml:"setup-script"`    // kit-relative scripts run as root at build, in place
+	SetupScripts   []string          `yaml:"setup-scripts"`   // kit-relative scripts run as root at build, in place
 	Paths          []string          `yaml:"paths"`           // appended to PATH in /etc/environment
 	Env            map[string]string `yaml:"env"`             // KEY=VALUE written to /etc/environment
 	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
@@ -122,9 +122,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("config.yml: loops[%q]: prompt is required", name)
 		}
 	}
-	for i, s := range cfg.Image.SetupScript {
+	for i, s := range cfg.Image.SetupScripts {
 		if strings.TrimSpace(s) == "" {
-			return Config{}, fmt.Errorf("config.yml: image.setup-script[%d]: must not be empty", i)
+			return Config{}, fmt.Errorf("config.yml: image.setup-scripts[%d]: must not be empty", i)
 		}
 	}
 	for i, p := range cfg.Image.Paths {
