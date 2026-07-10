@@ -227,7 +227,7 @@ A `Backend` knows how to provision a VM from a build context,
 report a reachable SSH endpoint,
 query its state,
 and destroy it.
-Backends self-register into a registry keyed by the `backend:` string.
+Backends self-register into a registry keyed by name (at-cove defaults to `colima`).
 
 - **Colima** — the only implemented backend.
   Native Docker via Colima (no `sbx`):

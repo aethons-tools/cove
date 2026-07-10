@@ -44,7 +44,7 @@ type Endpoint struct {
 type CreateContext struct {
 	Name      string
 	BuildDir  string
-	Kit       string // identity for the shared image tag; "" => derive from Name. Lets loop instances share the kit image.
+	Kit       string // identity for the shared image tag; "" => derive from Name.
 	Workspace WorkspaceMount
 }
 
