@@ -4,7 +4,7 @@ read_when: You are adding a secret to a kit, wiring a resolver command, supplyin
 owns: at-cove secret declaration + value resolution (config.yml `secrets` and ~/.config/at-cove/secrets.yml)
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the connect/injection data flow
 tier: leaf
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 # at-cove secrets
@@ -34,6 +34,11 @@ value configures how the secret resolves:
 
 A secret with a `command` **resolves itself**. A secret with **no `command`** is a
 *demand*: it must be supplied from your machine (below), or it stays unset.
+
+During `at-cove dispatch`, resolver commands additionally see the run's parameters
+as `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` in their environment — see
+[at-cove-dispatch-interface.md](../orchestration/at-cove-dispatch-interface.md#three-separated-authorities)
+for how this turns a resolver into a per-run credential minter.
 
 ## Supplying a value — `~/.config/at-cove/secrets.yml`
 

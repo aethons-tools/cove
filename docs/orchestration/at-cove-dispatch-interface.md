@@ -1,6 +1,6 @@
 ---
-summary: The substrate by which a dedicated scheduler dispatches one-shot worker agents through at-cove — the shipped `at-cove dispatch` command (synchronous, one-shot, ephemeral hardened container from a kit), at-cove's host-orchestrated worker bracket (`at-work prepare` → agent → `at-work complete`) and the per-step credential air-gap it enforces, the `.at-work/task.json` → `task-result.json` worker contract at at-cove-owned VM paths, the three-authority credential model, and per-class isolation. The parametrized per-task token minter is the intended credential design and is deferred.
-read_when: You are implementing or reviewing how the scheduler launches workers on hardened at-cove/Colima containers — the `at-cove dispatch` command it calls, how the input/output handoff works, how at-cove drives the prepare/agent/complete bracket and air-gaps the worker from the code-host token, or the credential model (shipped token vs. the deferred minter).
+summary: The substrate by which a dedicated scheduler dispatches one-shot worker agents through at-cove — the shipped `at-cove dispatch` command (synchronous, one-shot, ephemeral hardened container from a kit), at-cove's host-orchestrated worker bracket (`at-work prepare` → agent → `at-work complete`) and the per-step credential air-gap it enforces, the `.at-work/task.json` → `task-result.json` worker contract at at-cove-owned VM paths, the three-authority credential model, per-class isolation, and the `COVE_RUN_*` passthrough that turns a secret resolver into a per-run token minter.
+read_when: You are implementing or reviewing how the scheduler launches workers on hardened at-cove/Colima containers — the `at-cove dispatch` command it calls, how the input/output handoff works, how at-cove drives the prepare/agent/complete bracket and air-gaps the worker from the code-host token, or the credential model (the `COVE_RUN_*`-driven per-run minter).
 owns: the at-cove dispatch substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
@@ -9,7 +9,7 @@ updated: 2026-07-10
 
 # at-cove Dispatch Interface
 
-The concrete substrate that realizes the workflow's **worker fleet + dedicated scheduler**: how the scheduler dispatches **one-shot worker agents** through at-cove onto hardened containers, how each worker is **air-gapped from standing credentials**, and what it hands back. The command surface below (`at-cove dispatch`) and the host-orchestrated bracket it drives are **shipped**; the parametrized per-task minter is the intended credential design and is **deferred** (the MVP injects a plain repo-scoped token). For the workflow this substrate serves, see [linear-agent-workflow.md](linear-agent-workflow.md); for the operator config that keys into it, see [scheduler-config.md](scheduler-config.md).
+The concrete substrate that realizes the workflow's **worker fleet + dedicated scheduler**: how the scheduler dispatches **one-shot worker agents** through at-cove onto hardened containers, how each worker is **air-gapped from standing credentials**, and what it hands back. The command surface below (`at-cove dispatch`), the host-orchestrated bracket it drives, and the **`COVE_RUN_*`-driven per-run token minter** are all **shipped**. For the workflow this substrate serves, see [linear-agent-workflow.md](linear-agent-workflow.md); for the operator config that keys into it, see [scheduler-config.md](scheduler-config.md).
 
 In this repo the scheduler is the **`at-dispatch`** binary and the worker is **`at-work`**, both consuming the **`at-cove`** CLI; see [OVERVIEW's architecture](../OVERVIEW.md#architecture).
 
@@ -69,7 +69,15 @@ No component holds two authorities; untrusted input reaches only the least-privi
 | **Worker** (`at-work`) | a **code-host token** (clone/push/PR), used only by `prepare`/`complete` | tracker creds; the agent step never sees it |
 | **Agent** | nothing — edits and tests files only | any credential (at-cove withholds the token from its ssh step) |
 
-**Credential status.** The MVP injects a **plain repo-scoped `AT_WORK_GIT_TOKEN`** — an ordinary kit-declared secret (a `command` whose stdout is injected in memory). The intended hardening is a **parametrized per-task minter**: at-cove exposes the run's parameters to the secret command's environment (e.g. `COVE_RUN_*`) so the secret command becomes a per-run minter producing a short-lived, repo-scoped, expiring token — scope fixed **in** the minter (untrusted issue text cannot widen it), TTL/labels tuned by run params. This passthrough + minter is **deferred**; nothing else about secret handling changes when it lands.
+**Credential status.** `AT_WORK_GIT_TOKEN` is an ordinary kit-declared secret (a `command` whose stdout is injected in memory) — but at-cove exposes the run's parameters to that command's environment as `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` during dispatch, which turns the resolver into a **per-run minter**: it mints a short-lived, repo-scoped token fresh for this run rather than returning a standing credential. Resolver mechanics (the `command` array, `secrets.yml`, precedence, fail-closed behavior) are owned by [at-cove-secrets.md](../usage/at-cove-secrets.md); this doc covers only what dispatch adds.
+
+Two properties matter for the threat model:
+- **Scope is fixed in the minter, not from run params.** The minter reads `COVE_RUN_REPO` to know *which* repo to scope the token to, but the *permissions* it requests (e.g. `contents`+`pull_requests`) are hard-coded in the minter script itself — untrusted issue text flowing through the task can select a repo, never widen a scope.
+- **Minted fresh before each git step, not once per run.** at-cove re-invokes the resolver separately for `at-work prepare` and `at-work complete` (not once and cached), so each git step gets its own token and the code host's fixed token TTL (e.g. GitHub's ~1-hour App-installation-token lifetime) never bounds how long a dispatch run may take.
+
+The reference kit's minter (`kits/reference-worker/mint-github-token.sh`) is a worked example: a GitHub App installation-token resolver that reads `COVE_RUN_REPO` plus operator-provisioned `COVE_GH_APP_ID`/`COVE_GH_INSTALL_ID`/`COVE_GH_APP_KEY`, and fails closed on any missing var or API error. See its [RUNBOOK](../../kits/reference-worker/RUNBOOK.md) for App provisioning.
+
+This keeps the **three-authority separation** exact: the scheduler holds only the tracker token and never runs the minter; the minter (a host-side resolver `command`, not scheduler code) is the only thing that ever reads the GitHub App private key, and only on the at-cove host; the worker VM receives only the scoped, short-lived token the minter produced, over the same per-step air-gap described above.
 
 ## Isolation by handler class
 
@@ -78,6 +86,6 @@ No component holds two authorities; untrusted input reaches only the least-privi
 
 ## Status — shipped vs. deferred
 
-- **Shipped:** `at-cove dispatch` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-work prepare` → agent → `at-work complete`) with the per-step credential air-gap; at-work's `.at-work/task.json` → `task-result.json` contract; the scheduler wiring ([scheduler-config.md](scheduler-config.md)); container-per-task isolation.
-- **Deferred:** the parametrized token minter and the `COVE_RUN_*` run-parameter passthrough; per-run `--egress-profile`; multi-code-host (GitHub-only today).
+- **Shipped:** `at-cove dispatch` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-work prepare` → agent → `at-work complete`) with the per-step credential air-gap; at-work's `.at-work/task.json` → `task-result.json` contract; the scheduler wiring ([scheduler-config.md](scheduler-config.md)); container-per-task isolation; the `COVE_RUN_*` run-parameter passthrough and the resulting per-run token minter (the reference kit's `mint-github-token.sh`), minted fresh before each git step.
+- **Deferred:** per-run `--egress-profile`; multi-code-host (GitHub-only today).
 - **Dropped:** run-ids, `run --detach`, and the `status`/`result`/`logs`/`kill`/`ls` lifecycle-verb registry — superfluous under synchronous dispatch.
