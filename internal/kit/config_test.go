@@ -221,28 +221,176 @@ func TestParseConfigRejectsWorkerWithoutPrompt(t *testing.T) {
 	}
 }
 
-func TestParseConfigOrigin(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: acme/myrepo\n"))
+func TestResolvedWorkerMergesCommon(t *testing.T) {
+	src := `
+name: k
+workers:
+  <common>:
+    timeout: 30m
+    concurrency: 2
+  implement:
+    prompt: "do the thing"
+    timeout: 40m
+  audit:
+    prompt: "check the thing"
+    concurrency: 1
+`
+	cfg, err := ParseConfig([]byte(src))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if cfg.Origin == nil || cfg.Origin.GitHub == nil || cfg.Origin.GitHub.Project != "acme/myrepo" {
-		t.Fatalf("origin not parsed: %+v", cfg.Origin)
+	impl, err := cfg.ResolvedWorker("implement")
+	if err != nil {
+		t.Fatalf("ResolvedWorker(implement): %v", err)
 	}
-	if cfg.MainBranch != "main" { // default
-		t.Fatalf("main-branch default = %q; want main", cfg.MainBranch)
+	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.Concurrency != 2 {
+		t.Fatalf("implement merge = %+v; want prompt/40m(own)/2(common)", impl)
+	}
+	aud, err := cfg.ResolvedWorker("audit")
+	if err != nil {
+		t.Fatalf("ResolvedWorker(audit): %v", err)
+	}
+	if aud.Timeout != "30m" || aud.Concurrency != 1 {
+		t.Fatalf("audit merge = %+v; want 30m(common)/1(own)", aud)
+	}
+	if _, err := cfg.ResolvedWorker("<common>"); err == nil {
+		t.Fatal("ResolvedWorker(<common>) should error (not a real class)")
+	}
+	if _, err := cfg.ResolvedWorker("nope"); err == nil {
+		t.Fatal("ResolvedWorker(nope) should error (absent)")
+	}
+}
+
+func TestParseConfigRejectsUnknownAngleKey(t *testing.T) {
+	src := "name: k\nworkers:\n  <bogus>:\n    timeout: 30m\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of reserved-looking key <bogus>")
+	}
+}
+
+func TestParseConfigWorkerRequiresPrompt(t *testing.T) {
+	src := "name: k\nworkers:\n  implement:\n    timeout: 30m\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected a real worker to require a prompt")
+	}
+}
+
+func TestParseConfigOrigin(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/myrepo\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.SourceControl == nil || cfg.SourceControl.GitHub == nil || cfg.SourceControl.GitHub.Project != "acme/myrepo" {
+		t.Fatalf("source-control not parsed: %+v", cfg.SourceControl)
+	}
+	if cfg.SourceControl.GitHub.MainBranch != "main" { // default
+		t.Fatalf("main-branch default = %q; want main", cfg.SourceControl.GitHub.MainBranch)
 	}
 }
 
 func TestParseConfigRejectsBadOriginProject(t *testing.T) {
-	if _, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: nope\n")); err == nil {
+	if _, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: nope\n")); err == nil {
 		t.Fatal("origin.github.project must be owner/name")
 	}
 }
 
 func TestParseConfigMainBranchOverride(t *testing.T) {
-	cfg, _ := ParseConfig([]byte("name: k\nmain-branch: develop\n"))
-	if cfg.MainBranch != "develop" {
-		t.Fatalf("main-branch = %q; want develop", cfg.MainBranch)
+	cfg, _ := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/myrepo\n    main-branch: develop\n"))
+	if cfg.SourceControl.GitHub.MainBranch != "develop" {
+		t.Fatalf("main-branch = %q; want develop", cfg.SourceControl.GitHub.MainBranch)
+	}
+}
+
+func TestGitTokenSpecFromSourceControl(t *testing.T) {
+	src := `
+name: k
+source-control:
+  github:
+    project: acme/myrepo
+    secrets:
+      AT_TASK_GIT_TOKEN: { command: ["mint.sh"] }
+`
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	spec, ok := cfg.GitTokenSpec()
+	if !ok || spec.Name != "AT_TASK_GIT_TOKEN" || spec.Command[0] != "mint.sh" {
+		t.Fatalf("GitTokenSpec = %+v, ok=%v", spec, ok)
+	}
+}
+
+func TestParseConfigRejectsUnknownSourceControlSecret(t *testing.T) {
+	src := "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      BOGUS: { command: [\"x\"] }\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of an unknown source-control secret name")
+	}
+}
+
+const trackerKit = `
+name: k
+tracker:
+  linear:
+    team: COV
+    poll-interval: 60s
+    states:
+      ready: Todo
+      in-progress: In Progress
+      in-review: In Review
+      done: Done
+      needs-input: Needs Input
+      blocked: Backlog
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
+      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+dispatch:
+  concurrency: 1
+  reaper-timeout: 45m
+collaborators:
+  <common>:
+    secrets:
+      COMMON_TOKEN: { command: ["true"] }
+  triager:
+    secrets:
+      LINEAR_TOKEN: { command: ["true"] }
+`
+
+func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
+	cfg, err := ParseConfig([]byte(trackerKit))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Tracker.Linear.Team != "COV" {
+		t.Fatalf("tracker not parsed: %+v", cfg.Tracker)
+	}
+	if cfg.Tracker.Linear.ClassLabelPrefix != "class:" { // default
+		t.Fatalf("class-label-prefix default = %q; want class:", cfg.Tracker.Linear.ClassLabelPrefix)
+	}
+	if cfg.Dispatch == nil || cfg.Dispatch.DispatchOverhead != "15m" { // default
+		t.Fatalf("dispatch-overhead default = %+v; want 15m", cfg.Dispatch)
+	}
+	col, err := cfg.ResolvedCollaborator("triager")
+	if err != nil {
+		t.Fatalf("ResolvedCollaborator(triager): %v", err)
+	}
+	if _, ok := col.Secrets["COMMON_TOKEN"]; !ok { // from <common>
+		t.Fatalf("collaborator secrets missing COMMON_TOKEN: %+v", col.Secrets)
+	}
+	if _, ok := col.Secrets["LINEAR_TOKEN"]; !ok { // own
+		t.Fatalf("collaborator secrets missing LINEAR_TOKEN: %+v", col.Secrets)
+	}
+}
+
+func TestParseConfigRejectsUnknownTrackerSecret(t *testing.T) {
+	src := strings.Replace(trackerKit, "AT_DISPATCH_TRACKER_TOKEN", "BOGUS_TOKEN", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of an unknown tracker secret name")
+	}
+}
+
+func TestParseConfigRejectsMissingTrackerState(t *testing.T) {
+	src := strings.Replace(trackerKit, "      blocked: Backlog\n", "", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection when a tracker state is missing")
 	}
 }

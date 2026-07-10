@@ -48,10 +48,9 @@ func TestDispatchRunsBracket(t *testing.T) {
 	err := Dispatch(Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
-			Name:       "w",
-			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
-			MainBranch: "main",
-			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		BuildDir: dir, Name: "disp-1",
 		InputPath: in, OutputPath: out,
@@ -113,15 +112,19 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 	err := Dispatch(Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
-			Name:       "w",
-			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
-			MainBranch: "main",
-			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			Name: "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{
+				Project: "acme/myrepo", MainBranch: "main",
+				Secrets: map[string]kit.SecretConfig{
+					"AT_TASK_GIT_TOKEN": {Command: []string{"gh", "auth", "token"}},
+				},
+			}},
+			Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		Secrets: []secret.Spec{
-			{Name: "AT_TASK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
 			{Name: "OTHER", Command: []string{"echo", "x"}},
 		},
+		GitToken: secret.Spec{Name: "AT_TASK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
 		BuildDir: dir, Name: "disp-ag", InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -175,10 +178,9 @@ func TestDispatchPassesRunParamsToResolvers(t *testing.T) {
 	err := Dispatch(Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
-			Name:       "w",
-			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
-			MainBranch: "main",
-			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		Secrets: []secret.Spec{
 			{Name: "OTHER", Command: []string{"echo", "x"}},
@@ -243,10 +245,9 @@ func TestDispatchSourceBranchOverride(t *testing.T) {
 	err := Dispatch(Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
-			Name:       "w",
-			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
-			MainBranch: "main",
-			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		BuildDir: dir, Name: "disp-override",
 		InputPath: in, OutputPath: out,
@@ -294,10 +295,9 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	err := Dispatch(Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
-			Name:       "w",
-			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
-			MainBranch: "main",
-			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),

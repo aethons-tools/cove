@@ -119,8 +119,8 @@ dispatch-overhead: 15m                      # build + boot + teardown margin add
 - An issue labeled `"class:implement"` is assigned to the handler class `"implement"`.
 
 This config has no `repo` field: the scheduler names no repo. Each class's
-kit (`classes[*].kit`) owns its own `.at-cove/config.yml`, whose `origin`
-(and `main-branch`) single-source the repo and source branch — see
+kit (`classes[*].kit`) owns its own `.at-cove/config.yml`, whose `source-control`
+(repo + `main-branch`) single-sources the repo and source branch — see
 [`at-cove-config.md`](../usage/at-cove-config.md). `at-cove work` fills
 `task.repo` from the kit at dispatch time; the scheduler only sets
 `task.repo.work-branch` (`<class>/<issue-key>`).
