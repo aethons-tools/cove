@@ -2,7 +2,7 @@
 summary: at-task usage — the prepare/complete/version CLI, the AT_TASK_GIT_TOKEN credential, and the cwd file handoff under .at-task/ (JSON or YAML): task.json in; worker-result.json and task-result.json out. The per-file JSON Schemas live in the linked contract docs.
 read_when: You are invoking at-task directly, or you need the file-handoff flow and the JSON/YAML file-format rules before reading a contract schema.
 owns: the at-task CLI usage, the .at-task/ file handoff, and the JSON/YAML file-format + unknown-field rules (the per-file JSON Schemas are owned by at-task-inputs.md and at-task-output.md)
-prereqs: none — for how at-task is dispatched inside a sandbox see ../orchestration/at-cove-dispatch-interface.md
+prereqs: none — for how at-task is dispatched inside a sandbox see ../orchestration/at-cove-work-interface.md
 tier: leaf
 updated: 2026-07-10
 ---
@@ -32,7 +32,7 @@ For one "unit of work", the calling orchestrator:
    * Otherwise, writes `.at-task/task-result.json` with information about the error that occurred
 
 For the design rationale and how it is dispatched in a hardened
-sandbox, see the [dispatch interface](../orchestration/at-cove-dispatch-interface.md).
+sandbox, see the [work interface](../orchestration/at-cove-work-interface.md).
 
 ## Commands
 

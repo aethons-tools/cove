@@ -1,17 +1,17 @@
 ---
 summary: The substrate by which a dedicated scheduler dispatches one-shot worker agents through at-cove — the shipped `at-cove work` command (synchronous, one-shot, ephemeral hardened container from a kit), at-cove's host-orchestrated worker bracket (`at-task prepare` → agent → `at-task complete`) and the per-step credential air-gap it enforces, the `.at-task/task.json` → `task-result.json` worker contract at at-cove-owned VM paths, the three-authority credential model, per-class isolation, and the `COVE_RUN_*` passthrough that turns a secret resolver into a per-run token minter.
 read_when: You are implementing or reviewing how the scheduler launches workers on hardened at-cove/Colima containers — the `at-cove work` command it calls, how the input/output handoff works, how at-cove drives the prepare/agent/complete bracket and air-gaps the worker from the code-host token, or the credential model (the `COVE_RUN_*`-driven per-run minter).
-owns: the at-cove dispatch substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
+owns: the at-cove work substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
 updated: 2026-07-10
 ---
 
-# at-cove Dispatch Interface
+# at-cove Work Interface
 
 The concrete substrate that realizes the workflow's **worker fleet + dedicated scheduler**: how the scheduler dispatches **one-shot worker agents** through at-cove onto hardened containers, how each worker is **air-gapped from standing credentials**, and what it hands back. The command surface below (`at-cove work`), the host-orchestrated bracket it drives, and the **`COVE_RUN_*`-driven per-run token minter** are all **shipped**. For the workflow this substrate serves, see [linear-agent-workflow.md](linear-agent-workflow.md); for the operator config that keys into it, see [scheduler-config.md](scheduler-config.md).
 
-In this repo the scheduler is the **`at-dispatch`** binary and the worker is **`at-task`**, both consuming the **`at-cove`** CLI; see [OVERVIEW's architecture](../OVERVIEW.md#architecture).
+In this repo the scheduler is **`at-cove dispatch`** and the worker is **`at-task`**, both driving the **`at-cove work`** command; see [OVERVIEW's architecture](../OVERVIEW.md#architecture).
 
 ## What at-cove is (grounding)
 
@@ -65,7 +65,7 @@ No component holds two authorities; untrusted input reaches only the least-privi
 
 | Component | Holds | Never |
 |-----------|-------|-------|
-| **Scheduler** (`at-dispatch`) | the **tracker** API token (its own standing secret) | touches the code host |
+| **Scheduler** (`at-cove dispatch`) | the **tracker** API token (its own standing secret) | touches the code host |
 | **Worker** (`at-task`) | a **code-host token** (clone/push/PR), used only by `prepare`/`complete` | tracker creds; the agent step never sees it |
 | **Agent** | nothing — edits and tests files only | any credential (at-cove withholds the token from its ssh step) |
 

@@ -255,11 +255,10 @@ the OS implementation streams stdio and propagates exit codes;
 a `Fake` records calls for tests.
 
 ```
-cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
+cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend + work + dispatch
 internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy)
-cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
-internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
-internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution, load/validate
+internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
+internal/dispatch/config/     at-cove dispatch config: YAML schema, secret resolution, load/validate
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
@@ -278,11 +277,11 @@ internal/state/               per-kit state file + shared/exclusive locking
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
-This module builds **two binaries**. `at-cove` is the sandbox substrate.
-`at-dispatch` is a **separate executable** that *consumes* the `at-cove` CLI
-(it never imports at-cove's internals) to schedule Linear-driven work onto
-sandboxes — see the [orchestration design](orchestration/INDEX.md). It is a
-skeleton today.
+This module builds **two binaries**: `at-cove` (the sandbox substrate, which
+also hosts the `dispatch` scheduler and the one-shot `work` runner) and
+`at-task` (the git/PR worker). The scheduler drives work by shelling
+`at-cove work` — it never imports at-cove's internals. See the
+[orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
@@ -292,7 +291,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-dispatch}
+just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-task}
 just build-all       # cross-compile every supported target
 just run <args>      # build the host binary, then run it with <args>
 just install         # install the host binary onto your PATH (no sudo by default)
@@ -349,4 +348,4 @@ Usage/reference (how to run the binaries):
 Forward-looking design (layers *on* at-cove, not yet built):
 
 - [`orchestration/INDEX.md`](orchestration/INDEX.md) —
-  the Linear-driven agent workflow and the at-cove dispatch interface it needs.
+  the Linear-driven agent workflow and the at-cove work interface it needs.

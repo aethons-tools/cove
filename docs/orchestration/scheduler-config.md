@@ -1,19 +1,19 @@
 ---
-summary: at-dispatch scheduler configuration schema — tracker wiring, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
-read_when: You are setting up a new at-dispatch instance, adding a handler class, changing tracker state mappings, adjusting timeouts/concurrency, or wiring a new kit to a class.
-owns: the at-dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
-prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-dispatch-interface.md (the kit and run-parameter model the config keys into)
+summary: at-cove dispatch scheduler configuration schema — tracker wiring, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
+read_when: You are setting up a new at-cove dispatch instance, adding a handler class, changing tracker state mappings, adjusting timeouts/concurrency, or wiring a new kit to a class.
+owns: the at-cove dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
+prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-work-interface.md (the kit and run-parameter model the config keys into)
 tier: leaf
 updated: 2026-07-10
 ---
 
-# at-dispatch Scheduler Configuration
+# at-cove dispatch Scheduler Configuration
 
 ## Purpose
 
-An `at-dispatch` instance is configured with a single YAML file passed at startup:
+An `at-cove dispatch` instance is configured with a single YAML file passed at startup:
 ```bash
-at-dispatch serve --config /path/to/at-dispatch.yml
+at-cove dispatch --config /path/to/at-cove-dispatch.yml
 ```
 
 This document defines the schema, the meaning of each field, how secrets are resolved, validation/loading, and the runtime implications.

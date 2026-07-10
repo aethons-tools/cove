@@ -37,7 +37,7 @@ A secret with a `command` **resolves itself**. A secret with **no `command`** is
 
 During `at-cove work`, resolver commands additionally see the run's parameters
 as `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` in their environment — see
-[at-cove-dispatch-interface.md](../orchestration/at-cove-dispatch-interface.md#three-separated-authorities)
+[at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#three-separated-authorities)
 for how this turns a resolver into a per-run credential minter.
 
 ## Supplying a value — `~/.config/at-cove/secrets.yml`
