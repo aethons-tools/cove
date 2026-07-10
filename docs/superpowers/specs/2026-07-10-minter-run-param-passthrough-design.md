@@ -18,7 +18,8 @@ Two coupled changes. **First, clean up the model:** give the *repo being acted o
 - **`task.json` `source-branch` is an optional override.** The scheduler normally sends none → at-cove uses `main-branch`; a caller may set it to stack work on a non-main base.
 - **at-cove fills the repo into the task.** The scheduler sends `{issue, class, brief, work-branch, source-branch?}` and names **no repo**. `at-cove dispatch` merges the kit's `origin` + `main-branch` into the task before injecting it, so **`at-work`'s `task.json` contract is unchanged** (it still reads a complete `repo` block) — only the *source* moves to the kit.
 - **The scheduler + `at-dispatch` config become repo-agnostic.** `RepoConfig{slug,source-branch}` retires; the brief drops its repo line. The dispatcher's purview is "which tracker issues," not "which repo."
-- **Passthrough, not a built-in minter** (unchanged from the prior design): at-cove exposes `COVE_RUN_*` to each resolver command during **dispatch** secret resolution; the minter is a kit `command`. Scope is fixed **in** the minter; run params tune only TTL/labels/target — untrusted issue text can never widen scope.
+- **Passthrough, not a built-in minter** (unchanged from the prior design): at-cove exposes `COVE_RUN_*` to each resolver command during **dispatch** secret resolution; the minter is a kit `command`. Scope is fixed **in** the minter; run params tune only labels/target — untrusted issue text can never widen scope.
+- **The token is minted fresh before *each* `at-work` git step** (`prepare`, then again `complete`), not once per run. Because the long agent step between them holds no token (the air-gap), each minted token need only outlive a single git operation (seconds–minutes) — so the code host's fixed token TTL (GitHub: 1h) never bounds the total run length. This retires the "dispatch `--timeout` < 1h" constraint entirely.
 
 ## 3. The kit
 
@@ -70,9 +71,9 @@ The repo is declared once (the kit's `origin`) and read by every consumer throug
 
 **`internal/secret`** — `Resolve(r, extraEnv map[string]string, specs)`; non-literal specs run via `OutputEnv`. `connect` passes `nil`; `dispatch` passes the run map.
 
-**`internal/dispatchrun`** — build `COVE_RUN_REPO` (= `origin.github.project`), `COVE_RUN_ISSUE` (`issue.key`), `COVE_RUN_CLASS` (`worker.class`), `COVE_RUN_TIMEOUT` (`--timeout`) and pass to `secret.Resolve`. The resolved (minted) token still flows only into the `prepare`/`complete` env and is withheld from the agent (AET-29 air-gap unchanged).
+**`internal/dispatchrun`** — build `COVE_RUN_REPO` (= `origin.github.project`), `COVE_RUN_ISSUE` (`issue.key`), `COVE_RUN_CLASS` (`worker.class`), `COVE_RUN_TIMEOUT` (`--timeout`). **Resolve the base (non-`AT_WORK_GIT_TOKEN`) secrets once up front** (fail-closed, before `BuildImage`); then **mint the token fresh immediately before `prepare` and again immediately before `complete`** (re-run the `AT_WORK_GIT_TOKEN` resolver with `COVE_RUN_*`), merging it into that step's env. The agent step runs with the base secrets only (no token) — the AET-29 air-gap holds, now with a per-step-fresh token.
 
-**Reference minter** — `kits/reference-worker` becomes a **per-repo kit template** (`origin` placeholder, `main-branch`, `workers`, the minter secret). Add `mint-github-token.sh` (template): read `COVE_RUN_REPO`; build an App JWT (RS256 via `openssl`) from an operator-provisioned App id + key path; `POST /app/installations/<id>/access_tokens` with `{"repositories":["<repo-name>"],"permissions":{"contents":"write","pull_requests":"write"}}`; print `.token`; fail-closed. GitHub fixes these tokens at **1-hour TTL**, so `COVE_RUN_TIMEOUT` is informational here and dispatch `--timeout` must stay < 1h (documented, not enforced). `install.sh` chmods it; `RUNBOOK.md` documents App provisioning.
+**Reference minter** — `kits/reference-worker` becomes a **per-repo kit template** (`origin` placeholder, `main-branch`, `workers`, the minter secret). Add `mint-github-token.sh` (template): read `COVE_RUN_REPO`; build an App JWT (RS256 via `openssl`) from an operator-provisioned App id + key path; `POST /app/installations/<id>/access_tokens` with `{"repositories":["<repo-name>"],"permissions":{"contents":"write","pull_requests":"write"}}`; print `.token`; fail-closed. Because at-cove mints once per git step, the code host's fixed 1-hour TTL only needs to cover a single `prepare` or `complete` — no run-length constraint. `install.sh` chmods it; `RUNBOOK.md` documents App provisioning.
 
 **Authority separation** (logical, matching today's resolver model): scheduler → tracker token only; the minter runs inside `at-cove dispatch` and reads the App **minting key** from a host path the scheduler *code* never touches; the worker VM receives only the minted token, in memory, never the key.
 
@@ -91,7 +92,7 @@ The repo is declared once (the kit's `origin`) and read by every consumer throug
 
 Hermetic (`runner.Fake`), no real GitHub:
 - `kit`: `origin` union parse + validation (one host, `owner/name`); `main-branch` default.
-- `dispatchrun`: repo merged into the injected task from `origin`+`main-branch` (+ `source-branch` override honored); `COVE_RUN_*` derived and reaching `secret.Resolve`; **the minted token lands only in prepare/complete env, withheld from the agent** (AET-29 air-gap test still holds); no secret value on argv.
+- `dispatchrun`: repo merged into the injected task from `origin`+`main-branch` (+ `source-branch` override honored); `COVE_RUN_*` derived and passed to the resolver; **the `AT_WORK_GIT_TOKEN` resolver runs once before `prepare` and once before `complete` (two fresh mints), and the token lands only in those two envs — withheld from the agent** (AET-29 air-gap test still holds); base secrets resolved once; no secret value on argv.
 - `runner`/`secret`: `OutputEnv` passes env; `Resolve(extraEnv,…)`; literal + fail-closed unchanged.
 - `scheduler`: task built without repo; broker/comment paths unaffected.
 - Reference minter: `sh -n`; reads `COVE_RUN_REPO`, fails closed when unset.
@@ -99,7 +100,7 @@ Hermetic (`runner.Fake`), no real GitHub:
 
 ## 8. Risks / non-goals
 
-- **1-hour GitHub cap** on installation tokens → dispatch runs must finish within it; longer TTLs need another token type (out of scope), documented not enforced.
+- **Fail-closed timing:** base secrets are validated before the VM is built, but the two token mints happen just before their git steps — so a *minter* misconfiguration surfaces after the image build (one wasted build, torn down on error), not before. Acceptable; an optional up-front smoke-mint could restore strict fail-before-build.
 - **Logical (not physical) authority separation** — the minting key is on the scheduler's host, read only by the minter command; a separate broker is deferred.
 - **Non-goals:** multi-code-host origins/minters (union leaves room); per-run `--egress-profile` and the tracker-host egress (AET-22); changing the AET-29 bracket/air-gap; a repo-agnostic (multi-repo) worker kit (explicitly rejected — one kit per repo).
 
