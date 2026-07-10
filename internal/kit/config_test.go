@@ -206,3 +206,20 @@ func TestParseConfigDispatch(t *testing.T) {
 		t.Fatalf("Dispatch.Command = %v; want [run-worker.sh]", cfg.Dispatch.Command)
 	}
 }
+
+func TestParseConfigWorkers(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nworkers:\n  implement:\n    prompt: do the thing\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Workers["implement"].Prompt != "do the thing" {
+		t.Fatalf("workers not parsed: %+v", cfg.Workers)
+	}
+}
+
+func TestParseConfigRejectsWorkerWithoutPrompt(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nworkers:\n  implement: {}\n"))
+	if err == nil {
+		t.Fatal("a worker class with no prompt must be rejected")
+	}
+}

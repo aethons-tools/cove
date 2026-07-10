@@ -28,3 +28,9 @@ dispatch:
   # cwd-relative .at-work/ resolves to these same files.
   input: /home/agent/work/.at-work/task.json
   output: /home/agent/work/.at-work/task-result.json
+
+workers:
+  implement:
+    prompt: |
+      You are an implementer. Make the change described in the task and run the
+      project's tests. Keep the change minimal and focused.

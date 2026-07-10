@@ -54,12 +54,19 @@ type DispatchConfig struct {
 	Output  string   `yaml:"output"` // VM path at-cove reads the task-result from, e.g. /home/agent/work/.at-work/task-result.json
 }
 
+// Worker declares a dispatch worker class: the prompt at-cove sends the agent when
+// at-cove dispatch runs this class. at-cove wraps it in the standard at-work bracket.
+type Worker struct {
+	Prompt string `yaml:"prompt"`
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name     string                  `yaml:"name"`
 	Secrets  map[string]SecretConfig `yaml:"secrets"`
 	Image    ImageConfig             `yaml:"image"`
 	Dispatch DispatchConfig          `yaml:"dispatch"`
+	Workers  map[string]Worker       `yaml:"workers"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -109,6 +116,14 @@ func ParseConfig(data []byte) (Config, error) {
 	for i, d := range cfg.Image.AllowedDomains {
 		if strings.TrimSpace(d) == "" {
 			return Config{}, fmt.Errorf("config.yml: image.allowed-domains[%d]: must not be empty", i)
+		}
+	}
+	for class, w := range cfg.Workers {
+		if strings.TrimSpace(class) == "" {
+			return Config{}, fmt.Errorf("config.yml: workers: a class name (map key) must not be empty")
+		}
+		if strings.TrimSpace(w.Prompt) == "" {
+			return Config{}, fmt.Errorf("config.yml: workers[%q]: prompt is required", class)
 		}
 	}
 	return cfg, nil
