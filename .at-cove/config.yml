@@ -1,11 +1,10 @@
 name: claude-on-at-cove
-backend: colima
 
 secrets:
-  - name: GITHUB_TOKEN
+  GITHUB_TOKEN: {}
 
 image:
-  setup-script:
+  setup-scripts:
     - .install-files/install.sh
     # TODO - rm -rf /.install-files
   paths:

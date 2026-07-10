@@ -43,7 +43,6 @@ type Options struct {
 	KnownHostsDir string    // per-sandbox known_hosts files live here
 	SkipAuth      bool      // skip the interactive `claude auth login` step (--no-auth)
 	Stderr        io.Writer // where the host-sleep warning is written; nil => os.Stderr
-	Setup         string    // command to seed an empty isolated workspace; "" => no setup (also blanked for --ws)
 	// CredentialsFile is the host path of the saved subscription login, shared
 	// across sandboxes. When set (and auth is not skipped), connect seeds it into
 	// the VM before the auth probe and saves the VM's copy back to it after a
@@ -96,10 +95,6 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 		if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
 			return err
 		}
-	}
-
-	if err := RunSetup(r, tgt, env, o.Setup); err != nil {
-		return err
 	}
 
 	// Keep the host awake for the session only: idle work happens between here

@@ -2,6 +2,7 @@ package kit
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -15,19 +16,10 @@ func TestReferenceWorkerKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if len(cfg.Dispatch.Command) != 1 || cfg.Dispatch.Command[0] != "run-worker.sh" {
-		t.Errorf("dispatch.command = %v; want [run-worker.sh]", cfg.Dispatch.Command)
-	}
-	if cfg.Image.Env["AT_WORK_AGENT_COMMAND"] != "run-agent.sh" {
-		t.Errorf("AT_WORK_AGENT_COMMAND = %q; want run-agent.sh", cfg.Image.Env["AT_WORK_AGENT_COMMAND"])
-	}
-	var found bool
-	for _, s := range cfg.Secrets {
-		if s.Name == "AT_WORK_GIT_TOKEN" && len(s.Command) > 0 {
-			found = true
-		}
-	}
-	if !found {
+	if s, ok := cfg.Secrets["AT_WORK_GIT_TOKEN"]; !ok || len(s.Command) == 0 {
 		t.Errorf("expected an AT_WORK_GIT_TOKEN secret with a resolver command; secrets=%v", cfg.Secrets)
+	}
+	if strings.TrimSpace(cfg.Workers["implement"].Prompt) == "" {
+		t.Errorf("expected a non-empty workers[implement].prompt; workers=%v", cfg.Workers)
 	}
 }

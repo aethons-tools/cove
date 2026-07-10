@@ -59,7 +59,7 @@ RUN if [ -f /home/agent/.claude.json ]; then \
 # installs. See docs/OVERVIEW.md ("Workspace and state volumes").
 RUN bash /usr/local/lib/cove/seed-plugins.sh
 
-# Run kit-declared setup scripts (config.yml image.setup-script) as root, each
+# Run kit-declared setup scripts (config.yml image.setup-scripts) as root, each
 # in place. Replaces the old hardcoded /.install-files/install.sh convention.
 RUN /usr/local/lib/cove/run-setup.sh
 

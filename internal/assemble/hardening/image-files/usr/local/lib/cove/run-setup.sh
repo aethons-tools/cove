@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run kit setup-scripts (config.yml image.setup-script) in order, as root, each
+# Run kit setup-scripts (config.yml image.setup-scripts) in order, as root, each
 # in its own directory so a script can reference sibling files. The manifest
 # lists in-image absolute script paths, one per line, written by cove's assemble
 # step. Build-time network is open, so scripts may curl/apt-get.

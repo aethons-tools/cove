@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -21,7 +19,7 @@ func writeKit(t *testing.T, dir string) string {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\n"
+	yml := "name: box\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -494,9 +492,11 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	}
 }
 
-func TestSaveStateSnapshotsSetup(t *testing.T) {
+func TestSaveStateSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	cfg := kit.Config{Name: "box", Backend: "colima", Setup: "git clone https://x ."}
+	cfg := kit.Config{Name: "box", Secrets: map[string]kit.SecretConfig{
+		"GITHUB_TOKEN": {Command: []string{"op", "read", "x"}},
+	}}
 	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
 	if err := saveState(dir, cfg, inst); err != nil {
@@ -506,274 +506,11 @@ func TestSaveStateSnapshotsSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Setup != "git clone https://x ." {
-		t.Fatalf("state Setup = %q", st.Setup)
+	if st.Name != "box" || st.Backend != "colima" || st.Container != "box" || st.Image != "img" {
+		t.Fatalf("state = %+v", st)
 	}
-}
-
-func TestDestroyLoopInstancePreservesImage(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	writeState(t, kitDir, "colima", "box") // interactive instance present
-	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
-		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	rm := dockerArg0Index(f.Calls, "rm") != -1
-	rmi := dockerArg0Index(f.Calls, "rmi") != -1
-	if !rm {
-		t.Fatal("loop container should be removed")
-	}
-	if rmi {
-		t.Fatal("shared image must NOT be removed on loop teardown")
-	}
-	if state.ExistsFor(kitDir, state.LoopInstance("foo")) {
-		t.Fatal("loop state should be deleted")
-	}
-}
-
-func TestDestroyLastLoopInstanceRemovesImage(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir) // config only — NO interactive instance state
-	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
-		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	rmi := dockerArg0Index(f.Calls, "rmi") != -1
-	if !rmi {
-		t.Fatal("destroying the LAST instance (no interactive, no other loop) must remove the shared image")
-	}
-}
-
-func TestStatusLoopInstance(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
-		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// preflight `docker info` is a Probe (no Output consumed); `inspect` is the Output.
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
-	var out, errOut bytes.Buffer
-	code := run([]string{"status", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	if !strings.Contains(out.String(), "running") {
-		t.Fatalf("status = %q", out.String())
-	}
-}
-
-func TestLoopFlagRejectsBadName(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", "--loop", "../etc", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code == 0 {
-		t.Fatal("invalid loop name must error")
-	}
-}
-
-func TestLoopFlagRejectedForOtherCommands(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"build", "--loop", "foo", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 2 {
-		t.Fatalf("--loop on a non-destroy/status command must error with exit 2, got %d", code)
-	}
-}
-
-func TestDestroyInteractivePreservesImageWhenLoopsExist(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	writeState(t, kitDir, "colima", "box") // interactive instance
-	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
-		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	rmi := dockerArg0Index(f.Calls, "rmi") != -1
-	if rmi {
-		t.Fatal("interactive destroy must NOT remove the shared image while a loop instance exists")
-	}
-}
-
-func TestDestroyInteractiveDryRunHonestAboutSharedImage(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	writeState(t, kitDir, "colima", "box") // interactive
-	if err := state.SaveFor(kitDir, state.LoopInstance("foo"), state.State{
-		Name: "box", Backend: "colima", Container: "box-loop-foo", Image: "at-cove-for-box",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "destroy", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	s := out.String()
-	if strings.Contains(s, "remove image") {
-		t.Fatalf("dry-run must not claim image removal while loops exist: %q", s)
-	}
-	if !strings.Contains(s, "shared image") {
-		t.Fatalf("dry-run should say the shared image is kept: %q", s)
-	}
-}
-
-func writeLoopKit(t *testing.T, dir string) string {
-	t.Helper()
-	cove := filepath.Join(dir, ".at-cove")
-	if err := os.MkdirAll(cove, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := "name: box\nbackend: colima\n" +
-		"secrets:\n  - name: ANTHROPIC_API_KEY\n  - name: GITHUB_TOKEN\n" +
-		"loops:\n  default:\n    interval: 5m\n    check: \"test -e q\"\n    prompt: \"do it\"\n    setup: \"git clone https://x .\"\n"
-	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return cove
-}
-
-func TestCreateLoopInstance(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	seedConfigDir(t)
-	f := &runner.Fake{}
-	cfg, err := kit.Load(kitDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := createLoopInstance(kitDir, f, cfg, "default", io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Container != "box-loop-default" {
-		t.Fatalf("container = %q, want box-loop-default", st.Container)
-	}
-	if st.Image != "at-cove-for-box" {
-		t.Fatalf("image = %q, want the shared kit image at-cove-for-box", st.Image)
-	}
-	if st.Setup != "git clone https://x ." {
-		t.Fatalf("setup = %q (per-loop setup should win)", st.Setup)
-	}
-	if !state.ExistsFor(kitDir, state.LoopInstance("default")) {
-		t.Fatal("loop state file not written")
-	}
-	bi := dockerArg0Index(f.Calls, "build")
-	ri := dockerArg0Index(f.Calls, "run")
-	if bi == -1 || ri == -1 {
-		t.Fatalf("must build + run; calls=%+v", f.Calls)
-	}
-	if !slices.Contains(f.Calls[bi].Args, "at-cove-for-box") {
-		t.Fatalf("build must tag the shared image: %+v", f.Calls[bi])
-	}
-	if !slices.Contains(f.Calls[ri].Args, "box-loop-default") {
-		t.Fatalf("run must name the loop container: %+v", f.Calls[ri])
-	}
-}
-
-func TestCreateLoopInstanceRequiresAPIKey(t *testing.T) {
-	dir := t.TempDir()
-	cove := filepath.Join(dir, ".at-cove")
-	if err := os.MkdirAll(cove, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := "name: box\nbackend: colima\nloops:\n  default:\n    interval: 1m\n    check: c\n    prompt: p\n"
-	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f := &runner.Fake{}
-	cfg, _ := kit.Load(cove)
-	_, err := createLoopInstance(cove, f, cfg, "default", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
-		t.Fatalf("must require ANTHROPIC_API_KEY; err=%v", err)
-	}
-	if len(f.Calls) != 0 {
-		t.Fatalf("must fail before building/creating; calls=%+v", f.Calls)
-	}
-}
-
-func TestCreateLoopInstanceUnknownLoop(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	f := &runner.Fake{}
-	cfg, _ := kit.Load(kitDir)
-	if _, err := createLoopInstance(kitDir, f, cfg, "nope", io.Discard); err == nil {
-		t.Fatal("unknown loop must error")
-	}
-}
-
-func TestDryRunLoop(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "loop", "default", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	if len(f.Calls) != 0 {
-		t.Fatalf("dry-run executed commands: %+v", f.Calls)
-	}
-	s := out.String()
-	if !strings.Contains(s, "would run loop \"default\"") || !strings.Contains(s, "5m0s") {
-		t.Fatalf("dry-run message = %q", s)
-	}
-}
-
-func TestDryRunLoopIntervalOverride(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "loop", "--interval", "30s", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	// name omitted => "default"; interval overridden to 30s.
-	if !strings.Contains(out.String(), "30s") {
-		t.Fatalf("--interval should override; msg=%q", out.String())
-	}
-}
-
-func TestLoopUnknownNameErrors(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "loop", "nope", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code == 0 {
-		t.Fatal("unknown loop name must error")
+	if len(st.Secrets) != 1 || st.Secrets[0].Name != "GITHUB_TOKEN" {
+		t.Fatalf("secrets not snapshotted: %+v", st.Secrets)
 	}
 }
 
@@ -815,9 +552,9 @@ func TestDispatchReapDoesNotRequireInOut(t *testing.T) {
 	}
 }
 
-func TestDispatchRequiresDispatchCommand(t *testing.T) {
+func TestDispatchRequiresWorkers(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir) // no dispatch.command declared
+	kitDir := writeKit(t, dir) // no workers declared
 	inFile := filepath.Join(dir, "in.json")
 	outFile := filepath.Join(dir, "out.json")
 	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
@@ -827,35 +564,10 @@ func TestDispatchRequiresDispatchCommand(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
-		t.Fatalf("exit = %d; want 1 (no dispatch.command)", code)
+		t.Fatalf("exit = %d; want 1 (no workers)", code)
 	}
-	if !strings.Contains(errOut.String(), "dispatch.command") {
-		t.Fatalf("stderr = %q; want mention of dispatch.command", errOut.String())
-	}
-}
-
-func TestDispatchUnsupportedBackendErrors(t *testing.T) {
-	dir := t.TempDir()
-	cove := filepath.Join(dir, ".at-cove")
-	if err := os.MkdirAll(cove, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := "name: box\nbackend: bogus\ndispatch:\n  command: [\"run-worker.sh\"]\n"
-	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	inFile := filepath.Join(dir, "in.json")
-	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", cove, "--in", inFile, "--out", filepath.Join(dir, "out.json")},
-		&runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 1 {
-		t.Fatalf("exit = %d; want 1 (unsupported backend), stderr=%s", code, errOut.String())
-	}
-	if !strings.Contains(errOut.String(), "bogus") {
-		t.Fatalf("stderr = %q; want mention of the bad backend name", errOut.String())
+	if !strings.Contains(errOut.String(), "declares no workers") {
+		t.Fatalf("stderr = %q; want mention of declares no workers", errOut.String())
 	}
 }
 
@@ -868,7 +580,7 @@ func TestDryRunDispatchPrintsNoExec(t *testing.T) {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nbackend: colima\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	yml := "name: box\nworkers:\n  implement:\n    prompt: do the thing\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -912,16 +624,5 @@ func TestDryRunDispatchReapPrintsNoExec(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "would") {
 		t.Fatalf("dry-run dispatch --reap should describe the planned scavenge: %q", out.String())
-	}
-}
-
-func TestLoopBadIntervalErrors(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeLoopKit(t, dir)
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"loop", "--interval", "nonsense", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code == 0 {
-		t.Fatal("bad --interval must error")
 	}
 }

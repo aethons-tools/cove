@@ -13,5 +13,5 @@ go install github.com/aethons-tools/cove/cmd/at-work@main   # <-- pin to a tag/S
 
 # 3) git and the target project's build toolchain — add here.
 
-# The worker/agent scripts arrive via image-files at /usr/local/bin (already on PATH).
-chmod 0755 /usr/local/bin/run-worker.sh /usr/local/bin/run-agent.sh
+# at-cove drives the at-work prepare -> claude -> at-work complete bracket itself;
+# the image only needs at-work, claude, and the project toolchain on PATH.

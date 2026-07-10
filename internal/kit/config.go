@@ -4,41 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Secret declares an environment variable the sandbox needs. Command is
-// optional: when omitted, the secret is a demand to be supplied by the user's
-// ~/.config/at-cove/secrets.yml at connect time (or it warns and is left unset).
-// When present, Command is the host argv that produces the value (trusted today,
-// pre-.local).
-type Secret struct {
-	Name        string   `yaml:"name"`
+// SecretConfig configures how a declared secret (keyed by its env var name in the
+// secrets map) resolves. Command, when present, is the host argv whose stdout is the
+// value; when omitted the value is supplied from ~/.config/at-cove/secrets.yml.
+type SecretConfig struct {
 	Description string   `yaml:"description"`
 	Command     []string `yaml:"command"`
-}
-
-// Loop declares a scheduled, unattended agent run for `at-cove loop`. Interval
-// is a Go duration string (e.g. "5m"). Check exits 0 to trigger the agent run;
-// Prompt is passed to `claude -p`. Setup, when set, overrides the kit-level
-// setup for this loop's workspace; FreshWorkspace re-seeds the workspace before
-// each trigger.
-type Loop struct {
-	Interval       string `yaml:"interval"`
-	Check          string `yaml:"check"`
-	Prompt         string `yaml:"prompt"`
-	Setup          string `yaml:"setup"`
-	FreshWorkspace bool   `yaml:"fresh-workspace"`
-}
-
-// ParsedInterval returns the loop's interval as a time.Duration. It assumes the
-// config passed ParseConfig (which rejects unparseable or non-positive
-// intervals), so a parse error is reported as a zero duration.
-func (l Loop) ParsedInterval() time.Duration {
-	d, _ := time.ParseDuration(l.Interval)
-	return d
 }
 
 // baseEnvKeys are the /etc/environment variables the sealed hardening layer
@@ -62,32 +37,24 @@ var baseEnvKeys = map[string]bool{
 // cove translates each field to the correct sealed mechanism; every field is
 // additive to the hardened baseline and never overrides it.
 type ImageConfig struct {
-	SetupScript    []string          `yaml:"setup-script"`    // kit-relative scripts run as root at build, in place
+	SetupScripts   []string          `yaml:"setup-scripts"`   // kit-relative scripts run as root at build, in place
 	Paths          []string          `yaml:"paths"`           // appended to PATH in /etc/environment
 	Env            map[string]string `yaml:"env"`             // KEY=VALUE written to /etc/environment
 	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
 }
 
-// DispatchConfig declares how `at-cove dispatch` performs a unit of work: the command
-// run inside the VM, and the VM-side paths where at-cove injects the task file and reads
-// the result. Input/Output are absolute VM paths under the worker's .at-work/ dir; the
-// dispatch command must run with a cwd such that at-work reads/writes the same files
-// (see kits/reference-worker for the reference wiring).
-type DispatchConfig struct {
-	Command []string `yaml:"command"`
-	Input   string   `yaml:"input"`  // VM path at-cove writes the task file to, e.g. /home/agent/work/.at-work/task.json
-	Output  string   `yaml:"output"` // VM path at-cove reads the task-result from, e.g. /home/agent/work/.at-work/task-result.json
+// Worker declares a dispatch worker class: the prompt at-cove sends the agent when
+// at-cove dispatch runs this class. at-cove wraps it in the standard at-work bracket.
+type Worker struct {
+	Prompt string `yaml:"prompt"`
 }
 
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name     string          `yaml:"name"`
-	Backend  string          `yaml:"backend"`
-	Setup    string          `yaml:"setup"` // optional: command run once to populate an isolated workspace
-	Secrets  []Secret        `yaml:"secrets"`
-	Loops    map[string]Loop `yaml:"loops"`
-	Image    ImageConfig     `yaml:"image"`
-	Dispatch DispatchConfig  `yaml:"dispatch"`
+	Name    string                  `yaml:"name"`
+	Secrets map[string]SecretConfig `yaml:"secrets"`
+	Image   ImageConfig             `yaml:"image"`
+	Workers map[string]Worker       `yaml:"workers"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -102,29 +69,14 @@ func ParseConfig(data []byte) (Config, error) {
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
 	}
-	if cfg.Backend == "" {
-		return Config{}, fmt.Errorf("config.yml: backend is required")
-	}
-	for i, s := range cfg.Secrets {
-		if s.Name == "" {
-			return Config{}, fmt.Errorf("config.yml: secrets[%d]: name is required", i)
+	for name := range cfg.Secrets {
+		if strings.TrimSpace(name) == "" {
+			return Config{}, fmt.Errorf("config.yml: secrets: a secret name (map key) must not be empty")
 		}
 	}
-	for name, lp := range cfg.Loops {
-		d, err := time.ParseDuration(lp.Interval)
-		if err != nil || d <= 0 {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: interval must be a positive Go duration (e.g. 5m), got %q", name, lp.Interval)
-		}
-		if lp.Check == "" {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: check is required", name)
-		}
-		if lp.Prompt == "" {
-			return Config{}, fmt.Errorf("config.yml: loops[%q]: prompt is required", name)
-		}
-	}
-	for i, s := range cfg.Image.SetupScript {
+	for i, s := range cfg.Image.SetupScripts {
 		if strings.TrimSpace(s) == "" {
-			return Config{}, fmt.Errorf("config.yml: image.setup-script[%d]: must not be empty", i)
+			return Config{}, fmt.Errorf("config.yml: image.setup-scripts[%d]: must not be empty", i)
 		}
 	}
 	for i, p := range cfg.Image.Paths {
@@ -152,6 +104,14 @@ func ParseConfig(data []byte) (Config, error) {
 	for i, d := range cfg.Image.AllowedDomains {
 		if strings.TrimSpace(d) == "" {
 			return Config{}, fmt.Errorf("config.yml: image.allowed-domains[%d]: must not be empty", i)
+		}
+	}
+	for class, w := range cfg.Workers {
+		if strings.TrimSpace(class) == "" {
+			return Config{}, fmt.Errorf("config.yml: workers: a class name (map key) must not be empty")
+		}
+		if strings.TrimSpace(w.Prompt) == "" {
+			return Config{}, fmt.Errorf("config.yml: workers[%q]: prompt is required", class)
 		}
 	}
 	return cfg, nil

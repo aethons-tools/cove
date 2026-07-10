@@ -39,7 +39,7 @@ A minimal `.at-cove/config.yml`:
 name: claude-on-myrepo
 backend: colima              # only colima is implemented today
 secrets:
-  - name: GITHUB_TOKEN       # value resolved at connect time on the host
+  GITHUB_TOKEN:              # value resolved at connect time on the host
     command: ["op", "read", "op://Personal/github-pat/token"]
 ```
 
