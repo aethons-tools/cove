@@ -45,7 +45,7 @@ func New(cfg config.Config, t Tracker, e Executor, logger *log.Logger) *Engine {
 	}
 }
 
-// handle runs one issue synchronously: claim → brief → at-cove dispatch → broker.
+// handle runs one issue synchronously: claim → brief → at-cove work → broker.
 func (e *Engine) handle(ctx context.Context, iss Issue) {
 	if err := e.tracker.Transition(ctx, iss.ID, RoleInProgress); err != nil {
 		e.log.Printf("claim %s: %v", iss.Identifier, err)
@@ -90,7 +90,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	over, _ := time.ParseDuration(e.cfg.DispatchOverhead) // validated by config
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
-	argv := []string{"at-cove", "dispatch", cl.Kit, "--in", inPath, "--out", outPath, "--timeout", cl.Timeout}
+	argv := []string{"at-cove", "work", cl.Kit, "--in", inPath, "--out", outPath, "--timeout", cl.Timeout}
 	runErr := e.exec.Run(rctx, argv, nil)
 
 	e.broker(ctx, iss, readResult(outPath), runErr)

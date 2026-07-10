@@ -83,7 +83,7 @@ type fakeErr string
 
 func (e fakeErr) Error() string { return string(e) }
 
-// fakeExecutor simulates `at-cove dispatch`: it reads the --in task file and
+// fakeExecutor simulates `at-cove work`: it reads the --in task file and
 // writes OutJSON to the --out path. RunErr (if set) is returned after writing.
 type fakeExecutor struct {
 	OutJSON  string // what to write to the --out path ("" => write nothing)

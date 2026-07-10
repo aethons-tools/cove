@@ -72,7 +72,7 @@ type Backend interface {
 	GetStatus(container string) (State, error)
 }
 
-// DispatchOps is the ephemeral-container surface `at-cove dispatch` needs, beyond
+// DispatchOps is the ephemeral-container surface `at-cove work` needs, beyond
 // the persistent Create/Destroy lifecycle. A Backend may implement it.
 type DispatchOps interface {
 	BuildImage(buildDir, tag string) error

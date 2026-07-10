@@ -114,8 +114,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return doStatusInstance(kitDir, r, inst, g.DryRun, out)
 				})
 			}},
-			{Name: "dispatch", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return doDispatch(args, r, g.DryRun, out, errw)
+			{Name: "work", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doWork(args, r, g.DryRun, out, errw)
 			}},
 		},
 	}
@@ -470,14 +470,14 @@ func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRu
 	return nil
 }
 
-// dispatchName derives a container name unique to one dispatch run: the kit
+// workName derives a container name unique to one dispatch run: the kit
 // name for readability, plus the pid and a nanosecond timestamp so concurrent
 // dispatches of the same kit (even from separate processes) never collide.
-func dispatchName(kitName string) string {
-	return fmt.Sprintf("at-cove-dispatch-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
+func workName(kitName string) string {
+	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
 }
 
-// doDispatch runs `at-cove dispatch <kit-dir> --in <f> --out <f> [--timeout]
+// doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
 // crashed dispatch orphans). It parses the kit-dir positional itself (rather
@@ -487,8 +487,8 @@ func dispatchName(kitName string) string {
 // it prints the planned actions and returns before touching the backend,
 // assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
 // convention.
-func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
@@ -500,15 +500,15 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		return 2
 	}
 	if len(pos) < 1 {
-		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
+		fmt.Fprintln(stderr, "at-cove work: expected <kit-dir>")
 		return 2
 	}
-	kitDir, code := kitDirArg(pos, "dispatch", stderr)
+	kitDir, code := kitDirArg(pos, "work", stderr)
 	if code != 0 {
 		return code
 	}
 	if !*reap && (*inPath == "" || *outPath == "") {
-		fmt.Fprintln(stderr, "at-cove dispatch: --in and --out are required (unless --reap)")
+		fmt.Fprintln(stderr, "at-cove work: --in and --out are required (unless --reap)")
 		return 2
 	}
 
@@ -575,7 +575,7 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 	}
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
-		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: dispatchName(cfg.Name),
+		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
 		Secrets:         specs,
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		IdentityFile:    priv,
@@ -584,7 +584,7 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		Timeout: *timeout, GraceWindow: *grace, Now: time.Now(),
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
+		fmt.Fprintf(stderr, "at-cove work: %v\n", err)
 		return 1
 	}
 	return 0

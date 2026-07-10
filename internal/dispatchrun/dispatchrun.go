@@ -1,4 +1,4 @@
-// Package dispatchrun orchestrates `at-cove dispatch`: a synchronous, one-shot run
+// Package dispatchrun orchestrates `at-cove work`: a synchronous, one-shot run
 // of a unit of work in a fresh ephemeral hardened VM. It reads the injected task's
 // worker.class to resolve the kit's prompt for that class, then drives the
 // prepare/agent/complete bracket step-by-step over ssh, with the code-host token
@@ -25,7 +25,7 @@ import (
 )
 
 // Label tags every ephemeral dispatch container so scavenging can find orphans.
-const Label = "at-cove.dispatch"
+const Label = "at-cove.work"
 
 const (
 	sshReadyAttempts = 10
@@ -34,7 +34,7 @@ const (
 
 const (
 	credsVMPath = "/agent-data/.credentials.json"
-	envVMPath   = "/dev/shm/at-cove-dispatch-env"
+	envVMPath   = "/dev/shm/at-cove-work-env"
 )
 
 const (

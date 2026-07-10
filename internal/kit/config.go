@@ -45,7 +45,7 @@ type ImageConfig struct {
 }
 
 // Worker declares a dispatch worker class: the prompt at-cove sends the agent when
-// at-cove dispatch runs this class. at-cove wraps it in the standard at-task bracket.
+// at-cove work runs this class. at-cove wraps it in the standard at-task bracket.
 type Worker struct {
 	Prompt string `yaml:"prompt"`
 }
