@@ -23,8 +23,6 @@ rm go.tar.gz
 #     plus the rootless plumbing (uidmap, fuse-overlayfs, slirp4netns).
 #   - shellcheck — lints entrypoint.sh and the remote shell cove emits.
 #   - hadolint   — lints the embedded Dockerfile (from GitHub releases).
-#   - jq         — validate managed-settings.json / config.yml by hand.
-#   - just       — task runner for the justfile (build/test/lint/integration).
 #
 # Target: Debian/Ubuntu (the image base is ubuntu:24.04). Arch-aware (arm64/amd64).
 # Idempotent and safe to re-run. Uses sudo for system installs.
@@ -92,6 +90,5 @@ podman --version
 docker --version || echo "  (docker shim: install ok; first run prints podman version)"
 shellcheck --version | sed -n '1,2p'
 hadolint --version
-jq --version
 
 log "Done. Smoke-test podman with:  docker run --rm hello-world  (needs egress)"

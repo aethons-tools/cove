@@ -641,6 +641,10 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	sort.Strings(classes)
+	if len(classes) == 0 {
+		fmt.Fprintln(stderr, "at-cove dispatch: kit declares no dispatchable worker class (only <common>?)")
+		return 1
+	}
 	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
 
 	tokSpec := cfg.Tracker.Linear.Secrets["AT_DISPATCH_TRACKER_TOKEN"]
