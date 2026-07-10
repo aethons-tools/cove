@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/dispatch/config"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 const endpoint = "https://api.linear.app/graphql"
@@ -21,21 +21,25 @@ type Client struct {
 	http    *http.Client
 	token   string
 	team    string
-	prefix  string          // class label prefix
-	states  config.StateMap // role → configured state name
+	prefix  string       // class label prefix
+	states  kit.StateMap // role → configured state name
 	stateID map[scheduler.Role]string
 }
 
 // New constructs a Client and resolves the team's state names to ids up front.
-func New(cfg config.Config, token string, httpc *http.Client) (*Client, error) {
+func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
+	if cfg.Tracker == nil || cfg.Tracker.Linear == nil {
+		return nil, fmt.Errorf("linear: kit declares no tracker.linear")
+	}
+	lt := cfg.Tracker.Linear
 	if httpc == nil {
 		httpc = http.DefaultClient
 	}
 	c := &Client{
 		http: httpc, token: token,
-		team:   cfg.Tracker.Team,
-		prefix: cfg.Tracker.ClassLabelPrefix,
-		states: cfg.Tracker.States,
+		team:   lt.Team,
+		prefix: lt.ClassLabelPrefix,
+		states: lt.States,
 	}
 	if err := c.loadStates(context.Background()); err != nil {
 		return nil, err

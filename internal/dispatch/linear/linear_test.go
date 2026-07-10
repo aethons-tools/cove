@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/dispatch/config"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // rtFunc is a fake http.RoundTripper returning canned responses per request.
@@ -21,16 +21,16 @@ func jsonResp(body string) *http.Response {
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
 }
 
-func testCfg() config.Config {
-	return config.Config{
-		Tracker: config.TrackerConfig{
+func testCfg() kit.Config {
+	return kit.Config{
+		Tracker: &kit.Tracker{Linear: &kit.LinearTracker{
 			Team:             "AET",
 			ClassLabelPrefix: "class:",
-			States: config.StateMap{
+			States: kit.StateMap{
 				Ready: "Todo", InProgress: "In Progress", InReview: "In Review",
 				Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog",
 			},
-		},
+		}},
 	}
 }
 
