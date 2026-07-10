@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,8 +86,25 @@ type SourceControl struct {
 }
 
 type GitHubSource struct {
-	Project    string `yaml:"project"`               // "owner/name"
-	MainBranch string `yaml:"main-branch,omitempty"` // base branch; default "main"
+	Project    string                  `yaml:"project"`               // "owner/name"
+	MainBranch string                  `yaml:"main-branch,omitempty"` // base branch; default "main"
+	Secrets    map[string]SecretConfig `yaml:"secrets,omitempty"`     // well-known: AT_TASK_GIT_TOKEN
+}
+
+// GitTokenSpec returns the code-host token resolver declared under
+// source-control.github.secrets, if set. This is the structural air-gap: the
+// token lives at a distinct schema location from the root/agent secrets, so
+// dispatchrun receives it as a separate spec rather than fishing it out of the
+// root secrets list by name.
+func (c Config) GitTokenSpec() (secret.Spec, bool) {
+	if c.SourceControl == nil || c.SourceControl.GitHub == nil {
+		return secret.Spec{}, false
+	}
+	s, ok := c.SourceControl.GitHub.Secrets["AT_TASK_GIT_TOKEN"]
+	if !ok {
+		return secret.Spec{}, false
+	}
+	return secret.Spec{Name: "AT_TASK_GIT_TOKEN", Command: s.Command}, true
 }
 
 // Active returns the set host, or an error if not exactly one.
@@ -262,6 +280,11 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 			if gh.MainBranch == "" {
 				gh.MainBranch = "main"
+			}
+			if len(gh.Secrets) > 0 {
+				if err := checkWellKnownSecrets("source-control.github.secrets", gh.Secrets, "AT_TASK_GIT_TOKEN"); err != nil {
+					return Config{}, err
+				}
 			}
 		}
 	}

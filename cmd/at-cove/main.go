@@ -586,10 +586,16 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	for name, s := range cfg.Secrets {
 		specs = append(specs, secret.Spec{Name: name, Command: s.Command})
 	}
+	gitTok, ok := cfg.GitTokenSpec()
+	if !ok {
+		fmt.Fprintf(stderr, "at-cove: kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN\n", cfg.Name)
+		return 1
+	}
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
 		Secrets:         specs,
+		GitToken:        gitTok,
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		IdentityFile:    priv,
 		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),

@@ -42,7 +42,6 @@ const (
 	taskVMPath   = workDir + "/.at-task/task.json"
 	resultVMPath = workDir + "/.at-task/task-result.json"
 	promptVMPath = "/dev/shm/at-cove-prompt"
-	gitTokenEnv  = "AT_TASK_GIT_TOKEN" // withheld from the agent step (the air-gap)
 )
 
 type Options struct {
@@ -52,7 +51,8 @@ type Options struct {
 	BuildDir        string
 	Name            string // unique container name
 	Secrets         []secret.Spec
-	CredentialsFile string // host-saved agent login to seed; "" = none
+	GitToken        secret.Spec // code-host token; withheld from the agent step
+	CredentialsFile string      // host-saved agent login to seed; "" = none
 	IdentityFile    string
 	KnownHostsDir   string
 	InputPath       string
@@ -110,30 +110,22 @@ func Dispatch(o Options) error {
 		"COVE_RUN_CLASS":   task.Worker.Class,
 		"COVE_RUN_TIMEOUT": o.Timeout.String(),
 	}
-	// Split the code-host token (minted fresh per git step) from the base secrets
-	// (resolved once). AT_TASK_GIT_TOKEN never enters the agent's env.
-	var baseSpecs []secret.Spec
-	var tokenSpec *secret.Spec
-	for i := range o.Secrets {
-		if o.Secrets[i].Name == gitTokenEnv {
-			s := o.Secrets[i]
-			tokenSpec = &s
-		} else {
-			baseSpecs = append(baseSpecs, o.Secrets[i])
-		}
-	}
-	base, err := secret.Resolve(o.R, runEnv, baseSpecs) // fail closed before creating anything
+	// The code-host token arrives as a distinct spec (o.GitToken), structurally
+	// separate from the root/agent secrets (o.Secrets) — never mixed in, so it
+	// cannot leak into the agent step by name-matching accident.
+	base, err := secret.Resolve(o.R, runEnv, o.Secrets) // root secrets → agent bucket; fail closed
 	if err != nil {
 		return err
 	}
+	hasToken := o.GitToken.Name != ""
 	// mint returns base + a freshly-minted code-host token (or just base if none is declared).
 	mint := func() (map[string]string, error) {
 		e := make(map[string]string, len(base)+1)
 		for k, v := range base {
 			e[k] = v
 		}
-		if tokenSpec != nil {
-			tok, err := secret.Resolve(o.R, runEnv, []secret.Spec{*tokenSpec})
+		if hasToken {
+			tok, err := secret.Resolve(o.R, runEnv, []secret.Spec{o.GitToken})
 			if err != nil {
 				return nil, err
 			}

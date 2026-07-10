@@ -301,6 +301,32 @@ func TestParseConfigMainBranchOverride(t *testing.T) {
 	}
 }
 
+func TestGitTokenSpecFromSourceControl(t *testing.T) {
+	src := `
+name: k
+source-control:
+  github:
+    project: acme/myrepo
+    secrets:
+      AT_TASK_GIT_TOKEN: { command: ["mint.sh"] }
+`
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	spec, ok := cfg.GitTokenSpec()
+	if !ok || spec.Name != "AT_TASK_GIT_TOKEN" || spec.Command[0] != "mint.sh" {
+		t.Fatalf("GitTokenSpec = %+v, ok=%v", spec, ok)
+	}
+}
+
+func TestParseConfigRejectsUnknownSourceControlSecret(t *testing.T) {
+	src := "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      BOGUS: { command: [\"x\"] }\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of an unknown source-control secret name")
+	}
+}
+
 const trackerKit = `
 name: k
 tracker:

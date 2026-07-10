@@ -7,6 +7,12 @@ source-control:
   github:
     project: your-org/your-repo   # ← set to the target repo
     main-branch: main
+    secrets:
+      # Code-host token used ONLY by at-task prepare/complete (clone/push/PR).
+      # Resolved on the host, minted per git step, injected in memory. The agent never sees it.
+      AT_TASK_GIT_TOKEN:
+        description: per-task GitHub App installation token — push + PR on the repo, minted per run
+        command: ["mint-github-token.sh"]
 
 tracker:
   linear:
@@ -31,13 +37,6 @@ collaborators:
   triager:
     secrets:
       LINEAR_TOKEN: { command: ["true"] }
-
-secrets:
-  # Code-host token used ONLY by at-task prepare/complete (clone/push/PR). Resolved
-  # on the host at dispatch, injected in memory. The agent step never sees it.
-  AT_TASK_GIT_TOKEN:
-    description: per-task GitHub App installation token — push + PR on origin, minted per run
-    command: ["mint-github-token.sh"]
 
 image:
   setup-scripts:
