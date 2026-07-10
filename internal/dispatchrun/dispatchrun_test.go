@@ -47,7 +47,12 @@ func TestDispatchRunsBracket(t *testing.T) {
 
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		BuildDir: dir, Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
@@ -55,6 +60,16 @@ func TestDispatchRunsBracket(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
+	}
+	var injected string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+taskVMPath) {
+			injected = c.Stdin
+		}
+	}
+	if !strings.Contains(injected, `"name": "acme/myrepo"`) ||
+		!strings.Contains(injected, `"source-branch": "main"`) {
+		t.Fatalf("injected task missing filled repo:\n%s", injected)
 	}
 	calls := allCalls(r)
 	// the three bracket steps ran, in order, cd'd to the workdir
@@ -93,7 +108,12 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg: kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		Secrets: []secret.Spec{
 			{Name: "AT_WORK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
 			{Name: "OTHER", Command: []string{"echo", "x"}},
@@ -149,6 +169,62 @@ func TestDispatchUndeclaredClassErrors(t *testing.T) {
 	}
 }
 
+// TestDispatchSourceBranchOverride confirms a task-supplied source-branch is honored
+// rather than clobbered by the kit's main-branch default.
+func TestDispatchSourceBranchOverride(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"},"repo":{"source-branch":"release"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		BuildDir: dir, Name: "disp-override",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var injected string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+taskVMPath) {
+			injected = c.Stdin
+		}
+	}
+	if !strings.Contains(injected, `"source-branch": "release"`) {
+		t.Fatalf("task-supplied source-branch was overwritten:\n%s", injected)
+	}
+	if strings.Contains(injected, `"source-branch": "main"`) {
+		t.Fatalf("expected the override to be kept, not the kit's main-branch:\n%s", injected)
+	}
+}
+
+// TestDispatchRequiresOrigin confirms dispatch refuses to run when the kit
+// declares no origin — the repo has exactly one source of truth now.
+func TestDispatchRequiresOrigin(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	err := Dispatch(Options{
+		Ops: &fakeOps{}, R: &runner.Fake{},
+		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		BuildDir: dir, Name: "disp-noorigin", InputPath: in, OutputPath: dir + "/o.json",
+		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected an error when the kit declares no origin")
+	}
+}
+
 func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
@@ -156,7 +232,12 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})

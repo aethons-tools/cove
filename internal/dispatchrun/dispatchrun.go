@@ -8,6 +8,7 @@ package dispatchrun
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,9 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -75,13 +75,29 @@ func Dispatch(o Options) error {
 	if err != nil {
 		return err
 	}
-	class, err := taskClass(input)
+	var task worker.Task
+	if err := json.Unmarshal(input, &task); err != nil {
+		return fmt.Errorf("parse task: %w", err)
+	}
+	if task.Worker.Class == "" {
+		return fmt.Errorf("task declares no worker.class")
+	}
+	w, ok := o.Cfg.Workers[task.Worker.Class]
+	if !ok {
+		return fmt.Errorf("kit %q declares no worker class %q", o.Cfg.Name, task.Worker.Class)
+	}
+	// Fill the repo from the kit's origin — the single source of truth.
+	if o.Cfg.Origin == nil || o.Cfg.Origin.GitHub == nil {
+		return fmt.Errorf("kit %q declares no origin (required for dispatch)", o.Cfg.Name)
+	}
+	task.Repo.Name = o.Cfg.Origin.GitHub.Project
+	task.Repo.Host = "https://github.com"
+	if task.Repo.SourceBranch == "" {
+		task.Repo.SourceBranch = o.Cfg.MainBranch // defaulted to "main" at parse
+	}
+	filled, err := json.MarshalIndent(&task, "", "  ")
 	if err != nil {
 		return err
-	}
-	w, ok := o.Cfg.Workers[class]
-	if !ok {
-		return fmt.Errorf("kit %q declares no worker class %q", o.Cfg.Name, class)
 	}
 
 	_, _ = o.Ops.ScavengeLabeled(Label, o.GraceWindow, o.Now)
@@ -119,7 +135,7 @@ func Dispatch(o Options) error {
 	if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 		return fmt.Errorf("seed agent credentials: %w", err)
 	}
-	if err := writeVM(o.R, tgt, input, taskVMPath); err != nil {
+	if err := writeVM(o.R, tgt, filled, taskVMPath); err != nil {
 		return fmt.Errorf("inject task: %w", err)
 	}
 
@@ -171,22 +187,6 @@ func withoutToken(env map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// taskClass extracts worker.class from the task (JSON or YAML) so at-cove can pick the prompt.
-func taskClass(input []byte) (string, error) {
-	var head struct {
-		Worker struct {
-			Class string `yaml:"class"`
-		} `yaml:"worker"`
-	}
-	if err := yaml.Unmarshal(input, &head); err != nil {
-		return "", fmt.Errorf("read task worker.class: %w", err)
-	}
-	if head.Worker.Class == "" {
-		return "", fmt.Errorf("task declares no worker.class")
-	}
-	return head.Worker.Class, nil
 }
 
 // agentPrompt joins the class's role prompt with the standard worker-result protocol.

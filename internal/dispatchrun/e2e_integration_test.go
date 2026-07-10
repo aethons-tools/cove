@@ -25,8 +25,10 @@ func TestE2EReferenceWorker(t *testing.T) {
 	in := filepath.Join(dir, "task.json")
 	out := filepath.Join(dir, "task-result.json")
 
+	// The target repo comes from the reference kit's origin (config.yml's
+	// origin.github.project), not from the task — the maintainer sets that to
+	// their scratch repo before `just e2e`. E2E_REPO above only gates the test.
 	input := `{"issue":{"key":"DEMO-1","title":"Add a greeting helper"},` +
-		`"repo":{"name":"` + repo + `","source-branch":"main","work-branch":"implement/DEMO-1"},` +
 		`"worker":{"class":"implement"},` +
 		`"task":{"brief":"Add Greet(name string) string returning \"Hello, <name>!\" with a test."}}`
 	if err := os.WriteFile(in, []byte(input), 0o600); err != nil {
