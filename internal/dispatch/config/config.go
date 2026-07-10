@@ -1,6 +1,7 @@
 // Package config defines and loads the at-dispatch configuration: the tracker
-// wiring, the repo, and per-class dispatch kits. It is at-cove-agnostic — a
-// class's kit is the only seam.
+// wiring and per-class dispatch kits. It is at-cove-agnostic — a class's kit
+// is the only seam. The repo is not named here: it is resolved from each
+// class's kit origin at dispatch time.
 package config
 
 import (
@@ -17,7 +18,6 @@ import (
 // Config is the parsed contents of an at-dispatch config file.
 type Config struct {
 	Tracker          TrackerConfig    `yaml:"tracker"`
-	Repo             RepoConfig       `yaml:"repo"`
 	Classes          map[string]Class `yaml:"classes"`
 	Concurrency      int              `yaml:"concurrency"`
 	ReaperTimeout    string           `yaml:"reaper-timeout"`
@@ -43,12 +43,6 @@ type StateMap struct {
 	Done       string `yaml:"done"`
 	NeedsInput string `yaml:"needs-input"`
 	Blocked    string `yaml:"blocked"`
-}
-
-// RepoConfig names the single repo this instance serves.
-type RepoConfig struct {
-	Slug         string `yaml:"slug"`
-	SourceBranch string `yaml:"source-branch"` // base branch work is built on
 }
 
 // SecretRef is a resolver: Command's stdout is the value, produced in memory.
@@ -146,12 +140,6 @@ func (c Config) Validate() error {
 	// ParseConfig always fills this first.
 	if c.Tracker.ClassLabelPrefix == "" {
 		return fmt.Errorf("config: tracker.class-label-prefix must not be empty")
-	}
-	if parts := strings.Split(c.Repo.Slug, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return fmt.Errorf("config: repo.slug must be \"owner/name\", got %q", c.Repo.Slug)
-	}
-	if strings.TrimSpace(c.Repo.SourceBranch) == "" {
-		return fmt.Errorf("config: repo.source-branch is required")
 	}
 	if err := checkDuration("dispatch-overhead", c.DispatchOverhead); err != nil {
 		return err

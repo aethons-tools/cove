@@ -62,8 +62,8 @@ func doServe(args []string, stdout, stderr io.Writer) int {
 		classes = append(classes, name)
 	}
 	sort.Strings(classes)
-	fmt.Fprintf(stdout, "at-dispatch: config OK for %s — %d class(es): %s\n",
-		cfg.Repo.Slug, len(classes), strings.Join(classes, ", "))
+	fmt.Fprintf(stdout, "at-dispatch: config OK — %d class(es): %s\n",
+		len(classes), strings.Join(classes, ", "))
 
 	// resolver: run a secret's argv on the host, return trimmed stdout (in memory).
 	resolve := func(argv []string) (string, error) {

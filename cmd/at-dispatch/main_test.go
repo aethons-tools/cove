@@ -41,9 +41,6 @@ tracker:
   webhook-secret: { command: ["true"] }
   poll-interval: 60s
   states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
-repo:
-  slug: aethons-tools/cove
-  source-branch: main
 classes:
   implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }
 concurrency: 1
@@ -66,7 +63,9 @@ func TestServeTokenResolveFailure(t *testing.T) {
 }
 
 func TestServeRejectsBadConfig(t *testing.T) {
-	p := writeConfig(t, "repo:\n  slug: not-a-slug\n")
+	// No tracker section at all: Validate rejects on tracker.provider, which
+	// must still be enforced now that repo is gone from the config surface.
+	p := writeConfig(t, "classes:\n  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }\n")
 	var out, errOut bytes.Buffer
 	code := run([]string{"serve", "--config", p}, &out, &errOut)
 	if code != 1 {

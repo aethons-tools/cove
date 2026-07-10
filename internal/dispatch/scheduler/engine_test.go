@@ -14,7 +14,6 @@ import (
 func testConfig() config.Config {
 	return config.Config{
 		Tracker: config.TrackerConfig{PollInterval: "1m"},
-		Repo:    config.RepoConfig{Slug: "aethons-tools/cove", SourceBranch: "main"},
 		Classes: map[string]config.Class{
 			"implement": {Mode: "autonomous", Kit: "/kits/implement", Timeout: "30m"},
 			"spec":      {Mode: "interactive"},
@@ -31,8 +30,7 @@ func newEngine(cfg config.Config, tr Tracker, ex Executor) *Engine {
 }
 
 // newTestEngine builds an Engine against the default testConfig() (an autonomous
-// "implement" class with a kit set, 30m timeout, repo source-branch "main", and a
-// 15m dispatch-overhead).
+// "implement" class with a kit set, 30m timeout, and a 15m dispatch-overhead).
 func newTestEngine(t *testing.T, tr Tracker, ex Executor) *Engine {
 	t.Helper()
 	return newEngine(testConfig(), tr, ex)
@@ -47,7 +45,6 @@ func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 
 	// task.json the scheduler built (v2 nested shape)
 	if !strings.Contains(ex.GotInput, `"work-branch": "implement/AET-9"`) ||
-		!strings.Contains(ex.GotInput, `"source-branch": "main"`) ||
 		!strings.Contains(ex.GotInput, `"key": "AET-9"`) ||
 		!strings.Contains(ex.GotInput, `"class": "implement"`) {
 		t.Fatalf("task.json wrong:\n%s", ex.GotInput)

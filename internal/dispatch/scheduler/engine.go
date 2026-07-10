@@ -57,7 +57,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	if err != nil {
 		e.log.Printf("comments %s: %v (continuing with none)", iss.Identifier, err)
 	}
-	brief := assembleBrief(iss, e.cfg.Repo.Slug, comments)
+	brief := assembleBrief(iss, comments)
 
 	dir, err := os.MkdirTemp("", "at-dispatch-")
 	if err != nil {
@@ -71,7 +71,6 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	task := worker.Task{
 		Issue: worker.TaskIssue{Key: iss.Identifier, Title: iss.Title},
 		Repo: worker.TaskRepo{
-			Name: e.cfg.Repo.Slug, SourceBranch: e.cfg.Repo.SourceBranch,
 			WorkBranch: iss.Class + "/" + iss.Identifier,
 		},
 		Worker: worker.TaskWorker{Class: iss.Class},
