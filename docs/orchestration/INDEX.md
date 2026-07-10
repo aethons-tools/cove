@@ -15,15 +15,18 @@ It was extracted from a specific project's design and **genericized**: anything 
 
 The **workflow** (idea → issues → lifecycle → closeout) remains a forward-looking, product-agnostic design. The **dispatch substrate** it rides on is now largely **shipped** in this repo — `at-cove work`, the `at-task` worker, and the `at-cove dispatch` scheduler — with the per-task token minter still deferred; the work-interface and config docs below describe that shipped substrate. For what at-cove itself does, start at [`../OVERVIEW.md`](../OVERVIEW.md).
 
-## The three documents
+## The two documents
 
 | Doc | What it owns | Read when |
 |-----|--------------|-----------|
 | [linear-agent-workflow.md](linear-agent-workflow.md) | The workflow: the uniform issue lifecycle, the idea → issues → subissues fan-out, assignment by handler class, the dedicated-scheduler dispatch model, the stop-and-write-needs-back protocol, dependency-gated readiness. | You need the *what and why* — how work flows and how agents are scheduled. |
 | [at-cove-work-interface.md](at-cove-work-interface.md) | The shipped substrate: the `at-cove work` command, at-cove's host-orchestrated worker bracket + credential air-gap, at-task's `.at-task/` task.json → task-result.json worker contract, the three-authority credential model, and per-class isolation (the per-task minter is deferred). | You need the *how* — the concrete contract by which the scheduler launches workers on at-cove. |
-| [scheduler-config.md](scheduler-config.md) | The at-cove dispatch configuration schema: tracker wiring, handler-class-to-kit binding, concurrency/timeout settings, secret resolution, and loading/validation. | You are setting up an at-cove dispatch instance, adding a class, configuring state mappings, or adjusting timeouts. |
 
-Read the workflow first; it references the work interface for mechanics. The config document is a reference for operators.
+Read the workflow first; it references the work interface for mechanics. Operators
+setting up or tuning the scheduler itself (tracker wiring, handler classes,
+concurrency/timeout policy) should read
+[`../usage/at-cove-config.md`](../usage/at-cove-config.md) — `at-cove dispatch
+[kit-dir]` reads that same kit config file directly, no separate scheduler config.
 
 ## The idea in one paragraph
 

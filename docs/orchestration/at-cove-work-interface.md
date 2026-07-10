@@ -9,7 +9,7 @@ updated: 2026-07-10
 
 # at-cove Work Interface
 
-The concrete substrate that realizes the workflow's **worker fleet + dedicated scheduler**: how the scheduler dispatches **one-shot worker agents** through at-cove onto hardened containers, how each worker is **air-gapped from standing credentials**, and what it hands back. The command surface below (`at-cove work`), the host-orchestrated bracket it drives, and the **`COVE_RUN_*`-driven per-run token minter** are all **shipped**. For the workflow this substrate serves, see [linear-agent-workflow.md](linear-agent-workflow.md); for the operator config that keys into it, see [scheduler-config.md](scheduler-config.md).
+The concrete substrate that realizes the workflow's **worker fleet + dedicated scheduler**: how the scheduler dispatches **one-shot worker agents** through at-cove onto hardened containers, how each worker is **air-gapped from standing credentials**, and what it hands back. The command surface below (`at-cove work`), the host-orchestrated bracket it drives, and the **`COVE_RUN_*`-driven per-run token minter** are all **shipped**. For the workflow this substrate serves, see [linear-agent-workflow.md](linear-agent-workflow.md); for the operator config that keys into it, see [at-cove-config.md](../usage/at-cove-config.md).
 
 In this repo the scheduler is **`at-cove dispatch`** and the worker is **`at-task`**, both driving the **`at-cove work`** command; see [OVERVIEW's architecture](../OVERVIEW.md#architecture).
 
@@ -57,7 +57,7 @@ The untrusted-brief-ingesting **agent never holds the code-host token**; only `a
 
 The worker's contract is **at-task's**, not a bespoke `result.json`. The scheduler builds the task file (naming **no repo**); at-cove fills the target repo from the kit's `source-control`, injects the task at `.at-task/task.json`, and extracts the result from `.at-task/task-result.json`, both fixed, at-cove-owned VM paths (no kit-declared input/output). The file shapes, the JSON Schemas, and the `.at-task/` file-handoff convention (`task.json` → `worker-result.json` → `task-result.json`) are owned by the [at-task usage doc](../usage/at-task.md) and its linked [inputs](../usage/at-task-inputs.md)/[output](../usage/at-task-output.md) contract docs — not restated here.
 
-The worker does **no tracker I/O** — it writes its result, pushes any branch/PR, and exits; the scheduler reads `task-result.json` and performs **all** tracker writes (the single-writer property). The scheduler's mapping of the result → tracker transitions is owned by [scheduler-config.md](scheduler-config.md).
+The worker does **no tracker I/O** — it writes its result, pushes any branch/PR, and exits; the scheduler reads `task-result.json` and performs **all** tracker writes (the single-writer property). The scheduler's mapping of the result → tracker transitions is owned by [at-cove-config.md](../usage/at-cove-config.md).
 
 ## Three separated authorities
 
@@ -86,6 +86,6 @@ This keeps the **three-authority separation** exact: the scheduler holds only th
 
 ## Status — shipped vs. deferred
 
-- **Shipped:** `at-cove work` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-task prepare` → agent → `at-task complete`) with the per-step credential air-gap; at-task's `.at-task/task.json` → `task-result.json` contract; the scheduler wiring ([scheduler-config.md](scheduler-config.md)); container-per-task isolation; the `COVE_RUN_*` run-parameter passthrough and the resulting per-run token minter (the reference kit's `mint-github-token.sh`), minted fresh before each git step.
+- **Shipped:** `at-cove work` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-task prepare` → agent → `at-task complete`) with the per-step credential air-gap; at-task's `.at-task/task.json` → `task-result.json` contract; the scheduler wiring ([at-cove-config.md](../usage/at-cove-config.md)); container-per-task isolation; the `COVE_RUN_*` run-parameter passthrough and the resulting per-run token minter (the reference kit's `mint-github-token.sh`), minted fresh before each git step.
 - **Deferred:** per-run `--egress-profile`; multi-code-host (GitHub-only today).
 - **Dropped:** run-ids, `run --detach`, and the `status`/`result`/`logs`/`kill`/`ls` lifecycle-verb registry — superfluous under synchronous dispatch.
