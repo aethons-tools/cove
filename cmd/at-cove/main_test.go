@@ -626,3 +626,67 @@ func TestDryRunWorkReapPrintsNoExec(t *testing.T) {
 		t.Fatalf("dry-run work --reap should describe the planned scavenge: %q", out.String())
 	}
 }
+
+const dispatchGoodConfig = `
+tracker:
+  provider: linear
+  team: AET
+  token:          { command: ["true"] }
+  webhook-secret: { command: ["true"] }
+  poll-interval: 60s
+  states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+classes:
+  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }
+concurrency: 1
+reaper-timeout: 45m
+`
+
+func writeDispatchConfig(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "at-cove-dispatch.yml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// TestDispatchTokenResolveFailure: valid config, but the tracker token resolver
+// command fails → dispatch exits 1 before constructing the tracker client.
+func TestDispatchTokenResolveFailure(t *testing.T) {
+	cfg := strings.Replace(dispatchGoodConfig, `token:          { command: ["true"] }`, `token:          { command: ["false"] }`, 1)
+	p := writeDispatchConfig(t, cfg)
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", "--config", p}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "token") {
+		t.Fatalf("stderr = %q; want a token-resolution error", errOut.String())
+	}
+}
+
+// TestDispatchRejectsBadConfig: no tracker section → Validate rejects on
+// tracker.provider (config: error), exit 1.
+func TestDispatchRejectsBadConfig(t *testing.T) {
+	p := writeDispatchConfig(t, "classes:\n  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }\n")
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", "--config", p}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "config:") {
+		t.Fatalf("stderr = %q; want a config error", errOut.String())
+	}
+}
+
+// TestDispatchRequiresConfig: missing --config → usage error, exit 2.
+func TestDispatchRequiresConfig(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d; want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "--config") {
+		t.Fatalf("stderr = %q; want mention of --config", errOut.String())
+	}
+}

@@ -3,13 +3,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/assemble"
@@ -18,6 +24,10 @@ import (
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/dispatch/config"
+	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
+	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -116,6 +126,9 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "work", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doWork(args, r, g.DryRun, out, errw)
+			}},
+			{Name: "dispatch", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doDispatch(args, out, errw)
 			}},
 		},
 	}
@@ -587,5 +600,66 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "at-cove work: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// doDispatch runs `at-cove dispatch --config <path>`: it loads the scheduler
+// config, resolves the tracker API token on the host, connects to the tracker,
+// and runs the poll → dispatch → broker loop until SIGINT/SIGTERM. Each ready
+// issue is dispatched as a fresh `at-cove work` run (see internal/dispatch/scheduler).
+func doDispatch(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to the at-cove dispatch config file (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *cfgPath == "" {
+		fmt.Fprintln(stderr, "at-cove dispatch: --config <path> is required")
+		return 2
+	}
+	cfg, err := config.LoadConfig(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
+		return 1
+	}
+
+	classes := make([]string, 0, len(cfg.Classes))
+	for name := range cfg.Classes {
+		classes = append(classes, name)
+	}
+	sort.Strings(classes)
+	fmt.Fprintf(stdout, "at-cove dispatch: config OK — %d class(es): %s\n",
+		len(classes), strings.Join(classes, ", "))
+
+	// resolver: run a secret's argv on the host, return trimmed stdout (in memory).
+	resolve := func(argv []string) (string, error) {
+		out, err := runner.OS{}.Output(argv[0], argv[1:]...)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSuffix(out, "\n"), nil
+	}
+
+	token, err := resolve(cfg.Tracker.Token.Command)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: resolve tracker token: %v\n", err)
+		return 1
+	}
+
+	tracker, err := linear.New(cfg, token, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
+		return 1
+	}
+
+	logger := log.New(stderr, "at-cove dispatch ", log.LstdFlags)
+	engine := scheduler.New(cfg, tracker, dexec.New(), logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.PollInterval)
+	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
+	logger.Printf("scheduler stopped")
 	return 0
 }
