@@ -214,6 +214,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("config.yml: secrets: a secret name (map key) must not be empty")
 		}
 	}
+	if err := rejectReservedSecretNames("secrets", cfg.Secrets); err != nil {
+		return Config{}, err
+	}
 	for i, s := range cfg.Image.SetupScripts {
 		if strings.TrimSpace(s) == "" {
 			return Config{}, fmt.Errorf("config.yml: image.setup-scripts[%d]: must not be empty", i)
@@ -335,7 +338,33 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateClassTree("collaborators", collaboratorKeys(cfg.Collaborators)); err != nil {
 		return Config{}, err
 	}
+	for name, col := range cfg.Collaborators {
+		if err := rejectReservedSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets); err != nil {
+			return Config{}, err
+		}
+	}
 	return cfg, nil
+}
+
+// reservedSecretNames are the subsystem well-known secret names, which must be
+// declared only under source-control/tracker, never in the general (root or
+// collaborator) secrets buckets.
+var reservedSecretNames = map[string]bool{
+	"AT_TASK_GIT_TOKEN":          true,
+	"AT_DISPATCH_TRACKER_TOKEN":  true,
+	"AT_DISPATCH_WEBHOOK_SECRET": true,
+}
+
+// rejectReservedSecretNames forbids the subsystem well-known secret names in a
+// general (VM-injected / collaborator) secrets map, so a misconfigured entry
+// can never shadow the host-side, air-gapped subsystem credentials.
+func rejectReservedSecretNames(field string, got map[string]SecretConfig) error {
+	for k := range got {
+		if reservedSecretNames[k] {
+			return fmt.Errorf("config.yml: %s: %q is a reserved subsystem secret and must be declared under source-control/tracker, not here", field, k)
+		}
+	}
+	return nil
 }
 
 // checkWellKnownSecrets requires exactly the allowed secret keys (each with a
