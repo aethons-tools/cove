@@ -12,7 +12,7 @@ func TestReadTaskJSONAndYAML(t *testing.T) {
 		"task:\n  class: feature\n  brief: do it\n"
 	for _, tc := range []struct{ file, body string }{{"task.json", jsonBody}, {"task.yml", yamlBody}} {
 		dir := t.TempDir()
-		writeAtWork(t, dir, tc.file, tc.body)
+		writeAtTask(t, dir, tc.file, tc.body)
 		got, err := ReadTask(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.file, err)
@@ -26,7 +26,7 @@ func TestReadTaskJSONAndYAML(t *testing.T) {
 
 func TestReadTaskRejectsUnknownField(t *testing.T) {
 	dir := t.TempDir()
-	writeAtWork(t, dir, "task.json", `{"issue":{"key":"K","title":"T"},"repo":{"name":"o/r","source-branch":"main","work-branch":"w"},"worker":{"class":"c"},"task":{"brief":"b"},"bogus":1}`)
+	writeAtTask(t, dir, "task.json", `{"issue":{"key":"K","title":"T"},"repo":{"name":"o/r","source-branch":"main","work-branch":"w"},"worker":{"class":"c"},"task":{"brief":"b"},"bogus":1}`)
 	if _, err := ReadTask(dir); err == nil {
 		t.Fatal("unknown top-level field must error (strict)")
 	}

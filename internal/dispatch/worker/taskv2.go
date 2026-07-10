@@ -1,7 +1,7 @@
 package worker
 
-// Task is the parsed .at-work/task.json (or .yml) — the work specification.
-// See docs/usage/at-work-inputs.md for the authoritative schema.
+// Task is the parsed .at-task/task.json (or .yml) — the work specification.
+// See docs/usage/at-task-inputs.md for the authoritative schema.
 type Task struct {
 	Issue  TaskIssue  `json:"issue" yaml:"issue"`
 	Repo   TaskRepo   `json:"repo" yaml:"repo"`
@@ -30,7 +30,7 @@ type TaskSpec struct {
 	Brief string `json:"brief" yaml:"brief"`
 }
 
-// ReadTask reads .at-work/task.{json,yml} (strict — unknown fields error).
+// ReadTask reads .at-task/task.{json,yml} (strict — unknown fields error).
 func ReadTask(dir string) (Task, error) {
 	path, _, err := resolveContract(dir, "task")
 	if err != nil {

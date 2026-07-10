@@ -24,7 +24,7 @@ func TestReadWorkerResultLenientAndRaw(t *testing.T) {
 	dir := t.TempDir()
 	// extra top-level field + extra field inside ok — both must be accepted, and
 	// survive in `raw`.
-	writeAtWork(t, dir, "worker-result.json",
+	writeAtTask(t, dir, "worker-result.json",
 		`{"status":{"ok":{"pull-request":{"title":"T","message":"M"}}},"note":"kept"}`)
 	wr, raw, ok, err := ReadWorkerResult(dir)
 	if err != nil || !ok {
@@ -46,12 +46,12 @@ func TestReadWorkerResultAbsent(t *testing.T) {
 }
 
 func TestWriteTaskResultCreatesDir(t *testing.T) {
-	dir := t.TempDir() // no .at-work/ yet
+	dir := t.TempDir() // no .at-task/ yet
 	tr := ErrorResult("boom", "detail")
 	if err := WriteTaskResult(dir, ".json", tr); err != nil {
 		t.Fatalf("WriteTaskResult: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".at-work", "task-result.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".at-task", "task-result.json")); err != nil {
 		t.Fatalf("task-result not written: %v", err)
 	}
 }
@@ -92,13 +92,13 @@ func TestWriteTaskResultMirrorsExtension(t *testing.T) {
 	}
 	for _, ext := range []string{".json", ".yml"} {
 		dir := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(dir, ".at-work"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, ".at-task"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := WriteTaskResult(dir, ext, tr); err != nil {
 			t.Fatalf("%s: %v", ext, err)
 		}
-		p := filepath.Join(dir, ".at-work", "task-result"+ext)
+		p := filepath.Join(dir, ".at-task", "task-result"+ext)
 		b, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("%s not written: %v", ext, err)

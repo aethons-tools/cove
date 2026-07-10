@@ -1,24 +1,24 @@
 # Reference worker — end-to-end runbook
 
 Runs the whole worker path on real infra: `at-cove dispatch` → a fresh hardened
-container → `claude` implements the task → `at-work` opens a PR. Cannot run in the
+container → `claude` implements the task → `at-task` opens a PR. Cannot run in the
 egress-locked dev sandbox (no docker/claude/GitHub); run it on a machine with:
 
 ## Prerequisites
 - **Colima** running (`colima start`) — the `at-cove` backend.
-- **The GitHub App minter provisioned** — see below; the `AT_WORK_GIT_TOKEN`
+- **The GitHub App minter provisioned** — see below; the `AT_TASK_GIT_TOKEN`
   resolver is `mint-github-token.sh`.
 - **A seeded `claude` login** — run `at-cove connect` once and log in; `at-cove`
   saves the credentials and `dispatch` seeds them into the worker container.
 - **A scratch GitHub repo** you can push branches / open PRs on, with a `main` branch.
 - The kit **completed** for your target: base image, `claude` install, pinned
-  `at-work` ref, target toolchain, and the full `allowed-domains` in `config.yml`.
+  `at-task` ref, target toolchain, and the full `allowed-domains` in `config.yml`.
 
 ## Provisioning the GitHub App (credential minter)
 
-`AT_WORK_GIT_TOKEN` resolves by running `kits/reference-worker/mint-github-token.sh`
+`AT_TASK_GIT_TOKEN` resolves by running `kits/reference-worker/mint-github-token.sh`
 on the **at-cove host** (not in the VM) — it mints a fresh, repo-scoped GitHub App
-installation token before each git step (`at-work prepare` and `at-work complete`).
+installation token before each git step (`at-task prepare` and `at-task complete`).
 
 1. **Create a GitHub App** with permissions `contents:write` and
    `pull_requests:write`, and **install it on your org** (so it can be scoped to
@@ -55,15 +55,15 @@ at-cove dispatch kits/reference-worker \
 (edit `testdata/task.json`'s `repo.name` to your scratch repo first).
 
 The kit declares `workers.implement.prompt` in `config.yml`; `at-cove` owns the whole
-bracket. It injects the task file at `/home/agent/work/.at-work/task.json`, runs
-`at-work prepare` there, then runs `claude -p "<the class prompt, plus a result
-protocol appended, with any secret tokens stripped>"`, then runs `at-work complete`,
-and finally extracts `/home/agent/work/.at-work/task-result.json` as the dispatch
+bracket. It injects the task file at `/home/agent/work/.at-task/task.json`, runs
+`at-task prepare` there, then runs `claude -p "<the class prompt, plus a result
+protocol appended, with any secret tokens stripped>"`, then runs `at-task complete`,
+and finally extracts `/home/agent/work/.at-task/task-result.json` as the dispatch
 result.
 
 ## Expected
 - A new PR on the scratch repo implementing the brief.
 - `task-result.json` with `status.ok` set and `status.ok.pr-url` present.
 - A `needs-input` or `error` status means the agent stopped or failed — read
-  `task-result.json`'s `status` block (and the worker's own `.at-work/worker-result.json`
+  `task-result.json`'s `status` block (and the worker's own `.at-task/worker-result.json`
   inside the container, if you need more detail).

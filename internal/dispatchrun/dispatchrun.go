@@ -1,4 +1,4 @@
-// Package dispatchrun orchestrates `at-cove dispatch`: a synchronous, one-shot run
+// Package dispatchrun orchestrates `at-cove work`: a synchronous, one-shot run
 // of a unit of work in a fresh ephemeral hardened VM. It reads the injected task's
 // worker.class to resolve the kit's prompt for that class, then drives the
 // prepare/agent/complete bracket step-by-step over ssh, with the code-host token
@@ -25,7 +25,7 @@ import (
 )
 
 // Label tags every ephemeral dispatch container so scavenging can find orphans.
-const Label = "at-cove.dispatch"
+const Label = "at-cove.work"
 
 const (
 	sshReadyAttempts = 10
@@ -34,15 +34,15 @@ const (
 
 const (
 	credsVMPath = "/agent-data/.credentials.json"
-	envVMPath   = "/dev/shm/at-cove-dispatch-env"
+	envVMPath   = "/dev/shm/at-cove-work-env"
 )
 
 const (
 	workDir      = "/home/agent/work"
-	taskVMPath   = workDir + "/.at-work/task.json"
-	resultVMPath = workDir + "/.at-work/task-result.json"
+	taskVMPath   = workDir + "/.at-task/task.json"
+	resultVMPath = workDir + "/.at-task/task-result.json"
 	promptVMPath = "/dev/shm/at-cove-prompt"
-	gitTokenEnv  = "AT_WORK_GIT_TOKEN" // withheld from the agent step (the air-gap)
+	gitTokenEnv  = "AT_TASK_GIT_TOKEN" // withheld from the agent step (the air-gap)
 )
 
 type Options struct {
@@ -111,7 +111,7 @@ func Dispatch(o Options) error {
 		"COVE_RUN_TIMEOUT": o.Timeout.String(),
 	}
 	// Split the code-host token (minted fresh per git step) from the base secrets
-	// (resolved once). AT_WORK_GIT_TOKEN never enters the agent's env.
+	// (resolved once). AT_TASK_GIT_TOKEN never enters the agent's env.
 	var baseSpecs []secret.Spec
 	var tokenSpec *secret.Spec
 	for i := range o.Secrets {
@@ -176,14 +176,14 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("inject task: %w", err)
 	}
 
-	// The bracket. prepare gates the agent; complete always runs (at-work complete
+	// The bracket. prepare gates the agent; complete always runs (at-task complete
 	// always writes a task-result). Each git step (prepare, complete) gets a freshly
 	// minted code-host token; the agent runs on base, which never carries the token.
 	prepEnv, err := mint()
 	if err != nil {
 		return fmt.Errorf("mint token for prepare: %w", err)
 	}
-	if err := runStep(o.R, tgt, prepEnv, "at-work prepare", o.Timeout); err == nil {
+	if err := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout); err == nil {
 		if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 			return err
 		}
@@ -194,8 +194,8 @@ func Dispatch(o Options) error {
 	if err != nil {
 		return fmt.Errorf("mint token for complete: %w", err)
 	}
-	if err := runStep(o.R, tgt, compEnv, "at-work complete", o.Timeout); err != nil {
-		return fmt.Errorf("at-work complete: %w", err)
+	if err := runStep(o.R, tgt, compEnv, "at-task complete", o.Timeout); err != nil {
+		return fmt.Errorf("at-task complete: %w", err)
 	}
 
 	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+resultVMPath)...)
@@ -227,11 +227,11 @@ func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command
 func agentPrompt(classPrompt string) string { return classPrompt + "\n\n" + resultProtocol }
 
 const resultProtocol = `---
-Your task is specified in .at-work/task.json in the current directory (the "task" -> "brief"
+Your task is specified in .at-task/task.json in the current directory (the "task" -> "brief"
 field is your instructions; "repo" describes the checked-out repository, already cloned into
 the cwd on the work branch). Do the work: make the changes and run the project's tests.
 
-When finished, write your result to .at-work/worker-result.json as EXACTLY ONE of:
+When finished, write your result to .at-task/worker-result.json as EXACTLY ONE of:
   {"status":{"ok":{"pull-request":{"title":"<PR title>","message":"<PR description>"}}}}
   {"status":{"needs-input":{"doing":"…","blocker":"…","need":"…","tried":"…"}}}
   {"status":{"error":{"message":"<what went wrong>"}}}

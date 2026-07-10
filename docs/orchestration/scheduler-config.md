@@ -1,19 +1,19 @@
 ---
-summary: at-dispatch scheduler configuration schema — tracker wiring, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
-read_when: You are setting up a new at-dispatch instance, adding a handler class, changing tracker state mappings, adjusting timeouts/concurrency, or wiring a new kit to a class.
-owns: the at-dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
-prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-dispatch-interface.md (the kit and run-parameter model the config keys into)
+summary: at-cove dispatch scheduler configuration schema — tracker wiring, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
+read_when: You are setting up a new at-cove dispatch instance, adding a handler class, changing tracker state mappings, adjusting timeouts/concurrency, or wiring a new kit to a class.
+owns: the at-cove dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
+prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-work-interface.md (the kit and run-parameter model the config keys into)
 tier: leaf
 updated: 2026-07-10
 ---
 
-# at-dispatch Scheduler Configuration
+# at-cove dispatch Scheduler Configuration
 
 ## Purpose
 
-An `at-dispatch` instance is configured with a single YAML file passed at startup:
+An `at-cove dispatch` instance is configured with a single YAML file passed at startup:
 ```bash
-at-dispatch serve --config /path/to/at-dispatch.yml
+at-cove dispatch --config /path/to/at-cove-dispatch.yml
 ```
 
 This document defines the schema, the meaning of each field, how secrets are resolved, validation/loading, and the runtime implications.
@@ -121,7 +121,7 @@ dispatch-overhead: 15m                      # build + boot + teardown margin add
 This config has no `repo` field: the scheduler names no repo. Each class's
 kit (`classes[*].kit`) owns its own `.at-cove/config.yml`, whose `origin`
 (and `main-branch`) single-source the repo and source branch — see
-[`at-cove-config.md`](../usage/at-cove-config.md). `at-cove dispatch` fills
+[`at-cove-config.md`](../usage/at-cove-config.md). `at-cove work` fills
 `task.repo` from the kit at dispatch time; the scheduler only sets
 `task.repo.work-branch` (`<class>/<issue-key>`).
 
@@ -136,13 +136,13 @@ A map of handler class names to their dispatch modes and kits.
 **`kit`** (`string`, required for `autonomous`, forbidden for `interactive`)
 - Path to the `.at-cove` kit directory for this class.
 - Relative paths resolve against the config file's directory at load time.
-- The kit is passed to `at-cove dispatch` by the scheduler and must contain a valid `.at-cove/config.yml`.
-- The kit is the trust boundary: it defines the container image, egress allowlist, and receives the worker's task via an injected `task.json` (schema: [`docs/usage/at-work-inputs.md`](../usage/at-work-inputs.md)).
+- The kit is passed to `at-cove work` by the scheduler and must contain a valid `.at-cove/config.yml`.
+- The kit is the trust boundary: it defines the container image, egress allowlist, and receives the worker's task via an injected `task.json` (schema: [`docs/usage/at-task-inputs.md`](../usage/at-task-inputs.md)).
 
 **`timeout`** (`duration`, required for `autonomous`, not used for `interactive`)
 - The hard wall-clock cap for an instance of this class.
 - Must be a positive Go duration (e.g., `30m`, `2h`).
-- The actual timeout passed to `at-cove dispatch` is `timeout + dispatch-overhead` (the overhead is added by the scheduler).
+- The actual timeout passed to `at-cove work` is `timeout + dispatch-overhead` (the overhead is added by the scheduler).
 
 **`concurrency`** (`int`, optional per class; default: 0, meaning use global `concurrency`)
 - Per-class limit on concurrent in-flight instances.
@@ -182,10 +182,10 @@ For each `READY` issue with a class label:
 4. If `mode: autonomous`:
    - Compute the wall-clock timeout: `timeout + dispatch-overhead`.
    - Load the kit from the path in `classes[class].kit`.
-   - Run `at-cove dispatch <kit> --in task.json --out task-result.json --timeout <timeout>`.
+   - Run `at-cove work <kit> --in task.json --out task-result.json --timeout <timeout>`.
    - Read the worker's `task-result.json`.
    - Map the result's tagged-union `status` (`ok` / `needs-input` / `error`) to tracker state transitions.
-     See [`docs/usage/at-work-inputs.md`](../usage/at-work-inputs.md) and [`docs/usage/at-work-output.md`](../usage/at-work-output.md) for the `task.json`/`task-result.json` schemas.
+     See [`docs/usage/at-task-inputs.md`](../usage/at-task-inputs.md) and [`docs/usage/at-task-output.md`](../usage/at-task-output.md) for the `task.json`/`task-result.json` schemas.
    - Update the issue (post artifacts, move state, assign humans if needed).
 
 The scheduler never holds a code-host token; secrets are confined to the kit (for secret injection) or the minter process (for per-task token generation via run-parameter passthrough).

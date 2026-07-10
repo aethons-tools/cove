@@ -11,7 +11,7 @@ import (
 func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	inst, err := c.RunEphemeral("img:tag", "disp-1", "at-cove.dispatch")
+	inst, err := c.RunEphemeral("img:tag", "disp-1", "at-cove.work")
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -19,7 +19,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 		t.Fatalf("instance = %+v", inst)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.dispatch", "-p 127.0.0.1::2222", "img:tag"} {
+	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.work", "-p 127.0.0.1::2222", "img:tag"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -43,7 +43,7 @@ func TestScavengeLabeledRemovesOldOnly(t *testing.T) {
 		},
 	}
 	c := New(f).(*Colima)
-	n, err := c.ScavengeLabeled("at-cove.dispatch", 30*time.Minute, now)
+	n, err := c.ScavengeLabeled("at-cove.work", 30*time.Minute, now)
 	if err != nil {
 		t.Fatalf("ScavengeLabeled: %v", err)
 	}

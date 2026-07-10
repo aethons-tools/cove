@@ -16,7 +16,7 @@ func TestVersion(t *testing.T) {
 	if code := run([]string{"version"}, &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if strings.TrimSpace(out.String()) != "at-work 1.2.3" {
+	if strings.TrimSpace(out.String()) != "at-task 1.2.3" {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }
@@ -49,7 +49,7 @@ func TestCompleteRejectsExtraArgs(t *testing.T) {
 // I/O, so it changes directory rather than passing a path; it must run sequentially
 // (no t.Parallel()) since os.Chdir is process-global.
 func TestCompleteWritesResultWhenTaskUnreadable(t *testing.T) {
-	dir := t.TempDir() // no .at-work/task.json
+	dir := t.TempDir() // no .at-task/task.json
 	wd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestCompleteWritesResultWhenTaskUnreadable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d; want 0 (a task-result was written)\nstderr: %s", code, stderr.String())
 	}
-	data, err := os.ReadFile(filepath.Join(dir, ".at-work", "task-result.json"))
+	data, err := os.ReadFile(filepath.Join(dir, ".at-task", "task-result.json"))
 	if err != nil {
 		t.Fatalf("task-result.json not written: %v", err)
 	}

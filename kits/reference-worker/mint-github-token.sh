@@ -1,6 +1,6 @@
 #!/bin/sh
 # Reference per-task GitHub App minter. at-cove runs this on the HOST as the
-# AT_WORK_GIT_TOKEN resolver, once before each git step, with COVE_RUN_* in the env.
+# AT_TASK_GIT_TOKEN resolver, once before each git step, with COVE_RUN_* in the env.
 # It mints a short-lived installation token scoped to COVE_RUN_REPO (contents + PRs).
 #
 # Provision (operator): a GitHub App with contents:write + pull_requests:write,

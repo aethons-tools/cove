@@ -50,7 +50,7 @@ func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 		t.Fatalf("task.json wrong:\n%s", ex.GotInput)
 	}
 	joined := strings.Join(ex.GotArgv, " ")
-	if !strings.Contains(joined, "at-cove dispatch") || !strings.Contains(joined, "--timeout 30m") {
+	if !strings.Contains(joined, "at-cove work") || !strings.Contains(joined, "--timeout 30m") {
 		t.Fatalf("argv wrong: %v", ex.GotArgv)
 	}
 	if tr.lastRole != RoleInReview {

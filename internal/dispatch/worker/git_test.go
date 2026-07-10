@@ -149,10 +149,10 @@ func TestEnsureCleanInitsInPlaceOverExisting(t *testing.T) {
 	}
 	dir := t.TempDir()
 	// Simulate the orchestrator having injected the task file before prepare runs.
-	if err := os.MkdirAll(filepath.Join(dir, ".at-work"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".at-task"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".at-work", "task.json"), []byte(`{}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".at-task", "task.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,7 +162,7 @@ func TestEnsureCleanInitsInPlaceOverExisting(t *testing.T) {
 	}
 	const remote = "https://example.invalid/o/r.git"
 	if err := g.EnsureClean(context.Background(), remote, dir); err != nil {
-		t.Fatalf("EnsureClean over a pre-existing .at-work/: %v", err)
+		t.Fatalf("EnsureClean over a pre-existing .at-task/: %v", err)
 	}
 	// A repo was initialized in place.
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
@@ -172,12 +172,12 @@ func TestEnsureCleanInitsInPlaceOverExisting(t *testing.T) {
 	if url, _ := g.git(context.Background(), dir, "remote", "get-url", "origin"); url != remote {
 		t.Fatalf("origin = %q; want %q", url, remote)
 	}
-	// .at-work/ is excluded, so it never shows as an untracked change.
+	// .at-task/ is excluded, so it never shows as an untracked change.
 	status, err := g.git(context.Background(), dir, "status", "--porcelain")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(status, ".at-work") {
-		t.Fatalf(".at-work/ must be excluded from git status; got:\n%s", status)
+	if strings.Contains(status, ".at-task") {
+		t.Fatalf(".at-task/ must be excluded from git status; got:\n%s", status)
 	}
 }

@@ -73,7 +73,7 @@ origin:                         # the target repo (required for `dispatch`)
 
 `name` is the only always-required field;
 `origin` (the target repo — a github union; required for `dispatch`, the single source of the
-repo), `secrets`, `workers` (the classes `at-cove dispatch` can launch), and `image`
+repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
 (additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
@@ -100,7 +100,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-work worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove work <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -255,17 +255,16 @@ the OS implementation streams stdio and propagates exit codes;
 a `Fake` records calls for tests.
 
 ```
-cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
-internal/dispatchrun/         `at-cove dispatch` orchestration (scavenge → run → inject → exec → extract → destroy)
-cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
-internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
-internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution, load/validate
+cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend + work + dispatch
+internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy)
+internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
+internal/dispatch/config/     at-cove dispatch config: YAML schema, secret resolution, load/validate
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
-cmd/at-work/                  at-work entry: prepare / complete (git/PR worker)
-internal/dispatch/worker/     at-work orchestration: Prepare + Complete, Git/CodeHost interfaces
-internal/dispatch/github/     at-work's real CodeHost: GitHub PR client (live calls behind the integration tag)
+cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
+internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
+internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry
@@ -278,11 +277,11 @@ internal/state/               per-kit state file + shared/exclusive locking
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
-This module builds **two binaries**. `at-cove` is the sandbox substrate.
-`at-dispatch` is a **separate executable** that *consumes* the `at-cove` CLI
-(it never imports at-cove's internals) to schedule Linear-driven work onto
-sandboxes — see the [orchestration design](orchestration/INDEX.md). It is a
-skeleton today.
+This module builds **two binaries**: `at-cove` (the sandbox substrate, which
+also hosts the `dispatch` scheduler and the one-shot `work` runner) and
+`at-task` (the git/PR worker). The scheduler drives work by shelling
+`at-cove work` — it never imports at-cove's internals. See the
+[orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
@@ -292,7 +291,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-dispatch}
+just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-task}
 just build-all       # cross-compile every supported target
 just run <args>      # build the host binary, then run it with <args>
 just install         # install the host binary onto your PATH (no sudo by default)
@@ -349,4 +348,4 @@ Usage/reference (how to run the binaries):
 Forward-looking design (layers *on* at-cove, not yet built):
 
 - [`orchestration/INDEX.md`](orchestration/INDEX.md) —
-  the Linear-driven agent workflow and the at-cove dispatch interface it needs.
+  the Linear-driven agent workflow and the at-cove work interface it needs.

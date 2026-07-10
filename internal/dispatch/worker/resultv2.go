@@ -7,16 +7,16 @@ import (
 	"path/filepath"
 )
 
-// WorkerResult is the parsed .at-work/worker-result.json (or .yml) — the worker's
+// WorkerResult is the parsed .at-task/worker-result.json (or .yml) — the worker's
 // self-report. LENIENT: unknown fields are accepted (and preserved in the echo).
-// See docs/usage/at-work-inputs.md.
+// See docs/usage/at-task-inputs.md.
 type WorkerResult struct {
 	Status WorkerStatus `json:"status" yaml:"status"`
 }
 
 // WorkerStatus is a tagged union — exactly one of ok / needs-input / error. The
 // variant payload types are WorkerOK / WorkerNeedsInput / WorkerError; wire format is
-// kebab-case json/yaml tags (see docs/usage/at-work-inputs.md).
+// kebab-case json/yaml tags (see docs/usage/at-task-inputs.md).
 type WorkerStatus struct {
 	OK         *WorkerOK         `json:"ok,omitempty" yaml:"ok,omitempty"`
 	NeedsInput *WorkerNeedsInput `json:"needs-input,omitempty" yaml:"needs-input,omitempty"`
@@ -65,7 +65,7 @@ type WorkerError struct {
 	Message string `json:"message" yaml:"message"`
 }
 
-// ReadWorkerResult reads .at-work/worker-result.{json,yml} leniently. It returns the
+// ReadWorkerResult reads .at-task/worker-result.{json,yml} leniently. It returns the
 // typed result (recognized fields) AND raw (the whole document, for the task-result
 // echo, so unknown worker fields survive). ok is false if the file is absent.
 func ReadWorkerResult(dir string) (wr WorkerResult, raw any, ok bool, err error) {
@@ -85,9 +85,9 @@ func ReadWorkerResult(dir string) (wr WorkerResult, raw any, ok bool, err error)
 	return wr, raw, true, nil
 }
 
-// TaskResult is what `at-work complete` writes to .at-work/task-result.{json,yml} —
+// TaskResult is what `at-task complete` writes to .at-task/task-result.{json,yml} —
 // the authoritative outcome. STRICT on parse (see the schema in
-// docs/usage/at-work-output.md). WorkerResult is the raw worker-result, echoed.
+// docs/usage/at-task-output.md). WorkerResult is the raw worker-result, echoed.
 type TaskResult struct {
 	Status       TaskStatus `json:"status" yaml:"status"`
 	WorkerResult any        `json:"worker-result,omitempty" yaml:"worker-result,omitempty"`
@@ -138,7 +138,7 @@ type TaskError struct {
 }
 
 // ErrorResult builds an ERROR TaskResult with no worker-result echo — for failures
-// at-work hits before or around the worker (e.g. it cannot read the task file).
+// at-task hits before or around the worker (e.g. it cannot read the task file).
 func ErrorResult(message, detail string) TaskResult {
 	e := &TaskError{Message: message}
 	if detail != "" {
@@ -147,13 +147,13 @@ func ErrorResult(message, detail string) TaskResult {
 	return TaskResult{Status: TaskStatus{Error: e}}
 }
 
-// WriteTaskResult writes tr to .at-work/task-result<ext> (ext is ".json" or ".yml",
-// mirroring the task file), creating the .at-work dir if needed.
+// WriteTaskResult writes tr to .at-task/task-result<ext> (ext is ".json" or ".yml",
+// mirroring the task file), creating the .at-task dir if needed.
 func WriteTaskResult(dir, ext string, tr TaskResult) error {
-	return encodeFile(filepath.Join(dir, workSubdir, "task-result"+ext), tr)
+	return encodeFile(filepath.Join(dir, taskSubdir, "task-result"+ext), tr)
 }
 
-// TaskExt returns the extension (".json" or ".yml") of the task file in dir's .at-work,
+// TaskExt returns the extension (".json" or ".yml") of the task file in dir's .at-task,
 // so complete can write task-result in the same format.
 func TaskExt(dir string) (string, error) {
 	_, ext, err := resolveContract(dir, "task")

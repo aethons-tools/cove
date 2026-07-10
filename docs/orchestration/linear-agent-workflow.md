@@ -2,9 +2,9 @@
 summary: Product-agnostic design for a Linear-driven agent workflow that runs work from idea → spec → plan → implementation → PR → review → closeout. Every issue flows one uniform lifecycle (BLOCKED → READY → IN PROGRESS → IN REVIEW → DONE, plus NEEDS INPUT); the "stage" lives in the issue's identity and its handler class, not the state. A dedicated non-LLM scheduler (webhook-driven, poll-backstopped) claims ready work and dispatches it to one-shot LLM worker agents on hardened infrastructure; humans are surfaced their issues to drive in chat sessions.
 read_when: You are building, operating, or extending Linear-based orchestration of software work — the uniform lifecycle, the fan-out into per-stage subissues, assignment by handler class, the dedicated scheduler and webhook receiver, the worker fleet, the stop-and-write-needs-back protocol, or dependency-gated readiness.
 owns: the uniform issue lifecycle, the idea→issues→subissues fan-out model, assignment by handler class, the stage-agnostic orchestrator principle, the webhook-driven dedicated-scheduler dispatch architecture, the worker execution model, the stop-and-write-needs-back protocol, and dependency-gated readiness
-prereqs: none — the companion at-cove-dispatch-interface.md covers the dispatch substrate this doc references
+prereqs: none — the companion at-cove-work-interface.md covers the dispatch substrate this doc references
 tier: leaf
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 # Linear-Driven Agent Workflow
@@ -18,7 +18,7 @@ autonomous agents run with no human present and are meant to one-shot their task
 stopping and writing their needs back to the tracker only when they genuinely cannot proceed;
 interactive agents are chained to a live human chat for the work that is inherently collaborative.
 
-The dispatch substrate — how the scheduler actually launches workers on hardened infrastructure — is specified in the companion [at-cove dispatch interface](at-cove-dispatch-interface.md).
+The worker-execution substrate — how the scheduler actually launches workers on hardened infrastructure — is specified in the companion [at-cove work interface](at-cove-work-interface.md).
 
 ## Scope decisions captured
 
@@ -53,7 +53,7 @@ Everything else — all tracker reads, writes-back, and claiming — is **outbou
 Full tracker-native agent identity (assignable app-user agents, live agent sessions) is **not** adopted;
 it remains an optional future upgrade for in-tracker human chat, not a default.
 
-**Credential model.** The workflow's one rule here: **workers hold no tracker credentials and do no tracker I/O** — they are pure compute returning a structured result, and the scheduler (the single writer) brokers every tracker write, so the untrusted brief reaches only the least-privileged component. The full three-authority split (scheduler / minter / worker), the per-task token minting, and the worker handoff schema are owned by the [at-cove dispatch interface](at-cove-dispatch-interface.md#three-separated-authorities).
+**Credential model.** The workflow's one rule here: **workers hold no tracker credentials and do no tracker I/O** — they are pure compute returning a structured result, and the scheduler (the single writer) brokers every tracker write, so the untrusted brief reaches only the least-privileged component. The full three-authority split (scheduler / minter / worker), the per-task token minting, and the worker handoff schema are owned by the [at-cove work interface](at-cove-work-interface.md#three-separated-authorities).
 
 ## The uniform lifecycle
 
@@ -176,7 +176,7 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
 - **Webhook receiver** — the one inbound component. Verifies the signature, enqueues an event, wakes the scheduler. No business logic, no LLM.
 - **Dedicated scheduler (non-LLM)** — talks the tracker API directly. It is the **only writer of claims**, which makes claiming race-free (below). Responsibilities: auto `BLOCKED → READY`; claim `READY → IN PROGRESS` and enqueue for autonomous classes; assign + notify for interactive classes; reap stale claims. Runs cheaply 24/7.
 - **Dispatch queue** — durable, on our infra. Its **single-delivery** guarantee means exactly one worker gets each job — no distributed lock, no compare-and-swap against the tracker.
-- **Worker fleet** — hardened at-cove containers running the LLM agents. Each pulls a job, works from a **self-contained brief** the scheduler assembled (issue description + linked spec/plan + comment thread), runs the class-specific handler in a fresh checkout, one-shot. A worker holds **no tracker credentials** and does no tracker I/O; it returns a structured `task-result.json` and the scheduler brokers every tracker write. See the [at-cove dispatch interface](at-cove-dispatch-interface.md#worker-contract).
+- **Worker fleet** — hardened at-cove containers running the LLM agents. Each pulls a job, works from a **self-contained brief** the scheduler assembled (issue description + linked spec/plan + comment thread), runs the class-specific handler in a fresh checkout, one-shot. A worker holds **no tracker credentials** and does no tracker I/O; it returns a structured `task-result.json` and the scheduler brokers every tracker write. See the [at-cove work interface](at-cove-work-interface.md#worker-contract).
 
 **Trigger model:** **webhooks for liveness, poll as backstop.** The receiver wakes the scheduler on events for near-instant dispatch; a low-frequency reconcile poll catches anything missed (dropped webhooks, restarts) so the system never wedges waiting on a lost event.
 
@@ -203,7 +203,7 @@ The defining behavior of the autonomous mode. When a worker cannot proceed — a
    - **Blocker:** the specific thing preventing progress.
    - **Need:** exactly what it needs from a human, phrased so a one-line reply unblocks it.
    - **Tried:** what it already attempted.
-   - **Commit:** the pushed WIP commit SHA (the retrace point, stable even if the branch later moves), recorded by at-work.
+   - **Commit:** the pushed WIP commit SHA (the retrace point, stable even if the branch later moves), recorded by at-task.
 3. Leaves the branch in the documented safe state so no work is lost, and **exits cleanly.**
 
 The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPUT` comment formatted from the payload, moves the issue to **NEEDS INPUT**, and **assigns a human**. It never dispatches a `NEEDS INPUT` issue.
@@ -213,7 +213,7 @@ The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPU
 ## Guardrails
 
 - **Branch-first, never the default branch, one PR per issue.**
-- **Container-per-task isolation** for build-heavy classes, fresh checkout each run; isolation-by-class and credential scoping are specified in the [at-cove dispatch interface](at-cove-dispatch-interface.md).
+- **Container-per-task isolation** for build-heavy classes, fresh checkout each run; isolation-by-class and credential scoping are specified in the [at-cove work interface](at-cove-work-interface.md).
 - **Egress walls are a first-class `NEEDS INPUT` reason.** If a build needs a domain not on the allow-list, the worker reports it as a `needs_input` result ("add X to the egress kit") rather than improvising — the scheduler surfaces it, turning a sandbox limit into a clean handoff.
 - **Stale-claim reaper:** the scheduler moves issues stuck in `IN PROGRESS` past a timeout with no progress (a crashed or hung worker) to `NEEDS INPUT`.
 - **Bounded one-shot budget:** each autonomous job has a token/time ceiling; exceeding it routes to `NEEDS INPUT`, never an unbounded burn.

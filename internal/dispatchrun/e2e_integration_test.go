@@ -11,7 +11,7 @@ import (
 )
 
 // TestE2EReferenceWorker runs the whole worker path against real infra: it shells
-// `at-cove dispatch` on the reference kit and asserts a real PR was opened.
+// `at-cove work` on the reference kit and asserts a real PR was opened.
 //
 // Prerequisites (skipped without them): colima running, `gh auth` logged in, a
 // seeded claude login (via a prior `at-cove connect` login), and a scratch repo.
@@ -35,11 +35,11 @@ func TestE2EReferenceWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("at-cove", "dispatch", "kits/reference-worker", "--in", in, "--out", out, "--timeout", "20m")
+	cmd := exec.Command("at-cove", "work", "kits/reference-worker", "--in", in, "--out", out, "--timeout", "20m")
 	cmd.Dir = repoRoot(t)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("at-cove dispatch: %v", err)
+		t.Fatalf("at-cove work: %v", err)
 	}
 
 	data, err := os.ReadFile(out)

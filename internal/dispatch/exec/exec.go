@@ -1,5 +1,5 @@
 // Package exec runs dispatch commands headlessly with an injected environment and a
-// context timeout. It is at-dispatch's real scheduler.Executor.
+// context timeout. It is at-cove dispatch's real scheduler.Executor.
 package exec
 
 import (

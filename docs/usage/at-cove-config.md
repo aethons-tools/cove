@@ -33,7 +33,7 @@ volumes. Keep it stable — changing it points commands at a different instance.
 
 The remote the kit targets — the **single source of truth** for the repo identity *and* the
 code-host kind (which selects the clone URL, the PR API, and the matching secret minter).
-**Required for `at-cove dispatch`**; interactive `connect` works without it. `at-cove dispatch`
+**Required for `at-cove work`**; interactive `connect` works without it. `at-cove work`
 fills the target repo into the worker's task from `origin`, so nothing else names a repo.
 
 #### origin.github.project
@@ -83,7 +83,7 @@ secrets:
 ### workers
 *map of classname → config*
 
-Defines the worker classes that `at-cove dispatch` can launch. 
+Defines the worker classes that `at-cove work` can launch. 
 
 #### workers.*class*.prompt
 *string*

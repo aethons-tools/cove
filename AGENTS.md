@@ -7,8 +7,8 @@ what the project is, the kit format, the command surface, the security model, th
 
 ## Quick orientation
 
-- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `at-cove`, `at-dispatch`
-- **Entry points:** `cmd/at-cove/main.go` (the sandbox CLI) and `cmd/at-dispatch/main.go` (the Linear dispatcher — a skeleton today; see [`docs/orchestration/`](docs/orchestration/INDEX.md)).
+- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `at-cove`, `at-task`
+- **Entry points:** `cmd/at-cove/main.go` (the sandbox CLI — `create`/`connect`/`work`/`dispatch`) and `cmd/at-task/main.go` (the git/PR worker); see [`docs/orchestration/`](docs/orchestration/INDEX.md) for the Linear-driven dispatch scheduler.
 - **Packages:** `internal/{kit,assemble,backend,connect,secret,sshargs,keys,state,runner,dispatch}` — see the architecture section in the overview for what each owns.
 
 ## Working in this repo

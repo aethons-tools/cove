@@ -10,16 +10,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// resolveContract finds .at-work/<name>.json or .at-work/<name>.yml under dir.
+// resolveContract finds .at-task/<name>.json or .at-task/<name>.yml under dir.
 // It returns os.ErrNotExist if neither exists, and an error if BOTH exist.
 func resolveContract(dir, name string) (path, ext string, err error) {
-	base := filepath.Join(dir, workSubdir, name)
+	base := filepath.Join(dir, taskSubdir, name)
 	jsonPath, ymlPath := base+".json", base+".yml"
 	_, jErr := os.Stat(jsonPath)
 	_, yErr := os.Stat(ymlPath)
 	switch {
 	case jErr == nil && yErr == nil:
-		return "", "", fmt.Errorf("%s: both %s.json and %s.yml exist; keep one", workSubdir, name, name)
+		return "", "", fmt.Errorf("%s: both %s.json and %s.yml exist; keep one", taskSubdir, name, name)
 	case jErr == nil:
 		return jsonPath, ".json", nil
 	case yErr == nil:

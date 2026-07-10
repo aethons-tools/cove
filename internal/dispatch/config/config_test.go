@@ -107,7 +107,7 @@ func TestValidateRejects(t *testing.T) {
 
 func TestLoadConfigResolvesKitAndDefaults(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "at-dispatch.yml")
+	cfgPath := filepath.Join(dir, "at-cove-dispatch.yml")
 	yaml := `
 tracker:
   provider: linear

@@ -1,4 +1,4 @@
-// Package config defines and loads the at-dispatch configuration: the tracker
+// Package config defines and loads the at-cove dispatch configuration: the tracker
 // wiring and per-class dispatch kits. It is at-cove-agnostic — a class's kit
 // is the only seam. The repo is not named here: it is resolved from each
 // class's kit origin at dispatch time.
@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the parsed contents of an at-dispatch config file.
+// Config is the parsed contents of an at-cove dispatch config file.
 type Config struct {
 	Tracker          TrackerConfig    `yaml:"tracker"`
 	Classes          map[string]Class `yaml:"classes"`
@@ -24,7 +24,7 @@ type Config struct {
 	DispatchOverhead string           `yaml:"dispatch-overhead"` // build+boot+teardown margin added to a class's work timeout
 }
 
-// TrackerConfig wires at-dispatch to one tracker team.
+// TrackerConfig wires at-cove dispatch to one tracker team.
 type TrackerConfig struct {
 	Provider         string    `yaml:"provider"`
 	Team             string    `yaml:"team"`
@@ -50,7 +50,7 @@ type SecretRef struct {
 	Command []string `yaml:"command"`
 }
 
-// Class maps a handler class to how at-dispatch runs it.
+// Class maps a handler class to how at-cove dispatch runs it.
 type Class struct {
 	Mode        string `yaml:"mode"`    // "autonomous" | "interactive"
 	Kit         string `yaml:"kit"`     // path to the class's .at-cove kit (autonomous); relative resolves against the config dir

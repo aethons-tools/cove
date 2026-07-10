@@ -10,8 +10,8 @@ import (
 
 func writeWorkerResult(t *testing.T, dir, body string) {
 	t.Helper()
-	os.MkdirAll(filepath.Join(dir, workSubdir), 0o755)
-	if err := os.WriteFile(filepath.Join(dir, workSubdir, "worker-result.json"), []byte(body), 0o600); err != nil {
+	os.MkdirAll(filepath.Join(dir, taskSubdir), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, taskSubdir, "worker-result.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -26,7 +26,7 @@ func TestCompleteOKOpensPR(t *testing.T) {
 	if v, _ := tr.Status.ActiveTask(); v != "ok" || tr.Status.OK.PRURL != "https://x/pull/1" {
 		t.Fatalf("ok: %+v", tr.Status)
 	}
-	if ch.title != "AET-1: X" { // PR title comes from the worker, not at-work
+	if ch.title != "AET-1: X" { // PR title comes from the worker, not at-task
 		t.Fatalf("PR title = %q; want the worker's", ch.title)
 	}
 	if m, _ := tr.WorkerResult.(map[string]any); m["extra"] != "kept" {

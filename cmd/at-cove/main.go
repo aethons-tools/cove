@@ -3,13 +3,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/assemble"
@@ -18,6 +24,10 @@ import (
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/dispatch/config"
+	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
+	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -114,8 +124,11 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return doStatusInstance(kitDir, r, inst, g.DryRun, out)
 				})
 			}},
-			{Name: "dispatch", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return doDispatch(args, r, g.DryRun, out, errw)
+			{Name: "work", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doWork(args, r, g.DryRun, out, errw)
+			}},
+			{Name: "dispatch", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doDispatch(args, out, errw)
 			}},
 		},
 	}
@@ -470,14 +483,14 @@ func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRu
 	return nil
 }
 
-// dispatchName derives a container name unique to one dispatch run: the kit
+// workName derives a container name unique to one dispatch run: the kit
 // name for readability, plus the pid and a nanosecond timestamp so concurrent
 // dispatches of the same kit (even from separate processes) never collide.
-func dispatchName(kitName string) string {
-	return fmt.Sprintf("at-cove-dispatch-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
+func workName(kitName string) string {
+	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
 }
 
-// doDispatch runs `at-cove dispatch <kit-dir> --in <f> --out <f> [--timeout]
+// doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
 // crashed dispatch orphans). It parses the kit-dir positional itself (rather
@@ -487,8 +500,8 @@ func dispatchName(kitName string) string {
 // it prints the planned actions and returns before touching the backend,
 // assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
 // convention.
-func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
@@ -500,15 +513,15 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		return 2
 	}
 	if len(pos) < 1 {
-		fmt.Fprintln(stderr, "at-cove dispatch: expected <kit-dir>")
+		fmt.Fprintln(stderr, "at-cove work: expected <kit-dir>")
 		return 2
 	}
-	kitDir, code := kitDirArg(pos, "dispatch", stderr)
+	kitDir, code := kitDirArg(pos, "work", stderr)
 	if code != 0 {
 		return code
 	}
 	if !*reap && (*inPath == "" || *outPath == "") {
-		fmt.Fprintln(stderr, "at-cove dispatch: --in and --out are required (unless --reap)")
+		fmt.Fprintln(stderr, "at-cove work: --in and --out are required (unless --reap)")
 		return 2
 	}
 
@@ -528,7 +541,7 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 			return 1
 		}
 		img := "at-cove-for-" + cfg.Name
-		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-work worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
+		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
 			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
 	}
@@ -575,7 +588,7 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 	}
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
-		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: dispatchName(cfg.Name),
+		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
 		Secrets:         specs,
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		IdentityFile:    priv,
@@ -584,8 +597,69 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		Timeout: *timeout, GraceWindow: *grace, Now: time.Now(),
 	})
 	if err != nil {
+		fmt.Fprintf(stderr, "at-cove work: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// doDispatch runs `at-cove dispatch --config <path>`: it loads the scheduler
+// config, resolves the tracker API token on the host, connects to the tracker,
+// and runs the poll → dispatch → broker loop until SIGINT/SIGTERM. Each ready
+// issue is dispatched as a fresh `at-cove work` run (see internal/dispatch/scheduler).
+func doDispatch(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to the at-cove dispatch config file (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *cfgPath == "" {
+		fmt.Fprintln(stderr, "at-cove dispatch: --config <path> is required")
+		return 2
+	}
+	cfg, err := config.LoadConfig(*cfgPath)
+	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1
 	}
+
+	classes := make([]string, 0, len(cfg.Classes))
+	for name := range cfg.Classes {
+		classes = append(classes, name)
+	}
+	sort.Strings(classes)
+	fmt.Fprintf(stdout, "at-cove dispatch: config OK — %d class(es): %s\n",
+		len(classes), strings.Join(classes, ", "))
+
+	// resolver: run a secret's argv on the host, return trimmed stdout (in memory).
+	resolve := func(argv []string) (string, error) {
+		out, err := runner.OS{}.Output(argv[0], argv[1:]...)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSuffix(out, "\n"), nil
+	}
+
+	token, err := resolve(cfg.Tracker.Token.Command)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: resolve tracker token: %v\n", err)
+		return 1
+	}
+
+	tracker, err := linear.New(cfg, token, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
+		return 1
+	}
+
+	logger := log.New(stderr, "at-cove dispatch ", log.LstdFlags)
+	engine := scheduler.New(cfg, tracker, dexec.New(), logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.PollInterval)
+	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
+	logger.Printf("scheduler stopped")
 	return 0
 }
