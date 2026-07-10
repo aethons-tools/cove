@@ -24,11 +24,12 @@ at-cove dispatch kits/reference-worker \
 ```
 (edit `testdata/task.json`'s `repo.name` to your scratch repo first).
 
-The kit's `dispatch.input`/`dispatch.output` (in `config.yml`) point at
-`/home/agent/work/.at-work/task.json` and `.../task-result.json` — `at-cove` injects the
-task file there and reads the result from there. `run-worker.sh` `cd`s to
-`/home/agent/work` so `at-work`'s cwd-relative `.at-work/` resolves to those same files,
-and the agent writes its self-report to `.at-work/worker-result.json` inside that workdir.
+The kit declares `workers.implement.prompt` in `config.yml`; `at-cove` owns the whole
+bracket. It injects the task file at `/home/agent/work/.at-work/task.json`, runs
+`at-work prepare` there, then runs `claude -p "<the class prompt, plus a result
+protocol appended, with any secret tokens stripped>"`, then runs `at-work complete`,
+and finally extracts `/home/agent/work/.at-work/task-result.json` as the dispatch
+result.
 
 ## Expected
 - A new PR on the scratch repo implementing the brief.

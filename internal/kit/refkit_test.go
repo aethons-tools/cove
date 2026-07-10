@@ -16,9 +16,6 @@ func TestReferenceWorkerKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if cfg.Image.Env["AT_WORK_AGENT_COMMAND"] != "run-agent.sh" {
-		t.Errorf("AT_WORK_AGENT_COMMAND = %q; want run-agent.sh", cfg.Image.Env["AT_WORK_AGENT_COMMAND"])
-	}
 	if s, ok := cfg.Secrets["AT_WORK_GIT_TOKEN"]; !ok || len(s.Command) == 0 {
 		t.Errorf("expected an AT_WORK_GIT_TOKEN secret with a resolver command; secrets=%v", cfg.Secrets)
 	}

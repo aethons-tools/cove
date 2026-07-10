@@ -13,14 +13,14 @@ secrets:
 image:
   setup-scripts:
     - .install-files/install.sh
-  env:
-    AT_WORK_AGENT_COMMAND: run-agent.sh
   allowed-domains:
     - api.anthropic.com   # the agent (claude)
     - api.github.com      # at-work PR API
     - github.com          # at-work clone/push
     # + your target project's dependency registries (e.g. proxy.golang.org, registry.npmjs.org)
 
+# at-cove wraps each class below in the prepare -> agent -> complete bracket itself:
+# at-work prepare, then `claude -p "<prompt>"`, then at-work complete.
 workers:
   implement:
     prompt: |
