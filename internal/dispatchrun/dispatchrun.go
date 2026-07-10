@@ -69,7 +69,8 @@ func Reap(ops backend.DispatchOps, grace time.Duration, now time.Time) error {
 }
 
 // Dispatch runs one unit of work: resolve the class → build → ephemeral run → inject the
-// task → prepare/agent/complete bracket (token withheld from the agent) → extract → destroy.
+// task → prepare/agent/complete bracket (token withheld from the agent, minted fresh
+// before each git step) → extract → destroy.
 func Dispatch(o Options) error {
 	input, err := os.ReadFile(o.InputPath)
 	if err != nil {
@@ -102,9 +103,45 @@ func Dispatch(o Options) error {
 
 	_, _ = o.Ops.ScavengeLabeled(Label, o.GraceWindow, o.Now)
 
-	env, err := secret.Resolve(o.R, nil, o.Secrets) // fail closed before creating anything
+	// Run parameters exposed to the secret resolvers (e.g. a per-task minter).
+	runEnv := map[string]string{
+		"COVE_RUN_REPO":    o.Cfg.Origin.GitHub.Project,
+		"COVE_RUN_ISSUE":   task.Issue.Key,
+		"COVE_RUN_CLASS":   task.Worker.Class,
+		"COVE_RUN_TIMEOUT": o.Timeout.String(),
+	}
+	// Split the code-host token (minted fresh per git step) from the base secrets
+	// (resolved once). AT_WORK_GIT_TOKEN never enters the agent's env.
+	var baseSpecs []secret.Spec
+	var tokenSpec *secret.Spec
+	for i := range o.Secrets {
+		if o.Secrets[i].Name == gitTokenEnv {
+			s := o.Secrets[i]
+			tokenSpec = &s
+		} else {
+			baseSpecs = append(baseSpecs, o.Secrets[i])
+		}
+	}
+	base, err := secret.Resolve(o.R, runEnv, baseSpecs) // fail closed before creating anything
 	if err != nil {
 		return err
+	}
+	// mint returns base + a freshly-minted code-host token (or just base if none is declared).
+	mint := func() (map[string]string, error) {
+		e := make(map[string]string, len(base)+1)
+		for k, v := range base {
+			e[k] = v
+		}
+		if tokenSpec != nil {
+			tok, err := secret.Resolve(o.R, runEnv, []secret.Spec{*tokenSpec})
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range tok {
+				e[k] = v
+			}
+		}
+		return e, nil
 	}
 
 	img := "at-cove-for-" + o.Cfg.Name
@@ -140,15 +177,24 @@ func Dispatch(o Options) error {
 	}
 
 	// The bracket. prepare gates the agent; complete always runs (at-work complete
-	// always writes a task-result). The agent runs WITHOUT the code-host token.
-	if err := runStep(o.R, tgt, env, "at-work prepare", o.Timeout); err == nil {
+	// always writes a task-result). Each git step (prepare, complete) gets a freshly
+	// minted code-host token; the agent runs on base, which never carries the token.
+	prepEnv, err := mint()
+	if err != nil {
+		return fmt.Errorf("mint token for prepare: %w", err)
+	}
+	if err := runStep(o.R, tgt, prepEnv, "at-work prepare", o.Timeout); err == nil {
 		if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 			return err
 		}
 		agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\"", shellQuote(promptVMPath))
-		_ = runStep(o.R, tgt, withoutToken(env), agentCmd, o.Timeout) // tolerate agent failure
+		_ = runStep(o.R, tgt, base, agentCmd, o.Timeout) // agent: no token; failure tolerated
 	}
-	if err := runStep(o.R, tgt, env, "at-work complete", o.Timeout); err != nil {
+	compEnv, err := mint()
+	if err != nil {
+		return fmt.Errorf("mint token for complete: %w", err)
+	}
+	if err := runStep(o.R, tgt, compEnv, "at-work complete", o.Timeout); err != nil {
 		return fmt.Errorf("at-work complete: %w", err)
 	}
 
@@ -175,18 +221,6 @@ func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command
 	remote := fmt.Sprintf("set -a; . %s; rm -f %s; cd %s; timeout %d %s",
 		envVMPath, envVMPath, shellQuote(workDir), secs, command)
 	return r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...)
-}
-
-// withoutToken returns env minus the code-host token — the agent's air-gapped env.
-func withoutToken(env map[string]string) map[string]string {
-	out := make(map[string]string, len(env))
-	for k, v := range env {
-		if k == gitTokenEnv {
-			continue
-		}
-		out[k] = v
-	}
-	return out
 }
 
 // agentPrompt joins the class's role prompt with the standard worker-result protocol.
