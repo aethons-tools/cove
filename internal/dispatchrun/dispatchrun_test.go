@@ -37,22 +37,17 @@ func (f *fakeOps) ScavengeLabeled(string, time.Duration, time.Time) (int, error)
 	return 0, nil
 }
 
-func TestDispatchHappyPath(t *testing.T) {
+func TestDispatchRunsBracket(t *testing.T) {
 	dir := t.TempDir()
-	in := writeFile(t, dir, "input.json", `{"issue":{}}`)
-	out := dir + "/output.json"
-	// the ssh `cat /home/agent/work/.at-work/task-result.json` returns the worker's output
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
 	r := &runner.Fake{}
-	setOutputForCat(r, `{"status":"OK"}`) // helper: make any `cat .../task-result.json` ssh return this
+	setOutputForCat(r, `{"status":{"ok":{}}}`) // the final `cat …/task-result.json`
 	ops := &fakeOps{}
 
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
-			Command: []string{"run-worker.sh"},
-			Input:   "/home/agent/work/.at-work/task.json",
-			Output:  "/home/agent/work/.at-work/task-result.json",
-		}},
+		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
 		BuildDir: dir, Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
@@ -61,34 +56,107 @@ func TestDispatchHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if !ops.scavenged || !ops.built || !ops.ran || !ops.removed {
-		t.Fatalf("ops sequence incomplete: %+v", ops)
+	calls := allCalls(r)
+	// the three bracket steps ran, in order, cd'd to the workdir
+	for _, want := range []string{"at-work prepare", "claude -p", "at-work complete"} {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("missing bracket step %q:\n%s", want, calls)
+		}
 	}
-	if b := readFile(t, out); !strings.Contains(b, `"status":"OK"`) {
-		t.Fatalf("output not extracted: %q", b)
+	if strings.Index(calls, "at-work prepare") > strings.Index(calls, "claude -p") ||
+		strings.Index(calls, "claude -p") > strings.Index(calls, "at-work complete") {
+		t.Fatalf("bracket steps out of order:\n%s", calls)
 	}
-	// the worker's dispatch command ran, timeout-wrapped, secrets sourced
-	joined := allCalls(r)
-	if !strings.Contains(joined, "run-worker.sh") || !strings.Contains(joined, "timeout ") {
-		t.Fatalf("dispatch command not run with timeout:\n%s", joined)
+	if !strings.Contains(calls, "cat "+resultVMPath) {
+		t.Fatalf("did not extract the result:\n%s", calls)
 	}
-	if !strings.Contains(allCalls(r), "cat /home/agent/work/.at-work/task-result.json") {
-		t.Fatalf("did not extract from the configured output path:\n%s", allCalls(r))
+	if b := readFile(t, out); !strings.Contains(b, `"ok"`) {
+		t.Fatalf("result not written: %q", b)
+	}
+}
+
+// TestDispatchAirGapsTokenFromAgent is THE security test: the code-host token
+// must reach the VM for prepare and complete, but must never be present during
+// the agent step, and must never appear on any argv.
+func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	const tok = "ghp-secret-token-value"
+	// secret.Resolve calls r.Output per resolver (in name order: AT_WORK_GIT_TOKEN, OTHER),
+	// then the final `cat` for the result.
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: tok + "\n"},             // AT_WORK_GIT_TOKEN resolver
+		{Stdout: "other-value\n"},        // OTHER resolver
+		{Stdout: `{"status":{"ok":{}}}`}, // cat result
+	}}
+	ops := &fakeOps{}
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Secrets: []secret.Spec{
+			{Name: "AT_WORK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
+			{Name: "OTHER", Command: []string{"echo", "x"}},
+		},
+		BuildDir: dir, Name: "disp-ag", InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	// the env-file writes, in call order, are prepare / agent / complete.
+	var envWrites []string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+envVMPath) {
+			envWrites = append(envWrites, c.Stdin)
+		}
+	}
+	if len(envWrites) != 3 {
+		t.Fatalf("want 3 env-file writes (prepare/agent/complete); got %d", len(envWrites))
+	}
+	if !strings.Contains(envWrites[0], tok) {
+		t.Fatal("prepare env must carry AT_WORK_GIT_TOKEN")
+	}
+	if strings.Contains(envWrites[1], tok) {
+		t.Fatal("AIR-GAP BREACH: the agent step's env carried AT_WORK_GIT_TOKEN")
+	}
+	if !strings.Contains(envWrites[1], "other-value") {
+		t.Fatal("agent step should still carry other secrets")
+	}
+	if !strings.Contains(envWrites[2], tok) {
+		t.Fatal("complete env must carry AT_WORK_GIT_TOKEN")
+	}
+	// and the token must never appear on any argv
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), tok) {
+			t.Fatalf("token leaked onto argv: %v", c.Args)
+		}
+	}
+}
+
+func TestDispatchUndeclaredClassErrors(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"nope"}}`)
+	err := Dispatch(Options{
+		Ops: &fakeOps{}, R: &runner.Fake{},
+		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		BuildDir: dir, Name: "x", InputPath: in, OutputPath: dir + "/o.json",
+		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected an error for an undeclared worker class")
 	}
 }
 
 func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	dir := t.TempDir()
-	in := writeFile(t, dir, "input.json", `{}`)
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
 	r := &runner.Fake{} // no cat output → extraction fails
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
-			Command: []string{"x"},
-			Input:   "/home/agent/work/.at-work/task.json",
-			Output:  "/home/agent/work/.at-work/task-result.json",
-		}},
+		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
 		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
@@ -97,55 +165,6 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	}
 	if !ops.removed {
 		t.Fatal("container must be removed even on failure")
-	}
-}
-
-// TestDispatchSecretNeverOnArgv locks the "secrets never on argv" guarantee: a
-// declared secret's resolved value must reach the VM only via the env-script
-// stdin body that runWork pipes over ssh (see writeVM/runWork in
-// dispatchrun.go), and must never appear in any recorded call's argv — the
-// resolver command's own args, the ssh invocations, or anything else.
-func TestDispatchSecretNeverOnArgv(t *testing.T) {
-	dir := t.TempDir()
-	in := writeFile(t, dir, "input.json", `{}`)
-	out := dir + "/output.json"
-	const secretValue = "s3cr3t-token-value"
-	// Outputs is consumed in call order: secret.Resolve's r.Output (the
-	// resolver command) runs first, then the final `cat .../task-result.json`.
-	r := &runner.Fake{Outputs: []runner.FakeResult{
-		{Stdout: secretValue + "\n"},
-		{Stdout: `{"status":"OK"}`},
-	}}
-	ops := &fakeOps{}
-
-	err := Dispatch(Options{
-		Ops: ops, R: r,
-		Cfg: kit.Config{Name: "w", Dispatch: kit.DispatchConfig{
-			Command: []string{"run-worker.sh"},
-			Input:   "/home/agent/work/.at-work/task.json",
-			Output:  "/home/agent/work/.at-work/task-result.json",
-		}},
-		BuildDir: dir, Name: "disp-secret",
-		Secrets:   []secret.Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}}},
-		InputPath: in, OutputPath: out,
-		IdentityFile: "id", KnownHostsDir: t.TempDir(),
-		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
-	})
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-
-	foundInStdin := false
-	for _, c := range r.Calls {
-		if strings.Contains(c.Stdin, secretValue) {
-			foundInStdin = true
-		}
-		if strings.Contains(strings.Join(c.Args, " "), secretValue) {
-			t.Fatalf("secret value leaked onto argv: name=%s args=%v", c.Name, c.Args)
-		}
-	}
-	if !foundInStdin {
-		t.Fatal("secret value was never injected via any call's stdin (expected the env script)")
 	}
 }
 
@@ -189,10 +208,9 @@ func TestWaitForSSHExhausts(t *testing.T) {
 // --- test helpers, against the real runner.Fake shape ---
 //
 // runner.Fake.Outputs is an ordered []FakeResult consumed by Output() calls in
-// call order (a counter, not a keyed map). In this orchestration the only
-// r.Output(...) call is the final `ssh ... cat .../task-result.json` (secret
-// resolution uses r.Output too, but these tests declare no Secrets), so queuing
-// exactly one FakeResult reliably serves that one call.
+// call order (a counter, not a keyed map). In this orchestration the r.Output(...)
+// calls are secret.Resolve's resolver commands (in Secrets slice order) followed by
+// the final `ssh ... cat .../task-result.json`.
 
 // writeFile creates dir/name with content and returns its path.
 func writeFile(t *testing.T, dir, name, content string) string {

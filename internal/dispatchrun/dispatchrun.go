@@ -1,6 +1,9 @@
 // Package dispatchrun orchestrates `at-cove dispatch`: a synchronous, one-shot run
-// of a unit of work in a fresh ephemeral hardened VM. It reuses at-cove's secret,
-// ssh, and backend machinery; it never parses the in/out files.
+// of a unit of work in a fresh ephemeral hardened VM. It reads the injected task's
+// worker.class to resolve the kit's prompt for that class, then drives the
+// prepare/agent/complete bracket step-by-step over ssh, with the code-host token
+// withheld from the agent step. It reuses at-cove's secret, ssh, and backend
+// machinery; it never parses the task-result.
 package dispatchrun
 
 import (
@@ -11,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -30,6 +35,14 @@ const (
 const (
 	credsVMPath = "/agent-data/.credentials.json"
 	envVMPath   = "/dev/shm/at-cove-dispatch-env"
+)
+
+const (
+	workDir      = "/home/agent/work"
+	taskVMPath   = workDir + "/.at-work/task.json"
+	resultVMPath = workDir + "/.at-work/task-result.json"
+	promptVMPath = "/dev/shm/at-cove-prompt"
+	gitTokenEnv  = "AT_WORK_GIT_TOKEN" // withheld from the agent step (the air-gap)
 )
 
 type Options struct {
@@ -55,20 +68,25 @@ func Reap(ops backend.DispatchOps, grace time.Duration, now time.Time) error {
 	return err
 }
 
-// Dispatch runs one unit of work: scavenge → build → ephemeral run → inject →
-// exec the kit's dispatch command → extract output → destroy. Blocking.
+// Dispatch runs one unit of work: resolve the class → build → ephemeral run → inject the
+// task → prepare/agent/complete bracket (token withheld from the agent) → extract → destroy.
 func Dispatch(o Options) error {
-	if len(o.Cfg.Dispatch.Command) == 0 {
-		return fmt.Errorf("kit %q declares no dispatch.command", o.Cfg.Name)
+	input, err := os.ReadFile(o.InputPath)
+	if err != nil {
+		return err
 	}
-	if o.Cfg.Dispatch.Input == "" || o.Cfg.Dispatch.Output == "" {
-		return fmt.Errorf("kit %q must declare dispatch.input and dispatch.output", o.Cfg.Name)
+	class, err := taskClass(input)
+	if err != nil {
+		return err
 	}
-	// Scavenge crash orphans (best-effort; never blocks a live dispatch).
+	w, ok := o.Cfg.Workers[class]
+	if !ok {
+		return fmt.Errorf("kit %q declares no worker class %q", o.Cfg.Name, class)
+	}
+
 	_, _ = o.Ops.ScavengeLabeled(Label, o.GraceWindow, o.Now)
 
-	// Resolve secrets before creating anything (fail closed).
-	env, err := secret.Resolve(o.R, o.Secrets)
+	env, err := secret.Resolve(o.R, o.Secrets) // fail closed before creating anything
 	if err != nil {
 		return err
 	}
@@ -80,7 +98,7 @@ func Dispatch(o Options) error {
 	if _, err := o.Ops.RunEphemeral(img, o.Name, Label); err != nil {
 		return err
 	}
-	defer o.Ops.RemoveContainer(o.Name) // teardown on every path
+	defer o.Ops.RemoveContainer(o.Name)
 
 	ep, cleanup, err := o.Ops.Dial(o.Name)
 	if err != nil {
@@ -95,34 +113,96 @@ func Dispatch(o Options) error {
 		Host: ep.Host, User: ep.User, Port: ep.Port,
 		IdentityFile: o.IdentityFile, KnownHostsFile: filepath.Join(o.KnownHostsDir, o.Name),
 	}
-
 	if err := waitForSSH(o.R, tgt, sshReadyAttempts, sshReadyDelay, time.Sleep); err != nil {
 		return err
 	}
-
 	if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 		return fmt.Errorf("seed agent credentials: %w", err)
 	}
-	input, err := os.ReadFile(o.InputPath)
+	if err := writeVM(o.R, tgt, input, taskVMPath); err != nil {
+		return fmt.Errorf("inject task: %w", err)
+	}
+
+	// The bracket. prepare gates the agent; complete always runs (at-work complete
+	// always writes a task-result). The agent runs WITHOUT the code-host token.
+	if err := runStep(o.R, tgt, env, "at-work prepare", o.Timeout); err == nil {
+		if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
+			return err
+		}
+		agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\"", shellQuote(promptVMPath))
+		_ = runStep(o.R, tgt, withoutToken(env), agentCmd, o.Timeout) // tolerate agent failure
+	}
+	if err := runStep(o.R, tgt, env, "at-work complete", o.Timeout); err != nil {
+		return fmt.Errorf("at-work complete: %w", err)
+	}
+
+	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+resultVMPath)...)
 	if err != nil {
-		return err
-	}
-	if err := writeVM(o.R, tgt, input, o.Cfg.Dispatch.Input); err != nil {
-		return fmt.Errorf("inject input: %w", err)
-	}
-	outDir := filepath.Dir(o.Cfg.Dispatch.Output)
-	if err := runWork(o.R, tgt, env, o.Cfg.Dispatch.Command, outDir, o.Timeout); err != nil {
-		return fmt.Errorf("dispatch command: %w", err)
-	}
-	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+o.Cfg.Dispatch.Output)...)
-	if err != nil {
-		return fmt.Errorf("extract output at %s: %w", o.Cfg.Dispatch.Output, err)
+		return fmt.Errorf("extract result at %s: %w", resultVMPath, err)
 	}
 	if strings.TrimSpace(out) == "" {
-		return fmt.Errorf("dispatch produced no output at %s", o.Cfg.Dispatch.Output)
+		return fmt.Errorf("dispatch produced no result at %s", resultVMPath)
 	}
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)
 }
+
+// runStep sources the given env from a tmpfs file (never on argv), removes it, cds to the
+// workdir, and runs command under a timeout.
+func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command string, timeout time.Duration) error {
+	if err := writeVM(r, tgt, []byte(envScript(env)), envVMPath); err != nil {
+		return err
+	}
+	secs := int(timeout.Seconds())
+	if secs <= 0 {
+		secs = 1800
+	}
+	remote := fmt.Sprintf("set -a; . %s; rm -f %s; cd %s; timeout %d %s",
+		envVMPath, envVMPath, shellQuote(workDir), secs, command)
+	return r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...)
+}
+
+// withoutToken returns env minus the code-host token — the agent's air-gapped env.
+func withoutToken(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if k == gitTokenEnv {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// taskClass extracts worker.class from the task (JSON or YAML) so at-cove can pick the prompt.
+func taskClass(input []byte) (string, error) {
+	var head struct {
+		Worker struct {
+			Class string `yaml:"class"`
+		} `yaml:"worker"`
+	}
+	if err := yaml.Unmarshal(input, &head); err != nil {
+		return "", fmt.Errorf("read task worker.class: %w", err)
+	}
+	if head.Worker.Class == "" {
+		return "", fmt.Errorf("task declares no worker.class")
+	}
+	return head.Worker.Class, nil
+}
+
+// agentPrompt joins the class's role prompt with the standard worker-result protocol.
+func agentPrompt(classPrompt string) string { return classPrompt + "\n\n" + resultProtocol }
+
+const resultProtocol = `---
+Your task is specified in .at-work/task.json in the current directory (the "task" -> "brief"
+field is your instructions; "repo" describes the checked-out repository, already cloned into
+the cwd on the work branch). Do the work: make the changes and run the project's tests.
+
+When finished, write your result to .at-work/worker-result.json as EXACTLY ONE of:
+  {"status":{"ok":{"pull-request":{"title":"<PR title>","message":"<PR description>"}}}}
+  {"status":{"needs-input":{"doing":"…","blocker":"…","need":"…","tried":"…"}}}
+  {"status":{"error":{"message":"<what went wrong>"}}}
+Use ok only if the change is complete and tests pass (omit "pull-request" to push without a PR).
+Do NOT push or open a PR yourself — that is handled after you exit.`
 
 // waitForSSH probes the VM's sshd with a trivial command until it succeeds or
 // attempts are exhausted, sleeping delay between tries. The container's sshd may
@@ -165,21 +245,6 @@ func writeVM(r runner.Runner, tgt sshargs.Target, data []byte, vmPath string) er
 	return r.RunStdin(bytes.NewReader(data), "ssh", append(sshargs.Base(tgt), remote)...)
 }
 
-// runWork runs the kit's dispatch command with secrets sourced from a tmpfs env
-// script (never on argv), bounded by timeout, outDir ready for the output.
-func runWork(r runner.Runner, tgt sshargs.Target, env map[string]string, cmd []string, outDir string, timeout time.Duration) error {
-	if err := writeVM(r, tgt, []byte(envScript(env)), envVMPath); err != nil {
-		return err
-	}
-	secs := int(timeout.Seconds())
-	if secs <= 0 {
-		secs = 1800
-	}
-	remote := fmt.Sprintf("set -a; . %s; rm -f %s; mkdir -p %s; timeout %d %s",
-		envVMPath, envVMPath, shellQuote(outDir), secs, shellJoin(cmd))
-	return r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...)
-}
-
 func envScript(env map[string]string) string {
 	names := make([]string, 0, len(env))
 	for k := range env {
@@ -191,14 +256,6 @@ func envScript(env map[string]string) string {
 		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(env[k]))
 	}
 	return b.String()
-}
-
-func shellJoin(argv []string) string {
-	parts := make([]string, len(argv))
-	for i, a := range argv {
-		parts[i] = shellQuote(a)
-	}
-	return strings.Join(parts, " ")
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
