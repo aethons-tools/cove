@@ -1,4 +1,4 @@
-// Package linear is at-dispatch's real scheduler.Tracker: a small GraphQL client
+// Package linear is at-cove dispatch's real scheduler.Tracker: a small GraphQL client
 // over the Linear API. Live calls are exercised by the integration-tagged test.
 package linear
 

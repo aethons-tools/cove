@@ -59,7 +59,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	}
 	brief := assembleBrief(iss, comments)
 
-	dir, err := os.MkdirTemp("", "at-dispatch-")
+	dir, err := os.MkdirTemp("", "at-cove-dispatch-")
 	if err != nil {
 		e.broker(ctx, iss, errorResult(fmt.Errorf("tempdir: %w", err)), nil)
 		return

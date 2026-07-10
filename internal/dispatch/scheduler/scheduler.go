@@ -1,4 +1,4 @@
-// Package scheduler is the at-dispatch engine: it polls a tracker for ready
+// Package scheduler is the at-cove dispatch engine: it polls a tracker for ready
 // autonomous work, runs each issue's configured dispatch command, and brokers the
 // result back as the single writer of tracker state. It is driven by the Tracker
 // and Executor interfaces so it can be tested without a network or real commands.
