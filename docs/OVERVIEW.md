@@ -100,7 +100,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-work worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -263,9 +263,9 @@ internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
-cmd/at-work/                  at-work entry: prepare / complete (git/PR worker)
-internal/dispatch/worker/     at-work orchestration: Prepare + Complete, Git/CodeHost interfaces
-internal/dispatch/github/     at-work's real CodeHost: GitHub PR client (live calls behind the integration tag)
+cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
+internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
+internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry

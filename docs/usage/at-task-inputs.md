@@ -1,22 +1,22 @@
 ---
-summary: at-work input contracts — the JSON Schemas and examples for .at-work/task.json (the work specification) and .at-work/worker-result.json (the worker's self-report), the two files at-work reads.
+summary: at-task input contracts — the JSON Schemas and examples for .at-task/task.json (the work specification) and .at-task/worker-result.json (the worker's self-report), the two files at-task reads.
 read_when: You are building the task.json for a worker run, or writing a worker that must produce worker-result.json.
-owns: the JSON Schemas for at-work's task.json (the work spec) and worker-result.json (the worker's self-report)
-prereqs: at-work.md — the at-work CLI, the .at-work/ handoff, and the file-format/unknown-field rules
+owns: the JSON Schemas for at-task's task.json (the work spec) and worker-result.json (the worker's self-report)
+prereqs: at-task.md — the at-task CLI, the .at-task/ handoff, and the file-format/unknown-field rules
 tier: leaf
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
-# at-work inputs
+# at-task inputs
 
-The two `.at-work/` files at-work reads: **`task.json`** (the work specification, written by
+The two `.at-task/` files at-task reads: **`task.json`** (the work specification, written by
 the orchestrator) and **`worker-result.json`** (the worker's self-report). File format (JSON
 or YAML) and which schemas are closed vs. permissive are covered in
-[at-work usage → File format](at-work.md#file-format).
+[at-task usage → File format](at-task.md#file-format).
 
-## `.at-work/task.json` — The Work Specification
+## `.at-task/task.json` — The Work Specification
 
-The caller writes this before `at-work prepare`; it must stay in place through the worker run and `at-work complete`, since `prepare`, the worker, and `complete` all read it.
+The caller writes this before `at-task prepare`; it must stay in place through the worker run and `at-task complete`, since `prepare`, the worker, and `complete` all read it.
 
 ### Schema
 ```json
@@ -89,10 +89,10 @@ The caller writes this before `at-work prepare`; it must stay in place through t
 }
 ```
 
-## `.at-work/worker-result.json` — The Worker's Self Report
+## `.at-task/worker-result.json` — The Worker's Self Report
 
 The worker writes this after working the brief. This schema is **permissive** — extra fields
-are accepted; at-work reads only the recognized fields below.
+are accepted; at-task reads only the recognized fields below.
 
 ### Schema
 ```json

@@ -4,7 +4,7 @@ read_when: You are building, operating, or extending Linear-based orchestration 
 owns: the uniform issue lifecycle, the idea→issues→subissues fan-out model, assignment by handler class, the stage-agnostic orchestrator principle, the webhook-driven dedicated-scheduler dispatch architecture, the worker execution model, the stop-and-write-needs-back protocol, and dependency-gated readiness
 prereqs: none — the companion at-cove-dispatch-interface.md covers the dispatch substrate this doc references
 tier: leaf
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 # Linear-Driven Agent Workflow
@@ -203,7 +203,7 @@ The defining behavior of the autonomous mode. When a worker cannot proceed — a
    - **Blocker:** the specific thing preventing progress.
    - **Need:** exactly what it needs from a human, phrased so a one-line reply unblocks it.
    - **Tried:** what it already attempted.
-   - **Commit:** the pushed WIP commit SHA (the retrace point, stable even if the branch later moves), recorded by at-work.
+   - **Commit:** the pushed WIP commit SHA (the retrace point, stable even if the branch later moves), recorded by at-task.
 3. Leaves the branch in the documented safe state so no work is lost, and **exits cleanly.**
 
 The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPUT` comment formatted from the payload, moves the issue to **NEEDS INPUT**, and **assigns a human**. It never dispatches a `NEEDS INPUT` issue.

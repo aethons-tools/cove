@@ -1,22 +1,22 @@
 ---
-summary: at-work output contract — the JSON Schema and examples for .at-work/task-result.json, at-work's authoritative outcome (ok / needs-input / error) with the echoed worker-result.
-read_when: You are consuming at-work's task-result.json — brokering its status to a tracker, or troubleshooting a completed run.
-owns: the JSON Schema for at-work's task-result.json (the output)
-prereqs: at-work.md — the CLI and file-format conventions; at-work-inputs.md — the echoed worker-result schema
+summary: at-task output contract — the JSON Schema and examples for .at-task/task-result.json, at-task's authoritative outcome (ok / needs-input / error) with the echoed worker-result.
+read_when: You are consuming at-task's task-result.json — brokering its status to a tracker, or troubleshooting a completed run.
+owns: the JSON Schema for at-task's task-result.json (the output)
+prereqs: at-task.md — the CLI and file-format conventions; at-task-inputs.md — the echoed worker-result schema
 tier: leaf
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
-# at-work output
+# at-task output
 
-`at-work complete` writes **`.at-work/task-result.json`** — the authoritative outcome of the
+`at-task complete` writes **`.at-task/task-result.json`** — the authoritative outcome of the
 run. Its serialization follows the `task` file (see
-[at-work usage → File format](at-work.md#file-format)).
+[at-task usage → File format](at-task.md#file-format)).
 
-## `.at-work/task-result.json` — The Task Report
+## `.at-task/task-result.json` — The Task Report
 
 A top-level `status` — exactly one of `ok` / `needs-input` / `error` — plus the worker's
-`worker-result.json` (schema in [at-work inputs](at-work-inputs.md)) echoed, except when a
+`worker-result.json` (schema in [at-task inputs](at-task-inputs.md)) echoed, except when a
 failure occurred before the worker ran. Schema:
 
 ```json
@@ -44,7 +44,7 @@ failure occurred before the worker ran. Schema:
         },
         "needs-input": {
           "type": "object",
-          "description": "the worker stopped for a human; at-work pushed the WIP branch",
+          "description": "the worker stopped for a human; at-task pushed the WIP branch",
           "additionalProperties": false,
           "required": ["message", "commit"],
           "properties": {
@@ -54,7 +54,7 @@ failure occurred before the worker ran. Schema:
         },
         "error": {
           "type": "object",
-          "description": "the task failed — in the worker, or in at-work itself",
+          "description": "the task failed — in the worker, or in at-task itself",
           "additionalProperties": false,
           "required": ["message"],
           "properties": {
@@ -65,7 +65,7 @@ failure occurred before the worker ran. Schema:
       }
     },
     "worker-result": {
-      "description": "the worker's worker-result.json (schema in at-work-inputs.md), echoed; omitted when the failure occurred before the worker ran"
+      "description": "the worker's worker-result.json (schema in at-task-inputs.md), echoed; omitted when the failure occurred before the worker ran"
     }
   }
 }
