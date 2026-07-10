@@ -221,6 +221,60 @@ func TestParseConfigRejectsWorkerWithoutPrompt(t *testing.T) {
 	}
 }
 
+func TestResolvedWorkerMergesCommon(t *testing.T) {
+	src := `
+name: k
+workers:
+  <common>:
+    timeout: 30m
+    concurrency: 2
+  implement:
+    prompt: "do the thing"
+    timeout: 40m
+  audit:
+    prompt: "check the thing"
+    concurrency: 1
+`
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	impl, err := cfg.ResolvedWorker("implement")
+	if err != nil {
+		t.Fatalf("ResolvedWorker(implement): %v", err)
+	}
+	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.Concurrency != 2 {
+		t.Fatalf("implement merge = %+v; want prompt/40m(own)/2(common)", impl)
+	}
+	aud, err := cfg.ResolvedWorker("audit")
+	if err != nil {
+		t.Fatalf("ResolvedWorker(audit): %v", err)
+	}
+	if aud.Timeout != "30m" || aud.Concurrency != 1 {
+		t.Fatalf("audit merge = %+v; want 30m(common)/1(own)", aud)
+	}
+	if _, err := cfg.ResolvedWorker("<common>"); err == nil {
+		t.Fatal("ResolvedWorker(<common>) should error (not a real class)")
+	}
+	if _, err := cfg.ResolvedWorker("nope"); err == nil {
+		t.Fatal("ResolvedWorker(nope) should error (absent)")
+	}
+}
+
+func TestParseConfigRejectsUnknownAngleKey(t *testing.T) {
+	src := "name: k\nworkers:\n  <bogus>:\n    timeout: 30m\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of reserved-looking key <bogus>")
+	}
+}
+
+func TestParseConfigWorkerRequiresPrompt(t *testing.T) {
+	src := "name: k\nworkers:\n  implement:\n    timeout: 30m\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected a real worker to require a prompt")
+	}
+}
+
 func TestParseConfigOrigin(t *testing.T) {
 	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/myrepo\n"))
 	if err != nil {

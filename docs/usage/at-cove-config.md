@@ -84,18 +84,36 @@ secrets:
 ### workers
 *map of classname → config*
 
-Defines the worker classes that `at-cove work` can launch. 
+Defines the worker classes that `at-cove work` can launch. The reserved key
+`<common>` is a base merged into every real class (own value wins on a
+scalar); it must not set a `prompt`.
 
 #### workers.*class*.prompt
-*string*
+*string, required for every class except `<common>`, own-only (not inherited)*
 
 The prompt to send to the worker.
 
+#### workers.*class*.timeout
+*string (Go duration, e.g. `30m`), optional, inherited from `<common>` if unset*
+
+Per-run timeout for the worker's agent step.
+
+#### workers.*class*.concurrency
+*int >= 0, optional, inherited from `<common>` if unset*
+
+Max concurrent runs of this class.
+
 ```yaml
 workers:
+  <common>:
+    timeout: 30m
+    concurrency: 1
   triage:
     prompt: Determine what needs to be done and write TODOs.
 ```
+
+`at-cove` resolves a class's effective config (the `<common>` merge) via
+`kit.Config.ResolvedWorker`.
 
 ### image
 **Additive** build-time customizations of the sandbox image. Every field layers **onto**
@@ -174,6 +192,8 @@ workers:
   path contains a newline);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
   contains a newline.
+- a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
+  class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative.
 
-Other fields (e.g. `secrets.*.command`, `workers.*.prompt`) are structurally validated only —
-the decoder rejects wrong shapes/types.
+Other fields (e.g. `secrets.*.command`) are structurally validated only — the decoder rejects
+wrong shapes/types.

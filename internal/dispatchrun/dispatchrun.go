@@ -83,9 +83,9 @@ func Dispatch(o Options) error {
 	if task.Worker.Class == "" {
 		return fmt.Errorf("task declares no worker.class")
 	}
-	w, ok := o.Cfg.Workers[task.Worker.Class]
-	if !ok {
-		return fmt.Errorf("kit %q declares no worker class %q", o.Cfg.Name, task.Worker.Class)
+	w, err := o.Cfg.ResolvedWorker(task.Worker.Class)
+	if err != nil {
+		return err
 	}
 	// Fill the repo from the kit's source-control — the single source of truth.
 	if o.Cfg.SourceControl == nil || o.Cfg.SourceControl.GitHub == nil {

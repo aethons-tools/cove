@@ -27,6 +27,9 @@ image:
 # at-cove wraps each class below in the prepare -> agent -> complete bracket itself:
 # at-task prepare, then `claude -p "<prompt>"`, then at-task complete.
 workers:
+  <common>:
+    timeout: 30m
+    concurrency: 1
   implement:
     prompt: |
       You are an implementer. Make the change described in the task and run the

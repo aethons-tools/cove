@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -44,10 +45,36 @@ type ImageConfig struct {
 	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
 }
 
-// Worker declares a dispatch worker class: the prompt at-cove sends the agent when
-// at-cove work runs this class. at-cove wraps it in the standard at-task bracket.
+const commonKey = "<common>"
+
+// Worker declares an autonomous handler class: the role prompt at-cove sends the
+// agent (own-only, required) plus scheduling attrs that may be inherited from the
+// workers <common> base.
 type Worker struct {
-	Prompt string `yaml:"prompt"`
+	Prompt      string `yaml:"prompt,omitempty"`
+	Timeout     string `yaml:"timeout,omitempty"` // Go duration
+	Concurrency int    `yaml:"concurrency,omitempty"`
+}
+
+// ResolvedWorker returns the named worker with the workers <common> base merged
+// in (own overrides <common>; prompt is own-only). It errors if class is empty,
+// the reserved <common> key, or absent.
+func (c Config) ResolvedWorker(class string) (Worker, error) {
+	if class == "" || class == commonKey {
+		return Worker{}, fmt.Errorf("kit %q: %q is not a dispatchable worker class", c.Name, class)
+	}
+	own, ok := c.Workers[class]
+	if !ok {
+		return Worker{}, fmt.Errorf("kit %q declares no worker class %q", c.Name, class)
+	}
+	base := c.Workers[commonKey] // zero value if absent
+	if own.Timeout == "" {
+		own.Timeout = base.Timeout
+	}
+	if own.Concurrency == 0 {
+		own.Concurrency = base.Concurrency
+	}
+	return own, nil
 }
 
 // SourceControl names the code host + repo the kit targets — a tagged union
@@ -136,8 +163,24 @@ func ParseConfig(data []byte) (Config, error) {
 		if strings.TrimSpace(class) == "" {
 			return Config{}, fmt.Errorf("config.yml: workers: a class name (map key) must not be empty")
 		}
-		if strings.TrimSpace(w.Prompt) == "" {
+		if isReservedAngleKey(class) {
+			return Config{}, fmt.Errorf("config.yml: workers: %q is not a valid key (only %q is reserved)", class, commonKey)
+		}
+		if class == commonKey {
+			// base: prompt not allowed; scalars validated below
+			if strings.TrimSpace(w.Prompt) != "" {
+				return Config{}, fmt.Errorf("config.yml: workers[%q]: the base must not set a prompt", commonKey)
+			}
+		} else if strings.TrimSpace(w.Prompt) == "" {
 			return Config{}, fmt.Errorf("config.yml: workers[%q]: prompt is required", class)
+		}
+		if w.Timeout != "" {
+			if err := checkKitDuration(fmt.Sprintf("workers[%q].timeout", class), w.Timeout); err != nil {
+				return Config{}, err
+			}
+		}
+		if w.Concurrency < 0 {
+			return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency must be >= 0", class)
 		}
 	}
 	if cfg.SourceControl != nil {
@@ -154,4 +197,21 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// isReservedAngleKey reports whether key is <…>-wrapped but not the one allowed
+// reserved base key <common>.
+func isReservedAngleKey(key string) bool {
+	if !strings.HasPrefix(key, "<") || !strings.HasSuffix(key, ">") {
+		return false
+	}
+	return key != commonKey
+}
+
+func checkKitDuration(field, v string) error {
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fmt.Errorf("config.yml: %s must be a positive Go duration (e.g. 30m), got %q", field, v)
+	}
+	return nil
 }
