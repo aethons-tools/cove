@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Git is the git surface at-work needs. See ShellGit for the real implementation.
+// Git is the git surface at-task needs. See ShellGit for the real implementation.
 type Git interface {
 	EnsureClean(ctx context.Context, remote, dir string) error // init in place if absent; else verify clean
 	Sync(ctx context.Context, dir, branch string) error        // checkout + fast-forward from origin
@@ -34,11 +34,11 @@ type ShellGit struct {
 func NewShellGit(token string) (*ShellGit, error) {
 	g := &ShellGit{token: token}
 	if token != "" {
-		f, err := os.CreateTemp("", "at-work-askpass-*.sh")
+		f, err := os.CreateTemp("", "at-task-askpass-*.sh")
 		if err != nil {
 			return nil, err
 		}
-		if _, err := f.WriteString("#!/bin/sh\nprintf '%s\\n' \"$AT_WORK_ASKPASS_TOKEN\"\n"); err != nil {
+		if _, err := f.WriteString("#!/bin/sh\nprintf '%s\\n' \"$AT_TASK_ASKPASS_TOKEN\"\n"); err != nil {
 			return nil, err
 		}
 		f.Close()
@@ -57,11 +57,11 @@ func (g *ShellGit) git(ctx context.Context, dir string, args ...string) (string,
 	}
 	cmd.Env = append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_AUTHOR_NAME=at-work", "GIT_AUTHOR_EMAIL=at-work@aethons.tools",
-		"GIT_COMMITTER_NAME=at-work", "GIT_COMMITTER_EMAIL=at-work@aethons.tools",
+		"GIT_AUTHOR_NAME=at-task", "GIT_AUTHOR_EMAIL=at-task@aethons.tools",
+		"GIT_COMMITTER_NAME=at-task", "GIT_COMMITTER_EMAIL=at-task@aethons.tools",
 	)
 	if g.askpass != "" {
-		cmd.Env = append(cmd.Env, "GIT_ASKPASS="+g.askpass, "AT_WORK_ASKPASS_TOKEN="+g.token)
+		cmd.Env = append(cmd.Env, "GIT_ASKPASS="+g.askpass, "AT_TASK_ASKPASS_TOKEN="+g.token)
 	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -73,7 +73,7 @@ func (g *ShellGit) git(ctx context.Context, dir string, args ...string) (string,
 
 func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
-		// Init in place: the orchestrator has already injected .at-work/ here, so a
+		// Init in place: the orchestrator has already injected .at-task/ here, so a
 		// `git clone` (which refuses a non-empty dir) won't work. Sync() then fetches
 		// and checks out the base branch.
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -85,7 +85,7 @@ func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
 		if _, err := g.git(ctx, dir, "remote", "add", "origin", remote); err != nil {
 			return err
 		}
-		return excludeAtWork(dir)
+		return excludeAtTask(dir)
 	}
 	status, err := g.git(ctx, dir, "status", "--porcelain")
 	if err != nil {
@@ -97,9 +97,9 @@ func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
 	return nil
 }
 
-// excludeAtWork adds the .at-work/ handoff dir to the repo's local excludes so its
+// excludeAtTask adds the .at-task/ handoff dir to the repo's local excludes so its
 // files never appear in git status or get committed into the work branch.
-func excludeAtWork(dir string) error {
+func excludeAtTask(dir string) error {
 	p := filepath.Join(dir, ".git", "info", "exclude")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
@@ -109,7 +109,7 @@ func excludeAtWork(dir string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = f.WriteString("\n/" + workSubdir + "/\n")
+	_, err = f.WriteString("\n/" + taskSubdir + "/\n")
 	return err
 }
 

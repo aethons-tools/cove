@@ -28,7 +28,7 @@ func TestPrepareFreshBranch(t *testing.T) {
 		!strings.Contains(joined, "NewBranch:implement/AET-1") || strings.Contains(joined, "Sync:implement/AET-1") {
 		t.Fatalf("fresh-branch call sequence wrong: %v", g.calls)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".at-work", "brief.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".at-task", "brief.md")); !os.IsNotExist(err) {
 		t.Fatalf("prepare must not write brief.md; stat err=%v", err)
 	}
 }

@@ -528,7 +528,7 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 			return 1
 		}
 		img := "at-cove-for-" + cfg.Name
-		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-work worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
+		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
 			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
 	}

@@ -19,7 +19,7 @@ func TestLive(t *testing.T) {
 	if token == "" || repo == "" || base == "" || head == "" {
 		t.Skip("set GITHUB_TOKEN, GH_REPO, GH_BASE, GH_HEAD to run the live PR test")
 	}
-	url, err := New(token, http.DefaultClient).OpenPR(context.Background(), repo, base, head, "at-work smoke test", "opened by at-work TestLive")
+	url, err := New(token, http.DefaultClient).OpenPR(context.Background(), repo, base, head, "at-task smoke test", "opened by at-task TestLive")
 	if err != nil {
 		t.Fatalf("OpenPR: %v", err)
 	}

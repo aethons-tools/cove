@@ -1,5 +1,5 @@
 # Reference worker kit for `at-cove dispatch`. This is a TEMPLATE: complete the
-# base image, the claude install, the pinned at-work ref, the target project's
+# base image, the claude install, the pinned at-task ref, the target project's
 # toolchain, and the full allowed-domains for your project. See RUNBOOK.md.
 name: reference-worker
 
@@ -9,9 +9,9 @@ origin:
 main-branch: main
 
 secrets:
-  # Code-host token used ONLY by at-work prepare/complete (clone/push/PR). Resolved
+  # Code-host token used ONLY by at-task prepare/complete (clone/push/PR). Resolved
   # on the host at dispatch, injected in memory. The agent step never sees it.
-  AT_WORK_GIT_TOKEN:
+  AT_TASK_GIT_TOKEN:
     description: per-task GitHub App installation token — push + PR on origin, minted per run
     command: ["mint-github-token.sh"]
 
@@ -20,12 +20,12 @@ image:
     - .install-files/install.sh
   allowed-domains:
     - api.anthropic.com   # the agent (claude)
-    - api.github.com      # at-work PR API
-    - github.com          # at-work clone/push
+    - api.github.com      # at-task PR API
+    - github.com          # at-task clone/push
     # + your target project's dependency registries (e.g. proxy.golang.org, registry.npmjs.org)
 
 # at-cove wraps each class below in the prepare -> agent -> complete bracket itself:
-# at-work prepare, then `claude -p "<prompt>"`, then at-work complete.
+# at-task prepare, then `claude -p "<prompt>"`, then at-task complete.
 workers:
   implement:
     prompt: |

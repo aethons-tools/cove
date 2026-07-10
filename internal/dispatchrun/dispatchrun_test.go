@@ -73,13 +73,13 @@ func TestDispatchRunsBracket(t *testing.T) {
 	}
 	calls := allCalls(r)
 	// the three bracket steps ran, in order, cd'd to the workdir
-	for _, want := range []string{"at-work prepare", "claude -p", "at-work complete"} {
+	for _, want := range []string{"at-task prepare", "claude -p", "at-task complete"} {
 		if !strings.Contains(calls, want) {
 			t.Fatalf("missing bracket step %q:\n%s", want, calls)
 		}
 	}
-	if strings.Index(calls, "at-work prepare") > strings.Index(calls, "claude -p") ||
-		strings.Index(calls, "claude -p") > strings.Index(calls, "at-work complete") {
+	if strings.Index(calls, "at-task prepare") > strings.Index(calls, "claude -p") ||
+		strings.Index(calls, "claude -p") > strings.Index(calls, "at-task complete") {
 		t.Fatalf("bracket steps out of order:\n%s", calls)
 	}
 	if !strings.Contains(calls, "cat "+resultVMPath) {
@@ -100,7 +100,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 	out := dir + "/task-result.json"
 	const tok1 = "ghp-secret-token-value-1"
 	const tok2 = "ghp-secret-token-value-2"
-	// Call order: base secrets first (OTHER, since AT_WORK_GIT_TOKEN is split out
+	// Call order: base secrets first (OTHER, since AT_TASK_GIT_TOKEN is split out
 	// of baseSpecs), then a fresh mint() before prepare, then a fresh mint()
 	// before complete, then the final `cat` for the result.
 	r := &runner.Fake{Outputs: []runner.FakeResult{
@@ -119,7 +119,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
 		Secrets: []secret.Spec{
-			{Name: "AT_WORK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
+			{Name: "AT_TASK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
 			{Name: "OTHER", Command: []string{"echo", "x"}},
 		},
 		BuildDir: dir, Name: "disp-ag", InputPath: in, OutputPath: out,
@@ -143,7 +143,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 		t.Fatal("prepare env must carry the freshly-minted token (tok1)")
 	}
 	if strings.Contains(envWrites[1], tok1) || strings.Contains(envWrites[1], tok2) {
-		t.Fatal("AIR-GAP BREACH: the agent step's env carried AT_WORK_GIT_TOKEN")
+		t.Fatal("AIR-GAP BREACH: the agent step's env carried AT_TASK_GIT_TOKEN")
 	}
 	if !strings.Contains(envWrites[1], "other-value") {
 		t.Fatal("agent step should still carry other secrets")

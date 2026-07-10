@@ -1,4 +1,4 @@
-// Package github is at-work's real CodeHost: a tiny GitHub PR client over net/http.
+// Package github is at-task's real CodeHost: a tiny GitHub PR client over net/http.
 // Live calls are exercised by the integration-tagged test.
 package github
 
