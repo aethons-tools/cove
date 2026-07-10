@@ -73,7 +73,7 @@ origin:                         # the target repo (required for `dispatch`)
 
 `name` is the only always-required field;
 `origin` (the target repo — a github union; required for `dispatch`, the single source of the
-repo), `secrets`, `workers` (the classes `at-cove dispatch` can launch), and `image`
+repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
 (additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
@@ -100,7 +100,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove work <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -256,7 +256,7 @@ a `Fake` records calls for tests.
 
 ```
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend, dispatch
-internal/dispatchrun/         `at-cove dispatch` orchestration (scavenge → run → inject → exec → extract → destroy)
+internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy)
 cmd/at-dispatch/              at-dispatch entry: version + serve --config (runs the scheduler)
 internal/dispatch/            dispatcher control plane (doc-only today; owned by docs/orchestration/)
 internal/dispatch/config/     at-dispatch config: YAML schema, secret resolution, load/validate
