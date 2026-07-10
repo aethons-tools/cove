@@ -96,7 +96,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 | `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` at the kit's `dispatch.input` VM path, run the kit's `dispatch.command`, extract `dispatch.output` to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove dispatch <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-work worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
