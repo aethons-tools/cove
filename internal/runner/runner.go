@@ -17,6 +17,8 @@ type Runner interface {
 	RunEnv(extraEnv []string, name string, args ...string) error
 	// Output runs the command and returns its captured stdout.
 	Output(name string, args ...string) (string, error)
+	// OutputEnv is Output with extra "KEY=VALUE" entries appended to the child env.
+	OutputEnv(extraEnv []string, name string, args ...string) (string, error)
 	// Probe runs the command purely for its exit status, discarding both stdout
 	// and stderr. Use it for reachability checks (e.g. `docker info`) whose
 	// output — including benign daemon warnings on stderr — would otherwise leak
@@ -72,6 +74,18 @@ func (OS) RunEnv(extraEnv []string, name string, args ...string) error {
 func (OS) Output(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return string(out), &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return string(out), err
+}
+
+func (OS) OutputEnv(extraEnv []string, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), extraEnv...)
 	out, err := cmd.Output()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -158,6 +172,16 @@ func (f *Fake) Probe(name string, args ...string) error {
 
 func (f *Fake) Output(name string, args ...string) (string, error) {
 	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
+	if f.out < len(f.Outputs) {
+		r := f.Outputs[f.out]
+		f.out++
+		return r.Stdout, r.Err
+	}
+	return "", f.Err
+}
+
+func (f *Fake) OutputEnv(extraEnv []string, name string, args ...string) (string, error) {
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Env: append([]string(nil), extraEnv...)})
 	if f.out < len(f.Outputs) {
 		r := f.Outputs[f.out]
 		f.out++

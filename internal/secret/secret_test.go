@@ -8,7 +8,7 @@ import (
 
 func TestResolveTrimsAndMaps(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "key"}}}
-	env, err := Resolve(f, []Spec{
+	env, err := Resolve(f, nil, []Spec{
 		{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}},
 		{Name: "ANTHROPIC_API_KEY", Command: []string{"pass", "y"}},
 	})
@@ -25,7 +25,7 @@ func TestResolveTrimsAndMaps(t *testing.T) {
 
 func TestResolveFailsClosed(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	_, err := Resolve(f, []Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}}})
+	_, err := Resolve(f, nil, []Spec{{Name: "GITHUB_TOKEN", Command: []string{"op", "read", "x"}}})
 	if err == nil {
 		t.Fatal("expected error when a resolver command fails")
 	}
@@ -33,7 +33,7 @@ func TestResolveFailsClosed(t *testing.T) {
 
 func TestResolveLiteralValueRunsNoCommand(t *testing.T) {
 	f := &runner.Fake{}
-	env, err := Resolve(f, []Spec{{Name: "GITHUB_TOKEN", Value: "ghp_x", Literal: true}})
+	env, err := Resolve(f, nil, []Spec{{Name: "GITHUB_TOKEN", Value: "ghp_x", Literal: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,4 +43,24 @@ func TestResolveLiteralValueRunsNoCommand(t *testing.T) {
 	if len(f.Calls) != 0 {
 		t.Fatalf("a literal secret must not run a command; calls=%+v", f.Calls)
 	}
+}
+
+func TestResolvePassesExtraEnv(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}}}
+	_, err := Resolve(f, map[string]string{"COVE_RUN_REPO": "acme/x"}, []Spec{{Name: "T", Command: []string{"mint"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 || !contains(f.Calls[0].Env, "COVE_RUN_REPO=acme/x") {
+		t.Fatalf("resolver env = %v; want COVE_RUN_REPO", f.Calls[0].Env)
+	}
+}
+
+func contains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

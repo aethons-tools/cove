@@ -102,7 +102,7 @@ func Dispatch(o Options) error {
 
 	_, _ = o.Ops.ScavengeLabeled(Label, o.GraceWindow, o.Now)
 
-	env, err := secret.Resolve(o.R, o.Secrets) // fail closed before creating anything
+	env, err := secret.Resolve(o.R, nil, o.Secrets) // fail closed before creating anything
 	if err != nil {
 		return err
 	}
