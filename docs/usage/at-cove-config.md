@@ -115,6 +115,73 @@ workers:
 `at-cove` resolves a class's effective config (the `<common>` merge) via
 `kit.Config.ResolvedWorker`.
 
+### tracker
+*tagged union — one provider (`linear` only today)*
+
+Names the issue tracker the kit's scheduler drives. Parsed and validated today;
+not yet read by any command (`at-cove dispatch` still takes its own `--config` —
+this field is schema groundwork for a later plan).
+
+#### tracker.linear.team / poll-interval / class-label-prefix / states / secrets
+`team` (required) and `poll-interval` (required Go duration) identify the Linear
+team and polling cadence. `class-label-prefix` defaults to `class:`. `states` maps
+the scheduler's six lifecycle roles (`ready`, `in-progress`, `in-review`, `done`,
+`needs-input`, `blocked`) to that team's real state names — all six required.
+`secrets` accepts exactly `AT_DISPATCH_TRACKER_TOKEN` and `AT_DISPATCH_WEBHOOK_SECRET`
+(each with a resolver `command`); any other key is rejected.
+
+```yaml
+tracker:
+  linear:
+    team: COV
+    poll-interval: 60s
+    states:
+      ready: Todo
+      in-progress: In Progress
+      in-review: In Review
+      done: Done
+      needs-input: Needs Input
+      blocked: Backlog
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
+      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+```
+
+### dispatch
+Scheduler policy knobs, consumed by `at-cove dispatch` in a later plan.
+
+#### dispatch.concurrency / reaper-timeout / dispatch-overhead
+*int >= 1; Go duration; Go duration (defaults to `15m`)*
+
+`concurrency` caps concurrent dispatched runs; `reaper-timeout` bounds how long a
+stalled run is left running before being reaped; `dispatch-overhead` is spare time
+budgeted around a worker's own timeout.
+
+```yaml
+dispatch:
+  concurrency: 1
+  reaper-timeout: 45m
+```
+
+### collaborators
+*map of classname → config*
+
+Declares interactive (chat) handler classes, mirroring `workers`' `<common>`-base
+shape: the reserved key `<common>` holds `secrets` merged into every real class
+(own key wins). Parsed and validated; not yet wired into any command.
+
+```yaml
+collaborators:
+  <common>:
+    secrets:
+      COMMON_TOKEN: { command: ["true"] }
+  triager:
+    secrets:
+      LINEAR_TOKEN: { command: ["true"] }
+```
+
+`at-cove` resolves a class's effective secrets via `kit.Config.ResolvedCollaborator`.
+
 ### image
 **Additive** build-time customizations of the sandbox image. Every field layers **onto**
 the hardened baseline and can never override it — cove translates each to the correct
@@ -194,6 +261,12 @@ workers:
   contains a newline.
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
   class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative.
+- `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
+  isn't a positive Go duration, a `states` entry is missing, or `secrets` has anything but
+  `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET`;
+- `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
+  Go duration;
+- a `collaborators` key looks `<reserved>` but isn't `<common>`.
 
 Other fields (e.g. `secrets.*.command`) are structurally validated only — the decoder rejects
 wrong shapes/types.

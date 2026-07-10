@@ -300,3 +300,71 @@ func TestParseConfigMainBranchOverride(t *testing.T) {
 		t.Fatalf("main-branch = %q; want develop", cfg.SourceControl.GitHub.MainBranch)
 	}
 }
+
+const trackerKit = `
+name: k
+tracker:
+  linear:
+    team: COV
+    poll-interval: 60s
+    states:
+      ready: Todo
+      in-progress: In Progress
+      in-review: In Review
+      done: Done
+      needs-input: Needs Input
+      blocked: Backlog
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
+      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+dispatch:
+  concurrency: 1
+  reaper-timeout: 45m
+collaborators:
+  <common>:
+    secrets:
+      COMMON_TOKEN: { command: ["true"] }
+  triager:
+    secrets:
+      LINEAR_TOKEN: { command: ["true"] }
+`
+
+func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
+	cfg, err := ParseConfig([]byte(trackerKit))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Tracker.Linear.Team != "COV" {
+		t.Fatalf("tracker not parsed: %+v", cfg.Tracker)
+	}
+	if cfg.Tracker.Linear.ClassLabelPrefix != "class:" { // default
+		t.Fatalf("class-label-prefix default = %q; want class:", cfg.Tracker.Linear.ClassLabelPrefix)
+	}
+	if cfg.Dispatch == nil || cfg.Dispatch.DispatchOverhead != "15m" { // default
+		t.Fatalf("dispatch-overhead default = %+v; want 15m", cfg.Dispatch)
+	}
+	col, err := cfg.ResolvedCollaborator("triager")
+	if err != nil {
+		t.Fatalf("ResolvedCollaborator(triager): %v", err)
+	}
+	if _, ok := col.Secrets["COMMON_TOKEN"]; !ok { // from <common>
+		t.Fatalf("collaborator secrets missing COMMON_TOKEN: %+v", col.Secrets)
+	}
+	if _, ok := col.Secrets["LINEAR_TOKEN"]; !ok { // own
+		t.Fatalf("collaborator secrets missing LINEAR_TOKEN: %+v", col.Secrets)
+	}
+}
+
+func TestParseConfigRejectsUnknownTrackerSecret(t *testing.T) {
+	src := strings.Replace(trackerKit, "AT_DISPATCH_TRACKER_TOKEN", "BOGUS_TOKEN", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection of an unknown tracker secret name")
+	}
+}
+
+func TestParseConfigRejectsMissingTrackerState(t *testing.T) {
+	src := strings.Replace(trackerKit, "      blocked: Backlog\n", "", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("expected rejection when a tracker state is missing")
+	}
+}
