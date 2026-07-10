@@ -50,20 +50,22 @@ type Worker struct {
 	Prompt string `yaml:"prompt"`
 }
 
-// Origin names the code host + repo the kit targets — a tagged union (exactly one host;
-// github only today). It is the single source of the repo identity and the host kind.
-type Origin struct {
-	GitHub *GitHubOrigin `yaml:"github,omitempty"`
+// SourceControl names the code host + repo the kit targets — a tagged union
+// (exactly one host; github only today). It is the single source of the repo
+// identity and the host kind.
+type SourceControl struct {
+	GitHub *GitHubSource `yaml:"github,omitempty"`
 }
 
-type GitHubOrigin struct {
-	Project string `yaml:"project"` // "owner/name"
+type GitHubSource struct {
+	Project    string `yaml:"project"`               // "owner/name"
+	MainBranch string `yaml:"main-branch,omitempty"` // base branch; default "main"
 }
 
 // Active returns the set host, or an error if not exactly one.
-func (o *Origin) Active() (string, error) {
+func (s *SourceControl) Active() (string, error) {
 	n, name := 0, ""
-	if o.GitHub != nil {
+	if s.GitHub != nil {
 		n, name = n+1, "github"
 	}
 	if n != 1 {
@@ -74,12 +76,11 @@ func (o *Origin) Active() (string, error) {
 
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name       string                  `yaml:"name"`
-	Secrets    map[string]SecretConfig `yaml:"secrets"`
-	Image      ImageConfig             `yaml:"image"`
-	Workers    map[string]Worker       `yaml:"workers"`
-	Origin     *Origin                 `yaml:"origin,omitempty"`
-	MainBranch string                  `yaml:"main-branch,omitempty"`
+	Name          string                  `yaml:"name"`
+	Secrets       map[string]SecretConfig `yaml:"secrets"`
+	Image         ImageConfig             `yaml:"image"`
+	Workers       map[string]Worker       `yaml:"workers"`
+	SourceControl *SourceControl          `yaml:"source-control,omitempty"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -139,18 +140,18 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("config.yml: workers[%q]: prompt is required", class)
 		}
 	}
-	if cfg.Origin != nil {
-		if _, err := cfg.Origin.Active(); err != nil {
-			return Config{}, fmt.Errorf("config.yml: origin: %w", err)
+	if cfg.SourceControl != nil {
+		if _, err := cfg.SourceControl.Active(); err != nil {
+			return Config{}, fmt.Errorf("config.yml: source-control: %w", err)
 		}
-		if gh := cfg.Origin.GitHub; gh != nil {
+		if gh := cfg.SourceControl.GitHub; gh != nil {
 			if parts := strings.Split(gh.Project, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-				return Config{}, fmt.Errorf("config.yml: origin.github.project must be \"owner/name\", got %q", gh.Project)
+				return Config{}, fmt.Errorf("config.yml: source-control.github.project must be \"owner/name\", got %q", gh.Project)
+			}
+			if gh.MainBranch == "" {
+				gh.MainBranch = "main"
 			}
 		}
-	}
-	if cfg.MainBranch == "" {
-		cfg.MainBranch = "main"
 	}
 	return cfg, nil
 }

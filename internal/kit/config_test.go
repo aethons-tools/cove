@@ -222,27 +222,27 @@ func TestParseConfigRejectsWorkerWithoutPrompt(t *testing.T) {
 }
 
 func TestParseConfigOrigin(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: acme/myrepo\n"))
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/myrepo\n"))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if cfg.Origin == nil || cfg.Origin.GitHub == nil || cfg.Origin.GitHub.Project != "acme/myrepo" {
-		t.Fatalf("origin not parsed: %+v", cfg.Origin)
+	if cfg.SourceControl == nil || cfg.SourceControl.GitHub == nil || cfg.SourceControl.GitHub.Project != "acme/myrepo" {
+		t.Fatalf("source-control not parsed: %+v", cfg.SourceControl)
 	}
-	if cfg.MainBranch != "main" { // default
-		t.Fatalf("main-branch default = %q; want main", cfg.MainBranch)
+	if cfg.SourceControl.GitHub.MainBranch != "main" { // default
+		t.Fatalf("main-branch default = %q; want main", cfg.SourceControl.GitHub.MainBranch)
 	}
 }
 
 func TestParseConfigRejectsBadOriginProject(t *testing.T) {
-	if _, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: nope\n")); err == nil {
+	if _, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: nope\n")); err == nil {
 		t.Fatal("origin.github.project must be owner/name")
 	}
 }
 
 func TestParseConfigMainBranchOverride(t *testing.T) {
-	cfg, _ := ParseConfig([]byte("name: k\nmain-branch: develop\n"))
-	if cfg.MainBranch != "develop" {
-		t.Fatalf("main-branch = %q; want develop", cfg.MainBranch)
+	cfg, _ := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/myrepo\n    main-branch: develop\n"))
+	if cfg.SourceControl.GitHub.MainBranch != "develop" {
+		t.Fatalf("main-branch = %q; want develop", cfg.SourceControl.GitHub.MainBranch)
 	}
 }

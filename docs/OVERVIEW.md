@@ -66,14 +66,15 @@ No secret *values*, no hardening knobs, no workspace mode.
 
 ```yaml
 name: claude-on-myrepo          # sandbox/VM name; also keys the per-sandbox known_hosts
-origin:                         # the target repo (required for `dispatch`)
+source-control:                 # the target repo (required for `dispatch`)
   github:
     project: acme/myrepo
+    main-branch: main
 ```
 
 `name` is the only always-required field;
-`origin` (the target repo — a github union; required for `dispatch`, the single source of the
-repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
+`source-control` (the target repo — a github union; required for `dispatch`, the single source
+of the repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
 (additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);

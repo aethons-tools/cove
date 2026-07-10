@@ -22,7 +22,7 @@ func TestReferenceWorkerKitConfig(t *testing.T) {
 	if strings.TrimSpace(cfg.Workers["implement"].Prompt) == "" {
 		t.Errorf("expected a non-empty workers[implement].prompt; workers=%v", cfg.Workers)
 	}
-	if cfg.Origin == nil || cfg.Origin.GitHub == nil || strings.TrimSpace(cfg.Origin.GitHub.Project) == "" {
-		t.Errorf("expected a non-empty origin.github.project; origin=%+v", cfg.Origin)
+	if cfg.SourceControl == nil || cfg.SourceControl.GitHub == nil || strings.TrimSpace(cfg.SourceControl.GitHub.Project) == "" {
+		t.Errorf("expected a non-empty source-control.github.project; source-control=%+v", cfg.SourceControl)
 	}
 }
