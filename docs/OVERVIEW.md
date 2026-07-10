@@ -259,7 +259,6 @@ a `Fake` records calls for tests.
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend + work + dispatch
 internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy)
 internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
-internal/dispatch/config/     at-cove dispatch config: YAML schema, secret resolution, load/validate
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout

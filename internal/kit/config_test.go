@@ -394,3 +394,19 @@ func TestParseConfigRejectsMissingTrackerState(t *testing.T) {
 		t.Fatal("expected rejection when a tracker state is missing")
 	}
 }
+
+func TestParseConfigRejectsWellKnownNameInRootSecrets(t *testing.T) {
+	for _, name := range []string{"AT_TASK_GIT_TOKEN", "AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"} {
+		src := "name: k\nsecrets:\n  " + name + ": { command: [\"x\"] }\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Fatalf("root secrets must not accept the reserved name %q", name)
+		}
+	}
+}
+
+func TestParseConfigRejectsWellKnownNameInCollaboratorSecrets(t *testing.T) {
+	src := "name: k\ncollaborators:\n  triager:\n    secrets:\n      AT_TASK_GIT_TOKEN: { command: [\"x\"] }\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("collaborator secrets must not accept a reserved subsystem name")
+	}
+}

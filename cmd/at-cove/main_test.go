@@ -627,36 +627,47 @@ func TestDryRunWorkReapPrintsNoExec(t *testing.T) {
 	}
 }
 
-const dispatchGoodConfig = `
+// dispatchGoodConfig is a complete dispatch-capable kit config.yml (name +
+// source-control + tracker.linear + dispatch + workers).
+const dispatchGoodConfig = `name: dispatch-kit
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: { command: ["true"] }
 tracker:
-  provider: linear
-  team: AET
-  token:          { command: ["true"] }
-  webhook-secret: { command: ["true"] }
-  poll-interval: 60s
-  states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
-classes:
-  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }
-concurrency: 1
-reaper-timeout: 45m
+  linear:
+    team: AET
+    poll-interval: 60s
+    states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }
+      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+dispatch:
+  concurrency: 1
+  reaper-timeout: 45m
+workers:
+  implement: { prompt: "impl", timeout: 30m }
 `
 
-func writeDispatchConfig(t *testing.T, body string) string {
+// writeDispatchKit writes body as a kit config.yml into a temp dir and returns
+// the dir (suitable as the `dispatch` positional kit-dir).
+func writeDispatchKit(t *testing.T, body string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "at-cove-dispatch.yml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	return dir
 }
 
-// TestDispatchTokenResolveFailure: valid config, but the tracker token resolver
+// TestDispatchTokenResolveFailure: valid kit, but the tracker token resolver
 // command fails → dispatch exits 1 before constructing the tracker client.
 func TestDispatchTokenResolveFailure(t *testing.T) {
-	cfg := strings.Replace(dispatchGoodConfig, `token:          { command: ["true"] }`, `token:          { command: ["false"] }`, 1)
-	p := writeDispatchConfig(t, cfg)
+	cfg := strings.Replace(dispatchGoodConfig, `AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }`, `AT_DISPATCH_TRACKER_TOKEN:  { command: ["false"] }`, 1)
+	dir := writeDispatchKit(t, cfg)
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--config", p}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
@@ -665,28 +676,30 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 	}
 }
 
-// TestDispatchRejectsBadConfig: no tracker section → Validate rejects on
-// tracker.provider (config: error), exit 1.
+// TestDispatchRejectsBadConfig: kit with no tracker section → the missing-surface
+// check rejects it, exit 1.
 func TestDispatchRejectsBadConfig(t *testing.T) {
-	p := writeDispatchConfig(t, "classes:\n  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m }\n")
+	dir := writeDispatchKit(t, "name: dispatch-kit\nworkers:\n  implement: { prompt: \"impl\", timeout: 30m }\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--config", p}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
-	if !strings.Contains(errOut.String(), "config:") {
-		t.Fatalf("stderr = %q; want a config error", errOut.String())
+	if !strings.Contains(errOut.String(), "must declare") {
+		t.Fatalf("stderr = %q; want the missing-surface error", errOut.String())
 	}
 }
 
-// TestDispatchRequiresConfig: missing --config → usage error, exit 2.
-func TestDispatchRequiresConfig(t *testing.T) {
+// TestDispatchRejectsIncompleteKit: a kit missing tracker/dispatch/workers exits 1
+// with the missing-surface message.
+func TestDispatchRejectsIncompleteKit(t *testing.T) {
+	dir := writeDispatchKit(t, "name: dispatch-kit\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 2 {
-		t.Fatalf("exit = %d; want 2", code)
+	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
-	if !strings.Contains(errOut.String(), "--config") {
-		t.Fatalf("stderr = %q; want mention of --config", errOut.String())
+	if !strings.Contains(errOut.String(), "must declare") {
+		t.Fatalf("stderr = %q; want the missing-surface error", errOut.String())
 	}
 }

@@ -24,7 +24,6 @@ import (
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
-	"github.com/aethons-tools/cove/internal/dispatch/config"
 	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
@@ -609,62 +608,64 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	return 0
 }
 
-// doDispatch runs `at-cove dispatch --config <path>`: it loads the scheduler
-// config, resolves the tracker API token on the host, connects to the tracker,
-// and runs the poll → dispatch → broker loop until SIGINT/SIGTERM. Each ready
-// issue is dispatched as a fresh `at-cove work` run (see internal/dispatch/scheduler).
+// doDispatch runs `at-cove dispatch [kit-dir]`: it loads the kit, resolves the
+// tracker API token on the host, connects to the tracker, and runs the poll →
+// dispatch → broker loop until SIGINT/SIGTERM. Each ready issue is dispatched as
+// a fresh `at-cove work` run (see internal/dispatch/scheduler).
 func doDispatch(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	cfgPath := fs.String("config", "", "path to the at-cove dispatch config file (required)")
-	if err := fs.Parse(args); err != nil {
+	pos, err := cli.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
-	if *cfgPath == "" {
-		fmt.Fprintln(stderr, "at-cove dispatch: --config <path> is required")
-		return 2
+	kitDir, code := kitDirArg(pos, "dispatch", stderr)
+	if code != 0 {
+		return code
 	}
-	cfg, err := config.LoadConfig(*cfgPath)
+	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1
 	}
+	// dispatch requires the full scheduler surface.
+	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
+		fmt.Fprintln(stderr, "at-cove dispatch: kit must declare source-control, tracker.linear, dispatch, and at least one worker")
+		return 1
+	}
 
-	classes := make([]string, 0, len(cfg.Classes))
-	for name := range cfg.Classes {
-		classes = append(classes, name)
+	classes := make([]string, 0, len(cfg.Workers))
+	for name := range cfg.Workers {
+		if _, err := cfg.ResolvedWorker(name); err == nil {
+			classes = append(classes, name)
+		}
 	}
 	sort.Strings(classes)
-	fmt.Fprintf(stdout, "at-cove dispatch: config OK — %d class(es): %s\n",
-		len(classes), strings.Join(classes, ", "))
-
-	// resolver: run a secret's argv on the host, return trimmed stdout (in memory).
-	resolve := func(argv []string) (string, error) {
-		out, err := runner.OS{}.Output(argv[0], argv[1:]...)
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSuffix(out, "\n"), nil
+	if len(classes) == 0 {
+		fmt.Fprintln(stderr, "at-cove dispatch: kit declares no dispatchable worker class (only <common>?)")
+		return 1
 	}
+	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
 
-	token, err := resolve(cfg.Tracker.Token.Command)
+	tokSpec := cfg.Tracker.Linear.Secrets["AT_DISPATCH_TRACKER_TOKEN"]
+	out, err := runner.OS{}.Output(tokSpec.Command[0], tokSpec.Command[1:]...)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: resolve tracker token: %v\n", err)
 		return 1
 	}
+	token := strings.TrimSuffix(out, "\n")
 
 	tracker, err := linear.New(cfg, token, nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
 		return 1
 	}
-
 	logger := log.New(stderr, "at-cove dispatch ", log.LstdFlags)
-	engine := scheduler.New(cfg, tracker, dexec.New(), logger)
+	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.PollInterval)
+	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.Linear.PollInterval)
 	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
 	logger.Printf("scheduler stopped")
 	return 0

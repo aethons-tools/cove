@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/dispatch/config"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 //	TestLive hits real Linear. Run with: LINEAR_TOKEN=… LINEAR_TEAM=AET \
@@ -18,10 +18,10 @@ func TestLive(t *testing.T) {
 	if token == "" || team == "" {
 		t.Skip("set LINEAR_TOKEN and LINEAR_TEAM to run the live smoke test")
 	}
-	cfg := config.Config{Tracker: config.TrackerConfig{
+	cfg := kit.Config{Tracker: &kit.Tracker{Linear: &kit.LinearTracker{
 		Team: team, ClassLabelPrefix: "class:",
-		States: config.StateMap{Ready: "Todo", InProgress: "In Progress", InReview: "In Review", Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog"},
-	}}
+		States: kit.StateMap{Ready: "Todo", InProgress: "In Progress", InReview: "In Review", Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog"},
+	}}}
 	c, err := New(cfg, token, http.DefaultClient)
 	if err != nil {
 		t.Fatalf("New (state map): %v", err)

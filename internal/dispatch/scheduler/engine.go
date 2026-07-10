@@ -11,13 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/dispatch/config"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // Engine polls a Tracker and dispatches ready autonomous work.
 type Engine struct {
-	cfg     config.Config
+	cfg     kit.Config
+	kitDir  string
 	tracker Tracker
 	exec    Executor
 	log     *log.Logger
@@ -28,19 +29,23 @@ type Engine struct {
 }
 
 // New builds an Engine.
-func New(cfg config.Config, t Tracker, e Executor, logger *log.Logger) *Engine {
-	gcap := cfg.Concurrency
-	if gcap < 1 {
-		gcap = 1
+func New(cfg kit.Config, kitDir string, t Tracker, e Executor, logger *log.Logger) *Engine {
+	gcap := 1
+	if cfg.Dispatch != nil && cfg.Dispatch.Concurrency > 0 {
+		gcap = cfg.Dispatch.Concurrency
 	}
 	csem := map[string]chan struct{}{}
-	for name, cl := range cfg.Classes {
-		if cl.Concurrency > 0 {
-			csem[name] = make(chan struct{}, cl.Concurrency)
+	for name := range cfg.Workers {
+		rw, err := cfg.ResolvedWorker(name) // skips <common> (errors) and applies the base
+		if err != nil {
+			continue
+		}
+		if rw.Concurrency > 0 {
+			csem[name] = make(chan struct{}, rw.Concurrency)
 		}
 	}
 	return &Engine{
-		cfg: cfg, tracker: t, exec: e, log: logger,
+		cfg: cfg, kitDir: kitDir, tracker: t, exec: e, log: logger,
 		gsem: make(chan struct{}, gcap), csem: csem,
 	}
 }
@@ -51,7 +56,10 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 		e.log.Printf("claim %s: %v", iss.Identifier, err)
 		return
 	}
-	cl := e.cfg.Classes[iss.Class]
+	rw, err := e.cfg.ResolvedWorker(iss.Class)
+	if err != nil {
+		return // not a dispatchable worker class (defensive; the Run filter already gates this)
+	}
 
 	comments, err := e.tracker.Comments(ctx, iss.ID)
 	if err != nil {
@@ -86,11 +94,14 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 		return
 	}
 
-	work, _ := time.ParseDuration(cl.Timeout)             // validated by config
-	over, _ := time.ParseDuration(e.cfg.DispatchOverhead) // validated by config
+	work, _ := time.ParseDuration(rw.Timeout) // validated by config
+	over := 15 * time.Minute
+	if e.cfg.Dispatch != nil && e.cfg.Dispatch.DispatchOverhead != "" {
+		over, _ = time.ParseDuration(e.cfg.Dispatch.DispatchOverhead) // validated by config
+	}
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
-	argv := []string{"at-cove", "work", cl.Kit, "--in", inPath, "--out", outPath, "--timeout", cl.Timeout}
+	argv := []string{"at-cove", "work", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
 	runErr := e.exec.Run(rctx, argv, nil)
 
 	e.broker(ctx, iss, readResult(outPath), runErr)
@@ -163,7 +174,7 @@ func needsInputComment(tr worker.TaskResult) string {
 
 // Run polls every poll-interval until ctx is done, draining in-flight work on exit.
 func (e *Engine) Run(ctx context.Context) error {
-	d, _ := time.ParseDuration(e.cfg.Tracker.PollInterval) // validated by config
+	d, _ := time.ParseDuration(e.cfg.Tracker.Linear.PollInterval) // validated by config
 	t := time.NewTicker(d)
 	defer t.Stop()
 	e.tick(ctx) // immediate first pass
@@ -197,9 +208,8 @@ func (e *Engine) tick(ctx context.Context) {
 		return
 	}
 	for _, iss := range ready {
-		cl, ok := e.cfg.Classes[iss.Class]
-		if !ok || cl.Mode != "autonomous" {
-			continue // skip interactive / unknown classes
+		if _, err := e.cfg.ResolvedWorker(iss.Class); err != nil {
+			continue // skip interactive (collaborator) / unknown / <common> classes
 		}
 		if !e.acquire(iss.Class) {
 			continue // caps full this tick

@@ -18,6 +18,9 @@ spec stays portable). It lives at the kit root — by convention `<repo>/.at-cov
 Parsing is **strict**: an unknown or misspelled field is a hard error (`config.yml: field
 … not found`), so typos surface immediately rather than being silently ignored.
 
+`at-cove dispatch [kit-dir]` reads this same file directly — the scheduler now consumes
+the kit like every other command; there is no separate scheduler config file.
+
 ## Fields
 
 A `*` marks a field required for `config.yml` to parse. Some fields are optional in the
@@ -73,9 +76,9 @@ source-control:
 ### tracker
 *tagged union — one provider (`linear` only today)*
 
-Names the issue tracker the kit's scheduler drives. Parsed and validated today;
-not yet read by any command (`at-cove dispatch` still takes its own `--config` —
-this field is schema groundwork for a later plan).
+Names the issue tracker the kit's scheduler drives. Parsed, validated, and read
+directly by `at-cove dispatch [kit-dir]` — the scheduler consumes the kit's
+`tracker`/`dispatch`/`workers` fields instead of a separate config file.
 
 #### tracker.linear.team*
 *string*
@@ -85,7 +88,9 @@ The Linear team key the scheduler polls.
 #### tracker.linear.poll-interval*
 *string (Go duration)*
 
-How often the scheduler polls Linear for state changes.
+How often the scheduler polls Linear for state changes, as a backstop to
+webhook-driven updates. Keep it low-frequency (e.g. `60s`) — webhooks handle the
+common case, and this interval only needs to catch what they miss.
 
 #### tracker.linear.class-label-prefix
 *string, defaults to `class:`*
@@ -96,6 +101,11 @@ The label prefix that maps a Linear issue to a worker class (e.g. `class:impleme
 *map of the scheduler's six lifecycle roles → that team's real state names*
 
 `ready`, `in-progress`, `in-review`, `done`, `needs-input`, `blocked` — all six required.
+This binds the design's uniform lifecycle roles (see
+[linear-agent-workflow.md](../orchestration/linear-agent-workflow.md)) to whatever state
+names a given Linear team actually uses, so the scheduler's logic never hard-codes
+team-specific state strings — e.g. `ready: Todo` means issues in the team's "Todo" state
+are treated as `ready`.
 
 #### tracker.linear.secrets
 *map of secret env name → config*
@@ -122,23 +132,30 @@ tracker:
 ```
 
 ### dispatch
-Scheduler policy knobs, consumed by `at-cove dispatch` in a later plan.
+Scheduler policy knobs, read by `at-cove dispatch [kit-dir]`.
 
 #### dispatch.concurrency*
 *int >= 1*
 
-Caps concurrent dispatched runs.
+Global cap on concurrent autonomous dispatches across all worker classes. A class's own
+`workers.*.concurrency` (if set) further restricts that class's slice of this budget;
+tune both to your resource budget and SLA.
 
 #### dispatch.reaper-timeout*
 *string (Go duration)*
 
-Bounds how long a stalled run is left running before being reaped.
+Bounds how long a stalled run is left running before being reaped. If an issue sits
+`in-progress` with no progress past this timeout, the scheduler moves it to
+`needs-input` so a human can look — this guards against a hung or crashed worker
+leaving an issue silently stuck.
 
 #### dispatch.dispatch-overhead
 *string (Go duration), defaults to `15m`*
 
 Spare time budgeted around a worker's own `timeout` (its class's `workers.*.timeout`)
-before the scheduler treats the run as stalled.
+before the scheduler treats the run as stalled. Tune it to your image's build/boot
+time — a slower-building image needs more overhead before the scheduler calls a run
+stale.
 
 ```yaml
 dispatch:

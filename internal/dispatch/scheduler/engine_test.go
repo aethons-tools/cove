@@ -8,25 +8,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/dispatch/config"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
-func testConfig() config.Config {
-	return config.Config{
-		Tracker: config.TrackerConfig{PollInterval: "1m"},
-		Classes: map[string]config.Class{
-			"implement": {Mode: "autonomous", Kit: "/kits/implement", Timeout: "30m"},
-			"spec":      {Mode: "interactive"},
-		},
-		Concurrency:      4,
-		DispatchOverhead: "15m",
+func testConfig() kit.Config {
+	return kit.Config{
+		Tracker:  &kit.Tracker{Linear: &kit.LinearTracker{PollInterval: "1m"}},
+		Dispatch: &kit.Dispatch{Concurrency: 4, DispatchOverhead: "15m"},
+		Workers:  map[string]kit.Worker{"implement": {Prompt: "impl", Timeout: "30m"}},
 	}
 }
 
 // newEngine builds an Engine against an explicit config (for tests that need to
 // tweak concurrency, poll-interval, etc).
-func newEngine(cfg config.Config, tr Tracker, ex Executor) *Engine {
-	return New(cfg, tr, ex, log.New(io.Discard, "", 0))
+func newEngine(cfg kit.Config, tr Tracker, ex Executor) *Engine {
+	return New(cfg, "/kits/implement", tr, ex, log.New(io.Discard, "", 0))
 }
 
 // newTestEngine builds an Engine against the default testConfig() (an autonomous
@@ -50,7 +46,7 @@ func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 		t.Fatalf("task.json wrong:\n%s", ex.GotInput)
 	}
 	joined := strings.Join(ex.GotArgv, " ")
-	if !strings.Contains(joined, "at-cove work") || !strings.Contains(joined, "--timeout 30m") {
+	if !strings.Contains(joined, "at-cove work /kits/implement") || !strings.Contains(joined, "--timeout 30m") {
 		t.Fatalf("argv wrong: %v", ex.GotArgv)
 	}
 	if tr.lastRole != RoleInReview {
@@ -131,7 +127,7 @@ func TestTickReconcilesAndDispatches(t *testing.T) {
 
 func TestTickRespectsGlobalConcurrency(t *testing.T) {
 	cfg := testConfig()
-	cfg.Concurrency = 1
+	cfg.Dispatch.Concurrency = 1
 	tr := &fakeTracker{ready: []Issue{
 		{ID: "i1", Identifier: "AET-1", Class: "implement"},
 		{ID: "i2", Identifier: "AET-2", Class: "implement"},
@@ -170,7 +166,7 @@ func TestTickRecoversPanic(t *testing.T) {
 
 func TestRunStopsOnContextCancel(t *testing.T) {
 	cfg := testConfig()
-	cfg.Tracker.PollInterval = "1h" // long, so only the immediate first tick runs
+	cfg.Tracker.Linear.PollInterval = "1h" // long, so only the immediate first tick runs
 	tr := &fakeTracker{}
 	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`})
 
