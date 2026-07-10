@@ -6,15 +6,15 @@ import (
 )
 
 // A lock on one instance must not affect a different instance, since each has
-// its own state file. A loop holding a shared lock must still block an
-// exclusive lock on the SAME instance.
+// its own state file. A shared lock must still block an exclusive lock on the
+// SAME instance.
 func TestLocksArePerInstance(t *testing.T) {
 	dir := t.TempDir()
-	foo := LoopInstance("foo")
+	foo := Instance("foo")
 	if err := SaveFor(dir, Interactive, State{Name: "x", Backend: "colima", Container: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveFor(dir, foo, State{Name: "x", Backend: "colima", Container: "x-loop-foo"}); err != nil {
+	if err := SaveFor(dir, foo, State{Name: "x", Backend: "colima", Container: "x-foo"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,7 +39,7 @@ func TestLocksArePerInstance(t *testing.T) {
 
 func TestAcquireForMissingInstance(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := AcquireSharedFor(dir, LoopInstance("nope")); !errors.Is(err, ErrNotCreated) {
+	if _, err := AcquireSharedFor(dir, Instance("nope")); !errors.Is(err, ErrNotCreated) {
 		t.Fatalf("acquire on missing instance: want ErrNotCreated, got %v", err)
 	}
 }

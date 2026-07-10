@@ -101,7 +101,7 @@ Every command takes an optional kit directory (otherwise discovered by cwd walk-
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
 without executing anything.
-Flags specific to a command (e.g. `--raw`, `--ws`, `--loop`) go *after* the
+Flags specific to a command (e.g. `--raw`, `--ws`) go *after* the
 command name; each command only accepts its own flags.
 
 ### State vs. config

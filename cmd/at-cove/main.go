@@ -140,12 +140,11 @@ func kitDirArg(pos []string, cmd string, stderr io.Writer) (string, int) {
 	return kitDir, 0
 }
 
-// instanceCmd handles destroy/status: they share the --loop flag and the
-// kit-dir positional, resolving to an interactive or loop instance.
+// instanceCmd handles destroy/status: it parses the shared kit-dir positional
+// and resolves to the interactive instance.
 func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(errw)
-	loopName := fs.String("loop", "", "target the named loop instance instead of the interactive one")
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
@@ -154,15 +153,7 @@ func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out,
 	if code != 0 {
 		return code
 	}
-	inst := state.Interactive
-	if *loopName != "" {
-		if err := state.ValidLoopName(*loopName); err != nil {
-			fmt.Fprintln(errw, "at-cove:", err)
-			return 2
-		}
-		inst = state.LoopInstance(*loopName)
-	}
-	return exitCode("at-cove", do(kitDir, inst), errw)
+	return exitCode("at-cove", do(kitDir, state.Interactive), errw)
 }
 
 // exitCode maps a doX error to a process exit code (unwrapping ExitError).
@@ -376,10 +367,8 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
-// if any connection (or a running loop) holds the shared lock. It removes the
-// container (keeping volumes), removes the image for the interactive instance
-// but NOT for a loop instance (which shares the kit image), then deletes the
-// state file.
+// if any connection holds the shared lock. It removes the container (keeping
+// volumes if requested), removes the image, then deletes the state file.
 func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keepVolumes, dryRun bool, stdout io.Writer) error {
 	st, err := state.LoadFor(kitDir, inst)
 	if err != nil {
@@ -390,13 +379,8 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 		volumes = "keeping volumes"
 	}
 	if dryRun {
-		if inst == state.Interactive && !state.HasLoopInstances(kitDir) {
-			fmt.Fprintf(stdout, "would destroy %s (%s), remove image %s, and delete %s\n",
-				st.Container, volumes, st.Image, state.PathFor(kitDir, inst))
-		} else {
-			fmt.Fprintf(stdout, "would destroy %s (%s and the shared image) and delete %s\n",
-				st.Container, volumes, state.PathFor(kitDir, inst))
-		}
+		fmt.Fprintf(stdout, "would destroy %s (%s), remove image %s, and delete %s\n",
+			st.Container, volumes, st.Image, state.PathFor(kitDir, inst))
 		return nil
 	}
 	b, err := getBackend(st.Backend, r)
@@ -414,16 +398,6 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 	defer lock.Release()
 
 	bi := instanceFromState(st)
-	if inst != state.Interactive {
-		// A loop instance shares the kit image; keep it unless this is the last
-		// instance overall (no interactive, no other loop), in which case reclaim it.
-		last := !state.Exists(kitDir) && !state.OtherLoopInstancesExist(kitDir, inst)
-		if !last {
-			bi.Image = ""
-		}
-	} else if state.HasLoopInstances(kitDir) {
-		bi.Image = "" // loop instances still depend on the shared kit image; keep it
-	}
 	if err := b.Destroy(bi, keepVolumes); err != nil {
 		return err
 	}
