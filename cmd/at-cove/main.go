@@ -549,13 +549,13 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 			fmt.Fprintf(stdout, "would scavenge %s dispatch orphans older than %s\n", cfg.Name, *grace)
 			return 0
 		}
-		if len(cfg.Dispatch.Command) == 0 {
-			fmt.Fprintf(stderr, "at-cove: kit %q declares no dispatch.command\n", cfg.Name)
+		if len(cfg.Workers) == 0 {
+			fmt.Fprintf(stderr, "at-cove: kit %q declares no workers\n", cfg.Name)
 			return 1
 		}
 		img := "at-cove-for-" + cfg.Name
-		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run dispatch.command %q, extract %s, then destroy the container\n",
-			cfg.Name, kitDir, img, *inPath, cfg.Dispatch.Command, *outPath)
+		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-work worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
+			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
 	}
 
@@ -578,8 +578,8 @@ func doDispatch(args []string, r runner.Runner, dryRun bool, stdout, stderr io.W
 		return 0
 	}
 
-	if len(cfg.Dispatch.Command) == 0 {
-		fmt.Fprintf(stderr, "at-cove: kit %q declares no dispatch.command\n", cfg.Name)
+	if len(cfg.Workers) == 0 {
+		fmt.Fprintf(stderr, "at-cove: kit %q declares no workers\n", cfg.Name)
 		return 1
 	}
 

@@ -21,14 +21,6 @@ image:
     - github.com          # at-work clone/push
     # + your target project's dependency registries (e.g. proxy.golang.org, registry.npmjs.org)
 
-dispatch:
-  command: ["run-worker.sh"]
-  # at-cove injects the task file here (creating .at-work/) before run-worker.sh runs,
-  # and reads the result here after. run-worker.sh cd's to /home/agent/work so at-work's
-  # cwd-relative .at-work/ resolves to these same files.
-  input: /home/agent/work/.at-work/task.json
-  output: /home/agent/work/.at-work/task-result.json
-
 workers:
   implement:
     prompt: |

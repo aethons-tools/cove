@@ -16,9 +16,6 @@ func TestReferenceWorkerKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if len(cfg.Dispatch.Command) != 1 || cfg.Dispatch.Command[0] != "run-worker.sh" {
-		t.Errorf("dispatch.command = %v; want [run-worker.sh]", cfg.Dispatch.Command)
-	}
 	if cfg.Image.Env["AT_WORK_AGENT_COMMAND"] != "run-agent.sh" {
 		t.Errorf("AT_WORK_AGENT_COMMAND = %q; want run-agent.sh", cfg.Image.Env["AT_WORK_AGENT_COMMAND"])
 	}

@@ -687,9 +687,9 @@ func TestDispatchReapDoesNotRequireInOut(t *testing.T) {
 	}
 }
 
-func TestDispatchRequiresDispatchCommand(t *testing.T) {
+func TestDispatchRequiresWorkers(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir) // no dispatch.command declared
+	kitDir := writeKit(t, dir) // no workers declared
 	inFile := filepath.Join(dir, "in.json")
 	outFile := filepath.Join(dir, "out.json")
 	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
@@ -699,10 +699,10 @@ func TestDispatchRequiresDispatchCommand(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
-		t.Fatalf("exit = %d; want 1 (no dispatch.command)", code)
+		t.Fatalf("exit = %d; want 1 (no workers)", code)
 	}
-	if !strings.Contains(errOut.String(), "dispatch.command") {
-		t.Fatalf("stderr = %q; want mention of dispatch.command", errOut.String())
+	if !strings.Contains(errOut.String(), "declares no workers") {
+		t.Fatalf("stderr = %q; want mention of declares no workers", errOut.String())
 	}
 }
 
@@ -715,7 +715,7 @@ func TestDryRunDispatchPrintsNoExec(t *testing.T) {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\ndispatch:\n  command: [\"run-worker.sh\"]\n"
+	yml := "name: box\nworkers:\n  implement:\n    prompt: do the thing\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}

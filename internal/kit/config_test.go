@@ -197,13 +197,10 @@ func TestParseConfigImageRejectsEmptyDomain(t *testing.T) {
 	}
 }
 
-func TestParseConfigDispatch(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: w\ndispatch:\n  command: [\"run-worker.sh\"]\n"))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	if len(cfg.Dispatch.Command) != 1 || cfg.Dispatch.Command[0] != "run-worker.sh" {
-		t.Fatalf("Dispatch.Command = %v; want [run-worker.sh]", cfg.Dispatch.Command)
+func TestParseConfigRejectsDispatch(t *testing.T) {
+	_, err := ParseConfig([]byte("name: w\ndispatch:\n  command: [\"run-worker.sh\"]\n"))
+	if err == nil {
+		t.Fatal("expected error for unknown field dispatch, got nil")
 	}
 }
 

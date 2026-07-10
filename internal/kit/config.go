@@ -43,17 +43,6 @@ type ImageConfig struct {
 	AllowedDomains []string          `yaml:"allowed-domains"` // added to the squid egress allow-list
 }
 
-// DispatchConfig declares how `at-cove dispatch` performs a unit of work: the command
-// run inside the VM, and the VM-side paths where at-cove injects the task file and reads
-// the result. Input/Output are absolute VM paths under the worker's .at-work/ dir; the
-// dispatch command must run with a cwd such that at-work reads/writes the same files
-// (see kits/reference-worker for the reference wiring).
-type DispatchConfig struct {
-	Command []string `yaml:"command"`
-	Input   string   `yaml:"input"`  // VM path at-cove writes the task file to, e.g. /home/agent/work/.at-work/task.json
-	Output  string   `yaml:"output"` // VM path at-cove reads the task-result from, e.g. /home/agent/work/.at-work/task-result.json
-}
-
 // Worker declares a dispatch worker class: the prompt at-cove sends the agent when
 // at-cove dispatch runs this class. at-cove wraps it in the standard at-work bracket.
 type Worker struct {
@@ -62,11 +51,10 @@ type Worker struct {
 
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name     string                  `yaml:"name"`
-	Secrets  map[string]SecretConfig `yaml:"secrets"`
-	Image    ImageConfig             `yaml:"image"`
-	Dispatch DispatchConfig          `yaml:"dispatch"`
-	Workers  map[string]Worker       `yaml:"workers"`
+	Name    string                  `yaml:"name"`
+	Secrets map[string]SecretConfig `yaml:"secrets"`
+	Image   ImageConfig             `yaml:"image"`
+	Workers map[string]Worker       `yaml:"workers"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
