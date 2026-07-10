@@ -2,6 +2,7 @@ package kit
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -49,12 +50,36 @@ type Worker struct {
 	Prompt string `yaml:"prompt"`
 }
 
+// Origin names the code host + repo the kit targets — a tagged union (exactly one host;
+// github only today). It is the single source of the repo identity and the host kind.
+type Origin struct {
+	GitHub *GitHubOrigin `yaml:"github,omitempty"`
+}
+
+type GitHubOrigin struct {
+	Project string `yaml:"project"` // "owner/name"
+}
+
+// Active returns the set host, or an error if not exactly one.
+func (o *Origin) Active() (string, error) {
+	n, name := 0, ""
+	if o.GitHub != nil {
+		n, name = n+1, "github"
+	}
+	if n != 1 {
+		return "", errors.New("must set exactly one host (github)")
+	}
+	return name, nil
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
-	Name    string                  `yaml:"name"`
-	Secrets map[string]SecretConfig `yaml:"secrets"`
-	Image   ImageConfig             `yaml:"image"`
-	Workers map[string]Worker       `yaml:"workers"`
+	Name       string                  `yaml:"name"`
+	Secrets    map[string]SecretConfig `yaml:"secrets"`
+	Image      ImageConfig             `yaml:"image"`
+	Workers    map[string]Worker       `yaml:"workers"`
+	Origin     *Origin                 `yaml:"origin,omitempty"`
+	MainBranch string                  `yaml:"main-branch,omitempty"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -113,6 +138,19 @@ func ParseConfig(data []byte) (Config, error) {
 		if strings.TrimSpace(w.Prompt) == "" {
 			return Config{}, fmt.Errorf("config.yml: workers[%q]: prompt is required", class)
 		}
+	}
+	if cfg.Origin != nil {
+		if _, err := cfg.Origin.Active(); err != nil {
+			return Config{}, fmt.Errorf("config.yml: origin: %w", err)
+		}
+		if gh := cfg.Origin.GitHub; gh != nil {
+			if parts := strings.Split(gh.Project, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return Config{}, fmt.Errorf("config.yml: origin.github.project must be \"owner/name\", got %q", gh.Project)
+			}
+		}
+	}
+	if cfg.MainBranch == "" {
+		cfg.MainBranch = "main"
 	}
 	return cfg, nil
 }
