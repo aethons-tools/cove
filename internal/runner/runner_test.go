@@ -135,6 +135,20 @@ func TestFakeOutputReturnsQueuedResults(t *testing.T) {
 	}
 }
 
+func TestFakeOutputEnvRecordsEnvAndReturnsQueuedResult(t *testing.T) {
+	f := &Fake{Outputs: []FakeResult{{Stdout: "tok"}}}
+	out, err := f.OutputEnv([]string{"K=V"}, "mint", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "tok" {
+		t.Fatalf("OutputEnv = %q, want %q", out, "tok")
+	}
+	if len(f.Calls) != 1 || len(f.Calls[0].Env) != 1 || f.Calls[0].Env[0] != "K=V" {
+		t.Fatalf("env not recorded: %+v", f.Calls)
+	}
+}
+
 func TestFakeRunEnvRecordsEnv(t *testing.T) {
 	f := &Fake{}
 	if err := f.RunEnv([]string{"K=V"}, "ssh", "host"); err != nil {

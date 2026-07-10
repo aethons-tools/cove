@@ -3,12 +3,17 @@
 # toolchain, and the full allowed-domains for your project. See RUNBOOK.md.
 name: reference-worker
 
+origin:
+  github:
+    project: your-org/your-repo   # ← set to the target repo
+main-branch: main
+
 secrets:
   # Code-host token used ONLY by at-work prepare/complete (clone/push/PR). Resolved
   # on the host at dispatch, injected in memory. The agent step never sees it.
   AT_WORK_GIT_TOKEN:
-    description: GitHub token for clone/push/PR
-    command: ["gh", "auth", "token"]
+    description: per-task GitHub App installation token — push + PR on origin, minted per run
+    command: ["mint-github-token.sh"]
 
 image:
   setup-scripts:

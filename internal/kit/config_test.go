@@ -220,3 +220,29 @@ func TestParseConfigRejectsWorkerWithoutPrompt(t *testing.T) {
 		t.Fatal("a worker class with no prompt must be rejected")
 	}
 }
+
+func TestParseConfigOrigin(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: acme/myrepo\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Origin == nil || cfg.Origin.GitHub == nil || cfg.Origin.GitHub.Project != "acme/myrepo" {
+		t.Fatalf("origin not parsed: %+v", cfg.Origin)
+	}
+	if cfg.MainBranch != "main" { // default
+		t.Fatalf("main-branch default = %q; want main", cfg.MainBranch)
+	}
+}
+
+func TestParseConfigRejectsBadOriginProject(t *testing.T) {
+	if _, err := ParseConfig([]byte("name: k\norigin:\n  github:\n    project: nope\n")); err == nil {
+		t.Fatal("origin.github.project must be owner/name")
+	}
+}
+
+func TestParseConfigMainBranchOverride(t *testing.T) {
+	cfg, _ := ParseConfig([]byte("name: k\nmain-branch: develop\n"))
+	if cfg.MainBranch != "develop" {
+		t.Fatalf("main-branch = %q; want develop", cfg.MainBranch)
+	}
+}

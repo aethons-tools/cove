@@ -22,9 +22,6 @@ tracker:
     done: Done
     needs-input: Needs Input
     blocked: Backlog
-repo:
-  slug: aethons-tools/cove
-  source-branch: main
 classes:
   implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m, concurrency: 2 }
   spec:      { mode: interactive }
@@ -42,9 +39,6 @@ func TestParseConfigValid(t *testing.T) {
 	}
 	if cfg.Tracker.States.Ready != "Todo" {
 		t.Errorf("States.Ready = %q; want Todo", cfg.Tracker.States.Ready)
-	}
-	if cfg.Repo.Slug != "aethons-tools/cove" {
-		t.Errorf("Repo.Slug = %q", cfg.Repo.Slug)
 	}
 	impl := cfg.Classes["implement"]
 	if impl.Mode != "autonomous" || impl.Kit != "./kits/implement" || impl.Timeout != "30m" || impl.Concurrency != 2 {
@@ -66,7 +60,7 @@ func TestParseConfigDefaultsClassLabelPrefix(t *testing.T) {
 }
 
 func TestParseConfigRejectsUnknownKey(t *testing.T) {
-	_, err := ParseConfig([]byte("repo:\n  slug: a/b\nbogus: 1\n"))
+	_, err := ParseConfig([]byte("bogus: 1\n"))
 	if err == nil {
 		t.Fatal("ParseConfig: expected error for unknown key, got nil")
 	}
@@ -82,7 +76,6 @@ func TestValidateRejects(t *testing.T) {
 		{"missing team", strings.Replace(validYAML, "  team: AET\n", "", 1), "team"},
 		{"missing state role", strings.Replace(validYAML, "    blocked: Backlog\n", "", 1), "states.blocked"},
 		{"bad poll duration", strings.Replace(validYAML, "poll-interval: 60s", "poll-interval: soon", 1), "poll-interval"},
-		{"bad repo slug", strings.Replace(validYAML, "slug: aethons-tools/cove", "slug: cove", 1), "repo.slug"},
 		{"autonomous without kit", strings.Replace(validYAML,
 			`implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m, concurrency: 2 }`,
 			`implement: { mode: autonomous, timeout: 30m }`, 1), "kit"},
@@ -92,14 +85,12 @@ func TestValidateRejects(t *testing.T) {
 		{"bad mode", strings.Replace(validYAML,
 			`spec:      { mode: interactive }`, `spec:      { mode: sideways }`, 1), "mode"},
 		{"global concurrency zero", strings.Replace(validYAML, "concurrency: 4", "concurrency: 0", 1), "concurrency"},
-		{"multi-segment slug", strings.Replace(validYAML, "slug: aethons-tools/cove", "slug: a/b/c", 1), "repo.slug"},
 		{"empty token command", strings.Replace(validYAML, `token:          { command: ["op","read","op://work/linear-token"] }`, `token:          { command: [] }`, 1), "token"},
 		{"empty webhook-secret command", strings.Replace(validYAML, `webhook-secret: { command: ["op","read","op://work/linear-webhook"] }`, `webhook-secret: { command: [] }`, 1), "webhook-secret"},
 		{"bad reaper-timeout", strings.Replace(validYAML, "reaper-timeout: 45m", "reaper-timeout: soon", 1), "reaper-timeout"},
 		{"bad class timeout", strings.Replace(validYAML, "timeout: 30m", "timeout: soon", 1), "timeout"},
 		{"negative class concurrency", strings.Replace(validYAML, "concurrency: 2", "concurrency: -1", 1), "concurrency"},
 		{"classes empty", strings.Replace(validYAML, "classes:\n  implement: { mode: autonomous, kit: ./kits/implement, timeout: 30m, concurrency: 2 }\n  spec:      { mode: interactive }", "classes: {}", 1), "class"},
-		{"missing source-branch", strings.Replace(validYAML, "  source-branch: main\n", "", 1), "source-branch"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,9 +116,6 @@ tracker:
   webhook-secret: {command: ["echo","w"]}
   poll-interval: 30s
   states: {ready: R, in-progress: IP, in-review: IR, done: D, needs-input: NI, blocked: B}
-repo:
-  slug: owner/name
-  source-branch: main
 concurrency: 2
 reaper-timeout: 1h
 classes:
@@ -142,9 +130,6 @@ classes:
 	cfg, err := LoadConfig(cfgPath)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
-	}
-	if cfg.Repo.SourceBranch != "main" {
-		t.Errorf("SourceBranch = %q", cfg.Repo.SourceBranch)
 	}
 	if cfg.DispatchOverhead != "15m" {
 		t.Errorf("DispatchOverhead default = %q; want 15m", cfg.DispatchOverhead)

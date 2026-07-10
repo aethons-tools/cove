@@ -1,10 +1,10 @@
 ---
-summary: at-dispatch scheduler configuration schema — tracker wiring, repo metadata, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
+summary: at-dispatch scheduler configuration schema — tracker wiring, handler-class dispatch kits, concurrency/timeout settings, and how the scheduler reads and mutates the config at startup and runtime.
 read_when: You are setting up a new at-dispatch instance, adding a handler class, changing tracker state mappings, adjusting timeouts/concurrency, or wiring a new kit to a class.
 owns: the at-dispatch configuration file format, schema, secret resolution, loading/validation, tracker state role mapping, class-to-kit binding, and concurrency/timeout policy
 prereqs: linear-agent-workflow.md (the scheduler's role in dispatch); at-cove-dispatch-interface.md (the kit and run-parameter model the config keys into)
 tier: leaf
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 # at-dispatch Scheduler Configuration
@@ -46,13 +46,6 @@ tracker:
   
   # Issues are assigned to classes via labels; this prefix + class name forms the label
   class-label-prefix: "class:"              # so an issue labeled "class:implement" maps to the "implement" class
-
-# ──────────────────────────────────────────────────────────────────────────
-# REPO METADATA
-# ──────────────────────────────────────────────────────────────────────────
-repo:
-  slug: owner/repo                          # "owner/repo" format; the single repo this scheduler serves
-  source-branch: main                       # base branch that work builds on (e.g. "main" or "develop")
 
 # ──────────────────────────────────────────────────────────────────────────
 # HANDLER CLASSES — each autonomous class maps to a kit
@@ -125,15 +118,12 @@ dispatch-overhead: 15m                      # build + boot + teardown margin add
 - The prefix for class labels on issues.
 - An issue labeled `"class:implement"` is assigned to the handler class `"implement"`.
 
-### `repo`
-
-**`slug`** (`string`, required; format: `"owner/repo"`)
-- The single repository this scheduler serves.
-- Must be exactly two slash-separated parts, both non-empty.
-
-**`source-branch`** (`string`, required)
-- The base branch for work (e.g., `"main"`, `"develop"`).
-- Passed to the kit when the scheduler dispatches a worker, so the kit's checkout is against this branch.
+This config has no `repo` field: the scheduler names no repo. Each class's
+kit (`classes[*].kit`) owns its own `.at-cove/config.yml`, whose `origin`
+(and `main-branch`) single-source the repo and source branch — see
+[`at-cove-config.md`](../usage/at-cove-config.md). `at-cove dispatch` fills
+`task.repo` from the kit at dispatch time; the scheduler only sets
+`task.repo.work-branch` (`<class>/<issue-key>`).
 
 ### `classes`
 

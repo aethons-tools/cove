@@ -1,10 +1,10 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox (name, secrets, worker classes, image customization), with validation rules and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — adding a secret, a worker class, an allowed domain, or a PATH entry.
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox (name, origin, main-branch, secrets, worker classes, image customization), with validation rules and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (origin), adding a secret, a worker class, an allowed domain, or a PATH entry.
 owns: the config.yml schema (all top-level fields + their validation)
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret declaration + resolution
 tier: leaf
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 # at-cove `config.yml`
@@ -26,6 +26,32 @@ A `*` marks a required field.
 
 The base sandbox/VM name. Also keys the per-sandbox `known_hosts` and the state/workspace
 volumes. Keep it stable — changing it points commands at a different instance.
+
+
+### origin
+*tagged union — one host (`github` only today)*
+
+The remote the kit targets — the **single source of truth** for the repo identity *and* the
+code-host kind (which selects the clone URL, the PR API, and the matching secret minter).
+**Required for `at-cove dispatch`**; interactive `connect` works without it. `at-cove dispatch`
+fills the target repo into the worker's task from `origin`, so nothing else names a repo.
+
+#### origin.github.project
+*string — `owner/name`*
+
+The GitHub repository the workers act on.
+
+```yaml
+origin:
+  github:
+    project: acme/myrepo
+```
+
+### main-branch
+*string, defaults to `main`*
+
+The repo's base branch. A dispatched task may override it per-run (its `source-branch`);
+absent an override, at-cove uses `main-branch`.
 
 
 ### secrets
@@ -116,6 +142,11 @@ image:
 ```yaml
 name: claude-on-myrepo
 
+origin:
+  github:
+    project: acme/myrepo
+main-branch: main
+
 secrets:
   GITHUB_TOKEN:
     description: private-repo git over HTTPS
@@ -137,6 +168,7 @@ workers:
 
 `config.yml` is rejected (with a `config.yml: …` error) if any of:
 - an unknown field is present, or `name` is missing;
+- `origin` sets more than one host, or `origin.github.project` is not `owner/name`;
 - an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
   path contains a newline);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value

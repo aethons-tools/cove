@@ -3,11 +3,6 @@
     "key": "DEMO-1",
     "title": "Add a greeting helper"
   },
-  "repo": {
-    "name": "<your-org>/<scratch-repo>",
-    "source-branch": "main",
-    "work-branch": "implement/DEMO-1"
-  },
   "worker": {
     "class": "implement"
   },

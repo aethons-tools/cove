@@ -54,7 +54,7 @@ type Options struct {
 // claude with the secrets injected. Secret resolution happens before any SSH so
 // a failure aborts cleanly (fail closed).
 func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor, o Options) error {
-	env, err := secret.Resolve(r, o.Secrets)
+	env, err := secret.Resolve(r, nil, o.Secrets)
 	if err != nil {
 		return err
 	}

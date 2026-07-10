@@ -47,7 +47,12 @@ func TestDispatchRunsBracket(t *testing.T) {
 
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		BuildDir: dir, Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
@@ -55,6 +60,16 @@ func TestDispatchRunsBracket(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
+	}
+	var injected string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+taskVMPath) {
+			injected = c.Stdin
+		}
+	}
+	if !strings.Contains(injected, `"name": "acme/myrepo"`) ||
+		!strings.Contains(injected, `"source-branch": "main"`) {
+		t.Fatalf("injected task missing filled repo:\n%s", injected)
 	}
 	calls := allCalls(r)
 	// the three bracket steps ran, in order, cd'd to the workdir
@@ -77,23 +92,32 @@ func TestDispatchRunsBracket(t *testing.T) {
 
 // TestDispatchAirGapsTokenFromAgent is THE security test: the code-host token
 // must reach the VM for prepare and complete, but must never be present during
-// the agent step, and must never appear on any argv.
+// the agent step, and must never appear on any argv. Per-git-step minting means
+// the token is resolved TWICE (once per git step), each time freshly.
 func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
 	out := dir + "/task-result.json"
-	const tok = "ghp-secret-token-value"
-	// secret.Resolve calls r.Output per resolver (in name order: AT_WORK_GIT_TOKEN, OTHER),
-	// then the final `cat` for the result.
+	const tok1 = "ghp-secret-token-value-1"
+	const tok2 = "ghp-secret-token-value-2"
+	// Call order: base secrets first (OTHER, since AT_WORK_GIT_TOKEN is split out
+	// of baseSpecs), then a fresh mint() before prepare, then a fresh mint()
+	// before complete, then the final `cat` for the result.
 	r := &runner.Fake{Outputs: []runner.FakeResult{
-		{Stdout: tok + "\n"},             // AT_WORK_GIT_TOKEN resolver
-		{Stdout: "other-value\n"},        // OTHER resolver
+		{Stdout: "other-value\n"},        // OTHER (base secret, resolved once)
+		{Stdout: tok1 + "\n"},            // mint() for prepare
+		{Stdout: tok2 + "\n"},            // mint() for complete
 		{Stdout: `{"status":{"ok":{}}}`}, // cat result
 	}}
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg: kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		Secrets: []secret.Spec{
 			{Name: "AT_WORK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
 			{Name: "OTHER", Command: []string{"echo", "x"}},
@@ -115,24 +139,81 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 	if len(envWrites) != 3 {
 		t.Fatalf("want 3 env-file writes (prepare/agent/complete); got %d", len(envWrites))
 	}
-	if !strings.Contains(envWrites[0], tok) {
-		t.Fatal("prepare env must carry AT_WORK_GIT_TOKEN")
+	if !strings.Contains(envWrites[0], tok1) {
+		t.Fatal("prepare env must carry the freshly-minted token (tok1)")
 	}
-	if strings.Contains(envWrites[1], tok) {
+	if strings.Contains(envWrites[1], tok1) || strings.Contains(envWrites[1], tok2) {
 		t.Fatal("AIR-GAP BREACH: the agent step's env carried AT_WORK_GIT_TOKEN")
 	}
 	if !strings.Contains(envWrites[1], "other-value") {
 		t.Fatal("agent step should still carry other secrets")
 	}
-	if !strings.Contains(envWrites[2], tok) {
-		t.Fatal("complete env must carry AT_WORK_GIT_TOKEN")
+	if !strings.Contains(envWrites[2], tok2) {
+		t.Fatal("complete env must carry the freshly-minted token (tok2)")
 	}
-	// and the token must never appear on any argv
+	// and neither token must ever appear on any argv
 	for _, c := range r.Calls {
-		if strings.Contains(strings.Join(c.Args, " "), tok) {
+		joined := strings.Join(c.Args, " ")
+		if strings.Contains(joined, tok1) || strings.Contains(joined, tok2) {
 			t.Fatalf("token leaked onto argv: %v", c.Args)
 		}
 	}
+}
+
+// TestDispatchPassesRunParamsToResolvers confirms the resolver commands receive
+// the run's parameters (COVE_RUN_*) in their environment, so a per-task minter
+// script can scope what it mints (e.g. to the issue/repo/class).
+func TestDispatchPassesRunParamsToResolvers(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"issue":{"key":"AET-24"},"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "other-value\n"},        // OTHER (base secret)
+		{Stdout: `{"status":{"ok":{}}}`}, // cat result
+	}}
+	ops := &fakeOps{}
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Secrets: []secret.Spec{
+			{Name: "OTHER", Command: []string{"echo", "x"}},
+		},
+		BuildDir: dir, Name: "disp-runparams", InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var found bool
+	for _, c := range r.Calls {
+		if c.Name == "echo" {
+			found = true
+			for _, want := range []string{"COVE_RUN_REPO=acme/myrepo", "COVE_RUN_ISSUE=AET-24", "COVE_RUN_CLASS=implement"} {
+				if !containsEnv(c.Env, want) {
+					t.Fatalf("resolver env = %v; want %q", c.Env, want)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("resolver command (echo, for OTHER) was never called")
+	}
+}
+
+// containsEnv reports whether env (a slice of "KEY=VALUE" strings) contains want.
+func containsEnv(env []string, want string) bool {
+	for _, v := range env {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDispatchUndeclaredClassErrors(t *testing.T) {
@@ -149,6 +230,62 @@ func TestDispatchUndeclaredClassErrors(t *testing.T) {
 	}
 }
 
+// TestDispatchSourceBranchOverride confirms a task-supplied source-branch is honored
+// rather than clobbered by the kit's main-branch default.
+func TestDispatchSourceBranchOverride(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"},"repo":{"source-branch":"release"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		BuildDir: dir, Name: "disp-override",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var injected string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+taskVMPath) {
+			injected = c.Stdin
+		}
+	}
+	if !strings.Contains(injected, `"source-branch": "release"`) {
+		t.Fatalf("task-supplied source-branch was overwritten:\n%s", injected)
+	}
+	if strings.Contains(injected, `"source-branch": "main"`) {
+		t.Fatalf("expected the override to be kept, not the kit's main-branch:\n%s", injected)
+	}
+}
+
+// TestDispatchRequiresOrigin confirms dispatch refuses to run when the kit
+// declares no origin — the repo has exactly one source of truth now.
+func TestDispatchRequiresOrigin(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	err := Dispatch(Options{
+		Ops: &fakeOps{}, R: &runner.Fake{},
+		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		BuildDir: dir, Name: "disp-noorigin", InputPath: in, OutputPath: dir + "/o.json",
+		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected an error when the kit declares no origin")
+	}
+}
+
 func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
@@ -156,7 +293,12 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	ops := &fakeOps{}
 	err := Dispatch(Options{
 		Ops: ops, R: r,
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Cfg: kit.Config{
+			Name:       "w",
+			Origin:     &kit.Origin{GitHub: &kit.GitHubOrigin{Project: "acme/myrepo"}},
+			MainBranch: "main",
+			Workers:    map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
 		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})

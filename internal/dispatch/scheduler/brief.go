@@ -4,10 +4,10 @@ import "strings"
 
 // assembleBrief renders the self-contained markdown brief that is assembled
 // into the worker's task.json (the task.brief field).
-func assembleBrief(iss Issue, repo string, comments []Comment) string {
+func assembleBrief(iss Issue, comments []Comment) string {
 	var b strings.Builder
 	b.WriteString("# " + iss.Identifier + " — " + iss.Title + "\n\n")
-	b.WriteString("**Class:** " + iss.Class + "  **Repo:** " + repo + "\n\n")
+	b.WriteString("**Class:** " + iss.Class + "\n\n")
 	b.WriteString("## Description\n\n")
 	b.WriteString(strings.TrimSpace(iss.Description) + "\n")
 	if len(comments) > 0 {

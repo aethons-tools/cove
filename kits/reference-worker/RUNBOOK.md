@@ -6,12 +6,42 @@ egress-locked dev sandbox (no docker/claude/GitHub); run it on a machine with:
 
 ## Prerequisites
 - **Colima** running (`colima start`) — the `at-cove` backend.
-- **`gh auth login`** — the `AT_WORK_GIT_TOKEN` resolver is `gh auth token`.
+- **The GitHub App minter provisioned** — see below; the `AT_WORK_GIT_TOKEN`
+  resolver is `mint-github-token.sh`.
 - **A seeded `claude` login** — run `at-cove connect` once and log in; `at-cove`
   saves the credentials and `dispatch` seeds them into the worker container.
 - **A scratch GitHub repo** you can push branches / open PRs on, with a `main` branch.
 - The kit **completed** for your target: base image, `claude` install, pinned
   `at-work` ref, target toolchain, and the full `allowed-domains` in `config.yml`.
+
+## Provisioning the GitHub App (credential minter)
+
+`AT_WORK_GIT_TOKEN` resolves by running `kits/reference-worker/mint-github-token.sh`
+on the **at-cove host** (not in the VM) — it mints a fresh, repo-scoped GitHub App
+installation token before each git step (`at-work prepare` and `at-work complete`).
+
+1. **Create a GitHub App** with permissions `contents:write` and
+   `pull_requests:write`, and **install it on your org** (so it can be scoped to
+   any repo in that org at mint time).
+2. **Put `mint-github-token.sh` on the at-cove host's `PATH`** (the resolver
+   `command` in `config.yml` is `["mint-github-token.sh"]`, resolved like any
+   other host command — see [at-cove-secrets.md](../../docs/usage/at-cove-secrets.md)).
+3. **Export on the at-cove host** (never committed, never in the kit):
+   - `COVE_GH_APP_ID` — the App's ID.
+   - `COVE_GH_INSTALL_ID` — the installation ID on your org.
+   - `COVE_GH_APP_KEY` — path to the App's private key (`.pem`).
+
+The script fails closed (`set -eu` + `:?` guards): a missing var or a failed API
+call aborts the resolver, which aborts dispatch before any SSH happens.
+
+**Why per-git-step, not per-run:** `at-cove` re-runs the resolver before *each*
+git step, so the App-token's fixed ~1-hour TTL never bounds how long a dispatch
+run may take — only the two git steps (`prepare`, `complete`) ever hold a token,
+and each gets a freshly minted one. `at-cove` also passes the run's parameters —
+`COVE_RUN_REPO`, `COVE_RUN_ISSUE`, `COVE_RUN_CLASS`, `COVE_RUN_TIMEOUT` — into the
+resolver's environment; the minter reads `COVE_RUN_REPO` to scope the token to
+that repo (the installation itself, plus `contents`+`pull_requests`, still bounds
+the maximum grantable scope).
 
 ## Run
 ```
