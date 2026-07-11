@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,5 +40,17 @@ func TestRunTimeoutIsError(t *testing.T) {
 func TestRunEmptyArgv(t *testing.T) {
 	if err := New().Run(context.Background(), nil, nil); err == nil {
 		t.Fatal("expected an error for empty argv")
+	}
+}
+
+// A failing command's output tail must be folded into the returned error, so a
+// failed worker run is self-diagnosing from the tracker (not only the terminal).
+func TestRunNonZeroExitIncludesOutputTail(t *testing.T) {
+	err := New().Run(context.Background(), []string{"sh", "-c", "echo boom-marker >&2; exit 2"}, nil)
+	if err == nil {
+		t.Fatal("expected an error for non-zero exit")
+	}
+	if !strings.Contains(err.Error(), "boom-marker") {
+		t.Fatalf("error should include the command's output tail; got: %v", err)
 	}
 }
