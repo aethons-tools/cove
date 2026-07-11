@@ -36,8 +36,8 @@ RUN ./install-chrome.sh
 WORKDIR /
 RUN rm -rf /base-install-files
 
-COPY /.build-install-files/${TARGETARCH}/at-work /usr/local/bin/.
-RUN chmod 0775 /usr/local/bin/at-work
+COPY /.build-install-files/${TARGETARCH}/at-task /usr/local/bin/.
+RUN chmod 0775 /usr/local/bin/at-task
 
 
 

@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# Install Go
-
-# When running on Colima
-curl -L https://go.dev/dl/go1.26.4.linux-arm64.tar.gz -o go.tar.gz
-
-# TODO.md for firecracker and fly
-#curl -L https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -o go.tar.gz
-
-tar -C /usr/local -xzf go.tar.gz
-rm go.tar.gz
-/usr/local/go/bin/go version
-
 #!/usr/bin/env bash
 #
 # setup-test-tools.sh — install the tooling cove end-to-end testing needs.
