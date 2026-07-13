@@ -18,6 +18,19 @@ func read(t *testing.T, p string) string {
 	return string(b)
 }
 
+// Assemble must write the kit's managed .gitignore, so a kit built by any path
+// (build/create/work) never leaks its .build/.state artifacts into git.
+func TestAssembleEnsuresGitignore(t *testing.T) {
+	kitDir := t.TempDir()
+	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), kit.ImageConfig{}); err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	gi := read(t, filepath.Join(kitDir, ".gitignore"))
+	if !strings.Contains(gi, ".build/") || !strings.Contains(gi, ".state/") {
+		t.Fatalf(".gitignore missing managed entries:\n%s", gi)
+	}
+}
+
 func TestAssembleLayersAndKey(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")

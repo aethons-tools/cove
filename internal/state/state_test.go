@@ -2,9 +2,27 @@ package state
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// Save must write the kit's managed .gitignore, so a created sandbox never leaks
+// its .state into git even if no build ran first.
+func TestSaveEnsuresGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := Save(dir, State{Name: "x", Backend: "colima", Container: "c"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("expected .gitignore written by Save: %v", err)
+	}
+	if !strings.Contains(string(b), ".state/") {
+		t.Fatalf(".gitignore missing .state/:\n%s", string(b))
+	}
+}
 
 func TestSaveLoadDelete(t *testing.T) {
 	dir := t.TempDir()
