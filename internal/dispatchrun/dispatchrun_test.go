@@ -371,6 +371,36 @@ func TestDispatchPrepareFailureAborts(t *testing.T) {
 	}
 }
 
+// A dispatched worker must NOT receive the interactive OAuth credentials — it
+// authenticates via an injected ANTHROPIC_API_KEY. With CredentialsFile empty
+// (as doWork passes), no credentials file is seeded into the VM.
+func TestDispatchDoesNotSeedCredentialsWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	err := Dispatch(Options{
+		Ops: &fakeOps{}, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		BuildDir: dir, Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		CredentialsFile: "", // no OAuth creds on the work path
+		IdentityFile:    "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if strings.Contains(allCalls(r), credsVMPath) {
+		t.Fatalf("worker must not receive OAuth credentials (%s):\n%s", credsVMPath, allCalls(r))
+	}
+}
+
 func TestWaitForSSHRetriesThenSucceeds(t *testing.T) {
 	f := &flakyRunner{Fake: &runner.Fake{}, failFirst: 2}
 	err := waitForSSH(f, sshargs.Target{Host: "h", Port: 22}, 5, time.Millisecond, func(time.Duration) {})

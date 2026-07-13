@@ -195,14 +195,14 @@ Backend-agnostic, in `internal/connect`:
 
 ## Authentication
 
-The VM ships managed settings with `forceLoginMethod=claudeai`,
-so the agent authenticates via **claude.ai subscription OAuth**,
-not an API key.
+Claude Code picks its credential by env-driven precedence — `ANTHROPIC_API_KEY`
+wins over a subscription OAuth login — and the managed settings no longer force a
+login method, so the two agent paths differ deliberately:
+
+**Interactive `connect` → subscription OAuth.**
 On the first session `connect` probes `claude auth status` over SSH
 and runs interactive `claude auth login --claudeai` only when needed;
-the credentials persist on the `/agent-data` volume,
-so subsequent connects skip it.
-
+the credentials persist on the `/agent-data` volume, so later connects skip it.
 To make one login reusable across sandboxes (and across recreates),
 `connect` keeps a host-side copy at `~/.config/at-cove/credentials.json` (mode `0600`):
 it **seeds** that file into the VM (`/agent-data/.credentials.json`) *before* the auth probe,
@@ -210,21 +210,30 @@ so a login obtained on any sandbox validates the next one without re-prompting,
 and it **saves** the VM's copy back to the host after a fresh login
 or whenever a session rotates the token —
 keeping the shared copy current as the OAuth refresh token rolls over.
-When the credentials finally expire, the probe fails and the normal login flow re-mints them.
+When the credentials finally expire, the probe fails and the login flow re-mints them.
 `--no-auth` skips this entirely.
 
 > **Note:** this writes your subscription credentials to the host disk
-> (distinct from injected *secrets*, which stay memory-only).
-> The file is the user's own OAuth tokens, in the user-owned config dir at `0600` —
+> (distinct from injected *secrets*, which stay memory-only) —
+> the user's own OAuth tokens, in the user-owned config dir at `0600`,
 > the same trust boundary as the saved login already on the VM volume.
 
-> **Implication:** a kit must **not** inject `ANTHROPIC_API_KEY` on this path —
-> managed settings block startup if it is present.
-> A `GITHUB_TOKEN` secret is fine,
-> and is what enables private-repo git over HTTPS
-> (SSH git / port 22 is blocked by the egress lock;
-> `/etc/gitconfig` rewrites GitHub remotes to HTTPS
-> and a credential helper feeds the token from the session env, memory-only).
+**Dispatched `work` → API key.**
+A worker runs unattended, where a personal subscription is neither permitted nor
+practical, so its agent authenticates with an **`ANTHROPIC_API_KEY`** declared as a
+root `secrets` entry (memory-only, like any secret). at-cove deliberately does
+**not** seed the OAuth `credentials.json` on the work path: with no OAuth token
+below the key in the precedence chain, a keyless or misconfigured worker **fails
+closed** instead of silently falling back to — and burning — a subscription.
+Because `ANTHROPIC_API_KEY` (env) outranks OAuth, declaring it makes *any* agent
+session on that kit use the key, so keep API-key worker kits distinct from a kit
+you `connect` to on a personal subscription.
+
+Private-repo git uses the code-host token, not SSH:
+the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
+and a credential helper feeds the token from the session env (memory-only).
+For dispatched work that token is `source-control.github.secrets.AT_TASK_GIT_TOKEN`,
+minted per git step and withheld from the agent.
 
 ## Backends
 

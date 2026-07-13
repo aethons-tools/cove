@@ -33,6 +33,17 @@ dispatch:
   concurrency: 1
   reaper-timeout: 45m
 
+# Root secrets are injected into the agent's VM env. A dispatched worker
+# authenticates to Anthropic with an API key here — NOT the interactive
+# subscription OAuth login (at-cove does not seed OAuth credentials on the work
+# path, so a keyless worker fails closed rather than burning a subscription).
+# Supply the value out-of-band in ~/.config/at-cove/secrets.yml (command omitted).
+# NOTE: an interactive `connect` to this kit would also pick up this key (env
+# takes precedence over OAuth), so keep API-key worker kits distinct from any
+# kit you connect to on a personal subscription.
+secrets:
+  ANTHROPIC_API_KEY: {}
+
 collaborators:
   triager:
     secrets:

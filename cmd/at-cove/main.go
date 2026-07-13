@@ -619,9 +619,14 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
-		Secrets:         specs,
-		GitToken:        gitTok,
-		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
+		Secrets:  specs,
+		GitToken: gitTok,
+		// A dispatched worker authenticates to Anthropic via an injected
+		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
+		// So we deliberately do not seed credentials.json: with no OAuth token to
+		// fall back to, a keyless worker fails closed instead of silently burning
+		// the subscription. (connect still seeds it for interactive sessions.)
+		CredentialsFile: "",
 		IdentityFile:    priv,
 		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
 		InputPath:       *inPath, OutputPath: *outPath,
