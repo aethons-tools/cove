@@ -367,14 +367,15 @@ func rejectReservedSecretNames(field string, got map[string]SecretConfig) error 
 	return nil
 }
 
-// checkWellKnownSecrets requires exactly the allowed secret keys (each with a
-// non-empty resolver) and rejects any other key.
+// checkWellKnownSecrets requires each allowed secret name to be present (a
+// command is optional — a command-less entry is supplied from the user's
+// secrets.yml at run time) and rejects any name outside the allowed set.
 func checkWellKnownSecrets(field string, got map[string]SecretConfig, allowed ...string) error {
 	want := map[string]bool{}
 	for _, a := range allowed {
 		want[a] = true
-		if s, ok := got[a]; !ok || len(s.Command) == 0 {
-			return fmt.Errorf("config.yml: %s.%s is required (with a resolver command)", field, a)
+		if _, ok := got[a]; !ok {
+			return fmt.Errorf("config.yml: %s.%s is required", field, a)
 		}
 	}
 	for k := range got {
