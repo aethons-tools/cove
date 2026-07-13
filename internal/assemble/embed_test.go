@@ -30,17 +30,18 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 	}
 }
 
-// TestManagedSettingsForceOAuth guards the policy that the non-overridable
-// managed settings require subscription/OAuth login (forceLoginMethod=claudeai),
-// which is what makes remote control work and blocks API-key fallback. Only
-// managed settings enforce this, so the key must live in the hardening layer.
-func TestManagedSettingsForceOAuth(t *testing.T) {
+// TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
+// force a login method: auth is env-driven, so interactive `connect` selects
+// subscription OAuth explicitly (`claude auth login --claudeai`) while a
+// dispatched `work` agent uses an injected ANTHROPIC_API_KEY. Forcing claudeai
+// here would block (or contradict) the worker's API key.
+func TestManagedSettingsNoForcedLoginMethod(t *testing.T) {
 	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/claude-code/managed-settings.json")
 	if err != nil {
 		t.Fatalf("managed-settings.json not embedded: %v", err)
 	}
-	if !strings.Contains(string(b), `"forceLoginMethod": "claudeai"`) {
-		t.Errorf("managed-settings.json must set forceLoginMethod=claudeai; got:\n%s", b)
+	if strings.Contains(string(b), "forceLoginMethod") {
+		t.Errorf("managed-settings.json must NOT force a login method (env-driven auth; a forced claudeai blocks the worker API key); got:\n%s", b)
 	}
 }
 

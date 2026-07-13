@@ -74,8 +74,9 @@ SSH** happens. A missing `secrets.yml` is fine (treated as empty); a malformed o
   `config.yml`, so `connect`/`work`/`dispatch` run whatever it declares. **Only run at-cove
   against repos you trust** (your own). The planned `.local/` layer will move `command` out of the
   committed file so an untrusted repo can never trigger a resolver you didn't author.
-- **Never inject `ANTHROPIC_API_KEY`.** The VM's managed settings enforce claude.ai
-  subscription OAuth (`forceLoginMethod=claudeai`) and **block startup** if an API key is
-  present. Authentication is handled separately (see
-  [Authentication](../OVERVIEW.md#authentication)); a `GITHUB_TOKEN` secret is the common,
-  supported case (it enables private-repo git over HTTPS).
+- **`ANTHROPIC_API_KEY` selects the agent's auth path.** A dispatched **worker**
+  authenticates to Anthropic with an `ANTHROPIC_API_KEY` declared as a root secret (the work
+  path does not seed OAuth credentials). Because the env key outranks a subscription OAuth
+  login, an interactive `connect` to a kit that declares it will use the key too — so keep
+  API-key worker kits distinct from a kit you connect to on a personal subscription. See
+  [Authentication](../OVERVIEW.md#authentication).

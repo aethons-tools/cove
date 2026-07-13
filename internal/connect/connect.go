@@ -25,8 +25,10 @@ const (
 	// still means the connection itself failed, not "not logged in".
 	authProbe  = `if claude auth status >/dev/null 2>&1; then echo cove-authed; else echo cove-noauth; fi`
 	authedMark = "cove-authed"
-	// loginCmd is the interactive subscription/OAuth login. --claudeai is claude's
-	// default; it is stated explicitly to match managed forceLoginMethod=claudeai.
+	// loginCmd is the interactive subscription/OAuth login. `--claudeai` selects
+	// the subscription method explicitly — managed settings no longer force a
+	// login method (auth is env-driven so dispatched `work` can use an API key),
+	// so connect states its choice here rather than relying on a forced default.
 	loginCmd = "claude auth login --claudeai"
 	// credsVMPath is where claude stores the subscription OAuth credentials inside
 	// the VM (CLAUDE_CONFIG_DIR=/agent-data). cove copies this file to and from a
