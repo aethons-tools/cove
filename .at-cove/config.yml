@@ -38,6 +38,9 @@ collaborators:
       LINEAR_TOKEN:
         command: [ "true" ]
 
+secrets:
+  ANTHROPIC_API_KEY: {}
+
 image:
   setup-scripts:
     - .install-files/install.sh
