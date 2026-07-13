@@ -168,20 +168,23 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("inject task: %w", err)
 	}
 
-	// The bracket. prepare gates the agent; complete always runs (at-task complete
-	// always writes a task-result). Each git step (prepare, complete) gets a freshly
-	// minted code-host token; the agent runs on base, which never carries the token.
+	// The bracket. prepare MUST succeed or the run aborts — surfacing the failure
+	// (e.g. a git auth 403) instead of masking it as a downstream "no worker result".
+	// The agent then runs, and complete always runs after a good prepare (at-task
+	// complete always writes a task-result). Each git step (prepare, complete) gets a
+	// freshly minted code-host token; the agent runs on base, never carrying the token.
 	prepEnv, err := mint()
 	if err != nil {
 		return fmt.Errorf("mint token for prepare: %w", err)
 	}
-	if err := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout); err == nil {
-		if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
-			return err
-		}
-		agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\"", shellQuote(promptVMPath))
-		_ = runStep(o.R, tgt, base, agentCmd, o.Timeout) // agent: no token; failure tolerated
+	if err := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout); err != nil {
+		return fmt.Errorf("at-task prepare: %w", err)
 	}
+	if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
+		return err
+	}
+	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\"", shellQuote(promptVMPath))
+	_ = runStep(o.R, tgt, base, agentCmd, o.Timeout) // agent: no token; failure tolerated
 	compEnv, err := mint()
 	if err != nil {
 		return fmt.Errorf("mint token for complete: %w", err)

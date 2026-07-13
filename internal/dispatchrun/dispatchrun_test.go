@@ -2,6 +2,7 @@ package dispatchrun
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,6 +324,51 @@ func (f *flakyRunner) Run(name string, args ...string) error {
 		return errors.New("connection refused")
 	}
 	return nil
+}
+
+// prepareFailer fails only the `at-task prepare` ssh step; every other RunStdin
+// succeeds. It records each call (via the embedded Fake) for inspection.
+type prepareFailer struct{ *runner.Fake }
+
+func (p *prepareFailer) RunStdin(stdin io.Reader, name string, args ...string) error {
+	_ = p.Fake.RunStdin(stdin, name, args...) // record the call
+	if strings.Contains(strings.Join(args, " "), "at-task prepare") {
+		return &runner.ExitError{Code: 128, Err: errors.New("git fetch origin main: exit status 128")}
+	}
+	return nil
+}
+
+// A failed `at-task prepare` must abort the run with an error naming the step, so
+// the real cause (e.g. a git 403) surfaces — the agent and `at-task complete`
+// must NOT run, which would otherwise mask it as a "no worker result".
+func TestDispatchPrepareFailureAborts(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	pf := &prepareFailer{Fake: &runner.Fake{}}
+
+	err := Dispatch(Options{
+		Ops: &fakeOps{}, R: pf,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		BuildDir: dir, Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "at-task prepare") {
+		t.Fatalf("prepare failure must abort with an at-task prepare error; got %v", err)
+	}
+	calls := allCalls(pf.Fake)
+	if strings.Contains(calls, "claude -p") {
+		t.Fatalf("agent must not run after a failed prepare:\n%s", calls)
+	}
+	if strings.Contains(calls, "at-task complete") {
+		t.Fatalf("complete must not run after a failed prepare:\n%s", calls)
+	}
 }
 
 func TestWaitForSSHRetriesThenSucceeds(t *testing.T) {
