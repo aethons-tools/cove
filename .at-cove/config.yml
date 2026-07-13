@@ -4,10 +4,8 @@ tracker:
   linear:
     team: COV
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:
-        command: [ bash, -c, ". ~/.config/at-cove/secrets.yml && echo $AT_DISPATCH_TRACKER_TOKEN" ]
-      AT_DISPATCH_WEBHOOK_SECRET:
-        command: [bash, -c, "echo none"]
+      AT_DISPATCH_TRACKER_TOKEN: {}
+      AT_DISPATCH_WEBHOOK_SECRET: {}
     poll-interval: 60s
     states:
       ready: Todo
@@ -22,8 +20,7 @@ source-control:
     main-branch: main
     project: aethons-tools/cove
     secrets:
-      AT_TASK_GIT_TOKEN:
-        command: [ bash, -c, ". ~/.config/at-cove/secrets.yml && echo $GITHUB_TOKEN" ]
+      AT_TASK_GIT_TOKEN: {}
 
 dispatch:
   concurrency: 1
@@ -31,7 +28,7 @@ dispatch:
 
 workers:
   implementor:
-    prompt: "You are an implementer. ..."
+    prompt: "Whenever poetry is involved, use a Shakespearean style."
     timeout: 90m
     concurrency: 3
 

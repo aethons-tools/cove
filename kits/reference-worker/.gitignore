@@ -1,0 +1,5 @@
+# Managed by at-cove — generated build context and local overrides.
+.build/
+.local/
+# Added by at-cove
+.state/
