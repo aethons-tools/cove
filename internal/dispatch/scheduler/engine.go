@@ -102,6 +102,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
 	argv := []string{"at-cove", "work", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
+	e.log.Printf("dispatch %s: exec %s", iss.Identifier, strings.Join(argv, " "))
 	runErr := e.exec.Run(rctx, argv, nil)
 
 	e.broker(ctx, iss, readResult(outPath), runErr)
@@ -270,13 +271,22 @@ func errorComment(tr worker.TaskResult, runErr error) string {
 			msg += ": " + tr.Status.Error.Detail
 		}
 	}
-	if msg == "" && runErr != nil {
-		msg = runErr.Error()
+	var b strings.Builder
+	b.WriteString("⚠️ ERROR\n\n")
+	if msg != "" {
+		b.WriteString(msg + "\n")
 	}
-	if msg == "" {
-		msg = "dispatch failed"
+	// The result message is often only the symptom (e.g. "no dispatch output" when
+	// the worker crashed before writing one); runErr carries the cause (the
+	// non-zero exit + the worker's output tail). Surface both when they differ, so
+	// a failed run is self-diagnosing from the tracker.
+	if runErr != nil && runErr.Error() != msg {
+		b.WriteString("\n" + runErr.Error() + "\n")
 	}
-	return "⚠️ ERROR\n\n" + msg + "\n"
+	if msg == "" && runErr == nil {
+		b.WriteString("dispatch failed\n")
+	}
+	return b.String()
 }
 
 // readResult reads a worker.TaskResult from path, synthesizing an ERROR result when

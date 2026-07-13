@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -81,6 +82,24 @@ func TestHandleMissingOutputIsError(t *testing.T) {
 	}
 	if !strings.Contains(tr.lastComment, "⚠️") {
 		t.Errorf("expected error comment, got %q", tr.lastComment)
+	}
+	// The result error ("no dispatch output") is the symptom; the run error is the
+	// cause. Both must be surfaced so a failed run is self-diagnosing.
+	if !strings.Contains(tr.lastComment, "no dispatch output") || !strings.Contains(tr.lastComment, "boom") {
+		t.Errorf("error comment should surface both the result error and the run error; got %q", tr.lastComment)
+	}
+}
+
+// The scheduler must log the exact `at-cove work` argv it execs, so a failed
+// invocation is diagnosable from the scheduler's own output.
+func TestHandleLogsExecArgv(t *testing.T) {
+	var logs bytes.Buffer
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := New(testConfig(), "/kits/implement", tr, ex, log.New(&logs, "", 0))
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+	if !strings.Contains(logs.String(), "at-cove work /kits/implement") {
+		t.Fatalf("expected the exec argv to be logged; got: %q", logs.String())
 	}
 }
 
