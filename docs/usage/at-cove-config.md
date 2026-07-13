@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret declaration + resolution
 tier: leaf
-updated: 2026-07-10
+updated: 2026-07-13
 ---
 
 # at-cove `config.yml`
@@ -57,10 +57,13 @@ absent an override, at-cove uses `source-control.github.main-branch`.
 Host-side secrets minted for git operations, in the same declaration shape as the root
 `secrets` (see [at-cove-secrets.md](at-cove-secrets.md)) — but a **distinct bucket**: see
 [Secret buckets](#secret-buckets) below. The only allowed name is the well-known
-`AT_TASK_GIT_TOKEN`; if the map is non-empty it must contain exactly that key with a
-resolver `command`. **Schema-optional, but `at-cove work` refuses to run without it**
-(`kit "…" declares no source-control.github.secrets AT_TASK_GIT_TOKEN`) — it is resolved
-fresh per git step and read only by `at-task prepare`/`complete`, never by the agent.
+`AT_TASK_GIT_TOKEN`; if the map is non-empty it must contain exactly that key. Its
+`command` is **optional** — omit it to supply the value from the user's
+`~/.config/at-cove/secrets.yml` instead (matched by name; see
+[at-cove-secrets.md](at-cove-secrets.md)). **Schema-optional, but `at-cove work` refuses
+to run without the key declared** (`kit "…" declares no source-control.github.secrets
+AT_TASK_GIT_TOKEN`) — the value is resolved fresh per git step and read only by
+`at-task prepare`/`complete`, never by the agent.
 
 ```yaml
 source-control:
@@ -112,7 +115,10 @@ are treated as `ready`.
 
 Host-side, scheduler-only — never injected into a sandbox VM (see
 [Secret buckets](#secret-buckets)). Accepts exactly `AT_DISPATCH_TRACKER_TOKEN` and
-`AT_DISPATCH_WEBHOOK_SECRET`, each with a resolver `command`; any other key is rejected.
+`AT_DISPATCH_WEBHOOK_SECRET`; both keys must be declared, but each `command` is
+**optional** — omit it to supply the value from the user's
+`~/.config/at-cove/secrets.yml` instead (matched by name; see
+[at-cove-secrets.md](at-cove-secrets.md)). Any other key is rejected.
 
 ```yaml
 tracker:
@@ -383,8 +389,9 @@ the template kit for `at-cove dispatch`.
 `config.yml` is rejected (with a `config.yml: …` error) if any of:
 - an unknown field is present, or `name` is missing;
 - `source-control` sets more than one host, or `source-control.github.project` is not `owner/name`;
-- `source-control.github.secrets` is non-empty but contains anything other than
-  `AT_TASK_GIT_TOKEN` with a resolver `command`;
+- `source-control.github.secrets` is non-empty but doesn't declare exactly
+  `AT_TASK_GIT_TOKEN` (its `command` is optional; else supplied from
+  `~/.config/at-cove/secrets.yml`);
 - an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
   path contains a newline);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
@@ -392,8 +399,9 @@ the template kit for `at-cove dispatch`.
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
   class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative;
 - `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
-  isn't a positive Go duration, a `states` entry is missing, or `secrets` has anything but
-  `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET`;
+  isn't a positive Go duration, a `states` entry is missing, or `secrets` doesn't declare
+  exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (each `command` is
+  optional; else supplied from `~/.config/at-cove/secrets.yml`);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
 - a `collaborators` key looks `<reserved>` but isn't `<common>`.

@@ -395,6 +395,41 @@ func TestParseConfigRejectsMissingTrackerState(t *testing.T) {
 	}
 }
 
+func TestParseConfigWellKnownSecretCommandOptional(t *testing.T) {
+	// A well-known secret may omit its command (supplied from secrets.yml at run time).
+	src := `
+name: k
+tracker:
+  linear:
+    team: COV
+    poll-interval: 60s
+    states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN: {}
+      AT_DISPATCH_WEBHOOK_SECRET: {}
+`
+	if _, err := ParseConfig([]byte(src)); err != nil {
+		t.Fatalf("command-less well-known secrets must be valid: %v", err)
+	}
+}
+
+func TestParseConfigWellKnownSecretMissingKeyRejected(t *testing.T) {
+	// Dropping a required well-known key is still an error (typo protection).
+	src := `
+name: k
+tracker:
+  linear:
+    team: COV
+    poll-interval: 60s
+    states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN: {}
+`
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("missing AT_DISPATCH_WEBHOOK_SECRET must be rejected")
+	}
+}
+
 func TestParseConfigRejectsWellKnownNameInRootSecrets(t *testing.T) {
 	for _, name := range []string{"AT_TASK_GIT_TOKEN", "AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"} {
 		src := "name: k\nsecrets:\n  " + name + ": { command: [\"x\"] }\n"
