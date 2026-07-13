@@ -57,7 +57,7 @@ repo/
     .build/           # assembled build context (gitignored)
 ```
 
-`at-cove build` writes a managed `.gitignore` into the kit covering `.build/` and `.state/`.
+at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`build`/`create`/`work`) or instance state is saved, so no command can leak those artifacts into git.
 
 ### `config.yml`
 

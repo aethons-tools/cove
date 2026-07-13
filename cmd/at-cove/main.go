@@ -218,13 +218,11 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-	if err := kit.EnsureGitignore(kitDir); err != nil {
-		return err
-	}
 	_, pub, err := keys.Ensure(r, configDir())
 	if err != nil {
 		return err
 	}
+	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
 	return assemble.Assemble(kitDir, buildDir, pub, cfg.Image)
 }
 

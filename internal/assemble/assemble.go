@@ -15,6 +15,11 @@ import (
 // Assemble builds the context in buildDir from the layered overlays (last
 // writer wins) and injects the managed public key.
 func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
+	// Any path that assembles a build context (build/create/work) keeps the kit's
+	// .gitignore current, so generated .build/.state artifacts never leak into git.
+	if err := kit.EnsureGitignore(kitDir); err != nil {
+		return err
+	}
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}

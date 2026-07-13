@@ -12,6 +12,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 const schemaVersion = 1
@@ -79,6 +81,11 @@ func Exists(kitDir string) bool { return ExistsFor(kitDir, Interactive) }
 // SaveFor writes the given instance's state file (creating .state/), stamping
 // the schema version.
 func SaveFor(kitDir string, inst Instance, s State) error {
+	// Writing .state/ keeps the kit's .gitignore current, so a created sandbox's
+	// runtime state never leaks into git (even on a path that never assembled).
+	if err := kit.EnsureGitignore(kitDir); err != nil {
+		return err
+	}
 	s.SchemaVersion = schemaVersion
 	if err := os.MkdirAll(Dir(kitDir), 0o700); err != nil {
 		return err
