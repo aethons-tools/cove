@@ -4,7 +4,7 @@ read_when: You are adding a secret to a kit, wiring a resolver command, supplyin
 owns: at-cove secret declaration + value resolution (config.yml `secrets` and ~/.config/at-cove/secrets.yml)
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the connect/injection data flow
 tier: leaf
-updated: 2026-07-10
+updated: 2026-07-13
 ---
 
 # at-cove secrets
@@ -43,7 +43,9 @@ for how this turns a resolver into a per-run credential minter.
 ## Supplying a value — `~/.config/at-cove/secrets.yml`
 
 The user-owned supply file provides values for **demanded** names (entries for names the
-kit doesn't demand are inert). A string is a literal value; an array is a resolver argv:
+kit doesn't demand are inert). It is consulted by `connect` **and by `work` + `dispatch`** —
+any kit-demanded secret without a `command` is supplied from it. A string is a literal
+value; an array is a resolver argv:
 
 ```yaml
 # ~/.config/at-cove/secrets.yml
@@ -54,9 +56,13 @@ ANTHROPIC_API_KEY: ["pass", "show", "anthropic/api-key"]  # array  -> resolver a
 **Precedence**, per demanded secret:
 1. a `config.yml` `command` — always wins;
 2. else `secrets.yml` — a string is injected literally, an array is run as a resolver;
-3. else **unresolved** — `connect` prints a warning and leaves the variable unset.
+3. else **unresolved** — behavior depends on whether the secret is *required*:
+   - a **general / agent** secret warns and is left unset (`connect`, and the agent-injected
+     secrets of `work`);
+   - a **required well-known** secret — `dispatch`'s tracker token, `work`'s code-host
+     token — is a **fail-closed error** naming the secret and the `secrets.yml` path.
 
-**Fail-closed:** any resolver `command` exiting non-zero aborts `connect` **before any
+**Fail-closed:** any resolver `command` exiting non-zero aborts the run **before any
 SSH** happens. A missing `secrets.yml` is fine (treated as empty); a malformed one aborts.
 
 > Literal values sit in plaintext on disk — keep the file `chmod 600`. Resolver *commands*
@@ -65,8 +71,8 @@ SSH** happens. A missing `secrets.yml` is fine (treated as empty); a malformed o
 ## Security caveats
 
 - **Host-execution vector (current state).** A resolver `command` lives in the committed
-  `config.yml`, so opening a kit runs whatever it declares. **Only `at-cove connect` against
-  repos you trust** (your own). The planned `.local/` layer will move `command` out of the
+  `config.yml`, so `connect`/`work`/`dispatch` run whatever it declares. **Only run at-cove
+  against repos you trust** (your own). The planned `.local/` layer will move `command` out of the
   committed file so an untrusted repo can never trigger a resolver you didn't author.
 - **Never inject `ANTHROPIC_API_KEY`.** The VM's managed settings enforce claude.ai
   subscription OAuth (`forceLoginMethod=claudeai`) and **block startup** if an API key is

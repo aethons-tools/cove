@@ -11,7 +11,53 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/state"
+	"github.com/aethons-tools/cove/internal/usersecret"
 )
+
+func TestPlanRequired(t *testing.T) {
+	// kit command wins.
+	sp, err := planRequired(usersecret.Store{"T": {Value: "fromfile"}}, "T", []string{"kitcmd"}, "/p")
+	if err != nil || sp.Literal || len(sp.Command) != 1 || sp.Command[0] != "kitcmd" {
+		t.Fatalf("kit command should win: %+v err=%v", sp, err)
+	}
+	// no kit command → supplied literal from the store.
+	sp, err = planRequired(usersecret.Store{"T": {Value: "v"}}, "T", nil, "/p")
+	if err != nil || !sp.Literal || sp.Value != "v" {
+		t.Fatalf("store value should supply a literal: %+v err=%v", sp, err)
+	}
+	// neither → error naming the secret + path.
+	if _, err := planRequired(usersecret.Store{}, "T", nil, "/p/secrets.yml"); err == nil ||
+		!strings.Contains(err.Error(), "T") || !strings.Contains(err.Error(), "/p/secrets.yml") {
+		t.Fatalf("unresolved must error naming the secret and path; got %v", err)
+	}
+}
+
+func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	if err := os.MkdirAll(filepath.Join(cfgHome, "at-cove"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// secrets.yml supplies the tracker token as a literal.
+	if err := os.WriteFile(filepath.Join(cfgHome, "at-cove", "secrets.yml"),
+		[]byte("AT_DISPATCH_TRACKER_TOKEN: supplied-tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A valid dispatch kit whose tracker token is command-LESS.
+	dir := writeDispatchKit(t, strings.Replace(dispatchGoodConfig,
+		`AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }`, `AT_DISPATCH_TRACKER_TOKEN: {}`, 1))
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	// It must get PAST token resolution (past "kit OK"); it then fails connecting to
+	// Linear (no network), which is fine — the point is the token resolved from secrets.yml.
+	if !strings.Contains(out.String(), "kit OK") {
+		t.Fatalf("expected to reach token resolution + connect; stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+	if strings.Contains(errOut.String(), "AT_DISPATCH_TRACKER_TOKEN has no command") {
+		t.Fatalf("token should have resolved from secrets.yml; stderr=%q", errOut.String())
+	}
+	_ = code
+}
 
 func writeKit(t *testing.T, dir string) string {
 	t.Helper()

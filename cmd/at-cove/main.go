@@ -489,6 +489,17 @@ func workName(kitName string) string {
 	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
 }
 
+// planRequired resolves one required secret through the user's supply store: a
+// kit command wins; else the secrets.yml entry supplies it (literal or command).
+// It errors, naming the secret and the secrets.yml path, if neither provides it.
+func planRequired(store usersecret.Store, name string, kitCommand []string, secretsPath string) (secret.Spec, error) {
+	planned, unresolved := store.Plan([]secret.Spec{{Name: name, Command: kitCommand}})
+	if len(unresolved) > 0 {
+		return secret.Spec{}, fmt.Errorf("%s has no command in the kit and no entry in %s", name, secretsPath)
+	}
+	return planned[0], nil
+}
+
 // doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
@@ -581,13 +592,30 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 1
 	}
 
-	specs := make([]secret.Spec, 0, len(cfg.Secrets))
-	for name, s := range cfg.Secrets {
-		specs = append(specs, secret.Spec{Name: name, Command: s.Command})
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	store, err := usersecret.Load(secretsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
 	}
-	gitTok, ok := cfg.GitTokenSpec()
+	// General (agent-injected) secrets: kit command, else secrets.yml; unresolved warn.
+	demanded := make([]secret.Spec, 0, len(cfg.Secrets))
+	for name, s := range cfg.Secrets {
+		demanded = append(demanded, secret.Spec{Name: name, Command: s.Command})
+	}
+	specs, unresolved := store.Plan(demanded)
+	for _, name := range unresolved {
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no command and no entry in %s; it will not be set\n", name, secretsPath)
+	}
+	// The code-host token stays a distinct spec (the air-gap); required, fail closed.
+	gitDemand, ok := cfg.GitTokenSpec()
 	if !ok {
 		fmt.Fprintf(stderr, "at-cove: kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN\n", cfg.Name)
+		return 1
+	}
+	gitTok, err := planRequired(store, gitDemand.Name, gitDemand.Command, secretsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
 
@@ -647,13 +675,24 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
 
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	store, err := usersecret.Load(secretsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
+		return 1
+	}
 	tokSpec := cfg.Tracker.Linear.Secrets["AT_DISPATCH_TRACKER_TOKEN"]
-	out, err := runner.OS{}.Output(tokSpec.Command[0], tokSpec.Command[1:]...)
+	planned, err := planRequired(store, "AT_DISPATCH_TRACKER_TOKEN", tokSpec.Command, secretsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
+		return 1
+	}
+	resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{planned})
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: resolve tracker token: %v\n", err)
 		return 1
 	}
-	token := strings.TrimSuffix(out, "\n")
+	token := resolved["AT_DISPATCH_TRACKER_TOKEN"]
 
 	tracker, err := linear.New(cfg, token, nil)
 	if err != nil {
