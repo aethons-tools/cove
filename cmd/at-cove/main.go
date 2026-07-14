@@ -169,7 +169,7 @@ func resolveKitDir(flagVal string, pos []string, cmd string, stderr io.Writer) (
 	return kitDir, 0
 }
 
-// instanceCmd handles destroy/status: it parses the shared kit-dir positional
+// instanceCmd handles destroy/status: it parses the shared --kit-dir flag
 // and resolves to the interactive instance.
 func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
@@ -567,10 +567,10 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 // doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
-// crashed dispatch orphans). It parses the kit-dir positional itself (rather
+// crashed dispatch orphans). It registers the --kit-dir flag itself (rather
 // than through the shared single-kit-dir resolution in run(), which does not
 // know about these flags), assembles the build context and resolves secrets
-// exactly as `create`/`connect` do, then hands off to dispatchrun. With dryRun
+// exactly as `create`/`chat` do, then hands off to dispatchrun. With dryRun
 // it prints the planned actions and returns before touching the backend,
 // assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
 // convention.

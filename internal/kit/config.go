@@ -204,7 +204,7 @@ func (c Config) SelectCollaborator(explicit string) (string, bool, error) {
 		if explicit == commonKey {
 			return "", false, fmt.Errorf("%q is not a selectable collaborator", commonKey)
 		}
-		if _, ok := c.Collaborators[explicit]; !ok || explicit == commonKey {
+		if _, ok := c.Collaborators[explicit]; !ok {
 			return "", false, fmt.Errorf("kit %q declares no collaborator %q (have: %s)", c.Name, explicit, strings.Join(names, ", "))
 		}
 		return explicit, true, nil
