@@ -29,7 +29,7 @@ minters:
     github:
       app-id: "123456"
       install-id: "7890"
-      app-key: /etc/cove/gh-app.pem            # a path (non-secret) -> --app-key-file
+      app-key: { value: /etc/cove/gh-app.pem }   # a path (non-secret) -> --app-key-file
   anthropic-cove:
     anthropic:
       oidc:
