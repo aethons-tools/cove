@@ -924,8 +924,10 @@ git commit -m "feat(kit): kit secrets are demand-only (drop command:); GitTokenN
 ### Task 6: Rewire `cmd/at-cove` to the demand/supply `Plan`
 
 **Files:**
-- Modify: `cmd/at-cove/main.go` (`doWork`, `doDispatch`, `planRequired`; add `canonicalKitPath`)
+- Modify: `cmd/at-cove/main.go` (`doConnect`, `doWork`, `doDispatch`, `planRequired`; add `canonicalKitPath`)
 - Modify: `cmd/at-cove/*_test.go` as needed
+
+> There are **three** secret-resolution sites in `main.go`, all using the old `usersecret.Load(path)` / `store.Plan(demanded)` API: `doConnect` (~line 313, resolves demands from recorded *state*), `doWork` (~594), and `doDispatch` (via `planRequired`, ~494/682). All three must move to the two-file `Load` + new `Plan`. `planRequired` is shared by `doWork` and `doDispatch`.
 
 **Interfaces:**
 - Consumes: `usersecret.Load(ymlPath, localPath)`, `usersecret.Store.Plan(kitName, kitPath, demanded, expand)` (nil expander), `kit.GitTokenName()`.
@@ -1051,6 +1053,32 @@ The `dispatchrun.Dispatch(...)` call below is unchanged (`Secrets: specs`, `GitT
 	}
 	token := resolved["AT_DISPATCH_TRACKER_TOKEN"]
 ```
+
+5. In `doConnect`, replace the state-demand secrets block (the `demanded := make([]secret.Spec, len(st.Secrets))` loop through `store.Plan(demanded)` warning loop) with the two-file load + new `Plan`, keyed by the kit name recorded in state (`st.Name`) and this checkout's canonical path. `doConnect` resolves demand *names* from recorded state; it never mints (nil expander):
+
+```go
+	// Demand (from state) resolved against supply (the machine-side secrets files),
+	// keyed by the kit name recorded in state and this checkout's canonical path.
+	demanded := make([]string, len(st.Secrets))
+	for i, s := range st.Secrets {
+		demanded[i] = s.Name
+	}
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
+	if err != nil {
+		return err
+	}
+	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, nil)
+	if err != nil {
+		return err
+	}
+	for _, name := range unresolved {
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s; it will not be set\n", name, st.Name, secretsPath)
+	}
+```
+
+(`st.Name` is the kit name in `state.State`; `st.Secrets[i].Name` is the demanded name — the recorded `.Command` is no longer used for resolution.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
