@@ -18,8 +18,9 @@ type githubInput struct {
 }
 
 // mintGitHub mints a short-lived GitHub App installation token scoped to in.Repo
-// with contents+pull_requests write. It signs a ~9-minute App JWT (RS256) and
-// exchanges it at the installation access-tokens endpoint.
+// with contents+pull_requests write. It signs a 10-minute App JWT (RS256; iat
+// backdated 60s, exp +540s — a 600s window at GitHub's cap) and exchanges it at
+// the installation access-tokens endpoint.
 func mintGitHub(ctx context.Context, httpc *http.Client, in githubInput, now time.Time) (string, error) {
 	if in.AppID == "" || in.InstallID == "" {
 		return "", fmt.Errorf("app-id and install-id are required")

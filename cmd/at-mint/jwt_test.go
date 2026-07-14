@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -51,6 +53,35 @@ func TestParseRSAPrivateKeyPKCS1(t *testing.T) {
 	}
 	if got.N.Cmp(key.N) != 0 {
 		t.Fatal("parsed key modulus differs")
+	}
+}
+
+func TestParseRSAPrivateKeyPKCS8(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	got, err := parseRSAPrivateKey(pemBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.N.Cmp(key.N) != 0 {
+		t.Fatal("parsed PKCS#8 key modulus differs")
+	}
+}
+
+func TestParseRSAPrivateKeyRejectsNonRSAPKCS8(t *testing.T) {
+	// A PKCS#8-wrapped ECDSA key parses as PKCS#8 but is not RSA — must be rejected.
+	ec, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, err := x509.MarshalPKCS8PrivateKey(ec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	if _, err := parseRSAPrivateKey(pemBytes); err == nil {
+		t.Fatal("want error for a non-RSA (ECDSA) PKCS#8 key")
 	}
 }
 
