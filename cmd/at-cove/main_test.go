@@ -14,21 +14,31 @@ import (
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
 
+// ptr returns a pointer to s — usersecret.Source.Value is *string so an
+// explicit empty literal is distinct from "unset".
+func ptr(s string) *string { return &s }
+
 func TestPlanRequired(t *testing.T) {
-	// kit command wins.
-	sp, err := planRequired(usersecret.Store{"T": {Value: "fromfile"}}, "T", []string{"kitcmd"}, "/p")
-	if err != nil || sp.Literal || len(sp.Command) != 1 || sp.Command[0] != "kitcmd" {
-		t.Fatalf("kit command should win: %+v err=%v", sp, err)
-	}
-	// no kit command → supplied literal from the store.
-	sp, err = planRequired(usersecret.Store{"T": {Value: "v"}}, "T", nil, "/p")
+	// resolved from the store, keyed by kit name.
+	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
+		"k": {"T": {Value: ptr("v")}},
+	}}
+	sp, err := planRequired(store, "k", "/kitpath", "T", "/p/secrets.yml")
 	if err != nil || !sp.Literal || sp.Value != "v" {
 		t.Fatalf("store value should supply a literal: %+v err=%v", sp, err)
 	}
-	// neither → error naming the secret + path.
-	if _, err := planRequired(usersecret.Store{}, "T", nil, "/p/secrets.yml"); err == nil ||
+	// unresolved → error naming the secret + path.
+	if _, err := planRequired(usersecret.Store{}, "k", "/kitpath", "T", "/p/secrets.yml"); err == nil ||
 		!strings.Contains(err.Error(), "T") || !strings.Contains(err.Error(), "/p/secrets.yml") {
 		t.Fatalf("unresolved must error naming the secret and path; got %v", err)
+	}
+}
+
+func TestCanonicalKitPath(t *testing.T) {
+	dir := t.TempDir()
+	got := canonicalKitPath(dir)
+	if !filepath.IsAbs(got) {
+		t.Fatalf("canonicalKitPath(%q) = %q, want absolute", dir, got)
 	}
 }
 
@@ -38,14 +48,13 @@ func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfgHome, "at-cove"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// secrets.yml supplies the tracker token as a literal.
+	// secrets.yml supplies the tracker token as a literal, keyed by kit name.
 	if err := os.WriteFile(filepath.Join(cfgHome, "at-cove", "secrets.yml"),
-		[]byte("AT_DISPATCH_TRACKER_TOKEN: supplied-tok\n"), 0o600); err != nil {
+		[]byte("kits:\n  dispatch-kit:\n    AT_DISPATCH_TRACKER_TOKEN: { value: \"supplied-tok\" }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// A valid dispatch kit whose tracker token is command-LESS.
-	dir := writeDispatchKit(t, strings.Replace(dispatchGoodConfig,
-		`AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }`, `AT_DISPATCH_TRACKER_TOKEN: {}`, 1))
+	// A valid dispatch kit (kits declare demand only — no resolver command).
+	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	// It must get PAST token resolution (past "kit OK"); it then fails connecting to
@@ -53,7 +62,7 @@ func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
 	if !strings.Contains(out.String(), "kit OK") {
 		t.Fatalf("expected to reach token resolution + connect; stdout=%q stderr=%q", out.String(), errOut.String())
 	}
-	if strings.Contains(errOut.String(), "AT_DISPATCH_TRACKER_TOKEN has no command") {
+	if strings.Contains(errOut.String(), "AT_DISPATCH_TRACKER_TOKEN has no supply entry") {
 		t.Fatalf("token should have resolved from secrets.yml; stderr=%q", errOut.String())
 	}
 	_ = code
@@ -524,7 +533,10 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	if err := os.MkdirAll(coveCfg, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(coveCfg, "secrets.yml"), []byte("GITHUB_TOKEN:\n  nested: bad\n"), 0o600); err != nil {
+	// Malformed: a supply must set exactly one of value/command/global/mint —
+	// this one sets both value and command.
+	badYAML := "kits:\n  box:\n    GITHUB_TOKEN: { value: \"x\", command: [\"true\"] }\n"
+	if err := os.WriteFile(filepath.Join(coveCfg, "secrets.yml"), []byte(badYAML), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	f := &runner.Fake{}
@@ -533,15 +545,18 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("malformed secrets.yml should abort; out=%q", out.String())
 	}
-	if !strings.Contains(errOut.String(), "GITHUB_TOKEN") {
-		t.Fatalf("error should name the bad key; stderr=%q", errOut.String())
+	if !strings.Contains(errOut.String(), "secrets.yml") {
+		t.Fatalf("error should name the offending file; stderr=%q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "exactly one of value/command") {
+		t.Fatalf("error should explain the malformed source; stderr=%q", errOut.String())
 	}
 }
 
 func TestSaveStateSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	cfg := kit.Config{Name: "box", Secrets: map[string]kit.SecretConfig{
-		"GITHUB_TOKEN": {Command: []string{"op", "read", "x"}},
+		"GITHUB_TOKEN": {Description: "code host token"},
 	}}
 	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
@@ -680,15 +695,15 @@ source-control:
   github:
     project: your-org/your-repo
     secrets:
-      AT_TASK_GIT_TOKEN: { command: ["true"] }
+      AT_TASK_GIT_TOKEN: {}
 tracker:
   linear:
     team: AET
     poll-interval: 60s
     states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }
-      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+      AT_DISPATCH_TRACKER_TOKEN:  {}
+      AT_DISPATCH_WEBHOOK_SECRET: {}
 dispatch:
   concurrency: 1
   reaper-timeout: 45m
@@ -710,8 +725,17 @@ func writeDispatchKit(t *testing.T, body string) string {
 // TestDispatchTokenResolveFailure: valid kit, but the tracker token resolver
 // command fails → dispatch exits 1 before constructing the tracker client.
 func TestDispatchTokenResolveFailure(t *testing.T) {
-	cfg := strings.Replace(dispatchGoodConfig, `AT_DISPATCH_TRACKER_TOKEN:  { command: ["true"] }`, `AT_DISPATCH_TRACKER_TOKEN:  { command: ["false"] }`, 1)
-	dir := writeDispatchKit(t, cfg)
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	if err := os.MkdirAll(filepath.Join(cfgHome, "at-cove"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// secrets.yml supplies the tracker token via a resolver command that fails.
+	if err := os.WriteFile(filepath.Join(cfgHome, "at-cove", "secrets.yml"),
+		[]byte("kits:\n  dispatch-kit:\n    AT_DISPATCH_TRACKER_TOKEN: { command: [\"false\"] }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {

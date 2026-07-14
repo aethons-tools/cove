@@ -1,82 +1,164 @@
 ---
-summary: How an at-cove kit declares the secrets a sandbox needs and how their values are resolved — the config.yml `secrets` map, host-side resolver commands, the user-owned ~/.config/at-cove/secrets.yml supply file, precedence, fail-closed behavior, and the host-execution security caveat.
-read_when: You are adding a secret to a kit, wiring a resolver command, supplying a value from your machine, or reasoning about the trust boundary of at-cove secrets.
-owns: at-cove secret declaration + value resolution (config.yml `secrets` and ~/.config/at-cove/secrets.yml)
+summary: The demand/supply secret model — kits declare secrets by name only (config.yml `secrets`), the machine supplies values out of source control (~/.config/at-cove/secrets.yml + secrets.local.yml), the four supply sources, precedence, the anti-mining invariant, and the trust boundary.
+read_when: You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, or reasoning about the trust boundary of at-cove secrets.
+owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply)
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the connect/injection data flow
 tier: leaf
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 # at-cove secrets
 
-A **secret** is an environment variable the sandbox needs (e.g. `GITHUB_TOKEN`). Kits
-**declare secrets by name** in `config.yml`; **values are resolved on the host** at
-`connect`/`dispatch` time, held in memory, and injected over SSH into a tmpfs file — never
-written to the kit, to disk, or onto any command line. See the
+A **secret** is an environment variable a sandbox needs (e.g. `AT_TASK_GIT_TOKEN`,
+`ANTHROPIC_AUTH_TOKEN`). The model is split cleanly in two:
+
+- **The kit only *demands*.** `config.yml` names the secrets it needs and why. It
+  never carries a command, a value, or any machine-specific identifier.
+- **The machine only *supplies*.** Two host files under `~/.config/at-cove/`
+  (never committed) say how each named demand, for a specific kit, is produced.
+
+Values are resolved on the host at `connect`/`work`/`dispatch` time, held in
+memory, and injected over SSH into a tmpfs file — never written to the kit, to
+disk, or onto any command line. See the
 [injection data flow](../OVERVIEW.md#secret-injection-the-connect-data-flow).
 
-## Declaring — `config.yml` `secrets`
+## Declaring a demand — `config.yml` `secrets`
 
 ```yaml
 secrets:
-  GITHUB_TOKEN:                        # the env var name
-    description: private-repo git      # optional — human note
-    command: ["gh", "auth", "token"]   # optional — host resolver argv
+  ANTHROPIC_AUTH_TOKEN:
+    description: short-lived Anthropic bearer for the worker agent
 ```
 
-Each entry is **keyed by the environment variable name** (exported inside the sandbox); its
-value configures how the secret resolves:
+Each entry is **keyed by the environment variable name** (exported inside the
+sandbox); its only field is:
 
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `description` | no | Human-readable note; not used at runtime. |
-| `command` | no | Host **argv array** (not a shell string). Its stdout — trailing newline trimmed — is the value. |
 
-A secret with a `command` **resolves itself**. A secret with **no `command`** is a
-*demand*: it must be supplied from your machine (below), or it stays unset.
+That's the whole schema — a demand is a name plus a description. There is no
+`command:` field on a kit secret; a kit that includes one fails to parse. A
+committed kit can never dictate *how* its secrets are produced, only *that* it
+needs them — this is what keeps kits portable and safe to run from an
+untrusted checkout (see [Security caveats](#security-caveats)).
 
-During `at-cove work`, resolver commands additionally see the run's parameters
-as `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` in their environment — see
-[at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#three-separated-authorities)
-for how this turns a resolver into a per-run credential minter.
+## Supplying a value — the two host files
 
-## Supplying a value — `~/.config/at-cove/secrets.yml`
-
-The user-owned supply file provides values for **demanded** names (entries for names the
-kit doesn't demand are inert). It is consulted by `connect` **and by `work` + `dispatch`** —
-any kit-demanded secret without a `command` is supplied from it. A string is a literal
-value; an array is a resolver argv:
+The machine supplies values in `~/.config/at-cove/secrets.yml` (primary) and
+`~/.config/at-cove/secrets.local.yml` (escape hatch), both honoring
+`XDG_CONFIG_HOME`. Neither is ever checked in. `secrets.yml` has three
+top-level sections:
 
 ```yaml
 # ~/.config/at-cove/secrets.yml
-GITHUB_TOKEN: ghp_xxxxxxxxxxxxxxxxxxxx                     # string -> literal value
-ANTHROPIC_API_KEY: ["pass", "show", "anthropic/api-key"]  # array  -> resolver argv
+minters:                             # profiles — how an identity mints; inert until referenced
+  gh-cove:
+    github:
+      app-id: "123"
+      install-id: "789"
+      app-key: /etc/cove/gh-A.pem
+
+global:                               # named shared supplies; inert until delegated
+  shared-tracker: { command: ["gh", "auth", "token"] }
+
+kits:                                 # per-kit authorization: demand -> source
+  reference-worker:
+    AT_TASK_GIT_TOKEN:         { command: ["kits/reference-worker/mint-github-token.sh"] }
+    ANTHROPIC_AUTH_TOKEN:      { command: ["your-anthropic-mint.sh"] }
+    AT_DISPATCH_TRACKER_TOKEN: { global: shared-tracker }
 ```
 
-**Precedence**, per demanded secret:
-1. a `config.yml` `command` — always wins;
-2. else `secrets.yml` — a string is injected literally, an array is run as a resolver;
-3. else **unresolved** — behavior depends on whether the secret is *required*:
-   - a **general / agent** secret warns and is left unset (`connect`, and the agent-injected
-     secrets of `work`);
-   - a **required well-known** secret — `dispatch`'s tracker token, `work`'s code-host
-     token — is a **fail-closed error** naming the secret and the `secrets.yml` path.
+```yaml
+# ~/.config/at-cove/secrets.local.yml   (escape hatch; keyed by canonical kit path)
+kits:
+  /home/me/checkouts/cove:
+    ANTHROPIC_AUTH_TOKEN: { value: "sk-ant-oat01-…test…" }   # temp override for testing
+```
 
-**Fail-closed:** any resolver `command` exiting non-zero aborts the run **before any
-SSH** happens. A missing `secrets.yml` is fine (treated as empty); a malformed one aborts.
+- **`kits:`** is where a demand actually gets a value: keyed by the kit's
+  `name` (in `secrets.yml`) or by the kit's **canonical absolute path** (in
+  `secrets.local.yml`). Only an entry written here, under that specific kit,
+  supplies anything.
+- **`global:`** is a library of named, reusable supplies (a `value` or
+  `command`). A `global` entry never supplies a secret by itself — it is only
+  reached when a `kits:` entry delegates to it with `{ global: <name> }`.
+- **`minters:`** is a library of named minting profiles (structured
+  credentials for `at-mint`, e.g. a GitHub App or an Anthropic federation
+  identity). Like `global:`, a minter is inert until a `kits:` entry
+  references it with `{ mint: <name> }`. **`mint:` is forward-looking:** it
+  parses and validates today, but is not yet runnable — resolving one is a
+  load-time error until a later plan wires `at-mint`. Use `command:` for
+  anything you need working now (the reference kit's `mint-github-token.sh`
+  is a working `command:` example — see
+  [the reference kit's RUNBOOK](../../kits/reference-worker/RUNBOOK.md)).
 
-> Literal values sit in plaintext on disk — keep the file `chmod 600`. Resolver *commands*
-> (from either source) produce values only in memory.
+## The four supply sources
+
+Every entry under `kits:` (and every `global:` entry) sets **exactly one** of:
+
+| Source | Form | Resolves to |
+|--------|------|--------------|
+| `value:` | a literal string | that string, verbatim |
+| `command:` | a host **argv array** | stdout of running it on the host, trailing newline trimmed |
+| `global: <name>` | a name | delegates to `global[<name>]` in the store (itself a `value`/`command`) |
+| `mint: <name>` | a name | expands `minters[<name>]` via `at-mint` — **not yet runnable** (see above) |
+
+`command:` resolvers additionally see the run's parameters as
+`COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` in their environment during `work`/
+`dispatch` — see
+[at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#three-separated-authorities)
+for how this turns a resolver into a per-run credential minter.
+
+## Precedence and fail-closed resolution
+
+For each secret **S** demanded by kit **K** at canonical path **P**:
+
+1. **`secrets.local.yml` → `kits[P][S]`** — if present, use it (highest
+   precedence; this is *why* the local file is keyed by path — its job is to
+   disambiguate, per checkout, not to be portable).
+2. **`secrets.yml` → `kits[K.name][S]`** — else if present, use it.
+3. otherwise **unresolved** — what happens next depends on whether **S** is
+   *required*:
+   - a **required well-known secret** — the git token
+     (`AT_TASK_GIT_TOKEN`) or the tracker token
+     (`AT_DISPATCH_TRACKER_TOKEN`) — **fails closed**: the run aborts
+     *before* any VM is built or any SSH happens, naming the secret and the
+     kit.
+   - a **general / agent demand** (e.g. `ANTHROPIC_AUTH_TOKEN`) instead
+     **warns to stderr and is left unset**; the run continues without it.
+
+## The anti-mining invariant
+
+**`global:` and `minters:` are never matched by demand name.** A demand named
+`ANTHROPIC_AUTH_TOKEN` does *not* automatically pick up a `global` or `minters`
+entry of the same name — it is reached *only* through an entry an operator
+explicitly wrote under `kits: <that kit>:` (by name or by path). This means:
+
+- A malicious or careless kit cannot "mine" a secret by declaring a demand
+  that happens to collide with something in your `global:`/`minters:`
+  libraries — those libraries are inert until you, the operator, wire a
+  specific kit to them.
+- Sharing one `global:`/`minters:` entry across many kits is opt-in and
+  explicit (one `kits:` line per kit that should get it), never implicit.
+- **Nothing machine-level ever lives in source control.** `secrets.yml` and
+  `secrets.local.yml` are host-only files; a kit's committed `config.yml`
+  carries no command, no profile name, no identifier that could steer
+  resolution — only the demand's name and description.
 
 ## Security caveats
 
-- **Host-execution vector (current state).** A resolver `command` lives in the committed
-  `config.yml`, so `connect`/`work`/`dispatch` run whatever it declares. **Only run at-cove
-  against repos you trust** (your own). The planned `.local/` layer will move `command` out of the
-  committed file so an untrusted repo can never trigger a resolver you didn't author.
-- **`ANTHROPIC_API_KEY` selects the agent's auth path.** A dispatched **worker**
-  authenticates to Anthropic with an `ANTHROPIC_API_KEY` declared as a root secret (the work
-  path does not seed OAuth credentials). Because the env key outranks a subscription OAuth
-  login, an interactive `connect` to a kit that declares it will use the key too — so keep
-  API-key worker kits distinct from a kit you connect to on a personal subscription. See
+- **Host-execution vector.** A `command:` (in `secrets.yml`, `secrets.local.yml`,
+  or a `minters:` profile field) is host-authored, not kit-authored — a kit can
+  never smuggle in a resolver command of its own, since kit secrets carry no
+  `command:` field at all. Still, only supply commands you trust running on
+  your own machine.
+- **`ANTHROPIC_AUTH_TOKEN` selects the worker's auth path.** A dispatched
+  **worker** authenticates to Anthropic with a short-lived bearer,
+  `ANTHROPIC_AUTH_TOKEN`, declared as a root secret (the work path does not
+  seed OAuth credentials, so a keyless worker fails closed rather than
+  falling back to a subscription). Because the env key outranks a
+  subscription OAuth login, an interactive `connect` to a kit that declares
+  it will use the bearer too — so keep worker kits that declare it distinct
+  from a kit you connect to on a personal subscription. See
   [Authentication](../OVERVIEW.md#authentication).

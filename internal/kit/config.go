@@ -7,16 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
 
-// SecretConfig configures how a declared secret (keyed by its env var name in the
-// secrets map) resolves. Command, when present, is the host argv whose stdout is the
-// value; when omitted the value is supplied from ~/.config/at-cove/secrets.yml.
+// SecretConfig is a kit's *demand* for a secret (keyed by its env var name in a
+// secrets map): a name plus a human description of its purpose. How the value is
+// produced is a machine-side concern (see internal/usersecret) — a kit never
+// carries a resolver command.
 type SecretConfig struct {
-	Description string   `yaml:"description"`
-	Command     []string `yaml:"command"`
+	Description string `yaml:"description"`
 }
 
 // baseEnvKeys are the /etc/environment variables the sealed hardening layer
@@ -91,20 +90,18 @@ type GitHubSource struct {
 	Secrets    map[string]SecretConfig `yaml:"secrets,omitempty"`     // well-known: AT_TASK_GIT_TOKEN
 }
 
-// GitTokenSpec returns the code-host token resolver declared under
-// source-control.github.secrets, if set. This is the structural air-gap: the
-// token lives at a distinct schema location from the root/agent secrets, so
-// dispatchrun receives it as a separate spec rather than fishing it out of the
-// root secrets list by name.
-func (c Config) GitTokenSpec() (secret.Spec, bool) {
+// GitTokenName reports the code-host token demand the kit declares under
+// source-control.github.secrets, if present. The value is supplied machine-side;
+// the kit only names the demand (the structural air-gap: it lives at a distinct
+// schema location from the root/agent secrets).
+func (c Config) GitTokenName() (string, bool) {
 	if c.SourceControl == nil || c.SourceControl.GitHub == nil {
-		return secret.Spec{}, false
+		return "", false
 	}
-	s, ok := c.SourceControl.GitHub.Secrets["AT_TASK_GIT_TOKEN"]
-	if !ok {
-		return secret.Spec{}, false
+	if _, ok := c.SourceControl.GitHub.Secrets["AT_TASK_GIT_TOKEN"]; !ok {
+		return "", false
 	}
-	return secret.Spec{Name: "AT_TASK_GIT_TOKEN", Command: s.Command}, true
+	return "AT_TASK_GIT_TOKEN", true
 }
 
 // Active returns the set host, or an error if not exactly one.
@@ -367,9 +364,9 @@ func rejectReservedSecretNames(field string, got map[string]SecretConfig) error 
 	return nil
 }
 
-// checkWellKnownSecrets requires each allowed secret name to be present (a
-// command is optional — a command-less entry is supplied from the user's
-// secrets.yml at run time) and rejects any name outside the allowed set.
+// checkWellKnownSecrets requires each allowed secret name to be present (the
+// value itself is supplied machine-side, e.g. from the user's secrets.yml, at
+// run time) and rejects any name outside the allowed set.
 func checkWellKnownSecrets(field string, got map[string]SecretConfig, allowed ...string) error {
 	want := map[string]bool{}
 	for _, a := range allowed {

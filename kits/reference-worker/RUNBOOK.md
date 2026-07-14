@@ -6,26 +6,56 @@ egress-locked dev sandbox (no docker/claude/GitHub); run it on a machine with:
 
 ## Prerequisites
 - **Colima** running (`colima start`) — the `at-cove` backend.
-- **The GitHub App minter provisioned** — see below; the `AT_TASK_GIT_TOKEN`
-  resolver is `mint-github-token.sh`.
+- **The GitHub App minter provisioned** — see below; then supply
+  `AT_TASK_GIT_TOKEN` and the other demanded secrets in
+  `~/.config/at-cove/secrets.yml` (see "Supplying secrets" below).
 - **A seeded `claude` login** — run `at-cove connect` once and log in; `at-cove`
   saves the credentials and `dispatch` seeds them into the worker container.
 - **A scratch GitHub repo** you can push branches / open PRs on, with a `main` branch.
 - The kit **completed** for your target: base image, `claude` install, pinned
   `at-task` ref, target toolchain, and the full `allowed-domains` in `config.yml`.
 
+## Supplying secrets (machine-side, never committed)
+
+This kit only **demands** secrets — `config.yml`'s `secrets:` maps carry a name
+and a `description:`, never a command or a value. Every value is supplied on the
+**at-cove host**, out of source control, in
+`~/.config/at-cove/secrets.yml`, keyed by this kit's `name` (`reference-worker`):
+
+```yaml
+# ~/.config/at-cove/secrets.yml
+global:                                                    # shared supplies; inert until delegated
+  linear-token: { command: ["gh", "auth", "token"] }
+
+kits:
+  reference-worker:
+    AT_TASK_GIT_TOKEN:         { command: ["kits/reference-worker/mint-github-token.sh"] } # mint: coming later
+    ANTHROPIC_AUTH_TOKEN:      { command: ["your-anthropic-mint.sh"] }                     # mint: coming later
+    AT_DISPATCH_TRACKER_TOKEN: { global: linear-token }
+    AT_DISPATCH_WEBHOOK_SECRET: { value: "whsec_..." }
+```
+
+`~/.config/at-cove/secrets.local.yml` — keyed by this kit's **absolute path**,
+not its name — overrides the above for name collisions (two checkouts sharing a
+kit `name`) or temporary/test values; see
+[at-cove-secrets.md](../../docs/usage/at-cove-secrets.md) for the full precedence
+and the four supply sources (`value`/`command`/`global`, and the forward-looking
+`mint:`, not yet runnable).
+
 ## Provisioning the GitHub App (credential minter)
 
-`AT_TASK_GIT_TOKEN` resolves by running `kits/reference-worker/mint-github-token.sh`
-on the **at-cove host** (not in the VM) — it mints a fresh, repo-scoped GitHub App
-installation token before each git step (`at-task prepare` and `at-task complete`).
+The example above supplies `AT_TASK_GIT_TOKEN` by running
+`kits/reference-worker/mint-github-token.sh` on the **at-cove host** (not in the
+VM) as a `command:` source — it mints a fresh, repo-scoped GitHub App
+installation token before each git step (`at-task prepare` and `at-task
+complete`). A future plan replaces this script with a structured `mint:` profile
+(`at-mint github`); until then it's a working `command:` example.
 
 1. **Create a GitHub App** with permissions `contents:write` and
    `pull_requests:write`, and **install it on your org** (so it can be scoped to
    any repo in that org at mint time).
-2. **Put `mint-github-token.sh` on the at-cove host's `PATH`** (the resolver
-   `command` in `config.yml` is `["mint-github-token.sh"]`, resolved like any
-   other host command — see [at-cove-secrets.md](../../docs/usage/at-cove-secrets.md)).
+2. **Reference `mint-github-token.sh` by path** (absolute, or relative to the
+   at-cove host's cwd) in the `command:` entry above — it need not be on `PATH`.
 3. **Export on the at-cove host** (never committed, never in the kit):
    - `COVE_GH_APP_ID` — the App's ID.
    - `COVE_GH_INSTALL_ID` — the installation ID on your org.

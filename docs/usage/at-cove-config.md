@@ -2,9 +2,9 @@
 summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
 read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
 owns: the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)
-prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret declaration + resolution
+prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 # at-cove `config.yml`
@@ -54,16 +54,17 @@ absent an override, at-cove uses `source-control.github.main-branch`.
 #### source-control.github.secrets
 *map of secret env name → config, optional in the schema*
 
-Host-side secrets minted for git operations, in the same declaration shape as the root
-`secrets` (see [at-cove-secrets.md](at-cove-secrets.md)) — but a **distinct bucket**: see
-[Secret buckets](#secret-buckets) below. The only allowed name is the well-known
-`AT_TASK_GIT_TOKEN`; if the map is non-empty it must contain exactly that key. Its
-`command` is **optional** — omit it to supply the value from the user's
-`~/.config/at-cove/secrets.yml` instead (matched by name; see
-[at-cove-secrets.md](at-cove-secrets.md)). **Schema-optional, but `at-cove work` refuses
-to run without the key declared** (`kit "…" declares no source-control.github.secrets
-AT_TASK_GIT_TOKEN`) — the value is resolved fresh per git step and read only by
-`at-task prepare`/`complete`, never by the agent.
+Host-side secrets minted for git operations, in the same **demand-only** declaration
+shape as the root `secrets` (see [at-cove-secrets.md](at-cove-secrets.md)) — but a
+**distinct bucket**: see [Secret buckets](#secret-buckets) below. The only allowed
+name is the well-known `AT_TASK_GIT_TOKEN`; if the map is non-empty it must contain
+exactly that key. The value is always supplied machine-side, from the user's
+`~/.config/at-cove/secrets.yml`/`secrets.local.yml` (matched by kit name/path; see
+[at-cove-secrets.md](at-cove-secrets.md)) — a kit secret never carries a resolver
+command. **Schema-optional, but `at-cove work` refuses to run without the key
+declared** (`kit "…" declares no source-control.github.secrets AT_TASK_GIT_TOKEN`) —
+the value is resolved fresh per git step and read only by `at-task prepare`/
+`complete`, never by the agent.
 
 ```yaml
 source-control:
@@ -73,7 +74,6 @@ source-control:
     secrets:
       AT_TASK_GIT_TOKEN:
         description: per-task GitHub App installation token — push + PR on the repo
-        command: ["mint-github-token.sh"]
 ```
 
 ### tracker
@@ -115,9 +115,9 @@ are treated as `ready`.
 
 Host-side, scheduler-only — never injected into a sandbox VM (see
 [Secret buckets](#secret-buckets)). Accepts exactly `AT_DISPATCH_TRACKER_TOKEN` and
-`AT_DISPATCH_WEBHOOK_SECRET`; both keys must be declared, but each `command` is
-**optional** — omit it to supply the value from the user's
-`~/.config/at-cove/secrets.yml` instead (matched by name; see
+`AT_DISPATCH_WEBHOOK_SECRET`; both keys must be declared, demand-only (no
+`command`) — the value is always supplied from the user's
+`~/.config/at-cove/secrets.yml`/`secrets.local.yml` (matched by kit name/path; see
 [at-cove-secrets.md](at-cove-secrets.md)). Any other key is rejected.
 
 ```yaml
@@ -133,8 +133,8 @@ tracker:
       needs-input: Needs Input
       blocked: Backlog
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
-      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+      AT_DISPATCH_TRACKER_TOKEN:  { description: "Linear API token for the scheduler" }
+      AT_DISPATCH_WEBHOOK_SECRET: { description: "Linear webhook signing secret" }
 ```
 
 ### dispatch
@@ -173,28 +173,23 @@ dispatch:
 *map of secret env name → config*
 
 The **agent bucket** — environment variables injected into the sandbox VM, in memory only,
-for both interactive `connect` and `at-cove work`. Declared **by name**; values are resolved
-at `connect`/`dispatch` time and never stored in the kit. Full schema — declaration,
-host-resolver `command`, the user-supplied `~/.config/at-cove/secrets.yml`, precedence,
-and the fail-closed / host-execution rules — is in **[at-cove-secrets.md](at-cove-secrets.md)**.
+for both interactive `connect` and `at-cove work`. **Demand-only**: declared **by name**
+with an optional description; a kit never carries a command or a value. Every value is
+resolved machine-side at `connect`/`dispatch` time from the user's
+`~/.config/at-cove/secrets.yml`/`secrets.local.yml`, and never stored in the kit. Full
+schema — the two host supply files, the four supply sources (`value`/`command`/`global`/
+`mint`), precedence, the anti-mining invariant, and the fail-closed / trust-boundary rules
+— is in **[at-cove-secrets.md](at-cove-secrets.md)**.
 
 #### secrets.*name*.description
 *string*
 
-Describes the content and use of the secret.
-
-#### secrets.*name*.command
-*list of command line tokens*
-
-The command to execute to resolve the secret's value (its stdout).
-If omitted, the value is supplied from the user's `~/.config/at-cove/secrets.yml`
-(see [at-cove-secrets.md](at-cove-secrets.md)).
+Describes the content and use of the secret. The only field a kit secret carries.
 
 ```yaml
 secrets:
-  GITHUB_TOKEN:
-    description: private-repo git over HTTPS (interactive sessions)
-    command: ["gh", "auth", "token"]
+  ANTHROPIC_AUTH_TOKEN:
+    description: short-lived Anthropic bearer for the worker agent
 ```
 
 ### workers
@@ -249,10 +244,10 @@ Same declaration shape as the root `secrets`, but a distinct bucket (see
 collaborators:
   <common>:
     secrets:
-      COMMON_TOKEN: { command: ["true"] }
+      COMMON_TOKEN: { description: "shared token for every collaborator class" }
   triager:
     secrets:
-      LINEAR_TOKEN: { command: ["true"] }
+      LINEAR_TOKEN: { description: "Linear API token for the triager collaborator" }
 ```
 
 `at-cove` resolves a class's effective secrets via `kit.Config.ResolvedCollaborator`.
@@ -313,9 +308,10 @@ flat merged list.
 | `tracker.linear.secrets` | host, scheduler-only | never | `at-cove dispatch` (a later plan) |
 | `collaborators.*.secrets` | host (validated now) | not yet — wired in a later plan | interactive/chat classes, once wired |
 
-The resolver mechanics (`command`/`description`, the user's `~/.config/at-cove/secrets.yml`,
-precedence, fail-closed behavior) are the same across all four buckets and documented once,
-in [at-cove-secrets.md](at-cove-secrets.md) — this table only draws the boundaries between them.
+Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
+mechanics (the two host files, the four sources, precedence, the anti-mining invariant,
+fail-closed behavior) are the same across all four buckets and documented once, in
+[at-cove-secrets.md](at-cove-secrets.md) — this table only draws the boundaries between them.
 
 ## Full example
 
@@ -327,11 +323,11 @@ source-control:
     project: acme/myrepo
     main-branch: main
     secrets:
-      # Used only by at-task prepare/complete (clone/push/PR); minted per run,
-      # resolved on the host, injected in memory. The agent never sees it.
+      # DEMAND only. Used only by at-task prepare/complete (clone/push/PR);
+      # minted per run, resolved on the host, injected in memory. The agent
+      # never sees it. The value is supplied machine-side (see at-cove-secrets.md).
       AT_TASK_GIT_TOKEN:
         description: per-task GitHub App installation token — push + PR on the repo
-        command: ["mint-github-token.sh"]
 
 tracker:
   linear:
@@ -345,8 +341,8 @@ tracker:
       needs-input: Needs Input
       blocked: Backlog
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
-      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+      AT_DISPATCH_TRACKER_TOKEN:  { description: "Linear API token for the scheduler" }
+      AT_DISPATCH_WEBHOOK_SECRET: { description: "Linear webhook signing secret" }
 
 dispatch:
   concurrency: 1
@@ -354,9 +350,9 @@ dispatch:
 
 secrets:
   # The agent bucket — injected into the sandbox VM (connect and at-cove work).
+  # DEMAND only; the value is supplied machine-side (see at-cove-secrets.md).
   GITHUB_TOKEN:
     description: private-repo git over HTTPS (interactive sessions)
-    command: ["gh", "auth", "token"]
 
 workers:
   <common>:
@@ -370,7 +366,7 @@ workers:
 collaborators:
   triager:
     secrets:
-      LINEAR_TOKEN: { command: ["true"] }
+      LINEAR_TOKEN: { description: "Linear API token for the triager collaborator" }
 
 image:
   setup-scripts:
@@ -390,8 +386,8 @@ the template kit for `at-cove dispatch`.
 - an unknown field is present, or `name` is missing;
 - `source-control` sets more than one host, or `source-control.github.project` is not `owner/name`;
 - `source-control.github.secrets` is non-empty but doesn't declare exactly
-  `AT_TASK_GIT_TOKEN` (its `command` is optional; else supplied from
-  `~/.config/at-cove/secrets.yml`);
+  `AT_TASK_GIT_TOKEN` (demand-only — a `command` field is a parse error; the value is
+  always supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
   path contains a newline);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
@@ -400,11 +396,13 @@ the template kit for `at-cove dispatch`.
   class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative;
 - `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
   isn't a positive Go duration, a `states` entry is missing, or `secrets` doesn't declare
-  exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (each `command` is
-  optional; else supplied from `~/.config/at-cove/secrets.yml`);
+  exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (demand-only — each
+  value is supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
-- a `collaborators` key looks `<reserved>` but isn't `<common>`.
+- a `collaborators` key looks `<reserved>` but isn't `<common>`;
+- any `secrets` entry (at any of the four bucket locations) sets a field other than
+  `description` — most notably, a `command` under a kit secret is a hard parse error (see
+  [at-cove-secrets.md](at-cove-secrets.md)).
 
-Other fields (e.g. `secrets.*.command`) are structurally validated only — the decoder rejects
-wrong shapes/types.
+Other fields are structurally validated only — the decoder rejects wrong shapes/types.

@@ -78,15 +78,16 @@ of the repo), `secrets`, `workers` (the classes `at-cove work` can launch), and 
 (additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
-secret declaration and value resolution (including `~/.config/at-cove/secrets.yml`) in
+the secret model — kits **demand** secrets by name only, the machine **supplies**
+values out of source control — lives in
 [`docs/usage/at-cove-secrets.md`](usage/at-cove-secrets.md).
 
-> **Security caveat (current state):**
-> a secret resolver `command` lives in the committed `config.yml`,
-> so it is a host-execution vector —
-> only run `at-cove connect` against repos you **trust** (your own).
-> The planned `.local/` layer will move `command` out of the committed file.
-> See [at-cove-secrets.md](usage/at-cove-secrets.md).
+> **Trust boundary:** a kit's `secrets:` entries carry a name and a description
+> only — never a command, a value, or a machine-specific identifier. Every value
+> is supplied host-side, from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`
+> (never committed), keyed explicitly per kit. A committed `config.yml` can never
+> smuggle in a resolver command of its own. See
+> [at-cove-secrets.md](usage/at-cove-secrets.md).
 
 ## Command surface
 
@@ -176,9 +177,12 @@ sidesteps both the proxy round-trip and the race.
 
 Backend-agnostic, in `internal/connect`:
 
-1. **Resolve secrets** on the host (run each `command`, capture stdout).
-   Held in memory only;
-   any failure aborts before SSH.
+1. **Resolve secrets** on the host: for each name the kit demands, look up its
+   supply (`~/.config/at-cove/secrets.yml`/`secrets.local.yml`) and run it —
+   see [at-cove-secrets.md](usage/at-cove-secrets.md) for the demand/supply
+   model. Held in memory only;
+   an unresolved *required* secret (the git or tracker token) aborts before
+   SSH — a general demand instead warns and is left unset.
 2. **Dial** the backend for an `Endpoint` (+ cleanup).
    If the VM isn't running,
    return an actionable error.
@@ -195,9 +199,10 @@ Backend-agnostic, in `internal/connect`:
 
 ## Authentication
 
-Claude Code picks its credential by env-driven precedence — `ANTHROPIC_API_KEY`
-wins over a subscription OAuth login — and the managed settings no longer force a
-login method, so the two agent paths differ deliberately:
+Claude Code picks its credential by env-driven precedence — an injected
+`ANTHROPIC_AUTH_TOKEN` wins over a subscription OAuth login — and the managed
+settings no longer force a login method, so the two agent paths differ
+deliberately:
 
 **Interactive `connect` → subscription OAuth.**
 On the first session `connect` probes `claude auth status` over SSH
@@ -218,16 +223,18 @@ When the credentials finally expire, the probe fails and the login flow re-mints
 > the user's own OAuth tokens, in the user-owned config dir at `0600`,
 > the same trust boundary as the saved login already on the VM volume.
 
-**Dispatched `work` → API key.**
+**Dispatched `work` → short-lived bearer.**
 A worker runs unattended, where a personal subscription is neither permitted nor
-practical, so its agent authenticates with an **`ANTHROPIC_API_KEY`** declared as a
-root `secrets` entry (memory-only, like any secret). at-cove deliberately does
+practical, so its agent authenticates with an **`ANTHROPIC_AUTH_TOKEN`** — a
+short-lived bearer — declared as a root `secrets` *demand* and supplied
+machine-side (memory-only, like any secret; see
+[at-cove-secrets.md](usage/at-cove-secrets.md)). at-cove deliberately does
 **not** seed the OAuth `credentials.json` on the work path: with no OAuth token
-below the key in the precedence chain, a keyless or misconfigured worker **fails
-closed** instead of silently falling back to — and burning — a subscription.
-Because `ANTHROPIC_API_KEY` (env) outranks OAuth, declaring it makes *any* agent
-session on that kit use the key, so keep API-key worker kits distinct from a kit
-you `connect` to on a personal subscription.
+below the bearer in the precedence chain, a keyless or misconfigured worker
+**fails closed** instead of silently falling back to — and burning — a
+subscription. Because `ANTHROPIC_AUTH_TOKEN` (env) outranks OAuth, declaring it
+makes *any* agent session on that kit use the bearer, so keep worker kits that
+declare it distinct from a kit you `connect` to on a personal subscription.
 
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
@@ -324,12 +331,17 @@ the Colima backend,
 layered assembly with embedded hardening,
 managed keypair + TOFU,
 both secret transports,
+the demand/supply secret model (kit `secrets:` demand-only; machine-side
+`~/.config/at-cove/secrets.yml`/`secrets.local.yml` supply — see
+[at-cove-secrets.md](usage/at-cove-secrets.md)),
 per-kit state + locking,
 subscription OAuth login,
 and git-over-HTTPS with a PAT.
 
 Designed but deferred (see the specs):
-the `.local/` override layer (and with it, moving secret `command`s out of committed config),
+the `at-mint` binary and `mint:` supply expansion (parses and validates today;
+not yet runnable),
+the `image-files/.local/` override layer,
 the Firecracker and Fly backends,
 and declarative repo cloning.
 Further out, the [agent-orchestration design](orchestration/INDEX.md) proposes turning at-cove into a **dispatch substrate** for autonomous workers —

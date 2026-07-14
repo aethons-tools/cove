@@ -4,7 +4,7 @@ read_when: You are running one of the cove binaries directly (not developing it)
 owns: the map of the per-binary usage docs
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: section
-updated: 2026-07-10
+updated: 2026-07-14
 ---
 
 # Usage reference
@@ -20,4 +20,4 @@ environment, and the concrete input/output contracts (with JSON Schemas). This i
 | [at-task-inputs.md](at-task-inputs.md) | The JSON Schemas + examples for the two files `at-task` reads: `task.json` (the work spec) and `worker-result.json` (the worker's self-report). | You are building a `task.json`, or writing a worker that produces `worker-result.json`. |
 | [at-task-output.md](at-task-output.md) | The JSON Schema + examples for `task-result.json` — `at-task`'s authoritative outcome (`ok`/`needs-input`/`error`) with the echoed `worker-result`. | You are consuming `at-task`'s result — brokering its status, or troubleshooting a run. |
 | [at-cove-config.md](at-cove-config.md) | The `at-cove` kit `config.yml` schema — every field (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), validation rules, and a full annotated example. | You are authoring or editing a kit's `.at-cove/config.yml`. |
-| [at-cove-secrets.md](at-cove-secrets.md) | How a kit declares secrets and how values are resolved — the `config.yml` `secrets` list, host resolvers, `~/.config/at-cove/secrets.yml`, precedence, and the trust boundary. | You are adding a secret to a kit, supplying a value, or reasoning about secret trust. |
+| [at-cove-secrets.md](at-cove-secrets.md) | The demand/supply secret model — `config.yml` `secrets` are demand-only (name + description); the machine supplies values via `~/.config/at-cove/secrets.yml`/`secrets.local.yml` (`minters`/`global`/`kits`), the four supply sources, precedence, and the anti-mining trust boundary. | You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, or reasoning about secret trust. |

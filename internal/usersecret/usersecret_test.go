@@ -6,86 +6,83 @@ import (
 	"testing"
 )
 
-func write(t *testing.T, body string) string {
+func write(t *testing.T, path, body string) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "secrets.yml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	return p
-}
-
-func TestLoadStringIsValue(t *testing.T) {
-	s, err := Load(write(t, "GITHUB_TOKEN: ghp_abc\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	e, ok := s["GITHUB_TOKEN"]
-	if !ok || e.Value != "ghp_abc" || len(e.Command) != 0 {
-		t.Fatalf("entry = %+v ok=%v", e, ok)
 	}
 }
 
-func TestLoadNumericScalarIsStringValue(t *testing.T) {
-	s, err := Load(write(t, "PIN: 1234\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s["PIN"].Value != "1234" {
-		t.Fatalf("entry = %+v", s["PIN"])
-	}
-}
-
-func TestLoadArrayIsCommand(t *testing.T) {
-	s, err := Load(write(t, `TOK: ["op", "read", "x"]`+"\n"))
+func TestLoadSections(t *testing.T) {
+	dir := t.TempDir()
+	yml := filepath.Join(dir, "secrets.yml")
+	local := filepath.Join(dir, "secrets.local.yml")
+	write(t, yml, `
+minters:
+  gh-cove:
+    github: { app-id: "1", install-id: "2", app-key: { value: "/k.pem" } }
+global:
+  shared-tracker: { command: ["gh", "auth", "token"] }
+kits:
+  cove:
+    AT_TASK_GIT_TOKEN: { command: ["at-mint-shim"] }
+    AT_DISPATCH_TRACKER_TOKEN: { global: shared-tracker }
+`)
+	write(t, local, `
+kits:
+  /abs/checkout/cove:
+    ANTHROPIC_AUTH_TOKEN: { value: "sk-ant-oat01-test" }
+`)
+	st, err := Load(yml, local)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := s["TOK"]
-	if e.Value != "" || len(e.Command) != 3 || e.Command[0] != "op" || e.Command[2] != "x" {
-		t.Fatalf("entry = %+v", e)
+	if _, ok := st.Minters["gh-cove"]; !ok {
+		t.Fatal("minter gh-cove not loaded")
+	}
+	if _, ok := st.Global["shared-tracker"]; !ok {
+		t.Fatal("global shared-tracker not loaded")
+	}
+	if k, _ := st.Kits["cove"]["AT_DISPATCH_TRACKER_TOKEN"].Kind(); k != "global" {
+		t.Fatalf("cove tracker source kind = %q, want global", k)
+	}
+	if _, ok := st.Local["/abs/checkout/cove"]["ANTHROPIC_AUTH_TOKEN"]; !ok {
+		t.Fatal("local path entry not loaded")
 	}
 }
 
-func TestLoadMissingFileIsEmpty(t *testing.T) {
-	s, err := Load(filepath.Join(t.TempDir(), "nope.yml"))
+func TestLoadMissingFilesEmpty(t *testing.T) {
+	st, err := Load(filepath.Join(t.TempDir(), "none.yml"), filepath.Join(t.TempDir(), "none.local.yml"))
 	if err != nil {
-		t.Fatalf("missing file must not error: %v", err)
+		t.Fatal(err)
 	}
-	if len(s) != 0 {
-		t.Fatalf("store = %+v", s)
-	}
-}
-
-func TestLoadInvalidYAMLErrors(t *testing.T) {
-	if _, err := Load(write(t, "a: [unterminated\n")); err == nil {
-		t.Fatal("expected error on invalid YAML")
+	if len(st.Minters) != 0 || len(st.Global) != 0 || len(st.Kits) != 0 || len(st.Local) != 0 {
+		t.Fatal("missing files should yield empty sections")
 	}
 }
 
-func TestLoadMappingValueErrors(t *testing.T) {
-	_, err := Load(write(t, "GITHUB_TOKEN:\n  nested: bad\n"))
-	if err == nil {
-		t.Fatal("expected error on a mapping value")
+func TestLoadDanglingGlobalRef(t *testing.T) {
+	dir := t.TempDir()
+	yml := filepath.Join(dir, "secrets.yml")
+	write(t, yml, `
+kits:
+  cove:
+    X: { global: nope }
+`)
+	if _, err := Load(yml, filepath.Join(dir, "missing.local.yml")); err == nil {
+		t.Fatal("want error for global: referencing a missing shared supply")
 	}
 }
 
-func TestLoadScalarArrayElementCoerces(t *testing.T) {
-	// yaml.v3 coerces a scalar element into its string form, mirroring how a
-	// scalar value coerces (e.g. PIN: 1234 -> "1234"). Accepted, not an error.
-	s, err := Load(write(t, `TOK: ["op", 5]`+"\n"))
-	if err != nil {
-		t.Fatalf("scalar array elements should coerce, not error: %v", err)
-	}
-	if len(s["TOK"].Command) != 2 || s["TOK"].Command[1] != "5" {
-		t.Fatalf("entry = %+v", s["TOK"])
-	}
-}
-
-func TestLoadNestedArrayElementErrors(t *testing.T) {
-	// A non-scalar element (a nested list) cannot be a string -> error.
-	_, err := Load(write(t, "TOK:\n  - op\n  - [1, 2]\n"))
-	if err == nil {
-		t.Fatal("expected error on a non-scalar (nested) array element")
+func TestLoadDanglingMintRef(t *testing.T) {
+	dir := t.TempDir()
+	yml := filepath.Join(dir, "secrets.yml")
+	write(t, yml, `
+kits:
+  cove:
+    X: { mint: nope }
+`)
+	if _, err := Load(yml, filepath.Join(dir, "missing.local.yml")); err == nil {
+		t.Fatal("want error for mint: referencing a missing minter profile")
 	}
 }

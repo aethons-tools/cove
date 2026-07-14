@@ -200,6 +200,20 @@ func configDir() string {
 	return filepath.Join(home, ".config", "at-cove")
 }
 
+// canonicalKitPath returns the symlink-resolved absolute path of a kit dir — the
+// key secrets.local.yml uses to disambiguate same-named kits. Falls back to the
+// cleaned absolute path when the dir cannot be resolved.
+func canonicalKitPath(kitDir string) string {
+	abs, err := filepath.Abs(kitDir)
+	if err != nil {
+		abs = filepath.Clean(kitDir)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
 func getBackend(name string, r runner.Runner) (backend.Backend, error) {
 	f, err := backend.Get(name)
 	if err != nil {
@@ -263,8 +277,9 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 }
 
 // buildState assembles the state snapshot for a created instance: the backend
-// handles, the workspace mode, and the kit's secret specs (names + resolver
-// commands, never values).
+// handles, the workspace mode, and the kit's secret demands (names only — a kit
+// never carries a resolver command; supply is resolved machine-side at connect
+// time via internal/usersecret).
 func buildState(cfg kit.Config, inst backend.Instance) state.State {
 	st := state.State{
 		Name:          cfg.Name,
@@ -278,8 +293,8 @@ func buildState(cfg kit.Config, inst backend.Instance) state.State {
 		st.WorkspaceMode = "shared"
 		st.WorkspaceHostPath = inst.Workspace.HostPath
 	}
-	for name, s := range cfg.Secrets {
-		st.Secrets = append(st.Secrets, state.Secret{Name: name, Command: s.Command})
+	for name := range cfg.Secrets {
+		st.Secrets = append(st.Secrets, state.Secret{Name: name})
 	}
 	return st
 }
@@ -310,19 +325,24 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		return err
 	}
 
-	// Demand (from state) resolved against supply (the user's secrets.yml).
-	demanded := make([]secret.Spec, len(st.Secrets))
+	// Demand (from state) resolved against supply (the machine-side secrets files),
+	// keyed by the kit name recorded in state and this checkout's canonical path.
+	demanded := make([]string, len(st.Secrets))
 	for i, s := range st.Secrets {
-		demanded[i] = secret.Spec{Name: s.Name, Command: s.Command}
+		demanded[i] = s.Name
 	}
 	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	store, err := usersecret.Load(secretsPath)
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
 	if err != nil {
 		return err
 	}
-	specs, unresolved := store.Plan(demanded)
+	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, nil)
+	if err != nil {
+		return err
+	}
 	for _, name := range unresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded by the kit but has no command and no entry in %s; it will not be set\n", name, secretsPath)
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
 	launch := "claude"
@@ -487,15 +507,17 @@ func workName(kitName string) string {
 	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
 }
 
-// planRequired resolves one required secret through the user's supply store: a
-// kit command wins; else the secrets.yml entry supplies it (literal or command).
-// It errors, naming the secret and the secrets.yml path, if neither provides it.
-func planRequired(store usersecret.Store, name string, kitCommand []string, secretsPath string) (secret.Spec, error) {
-	planned, unresolved := store.Plan([]secret.Spec{{Name: name, Command: kitCommand}})
-	if len(unresolved) > 0 {
-		return secret.Spec{}, fmt.Errorf("%s has no command in the kit and no entry in %s", name, secretsPath)
+// planRequired resolves one required demand for a kit through the supply store.
+// It errors, naming the secret and the secrets files, if nothing supplies it.
+func planRequired(store usersecret.Store, kitName, kitPath, name, secretsPath string) (secret.Spec, error) {
+	specs, unresolved, err := store.Plan(kitName, kitPath, []string{name}, nil)
+	if err != nil {
+		return secret.Spec{}, err
 	}
-	return planned[0], nil
+	if len(unresolved) > 0 {
+		return secret.Spec{}, fmt.Errorf("%s has no supply entry for kit %q in %s (or secrets.local.yml)", name, kitName, secretsPath)
+	}
+	return specs[0], nil
 }
 
 // doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
@@ -591,27 +613,33 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	}
 
 	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	store, err := usersecret.Load(secretsPath)
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
-	// General (agent-injected) secrets: kit command, else secrets.yml; unresolved warn.
-	demanded := make([]secret.Spec, 0, len(cfg.Secrets))
-	for name, s := range cfg.Secrets {
-		demanded = append(demanded, secret.Spec{Name: name, Command: s.Command})
+	kitPath := canonicalKitPath(kitDir)
+	// General (agent-injected) secrets: demand names from the kit; unresolved warn.
+	demanded := make([]string, 0, len(cfg.Secrets))
+	for name := range cfg.Secrets {
+		demanded = append(demanded, name)
 	}
-	specs, unresolved := store.Plan(demanded)
+	specs, unresolved, err := store.Plan(cfg.Name, kitPath, demanded, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
 	for _, name := range unresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no command and no entry in %s; it will not be set\n", name, secretsPath)
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
-	// The code-host token stays a distinct spec (the air-gap); required, fail closed.
-	gitDemand, ok := cfg.GitTokenSpec()
+	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
+	gitName, ok := cfg.GitTokenName()
 	if !ok {
 		fmt.Fprintf(stderr, "at-cove: kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN\n", cfg.Name)
 		return 1
 	}
-	gitTok, err := planRequired(store, gitDemand.Name, gitDemand.Command, secretsPath)
+	gitTok, err := planRequired(store, cfg.Name, kitPath, gitName, secretsPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
@@ -679,13 +707,14 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
 
 	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	store, err := usersecret.Load(secretsPath)
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1
 	}
-	tokSpec := cfg.Tracker.Linear.Secrets["AT_DISPATCH_TRACKER_TOKEN"]
-	planned, err := planRequired(store, "AT_DISPATCH_TRACKER_TOKEN", tokSpec.Command, secretsPath)
+	kitPath := canonicalKitPath(kitDir)
+	planned, err := planRequired(store, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1

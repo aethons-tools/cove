@@ -16,9 +16,9 @@ func TestReferenceWorkerKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	spec, ok := cfg.GitTokenSpec()
-	if !ok || len(spec.Command) == 0 {
-		t.Errorf("expected source-control AT_TASK_GIT_TOKEN with a resolver command; source-control=%+v", cfg.SourceControl)
+	name, ok := cfg.GitTokenName()
+	if !ok || name != "AT_TASK_GIT_TOKEN" {
+		t.Errorf("expected source-control AT_TASK_GIT_TOKEN demand; source-control=%+v", cfg.SourceControl)
 	}
 	if strings.TrimSpace(cfg.Workers["implement"].Prompt) == "" {
 		t.Errorf("expected a non-empty workers[implement].prompt; workers=%v", cfg.Workers)
