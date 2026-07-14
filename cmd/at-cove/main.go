@@ -85,8 +85,8 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				}
 				return exitCode("at-cove", doCreate(kitDir, r, *ws, g.DryRun, out), errw)
 			}},
-			{Name: "connect", Brief: "open an interactive session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				fs := flag.NewFlagSet("connect", flag.ContinueOnError)
+			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 				fs.SetOutput(errw)
 				kd := kitDirFlag(fs)
 				raw := fs.Bool("raw", false, "open a raw shell instead of the agent")
@@ -96,11 +96,19 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveKitDir(*kd, pos, "connect", errw)
-				if code != 0 {
-					return code
+				collaborator := ""
+				if len(pos) == 1 {
+					collaborator = pos[0]
+				} else if len(pos) > 1 {
+					fmt.Fprintln(errw, "at-cove: chat takes at most one collaborator")
+					return 2
 				}
-				return exitCode("at-cove", doConnect(kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
+				kitDir, err := resolveKit(*kd)
+				if err != nil {
+					fmt.Fprintln(errw, "at-cove:", err)
+					return 1
+				}
+				return exitCode("at-cove", doChat(collaborator, kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
 			}},
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
@@ -322,24 +330,52 @@ func instanceFromState(st state.State) backend.Instance {
 	return backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, Workspace: ws}
 }
 
-// doConnect launches an interactive session in the sandbox, driven by the
-// recorded state (not the kit). It resolves each demanded secret from its kit
-// command or, failing that, the user's ~/.config/at-cove/secrets.yml; secrets
-// with neither warn (non-fatal) and are left unset. It holds a SHARED lock on
-// the state file for the whole session, so destroy can't tear the sandbox down
-// underneath it. With raw it drops into bash instead of claude; with noAuth it
-// skips `claude auth login`.
-func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, stdout, stderr io.Writer) error {
+// doChat launches an interactive collaborator session in the sandbox, driven
+// by the recorded state (not the kit) plus the kit's collaborator config. It
+// resolves each demanded secret from its kit command or, failing that, the
+// user's ~/.config/at-cove/secrets.yml; secrets with neither warn (non-fatal)
+// and are left unset. It holds a SHARED lock on the state file for the whole
+// session, so destroy can't tear the sandbox down underneath it. With raw it
+// drops into bash instead of claude; with noAuth it skips `claude auth login`.
+// chat is kit-aware (unlike the rest of the state-driven commands): a
+// malformed/absent kit config is a hard error, since selecting a collaborator
+// and its role prompt requires the kit config.
+func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, stdout, stderr io.Writer) error {
 	st, err := state.Load(kitDir)
 	if err != nil {
 		return err
 	}
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return fmt.Errorf("chat requires a valid kit config: %w", err)
+	}
+	class, hasCollab, err := cfg.SelectCollaborator(collaborator)
+	if err != nil {
+		return err
+	}
+	var role kit.Collaborator
+	if hasCollab {
+		if role, err = cfg.ResolvedCollaborator(class); err != nil {
+			return err
+		}
+	}
 
-	// Demand (from state) resolved against supply (the machine-side secrets files),
-	// keyed by the kit name recorded in state and this checkout's canonical path.
-	demanded := make([]string, len(st.Secrets))
-	for i, s := range st.Secrets {
-		demanded[i] = s.Name
+	// Demand (from state, plus the selected collaborator's secrets) resolved
+	// against supply (the machine-side secrets files), keyed by the kit name
+	// recorded in state and this checkout's canonical path.
+	demandSet := map[string]struct{}{}
+	demanded := make([]string, 0, len(st.Secrets)+len(role.Secrets))
+	for _, s := range st.Secrets {
+		if _, dup := demandSet[s.Name]; !dup {
+			demandSet[s.Name] = struct{}{}
+			demanded = append(demanded, s.Name)
+		}
+	}
+	for name := range role.Secrets {
+		if _, dup := demandSet[name]; !dup {
+			demandSet[name] = struct{}{}
+			demanded = append(demanded, name)
+		}
 	}
 	secretsPath := filepath.Join(configDir(), "secrets.yml")
 	localPath := filepath.Join(configDir(), "secrets.local.yml")
@@ -347,7 +383,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if err != nil {
 		return err
 	}
-	expand := mint.Expander(r, store.Global, "") // connect mints no github token (no repo scope)
+	expand := mint.Expander(r, store.Global, "") // chat mints no github token (connectors)
 	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, expand)
 	if err != nil {
 		return err
@@ -362,16 +398,12 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	}
 	resume := !raw && !fresh
 	if dryRun {
-		auth := "with auth"
-		if noAuth {
-			auth = "no auth"
+		who := "no collaborator"
+		if hasCollab {
+			who = "collaborator " + class
 		}
-		session := "resuming"
-		if !resume {
-			session = "fresh"
-		}
-		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s, launching %s (%s, %s)\n",
-			len(specs), st.Container, launch, auth, session)
+		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s\n",
+			len(specs), st.Container, who, launch)
 		return nil
 	}
 	b, err := getBackend(st.Backend, r)
@@ -397,13 +429,14 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		cmd = "bash"
 	}
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: st.Name}, awake.New(), connect.Options{
-		Container:       st.Container,
-		Secrets:         specs,
-		IdentityFile:    priv,
-		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
-		SkipAuth:        noAuth,
-		Stderr:          stderr,
-		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
+		Container:          st.Container,
+		Secrets:            specs,
+		IdentityFile:       priv,
+		KnownHostsDir:      filepath.Join(configDir(), "known_hosts.d"),
+		SkipAuth:           noAuth,
+		Stderr:             stderr,
+		CredentialsFile:    filepath.Join(configDir(), "credentials.json"),
+		CollaboratorPrompt: role.Prompt,
 	})
 }
 

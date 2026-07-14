@@ -156,6 +156,32 @@ func TestConnectSkipAuth(t *testing.T) {
 	}
 }
 
+func TestWriteCollaboratorRole(t *testing.T) {
+	f := &runner.Fake{}
+	if err := writeCollaboratorRole(f, sshargs.Target{}, "you are the steward"); err != nil {
+		t.Fatal(err)
+	}
+	var wrote bool
+	for _, c := range f.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), collaboratorVMPath) && c.Stdin == "you are the steward" {
+			wrote = true
+		}
+	}
+	if !wrote {
+		t.Fatalf("no ssh write of %s with the prompt; calls=%+v", collaboratorVMPath, f.Calls)
+	}
+}
+
+func TestWriteCollaboratorRoleEmptyWritesPlaceholder(t *testing.T) {
+	f := &runner.Fake{}
+	if err := writeCollaboratorRole(f, sshargs.Target{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) == 0 || f.Calls[0].Stdin == "" {
+		t.Fatalf("empty prompt must still write a placeholder; calls=%+v", f.Calls)
+	}
+}
+
 // callIndex returns the index of the first recorded call whose args contain s,
 // or -1 if none does.
 func callIndex(calls []runner.Call, s string) int {

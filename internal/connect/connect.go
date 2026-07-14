@@ -34,6 +34,10 @@ const (
 	// the VM (CLAUDE_CONFIG_DIR=/agent-data). cove copies this file to and from a
 	// host-side copy so one login is reusable across sandboxes.
 	credsVMPath = "/agent-data/.credentials.json"
+	// collaboratorVMPath is where chat writes the selected collaborator's role
+	// prompt; the seeded CLAUDE.md @-includes it. Not a secret (source-controlled
+	// kit content), but written the same in-memory-over-ssh way.
+	collaboratorVMPath = "/agent-data/COLLABORATOR.md"
 )
 
 // Options configures a connect. Container/Secrets come from the recorded state,
@@ -50,6 +54,10 @@ type Options struct {
 	// the VM before the auth probe and saves the VM's copy back to it after a
 	// login or whenever a session rotates the token. "" disables the feature.
 	CredentialsFile string
+	// CollaboratorPrompt is the selected collaborator's role prompt, written to
+	// collaboratorVMPath before launch so the session's CLAUDE.md includes it.
+	// Empty writes a benign placeholder (clears any prior role).
+	CollaboratorPrompt string
 }
 
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
@@ -97,6 +105,10 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 		if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
 			return err
 		}
+	}
+
+	if err := writeCollaboratorRole(r, tgt, o.CollaboratorPrompt); err != nil {
+		return err
 	}
 
 	// Keep the host awake for the session only: idle work happens between here
@@ -172,6 +184,21 @@ func seedCredentials(r runner.Runner, tgt sshargs.Target, credsFile string) erro
 	writeArgs := append(sshargs.Base(tgt), "umask 077; cat > "+credsVMPath)
 	if err := r.RunStdin(bytes.NewReader(data), "ssh", writeArgs...); err != nil {
 		return fmt.Errorf("seeding credentials into sandbox: %w", err)
+	}
+	return nil
+}
+
+// writeCollaboratorRole writes the role prompt (or a placeholder when empty) to
+// the VM's COLLABORATOR.md over ssh, so the session's CLAUDE.md include resolves
+// to the active role.
+func writeCollaboratorRole(r runner.Runner, tgt sshargs.Target, prompt string) error {
+	body := prompt
+	if body == "" {
+		body = "# (no collaborator role active)\n"
+	}
+	args := append(sshargs.Base(tgt), "umask 077; cat > "+collaboratorVMPath)
+	if err := r.RunStdin(bytes.NewReader([]byte(body)), "ssh", args...); err != nil {
+		return fmt.Errorf("writing collaborator role: %w", err)
 	}
 	return nil
 }

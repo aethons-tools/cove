@@ -323,14 +323,14 @@ func TestDestroyBlockedByActiveConnection(t *testing.T) {
 	}
 }
 
-func TestDryRunConnectRawNoAuth(t *testing.T) {
+func TestDryRunChatRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // hermetic: no real ~/.config/at-cove/secrets.yml
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--raw", "--no-auth", "--kit-dir", kitDir},
+	code := run([]string{"--dry-run", "chat", "--raw", "--no-auth", "--kit-dir", kitDir},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
@@ -339,8 +339,8 @@ func TestDryRunConnectRawNoAuth(t *testing.T) {
 		t.Fatalf("dry-run executed commands: %+v", f.Calls)
 	}
 	s := out.String()
-	if !strings.Contains(s, "bash") || !strings.Contains(s, "no auth") {
-		t.Fatalf("dry-run connect --raw --no-auth message = %q", s)
+	if !strings.Contains(s, "bash") || !strings.Contains(s, "no collaborator") {
+		t.Fatalf("dry-run chat --raw --no-auth message = %q", s)
 	}
 }
 
@@ -517,14 +517,14 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestDryRunConnectWarnsUnresolvedSecret(t *testing.T) {
+func TestDryRunChatWarnsUnresolvedSecret(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"}) // demanded, no command
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())                                   // empty config dir -> no secrets.yml
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -536,40 +536,52 @@ func TestDryRunConnectWarnsUnresolvedSecret(t *testing.T) {
 	}
 }
 
-func TestDryRunConnectResumesByDefault(t *testing.T) {
+// A kit with no collaborators declared resolves to "no collaborator" in the
+// dry-run message, and --fresh is accepted without error (fresh/resume is a
+// launch-time detail no longer surfaced in the dry-run summary).
+func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-	}
-	if !strings.Contains(out.String(), "resuming") {
-		t.Fatalf("default connect should resume; msg=%q", out.String())
-	}
-}
-
-func TestDryRunConnectFresh(t *testing.T) {
-	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
-	f := &runner.Fake{}
-	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--fresh", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--fresh", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
 	s := out.String()
-	if !strings.Contains(s, "fresh") || strings.Contains(s, "resuming") {
-		t.Fatalf("--fresh connect should be fresh; msg=%q", s)
+	if !strings.Contains(s, "as no collaborator") {
+		t.Fatalf("kit with no collaborators should report 'no collaborator'; msg=%q", s)
 	}
 }
 
-func TestConnectMalformedSecretsFileAborts(t *testing.T) {
+// A kit declaring a single collaborator class auto-selects it (SelectCollaborator's
+// "sole class" default), and the dry-run message names it.
+func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\ncollaborators:\n  steward:\n    prompt: \"you are the steward\"\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "as collaborator steward") {
+		t.Fatalf("expected the sole collaborator to be auto-selected; msg=%q", out.String())
+	}
+}
+
+func TestChatMalformedSecretsFileAborts(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
@@ -587,7 +599,7 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	}
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatalf("malformed secrets.yml should abort; out=%q", out.String())
 	}
