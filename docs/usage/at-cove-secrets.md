@@ -64,7 +64,7 @@ global:                               # named shared supplies; inert until deleg
 
 kits:                                 # per-kit authorization: demand -> source
   reference-worker:
-    AT_TASK_GIT_TOKEN:         { command: ["kits/reference-worker/mint-github-token.sh"] }
+    AT_TASK_GIT_TOKEN:         { command: ["at-mint","github","--app-id","123456","--install-id","7890","--app-key-file","/etc/cove/gh-app.pem"] }
     ANTHROPIC_AUTH_TOKEN:      { command: ["your-anthropic-mint.sh"] }
     AT_DISPATCH_TRACKER_TOKEN: { global: shared-tracker }
 ```
@@ -88,10 +88,11 @@ kits:
   identity). Like `global:`, a minter is inert until a `kits:` entry
   references it with `{ mint: <name> }`. **`mint:` is forward-looking:** it
   parses and validates today, but is not yet runnable — resolving one is a
-  load-time error until a later plan wires `at-mint`. Use `command:` for
-  anything you need working now (the reference kit's `mint-github-token.sh`
-  is a working `command:` example — see
-  [the reference kit's RUNBOOK](../../kits/reference-worker/RUNBOOK.md)).
+  load-time error until a later plan wires the `minters:` profile through
+  `at-mint`. Use `command:` for anything you need working now — invoking
+  [`at-mint github`](at-mint.md) directly (as above) is a working `command:`
+  example; see also
+  [the reference kit's RUNBOOK](../../kits/reference-worker/RUNBOOK.md).
 
 ## The four supply sources
 

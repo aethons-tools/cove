@@ -29,11 +29,27 @@ global:                                                    # shared supplies; in
 
 kits:
   reference-worker:
-    AT_TASK_GIT_TOKEN:         { command: ["kits/reference-worker/mint-github-token.sh"] } # mint: coming later
-    ANTHROPIC_AUTH_TOKEN:      { command: ["your-anthropic-mint.sh"] }                     # mint: coming later
+    AT_TASK_GIT_TOKEN:
+      command: ["at-mint", "github", "--app-id", "123456", "--install-id", "7890",
+                "--app-key-file", "/etc/cove/gh-app.pem"]
+    ANTHROPIC_AUTH_TOKEN:
+      command: ["at-mint", "anthropic",
+                "--auth0-tenant", "your-tenant.us.auth0.com",
+                "--auth0-client-id", "YOUR_CLIENT_ID",
+                "--auth0-audience", "urn:cove:anthropic-wif",
+                "--anthropic-org", "YOUR_ORG_UUID",
+                "--anthropic-rule", "fdrl_...",
+                "--anthropic-service-account", "svac_..."]
     AT_DISPATCH_TRACKER_TOKEN: { global: linear-token }
     AT_DISPATCH_WEBHOOK_SECRET: { value: "whsec_..." }
 ```
+
+`at-mint github` needs the App private key — pass a path with `--app-key-file`
+(non-secret), or set `AT_MINT_GITHUB_APP_KEY` (PEM content) in the host env.
+`at-mint anthropic` reads the Auth0 client secret from
+`AT_MINT_AUTH0_CLIENT_SECRET` in the host env (Plan 3's `mint:` profiles will
+source it from a manager instead). `COVE_RUN_REPO` is set by at-cove per run;
+you do not pass it.
 
 `~/.config/at-cove/secrets.local.yml` — keyed by this kit's **absolute path**,
 not its name — overrides the above for name collisions (two checkouts sharing a
@@ -44,34 +60,33 @@ and the four supply sources (`value`/`command`/`global`, and the forward-looking
 
 ## Provisioning the GitHub App (credential minter)
 
-The example above supplies `AT_TASK_GIT_TOKEN` by running
-`kits/reference-worker/mint-github-token.sh` on the **at-cove host** (not in the
-VM) as a `command:` source — it mints a fresh, repo-scoped GitHub App
-installation token before each git step (`at-task prepare` and `at-task
-complete`). A future plan replaces this script with a structured `mint:` profile
-(`at-mint github`); until then it's a working `command:` example.
+The example above supplies `AT_TASK_GIT_TOKEN` by running `at-mint github` on
+the **at-cove host** (not in the VM) as a `command:` source — it mints a
+fresh, repo-scoped GitHub App installation token before each git step
+(`at-task prepare` and `at-task complete`). Plan 3's `mint:` profiles will let
+the kit demand this without spelling out the full command; until then, the
+`command:` form above is how you wire it up.
 
 1. **Create a GitHub App** with permissions `contents:write` and
    `pull_requests:write`, and **install it on your org** (so it can be scoped to
    any repo in that org at mint time).
-2. **Reference `mint-github-token.sh` by path** (absolute, or relative to the
-   at-cove host's cwd) in the `command:` entry above — it need not be on `PATH`.
-3. **Export on the at-cove host** (never committed, never in the kit):
-   - `COVE_GH_APP_ID` — the App's ID.
-   - `COVE_GH_INSTALL_ID` — the installation ID on your org.
-   - `COVE_GH_APP_KEY` — path to the App's private key (`.pem`).
+2. **Pass `--app-id`/`--install-id`/`--app-key-file`** in the `command:` entry
+   above (the App key path is non-secret); or set `AT_MINT_GITHUB_APP_KEY` (PEM
+   content) in the host env instead of `--app-key-file`.
+3. **`at-mint` runs on the at-cove host**, not in the VM — it need not be on the
+   VM's `PATH`, only the at-cove host's.
 
-The script fails closed (`set -eu` + `:?` guards): a missing var or a failed API
-call aborts the resolver, which aborts dispatch before any SSH happens.
+`at-mint` fails closed: a missing flag/env var or a failed API call aborts the
+resolver, which aborts dispatch before any SSH happens.
 
 **Why per-git-step, not per-run:** `at-cove` re-runs the resolver before *each*
 git step, so the App-token's fixed ~1-hour TTL never bounds how long a dispatch
 run may take — only the two git steps (`prepare`, `complete`) ever hold a token,
 and each gets a freshly minted one. `at-cove` also passes the run's parameters —
 `COVE_RUN_REPO`, `COVE_RUN_ISSUE`, `COVE_RUN_CLASS`, `COVE_RUN_TIMEOUT` — into the
-resolver's environment; the minter reads `COVE_RUN_REPO` to scope the token to
-that repo (the installation itself, plus `contents`+`pull_requests`, still bounds
-the maximum grantable scope).
+resolver's environment; `at-mint github` reads `COVE_RUN_REPO` to scope the
+token to that repo (the installation itself, plus `contents`+`pull_requests`,
+still bounds the maximum grantable scope).
 
 ## Run
 ```

@@ -293,11 +293,12 @@ internal/state/               per-kit state file + shared/exclusive locking
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
-This module builds **two binaries**: `at-cove` (the sandbox substrate, which
-also hosts the `dispatch` scheduler and the one-shot `work` runner) and
-`at-task` (the git/PR worker). The scheduler drives work by shelling
-`at-cove work` — it never imports at-cove's internals. See the
-[orchestration design](orchestration/INDEX.md).
+This module builds **three binaries**: `at-cove` (the sandbox substrate, which
+also hosts the `dispatch` scheduler and the one-shot `work` runner), `at-task`
+(the git/PR worker), and `at-mint` (a host-side token minter invoked as a
+secret's `command:`; see [at-mint.md](usage/at-mint.md)). The scheduler
+drives work by shelling `at-cove work` — it never imports at-cove's
+internals. See the [orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
@@ -336,11 +337,13 @@ the demand/supply secret model (kit `secrets:` demand-only; machine-side
 [at-cove-secrets.md](usage/at-cove-secrets.md)),
 per-kit state + locking,
 subscription OAuth login,
-and git-over-HTTPS with a PAT.
+git-over-HTTPS with a PAT,
+and the `at-mint` binary (`github`/`anthropic` token minting via a secret's
+`command:` — see [at-mint.md](usage/at-mint.md)).
 
 Designed but deferred (see the specs):
-the `at-mint` binary and `mint:` supply expansion (parses and validates today;
-not yet runnable),
+the `mint:` supply expansion — a `minters:` profile resolved through
+`at-mint` by name (parses and validates today; not yet runnable),
 the `image-files/.local/` override layer,
 the Firecracker and Fly backends,
 and declarative repo cloning.
