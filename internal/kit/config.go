@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -155,10 +156,14 @@ type Dispatch struct {
 	DispatchOverhead string `yaml:"dispatch-overhead"`
 }
 
-// Collaborator declares an interactive (chat) handler class. Its secrets may be
-// inherited from the collaborators <common> base. Parsed + validated; wired later.
+// Collaborator declares an interactive (chat) handler class: an optional role
+// prompt injected into the session, an optional default marker, and a secrets
+// bucket (inherited from the collaborators <common> base). GitHub/Linear ride
+// the human's connectors, so secrets are often empty.
 type Collaborator struct {
-	Secrets map[string]SecretConfig `yaml:"secrets"`
+	Prompt  string                  `yaml:"prompt,omitempty"`
+	Default bool                    `yaml:"default,omitempty"`
+	Secrets map[string]SecretConfig `yaml:"secrets,omitempty"`
 }
 
 // ResolvedCollaborator returns the named collaborator with the collaborators
@@ -180,6 +185,43 @@ func (c Config) ResolvedCollaborator(class string) (Collaborator, error) {
 	}
 	own.Secrets = merged
 	return own, nil
+}
+
+// SelectCollaborator resolves the CLI's optional collaborator positional to a
+// class. explicit=="" means "choose the default": the sole class, or the one
+// marked default:true, or an error if ambiguous. No collaborators defined ->
+// ("", false, nil): a plain session. <common> is never selectable.
+func (c Config) SelectCollaborator(explicit string) (string, bool, error) {
+	names := make([]string, 0, len(c.Collaborators))
+	for name := range c.Collaborators {
+		if name != commonKey {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	if explicit != "" {
+		if explicit == commonKey {
+			return "", false, fmt.Errorf("%q is not a selectable collaborator", commonKey)
+		}
+		if _, ok := c.Collaborators[explicit]; !ok {
+			return "", false, fmt.Errorf("kit %q declares no collaborator %q (have: %s)", c.Name, explicit, strings.Join(names, ", "))
+		}
+		return explicit, true, nil
+	}
+	switch len(names) {
+	case 0:
+		return "", false, nil
+	case 1:
+		return names[0], true, nil
+	default:
+		for _, name := range names {
+			if c.Collaborators[name].Default {
+				return name, true, nil
+			}
+		}
+		return "", false, fmt.Errorf("kit %q has multiple collaborators; specify one of: %s", c.Name, strings.Join(names, ", "))
+	}
 }
 
 // Config is the parsed contents of a kit's config.yml.
@@ -335,10 +377,23 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateClassTree("collaborators", collaboratorKeys(cfg.Collaborators)); err != nil {
 		return Config{}, err
 	}
+	defaults := 0
 	for name, col := range cfg.Collaborators {
 		if err := rejectReservedSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets); err != nil {
 			return Config{}, err
 		}
+		if name == commonKey {
+			if col.Prompt != "" || col.Default {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt or default", commonKey)
+			}
+			continue
+		}
+		if col.Default {
+			defaults++
+		}
+	}
+	if defaults > 1 {
+		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
 	return cfg, nil
 }

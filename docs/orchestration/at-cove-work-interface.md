@@ -18,7 +18,7 @@ In this repo the scheduler is **`at-cove dispatch`** and the worker is **`at-tas
 at-cove assembles a layered build context, `docker build`s it, and runs it on a backend (Colima today), then reaches it over SSH — see [`../OVERVIEW.md`](../OVERVIEW.md). Two phases matter here:
 
 - **Build time:** egress is open; a setup script bakes the **project's toolchain** into the image.
-- **Run time:** egress is locked by squid + nftables to the kit's `allowed-domains`; **secrets are acquired by running a configured command whose stdout is injected in memory only** — never baked into the image ([secret-injection flow](../OVERVIEW.md#secret-injection-the-connect-data-flow)).
+- **Run time:** egress is locked by squid + nftables to the kit's `allowed-domains`; **secrets are acquired by running a configured command whose stdout is injected in memory only** — never baked into the image ([secret-injection flow](../OVERVIEW.md#secret-injection-the-chat-data-flow)).
 
 A **worker is therefore a container from the kit's image**, and **dispatch is a hardened, non-interactive run** at-cove mediates so the egress lock, secret injection, and baseline all apply.
 
@@ -33,7 +33,7 @@ A **worker is therefore a container from the kit's image**, and **dispatch is a 
 Dispatch is **synchronous and one-shot** (shipped). The scheduler runs one blocking `at-cove work` per issue in a bounded goroutine; there is **no** run-id registry, detach, or lifecycle-verb set (`status`/`result`/`logs`/`ls`/`kill`) — an earlier design considered them and they were dropped as unnecessary under the synchronous model.
 
 ```
-at-cove work <kit-dir> --in <task.json> --out <task-result.json> [--timeout <dur>] [--grace <dur>] [--reap]
+at-cove work [--kit-dir <dir>] --in <task.json> --out <task-result.json> [--timeout <dur>] [--grace <dur>] [--reap]
 ```
 
 One invocation, start to finish:

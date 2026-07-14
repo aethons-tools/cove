@@ -166,3 +166,17 @@ func TestAssembleImageEnv(t *testing.T) {
 		t.Fatalf("env = %q", env)
 	}
 }
+
+func TestCollaboratorRoleFileSeeded(t *testing.T) {
+	base := filepath.Join("hardening", "image-files", "home", "agent", ".init-agent-data")
+	b, err := os.ReadFile(filepath.Join(base, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "@COLLABORATOR.md") {
+		t.Fatalf("hardening CLAUDE.md must @-include COLLABORATOR.md:\n%s", b)
+	}
+	if _, err := os.Stat(filepath.Join(base, "COLLABORATOR.md")); err != nil {
+		t.Fatalf("default COLLABORATOR.md missing from the hardening payload: %v", err)
+	}
+}

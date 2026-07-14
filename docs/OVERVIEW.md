@@ -25,7 +25,7 @@ or touch files it shouldn't.
    with `nftables` dropping everything else.
    A user's own kit files can never weaken this.
 2. **Secrets never touch disk or the host process table** —
-   they are resolved on the host just-in-time at connect,
+   they are resolved on the host just-in-time at `chat`/`work`/`dispatch` time,
    streamed into the VM over SSH stdin into a tmpfs file,
    sourced,
    and deleted.
@@ -38,7 +38,7 @@ or touch files it shouldn't.
 
 The governing design principle is **SSH as the universal interface**:
 backends differ only in how a VM is provisioned and how its `sshd` is reached.
-Once a backend hands `connect` a `host:port` and a key,
+Once a backend hands `chat` a `host:port` and a key,
 everything downstream — host-key trust, secret injection, launching `claude` — is identical.
 
 ## The kit: `.at-cove/`
@@ -91,31 +91,65 @@ values out of source control — lives in
 
 ## Command surface
 
-Every command takes an optional kit directory (otherwise discovered by cwd walk-up).
+Every command takes an optional kit directory via the `--kit-dir DIR` flag
+(default: the current dir / cwd walk-up single-kit resolution). There is no
+positional kit-dir on any command — `chat`'s one positional is the optional
+collaborator (below), not the kit dir.
 
 | Command | Behavior |
 |---|---|
-| `at-cove build [kit-dir]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM — for authoring/inspection. |
-| `at-cove create [kit-dir] [--workspace\|--ws <path>]` | `build`, then create the VM via the backend. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
-| `at-cove connect [kit-dir] [--raw] [--no-auth]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env, launch `claude`. Run every session. `--raw` drops to `bash`; `--no-auth` skips the login step. |
-| `at-cove recreate [kit-dir] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
-| `at-cove destroy [kit-dir]` | Remove the container (volumes retained) and image, then delete the state file. |
-| `at-cove status [kit-dir]` | Report `running` / `stopped` / `absent`. |
+| `at-cove build [--kit-dir DIR]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM — for authoring/inspection. |
+| `at-cove create [--kit-dir DIR] [--workspace\|--ws <path>]` | `build`, then create the VM via the backend. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove chat [collaborator] [--kit-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
+| `at-cove recreate [--kit-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
+| `at-cove destroy [--kit-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
+| `at-cove status [--kit-dir DIR]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove work <kit> --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove work [--kit-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove dispatch [--kit-dir DIR]` | Poll the kit's tracker and dispatch ready work via `at-cove work`. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
 without executing anything.
-Flags specific to a command (e.g. `--raw`, `--ws`) go *after* the
+Flags specific to a command (e.g. `--raw`, `--ws`, `--kit-dir`) go *after* the
 command name; each command only accepts its own flags.
+
+### The `chat` command and collaborator sessions
+
+`chat` is the interactive command (a hard rename of the former `connect`, no
+alias). Unlike the other commands, `chat` also loads the kit's `config.yml` —
+a malformed or absent kit config is a hard error, since a collaborator session
+is kit-defined — and uses its `collaborators:` tree (see
+[at-cove-config.md](usage/at-cove-config.md#collaborators)) to select a role:
+
+- an explicit `at-cove chat <collaborator>` positional must match a declared
+  class;
+- omitted, with one class defined, that one is used;
+- omitted, with several, the one marked `default: true` (error if none/several
+  are marked);
+- omitted, with none defined, `chat` launches a plain session — no role
+  injected, the exact behavior of the old `connect`.
+
+A collaborator's `prompt:` is injected as session context (not a headless
+`-p`) and states the session's **boundary**: a collaborator session plans and
+grooms the board — turning ideas into well-formed Linear issues, decomposed
+into dispatchable sub-issues — and lets **dispatched `at-cove work` runs do
+the implementation**. The one exception is **review or troubleshooting**,
+where the same session may make direct fixes in place. The session reaches
+GitHub and Linear through the human's own **claude.ai account connectors**
+(subscription OAuth) — never a minted token; token minting stays a `work`/
+`dispatch` concern only. See
+[at-cove-config.md](usage/at-cove-config.md#collaborators) for the schema and
+[the orchestration work interface](orchestration/at-cove-work-interface.md)
+for the dispatched-worker side of that boundary.
 
 ### State vs. config
 
 `create` records the running instance in `.at-cove/.state/state.json`;
-**`connect`, `destroy`, and `status` operate on that recorded state, not on `config.yml`.**
+**`chat`, `destroy`, and `status` operate on that recorded state, not on `config.yml`**
+(`chat` additionally loads `config.yml` for its `collaborators:` tree, as above).
 A lockfile guards concurrency:
-`connect` holds a *shared* lock for the whole session,
+`chat` holds a *shared* lock for the whole session,
 and `destroy` takes an *exclusive* lock —
 so a sandbox can't be torn down underneath a live connection.
 
@@ -173,14 +207,15 @@ rewriting the recorded absolute paths to `/agent-data`,
 and folding the result into the seed
 sidesteps both the proxy round-trip and the race.
 
-## Secret injection (the `connect` data flow)
+## Secret injection (the `chat` data flow)
 
 Backend-agnostic, in `internal/connect`:
 
-1. **Resolve secrets** on the host: for each name the kit demands, look up its
-   supply (`~/.config/at-cove/secrets.yml`/`secrets.local.yml`) and run it —
-   see [at-cove-secrets.md](usage/at-cove-secrets.md) for the demand/supply
-   model. Held in memory only;
+1. **Resolve secrets** on the host: for each name the kit demands (the root
+   `secrets` bucket, plus a `chat` session's selected `collaborators.*.secrets`),
+   look up its supply (`~/.config/at-cove/secrets.yml`/`secrets.local.yml`) and
+   run it — see [at-cove-secrets.md](usage/at-cove-secrets.md) for the
+   demand/supply model. Held in memory only;
    an unresolved *required* secret (the git or tracker token) aborts before
    SSH — a general demand instead warns and is left unset.
 2. **Dial** the backend for an `Endpoint` (+ cleanup).
@@ -204,12 +239,12 @@ Claude Code picks its credential by env-driven precedence — an injected
 settings no longer force a login method, so the two agent paths differ
 deliberately:
 
-**Interactive `connect` → subscription OAuth.**
-On the first session `connect` probes `claude auth status` over SSH
+**Interactive `chat` → subscription OAuth.**
+On the first session `chat` probes `claude auth status` over SSH
 and runs interactive `claude auth login --claudeai` only when needed;
-the credentials persist on the `/agent-data` volume, so later connects skip it.
+the credentials persist on the `/agent-data` volume, so later sessions skip it.
 To make one login reusable across sandboxes (and across recreates),
-`connect` keeps a host-side copy at `~/.config/at-cove/credentials.json` (mode `0600`):
+`chat` keeps a host-side copy at `~/.config/at-cove/credentials.json` (mode `0600`):
 it **seeds** that file into the VM (`/agent-data/.credentials.json`) *before* the auth probe,
 so a login obtained on any sandbox validates the next one without re-prompting,
 and it **saves** the VM's copy back to the host after a fresh login
@@ -234,7 +269,7 @@ below the bearer in the precedence chain, a keyless or misconfigured worker
 **fails closed** instead of silently falling back to — and burning — a
 subscription. Because `ANTHROPIC_AUTH_TOKEN` (env) outranks OAuth, declaring it
 makes *any* agent session on that kit use the bearer, so keep worker kits that
-declare it distinct from a kit you `connect` to on a personal subscription.
+declare it distinct from a kit you `chat` into on a personal subscription.
 
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
@@ -328,7 +363,8 @@ and exercises the transports and TOFU end-to-end without Docker.
 ## Status and roadmap
 
 Implemented and on `main`:
-the full `build`/`create`/`connect`/`recreate`/`destroy`/`status` surface,
+the full `build`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
+(every command's kit directory is a uniform `--kit-dir` flag, not a positional),
 the Colima backend,
 layered assembly with embedded hardening,
 managed keypair + TOFU,
@@ -341,9 +377,13 @@ subscription OAuth login,
 git-over-HTTPS with a PAT,
 the `at-mint` binary (`github`/`anthropic` token minting via a secret's
 `command:` — see [at-mint.md](usage/at-mint.md)),
-and the `mint:` supply expansion — a `minters:` profile resolved through
+the `mint:` supply expansion — a `minters:` profile resolved through
 `at-mint` by name, end to end (see
-[at-cove-secrets.md](usage/at-cove-secrets.md#the-four-supply-sources)).
+[at-cove-secrets.md](usage/at-cove-secrets.md#the-four-supply-sources)),
+and `chat` collaborator sessions — a `collaborators:` class selected by an
+optional positional, its `prompt:` injected as role context and its
+`secrets:` resolved like the agent bucket (see
+[The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
 
 Designed but deferred (see the specs):
 the `image-files/.local/` override layer,

@@ -424,3 +424,95 @@ func TestParseConfigRejectsWellKnownNameInCollaboratorSecrets(t *testing.T) {
 		t.Fatal("collaborator secrets must not accept a reserved subsystem name")
 	}
 }
+
+func TestCollaboratorPromptAndDefault(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  <common>:
+    secrets: {}
+  triager:
+    default: true
+    prompt: "you are the steward"
+    secrets:
+      LINEAR_TOKEN: { description: "d" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := cfg.ResolvedCollaborator("triager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Prompt != "you are the steward" || !c.Default {
+		t.Fatalf("resolved = %+v", c)
+	}
+}
+
+func TestCollaboratorAtMostOneDefault(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  a: { default: true, prompt: "x" }
+  b: { default: true, prompt: "y" }
+`))
+	if err == nil {
+		t.Fatal("want error: two collaborators marked default")
+	}
+}
+
+func TestCollaboratorCommonNoRole(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  <common>: { prompt: "nope" }
+`))
+	if err == nil {
+		t.Fatal("want error: <common> must not set a prompt")
+	}
+}
+
+func selCfg(t *testing.T, body string) Config {
+	t.Helper()
+	cfg, err := ParseConfig([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestSelectCollaborator(t *testing.T) {
+	none := selCfg(t, "name: k\n")
+	sole := selCfg(t, "name: k\ncollaborators:\n  triager: { prompt: x }\n")
+	multi := selCfg(t, "name: k\ncollaborators:\n  a: { prompt: x }\n  b: { prompt: y, default: true }\n")
+	multiNoDef := selCfg(t, "name: k\ncollaborators:\n  a: { prompt: x }\n  b: { prompt: y }\n")
+
+	// none defined -> plain session
+	if class, ok, err := none.SelectCollaborator(""); err != nil || ok || class != "" {
+		t.Fatalf("none: %q,%v,%v", class, ok, err)
+	}
+	// sole, no explicit -> that one
+	if class, ok, err := sole.SelectCollaborator(""); err != nil || !ok || class != "triager" {
+		t.Fatalf("sole: %q,%v,%v", class, ok, err)
+	}
+	// multi, no explicit -> the default
+	if class, ok, err := multi.SelectCollaborator(""); err != nil || !ok || class != "b" {
+		t.Fatalf("multi-default: %q,%v,%v", class, ok, err)
+	}
+	// multi, no default, no explicit -> error
+	if _, _, err := multiNoDef.SelectCollaborator(""); err == nil {
+		t.Fatal("multi-no-default: want error")
+	}
+	// explicit match
+	if class, ok, err := multi.SelectCollaborator("a"); err != nil || !ok || class != "a" {
+		t.Fatalf("explicit: %q,%v,%v", class, ok, err)
+	}
+	// explicit miss -> error
+	if _, _, err := sole.SelectCollaborator("nope"); err == nil {
+		t.Fatal("explicit-miss: want error")
+	}
+	// <common> is not selectable
+	if _, _, err := sole.SelectCollaborator(commonKey); err == nil {
+		t.Fatal("<common> must not be selectable")
+	}
+}
