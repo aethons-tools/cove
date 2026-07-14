@@ -117,7 +117,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{
 				Project: "acme/myrepo", MainBranch: "main",
 				Secrets: map[string]kit.SecretConfig{
-					"AT_TASK_GIT_TOKEN": {Command: []string{"gh", "auth", "token"}},
+					"AT_TASK_GIT_TOKEN": {},
 				},
 			}},
 			Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}},
