@@ -295,8 +295,9 @@ internal/runner/              Runner interface (OS impl + Fake)
 
 This module builds **three binaries**: `at-cove` (the sandbox substrate, which
 also hosts the `dispatch` scheduler and the one-shot `work` runner), `at-task`
-(the git/PR worker), and `at-mint` (a host-side token minter invoked as a
-secret's `command:`; see [at-mint.md](usage/at-mint.md)). The scheduler
+(the git/PR worker), and `at-mint` (a host-side token minter invoked either as
+a secret's bare `command:` or assembled by at-cove from a `minters:` profile
+via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)). The scheduler
 drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
@@ -338,12 +339,13 @@ the demand/supply secret model (kit `secrets:` demand-only; machine-side
 per-kit state + locking,
 subscription OAuth login,
 git-over-HTTPS with a PAT,
-and the `at-mint` binary (`github`/`anthropic` token minting via a secret's
-`command:` — see [at-mint.md](usage/at-mint.md)).
+the `at-mint` binary (`github`/`anthropic` token minting via a secret's
+`command:` — see [at-mint.md](usage/at-mint.md)),
+and the `mint:` supply expansion — a `minters:` profile resolved through
+`at-mint` by name, end to end (see
+[at-cove-secrets.md](usage/at-cove-secrets.md#the-four-supply-sources)).
 
 Designed but deferred (see the specs):
-the `mint:` supply expansion — a `minters:` profile resolved through
-`at-mint` by name (parses and validates today; not yet runnable),
 the `image-files/.local/` override layer,
 the Firecracker and Fly backends,
 and declarative repo cloning.

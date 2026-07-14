@@ -23,56 +23,60 @@ and a `description:`, never a command or a value. Every value is supplied on the
 `~/.config/at-cove/secrets.yml`, keyed by this kit's `name` (`reference-worker`):
 
 ```yaml
-# ~/.config/at-cove/secrets.yml
-global:                                                    # shared supplies; inert until delegated
-  linear-token: { command: ["gh", "auth", "token"] }
-
+# ~/.config/at-cove/secrets.yml (host-side, never committed)
+minters:
+  gh-cove:
+    github:
+      app-id: "123456"
+      install-id: "7890"
+      app-key: /etc/cove/gh-app.pem            # a path (non-secret) -> --app-key-file
+  anthropic-cove:
+    anthropic:
+      oidc:
+        auth0:
+          tenant: your-tenant.us.auth0.com
+          client-id: YOUR_CLIENT_ID
+          audience: urn:cove:anthropic-wif
+          client-secret: { command: ["pass", "cove/auth0-secret"] }   # from a manager
+      federation:
+        org: YOUR_ORG_UUID
+        rule: fdrl_...
+        service-account: svac_...
 kits:
   reference-worker:
-    AT_TASK_GIT_TOKEN:
-      command: ["at-mint", "github", "--app-id", "123456", "--install-id", "7890",
-                "--app-key-file", "/etc/cove/gh-app.pem"]
-    ANTHROPIC_AUTH_TOKEN:
-      command: ["at-mint", "anthropic",
-                "--auth0-tenant", "your-tenant.us.auth0.com",
-                "--auth0-client-id", "YOUR_CLIENT_ID",
-                "--auth0-audience", "urn:cove:anthropic-wif",
-                "--anthropic-org", "YOUR_ORG_UUID",
-                "--anthropic-rule", "fdrl_...",
-                "--anthropic-service-account", "svac_..."]
-    AT_DISPATCH_TRACKER_TOKEN: { global: linear-token }
-    AT_DISPATCH_WEBHOOK_SECRET: { value: "whsec_..." }
+    AT_TASK_GIT_TOKEN:    { mint: gh-cove }
+    ANTHROPIC_AUTH_TOKEN: { mint: anthropic-cove }
+    AT_DISPATCH_TRACKER_TOKEN: { command: ["gh", "auth", "token"] }
 ```
 
-`at-mint github` needs the App private key — pass a path with `--app-key-file`
-(non-secret), or set `AT_MINT_GITHUB_APP_KEY` (PEM content) in the host env.
-`at-mint anthropic` reads the Auth0 client secret from
-`AT_MINT_AUTH0_CLIENT_SECRET` in the host env (Plan 3's `mint:` profiles will
-source it from a manager instead). `COVE_RUN_REPO` is set by at-cove per run;
-you do not pass it.
+at-cove builds the `at-mint` invocation from the profile: non-secret identifiers
+become flags, and a `command:`/`global:`-sourced secret (the Auth0 client secret,
+or an App key not given as a path) is passed to `at-mint` as env in memory —
+never on argv. `COVE_RUN_REPO` is injected per run. A bare
+`command: ["at-mint", "github", …]` still works if you prefer to inline it.
 
 `~/.config/at-cove/secrets.local.yml` — keyed by this kit's **absolute path**,
 not its name — overrides the above for name collisions (two checkouts sharing a
 kit `name`) or temporary/test values; see
 [at-cove-secrets.md](../../docs/usage/at-cove-secrets.md) for the full precedence
-and the four supply sources (`value`/`command`/`global`, and the forward-looking
-`mint:`, not yet runnable).
+and the four supply sources (`value`/`command`/`global`/`mint`).
 
 ## Provisioning the GitHub App (credential minter)
 
-The example above supplies `AT_TASK_GIT_TOKEN` by running `at-mint github` on
-the **at-cove host** (not in the VM) as a `command:` source — it mints a
-fresh, repo-scoped GitHub App installation token before each git step
-(`at-task prepare` and `at-task complete`). Plan 3's `mint:` profiles will let
-the kit demand this without spelling out the full command; until then, the
-`command:` form above is how you wire it up.
+The example above supplies `AT_TASK_GIT_TOKEN` by minting it from the `gh-cove`
+`minters:` profile — at-cove runs `at-mint github` on the **at-cove host** (not
+in the VM), assembling its flags/env from the profile, before each git step
+(`at-task prepare` and `at-task complete`). A bare
+`command: ["at-mint", "github", …]` (see [at-mint.md](../../docs/usage/at-mint.md))
+is a manual alternative if you'd rather spell out the full invocation yourself.
 
 1. **Create a GitHub App** with permissions `contents:write` and
    `pull_requests:write`, and **install it on your org** (so it can be scoped to
    any repo in that org at mint time).
-2. **Pass `--app-id`/`--install-id`/`--app-key-file`** in the `command:` entry
-   above (the App key path is non-secret); or set `AT_MINT_GITHUB_APP_KEY` (PEM
-   content) in the host env instead of `--app-key-file`.
+2. **Set `app-id`/`install-id`/`app-key`** in the `minters:` profile above (an
+   `app-key` given as a path, like `/etc/cove/gh-app.pem`, is non-secret and
+   becomes `--app-key-file`; sourced from `command:`/`global:` instead, its
+   content is passed as env).
 3. **`at-mint` runs on the at-cove host**, not in the VM — it need not be on the
    VM's `PATH`, only the at-cove host's.
 

@@ -3,8 +3,8 @@ package usersecret
 import "fmt"
 
 // Minter is a named minting profile: a tagged union over the code host / token
-// kind. Exactly one provider is set. Parsed and validated here; the actual
-// minting (running at-mint) is wired in later plans.
+// kind. Exactly one provider is set. Parsed and validated here; expanded into
+// an at-mint invocation by internal/mint.
 type Minter struct {
 	GitHub    *GitHubMinter    `yaml:"github,omitempty"`
 	Anthropic *AnthropicMinter `yaml:"anthropic,omitempty"`
@@ -14,7 +14,7 @@ type Minter struct {
 type GitHubMinter struct {
 	AppID     string `yaml:"app-id"`
 	InstallID string `yaml:"install-id"`
-	AppKey    Source `yaml:"app-key"` // PEM: a value (path/content) | command | global
+	AppKey    Source `yaml:"app-key"` // PEM key: a value is a filesystem PATH (--app-key-file); command|global supply the key CONTENT (env)
 }
 
 // AnthropicMinter mints an Anthropic sk-ant-oat01 via an OIDC IdP JWT (hop 1)

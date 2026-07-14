@@ -2,7 +2,7 @@
 summary: The at-mint usage doc — the host-side token minter binary, its two subcommands (github, anthropic), their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract.
 read_when: You are configuring a machine-side secret supply that mints a token — a GitHub App installation token or an Anthropic WIF bearer.
 owns: the at-mint CLI usage — the github and anthropic subcommands, their flags/env, and the minting contract
-prereqs: at-cove-secrets.md — how a kit's demand is supplied by a command: that invokes at-mint
+prereqs: at-cove-secrets.md — how a kit's demand is supplied by a mint: profile or a command: that invokes at-mint
 tier: leaf
 updated: 2026-07-14
 ---
@@ -94,8 +94,31 @@ either hop fails closed.
 
 ## Using it as a secret supply
 
-`at-mint` is invoked as a bare `command:` under a kit's `secrets.yml` entry —
-there is no special wiring beyond that today:
+Normally you don't invoke `at-mint` yourself — a `{ mint: <profile> }` demand
+does it for you. `secrets.yml` names a reusable `minters:` profile once, and
+at-cove assembles the `at-mint` flags/env from it on every resolve:
+
+```yaml
+minters:
+  gh-cove:
+    github:
+      app-id: "123456"
+      install-id: "7890"
+      app-key: /etc/cove/gh-app.pem       # a path (non-secret) -> --app-key-file
+
+kits:
+  reference-worker:
+    AT_TASK_GIT_TOKEN: { mint: gh-cove }
+```
+
+See [at-cove-secrets.md](at-cove-secrets.md) for the full `minters:` profile
+schema (the `github`/`anthropic` tagged union, and how a `value:` path vs. a
+`command:`/`global:`-sourced field decides flag vs. env), the four supply
+sources, precedence, and fail-closed rules.
+
+The direct-`command:` form — invoking `at-mint` as a bare `command:` under a
+kit's `secrets.yml` entry, spelling out the full argv yourself — is the manual
+alternative, and still works:
 
 ```yaml
 kits:
@@ -106,13 +129,6 @@ kits:
 
 `AT_MINT_GITHUB_APP_KEY`/`AT_MINT_AUTH0_CLIENT_SECRET` come from the
 resolver's own process environment on the host — set them in the shell/
-service that runs `at-cove`, not in the kit or in `secrets.yml`. See
-[at-cove-secrets.md](at-cove-secrets.md) for the full demand/supply model,
-precedence, and fail-closed rules, and how `command:` resolvers additionally
-see `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` during `work`/`dispatch`.
-
-A structured `minters:`/`mint:` profile form — where `secrets.yml` names a
-reusable minting identity instead of spelling out the full `at-mint` argv —
-is a later plan; it parses and validates today but is not yet runnable (see
-at-cove-secrets.md's [`mint:`](at-cove-secrets.md#the-four-supply-sources)
-row).
+service that runs `at-cove`, not in the kit or in `secrets.yml`. `command:`
+resolvers (manual form or profile-sourced) additionally see
+`COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` during `work`/`dispatch`.

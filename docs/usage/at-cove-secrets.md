@@ -64,7 +64,7 @@ global:                               # named shared supplies; inert until deleg
 
 kits:                                 # per-kit authorization: demand -> source
   reference-worker:
-    AT_TASK_GIT_TOKEN:         { command: ["at-mint","github","--app-id","123456","--install-id","7890","--app-key-file","/etc/cove/gh-app.pem"] }
+    AT_TASK_GIT_TOKEN:         { mint: gh-cove }
     ANTHROPIC_AUTH_TOKEN:      { command: ["your-anthropic-mint.sh"] }
     AT_DISPATCH_TRACKER_TOKEN: { global: shared-tracker }
 ```
@@ -86,13 +86,17 @@ kits:
 - **`minters:`** is a library of named minting profiles (structured
   credentials for `at-mint`, e.g. a GitHub App or an Anthropic federation
   identity). Like `global:`, a minter is inert until a `kits:` entry
-  references it with `{ mint: <name> }`. **`mint:` is forward-looking:** it
-  parses and validates today, but is not yet runnable — resolving one is a
-  load-time error until a later plan wires the `minters:` profile through
-  `at-mint`. Use `command:` for anything you need working now — invoking
-  [`at-mint github`](at-mint.md) directly (as above) is a working `command:`
-  example; see also
-  [the reference kit's RUNBOOK](../../kits/reference-worker/RUNBOOK.md).
+  references it with `{ mint: <name> }`. Resolving a `{ mint: <name> }` demand
+  mints the value by running `at-mint <provider>` built from the named
+  `minters:` profile: non-secret fields (an App id, a tenant, an App key given
+  as a filesystem path, …) become `at-mint` flags, and any field sourced from
+  `command:`/`global:` (e.g. the Auth0 client secret) is resolved and passed to
+  `at-mint` as env, in memory, never on argv. A bare
+  `command: ["at-mint", "github", …]` (see [at-mint.md](at-mint.md)) remains a
+  working manual alternative if you'd rather spell out the full invocation
+  yourself; see also
+  [the reference kit's RUNBOOK](../../kits/reference-worker/RUNBOOK.md) for a
+  complete `minters:` example.
 
 ## The four supply sources
 
@@ -103,7 +107,7 @@ Every entry under `kits:` (and every `global:` entry) sets **exactly one** of:
 | `value:` | a literal string | that string, verbatim |
 | `command:` | a host **argv array** | stdout of running it on the host, trailing newline trimmed |
 | `global: <name>` | a name | delegates to `global[<name>]` in the store (itself a `value`/`command`) |
-| `mint: <name>` | a name | expands `minters[<name>]` via `at-mint` — **not yet runnable** (see above) |
+| `mint: <name>` | a name | mints via `at-mint`, built from `minters[<name>]` (see above) |
 
 `command:` resolvers additionally see the run's parameters as
 `COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` in their environment during `work`/
