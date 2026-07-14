@@ -9,11 +9,9 @@ func TestParseConfigValid(t *testing.T) {
 	data := []byte(`
 name: claude-on-myrepo
 secrets:
-  GITHUB_TOKEN:
-    command: ["op", "read", "x"]
+  GITHUB_TOKEN: {}
   ANTHROPIC_API_KEY:
     description: Anthropic key
-    command: ["pass", "show", "y"]
 `)
 	cfg, err := ParseConfig(data)
 	if err != nil {
@@ -22,7 +20,7 @@ secrets:
 	if cfg.Name != "claude-on-myrepo" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	if len(cfg.Secrets) != 2 || len(cfg.Secrets["GITHUB_TOKEN"].Command) != 3 {
+	if len(cfg.Secrets) != 2 {
 		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
 	if cfg.Secrets["ANTHROPIC_API_KEY"].Description != "Anthropic key" {
@@ -30,10 +28,22 @@ secrets:
 	}
 }
 
+func TestSecretConfigIsDemandOnly(t *testing.T) {
+	// A command: under a kit secret is now an unknown field (KnownFields(true)).
+	_, err := ParseConfig([]byte(`
+name: k
+secrets:
+  FOO: { description: "d", command: ["x"] }
+`))
+	if err == nil {
+		t.Fatal("want error: command: is no longer allowed under a kit secret")
+	}
+}
+
 func TestParseConfigRejectsMissingFields(t *testing.T) {
 	cases := map[string]string{
 		"no name":        "secrets:\n  GITHUB_TOKEN: {}\n",
-		"secret no name": "name: x\nsecrets:\n  \"\":\n    command: [\"a\"]\n",
+		"secret no name": "name: x\nsecrets:\n  \"\": {}\n",
 	}
 	for label, data := range cases {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -45,18 +55,6 @@ func TestParseConfigRejectsMissingFields(t *testing.T) {
 func TestParseConfigRejectsUnknownField(t *testing.T) {
 	if _, err := ParseConfig([]byte("name: x\nbogus: 1\n")); err == nil {
 		t.Error("expected error on unknown field")
-	}
-}
-
-func TestParseConfigAllowsCommandlessSecret(t *testing.T) {
-	data := []byte("name: x\nsecrets:\n  GITHUB_TOKEN: {}\n")
-	cfg, err := ParseConfig(data)
-	if err != nil {
-		t.Fatalf("name-only secret should be valid: %v", err)
-	}
-	s, ok := cfg.Secrets["GITHUB_TOKEN"]
-	if len(cfg.Secrets) != 1 || !ok || len(s.Command) != 0 {
-		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
 }
 
@@ -301,27 +299,26 @@ func TestParseConfigMainBranchOverride(t *testing.T) {
 	}
 }
 
-func TestGitTokenSpecFromSourceControl(t *testing.T) {
-	src := `
+func TestGitTokenNameDemandOnly(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
 name: k
 source-control:
   github:
-    project: acme/myrepo
+    project: o/r
     secrets:
-      AT_TASK_GIT_TOKEN: { command: ["mint.sh"] }
-`
-	cfg, err := ParseConfig([]byte(src))
+      AT_TASK_GIT_TOKEN: { description: "push+PR token" }
+`))
 	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
+		t.Fatal(err)
 	}
-	spec, ok := cfg.GitTokenSpec()
-	if !ok || spec.Name != "AT_TASK_GIT_TOKEN" || spec.Command[0] != "mint.sh" {
-		t.Fatalf("GitTokenSpec = %+v, ok=%v", spec, ok)
+	name, ok := cfg.GitTokenName()
+	if !ok || name != "AT_TASK_GIT_TOKEN" {
+		t.Fatalf("GitTokenName() = %q,%v", name, ok)
 	}
 }
 
 func TestParseConfigRejectsUnknownSourceControlSecret(t *testing.T) {
-	src := "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      BOGUS: { command: [\"x\"] }\n"
+	src := "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      BOGUS: {}\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
 		t.Fatal("expected rejection of an unknown source-control secret name")
 	}
@@ -341,18 +338,18 @@ tracker:
       needs-input: Needs Input
       blocked: Backlog
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
-      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+      AT_DISPATCH_TRACKER_TOKEN:  {}
+      AT_DISPATCH_WEBHOOK_SECRET: {}
 dispatch:
   concurrency: 1
   reaper-timeout: 45m
 collaborators:
   <common>:
     secrets:
-      COMMON_TOKEN: { command: ["true"] }
+      COMMON_TOKEN: {}
   triager:
     secrets:
-      LINEAR_TOKEN: { command: ["true"] }
+      LINEAR_TOKEN: {}
 `
 
 func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
@@ -395,24 +392,6 @@ func TestParseConfigRejectsMissingTrackerState(t *testing.T) {
 	}
 }
 
-func TestParseConfigWellKnownSecretCommandOptional(t *testing.T) {
-	// A well-known secret may omit its command (supplied from secrets.yml at run time).
-	src := `
-name: k
-tracker:
-  linear:
-    team: COV
-    poll-interval: 60s
-    states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
-    secrets:
-      AT_DISPATCH_TRACKER_TOKEN: {}
-      AT_DISPATCH_WEBHOOK_SECRET: {}
-`
-	if _, err := ParseConfig([]byte(src)); err != nil {
-		t.Fatalf("command-less well-known secrets must be valid: %v", err)
-	}
-}
-
 func TestParseConfigWellKnownSecretMissingKeyRejected(t *testing.T) {
 	// Dropping a required well-known key is still an error (typo protection).
 	src := `
@@ -432,7 +411,7 @@ tracker:
 
 func TestParseConfigRejectsWellKnownNameInRootSecrets(t *testing.T) {
 	for _, name := range []string{"AT_TASK_GIT_TOKEN", "AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"} {
-		src := "name: k\nsecrets:\n  " + name + ": { command: [\"x\"] }\n"
+		src := "name: k\nsecrets:\n  " + name + ": {}\n"
 		if _, err := ParseConfig([]byte(src)); err == nil {
 			t.Fatalf("root secrets must not accept the reserved name %q", name)
 		}
@@ -440,7 +419,7 @@ func TestParseConfigRejectsWellKnownNameInRootSecrets(t *testing.T) {
 }
 
 func TestParseConfigRejectsWellKnownNameInCollaboratorSecrets(t *testing.T) {
-	src := "name: k\ncollaborators:\n  triager:\n    secrets:\n      AT_TASK_GIT_TOKEN: { command: [\"x\"] }\n"
+	src := "name: k\ncollaborators:\n  triager:\n    secrets:\n      AT_TASK_GIT_TOKEN: {}\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
 		t.Fatal("collaborator secrets must not accept a reserved subsystem name")
 	}

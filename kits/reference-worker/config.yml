@@ -12,7 +12,6 @@ source-control:
       # Resolved on the host, minted per git step, injected in memory. The agent never sees it.
       AT_TASK_GIT_TOKEN:
         description: per-task GitHub App installation token — push + PR on the repo, minted per run
-        command: ["mint-github-token.sh"]
 
 tracker:
   linear:
@@ -26,8 +25,8 @@ tracker:
       needs-input: Needs Input
       blocked: Backlog
     secrets:
-      AT_DISPATCH_TRACKER_TOKEN:  { command: ["gh", "auth", "token"] }
-      AT_DISPATCH_WEBHOOK_SECRET: { command: ["true"] }
+      AT_DISPATCH_TRACKER_TOKEN:  {}
+      AT_DISPATCH_WEBHOOK_SECRET: {}
 
 dispatch:
   concurrency: 1
@@ -37,7 +36,7 @@ dispatch:
 # authenticates to Anthropic with an API key here — NOT the interactive
 # subscription OAuth login (at-cove does not seed OAuth credentials on the work
 # path, so a keyless worker fails closed rather than burning a subscription).
-# Supply the value out-of-band in ~/.config/at-cove/secrets.yml (command omitted).
+# Supply the value out-of-band in ~/.config/at-cove/secrets.yml.
 # NOTE: an interactive `connect` to this kit would also pick up this key (env
 # takes precedence over OAuth), so keep API-key worker kits distinct from any
 # kit you connect to on a personal subscription.
@@ -47,7 +46,7 @@ secrets:
 collaborators:
   triager:
     secrets:
-      LINEAR_TOKEN: { command: ["true"] }
+      LINEAR_TOKEN: {}
 
 image:
   setup-scripts:
