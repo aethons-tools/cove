@@ -2,7 +2,7 @@
 summary: The demand/supply secret model — kits declare secrets by name only (config.yml `secrets`), the machine supplies values out of source control (~/.config/at-cove/secrets.yml + secrets.local.yml), the four supply sources, precedence, the anti-mining invariant, and the trust boundary.
 read_when: You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, or reasoning about the trust boundary of at-cove secrets.
 owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply)
-prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the connect/injection data flow
+prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the chat/injection data flow
 tier: leaf
 updated: 2026-07-14
 ---
@@ -17,10 +17,10 @@ A **secret** is an environment variable a sandbox needs (e.g. `AT_TASK_GIT_TOKEN
 - **The machine only *supplies*.** Two host files under `~/.config/at-cove/`
   (never committed) say how each named demand, for a specific kit, is produced.
 
-Values are resolved on the host at `connect`/`work`/`dispatch` time, held in
+Values are resolved on the host at `chat`/`work`/`dispatch` time, held in
 memory, and injected over SSH into a tmpfs file — never written to the kit, to
 disk, or onto any command line. See the
-[injection data flow](../OVERVIEW.md#secret-injection-the-connect-data-flow).
+[injection data flow](../OVERVIEW.md#secret-injection-the-chat-data-flow).
 
 ## Declaring a demand — `config.yml` `secrets`
 
@@ -163,7 +163,7 @@ explicitly wrote under `kits: <that kit>:` (by name or by path). This means:
   `ANTHROPIC_AUTH_TOKEN`, declared as a root secret (the work path does not
   seed OAuth credentials, so a keyless worker fails closed rather than
   falling back to a subscription). Because the env key outranks a
-  subscription OAuth login, an interactive `connect` to a kit that declares
-  it will use the bearer too — so keep worker kits that declare it distinct
-  from a kit you connect to on a personal subscription. See
+  subscription OAuth login, an interactive `chat` session on a kit that
+  declares it will use the bearer too — so keep worker kits that declare it
+  distinct from a kit you `chat` into on a personal subscription. See
   [Authentication](../OVERVIEW.md#authentication).

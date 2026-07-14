@@ -28,7 +28,7 @@ mkdir -p .at-cove
 $EDITOR .at-cove/config.yml  # name + backend + secrets (see below)
 
 at-cove create               # build the context and provision the VM
-at-cove connect              # ssh in, inject secrets, launch claude
+at-cove chat                 # ssh in, inject secrets, launch claude
 at-cove status               # running / stopped / absent
 at-cove destroy              # tear down (volumes retained)
 ```
@@ -39,7 +39,7 @@ A minimal `.at-cove/config.yml`:
 name: claude-on-myrepo
 backend: colima              # only colima is implemented today
 secrets:
-  GITHUB_TOKEN:              # value resolved at connect time on the host
+  GITHUB_TOKEN:              # value resolved at chat time on the host
     command: ["op", "read", "op://Personal/github-pat/token"]
 ```
 
@@ -52,7 +52,7 @@ Add `--dry-run` to any command to print the planned actions without executing.
 - A Colima/Docker host to actually run a sandbox.
 - An `ssh` client.
 
-The sandbox authenticates via **claude.ai subscription OAuth** on first connect
+The sandbox authenticates via **claude.ai subscription OAuth** on first `chat`
 (not an API key);
 the login persists on a state volume across recreates.
 
@@ -83,8 +83,11 @@ so no Docker, network, or live VM is required.
 
 ## Status
 
-The `build` / `create` / `connect` / `recreate` / `destroy` / `status` surface
-and the Colima backend are implemented.
+The `build` / `create` / `chat` / `recreate` / `destroy` / `status` surface
+and the Colima backend are implemented. Every command's kit directory is a
+uniform `--kit-dir` flag (default: cwd walk-up); there is no positional
+kit-dir. `chat` additionally selects an optional `collaborators:` class
+(see `docs/OVERVIEW.md`).
 The Firecracker and Fly backends, the `.local/` override layer, and declarative repo cloning
 are designed but deferred — see the specs.
 

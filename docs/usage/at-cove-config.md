@@ -10,7 +10,7 @@ updated: 2026-07-14
 # at-cove `config.yml`
 
 `config.yml` is a kit's **spec** — identity and wiring only, for both the sandbox
-(`connect`/`work`) and the scheduler (`dispatch`). It carries **no secret values**, no
+(`chat`/`work`) and the scheduler (`dispatch`). It carries **no secret values**, no
 hardening knobs, and no workspace mode (those are chosen at `create` time so a committed
 spec stays portable). It lives at the kit root — by convention `<repo>/.at-cove/config.yml`
 (see the [kit layout](../OVERVIEW.md#the-kit-at-cove)).
@@ -18,8 +18,8 @@ spec stays portable). It lives at the kit root — by convention `<repo>/.at-cov
 Parsing is **strict**: an unknown or misspelled field is a hard error (`config.yml: field
 … not found`), so typos surface immediately rather than being silently ignored.
 
-`at-cove dispatch [kit-dir]` reads this same file directly — the scheduler now consumes
-the kit like every other command; there is no separate scheduler config file.
+`at-cove dispatch --kit-dir <dir>` reads this same file directly — the scheduler now
+consumes the kit like every other command; there is no separate scheduler config file.
 
 ## Fields
 
@@ -37,7 +37,7 @@ volumes. Keep it stable — changing it points commands at a different instance.
 
 The remote the kit targets — the **single source of truth** for the repo identity *and* the
 code-host kind (which selects the clone URL, the PR API, and the matching secret minter).
-**Required for `at-cove work`**; interactive `connect` works without it. `at-cove work`
+**Required for `at-cove work`**; interactive `chat` works without it. `at-cove work`
 fills the target repo into the worker's task from `source-control`, so nothing else names a repo.
 
 #### source-control.github.project*
@@ -80,7 +80,7 @@ source-control:
 *tagged union — one provider (`linear` only today)*
 
 Names the issue tracker the kit's scheduler drives. Parsed, validated, and read
-directly by `at-cove dispatch [kit-dir]` — the scheduler consumes the kit's
+directly by `at-cove dispatch --kit-dir <dir>` — the scheduler consumes the kit's
 `tracker`/`dispatch`/`workers` fields instead of a separate config file.
 
 #### tracker.linear.team*
@@ -138,7 +138,7 @@ tracker:
 ```
 
 ### dispatch
-Scheduler policy knobs, read by `at-cove dispatch [kit-dir]`.
+Scheduler policy knobs, read by `at-cove dispatch --kit-dir <dir>`.
 
 #### dispatch.concurrency*
 *int >= 1*
@@ -173,9 +173,9 @@ dispatch:
 *map of secret env name → config*
 
 The **agent bucket** — environment variables injected into the sandbox VM, in memory only,
-for both interactive `connect` and `at-cove work`. **Demand-only**: declared **by name**
+for both interactive `chat` and `at-cove work`. **Demand-only**: declared **by name**
 with an optional description; a kit never carries a command or a value. Every value is
-resolved machine-side at `connect`/`dispatch` time from the user's
+resolved machine-side at `chat`/`dispatch` time from the user's
 `~/.config/at-cove/secrets.yml`/`secrets.local.yml`, and never stored in the kit. Full
 schema — the two host supply files, the four supply sources (`value`/`command`/`global`/
 `mint`), precedence, the anti-mining invariant, and the fail-closed / trust-boundary rules
@@ -229,16 +229,40 @@ workers:
 ### collaborators
 *map of classname → config*
 
-Declares interactive (chat) handler classes, mirroring `workers`' `<common>`-base
+Declares interactive (`chat`) handler classes, mirroring `workers`' `<common>`-base
 shape: the reserved key `<common>` holds `secrets` merged into every real class
-(own key wins). **Validated now, wired later** — parsed and validated like every
-other field, but no command consumes it yet.
+(own key wins). `at-cove chat [collaborator]` selects one of these classes and
+launches a session with its role injected as context — see
+[the collaborator session boundary](../OVERVIEW.md#the-chat-command-and-collaborator-sessions).
+
+GitHub and Linear ride the human's **claude.ai account connectors** during an
+interactive session, not a minted token, so most collaborators declare **no
+secrets at all**; `secrets` (below) exists for the occasional kit that wants an
+extra scoped token.
+
+#### collaborators.*class*.prompt
+*string, optional, own-only (not inherited); `<common>` must not set it*
+
+The collaborator's **role**, injected as session context (written into a
+`CLAUDE.md`-included file in the VM, not sent as a headless `-p` prompt — the
+session is interactive). Use it to state the class's job and its plan-vs-implement
+boundary, e.g. "groom the board and emit Linear issues; only fix in place during
+review/troubleshooting." A collaborator with no `prompt` still selects and
+launches — it just injects no role.
+
+#### collaborators.*class*.default
+*bool, optional, own-only (not inherited); `<common>` must not set it*
+
+Marks this class as the one `at-cove chat` picks when invoked with no collaborator
+positional and the kit defines more than one. **At most one** class may set
+`default: true` — `config.yml` fails to parse if two or more do. See the
+[selection rule](#chat-collaborator-selection) below.
 
 #### collaborators.*class*.secrets
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
-[Secret buckets](#secret-buckets)).
+[Secret buckets](#secret-buckets)). Usually empty — see above.
 
 ```yaml
 collaborators:
@@ -246,11 +270,34 @@ collaborators:
     secrets:
       COMMON_TOKEN: { description: "shared token for every collaborator class" }
   triager:
-    secrets:
-      LINEAR_TOKEN: { description: "Linear API token for the triager collaborator" }
+    default: true
+    prompt: |
+      You are the board steward for this repo. Turn ideas into well-formed Linear
+      issues and decompose them into dispatchable sub-issues. PLAN — do not
+      implement: emit issues, let dispatched workers build them. The one
+      exception: during review or troubleshooting you MAY make direct fixes.
+  reviewer:
+    prompt: |
+      You review dispatched work and may fix issues in place via the GitHub
+      connector.
 ```
 
-`at-cove` resolves a class's effective secrets via `kit.Config.ResolvedCollaborator`.
+`at-cove` resolves a class's effective secrets and prompt via
+`kit.Config.ResolvedCollaborator`.
+
+#### `chat` collaborator selection
+
+`at-cove chat [collaborator]` takes an optional leading positional naming a
+`collaborators` class (`<common>` is never selectable):
+
+- given explicitly, it must match a defined class, else a usage error listing
+  the declared classes;
+- omitted, with exactly one class defined — that one is used;
+- omitted, with several classes defined — the one marked `default: true`; if
+  none is marked, a usage error listing them (`chat: multiple collaborators;
+  specify one of: …`);
+- omitted, with **no** classes defined — `chat` launches a plain session with no
+  role injected (today's behavior, unchanged).
 
 ### image
 **Additive** build-time customizations of the sandbox image. Every field layers **onto**
@@ -303,10 +350,10 @@ flat merged list.
 
 | Bucket | Resolved by | Reaches a sandbox VM? | Used by |
 |---|---|---|---|
-| `secrets` (root) | host, at `connect`/`dispatch` time | yes — injected in memory, both `connect` and `at-cove work` | the agent process |
+| `secrets` (root) | host, at `chat`/`dispatch` time | yes — injected in memory, both `chat` and `at-cove work` | the agent process |
 | `source-control.github.secrets` | host, minted fresh per git step | no — held on the host | `at-task prepare`/`complete` only |
 | `tracker.linear.secrets` | host, scheduler-only | never | `at-cove dispatch` (a later plan) |
-| `collaborators.*.secrets` | host (validated now) | not yet — wired in a later plan | interactive/chat classes, once wired |
+| `collaborators.*.secrets` | host, at `chat` time | yes — injected in memory, `<common>`-merged | the collaborator session (usually empty; GitHub/Linear ride connectors) |
 
 Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
 mechanics (the two host files, the four sources, precedence, the anti-mining invariant,
@@ -349,7 +396,7 @@ dispatch:
   reaper-timeout: 45m
 
 secrets:
-  # The agent bucket — injected into the sandbox VM (connect and at-cove work).
+  # The agent bucket — injected into the sandbox VM (chat and at-cove work).
   # DEMAND only; the value is supplied machine-side (see at-cove-secrets.md).
   GITHUB_TOKEN:
     description: private-repo git over HTTPS (interactive sessions)
@@ -365,8 +412,12 @@ workers:
 
 collaborators:
   triager:
-    secrets:
-      LINEAR_TOKEN: { description: "Linear API token for the triager collaborator" }
+    default: true
+    prompt: |
+      You are the board steward for this repo. Turn ideas into well-formed Linear
+      issues and decompose them into dispatchable sub-issues. PLAN — do not
+      implement: emit issues, let dispatched workers build them. The one
+      exception: during review or troubleshooting you MAY make direct fixes.
 
 image:
   setup-scripts:
@@ -400,7 +451,8 @@ the template kit for `at-cove dispatch`.
   value is supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
-- a `collaborators` key looks `<reserved>` but isn't `<common>`;
+- a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`
+  or `default`; or more than one class sets `default: true`;
 - any `secrets` entry (at any of the four bucket locations) sets a field other than
   `description` — most notably, a `command` under a kit secret is a hard parse error (see
   [at-cove-secrets.md](at-cove-secrets.md)).
