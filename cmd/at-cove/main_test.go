@@ -9,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/state"
 	"github.com/aethons-tools/cove/internal/usersecret"
@@ -23,14 +24,34 @@ func TestPlanRequired(t *testing.T) {
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
 		"k": {"T": {Value: ptr("v")}},
 	}}
-	sp, err := planRequired(store, "k", "/kitpath", "T", "/p/secrets.yml")
+	sp, err := planRequired(store, nil, "k", "/kitpath", "T", "/p/secrets.yml")
 	if err != nil || !sp.Literal || sp.Value != "v" {
 		t.Fatalf("store value should supply a literal: %+v err=%v", sp, err)
 	}
 	// unresolved → error naming the secret + path.
-	if _, err := planRequired(usersecret.Store{}, "k", "/kitpath", "T", "/p/secrets.yml"); err == nil ||
+	if _, err := planRequired(usersecret.Store{}, nil, "k", "/kitpath", "T", "/p/secrets.yml"); err == nil ||
 		!strings.Contains(err.Error(), "T") || !strings.Contains(err.Error(), "/p/secrets.yml") {
 		t.Fatalf("unresolved must error naming the secret and path; got %v", err)
+	}
+}
+
+func TestPlanRequiredExpandsMint(t *testing.T) {
+	appKey := "/etc/cove/gh.pem"
+	store := usersecret.Store{
+		Minters: map[string]usersecret.Minter{
+			"gh": {GitHub: &usersecret.GitHubMinter{AppID: "1", InstallID: "2", AppKey: usersecret.Source{Value: &appKey}}},
+		},
+		Kits: map[string]map[string]usersecret.Source{
+			"k": {"AT_TASK_GIT_TOKEN": {Mint: "gh"}},
+		},
+	}
+	expand := mint.Expander(&runner.Fake{}, store.Global)
+	spec, err := planRequired(store, expand, "k", "/p", "AT_TASK_GIT_TOKEN", "/cfg/secrets.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spec.Command) == 0 || spec.Command[0] != "at-mint" || spec.Command[1] != "github" {
+		t.Fatalf("expected an at-mint github spec, got %v", spec.Command)
 	}
 }
 

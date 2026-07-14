@@ -30,6 +30,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/state"
@@ -337,7 +338,8 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if err != nil {
 		return err
 	}
-	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, nil)
+	expand := mint.Expander(r, store.Global)
+	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, expand)
 	if err != nil {
 		return err
 	}
@@ -509,8 +511,8 @@ func workName(kitName string) string {
 
 // planRequired resolves one required demand for a kit through the supply store.
 // It errors, naming the secret and the secrets files, if nothing supplies it.
-func planRequired(store usersecret.Store, kitName, kitPath, name, secretsPath string) (secret.Spec, error) {
-	specs, unresolved, err := store.Plan(kitName, kitPath, []string{name}, nil)
+func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, name, secretsPath string) (secret.Spec, error) {
+	specs, unresolved, err := store.Plan(kitName, kitPath, []string{name}, expand)
 	if err != nil {
 		return secret.Spec{}, err
 	}
@@ -625,7 +627,8 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	for name := range cfg.Secrets {
 		demanded = append(demanded, name)
 	}
-	specs, unresolved, err := store.Plan(cfg.Name, kitPath, demanded, nil)
+	expand := mint.Expander(r, store.Global)
+	specs, unresolved, err := store.Plan(cfg.Name, kitPath, demanded, expand)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
@@ -639,7 +642,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "at-cove: kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN\n", cfg.Name)
 		return 1
 	}
-	gitTok, err := planRequired(store, cfg.Name, kitPath, gitName, secretsPath)
+	gitTok, err := planRequired(store, expand, cfg.Name, kitPath, gitName, secretsPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
@@ -714,7 +717,8 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	kitPath := canonicalKitPath(kitDir)
-	planned, err := planRequired(store, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
+	expand := mint.Expander(runner.OS{}, store.Global)
+	planned, err := planRequired(store, expand, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1
