@@ -34,7 +34,7 @@ install: build
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
     plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    for b in at-cove at-dispatch; do
+    for b in at-cove at-task at-mint; do
       install -m 0755 "dist/$plat/$b" "$bin/$b"
       echo "installed dist/$plat/$b -> $bin/$b"
     done
