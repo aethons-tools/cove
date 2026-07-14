@@ -14,12 +14,12 @@ func TestGithubProfilePathKeyIsFlagNotEnv(t *testing.T) {
 	m := usersecret.Minter{GitHub: &usersecret.GitHubMinter{
 		AppID: "123", InstallID: "456", AppKey: usersecret.Source{Value: strptr("/etc/cove/gh.pem")},
 	}}
-	spec, err := Expander(&runner.Fake{}, nil)("gh", m, "AT_TASK_GIT_TOKEN")
+	spec, err := Expander(&runner.Fake{}, nil, "acme/widgets")("gh", m, "AT_TASK_GIT_TOKEN")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Join(spec.Command, " ")
-	if got != "at-mint github --app-id 123 --install-id 456 --app-key-file /etc/cove/gh.pem" {
+	if got != "at-mint github --app-id 123 --install-id 456 --repo acme/widgets --app-key-file /etc/cove/gh.pem" {
 		t.Fatalf("argv = %q", got)
 	}
 	if len(spec.Env) != 0 {
@@ -35,7 +35,7 @@ func TestGithubProfileCommandKeyGoesToEnv(t *testing.T) {
 	m := usersecret.Minter{GitHub: &usersecret.GitHubMinter{
 		AppID: "1", InstallID: "2", AppKey: usersecret.Source{Command: []string{"cat", "/k"}},
 	}}
-	spec, err := Expander(f, nil)("gh", m, "AT_TASK_GIT_TOKEN")
+	spec, err := Expander(f, nil, "o/r")("gh", m, "AT_TASK_GIT_TOKEN")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestAnthropicProfileFlagsAndSecretEnv(t *testing.T) {
 		}},
 		Federation: usersecret.Federation{Org: "o", Rule: "fdrl_1", ServiceAccount: "svac_1", Workspace: "wrkspc_1"},
 	}}
-	spec, err := Expander(&runner.Fake{}, nil)("a", m, "ANTHROPIC_AUTH_TOKEN")
+	spec, err := Expander(&runner.Fake{}, nil, "")("a", m, "ANTHROPIC_AUTH_TOKEN")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestAnthropicOmitsEmptyWorkspace(t *testing.T) {
 		OIDC:       usersecret.OIDC{Auth0: &usersecret.Auth0{Tenant: "t", ClientID: "c", Audience: "a", ClientSecret: usersecret.Source{Value: strptr("s")}}},
 		Federation: usersecret.Federation{Org: "o", Rule: "fdrl_1", ServiceAccount: "svac_1"},
 	}}
-	spec, _ := Expander(&runner.Fake{}, nil)("a", m, "T")
+	spec, _ := Expander(&runner.Fake{}, nil, "")("a", m, "T")
 	if strings.Contains(strings.Join(spec.Command, " "), "--anthropic-workspace") {
 		t.Fatal("empty workspace must be omitted")
 	}
@@ -93,7 +93,7 @@ func TestGlobalDelegationResolvesSecret(t *testing.T) {
 		OIDC:       usersecret.OIDC{Auth0: &usersecret.Auth0{Tenant: "t", ClientID: "c", Audience: "a", ClientSecret: usersecret.Source{Global: "shared"}}},
 		Federation: usersecret.Federation{Org: "o", Rule: "fdrl_1", ServiceAccount: "svac_1"},
 	}}
-	spec, err := Expander(&runner.Fake{}, globals)("a", m, "T")
+	spec, err := Expander(&runner.Fake{}, globals, "")("a", m, "T")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,7 +45,7 @@ func TestPlanRequiredExpandsMint(t *testing.T) {
 			"k": {"AT_TASK_GIT_TOKEN": {Mint: "gh"}},
 		},
 	}
-	expand := mint.Expander(&runner.Fake{}, store.Global)
+	expand := mint.Expander(&runner.Fake{}, store.Global, "o/r")
 	spec, err := planRequired(store, expand, "k", "/p", "AT_TASK_GIT_TOKEN", "/cfg/secrets.yml")
 	if err != nil {
 		t.Fatal(err)

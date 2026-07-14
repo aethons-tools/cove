@@ -45,19 +45,20 @@ at-mint github --app-id <id> --install-id <id> [--app-key-file <path>]
 | `--app-id` | GitHub App id (non-secret) |
 | `--install-id` | GitHub App installation id (non-secret) |
 | `--app-key-file` | path to the App private-key PEM — a path is non-secret |
+| `--repo` | the `owner/name` to scope the token to (non-secret) |
 
 | Env | Meaning |
 |-----|---------|
 | `AT_MINT_GITHUB_APP_KEY` | the App private-key PEM **content**, an alternative to `--app-key-file` |
-| `COVE_RUN_REPO` | the `owner/name` repo to scope the token to; injected by at-cove per run (not operator-supplied) |
 
 The key comes from `--app-key-file` if set, else from
-`AT_MINT_GITHUB_APP_KEY`; if neither is set, it fails closed. `COVE_RUN_REPO`
-must be set (at-cove injects it during `work`/`dispatch`; see
-[the `COVE_RUN_*` passthrough](../orchestration/at-cove-work-interface.md#three-separated-authorities))
-— its repo *name* (the part after the `/`) is what the installation-token
-request scopes to; the requested permissions are fixed in `at-mint` itself,
-not derived from any run parameter.
+`AT_MINT_GITHUB_APP_KEY`; if neither is set, it fails closed. `--repo`
+is required (the `mint:` expander supplies it from the kit's
+`source-control.github.project`; a bare `command:` passes it explicitly) — its
+repo *name* (the part after the `/`) is what the installation-token request
+scopes to; the requested permissions are fixed in `at-mint` itself, not derived
+from any input. Every secret reaches `at-mint` via env only; every non-secret
+identifier — including `--repo` — is a flag.
 
 ## `at-mint anthropic`
 

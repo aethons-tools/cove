@@ -44,10 +44,9 @@ func TestRunGitHubPrintsOnlyToken(t *testing.T) {
 	})}
 	env := envMap(map[string]string{
 		"AT_MINT_GITHUB_APP_KEY": string(keyPEM),
-		"COVE_RUN_REPO":          "acme/widgets",
 	})
 	var out, errOut bytes.Buffer
-	code := run([]string{"github", "--app-id", "1", "--install-id", "2"}, env, httpc, &out, &errOut)
+	code := run([]string{"github", "--app-id", "1", "--install-id", "2", "--repo", "acme/widgets"}, env, httpc, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d; stderr=%q", code, errOut.String())
 	}
@@ -58,9 +57,9 @@ func TestRunGitHubPrintsOnlyToken(t *testing.T) {
 
 func TestRunGitHubFailsClosedNoStdout(t *testing.T) {
 	// Missing key env -> error, non-zero, nothing on stdout.
-	env := envMap(map[string]string{"COVE_RUN_REPO": "o/r"})
+	env := envMap(nil)
 	var out, errOut bytes.Buffer
-	code := run([]string{"github", "--app-id", "1", "--install-id", "2"}, env, http.DefaultClient, &out, &errOut)
+	code := run([]string{"github", "--app-id", "1", "--install-id", "2", "--repo", "o/r"}, env, http.DefaultClient, &out, &errOut)
 	if code == 0 {
 		t.Fatal("missing app key must fail closed")
 	}

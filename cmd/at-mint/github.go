@@ -26,7 +26,7 @@ func mintGitHub(ctx context.Context, httpc *http.Client, in githubInput, now tim
 		return "", fmt.Errorf("app-id and install-id are required")
 	}
 	if in.Repo == "" {
-		return "", fmt.Errorf("COVE_RUN_REPO is not set (the repo to scope the token to)")
+		return "", fmt.Errorf("repo is required (owner/name to scope the token to; pass --repo)")
 	}
 	key, err := parseRSAPrivateKey(in.KeyPEM)
 	if err != nil {
@@ -70,7 +70,9 @@ func mintGitHub(ctx context.Context, httpc *http.Client, in githubInput, now tim
 	}
 	defer res.Body.Close()
 	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(res.Body)
+	if _, err := buf.ReadFrom(res.Body); err != nil {
+		return "", fmt.Errorf("reading github response: %w", err)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return "", fmt.Errorf("github installation token: HTTP %d: %s", res.StatusCode, strings.TrimSpace(buf.String()))
 	}
