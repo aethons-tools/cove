@@ -85,6 +85,8 @@ func resolveSource(r runner.Runner, globals map[string]usersecret.Source, src us
 	case "value":
 		return *src.Value, nil
 	case "command":
+		// nil env: this resolves the profile's own static secret (e.g. a manager
+		// lookup), not a per-run credential — no COVE_RUN_* is passed.
 		out, err := r.OutputEnv(nil, src.Command[0], src.Command[1:]...)
 		if err != nil {
 			return "", fmt.Errorf("resolver command failed: %w", err)
