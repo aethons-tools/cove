@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/runner"
@@ -63,4 +64,36 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestResolveMergesSpecEnv(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "minted-token\n"}}}
+	specs := []Spec{{
+		Name:    "TOK",
+		Command: []string{"at-mint", "github", "--app-id", "1"},
+		Env:     map[string]string{"AT_MINT_GITHUB_APP_KEY": "SECRETPEM"},
+	}}
+	out, err := Resolve(f, map[string]string{"COVE_RUN_REPO": "o/r"}, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["TOK"] != "minted-token" {
+		t.Fatalf("TOK = %q", out["TOK"])
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("want 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	// the secret is in the command ENV, not the argv
+	joinedArgs := strings.Join(append([]string{c.Name}, c.Args...), " ")
+	if strings.Contains(joinedArgs, "SECRETPEM") {
+		t.Fatalf("secret leaked into argv: %q", joinedArgs)
+	}
+	joinedEnv := strings.Join(c.Env, " ")
+	if !strings.Contains(joinedEnv, "AT_MINT_GITHUB_APP_KEY=SECRETPEM") {
+		t.Fatalf("spec env not applied: %v", c.Env)
+	}
+	if !strings.Contains(joinedEnv, "COVE_RUN_REPO=o/r") {
+		t.Fatalf("extraEnv not applied: %v", c.Env)
+	}
 }
