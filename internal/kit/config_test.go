@@ -424,3 +424,50 @@ func TestParseConfigRejectsWellKnownNameInCollaboratorSecrets(t *testing.T) {
 		t.Fatal("collaborator secrets must not accept a reserved subsystem name")
 	}
 }
+
+func TestCollaboratorPromptAndDefault(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  <common>:
+    secrets: {}
+  triager:
+    default: true
+    prompt: "you are the steward"
+    secrets:
+      LINEAR_TOKEN: { description: "d" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := cfg.ResolvedCollaborator("triager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Prompt != "you are the steward" || !c.Default {
+		t.Fatalf("resolved = %+v", c)
+	}
+}
+
+func TestCollaboratorAtMostOneDefault(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  a: { default: true, prompt: "x" }
+  b: { default: true, prompt: "y" }
+`))
+	if err == nil {
+		t.Fatal("want error: two collaborators marked default")
+	}
+}
+
+func TestCollaboratorCommonNoRole(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  <common>: { prompt: "nope" }
+`))
+	if err == nil {
+		t.Fatal("want error: <common> must not set a prompt")
+	}
+}

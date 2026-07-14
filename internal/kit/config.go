@@ -155,10 +155,14 @@ type Dispatch struct {
 	DispatchOverhead string `yaml:"dispatch-overhead"`
 }
 
-// Collaborator declares an interactive (chat) handler class. Its secrets may be
-// inherited from the collaborators <common> base. Parsed + validated; wired later.
+// Collaborator declares an interactive (chat) handler class: an optional role
+// prompt injected into the session, an optional default marker, and a secrets
+// bucket (inherited from the collaborators <common> base). GitHub/Linear ride
+// the human's connectors, so secrets are often empty.
 type Collaborator struct {
-	Secrets map[string]SecretConfig `yaml:"secrets"`
+	Prompt  string                  `yaml:"prompt,omitempty"`
+	Default bool                    `yaml:"default,omitempty"`
+	Secrets map[string]SecretConfig `yaml:"secrets,omitempty"`
 }
 
 // ResolvedCollaborator returns the named collaborator with the collaborators
@@ -335,10 +339,23 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateClassTree("collaborators", collaboratorKeys(cfg.Collaborators)); err != nil {
 		return Config{}, err
 	}
+	defaults := 0
 	for name, col := range cfg.Collaborators {
 		if err := rejectReservedSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets); err != nil {
 			return Config{}, err
 		}
+		if name == commonKey {
+			if col.Prompt != "" || col.Default {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt or default", commonKey)
+			}
+			continue
+		}
+		if col.Default {
+			defaults++
+		}
+	}
+	if defaults > 1 {
+		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
 	return cfg, nil
 }
