@@ -6,55 +6,69 @@ import (
 	"github.com/aethons-tools/cove/internal/secret"
 )
 
-func TestPlanKitCommandWins(t *testing.T) {
-	store := Store{"T": {Value: "fromfile"}}
-	got, unresolved := store.Plan([]secret.Spec{{Name: "T", Command: []string{"kit"}}})
-	if len(unresolved) != 0 || len(got) != 1 {
-		t.Fatalf("got=%+v unresolved=%v", got, unresolved)
+func TestPlanPrecedenceAndSources(t *testing.T) {
+	val := "lit"
+	st := Store{
+		Global:  map[string]Source{"g": {Command: []string{"gcmd"}}},
+		Minters: map[string]Minter{"m": {GitHub: gh()}},
+		Kits: map[string]map[string]Source{
+			"cove": {
+				"A": {Command: []string{"acmd"}},
+				"B": {Global: "g"},
+				"C": {Value: &val},
+			},
+		},
+		Local: map[string]map[string]Source{
+			"/p/cove": {"A": {Value: &val}}, // overrides Kits["cove"]["A"]
+		},
 	}
-	if got[0].Literal || len(got[0].Command) != 1 || got[0].Command[0] != "kit" {
-		t.Fatalf("kit command must win: %+v", got[0])
+	expand := func(profile string, m Minter, name string) (secret.Spec, error) {
+		return secret.Spec{Name: name, Command: []string{"at-mint", profile}}, nil
 	}
-}
-
-func TestPlanStoreValueBecomesLiteral(t *testing.T) {
-	store := Store{"T": {Value: "v"}}
-	got, unresolved := store.Plan([]secret.Spec{{Name: "T"}})
-	if len(unresolved) != 0 || len(got) != 1 {
-		t.Fatalf("got=%+v unresolved=%v", got, unresolved)
+	got, unresolved, err := st.Plan("cove", "/p/cove", []string{"A", "B", "C", "MISSING"}, expand)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
 	}
-	if !got[0].Literal || got[0].Value != "v" || len(got[0].Command) != 0 {
-		t.Fatalf("store value must become a literal spec: %+v", got[0])
+	if len(unresolved) != 1 || unresolved[0] != "MISSING" {
+		t.Fatalf("unresolved = %v, want [MISSING]", unresolved)
 	}
-}
-
-func TestPlanStoreCommand(t *testing.T) {
-	store := Store{"T": {Command: []string{"op", "read"}}}
-	got, _ := store.Plan([]secret.Spec{{Name: "T"}})
-	if got[0].Literal || len(got[0].Command) != 2 {
-		t.Fatalf("store command must become a command spec: %+v", got[0])
+	byName := map[string]secret.Spec{}
+	for _, s := range got {
+		byName[s.Name] = s
 	}
-}
-
-func TestPlanUnresolved(t *testing.T) {
-	got, unresolved := Store{}.Plan([]secret.Spec{{Name: "MISSING"}})
-	if len(got) != 0 || len(unresolved) != 1 || unresolved[0] != "MISSING" {
-		t.Fatalf("got=%+v unresolved=%v", got, unresolved)
+	if !byName["A"].Literal || byName["A"].Value != "lit" { // local override wins
+		t.Fatalf("A should resolve from local literal, got %+v", byName["A"])
 	}
-}
-
-func TestPlanIgnoresUndemandedEntries(t *testing.T) {
-	store := Store{"DEMANDED": {Value: "a"}, "EXTRA": {Value: "b"}}
-	got, _ := store.Plan([]secret.Spec{{Name: "DEMANDED"}})
-	if len(got) != 1 || got[0].Name != "DEMANDED" {
-		t.Fatalf("undemanded entries must be ignored: %+v", got)
+	if byName["B"].Command[0] != "gcmd" { // global delegation
+		t.Fatalf("B should resolve via global to gcmd, got %+v", byName["B"])
+	}
+	if !byName["C"].Literal {
+		t.Fatalf("C should be a literal, got %+v", byName["C"])
 	}
 }
 
-func TestPlanPreservesDemandOrder(t *testing.T) {
-	store := Store{"A": {Value: "1"}, "B": {Value: "2"}}
-	got, _ := store.Plan([]secret.Spec{{Name: "B"}, {Name: "A"}})
-	if len(got) != 2 || got[0].Name != "B" || got[1].Name != "A" {
-		t.Fatalf("order not preserved: %+v", got)
+func TestPlanGlobalIsInert(t *testing.T) {
+	// A demand whose name equals a global key but has no kits entry is unresolved,
+	// never auto-supplied from global.
+	st := Store{
+		Global: map[string]Source{"shared-tracker": {Command: []string{"gh"}}},
+		Kits:   map[string]map[string]Source{"cove": {}},
+	}
+	got, unresolved, err := st.Plan("cove", "/p", []string{"shared-tracker"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 || len(unresolved) != 1 {
+		t.Fatalf("global must be inert: got=%v unresolved=%v", got, unresolved)
+	}
+}
+
+func TestPlanMintNeedsExpander(t *testing.T) {
+	st := Store{
+		Minters: map[string]Minter{"m": {GitHub: gh()}},
+		Kits:    map[string]map[string]Source{"cove": {"T": {Mint: "m"}}},
+	}
+	if _, _, err := st.Plan("cove", "/p", []string{"T"}, nil); err == nil {
+		t.Fatal("mint: with nil expander must error")
 	}
 }
