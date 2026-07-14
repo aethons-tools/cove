@@ -342,7 +342,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 		return err
 	}
 	for _, name := range unresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s; it will not be set\n", name, st.Name, secretsPath)
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
 	launch := "claude"
@@ -631,7 +631,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 1
 	}
 	for _, name := range unresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s; it will not be set\n", name, cfg.Name, secretsPath)
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
 	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
 	gitName, ok := cfg.GitTokenName()
