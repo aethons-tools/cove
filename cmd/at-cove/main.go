@@ -58,11 +58,12 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "build", Brief: "assemble the kit's build context", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("build", flag.ContinueOnError)
 				fs.SetOutput(errw)
+				kd := kitDirFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := kitDirArg(pos, "build", errw)
+				kitDir, code := resolveKitDir(*kd, pos, "build", errw)
 				if code != 0 {
 					return code
 				}
@@ -71,13 +72,14 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
 				fs.SetOutput(errw)
+				kd := kitDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := kitDirArg(pos, "create", errw)
+				kitDir, code := resolveKitDir(*kd, pos, "create", errw)
 				if code != 0 {
 					return code
 				}
@@ -86,6 +88,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "connect", Brief: "open an interactive session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("connect", flag.ContinueOnError)
 				fs.SetOutput(errw)
+				kd := kitDirFlag(fs)
 				raw := fs.Bool("raw", false, "open a raw shell instead of the agent")
 				noAuth := fs.Bool("no-auth", false, "skip the interactive login step")
 				fresh := fs.Bool("fresh", false, "start a fresh agent session")
@@ -93,7 +96,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := kitDirArg(pos, "connect", errw)
+				kitDir, code := resolveKitDir(*kd, pos, "connect", errw)
 				if code != 0 {
 					return code
 				}
@@ -102,13 +105,14 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
 				fs.SetOutput(errw)
+				kd := kitDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := kitDirArg(pos, "recreate", errw)
+				kitDir, code := resolveKitDir(*kd, pos, "recreate", errw)
 				if code != 0 {
 					return code
 				}
@@ -135,17 +139,21 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	return app.Run(argv, stdout, stderr)
 }
 
-// kitDirArg resolves an optional single kit-dir positional. Returns (dir, 0) on
-// success, ("", 2) for too many args, ("", 1) if resolveKit fails.
-func kitDirArg(pos []string, cmd string, stderr io.Writer) (string, int) {
-	start := "."
-	if len(pos) == 1 {
-		start = pos[0]
-	} else if len(pos) > 1 {
-		fmt.Fprintf(stderr, "at-cove: %s takes at most one kit-dir\n", cmd)
+// kitDirFlag registers the standard --kit-dir flag on fs (default ".", i.e. the
+// current directory / single-kit resolution). Every command that targets a kit
+// registers it.
+func kitDirFlag(fs *flag.FlagSet) *string {
+	return fs.String("kit-dir", ".", "kit directory (default: current dir / the single kit)")
+}
+
+// resolveKitDir resolves the --kit-dir flag value to a kit directory, rejecting
+// any leftover positional (commands other than `chat` take none).
+func resolveKitDir(flagVal string, pos []string, cmd string, stderr io.Writer) (string, int) {
+	if len(pos) > 0 {
+		fmt.Fprintf(stderr, "at-cove: %s takes no positional arguments (use --kit-dir)\n", cmd)
 		return "", 2
 	}
-	kitDir, err := resolveKit(start)
+	kitDir, err := resolveKit(flagVal)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-cove:", err)
 		return "", 1
@@ -158,11 +166,12 @@ func kitDirArg(pos []string, cmd string, stderr io.Writer) (string, int) {
 func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(errw)
+	kd := kitDirFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
-	kitDir, code := kitDirArg(pos, cmd, errw)
+	kitDir, code := resolveKitDir(*kd, pos, cmd, errw)
 	if code != 0 {
 		return code
 	}
@@ -535,6 +544,7 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	kd := kitDirFlag(fs)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
@@ -544,11 +554,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	if err != nil {
 		return 2
 	}
-	if len(pos) < 1 {
-		fmt.Fprintln(stderr, "at-cove work: expected <kit-dir>")
-		return 2
-	}
-	kitDir, code := kitDirArg(pos, "work", stderr)
+	kitDir, code := resolveKitDir(*kd, pos, "work", stderr)
 	if code != 0 {
 		return code
 	}
@@ -683,11 +689,12 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 func doDispatch(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	kd := kitDirFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
-	kitDir, code := kitDirArg(pos, "dispatch", stderr)
+	kitDir, code := resolveKitDir(*kd, pos, "dispatch", stderr)
 	if code != 0 {
 		return code
 	}

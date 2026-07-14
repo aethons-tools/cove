@@ -19,6 +19,31 @@ import (
 // explicit empty literal is distinct from "unset".
 func ptr(s string) *string { return &s }
 
+func TestKitDirFlagResolves(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("name: k\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var errb bytes.Buffer
+	got, code := resolveKitDir(dir, nil, "build", &errb)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb.String())
+	}
+	if got == "" {
+		t.Fatalf("resolveKitDir returned empty for %q", dir)
+	}
+}
+
+func TestKitDirFlagRejectsPositional(t *testing.T) {
+	var errb bytes.Buffer
+	if _, code := resolveKitDir(".", []string{"stray"}, "build", &errb); code != 2 {
+		t.Fatalf("code=%d, want 2 for a stray positional", code)
+	}
+	if !strings.Contains(errb.String(), "--kit-dir") {
+		t.Fatalf("error should mention --kit-dir; got %q", errb.String())
+	}
+}
+
 func TestPlanRequired(t *testing.T) {
 	// resolved from the store, keyed by kit name.
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
@@ -77,7 +102,7 @@ func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
 	// A valid dispatch kit (kits declare demand only — no resolver command).
 	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	// It must get PAST token resolution (past "kit OK"); it then fails connecting to
 	// Linear (no network), which is fine — the point is the token resolved from secrets.yml.
 	if !strings.Contains(out.String(), "kit OK") {
@@ -157,7 +182,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	// preflight `docker info` is a Probe (no Output consumed); `inspect` is the Output.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -175,7 +200,7 @@ func TestColimaDownPrintsActionableError(t *testing.T) {
 	// The preflight `docker info` Probe fails (colima unreachable).
 	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatal("status must fail when colima is unreachable")
 	}
@@ -188,7 +213,7 @@ func TestStatusAbsentWhenNoState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 || !strings.Contains(out.String(), "absent") {
 		t.Fatalf("status with no state: code=%d out=%q", code, out.String())
 	}
@@ -199,7 +224,7 @@ func TestUnknownBackendErrors(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "bogus", "box") // state names an unknown backend
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "bogus") {
 		t.Fatalf("expected unknown-backend error, code=%d stderr=%q", code, errOut.String())
 	}
@@ -210,7 +235,7 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -228,7 +253,7 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	if code := run([]string{"create", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+	if code := run([]string{"create", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
 	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
@@ -242,7 +267,7 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 		t.Fatalf("state = %+v", st)
 	}
 	var o2, e2 bytes.Buffer
-	code := run([]string{"create", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
+	code := run([]string{"create", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
 	if code == 0 || !strings.Contains(e2.String(), "already created") {
 		t.Fatalf("second create should refuse; code=%d stderr=%q", code, e2.String())
 	}
@@ -254,7 +279,7 @@ func TestDestroyRemovesContainerImageAndState(t *testing.T) {
 	writeState(t, kitDir, "colima", "box")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	if code := run([]string{"destroy", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+	if code := run([]string{"destroy", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
 	}
 	if dockerArg0Index(f.Calls, "rm") == -1 || dockerArg0Index(f.Calls, "rmi") == -1 {
@@ -289,7 +314,7 @@ func TestDestroyBlockedByActiveConnection(t *testing.T) {
 	}
 	defer lock.Release()
 	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"destroy", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "active connection") {
 		t.Fatalf("destroy should refuse with an active connection; code=%d stderr=%q", code, errOut.String())
 	}
@@ -305,7 +330,7 @@ func TestDryRunConnectRawNoAuth(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--raw", "--no-auth", kitDir},
+	code := run([]string{"--dry-run", "connect", "--raw", "--no-auth", "--kit-dir", kitDir},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
@@ -343,7 +368,7 @@ func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -362,7 +387,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -430,7 +455,7 @@ func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -462,7 +487,7 @@ func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", kitDir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--kit-dir", kitDir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -480,7 +505,7 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{} // no state -> nothing to destroy
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -499,7 +524,7 @@ func TestDryRunConnectWarnsUnresolvedSecret(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())                                   // empty config dir -> no secrets.yml
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -518,7 +543,7 @@ func TestDryRunConnectResumesByDefault(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -534,7 +559,7 @@ func TestDryRunConnectFresh(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", "--fresh", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "connect", "--fresh", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -562,7 +587,7 @@ func TestConnectMalformedSecretsFileAborts(t *testing.T) {
 	}
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "connect", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "connect", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatalf("malformed secrets.yml should abort; out=%q", out.String())
 	}
@@ -598,7 +623,7 @@ func TestSaveStateSnapshot(t *testing.T) {
 
 func TestWorkRequiresInAndOut(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--kit-dir", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 2 {
 		t.Fatalf("exit = %d; want 2 (missing --in/--out)", code)
 	}
@@ -609,14 +634,14 @@ func TestWorkRequiresInAndOut(t *testing.T) {
 	}
 }
 
-func TestWorkRequiresKitDir(t *testing.T) {
+func TestWorkRejectsPositionalKitDir(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code := run([]string{"work"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 2 {
-		t.Fatalf("exit = %d; want 2 (missing kit-dir)", code)
+		t.Fatalf("exit = %d; want 2 (stray positional)", code)
 	}
-	if !strings.Contains(errOut.String(), "expected <kit-dir>") {
-		t.Fatalf("stderr = %q; want the work-specific missing-kit-dir message", errOut.String())
+	if !strings.Contains(errOut.String(), "--kit-dir") {
+		t.Fatalf("stderr = %q; want mention of --kit-dir", errOut.String())
 	}
 }
 
@@ -628,7 +653,7 @@ func TestWorkReapDoesNotRequireInOut(t *testing.T) {
 	// one Output call ScavengeLabeled makes (empty => no orphans to remove).
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: ""}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--kit-dir", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d; want 0, stderr=%s", code, errOut.String())
 	}
@@ -644,7 +669,7 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (no workers)", code)
 	}
@@ -673,7 +698,7 @@ func TestDryRunWorkPrintsNoExec(t *testing.T) {
 	outFile := filepath.Join(dir, "out.json")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "work", cove, "--in", inFile, "--out", outFile},
+	code := run([]string{"--dry-run", "work", "--kit-dir", cove, "--in", inFile, "--out", outFile},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
@@ -697,7 +722,7 @@ func TestDryRunWorkReapPrintsNoExec(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "work", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "work", "--kit-dir", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -758,7 +783,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 	}
 	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
@@ -772,7 +797,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 func TestDispatchRejectsBadConfig(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\nworkers:\n  implement: { prompt: \"impl\", timeout: 30m }\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
@@ -786,7 +811,7 @@ func TestDispatchRejectsBadConfig(t *testing.T) {
 func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
