@@ -6,10 +6,10 @@ import "fmt"
 // exactly one of the four forms. Value is a *string so an explicit empty literal
 // (value: "") is distinct from "unset".
 //
-//   value:   a literal string
-//   command: a host argv whose trimmed stdout is the value
-//   global:  delegate to a named entry in the store's global: library
-//   mint:    mint via a named entry in the store's minters: library
+//	value:   a literal string
+//	command: a host argv whose trimmed stdout is the value
+//	global:  delegate to a named entry in the store's global: library
+//	mint:    mint via a named entry in the store's minters: library
 type Source struct {
 	Value   *string
 	Command []string
