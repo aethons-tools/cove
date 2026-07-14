@@ -94,7 +94,9 @@ func postForToken(ctx context.Context, httpc *http.Client, url string, extraHead
 	}
 	defer res.Body.Close()
 	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(res.Body)
+	if _, err := buf.ReadFrom(res.Body); err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return "", fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(buf.String()))
 	}

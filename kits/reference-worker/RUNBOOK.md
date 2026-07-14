@@ -50,10 +50,11 @@ kits:
 ```
 
 at-cove builds the `at-mint` invocation from the profile: non-secret identifiers
-become flags, and a `command:`/`global:`-sourced secret (the Auth0 client secret,
-or an App key not given as a path) is passed to `at-mint` as env in memory —
-never on argv. `COVE_RUN_REPO` is injected per run. A bare
-`command: ["at-mint", "github", …]` still works if you prefer to inline it.
+become flags (including `--repo`, which at-cove fills from the kit's
+`source-control.github.project`), and a `command:`/`global:`-sourced secret (the
+Auth0 client secret, or an App key not given as a path) is passed to `at-mint` as
+env in memory — never on argv. A bare `command: ["at-mint", "github", …]` still
+works if you prefer to inline it (pass `--repo owner/name` yourself).
 
 `~/.config/at-cove/secrets.local.yml` — keyed by this kit's **absolute path**,
 not its name — overrides the above for name collisions (two checkouts sharing a
@@ -86,11 +87,12 @@ resolver, which aborts dispatch before any SSH happens.
 **Why per-git-step, not per-run:** `at-cove` re-runs the resolver before *each*
 git step, so the App-token's fixed ~1-hour TTL never bounds how long a dispatch
 run may take — only the two git steps (`prepare`, `complete`) ever hold a token,
-and each gets a freshly minted one. `at-cove` also passes the run's parameters —
-`COVE_RUN_REPO`, `COVE_RUN_ISSUE`, `COVE_RUN_CLASS`, `COVE_RUN_TIMEOUT` — into the
-resolver's environment; `at-mint github` reads `COVE_RUN_REPO` to scope the
-token to that repo (the installation itself, plus `contents`+`pull_requests`,
-still bounds the maximum grantable scope).
+and each gets a freshly minted one. at-cove scopes the token via `at-mint github
+--repo <kit's source-control.github.project>` (the installation itself, plus
+`contents`+`pull_requests`, still bounds the maximum grantable scope). It also
+passes the run's parameters — `COVE_RUN_REPO`, `COVE_RUN_ISSUE`, `COVE_RUN_CLASS`,
+`COVE_RUN_TIMEOUT` — into the resolver's environment for any custom `command:`
+resolver that wants them (`at-mint` itself takes `--repo`, not the env var).
 
 ## Run
 ```

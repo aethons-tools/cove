@@ -338,7 +338,7 @@ func doConnect(kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, 
 	if err != nil {
 		return err
 	}
-	expand := mint.Expander(r, store.Global)
+	expand := mint.Expander(r, store.Global, "") // connect mints no github token (no repo scope)
 	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, expand)
 	if err != nil {
 		return err
@@ -627,7 +627,13 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	for name := range cfg.Secrets {
 		demanded = append(demanded, name)
 	}
-	expand := mint.Expander(r, store.Global)
+	// A github minter scopes its token to the kit's repo, passed to at-mint as the
+	// non-secret --repo flag.
+	repo := ""
+	if cfg.SourceControl != nil && cfg.SourceControl.GitHub != nil {
+		repo = cfg.SourceControl.GitHub.Project
+	}
+	expand := mint.Expander(r, store.Global, repo)
 	specs, unresolved, err := store.Plan(cfg.Name, kitPath, demanded, expand)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
@@ -717,7 +723,7 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	kitPath := canonicalKitPath(kitDir)
-	expand := mint.Expander(runner.OS{}, store.Global)
+	expand := mint.Expander(runner.OS{}, store.Global, "") // dispatch resolves the tracker token, not a github token
 	planned, err := planRequired(store, expand, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)

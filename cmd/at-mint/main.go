@@ -49,6 +49,7 @@ func doGitHub(args []string, env func(string) (string, bool), httpc *http.Client
 	appID := fs.String("app-id", "", "GitHub App id (non-secret)")
 	installID := fs.String("install-id", "", "GitHub App installation id (non-secret)")
 	appKeyFile := fs.String("app-key-file", "", "path to the App private-key PEM (a path is non-secret)")
+	repo := fs.String("repo", "", "owner/name to scope the token to (non-secret)")
 	if _, err := cli.ParseInterspersed(fs, args); err != nil {
 		return 2
 	}
@@ -57,7 +58,7 @@ func doGitHub(args []string, env func(string) (string, bool), httpc *http.Client
 		fmt.Fprintf(stderr, "at-mint: %v\n", err)
 		return 1
 	}
-	in := githubInput{AppID: *appID, InstallID: *installID, KeyPEM: keyPEM, Repo: getenv(env, "COVE_RUN_REPO")}
+	in := githubInput{AppID: *appID, InstallID: *installID, KeyPEM: keyPEM, Repo: *repo}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	tok, err := mintGitHub(ctx, httpc, in, time.Now())

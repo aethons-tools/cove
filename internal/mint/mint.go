@@ -13,12 +13,15 @@ import (
 )
 
 // Expander returns a MintExpander bound to a host runner (for resolving a
-// profile's command/global-sourced secret fields) and the store's global library.
-func Expander(r runner.Runner, globals map[string]usersecret.Source) usersecret.MintExpander {
+// profile's command/global-sourced secret fields), the store's global library,
+// and the target repo (owner/name) a github minter scopes its token to. repo is
+// the kit's source-control.github.project; it is passed to `at-mint github` as
+// the non-secret --repo flag (empty for callers that mint no github token).
+func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string) usersecret.MintExpander {
 	return func(profileName string, m usersecret.Minter, demandName string) (secret.Spec, error) {
 		switch {
 		case m.GitHub != nil:
-			return githubSpec(r, globals, demandName, m.GitHub)
+			return githubSpec(r, globals, demandName, m.GitHub, repo)
 		case m.Anthropic != nil:
 			return anthropicSpec(r, globals, demandName, m.Anthropic)
 		default:
@@ -27,8 +30,11 @@ func Expander(r runner.Runner, globals map[string]usersecret.Source) usersecret.
 	}
 }
 
-func githubSpec(r runner.Runner, globals map[string]usersecret.Source, name string, g *usersecret.GitHubMinter) (secret.Spec, error) {
+func githubSpec(r runner.Runner, globals map[string]usersecret.Source, name string, g *usersecret.GitHubMinter, repo string) (secret.Spec, error) {
 	argv := []string{"at-mint", "github", "--app-id", g.AppID, "--install-id", g.InstallID}
+	if repo != "" {
+		argv = append(argv, "--repo", repo) // the token's scope (non-secret)
+	}
 	var env map[string]string
 	kind, err := g.AppKey.Kind()
 	if err != nil {
