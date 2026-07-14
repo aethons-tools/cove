@@ -118,8 +118,15 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
    precedence; this is *why* the local file is keyed by path — its job is to
    disambiguate, per checkout, not to be portable).
 2. **`secrets.yml` → `kits[K.name][S]`** — else if present, use it.
-3. otherwise **fail closed** — an unresolved demand aborts the run *before*
-   any VM is built or any SSH happens, naming the secret and the kit.
+3. otherwise **unresolved** — what happens next depends on whether **S** is
+   *required*:
+   - a **required well-known secret** — the git token
+     (`AT_TASK_GIT_TOKEN`) or the tracker token
+     (`AT_DISPATCH_TRACKER_TOKEN`) — **fails closed**: the run aborts
+     *before* any VM is built or any SSH happens, naming the secret and the
+     kit.
+   - a **general / agent demand** (e.g. `ANTHROPIC_AUTH_TOKEN`) instead
+     **warns to stderr and is left unset**; the run continues without it.
 
 ## The anti-mining invariant
 

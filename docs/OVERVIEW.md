@@ -181,7 +181,8 @@ Backend-agnostic, in `internal/connect`:
    supply (`~/.config/at-cove/secrets.yml`/`secrets.local.yml`) and run it —
    see [at-cove-secrets.md](usage/at-cove-secrets.md) for the demand/supply
    model. Held in memory only;
-   any failure aborts before SSH.
+   an unresolved *required* secret (the git or tracker token) aborts before
+   SSH — a general demand instead warns and is left unset.
 2. **Dial** the backend for an `Endpoint` (+ cleanup).
    If the VM isn't running,
    return an actionable error.
