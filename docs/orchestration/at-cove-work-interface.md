@@ -4,7 +4,7 @@ read_when: You are implementing or reviewing how the scheduler launches workers 
 owns: the at-cove work substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
-updated: 2026-07-10
+updated: 2026-07-14
 ---
 
 # at-cove Work Interface
@@ -75,7 +75,7 @@ Two properties matter for the threat model:
 - **Scope is fixed in the minter, not from run params.** The minter reads `COVE_RUN_REPO` to know *which* repo to scope the token to, but the *permissions* it requests (e.g. `contents`+`pull_requests`) are hard-coded in the minter script itself — untrusted issue text flowing through the task can select a repo, never widen a scope.
 - **Minted fresh before each git step, not once per run.** at-cove re-invokes the resolver separately for `at-task prepare` and `at-task complete` (not once and cached), so each git step gets its own token and the code host's fixed token TTL (e.g. GitHub's ~1-hour App-installation-token lifetime) never bounds how long a dispatch run may take.
 
-The reference kit's minter (`kits/reference-worker/mint-github-token.sh`) is a worked example: a GitHub App installation-token resolver that reads `COVE_RUN_REPO` plus operator-provisioned `COVE_GH_APP_ID`/`COVE_GH_INSTALL_ID`/`COVE_GH_APP_KEY`, and fails closed on any missing var or API error. See its [RUNBOOK](../../kits/reference-worker/RUNBOOK.md) for App provisioning.
+The reference kit's minter is [`at-mint github`](../usage/at-mint.md): a GitHub App installation-token resolver that reads `COVE_RUN_REPO` (injected per run) while the operator supplies `--app-id`/`--install-id` and the App private key via `--app-key-file` or `AT_MINT_GITHUB_APP_KEY`, and fails closed on any missing input or API error. See its [RUNBOOK](../../kits/reference-worker/RUNBOOK.md) for App provisioning.
 
 This keeps the **three-authority separation** exact: the scheduler holds only the tracker token and never runs the minter; the minter (a host-side resolver `command`, not scheduler code) is the only thing that ever reads the GitHub App private key, and only on the at-cove host; the worker VM receives only the scoped, short-lived token the minter produced, over the same per-step air-gap described above.
 
@@ -86,6 +86,6 @@ This keeps the **three-authority separation** exact: the scheduler holds only th
 
 ## Status — shipped vs. deferred
 
-- **Shipped:** `at-cove work` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-task prepare` → agent → `at-task complete`) with the per-step credential air-gap; at-task's `.at-task/task.json` → `task-result.json` contract; the scheduler wiring ([at-cove-config.md](../usage/at-cove-config.md)); container-per-task isolation; the `COVE_RUN_*` run-parameter passthrough and the resulting per-run token minter (the reference kit's `mint-github-token.sh`), minted fresh before each git step.
+- **Shipped:** `at-cove work` (synchronous one-shot, ephemeral container, crash-scavenge); the reference worker kit and the host-orchestrated bracket at-cove drives (`at-task prepare` → agent → `at-task complete`) with the per-step credential air-gap; at-task's `.at-task/task.json` → `task-result.json` contract; the scheduler wiring ([at-cove-config.md](../usage/at-cove-config.md)); container-per-task isolation; the `COVE_RUN_*` run-parameter passthrough and the resulting per-run token minter (`at-mint github`), minted fresh before each git step.
 - **Deferred:** per-run `--egress-profile`; multi-code-host (GitHub-only today).
 - **Dropped:** run-ids, `run --detach`, and the `status`/`result`/`logs`/`kill`/`ls` lifecycle-verb registry — superfluous under synchronous dispatch.
