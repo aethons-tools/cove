@@ -11,7 +11,17 @@ import (
 )
 
 // Globals are the cross-cutting flags parsed before the command name.
-type Globals struct{ DryRun bool }
+type Globals struct {
+	DryRun bool
+	// LogMode selects the logging mode: "" (auto-detect), "attended", or
+	// "unattended". Mapped to logging.Mode by cmd/at-cove's logModeFrom.
+	LogMode string
+	// LogLevel is the minimum level shown on stderr: "debug", "info", "warn",
+	// or "error" (default "info"). Mapped to slog.Level by logLevelFrom.
+	LogLevel string
+	// NoLogFile disables the JSON debug-level log file sink.
+	NoLogFile bool
+}
 
 // Command is one subcommand. Run receives the tokens after the command name
 // (its flags + positionals, in any order), the parsed globals, and the writers;
@@ -35,6 +45,9 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	dry := fs.Bool("dry-run", false, "print planned actions without executing")
+	logMode := fs.String("log-mode", "", `logging mode: "attended" or "unattended" (default: auto-detect)`)
+	logLevel := fs.String("log-level", "", "debug|info|warn|error (default info)")
+	noLogFile := fs.Bool("no-log-file", false, "disable the JSON debug-level log file")
 	ver := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(argv); err != nil {
 		if err == flag.ErrHelp { // -h / --help
@@ -65,7 +78,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	}
 	for _, c := range a.Commands {
 		if c.Name == name {
-			return c.Run(cmdArgs, Globals{DryRun: *dry}, stdout, stderr)
+			return c.Run(cmdArgs, Globals{DryRun: *dry, LogMode: *logMode, LogLevel: *logLevel, NoLogFile: *noLogFile}, stdout, stderr)
 		}
 	}
 	fmt.Fprintf(stderr, "%s: unknown command %q\n\n", a.Name, name)
@@ -74,7 +87,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 }
 
 func (a App) usage(w io.Writer) {
-	fmt.Fprintf(w, "usage: %s [--dry-run] <command> [flags] [args]\n\ncommands:\n", a.Name)
+	fmt.Fprintf(w, "usage: %s [--dry-run] [--log-mode attended|unattended] [--log-level debug|info|warn|error] [--no-log-file] <command> [flags] [args]\n\ncommands:\n", a.Name)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, c := range a.Commands {
 		fmt.Fprintf(tw, "  %s\t%s\n", c.Name, c.Brief)

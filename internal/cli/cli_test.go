@@ -90,6 +90,58 @@ func TestAppUnknownGlobalFlag(t *testing.T) {
 	}
 }
 
+// TestGlobalsParseLogFlags mirrors TestAppDispatchesWithGlobals but for the
+// new --log-mode/--log-level/--no-log-file globals: since there is no
+// standalone ParseGlobals entry point (globals are parsed inline in
+// App.Run), a probe command captures the Globals it receives.
+func TestGlobalsParseLogFlags(t *testing.T) {
+	var got Globals
+	app := App{
+		Name: "tool", Version: "1.2.3",
+		Commands: []Command{
+			{Name: "probe", Brief: "capture globals", Run: func(args []string, g Globals, stdout, stderr io.Writer) int {
+				got = g
+				return 0
+			}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	code := app.Run([]string{"--log-mode", "unattended", "--log-level", "debug", "--no-log-file", "probe"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut.String())
+	}
+	if got.LogMode != "unattended" || got.LogLevel != "debug" || !got.NoLogFile {
+		t.Fatalf("globals not parsed: %+v", got)
+	}
+}
+
+// TestGlobalsLogLevelDefaultsEmpty guards the AT_LOG_LEVEL env fallback on the
+// dispatch path (cmd/at-cove's envOr(g.LogLevel, "AT_LOG_LEVEL")): envOr only
+// consults the environment when the flag is at its zero value, so
+// --log-level's flag.String default must be "" (not "info") or the env var
+// is silently ignored. logLevelFrom("") still maps to slog.LevelInfo, so the
+// effective default is unchanged; only the zero value matters here.
+func TestGlobalsLogLevelDefaultsEmpty(t *testing.T) {
+	var got Globals
+	app := App{
+		Name: "tool", Version: "1.2.3",
+		Commands: []Command{
+			{Name: "probe", Brief: "capture globals", Run: func(args []string, g Globals, stdout, stderr io.Writer) int {
+				got = g
+				return 0
+			}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	code := app.Run([]string{"probe"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut.String())
+	}
+	if got.LogLevel != "" {
+		t.Fatalf("g.LogLevel = %q, want %q so envOr(g.LogLevel, \"AT_LOG_LEVEL\") falls through to the environment", got.LogLevel, "")
+	}
+}
+
 func TestParseInterspersed(t *testing.T) {
 	for _, args := range [][]string{
 		{"./kit", "--raw"},

@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -690,6 +693,81 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 }
 
+// workerBearerKitConfig is a complete, dispatch-ready worker kit whose root
+// `secrets:` declares ANTHROPIC_AUTH_TOKEN (the agent's Anthropic bearer)
+// alongside the required source-control.github AT_TASK_GIT_TOKEN demand and a
+// worker class — everything doWork needs to reach the secret-resolution
+// block. It deliberately supplies no secrets.yml entry for
+// ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved. AT_TASK_GIT_TOKEN, by
+// contrast, is resolved cleanly by the test (see
+// TestWorkFailsClosedWhenAgentBearerUnresolved) so the bearer is the ONLY
+// unresolved secret — isolating the new gate from the pre-existing
+// planRequired fail-closed check on the git token.
+const workerBearerKitConfig = `name: box
+secrets:
+  ANTHROPIC_AUTH_TOKEN: {}
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement: { prompt: "impl", timeout: 30m }
+`
+
+// TestWorkFailsClosedWhenAgentBearerUnresolved guards the motivating
+// production bug: a dispatched worker with no ANTHROPIC_AUTH_TOKEN is a
+// guaranteed 401 once it reaches the agent inside the VM. doWork must fail
+// closed — naming the unresolved secret and the kit — before it ever
+// assembles/dispatches a VM, not warn-and-continue like a general secret.
+func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t) // hermetic XDG_CONFIG_HOME: fresh temp dir, pre-seeded keypair
+	// Resolve AT_TASK_GIT_TOKEN cleanly so the bearer gate is the ONLY unresolved
+	// secret: without this, the pre-existing planRequired fail-closed check on
+	// the git token would ALSO abort the VM, and the "no ssh/no docker run"
+	// assertions below would pass even if the bearer gate were deleted.
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when the agent bearer is unresolved")
+	}
+	if !strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("stderr must name the unresolved bearer secret; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "fail") {
+		t.Fatalf("stderr must read as a fail-closed message; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "box") {
+		t.Fatalf("stderr must name the kit; got %q", errOut.String())
+	}
+	for _, c := range f.Calls {
+		if c.Name == "ssh" {
+			t.Fatalf("must abort before any SSH step; calls=%+v", f.Calls)
+		}
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("must abort before running the work VM; calls=%+v", f.Calls)
+	}
+}
+
 // TestDryRunWorkPrintsNoExec guards Fix A: --dry-run work must print
 // the plan and exit 0 without touching the backend, assembling, or resolving
 // secrets (no calls recorded on the fake runner at all).
@@ -830,4 +908,48 @@ func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	if !strings.Contains(errOut.String(), "must declare") {
 		t.Fatalf("stderr = %q; want the missing-surface error", errOut.String())
 	}
+}
+
+// TestLogLevelEnvFallbackOnDispatchPath guards the AT_LOG_LEVEL env fallback
+// used by doDispatch (and mirrored by doWork's bearer-gate logger): the
+// --log-level global flag must default to "" so envOr(g.LogLevel,
+// "AT_LOG_LEVEL") actually falls through to the environment. It exercises
+// the real flag-parsing path (cli.App.Run with a probe command), not
+// logLevelFrom in isolation, so it fails if the flag's zero value regresses
+// back to a non-empty "info".
+func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
+	var got cli.Globals
+	app := cli.App{
+		Name: "at-cove", Version: "test",
+		Commands: []cli.Command{
+			{Name: "probe", Brief: "capture globals", Run: func(args []string, g cli.Globals, stdout, stderr io.Writer) int {
+				got = g
+				return 0
+			}},
+		},
+	}
+
+	t.Run("AT_LOG_LEVEL set, flag omitted", func(t *testing.T) {
+		t.Setenv("AT_LOG_LEVEL", "debug")
+		var out, errOut bytes.Buffer
+		if code := app.Run([]string{"probe"}, &out, &errOut); code != 0 {
+			t.Fatalf("code=%d stderr=%s", code, errOut.String())
+		}
+		if got.LogLevel != "" {
+			t.Fatalf("g.LogLevel = %q, want %q (flag omitted) — --log-level flag default is no longer empty, so envOr can never see AT_LOG_LEVEL", got.LogLevel, "")
+		}
+		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelDebug {
+			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (AT_LOG_LEVEL=debug ignored)", lvl, slog.LevelDebug)
+		}
+	})
+
+	t.Run("neither flag nor env set", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		if code := app.Run([]string{"probe"}, &out, &errOut); code != 0 {
+			t.Fatalf("code=%d stderr=%s", code, errOut.String())
+		}
+		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelInfo {
+			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (effective default)", lvl, slog.LevelInfo)
+		}
+	})
 }

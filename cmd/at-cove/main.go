@@ -8,7 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -30,6 +30,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -140,11 +141,49 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				return doWork(args, r, g.DryRun, out, errw)
 			}},
 			{Name: "dispatch", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return doDispatch(args, out, errw)
+				return doDispatch(args, g, out, errw)
 			}},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
+}
+
+// logModeFrom maps the --log-mode flag value to a logging.Mode. An empty or
+// unrecognized value falls back to logging.Auto (TTY-detected).
+func logModeFrom(s string) logging.Mode {
+	switch s {
+	case "attended":
+		return logging.Attended
+	case "unattended":
+		return logging.Unattended
+	default:
+		return logging.Auto
+	}
+}
+
+// logLevelFrom maps the --log-level flag value to a slog.Level. An
+// unrecognized value falls back to slog.LevelInfo.
+func logLevelFrom(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// envOr returns flag when it is non-empty, else os.Getenv(key) — the env
+// fallback for global flags left at their zero value (AT_LOG_MODE,
+// AT_LOG_LEVEL).
+func envOr(flag, key string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv(key)
 }
 
 // kitDirFlag registers the standard --kit-dir flag on fs (default ".", i.e. the
@@ -681,6 +720,44 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	for _, name := range unresolved {
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
+
+	const agentBearerSecret = "ANTHROPIC_AUTH_TOKEN"
+	// The dispatched agent cannot authenticate without its bearer; a keyless
+	// worker is a guaranteed 401. Fail closed with attribution (like the
+	// git/tracker well-known secrets below) rather than launch a doomed VM.
+	bearerUnresolved := false
+	if _, declared := cfg.Secrets[agentBearerSecret]; !declared {
+		bearerUnresolved = true
+	} else {
+		for _, name := range unresolved {
+			if name == agentBearerSecret {
+				bearerUnresolved = true
+				break
+			}
+		}
+	}
+	if bearerUnresolved {
+		// Build a work-path logger from env only (mirroring g.LogMode/LogLevel's
+		// env fallback): doWork has no cli.Globals in scope, and this is the
+		// only site in the work path that needs a logger, so a full logger
+		// threaded through doWork's signature would be more machinery than the
+		// gate warrants. No log file here — this aborts before .state exists.
+		lg, err := logging.New(logging.Options{
+			Mode:   logModeFrom(envOr("", "AT_LOG_MODE")),
+			Stderr: stderr,
+			Level:  logLevelFrom(envOr("", "AT_LOG_LEVEL")),
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: %v\n", err)
+			return 1
+		}
+		defer lg.Close()
+		bearerErr := fmt.Errorf("agent bearer %s is unresolved for kit %q — the worker would fail closed with a 401; wire it under kits: %q in %s (or secrets.local.yml)",
+			agentBearerSecret, cfg.Name, cfg.Name, secretsPath)
+		lg.UserError(context.Background(), bearerErr, slog.String("step", "secrets"), slog.String("secret", agentBearerSecret), slog.String("kit", cfg.Name))
+		return 1
+	}
+
 	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
 	gitName, ok := cfg.GitTokenName()
 	if !ok {
@@ -719,7 +796,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 // tracker API token on the host, connects to the tracker, and runs the poll →
 // dispatch → broker loop until SIGINT/SIGTERM. Each ready issue is dispatched as
 // a fresh `at-cove work` run (see internal/dispatch/scheduler).
-func doDispatch(args []string, stdout, stderr io.Writer) int {
+func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	kd := kitDirFlag(fs)
@@ -781,13 +858,29 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
 		return 1
 	}
-	logger := log.New(stderr, "at-cove dispatch ", log.LstdFlags)
-	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), logger)
+	logFile := ""
+	if !g.NoLogFile {
+		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-dispatch.jsonl")
+	}
+	lg, err := logging.New(logging.Options{
+		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Stderr:   stderr,
+		FilePath: logFile,
+		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	defer lg.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.Linear.PollInterval)
+	ctx = logging.Into(ctx, lg)
+
+	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), lg)
+	lg.Info("scheduler started", slog.String("poll", cfg.Tracker.Linear.PollInterval))
 	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
-	logger.Printf("scheduler stopped")
+	lg.Info("scheduler stopped")
 	return 0
 }

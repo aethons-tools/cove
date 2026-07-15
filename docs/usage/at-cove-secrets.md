@@ -4,7 +4,7 @@ read_when: You are adding a secret to a kit, supplying a value from your machine
 owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply)
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the chat/injection data flow
 tier: leaf
-updated: 2026-07-14
+updated: 2026-07-15
 ---
 
 # at-cove secrets
@@ -130,8 +130,16 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
      (`AT_DISPATCH_TRACKER_TOKEN`) — **fails closed**: the run aborts
      *before* any VM is built or any SSH happens, naming the secret and the
      kit.
-   - a **general / agent demand** (e.g. `ANTHROPIC_AUTH_TOKEN`) instead
+   - on the `work`/`dispatch` path specifically, the agent's Anthropic
+     bearer, **`ANTHROPIC_AUTH_TOKEN`**, is required the same way (declared
+     with no supply, or not declared at all) — a keyless worker is a
+     guaranteed 401, so `at-cove work` **fails closed** before building or
+     launching a VM, naming the secret and the kit, instead of building a
+     container that is certain to fail authentication.
+   - any other **general / agent demand** instead
      **warns to stderr and is left unset**; the run continues without it.
+     (This is still `chat`'s behavior for `ANTHROPIC_AUTH_TOKEN` — the
+     pre-flight fail-closed check above is `work`/`dispatch`-only.)
 
 ## The anti-mining invariant
 
@@ -158,12 +166,16 @@ explicitly wrote under `kits: <that kit>:` (by name or by path). This means:
   never smuggle in a resolver command of its own, since kit secrets carry no
   `command:` field at all. Still, only supply commands you trust running on
   your own machine.
-- **`ANTHROPIC_AUTH_TOKEN` selects the worker's auth path.** A dispatched
-  **worker** authenticates to Anthropic with a short-lived bearer,
-  `ANTHROPIC_AUTH_TOKEN`, declared as a root secret (the work path does not
-  seed OAuth credentials, so a keyless worker fails closed rather than
-  falling back to a subscription). Because the env key outranks a
-  subscription OAuth login, an interactive `chat` session on a kit that
-  declares it will use the bearer too — so keep worker kits that declare it
-  distinct from a kit you `chat` into on a personal subscription. See
-  [Authentication](../OVERVIEW.md#authentication).
+- **`ANTHROPIC_AUTH_TOKEN` selects the worker's auth path, and fails closed
+  twice over.** A dispatched **worker** authenticates to Anthropic with a
+  short-lived bearer, `ANTHROPIC_AUTH_TOKEN`, declared as a root secret. Two
+  independent layers refuse a keyless worker rather than let it fall back to
+  a subscription: `at-cove work` aborts on the *host*, before any VM is
+  built, if the bearer is unresolved (see "Precedence and fail-closed
+  resolution" above); and, should a worker somehow still launch keyless, the
+  work path does not seed OAuth `credentials.json` into the VM, so there is
+  no subscription to fall back to *inside* it either. Because the env key
+  outranks a subscription OAuth login, an interactive `chat` session on a kit
+  that declares it will use the bearer too — so keep worker kits that
+  declare it distinct from a kit you `chat` into on a personal subscription.
+  See [Authentication](../OVERVIEW.md#authentication).
