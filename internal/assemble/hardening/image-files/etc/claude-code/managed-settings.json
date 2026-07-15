@@ -14,7 +14,6 @@
   "spinnerTipsEnabled": false,
   "theme": "dark",
   "env": {
-    "CLOUD_ML_REGION": "us",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8",
     "DISABLE_AUTOUPDATER": "1",
     "DISABLE_UPDATES": "1"
