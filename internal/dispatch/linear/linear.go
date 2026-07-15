@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -217,6 +218,34 @@ func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error)
 		if allDone {
 			issues = append(issues, c.toIssue(n))
 		}
+	}
+	return issues, nil
+}
+
+// ListInProgress returns issues currently IN PROGRESS paired with the time each
+// entered a started state (Linear's startedAt), for the stale-claim reaper.
+// Nodes without a parseable startedAt are skipped rather than reaped, since a
+// missing timestamp can't establish that a claim is stale.
+func (c *Client) ListInProgress(ctx context.Context) ([]scheduler.InProgressIssue, error) {
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description startedAt labels{nodes{name}}}}}`
+	var out struct {
+		Issues struct {
+			Nodes []struct {
+				issueNode
+				StartedAt string `json:"startedAt"`
+			} `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.InProgress}, &out); err != nil {
+		return nil, err
+	}
+	var issues []scheduler.InProgressIssue
+	for _, n := range out.Issues.Nodes {
+		started, err := time.Parse(time.RFC3339, n.StartedAt)
+		if err != nil {
+			continue // no reliable time-in-state; leave it for a human, don't reap
+		}
+		issues = append(issues, scheduler.InProgressIssue{Issue: c.toIssue(n.issueNode), StartedAt: started})
 	}
 	return issues, nil
 }

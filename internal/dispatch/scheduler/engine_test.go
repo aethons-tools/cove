@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -215,6 +216,61 @@ func TestTickRecoversPanic(t *testing.T) {
 
 	if got := tr.roles("p1"); len(got) != 2 || got[0] != RoleInProgress || got[1] != RoleNeedsInput {
 		t.Fatalf("transitions = %v; want [InProgress NeedsInput] after a recovered panic", got)
+	}
+}
+
+// The reaper runs on each poll pass: an orphaned IN PROGRESS issue whose
+// time-in-state exceeds reaper-timeout is moved to NEEDS INPUT with a comment,
+// while a fresh one and a live-owned one (a dispatch this process still runs)
+// are left untouched.
+func TestTickReapsStaleOrphansOnly(t *testing.T) {
+	cfg := testConfig()
+	cfg.Dispatch.ReaperTimeout = "45m"
+	tr := newFakeTracker()
+	tr.inProgress = []InProgressIssue{
+		{Issue: Issue{ID: "stale", Identifier: "AET-STALE"}, StartedAt: time.Now().Add(-2 * time.Hour)},
+		{Issue: Issue{ID: "fresh", Identifier: "AET-FRESH"}, StartedAt: time.Now().Add(-1 * time.Minute)},
+		{Issue: Issue{ID: "live", Identifier: "AET-LIVE"}, StartedAt: time.Now().Add(-2 * time.Hour)},
+	}
+	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`})
+	e.markLive("live") // this process still owns the "live" run — never reap it
+
+	e.tick(context.Background())
+	e.wait()
+
+	// over-age orphan → NEEDS INPUT with an explanatory comment naming the timeout
+	if got := tr.roles("stale"); len(got) != 1 || got[0] != RoleNeedsInput {
+		t.Fatalf("stale transitions = %v; want [NeedsInput]", got)
+	}
+	if c := tr.lastPost("stale"); !strings.Contains(c, "Reaped") || !strings.Contains(c, "45m") {
+		t.Errorf("reaped comment missing marker/timeout: %q", c)
+	}
+	// under-age left untouched
+	if got := tr.roles("fresh"); len(got) != 0 {
+		t.Errorf("fresh (under-age) transitions = %v; want none", got)
+	}
+	// live-owned over-age left untouched
+	if got := tr.roles("live"); len(got) != 0 {
+		t.Errorf("live-owned transitions = %v; want none (never reap a live dispatch)", got)
+	}
+}
+
+// With no reaper-timeout configured the reaper is a no-op, even for a long-stale
+// IN PROGRESS issue.
+func TestTickReapDisabledWhenUnset(t *testing.T) {
+	cfg := testConfig()
+	cfg.Dispatch.ReaperTimeout = ""
+	tr := newFakeTracker()
+	tr.inProgress = []InProgressIssue{
+		{Issue: Issue{ID: "stale", Identifier: "AET-STALE"}, StartedAt: time.Now().Add(-99 * time.Hour)},
+	}
+	e := newEngine(cfg, tr, &fakeExecutor{})
+
+	e.tick(context.Background())
+	e.wait()
+
+	if got := tr.roles("stale"); len(got) != 0 {
+		t.Fatalf("reaper disabled: transitions = %v; want none", got)
 	}
 }
 

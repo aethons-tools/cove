@@ -4,7 +4,10 @@
 // and Executor interfaces so it can be tested without a network or real commands.
 package scheduler
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Role is a lifecycle role the engine transitions issues through. The Tracker maps
 // each role to this team's configured state name and then to a tracker state id.
@@ -34,11 +37,19 @@ type Comment struct {
 	Body   string
 }
 
+// InProgressIssue is an IN PROGRESS issue paired with the time it entered that
+// state, so the stale-claim reaper can compute its time-in-state.
+type InProgressIssue struct {
+	Issue
+	StartedAt time.Time
+}
+
 // Tracker is every tracker operation the engine needs. The implementation owns
 // team scoping and the Role→state-id mapping.
 type Tracker interface {
 	ListReady(ctx context.Context) ([]Issue, error)
 	ListUnblockable(ctx context.Context) ([]Issue, error)
+	ListInProgress(ctx context.Context) ([]InProgressIssue, error)
 	Comments(ctx context.Context, issueID string) ([]Comment, error)
 	Transition(ctx context.Context, issueID string, role Role) error
 	PostComment(ctx context.Context, issueID, body string) error

@@ -29,6 +29,9 @@ type Engine struct {
 	gsem chan struct{}            // global concurrency
 	csem map[string]chan struct{} // per-class concurrency (nil entry = no cap)
 	wg   sync.WaitGroup
+
+	mu   sync.Mutex          // guards live
+	live map[string]struct{} // issue IDs this process is actively dispatching
 }
 
 // runID mints a per-dispatch correlation id: run_<issue-identifier>_<4 hex
@@ -59,7 +62,28 @@ func New(cfg kit.Config, kitDir string, t Tracker, e Executor, lg *logging.Logge
 	return &Engine{
 		cfg: cfg, kitDir: kitDir, tracker: t, exec: e, log: lg,
 		gsem: make(chan struct{}, gcap), csem: csem,
+		live: map[string]struct{}{},
 	}
+}
+
+// markLive records that this process is actively dispatching issueID, so the
+// reaper will never treat it as an orphan. unmarkLive clears it when the
+// dispatch finishes.
+func (e *Engine) markLive(issueID string) {
+	e.mu.Lock()
+	e.live[issueID] = struct{}{}
+	e.mu.Unlock()
+}
+func (e *Engine) unmarkLive(issueID string) {
+	e.mu.Lock()
+	delete(e.live, issueID)
+	e.mu.Unlock()
+}
+func (e *Engine) isLive(issueID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, ok := e.live[issueID]
+	return ok
 }
 
 // handle runs one issue synchronously: claim → brief → at-cove work → broker.
@@ -213,8 +237,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// tick is one poll pass: reconcile BLOCKED→READY, then claim+dispatch ready
-// autonomous issues up to the concurrency caps.
+// tick is one poll pass: reconcile BLOCKED→READY, claim+dispatch ready
+// autonomous issues up to the concurrency caps, then reap stale claims.
 func (e *Engine) tick(ctx context.Context) {
 	if unb, err := e.tracker.ListUnblockable(ctx); err != nil {
 		e.log.Error("list unblockable failed", slog.Any("err", err))
@@ -239,10 +263,12 @@ func (e *Engine) tick(ctx context.Context) {
 			continue // caps full this tick
 		}
 		iss := iss
+		e.markLive(iss.ID) // before dispatch so the reaper can't race the claim
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()
 			defer e.release(iss.Class)
+			defer e.unmarkLive(iss.ID)
 			defer func() {
 				if r := recover(); r != nil {
 					e.log.Error("panic handling issue", slog.String("issue", iss.Identifier), slog.Any("err", r))
@@ -253,6 +279,43 @@ func (e *Engine) tick(ctx context.Context) {
 			e.handle(ctx, iss)
 		}()
 	}
+
+	e.reap(ctx)
+}
+
+// reap moves orphaned IN PROGRESS issues to NEEDS INPUT: those stuck past
+// reaper-timeout that no live in-process dispatch owns. It backstops the case a
+// per-dispatch time budget can't — the in-process dispatch is gone (a crashed or
+// hung worker, or a scheduler restart mid-run) but the tracker still shows IN
+// PROGRESS. A run this process is actively dispatching is never reaped, however
+// long it takes; its own time budget governs it.
+func (e *Engine) reap(ctx context.Context) {
+	if e.cfg.Dispatch == nil || e.cfg.Dispatch.ReaperTimeout == "" {
+		return // reaper disabled
+	}
+	timeout, _ := time.ParseDuration(e.cfg.Dispatch.ReaperTimeout) // validated by config
+	inProgress, err := e.tracker.ListInProgress(ctx)
+	if err != nil {
+		e.log.Error("list in-progress failed", slog.Any("err", err))
+		return
+	}
+	for _, ip := range inProgress {
+		if e.isLive(ip.ID) {
+			continue // this process still owns the run; never reap a live dispatch
+		}
+		if time.Since(ip.StartedAt) <= timeout {
+			continue // still within budget
+		}
+		e.log.Warn("reaping stale claim",
+			slog.String("issue", ip.Identifier), slog.String("step", "reap"))
+		e.post(ctx, ip.Issue, reapedComment(e.cfg.Dispatch.ReaperTimeout), e.log)
+		e.transition(ctx, ip.Issue, RoleNeedsInput, e.log)
+	}
+}
+
+func reapedComment(timeout string) string {
+	return "⚠️ Reaped: stuck in IN PROGRESS past reaper-timeout (" + timeout + ") — " +
+		"likely a crashed/hung worker or a scheduler restart. Re-open to retry.\n"
 }
 
 // acquire takes a global slot and (if the class caps concurrency) a class slot,

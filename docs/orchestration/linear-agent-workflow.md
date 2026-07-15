@@ -4,7 +4,7 @@ read_when: You are building, operating, or extending Linear-based orchestration 
 owns: the uniform issue lifecycle, the idea→issues→subissues fan-out model, assignment by handler class, the stage-agnostic orchestrator principle, the webhook-driven dedicated-scheduler dispatch architecture, the worker execution model, the stop-and-write-needs-back protocol, and dependency-gated readiness
 prereqs: none — the companion at-cove-work-interface.md covers the dispatch substrate this doc references
 tier: leaf
-updated: 2026-07-10
+updated: 2026-07-15
 ---
 
 # Linear-Driven Agent Workflow
@@ -215,7 +215,7 @@ The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPU
 - **Branch-first, never the default branch, one PR per issue.**
 - **Container-per-task isolation** for build-heavy classes, fresh checkout each run; isolation-by-class and credential scoping are specified in the [at-cove work interface](at-cove-work-interface.md).
 - **Egress walls are a first-class `NEEDS INPUT` reason.** If a build needs a domain not on the allow-list, the worker reports it as a `needs_input` result ("add X to the egress kit") rather than improvising — the scheduler surfaces it, turning a sandbox limit into a clean handoff.
-- **Stale-claim reaper:** the scheduler moves issues stuck in `IN PROGRESS` past a timeout with no progress (a crashed or hung worker) to `NEEDS INPUT`.
+- **Stale-claim reaper:** on each poll pass the scheduler reaps `IN PROGRESS` issues whose time-in-state exceeds `dispatch.reaper-timeout` and that **no live in-process dispatch owns**, moving each to `NEEDS INPUT` with an explanatory comment. This is orthogonal to the per-dispatch time budget (which bounds a *running* worker): the reaper backstops the case where the in-process dispatch is gone — a crashed or hung worker, or a scheduler restart mid-run — but the tracker still shows `IN PROGRESS`. A run the scheduler is still actively dispatching is never reaped, however long it takes.
 - **Bounded one-shot budget:** each autonomous job has a token/time ceiling; exceeding it routes to `NEEDS INPUT`, never an unbounded burn.
 
 ## How this leverages the tracker
