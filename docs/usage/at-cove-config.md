@@ -259,10 +259,16 @@ shape: the reserved key `<common>` holds `secrets` merged into every real class
 launches a session with its role injected as context — see
 [the collaborator session boundary](../OVERVIEW.md#the-chat-command-and-collaborator-sessions).
 
-GitHub and Linear ride the human's **claude.ai account connectors** during an
-interactive session, not a minted token, so most collaborators declare **no
-secrets at all**; `secrets` (below) exists for the occasional kit that wants an
-extra scoped token.
+**Most** collaborator access rides the human's **claude.ai account connectors**
+during an interactive session, not a minted token, so collaborators declare few
+secrets. The exception is the **`gh` and `git` CLIs**: they are separate
+processes that read a token from the session env, not connector tools, so no
+connector can serve them — the hardening layer's credential helper feeds
+`github.com` from `GITHUB_TOKEN` (see
+[Authentication](../OVERVIEW.md#authentication)). A kit whose collaborators run
+`gh` or push over HTTPS declares `GITHUB_TOKEN` under `<common>`, merging it
+into every class; `secrets` (below) also covers the occasional extra scoped
+token.
 
 #### collaborators.*class*.prompt
 *string, optional, own-only (not inherited); `<common>` must not set it*
@@ -286,7 +292,7 @@ positional and the kit defines more than one. **At most one** class may set
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
-[Secret buckets](#secret-buckets)). Usually empty — see above.
+[Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` — see above.
 
 ```yaml
 collaborators:
@@ -378,7 +384,7 @@ reads its own bucket, not a flat merged list.
 | Bucket | Resolved by | `chat` | `work`/`dispatch` | Used by |
 |---|---|---|---|---|
 | `secrets` (root) | host, at `chat`/`dispatch` time | injected | injected | the agent process |
-| `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually empty; GitHub/Linear ride connectors) |
+| `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually just `GITHUB_TOKEN` for `gh`/`git`; most other access rides connectors) |
 | `workers.*.secrets` | host, resolved lazily right before the agent step, `<common>`-merged | — | injected (agent step only) | the dispatched agent process |
 | `source-control.github.secrets` | host, minted fresh per git step | — | injected (git steps only) | `at-task prepare`/`complete` only |
 | `tracker.linear.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
