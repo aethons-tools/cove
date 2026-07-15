@@ -91,27 +91,30 @@ values out of source control — lives in
 
 ## Command surface
 
-Every command takes an optional kit directory via the `--kit-dir DIR` flag
-(default: the current dir / cwd walk-up single-kit resolution). There is no
-positional kit-dir on any command — `chat`'s one positional is the optional
-collaborator (below), not the kit dir.
+Every command takes an optional project root via the `--project-dir DIR` flag:
+the kit is `<DIR>/.at-cove`, so a project root **must** hold a `.at-cove/`
+(otherwise the command errors — `no .at-cove/ at project root <DIR>`). Omitted,
+the command walks up from the cwd to the nearest ancestor containing `.at-cove/`
+(run-from-anywhere). This encodes the "kit at the project root" convention as an
+invariant. There is no positional project-dir on any command — `chat`'s one
+positional is the optional collaborator (below), not the project dir.
 
 | Command | Behavior |
 |---|---|
-| `at-cove build [--kit-dir DIR]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM — for authoring/inspection. |
-| `at-cove create [--kit-dir DIR] [--workspace\|--ws <path>]` | `build`, then create the VM via the backend. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
-| `at-cove chat [collaborator] [--kit-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
-| `at-cove recreate [--kit-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
-| `at-cove destroy [--kit-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
-| `at-cove status [--kit-dir DIR]` | Report `running` / `stopped` / `absent`. |
+| `at-cove build [--project-dir DIR]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM — for authoring/inspection. |
+| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | `build`, then create the VM via the backend. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
+| `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
+| `at-cove destroy [--project-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
+| `at-cove status [--project-dir DIR]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove work [--kit-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
-| `at-cove dispatch [--kit-dir DIR]` | Poll the kit's tracker and dispatch ready work via `at-cove work`. |
+| `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
+| `at-cove dispatch [--project-dir DIR]` | Poll the kit's tracker and dispatch ready work via `at-cove work`. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
 without executing anything.
-Flags specific to a command (e.g. `--raw`, `--ws`, `--kit-dir`) go *after* the
+Flags specific to a command (e.g. `--raw`, `--ws`, `--project-dir`) go *after* the
 command name; each command only accepts its own flags.
 
 Three more global flags (also before the subcommand) configure structured
@@ -120,7 +123,7 @@ logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
 (suppress the attended-mode log file). They're parsed into `cli.Globals`;
 `dispatch` wires them into a per-run `internal/logging` logger. In **attended**
 (TTY) mode the logger writes human-friendly text to stderr **and** a JSON
-debug-level file at `<kit-dir>/.state/logs/at-cove-dispatch.jsonl` (unless
+debug-level file at `<kit>/.state/logs/at-cove-dispatch.jsonl` (unless
 `--no-log-file`). In **unattended** (headless / non-TTY) mode — the normal way
 `dispatch` runs as a service — it writes JSON to stderr only, with no file; the
 platform capturing stderr is the log sink. Each
@@ -288,16 +291,13 @@ Because the worker bucket is resolved only on the `work`/`dispatch` path
 (agent-step only — see the [bucket-visibility
 table](usage/at-cove-config.md#secret-buckets)), this bearer never reaches a
 `chat` session by declaration alone, whatever else that kit's root `secrets`
-demands. Unlike a general secret demand, an unresolved `ANTHROPIC_AUTH_TOKEN`
-is not a warn-and-continue: `at-cove work` **fails closed on the host**,
-before building or launching a VM, naming the secret and the kit — a keyless
-worker is a guaranteed 401, so at-cove refuses to build one rather than
-launch a doomed container. This pre-flight gate is name-specific: it
-recognizes only `ANTHROPIC_AUTH_TOKEN`, and treats that name being absent as
-unresolved — so a class that declares only `ANTHROPIC_API_KEY` isn't
-gate-covered by that name, and still fails closed today (the gate sees no
-`ANTHROPIC_AUTH_TOKEN` at all) rather than being waved through. As a second,
-independent layer, at-cove also deliberately
+demands. Unlike a general secret demand, a worker with *neither* bearer
+declared-and-resolved is not a warn-and-continue: `at-cove work` **fails closed
+on the host**, before building or launching a VM, naming the bearer names it
+looked for and the kit — a keyless worker is a guaranteed 401, so at-cove
+refuses to build one rather than launch a doomed container. The gate accepts
+either well-known name, so a class declaring only `ANTHROPIC_API_KEY` clears it.
+As a second, independent layer, at-cove also deliberately
 does **not** seed the OAuth `credentials.json` on the work path: with no OAuth
 token below the bearer in the precedence chain, a worker that somehow still
 launched keyless would fail closed *inside* the VM too, instead of silently
@@ -396,7 +396,7 @@ and exercises the transports and TOFU end-to-end without Docker.
 
 Implemented and on `main`:
 the full `build`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
-(every command's kit directory is a uniform `--kit-dir` flag, not a positional),
+(every command's project root is a uniform `--project-dir` flag, not a positional),
 the Colima backend,
 layered assembly with embedded hardening,
 managed keypair + TOFU,

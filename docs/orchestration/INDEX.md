@@ -26,7 +26,7 @@ Read the workflow first; it references the work interface for mechanics. Operato
 setting up or tuning the scheduler itself (tracker wiring, handler classes,
 concurrency/timeout policy) should read
 [`../usage/at-cove-config.md`](../usage/at-cove-config.md) — `at-cove dispatch
---kit-dir <dir>` reads that same kit config file directly, no separate scheduler
+--project-dir <dir>` reads that same kit config file directly, no separate scheduler
 config. A **human** handler class is a `chat` collaborator, not something the
 scheduler dispatches — see
 [the collaborator session boundary](../OVERVIEW.md#the-chat-command-and-collaborator-sessions).

@@ -151,16 +151,13 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
      kit.
    - on the `work`/`dispatch` path specifically, the agent's Anthropic
      bearer — declared in the resolved worker class's `workers.<class>.secrets`
-     (or `workers.<common>.secrets`), as either `ANTHROPIC_AUTH_TOKEN` or
-     `ANTHROPIC_API_KEY` — is subject to a pre-flight gate keyed specifically
-     on `ANTHROPIC_AUTH_TOKEN`: if that name is declared with no supply, or
-     not declared at all, a keyless worker is a guaranteed 401, so
-     `at-cove work` **fails closed** before building or launching a VM, naming
-     the secret and the kit, instead of building a container that is certain
-     to fail authentication. The gate checks only that literal name — a class
-     that declares `ANTHROPIC_API_KEY` instead isn't recognized by it, and
-     (since the gate treats a missing `ANTHROPIC_AUTH_TOKEN` as unresolved)
-     still fails closed today rather than being treated as covered. See
+     (or `workers.<common>.secrets`), under **either** well-known name,
+     `ANTHROPIC_AUTH_TOKEN` **or** `ANTHROPIC_API_KEY` — is required the same
+     way: the gate passes when at least one is declared *and* resolves, and
+     **fails closed** (before building or launching a VM, naming the bearer
+     names it looked for and the kit) only when neither does. A keyless worker
+     is a guaranteed 401, so `at-cove work` refuses to build a container that is
+     certain to fail authentication. See
      [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket)
      for why it lives in that bucket, not the root one.
    - any other **general / agent demand** instead

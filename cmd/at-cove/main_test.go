@@ -22,28 +22,44 @@ import (
 // explicit empty literal is distinct from "unset".
 func ptr(s string) *string { return &s }
 
-func TestKitDirFlagResolves(t *testing.T) {
+func TestProjectDirFlagResolves(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("name: k\n"), 0o600); err != nil {
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte("name: k\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var errb bytes.Buffer
-	got, code := resolveKitDir(dir, nil, "build", &errb)
+	got, code := resolveProjectDir(dir, nil, "build", &errb)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errb.String())
 	}
-	if got == "" {
-		t.Fatalf("resolveKitDir returned empty for %q", dir)
+	if got != cove {
+		t.Fatalf("resolveProjectDir(%q) = %q; want the .at-cove under it (%q)", dir, got, cove)
 	}
 }
 
-func TestKitDirFlagRejectsPositional(t *testing.T) {
+// An explicit --project-dir with no .at-cove/ at that root errors clearly.
+func TestProjectDirFlagErrorsWithoutKit(t *testing.T) {
+	dir := t.TempDir() // no .at-cove/ here
 	var errb bytes.Buffer
-	if _, code := resolveKitDir(".", []string{"stray"}, "build", &errb); code != 2 {
+	if _, code := resolveProjectDir(dir, nil, "build", &errb); code != 1 {
+		t.Fatalf("code=%d, want 1 when the project root has no .at-cove/", code)
+	}
+	if !strings.Contains(errb.String(), "no .at-cove/ at project root") || !strings.Contains(errb.String(), dir) {
+		t.Fatalf("error should name the missing .at-cove/ and the project root; got %q", errb.String())
+	}
+}
+
+func TestProjectDirFlagRejectsPositional(t *testing.T) {
+	var errb bytes.Buffer
+	if _, code := resolveProjectDir("", []string{"stray"}, "build", &errb); code != 2 {
 		t.Fatalf("code=%d, want 2 for a stray positional", code)
 	}
-	if !strings.Contains(errb.String(), "--kit-dir") {
-		t.Fatalf("error should mention --kit-dir; got %q", errb.String())
+	if !strings.Contains(errb.String(), "--project-dir") {
+		t.Fatalf("error should mention --project-dir; got %q", errb.String())
 	}
 }
 
@@ -105,7 +121,7 @@ func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
 	// A valid dispatch kit (kits declare demand only — no resolver command).
 	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	// It must get PAST token resolution (past "kit OK"); it then fails connecting to
 	// Linear (no network), which is fine — the point is the token resolved from secrets.yml.
 	if !strings.Contains(out.String(), "kit OK") {
@@ -185,7 +201,7 @@ func TestStatusDispatchesToBackend(t *testing.T) {
 	// preflight `docker info` is a Probe (no Output consumed); `inspect` is the Output.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errOut.String())
 	}
@@ -203,7 +219,7 @@ func TestColimaDownPrintsActionableError(t *testing.T) {
 	// The preflight `docker info` Probe fails (colima unreachable).
 	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatal("status must fail when colima is unreachable")
 	}
@@ -214,9 +230,9 @@ func TestColimaDownPrintsActionableError(t *testing.T) {
 
 func TestStatusAbsentWhenNoState(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 || !strings.Contains(out.String(), "absent") {
 		t.Fatalf("status with no state: code=%d out=%q", code, out.String())
 	}
@@ -227,7 +243,7 @@ func TestUnknownBackendErrors(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "bogus", "box") // state names an unknown backend
 	var out, errOut bytes.Buffer
-	code := run([]string{"status", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"status", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "bogus") {
 		t.Fatalf("expected unknown-backend error, code=%d stderr=%q", code, errOut.String())
 	}
@@ -235,10 +251,10 @@ func TestUnknownBackendErrors(t *testing.T) {
 
 func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "create", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -256,7 +272,7 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	if code := run([]string{"create", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
 	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
@@ -270,7 +286,7 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 		t.Fatalf("state = %+v", st)
 	}
 	var o2, e2 bytes.Buffer
-	code := run([]string{"create", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
+	code := run([]string{"create", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
 	if code == 0 || !strings.Contains(e2.String(), "already created") {
 		t.Fatalf("second create should refuse; code=%d stderr=%q", code, e2.String())
 	}
@@ -282,7 +298,7 @@ func TestDestroyRemovesContainerImageAndState(t *testing.T) {
 	writeState(t, kitDir, "colima", "box")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	if code := run([]string{"destroy", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+	if code := run([]string{"destroy", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
 	}
 	if dockerArg0Index(f.Calls, "rm") == -1 || dockerArg0Index(f.Calls, "rmi") == -1 {
@@ -317,7 +333,7 @@ func TestDestroyBlockedByActiveConnection(t *testing.T) {
 	}
 	defer lock.Release()
 	var out, errOut bytes.Buffer
-	code := run([]string{"destroy", "--kit-dir", kitDir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"destroy", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "active connection") {
 		t.Fatalf("destroy should refuse with an active connection; code=%d stderr=%q", code, errOut.String())
 	}
@@ -333,7 +349,7 @@ func TestDryRunChatRawNoAuth(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "chat", "--raw", "--no-auth", "--kit-dir", kitDir},
+	code := run([]string{"--dry-run", "chat", "--raw", "--no-auth", "--project-dir", dir},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
@@ -368,10 +384,10 @@ func TestVersionFlag(t *testing.T) {
 
 func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -390,7 +406,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -458,7 +474,7 @@ func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -490,7 +506,7 @@ func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
 	seedConfigDir(t)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", "--kit-dir", kitDir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--project-dir", dir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -504,11 +520,11 @@ func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
 
 func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	seedConfigDir(t)
 	f := &runner.Fake{} // no state -> nothing to destroy
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -527,7 +543,7 @@ func TestDryRunChatWarnsUnresolvedSecret(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())                                   // empty config dir -> no secrets.yml
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -549,7 +565,7 @@ func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "chat", "--fresh", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--fresh", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -575,7 +591,7 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
@@ -602,7 +618,7 @@ func TestChatMalformedSecretsFileAborts(t *testing.T) {
 	}
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "chat", "--kit-dir", kitDir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatalf("malformed secrets.yml should abort; out=%q", out.String())
 	}
@@ -637,8 +653,10 @@ func TestSaveStateSnapshot(t *testing.T) {
 }
 
 func TestWorkRequiresInAndOut(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "--kit-dir", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 2 {
 		t.Fatalf("exit = %d; want 2 (missing --in/--out)", code)
 	}
@@ -649,26 +667,26 @@ func TestWorkRequiresInAndOut(t *testing.T) {
 	}
 }
 
-func TestWorkRejectsPositionalKitDir(t *testing.T) {
+func TestWorkRejectsPositionalProjectDir(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"work", "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 2 {
 		t.Fatalf("exit = %d; want 2 (stray positional)", code)
 	}
-	if !strings.Contains(errOut.String(), "--kit-dir") {
-		t.Fatalf("stderr = %q; want mention of --kit-dir", errOut.String())
+	if !strings.Contains(errOut.String(), "--project-dir") {
+		t.Fatalf("stderr = %q; want mention of --project-dir", errOut.String())
 	}
 }
 
 // --reap must not require --in/--out: it only scavenges labeled orphans.
 func TestWorkReapDoesNotRequireInOut(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	// preflight `docker info` is a Probe (no Output consumed); `docker ps` is the
 	// one Output call ScavengeLabeled makes (empty => no orphans to remove).
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: ""}}}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "--kit-dir", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--project-dir", dir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d; want 0, stderr=%s", code, errOut.String())
 	}
@@ -676,7 +694,7 @@ func TestWorkReapDoesNotRequireInOut(t *testing.T) {
 
 func TestWorkRequiresWorkers(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir) // no workers declared
+	writeKit(t, dir) // no workers declared
 	inFile := filepath.Join(dir, "in.json")
 	outFile := filepath.Join(dir, "out.json")
 	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
@@ -684,7 +702,7 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (no workers)", code)
 	}
@@ -754,7 +772,7 @@ func TestWorkFailsClosedWhenWorkerBearerUnresolved(t *testing.T) {
 	outFile := filepath.Join(dir, "out.json")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
 		t.Fatalf("expected non-zero exit when the worker bearer is unresolved")
 	}
@@ -803,12 +821,131 @@ func TestWorkResolvesWorkerBearerFromWorkerBucket(t *testing.T) {
 	outFile := filepath.Join(dir, "out.json")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") {
 		t.Fatalf("resolved worker bearer must not trip the fail-closed gate; stderr=%q code=%d", errOut.String(), code)
 	}
 	if dockerArg0Index(f.Calls, "run") == -1 {
 		t.Fatalf("expected the gate to clear and dispatch to reach the VM; calls=%+v stderr=%q", f.Calls, errOut.String())
+	}
+}
+
+// workerAPIKeyBearerKitConfig is a dispatch-ready worker kit whose worker
+// bucket declares ONLY ANTHROPIC_API_KEY — the alternate well-known bearer
+// name (config validation accepts either it or ANTHROPIC_AUTH_TOKEN as the
+// worker-bucket bearer, and rejects both at the kit root). It is otherwise
+// identical to workerBearerKitConfig so the gate is exercised on the API-key
+// name alone.
+const workerAPIKeyBearerKitConfig = `name: box
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement:
+    prompt: "impl"
+    timeout: 30m
+    secrets:
+      ANTHROPIC_API_KEY: {}
+`
+
+// TestWorkAcceptsAnthropicAPIKeyAsBearer guards COV-28: a worker kit that
+// declares ONLY ANTHROPIC_API_KEY (with a supply) must pass the fail-closed
+// bearer gate and proceed to dispatch, rather than being hard-failed pre-VM for
+// a missing ANTHROPIC_AUTH_TOKEN.
+func TestWorkAcceptsAnthropicAPIKeyAsBearer(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerAPIKeyBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	// Supply BOTH the API-key bearer and the git token so neither gate aborts:
+	// the run must clear the gate and reach dispatch.
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    ANTHROPIC_API_KEY: { value: \"sk-ant-api-test\" }\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	// The bearer gate must NOT have fired: its message names the 401 it prevents.
+	if strings.Contains(errOut.String(), "401") {
+		t.Fatalf("bearer gate must accept ANTHROPIC_API_KEY, not fail closed; got %q", errOut.String())
+	}
+	// Proof we cleared the gate: dispatch reached the VM.
+	if dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("expected the gate to clear and dispatch to reach the VM; code=%d calls=%+v stderr=%q", code, f.Calls, errOut.String())
+	}
+}
+
+// workerNoBearerKitConfig is a dispatch-ready worker kit whose worker bucket
+// declares NEITHER well-known bearer name — only the required git token lives
+// on the kit. The fail-closed gate must still abort pre-VM.
+const workerNoBearerKitConfig = `name: box
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement: { prompt: "impl", timeout: 30m }
+`
+
+// TestWorkFailsClosedWhenNoBearerDeclared guards COV-28's other half: a worker
+// that declares neither ANTHROPIC_AUTH_TOKEN nor ANTHROPIC_API_KEY must still
+// fail closed before any VM, and the attribution must name BOTH bearer names it
+// looked for so the operator knows either would satisfy the gate.
+func TestWorkFailsClosedWhenNoBearerDeclared(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerNoBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when no agent bearer is declared")
+	}
+	if !strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") || !strings.Contains(errOut.String(), "ANTHROPIC_API_KEY") {
+		t.Fatalf("stderr must name both bearer names the gate looked for; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "fail") {
+		t.Fatalf("stderr must read as a fail-closed message; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "box") {
+		t.Fatalf("stderr must name the kit; got %q", errOut.String())
+	}
+	for _, c := range f.Calls {
+		if c.Name == "ssh" {
+			t.Fatalf("must abort before any SSH step; calls=%+v", f.Calls)
+		}
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("must abort before running the work VM; calls=%+v", f.Calls)
 	}
 }
 
@@ -832,7 +969,7 @@ func TestDryRunWorkPrintsNoExec(t *testing.T) {
 	outFile := filepath.Join(dir, "out.json")
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "work", "--kit-dir", cove, "--in", inFile, "--out", outFile},
+	code := run([]string{"--dry-run", "work", "--project-dir", dir, "--in", inFile, "--out", outFile},
 		f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
@@ -853,10 +990,10 @@ func TestDryRunWorkPrintsNoExec(t *testing.T) {
 // not call Reap (no ScavengeLabeled == no Output call on the fake).
 func TestDryRunWorkReapPrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	kitDir := writeKit(t, dir)
+	writeKit(t, dir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--dry-run", "work", "--kit-dir", kitDir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"--dry-run", "work", "--project-dir", dir, "--reap"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
@@ -891,12 +1028,16 @@ workers:
   implement: { prompt: "impl", timeout: 30m }
 `
 
-// writeDispatchKit writes body as a kit config.yml into a temp dir and returns
-// the dir (suitable as the `dispatch` positional kit-dir).
+// writeDispatchKit writes body as a kit config.yml under a temp project root's
+// .at-cove/ and returns the project root (suitable as `dispatch --project-dir`).
 func writeDispatchKit(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(body), 0o600); err != nil {
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -917,7 +1058,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 	}
 	dir := writeDispatchKit(t, dispatchGoodConfig)
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
@@ -931,7 +1072,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 func TestDispatchRejectsBadConfig(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\nworkers:\n  implement: { prompt: \"impl\", timeout: 30m }\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}
@@ -945,7 +1086,7 @@ func TestDispatchRejectsBadConfig(t *testing.T) {
 func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\n")
 	var out, errOut bytes.Buffer
-	code := run([]string{"dispatch", "--kit-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("exit = %d; want 1 (stderr: %q)", code, errOut.String())
 	}

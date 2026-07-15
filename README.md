@@ -84,10 +84,10 @@ so no Docker, network, or live VM is required.
 ## Status
 
 The `build` / `create` / `chat` / `recreate` / `destroy` / `status` surface
-and the Colima backend are implemented. Every command's kit directory is a
-uniform `--kit-dir` flag (default: cwd walk-up); there is no positional
-kit-dir. `chat` additionally selects an optional `collaborators:` class
-(see `docs/OVERVIEW.md`).
+and the Colima backend are implemented. Every command's project root is a
+uniform `--project-dir` flag (its `.at-cove/` is the kit; default: cwd walk-up);
+there is no positional project-dir. `chat` additionally selects an optional
+`collaborators:` class (see `docs/OVERVIEW.md`).
 The Firecracker and Fly backends, the `.local/` override layer, and declarative repo cloning
 are designed but deferred — see the specs.
 
