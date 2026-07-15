@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -142,7 +141,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				return doWork(args, r, g.DryRun, out, errw)
 			}},
 			{Name: "dispatch", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return doDispatch(args, out, errw)
+				return doDispatch(args, g, out, errw)
 			}},
 		},
 	}
@@ -759,7 +758,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 // tracker API token on the host, connects to the tracker, and runs the poll →
 // dispatch → broker loop until SIGINT/SIGTERM. Each ready issue is dispatched as
 // a fresh `at-cove work` run (see internal/dispatch/scheduler).
-func doDispatch(args []string, stdout, stderr io.Writer) int {
+func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	kd := kitDirFlag(fs)
@@ -821,13 +820,29 @@ func doDispatch(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
 		return 1
 	}
-	logger := log.New(stderr, "at-cove dispatch ", log.LstdFlags)
-	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), logger)
+	logFile := ""
+	if !g.NoLogFile {
+		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-dispatch.jsonl")
+	}
+	lg, err := logging.New(logging.Options{
+		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Stderr:   stderr,
+		FilePath: logFile,
+		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	defer lg.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Printf("scheduler started (poll %s); Ctrl-C to stop", cfg.Tracker.Linear.PollInterval)
+	ctx = logging.Into(ctx, lg)
+
+	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), lg)
+	lg.Info("scheduler started", slog.String("poll", cfg.Tracker.Linear.PollInterval))
 	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
-	logger.Printf("scheduler stopped")
+	lg.Info("scheduler stopped")
 	return 0
 }

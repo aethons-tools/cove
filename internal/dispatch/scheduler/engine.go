@@ -2,9 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 )
 
 // Engine polls a Tracker and dispatches ready autonomous work.
@@ -21,15 +24,24 @@ type Engine struct {
 	kitDir  string
 	tracker Tracker
 	exec    Executor
-	log     *log.Logger
+	log     *logging.Logger
 
 	gsem chan struct{}            // global concurrency
 	csem map[string]chan struct{} // per-class concurrency (nil entry = no cap)
 	wg   sync.WaitGroup
 }
 
+// runID mints a per-dispatch correlation id: run_<issue-identifier>_<4 hex
+// chars>. It's attached to every log line for one dispatch so a failed run
+// is grep-able out of interleaved concurrent dispatches.
+func runID(identifier string) string {
+	var b [2]byte
+	_, _ = rand.Read(b[:]) // crypto/rand
+	return "run_" + identifier + "_" + hex.EncodeToString(b[:])
+}
+
 // New builds an Engine.
-func New(cfg kit.Config, kitDir string, t Tracker, e Executor, logger *log.Logger) *Engine {
+func New(cfg kit.Config, kitDir string, t Tracker, e Executor, lg *logging.Logger) *Engine {
 	gcap := 1
 	if cfg.Dispatch != nil && cfg.Dispatch.Concurrency > 0 {
 		gcap = cfg.Dispatch.Concurrency
@@ -45,15 +57,23 @@ func New(cfg kit.Config, kitDir string, t Tracker, e Executor, logger *log.Logge
 		}
 	}
 	return &Engine{
-		cfg: cfg, kitDir: kitDir, tracker: t, exec: e, log: logger,
+		cfg: cfg, kitDir: kitDir, tracker: t, exec: e, log: lg,
 		gsem: make(chan struct{}, gcap), csem: csem,
 	}
 }
 
 // handle runs one issue synchronously: claim → brief → at-cove work → broker.
+// Every log line for this dispatch carries a run id plus the issue/class it's
+// working, and a step attr naming the phase, so one dispatch's logs are
+// grep-able out of interleaved concurrent dispatches.
 func (e *Engine) handle(ctx context.Context, iss Issue) {
+	dl := e.log.With(
+		slog.String("run", runID(iss.Identifier)),
+		slog.String("issue", iss.Identifier),
+		slog.String("class", iss.Class),
+	)
 	if err := e.tracker.Transition(ctx, iss.ID, RoleInProgress); err != nil {
-		e.log.Printf("claim %s: %v", iss.Identifier, err)
+		dl.Error("claim failed", slog.String("step", "claim"), slog.Any("err", err))
 		return
 	}
 	rw, err := e.cfg.ResolvedWorker(iss.Class)
@@ -63,13 +83,13 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 
 	comments, err := e.tracker.Comments(ctx, iss.ID)
 	if err != nil {
-		e.log.Printf("comments %s: %v (continuing with none)", iss.Identifier, err)
+		dl.Warn("no comments; continuing", slog.String("step", "brief"), slog.Any("err", err))
 	}
 	brief := assembleBrief(iss, comments)
 
 	dir, err := os.MkdirTemp("", "at-cove-dispatch-")
 	if err != nil {
-		e.broker(ctx, iss, errorResult(fmt.Errorf("tempdir: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("tempdir: %w", err)), nil, dl)
 		return
 	}
 	defer os.RemoveAll(dir)
@@ -86,11 +106,11 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	}
 	data, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
-		e.broker(ctx, iss, errorResult(fmt.Errorf("marshal task: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("marshal task: %w", err)), nil, dl)
 		return
 	}
 	if err := os.WriteFile(inPath, data, 0o600); err != nil {
-		e.broker(ctx, iss, errorResult(fmt.Errorf("write task: %w", err)), nil)
+		e.broker(ctx, iss, errorResult(fmt.Errorf("write task: %w", err)), nil, dl)
 		return
 	}
 
@@ -102,36 +122,39 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
 	argv := []string{"at-cove", "work", "--kit-dir", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
-	e.log.Printf("dispatch %s: exec %s", iss.Identifier, strings.Join(argv, " "))
+	dl.Info("dispatching work", slog.String("step", "dispatch"), slog.String("argv", strings.Join(argv, " ")))
 	runErr := e.exec.Run(rctx, argv, nil)
 
-	e.broker(ctx, iss, readResult(outPath), runErr)
+	e.broker(ctx, iss, readResult(outPath), runErr, dl)
 }
 
 // broker performs the tracker writes for one dispatch result. Single writer.
-func (e *Engine) broker(ctx context.Context, iss Issue, tr worker.TaskResult, runErr error) {
+// lg is the caller's logger (the per-dispatch dl from handle, or the
+// engine-level e.log for the tick panic-recovery path where no dispatch-scoped
+// logger is in scope).
+func (e *Engine) broker(ctx context.Context, iss Issue, tr worker.TaskResult, runErr error, lg *logging.Logger) {
 	variant, _ := tr.Status.ActiveTask()
 	switch {
 	case runErr == nil && variant == "ok":
-		e.post(ctx, iss, okComment(tr))
-		e.transition(ctx, iss, RoleInReview)
+		e.post(ctx, iss, okComment(tr), lg)
+		e.transition(ctx, iss, RoleInReview, lg)
 	case variant == "needs-input":
-		e.post(ctx, iss, needsInputComment(tr))
-		e.transition(ctx, iss, RoleNeedsInput)
+		e.post(ctx, iss, needsInputComment(tr), lg)
+		e.transition(ctx, iss, RoleNeedsInput, lg)
 	default:
-		e.post(ctx, iss, errorComment(tr, runErr))
-		e.transition(ctx, iss, RoleNeedsInput)
+		e.post(ctx, iss, errorComment(tr, runErr), lg)
+		e.transition(ctx, iss, RoleNeedsInput, lg)
 	}
 }
 
-func (e *Engine) transition(ctx context.Context, iss Issue, r Role) {
+func (e *Engine) transition(ctx context.Context, iss Issue, r Role, lg *logging.Logger) {
 	if err := e.tracker.Transition(ctx, iss.ID, r); err != nil {
-		e.log.Printf("transition %s -> %d: %v", iss.Identifier, r, err)
+		lg.Error("transition failed", slog.String("step", "broker"), slog.Int("role", int(r)), slog.Any("err", err))
 	}
 }
-func (e *Engine) post(ctx context.Context, iss Issue, body string) {
+func (e *Engine) post(ctx context.Context, iss Issue, body string, lg *logging.Logger) {
 	if err := e.tracker.PostComment(ctx, iss.ID, body); err != nil {
-		e.log.Printf("comment %s: %v", iss.Identifier, err)
+		lg.Error("post comment failed", slog.String("step", "broker"), slog.Any("err", err))
 	}
 }
 
@@ -194,18 +217,18 @@ func (e *Engine) Run(ctx context.Context) error {
 // autonomous issues up to the concurrency caps.
 func (e *Engine) tick(ctx context.Context) {
 	if unb, err := e.tracker.ListUnblockable(ctx); err != nil {
-		e.log.Printf("list unblockable: %v", err)
+		e.log.Error("list unblockable failed", slog.Any("err", err))
 	} else {
 		for _, iss := range unb {
 			if err := e.tracker.Transition(ctx, iss.ID, RoleReady); err != nil {
-				e.log.Printf("unblock %s: %v", iss.Identifier, err)
+				e.log.Error("unblock failed", slog.String("issue", iss.Identifier), slog.Any("err", err))
 			}
 		}
 	}
 
 	ready, err := e.tracker.ListReady(ctx)
 	if err != nil {
-		e.log.Printf("list ready: %v", err)
+		e.log.Error("list ready failed", slog.Any("err", err))
 		return
 	}
 	for _, iss := range ready {
@@ -222,9 +245,9 @@ func (e *Engine) tick(ctx context.Context) {
 			defer e.release(iss.Class)
 			defer func() {
 				if r := recover(); r != nil {
-					e.log.Printf("panic handling %s: %v", iss.Identifier, r)
+					e.log.Error("panic handling issue", slog.String("issue", iss.Identifier), slog.Any("err", r))
 					// best-effort: park the issue for a human rather than crash the loop
-					e.transition(context.Background(), iss, RoleNeedsInput)
+					e.transition(context.Background(), iss, RoleNeedsInput, e.log)
 				}
 			}()
 			e.handle(ctx, iss)

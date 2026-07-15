@@ -5,12 +5,23 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 )
+
+// newTestLogger builds a buffer-backed *logging.Logger for tests: Unattended
+// mode so every record is a single JSON line, easy to substring-match.
+func newTestLogger(w io.Writer) *logging.Logger {
+	lg, err := logging.New(logging.Options{Mode: logging.Unattended, Stderr: w, Level: slog.LevelInfo})
+	if err != nil {
+		panic(err) // buffer-backed; New only errors on file-sink setup
+	}
+	return lg
+}
 
 func testConfig() kit.Config {
 	return kit.Config{
@@ -23,7 +34,7 @@ func testConfig() kit.Config {
 // newEngine builds an Engine against an explicit config (for tests that need to
 // tweak concurrency, poll-interval, etc).
 func newEngine(cfg kit.Config, tr Tracker, ex Executor) *Engine {
-	return New(cfg, "/kits/implement", tr, ex, log.New(io.Discard, "", 0))
+	return New(cfg, "/kits/implement", tr, ex, newTestLogger(io.Discard))
 }
 
 // newTestEngine builds an Engine against the default testConfig() (an autonomous
@@ -96,10 +107,34 @@ func TestHandleLogsExecArgv(t *testing.T) {
 	var logs bytes.Buffer
 	tr := newFakeTracker()
 	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
-	eng := New(testConfig(), "/kits/implement", tr, ex, log.New(&logs, "", 0))
+	eng := New(testConfig(), "/kits/implement", tr, ex, newTestLogger(&logs))
 	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
-	if !strings.Contains(logs.String(), "at-cove work --kit-dir /kits/implement") {
-		t.Fatalf("expected the exec argv to be logged; got: %q", logs.String())
+	if !strings.Contains(logs.String(), `"argv":"at-cove work --kit-dir /kits/implement`) {
+		t.Fatalf("expected the exec argv to be logged as a structured field; got: %q", logs.String())
+	}
+}
+
+// The scheduler must correlate every log line from one dispatch with a run
+// id and the issue/class it's working, and tag the phase it's in with a
+// "step" attr — so a failed run is diagnosable by grepping one run id out of
+// interleaved concurrent dispatches.
+func TestHandleLogsRunAndStepAttrs(t *testing.T) {
+	var buf bytes.Buffer
+	lg := newTestLogger(&buf)
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := New(testConfig(), "/kits/implement", tr, ex, lg)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+
+	s := buf.String()
+	if !strings.Contains(s, `"issue":"AET-9"`) || !strings.Contains(s, `"class":"implement"`) {
+		t.Fatalf("expected issue/class attrs on dispatch logs; got %q", s)
+	}
+	if !strings.Contains(s, `"run":"run_AET-9`) {
+		t.Fatalf("expected a run id attr; got %q", s)
+	}
+	if !strings.Contains(s, `"step":"dispatch"`) {
+		t.Fatalf("expected a step attr on the exec log; got %q", s)
 	}
 }
 

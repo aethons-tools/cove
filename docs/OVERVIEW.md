@@ -117,9 +117,16 @@ command name; each command only accepts its own flags.
 Three more global flags (also before the subcommand) configure structured
 logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
 `--log-level debug|info|warn|error` (default `info`), and `--no-log-file`
-(disable the JSON debug-level log file). As of this writing they are parsed
-into `cli.Globals` but not yet consumed — `dispatch` and `work` will wire them
-into a per-run `internal/logging` logger (see
+(suppress the attended-mode log file). They're parsed into `cli.Globals`;
+`dispatch` wires them into a per-run `internal/logging` logger. In **attended**
+(TTY) mode the logger writes human-friendly text to stderr **and** a JSON
+debug-level file at `<kit-dir>/.state/logs/at-cove-dispatch.jsonl` (unless
+`--no-log-file`). In **unattended** (headless / non-TTY) mode — the normal way
+`dispatch` runs as a service — it writes JSON to stderr only, with no file; the
+platform capturing stderr is the log sink. Each
+dispatched issue's log lines carry a `run` id and `issue`/`class`/`step`
+attrs, so one dispatch's logs are grep-able out of interleaved concurrent
+dispatches. `work` does not yet consume these flags (see
 [`docs/superpowers/specs/2026-07-15-structured-logging-design.md`](superpowers/specs/2026-07-15-structured-logging-design.md)).
 
 ### The `chat` command and collaborator sessions

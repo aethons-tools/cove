@@ -80,6 +80,22 @@ func New(o Options) (*Logger, error) {
 	return &Logger{Logger: lg, sink: sink, human: o.Stderr, mode: mode, closer: closer}, nil
 }
 
+// With returns a child Logger with attrs bound to both the tee logger (the
+// embedded *slog.Logger, used for human/JSON output) and the structured-only
+// sink (used by UserError etc). mode/human/closer are copied unchanged — the
+// child is a view onto the same destinations, not an independently closable
+// Logger; only the top-level Logger returned by New should be Close()d.
+func (l *Logger) With(attrs ...slog.Attr) *Logger {
+	as := make([]any, 0, len(attrs))
+	for _, a := range attrs {
+		as = append(as, a)
+	}
+	child := *l
+	child.Logger = l.Logger.With(as...)
+	child.sink = l.sink.With(as...)
+	return &child
+}
+
 func (l *Logger) Close() error {
 	if l.closer != nil {
 		return l.closer.Close()
