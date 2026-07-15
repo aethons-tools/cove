@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
+	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -590,6 +592,15 @@ func workName(kitName string) string {
 	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
 }
 
+// keysOf returns a kit secrets map's demanded names, for store.Plan.
+func keysOf(secrets map[string]kit.SecretConfig) []string {
+	names := make([]string, 0, len(secrets))
+	for name := range secrets {
+		names = append(names, name)
+	}
+	return names
+}
+
 // planRequired resolves one required demand for a kit through the supply store.
 // It errors, naming the secret and the secrets files, if nothing supplies it.
 func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, name, secretsPath string) (secret.Spec, error) {
@@ -608,11 +619,13 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
 // crashed dispatch orphans). It registers the --kit-dir flag itself (rather
 // than through the shared single-kit-dir resolution in run(), which does not
-// know about these flags), assembles the build context and resolves secrets
-// exactly as `create`/`chat` do, then hands off to dispatchrun. With dryRun
-// it prints the planned actions and returns before touching the backend,
-// assembling, or resolving any secret — mirroring doBuild/doCreate's dry-run
-// convention.
+// know about these flags), assembles the build context, reads the dispatched
+// task's worker class from --in to resolve that class's worker secret bucket
+// (Config.ResolvedWorker), and plans both the root (shared, all steps) and
+// worker (agent-step only) secret sets — as create/chat do for the root set —
+// then hands off to dispatchrun. With dryRun it prints the planned actions and
+// returns before touching the backend, assembling, or resolving any secret —
+// mirroring doBuild/doCreate's dry-run convention.
 func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -700,11 +713,27 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 1
 	}
 	kitPath := canonicalKitPath(kitDir)
-	// General (agent-injected) secrets: demand names from the kit; unresolved warn.
-	demanded := make([]string, 0, len(cfg.Secrets))
-	for name := range cfg.Secrets {
-		demanded = append(demanded, name)
+
+	// Read the dispatched task's worker class up front: the gate below and the
+	// worker secret bucket both need it, and dispatchrun.Dispatch re-reads --in
+	// itself later for the actual bracket — this earlier read only determines
+	// which worker bucket to plan and gate on.
+	taskBytes, err := os.ReadFile(*inPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
 	}
+	var task worker.Task
+	if err := json.Unmarshal(taskBytes, &task); err != nil {
+		fmt.Fprintf(stderr, "at-cove: parse task: %v\n", err)
+		return 1
+	}
+	rw, err := cfg.ResolvedWorker(task.Worker.Class)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+
 	// A github minter scopes its token to the kit's repo, passed to at-mint as the
 	// non-secret --repo flag.
 	repo := ""
@@ -712,12 +741,25 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		repo = cfg.SourceControl.GitHub.Project
 	}
 	expand := mint.Expander(r, store.Global, repo)
-	specs, unresolved, err := store.Plan(cfg.Name, kitPath, demanded, expand)
+
+	// Two demand sets: root (shared, all steps) and the dispatched class's
+	// worker bucket (agent-step only) — see internal/dispatchrun.Options.
+	rootDemanded := keysOf(cfg.Secrets)
+	rootSpecs, rootUnresolved, err := store.Plan(cfg.Name, kitPath, rootDemanded, expand)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
-	for _, name := range unresolved {
+	for _, name := range rootUnresolved {
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
+	}
+	workerDemanded := keysOf(rw.Secrets)
+	workerSpecs, workerUnresolved, err := store.Plan(cfg.Name, kitPath, workerDemanded, expand)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	for _, name := range workerUnresolved {
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
 
@@ -725,11 +767,14 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	// The dispatched agent cannot authenticate without its bearer; a keyless
 	// worker is a guaranteed 401. Fail closed with attribution (like the
 	// git/tracker well-known secrets below) rather than launch a doomed VM.
+	// The bearer lives in the worker-class bucket (config validation rejects it
+	// at root — see rejectRootBearers), so the gate checks rw.Secrets/
+	// workerUnresolved rather than cfg.Secrets/rootUnresolved.
 	bearerUnresolved := false
-	if _, declared := cfg.Secrets[agentBearerSecret]; !declared {
+	if _, declared := rw.Secrets[agentBearerSecret]; !declared {
 		bearerUnresolved = true
 	} else {
-		for _, name := range unresolved {
+		for _, name := range workerUnresolved {
 			if name == agentBearerSecret {
 				bearerUnresolved = true
 				break
@@ -772,8 +817,9 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
-		Secrets:  specs,
-		GitToken: gitTok,
+		Secrets:       rootSpecs,
+		WorkerSecrets: workerSpecs,
+		GitToken:      gitTok,
 		// A dispatched worker authenticates to Anthropic via an injected
 		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
 		// So we deliberately do not seed credentials.json: with no OAuth token to

@@ -693,34 +693,43 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 }
 
-// workerBearerKitConfig is a complete, dispatch-ready worker kit whose root
-// `secrets:` declares ANTHROPIC_AUTH_TOKEN (the agent's Anthropic bearer)
-// alongside the required source-control.github AT_TASK_GIT_TOKEN demand and a
-// worker class — everything doWork needs to reach the secret-resolution
-// block. It deliberately supplies no secrets.yml entry for
-// ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved. AT_TASK_GIT_TOKEN, by
-// contrast, is resolved cleanly by the test (see
-// TestWorkFailsClosedWhenAgentBearerUnresolved) so the bearer is the ONLY
+// workerBearerKitConfig is a complete, dispatch-ready worker kit whose
+// `implement` worker class declares ANTHROPIC_AUTH_TOKEN (the agent's
+// Anthropic bearer) under workers.implement.secrets — not at the root, which
+// kit.Load now rejects (see rejectRootBearers) — alongside the required
+// source-control.github AT_TASK_GIT_TOKEN demand. It deliberately supplies no
+// secrets.yml entry for ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved.
+// AT_TASK_GIT_TOKEN, by contrast, is resolved cleanly by the test (see
+// TestWorkFailsClosedWhenWorkerBearerUnresolved) so the bearer is the ONLY
 // unresolved secret — isolating the new gate from the pre-existing
 // planRequired fail-closed check on the git token.
 const workerBearerKitConfig = `name: box
-secrets:
-  ANTHROPIC_AUTH_TOKEN: {}
 source-control:
   github:
     project: your-org/your-repo
     secrets:
       AT_TASK_GIT_TOKEN: {}
 workers:
-  implement: { prompt: "impl", timeout: 30m }
+  implement:
+    prompt: "impl"
+    timeout: 30m
+    secrets:
+      ANTHROPIC_AUTH_TOKEN: {}
 `
 
-// TestWorkFailsClosedWhenAgentBearerUnresolved guards the motivating
+// implementTaskJSON dispatches to the "implement" worker class — the class
+// workerBearerKitConfig declares — so doWork resolves the matching worker
+// secret bucket (Config.ResolvedWorker reads worker.class from the task).
+const implementTaskJSON = `{"worker":{"class":"implement"}}`
+
+// TestWorkFailsClosedWhenWorkerBearerUnresolved guards the motivating
 // production bug: a dispatched worker with no ANTHROPIC_AUTH_TOKEN is a
 // guaranteed 401 once it reaches the agent inside the VM. doWork must fail
 // closed — naming the unresolved secret and the kit — before it ever
-// assembles/dispatches a VM, not warn-and-continue like a general secret.
-func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
+// assembles/dispatches a VM, not warn-and-continue like a general secret. The
+// bearer is now demanded under workers.<class>.secrets rather than the kit
+// root, so the gate must source from the resolved worker bucket.
+func TestWorkFailsClosedWhenWorkerBearerUnresolved(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(kitDir, 0o755); err != nil {
@@ -739,7 +748,7 @@ func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
 		t.Fatal(err)
 	}
 	inFile := filepath.Join(dir, "in.json")
-	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	outFile := filepath.Join(dir, "out.json")
@@ -747,7 +756,7 @@ func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
-		t.Fatalf("expected non-zero exit when the agent bearer is unresolved")
+		t.Fatalf("expected non-zero exit when the worker bearer is unresolved")
 	}
 	if !strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") {
 		t.Fatalf("stderr must name the unresolved bearer secret; got %q", errOut.String())
@@ -765,6 +774,41 @@ func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
 	}
 	if dockerArg0Index(f.Calls, "run") != -1 {
 		t.Fatalf("must abort before running the work VM; calls=%+v", f.Calls)
+	}
+}
+
+// TestWorkResolvesWorkerBearerFromWorkerBucket is the positive counterpart:
+// when ANTHROPIC_AUTH_TOKEN is supplied for the dispatched class's worker
+// bucket (and AT_TASK_GIT_TOKEN besides), doWork must NOT fail closed — it
+// should clear the gate and proceed into dispatchrun.Dispatch (which then
+// runs the real ssh/docker steps against the fake runner).
+func TestWorkResolvesWorkerBearerFromWorkerBucket(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n    ANTHROPIC_AUTH_TOKEN: { value: \"sk-ant-test\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("resolved worker bearer must not trip the fail-closed gate; stderr=%q code=%d", errOut.String(), code)
+	}
+	if dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("expected the gate to clear and dispatch to reach the VM; calls=%+v stderr=%q", f.Calls, errOut.String())
 	}
 }
 
