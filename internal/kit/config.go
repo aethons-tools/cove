@@ -52,9 +52,10 @@ const commonKey = "<common>"
 // agent (own-only, required) plus scheduling attrs that may be inherited from the
 // workers <common> base.
 type Worker struct {
-	Prompt      string `yaml:"prompt,omitempty"`
-	Timeout     string `yaml:"timeout,omitempty"` // Go duration
-	Concurrency int    `yaml:"concurrency,omitempty"`
+	Prompt      string                  `yaml:"prompt,omitempty"`
+	Timeout     string                  `yaml:"timeout,omitempty"` // Go duration
+	Concurrency int                     `yaml:"concurrency,omitempty"`
+	Secrets     map[string]SecretConfig `yaml:"secrets,omitempty"`
 }
 
 // ResolvedWorker returns the named worker with the workers <common> base merged
@@ -75,6 +76,14 @@ func (c Config) ResolvedWorker(class string) (Worker, error) {
 	if own.Concurrency == 0 {
 		own.Concurrency = base.Concurrency
 	}
+	merged := map[string]SecretConfig{}
+	for k, v := range base.Secrets {
+		merged[k] = v
+	}
+	for k, v := range own.Secrets {
+		merged[k] = v
+	}
+	own.Secrets = merged
 	return own, nil
 }
 
@@ -310,6 +319,9 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		if w.Concurrency < 0 {
 			return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency must be >= 0", class)
+		}
+		if err := rejectReservedSecretNames(fmt.Sprintf("workers[%q].secrets", class), w.Secrets); err != nil {
+			return Config{}, err
 		}
 	}
 	if cfg.SourceControl != nil {

@@ -259,6 +259,30 @@ workers:
 	}
 }
 
+func TestResolvedWorkerMergesCommonSecrets(t *testing.T) {
+	cfg := Config{Name: "k", Workers: map[string]Worker{
+		commonKey:     {Secrets: map[string]SecretConfig{"ANTHROPIC_AUTH_TOKEN": {}, "SHARED": {}}},
+		"implementor": {Prompt: "impl", Secrets: map[string]SecretConfig{"SHARED": {Description: "own wins"}}},
+	}}
+	w, err := cfg.ResolvedWorker("implementor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.Secrets["ANTHROPIC_AUTH_TOKEN"]; !ok {
+		t.Fatal("class must inherit <common> worker secret")
+	}
+	if w.Secrets["SHARED"].Description != "own wins" {
+		t.Fatalf("own secret must override <common>; got %+v", w.Secrets["SHARED"])
+	}
+}
+
+func TestWorkerBucketRejectsReservedName(t *testing.T) {
+	yml := "name: k\nworkers:\n  implementor:\n    prompt: p\n    timeout: 30m\n    secrets:\n      AT_TASK_GIT_TOKEN: {}\n"
+	if _, err := ParseConfig([]byte(yml)); err == nil {
+		t.Fatal("a reserved subsystem name under workers.secrets must be rejected")
+	}
+}
+
 func TestParseConfigRejectsUnknownAngleKey(t *testing.T) {
 	src := "name: k\nworkers:\n  <bogus>:\n    timeout: 30m\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
