@@ -53,10 +53,11 @@ type Options struct {
 	R               runner.Runner
 	Cfg             kit.Config
 	BuildDir        string
-	Name            string // unique container name
-	Secrets         []secret.Spec
-	GitToken        secret.Spec // code-host token; withheld from the agent step
-	CredentialsFile string      // host-saved agent login to seed; "" = none
+	Name            string        // unique container name
+	Secrets         []secret.Spec // root (shared) secrets — resolved up front, all steps
+	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
+	GitToken        secret.Spec   // code-host token; withheld from the agent step
+	CredentialsFile string        // host-saved agent login to seed; "" = none
 	IdentityFile    string
 	KnownHostsDir   string
 	InputPath       string
@@ -187,12 +188,30 @@ func Dispatch(o Options) error {
 	if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 		return err
 	}
+	// Resolve the worker-class bucket now — immediately before the agent runs —
+	// so a freshly minted bearer's TTL only has to cover the agent's own run
+	// (the build/prepare overhead is already spent). It is merged only into the
+	// agent env; the git steps never carry it.
+	agentEnv := base
+	if len(o.WorkerSecrets) > 0 {
+		ws, err := secret.Resolve(o.R, runEnv, o.WorkerSecrets)
+		if err != nil {
+			return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("resolve worker secrets: %w", err))
+		}
+		agentEnv = make(map[string]string, len(base)+len(ws))
+		for k, v := range base {
+			agentEnv[k] = v
+		}
+		for k, v := range ws {
+			agentEnv[k] = v
+		}
+	}
 	// Tee the agent's combined output to a VM-local file: it still streams live to
 	// the host, and at-task complete reads it back as the "Agent did not respond"
 	// detail when the agent leaves no worker-result (e.g. an auth 401).
 	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\" 2>&1 | tee %s",
 		shellQuote(promptVMPath), shellQuote(agentLogVMPath))
-	_ = runStep(o.R, tgt, base, agentCmd, o.Timeout) // agent: no token; failure tolerated
+	_ = runStep(o.R, tgt, agentEnv, agentCmd, o.Timeout) // agent: root + worker bucket; no git token
 	compEnv, err := mint()
 	if err != nil {
 		return fmt.Errorf("mint token for complete: %w", err)

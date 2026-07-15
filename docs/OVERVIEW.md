@@ -275,21 +275,33 @@ When the credentials finally expire, the probe fails and the login flow re-mints
 
 **Dispatched `work` → short-lived bearer.**
 A worker runs unattended, where a personal subscription is neither permitted nor
-practical, so its agent authenticates with an **`ANTHROPIC_AUTH_TOKEN`** — a
-short-lived bearer — declared as a root `secrets` *demand* and supplied
-machine-side (memory-only, like any secret; see
-[at-cove-secrets.md](usage/at-cove-secrets.md)). Unlike a general secret demand,
-an unresolved `ANTHROPIC_AUTH_TOKEN` is not a warn-and-continue: `at-cove work`
-**fails closed on the host**, before building or launching a VM, naming the
-secret and the kit — a keyless worker is a guaranteed 401, so at-cove refuses to
-build one rather than launch a doomed container. As a second, independent
-layer, at-cove also deliberately does **not** seed the OAuth `credentials.json`
-on the work path: with no OAuth token below the bearer in the precedence chain,
-a worker that somehow still launched keyless would fail closed *inside* the VM
-too, instead of silently falling back to — and burning — a subscription.
-Because `ANTHROPIC_AUTH_TOKEN` (env) outranks OAuth, declaring it makes *any*
-agent session on that kit use the bearer, so keep worker kits that declare it
-distinct from a kit you `chat` into on a personal subscription.
+practical, so its agent authenticates with a short-lived bearer —
+**`ANTHROPIC_AUTH_TOKEN`** or **`ANTHROPIC_API_KEY`** — declared under the
+dispatched class's `workers.<class>.secrets` (or `workers.<common>.secrets`)
+*demand* and supplied machine-side (memory-only, like any secret; see
+[at-cove-secrets.md](usage/at-cove-secrets.md)). It may **not** be declared at
+the kit root: the root `secrets` bucket is injected into `chat` too, where the
+env key would outrank the subscription OAuth login and disable the session's
+connectors, so `config.yml` rejects it there as a hard error — see
+[Migrating the worker bearer off the root bucket](usage/at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
+Because the worker bucket is resolved only on the `work`/`dispatch` path
+(agent-step only — see the [bucket-visibility
+table](usage/at-cove-config.md#secret-buckets)), this bearer never reaches a
+`chat` session by declaration alone, whatever else that kit's root `secrets`
+demands. Unlike a general secret demand, an unresolved `ANTHROPIC_AUTH_TOKEN`
+is not a warn-and-continue: `at-cove work` **fails closed on the host**,
+before building or launching a VM, naming the secret and the kit — a keyless
+worker is a guaranteed 401, so at-cove refuses to build one rather than
+launch a doomed container. This pre-flight gate is name-specific: it
+recognizes only `ANTHROPIC_AUTH_TOKEN`, and treats that name being absent as
+unresolved — so a class that declares only `ANTHROPIC_API_KEY` isn't
+gate-covered by that name, and still fails closed today (the gate sees no
+`ANTHROPIC_AUTH_TOKEN` at all) rather than being waved through. As a second,
+independent layer, at-cove also deliberately
+does **not** seed the OAuth `credentials.json` on the work path: with no OAuth
+token below the bearer in the precedence chain, a worker that somehow still
+launched keyless would fail closed *inside* the VM too, instead of silently
+falling back to — and burning — a subscription.
 
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
@@ -400,10 +412,15 @@ the `at-mint` binary (`github`/`anthropic` token minting via a secret's
 the `mint:` supply expansion — a `minters:` profile resolved through
 `at-mint` by name, end to end (see
 [at-cove-secrets.md](usage/at-cove-secrets.md#the-four-supply-sources)),
-and `chat` collaborator sessions — a `collaborators:` class selected by an
+`chat` collaborator sessions — a `collaborators:` class selected by an
 optional positional, its `prompt:` injected as role context and its
 `secrets:` resolved like the agent bucket (see
-[The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
+[The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)),
+and worker/collaborator secret segregation — a `workers.<class>.secrets`
+bucket (`<common>`-merged, work-only, resolved lazily right before the agent
+step) that a dispatched worker's Anthropic bearer must live in instead of the
+kit root, which `config.yml` now rejects as a hard error (see
+[Migrating the worker bearer off the root bucket](usage/at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket)).
 
 Designed but deferred (see the specs):
 the `image-files/.local/` override layer,
