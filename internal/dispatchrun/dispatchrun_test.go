@@ -209,6 +209,62 @@ func TestDispatchPassesRunParamsToResolvers(t *testing.T) {
 	}
 }
 
+// TestWorkerSecretsInjectedOnlyAtAgentStep confirms the worker-class secret
+// bucket (Options.WorkerSecrets) is resolved lazily and merged into the agent
+// step's env ONLY — root/shared secrets (Options.Secrets) still reach every
+// step, but the worker bucket must never reach prepare/complete.
+func TestWorkerSecretsInjectedOnlyAtAgentStep(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Secrets:       []secret.Spec{{Name: "SHARED", Value: "shared-secret-abc", Literal: true}},
+		WorkerSecrets: []secret.Spec{{Name: "ANTHROPIC_AUTH_TOKEN", Value: "worker-tok-xyz", Literal: true}},
+		BuildDir:      dir, Name: "disp-worker",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	// the env-file writes, in call order, are prepare / agent / complete. Values
+	// are shell-quoted in the written script (export KEY='value'), so match on
+	// the distinctive value/key substrings rather than a literal KEY=VALUE join.
+	var envWrites []string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+envVMPath) {
+			envWrites = append(envWrites, c.Stdin)
+		}
+	}
+	if len(envWrites) != 3 {
+		t.Fatalf("want 3 env-file writes (prepare/agent/complete); got %d", len(envWrites))
+	}
+	if strings.Contains(envWrites[0], "ANTHROPIC_AUTH_TOKEN") || strings.Contains(envWrites[0], "worker-tok-xyz") {
+		t.Fatal("worker secret must NOT reach the prepare step")
+	}
+	if !strings.Contains(envWrites[1], "ANTHROPIC_AUTH_TOKEN") || !strings.Contains(envWrites[1], "worker-tok-xyz") {
+		t.Fatal("worker secret must be in the agent step env")
+	}
+	if !strings.Contains(envWrites[1], "SHARED") || !strings.Contains(envWrites[1], "shared-secret-abc") {
+		t.Fatal("root shared secret must still reach the agent")
+	}
+	if strings.Contains(envWrites[2], "ANTHROPIC_AUTH_TOKEN") || strings.Contains(envWrites[2], "worker-tok-xyz") {
+		t.Fatal("worker secret must NOT reach the complete step")
+	}
+}
+
 // containsEnv reports whether env (a slice of "KEY=VALUE" strings) contains want.
 func containsEnv(env []string, want string) bool {
 	for _, v := range env {

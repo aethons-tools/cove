@@ -32,22 +32,6 @@ dispatch:
   concurrency: 1
   reaper-timeout: 45m
 
-# Root secrets are injected into the agent's VM env. This kit only DEMANDS
-# them (name + description) — every value is supplied machine-side, out of
-# source control, in ~/.config/at-cove/secrets.yml (see RUNBOOK.md). A
-# dispatched worker authenticates to Anthropic with a short-lived bearer,
-# ANTHROPIC_AUTH_TOKEN, NOT the interactive subscription OAuth login
-# (at-cove does not seed OAuth credentials on the work path, so a keyless
-# worker fails closed rather than silently falling back to — and burning —
-# a subscription).
-# NOTE: an interactive `connect` to this kit would also pick up this value
-# (an env-injected secret takes precedence over OAuth), so keep worker kits
-# that declare it distinct from any kit you connect to on a personal
-# subscription.
-secrets:
-  ANTHROPIC_AUTH_TOKEN:
-    description: short-lived Anthropic bearer for the worker agent (supplied machine-side)
-
 collaborators:
   triager:
     secrets:
@@ -64,10 +48,26 @@ image:
 
 # at-cove wraps each class below in the prepare -> agent -> complete bracket itself:
 # at-task prepare, then `claude -p "<prompt>"`, then at-task complete.
+#
+# Worker secrets are injected ONLY into the agent step of a dispatched run
+# (never into `chat`, never into the git steps). This kit only DEMANDS them
+# (name + description) — every value is supplied machine-side, out of source
+# control, in ~/.config/at-cove/secrets.yml (see RUNBOOK.md). A dispatched
+# worker authenticates to Anthropic with a short-lived bearer,
+# ANTHROPIC_AUTH_TOKEN, NOT the interactive subscription OAuth login (at-cove
+# does not seed OAuth credentials on the work path, so a keyless worker fails
+# closed rather than silently falling back to — and burning — a subscription).
+# It must NOT be declared under the root `secrets:` bucket: root secrets are
+# also injected into `chat` sessions, where this bearer would outrank the
+# subscription login and disable the session's connectors — config.yml
+# rejects it there with a migration note.
 workers:
   <common>:
     timeout: 30m
     concurrency: 1
+    secrets:
+      ANTHROPIC_AUTH_TOKEN:
+        description: short-lived Anthropic bearer for the worker agent (supplied machine-side)
   implement:
     prompt: |
       You are an implementer. Make the change described in the task and run the

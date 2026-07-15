@@ -144,3 +144,21 @@ failure occurred before the worker ran. Schema:
   }
 }
 ```
+
+### Example: The agent produced no result
+
+If the agent step exits without writing `.at-task/worker-result.json` (a crash,
+an OOM, or an auth failure such as an expired `ANTHROPIC_AUTH_TOKEN`), at-task
+reports `Agent did not respond`, and the `detail` carries the **tail of the
+agent step's captured combined output** (verbatim, not parsed) so the failure is
+self-explaining rather than a bare sentinel.
+```json
+{
+  "status": {
+    "error": {
+      "message": "Agent did not respond",
+      "detail": "Failed to authenticate. API Error: 401 Invalid authentication credentials"
+    }
+  }
+}
+```

@@ -10,7 +10,7 @@ updated: 2026-07-15
 # at-cove secrets
 
 A **secret** is an environment variable a sandbox needs (e.g. `AT_TASK_GIT_TOKEN`,
-`ANTHROPIC_AUTH_TOKEN`). The model is split cleanly in two:
+`GITHUB_TOKEN`). The model is split cleanly in two:
 
 - **The kit only *demands*.** `config.yml` names the secrets it needs and why. It
   never carries a command, a value, or any machine-specific identifier.
@@ -22,12 +22,27 @@ memory, and injected over SSH into a tmpfs file — never written to the kit, to
 disk, or onto any command line. See the
 [injection data flow](../OVERVIEW.md#secret-injection-the-chat-data-flow).
 
+## A demand's bucket is its trust boundary
+
+A kit declares secrets at one of **five schema locations** (the root `secrets`,
+`workers.<class>.secrets`, `collaborators.<class>.secrets`,
+`source-control.github.secrets`, `tracker.linear.secrets`), and *which* location
+a demand is declared at — not its name — determines who resolves it and which
+sandbox mode, if any, ever sees the value: the root bucket is injected into
+**both** `chat` and `work`/`dispatch`; `workers.<class>.secrets` is **work-only**
+(and, within a run, agent-step only — see
+[Precedence and fail-closed resolution](#precedence-and-fail-closed-resolution)
+below); `collaborators.<class>.secrets` is **chat-only**. The full matrix —
+every bucket, its resolver, and its `chat`/`work` visibility — is the single
+table in [at-cove-config.md § Secret buckets](at-cove-config.md#secret-buckets);
+this doc covers the supply side, which is identical across all five.
+
 ## Declaring a demand — `config.yml` `secrets`
 
 ```yaml
 secrets:
-  ANTHROPIC_AUTH_TOKEN:
-    description: short-lived Anthropic bearer for the worker agent
+  GITHUB_TOKEN:
+    description: private-repo git over HTTPS (interactive sessions)
 ```
 
 Each entry is **keyed by the environment variable name** (exported inside the
@@ -42,6 +57,10 @@ That's the whole schema — a demand is a name plus a description. There is no
 committed kit can never dictate *how* its secrets are produced, only *that* it
 needs them — this is what keeps kits portable and safe to run from an
 untrusted checkout (see [Security caveats](#security-caveats)).
+
+An Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) is the
+one demand that may not be declared in the root `secrets` bucket shown above —
+see [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket).
 
 ## Supplying a value — the two host files
 
@@ -131,17 +150,22 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
      *before* any VM is built or any SSH happens, naming the secret and the
      kit.
    - on the `work`/`dispatch` path specifically, the agent's Anthropic
-     bearer — under **either** well-known name, `ANTHROPIC_AUTH_TOKEN` **or**
-     `ANTHROPIC_API_KEY` — is required the same way: the gate passes when at
-     least one is declared *and* resolves, and **fails closed** (before
-     building or launching a VM, naming the bearer names it looked for and the
-     kit) only when neither does. A keyless worker is a guaranteed 401, so
-     `at-cove work` refuses to build a container that is certain to fail
-     authentication.
+     bearer — declared in the resolved worker class's `workers.<class>.secrets`
+     (or `workers.<common>.secrets`), under **either** well-known name,
+     `ANTHROPIC_AUTH_TOKEN` **or** `ANTHROPIC_API_KEY` — is required the same
+     way: the gate passes when at least one is declared *and* resolves, and
+     **fails closed** (before building or launching a VM, naming the bearer
+     names it looked for and the kit) only when neither does. A keyless worker
+     is a guaranteed 401, so `at-cove work` refuses to build a container that is
+     certain to fail authentication. See
+     [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket)
+     for why it lives in that bucket, not the root one.
    - any other **general / agent demand** instead
-     **warns to stderr and is left unset**; the run continues without it.
-     (This is still `chat`'s behavior for `ANTHROPIC_AUTH_TOKEN` — the
-     pre-flight fail-closed check above is `work`/`dispatch`-only.)
+     **warns to stderr and is left unset**; the run continues without it. This
+     includes the worker bearer on `chat`: since it can only be declared under
+     `workers.*.secrets` — a bucket `chat` never resolves at all — a `chat`
+     session simply never sees it, so there is no `chat`-side fail-closed case
+     for it to hit.
 
 ## The anti-mining invariant
 
@@ -161,6 +185,55 @@ explicitly wrote under `kits: <that kit>:` (by name or by path). This means:
   carries no command, no profile name, no identifier that could steer
   resolution — only the demand's name and description.
 
+## Migrating the worker bearer off the root bucket
+
+A dispatched **worker** authenticates to Anthropic with a short-lived bearer —
+either `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — declared under that
+worker class's `workers.<class>.secrets`, or the shared `workers.<common>.secrets`
+base (see [at-cove-config.md § workers](at-cove-config.md#workers)). It must
+**not** be declared in the root `secrets` bucket; `config.yml` rejects either
+name there as a hard parse error.
+
+**Why.** The root bucket is injected into *both* `chat` and
+`at-cove work`/`dispatch` (see [Secret buckets](at-cove-config.md#secret-buckets)).
+Claude Code picks its credential by env-driven precedence, and an injected
+bearer always outranks a subscription OAuth login. So a bearer declared at
+root would reach an interactive `chat` session too — silently switching that
+session off the human's own subscription and onto the bearer, and **disabling
+the session's claude.ai connectors** (GitHub/Linear), which only work under
+subscription OAuth. Requiring the bearer in the worker bucket — which `chat`
+never resolves at all (see [Secret buckets](at-cove-config.md#secret-buckets))
+— removes this failure mode structurally instead of relying on kit authors to
+remember to keep worker and chat kits distinct.
+
+**Migrating an existing kit** — move the entry from the root `secrets:` map
+into `workers.<common>.secrets` (shared by every class) or a specific
+`workers.<class>.secrets` (only that class):
+
+```yaml
+# before (root — now a hard parse error)
+secrets:
+  ANTHROPIC_AUTH_TOKEN:
+    description: short-lived Anthropic bearer for the worker agent
+
+# after
+workers:
+  <common>:
+    secrets:
+      ANTHROPIC_AUTH_TOKEN:
+        description: short-lived Anthropic bearer for the worker agent
+```
+
+The bucket is resolved **lazily** — immediately before the class's agent step,
+after `at-task prepare` has already succeeded — so a freshly minted bearer's
+TTL only has to cover the agent's own run; the value never reaches the git
+steps (`at-task prepare`/`complete`). `at-cove work` still fails closed on the
+host, before any VM is built, if the bearer ends up unresolved — see
+[Precedence and fail-closed resolution](#precedence-and-fail-closed-resolution)
+above. See also [Authentication](../OVERVIEW.md#authentication) for how this
+fits the two-layer fail-closed design (host pre-flight + no OAuth fallback
+inside the VM).
+
 ## Security caveats
 
 - **Host-execution vector.** A `command:` (in `secrets.yml`, `secrets.local.yml`,
@@ -168,16 +241,12 @@ explicitly wrote under `kits: <that kit>:` (by name or by path). This means:
   never smuggle in a resolver command of its own, since kit secrets carry no
   `command:` field at all. Still, only supply commands you trust running on
   your own machine.
-- **`ANTHROPIC_AUTH_TOKEN` selects the worker's auth path, and fails closed
-  twice over.** A dispatched **worker** authenticates to Anthropic with a
-  short-lived bearer, `ANTHROPIC_AUTH_TOKEN`, declared as a root secret. Two
-  independent layers refuse a keyless worker rather than let it fall back to
-  a subscription: `at-cove work` aborts on the *host*, before any VM is
-  built, if the bearer is unresolved (see "Precedence and fail-closed
-  resolution" above); and, should a worker somehow still launch keyless, the
-  work path does not seed OAuth `credentials.json` into the VM, so there is
-  no subscription to fall back to *inside* it either. Because the env key
-  outranks a subscription OAuth login, an interactive `chat` session on a kit
-  that declares it will use the bearer too — so keep worker kits that
-  declare it distinct from a kit you `chat` into on a personal subscription.
-  See [Authentication](../OVERVIEW.md#authentication).
+- **The worker bearer fails closed twice over.** Two independent layers
+  refuse a keyless worker rather than let it fall back to a subscription:
+  `at-cove work` aborts on the *host*, before any VM is built, if the bearer
+  is unresolved (see "Precedence and fail-closed resolution" above); and,
+  should a worker somehow still launch keyless, the work path does not seed
+  OAuth `credentials.json` into the VM, so there is no subscription to fall
+  back to *inside* it either. See
+  [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket)
+  for why the bearer must live in the worker bucket, not root.

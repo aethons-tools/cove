@@ -1,6 +1,10 @@
 package worker
 
-import "context"
+import (
+	"context"
+	"os"
+	"path/filepath"
+)
 
 // CodeHost opens (or finds) a pull request.
 type CodeHost interface {
@@ -16,7 +20,10 @@ func Complete(ctx context.Context, dir string, task Task, git Git, ch CodeHost) 
 		return taskErr(nil, "unreadable worker result", err.Error())
 	}
 	if !ok {
-		return taskErr(nil, "no worker result", "")
+		// The agent wrote no worker-result — it never responded (an auth 401, a
+		// crash, an OOM). Surface its captured output verbatim as the detail so the
+		// failure is self-explaining instead of a bare sentinel.
+		return taskErr(nil, "Agent did not respond", readAgentLog(dir))
 	}
 	variant, verr := wr.Status.Active()
 	if verr != nil {
@@ -85,4 +92,27 @@ func taskErr(raw any, msg, detail string) TaskResult {
 	tr := ErrorResult(msg, detail)
 	tr.WorkerResult = raw
 	return tr
+}
+
+// agentLogName is where the orchestrator (internal/dispatchrun) tees the agent
+// step's combined stdout+stderr. When the agent produced no worker result,
+// Complete surfaces this log verbatim as the failure detail so a silent agent
+// (e.g. an Anthropic auth 401) carries its own output.
+const agentLogName = "agent.log"
+
+// agentLogTailMax bounds how much of the (unparsed) agent log rides along as
+// detail — the tail, where the failure usually is.
+const agentLogTailMax = 4096
+
+// readAgentLog returns the tail of the captured agent output, or "" if none was
+// captured. It does not parse the output; it is surfaced as-is.
+func readAgentLog(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, taskSubdir, agentLogName))
+	if err != nil {
+		return ""
+	}
+	if len(b) > agentLogTailMax {
+		return "…(truncated)…\n" + string(b[len(b)-agentLogTailMax:])
+	}
+	return string(b)
 }

@@ -27,17 +27,20 @@ dispatch:
   reaper-timeout: 45m
 
 workers:
+  <common>:
+    secrets:
+      ANTHROPIC_AUTH_TOKEN: {}
   implementor:
     prompt: "Whenever poetry is involved, use a Shakespearean style."
     timeout: 90m
     concurrency: 3
 
 collaborators:
+  <common>:
+    secrets:
+      GITHUB_TOKEN: {}
   planner:
     prompt: Work with the user to intake and plan work from the Linear board.
-
-secrets:
-  ANTHROPIC_AUTH_TOKEN: {}
 
 image:
   setup-scripts:
