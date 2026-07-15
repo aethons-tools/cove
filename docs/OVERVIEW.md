@@ -278,13 +278,18 @@ A worker runs unattended, where a personal subscription is neither permitted nor
 practical, so its agent authenticates with an **`ANTHROPIC_AUTH_TOKEN`** — a
 short-lived bearer — declared as a root `secrets` *demand* and supplied
 machine-side (memory-only, like any secret; see
-[at-cove-secrets.md](usage/at-cove-secrets.md)). at-cove deliberately does
-**not** seed the OAuth `credentials.json` on the work path: with no OAuth token
-below the bearer in the precedence chain, a keyless or misconfigured worker
-**fails closed** instead of silently falling back to — and burning — a
-subscription. Because `ANTHROPIC_AUTH_TOKEN` (env) outranks OAuth, declaring it
-makes *any* agent session on that kit use the bearer, so keep worker kits that
-declare it distinct from a kit you `chat` into on a personal subscription.
+[at-cove-secrets.md](usage/at-cove-secrets.md)). Unlike a general secret demand,
+an unresolved `ANTHROPIC_AUTH_TOKEN` is not a warn-and-continue: `at-cove work`
+**fails closed on the host**, before assembling or dispatching a VM, naming the
+secret and the kit — a keyless worker is a guaranteed 401, so at-cove refuses to
+build one rather than launch a doomed container. As a second, independent
+layer, at-cove also deliberately does **not** seed the OAuth `credentials.json`
+on the work path: with no OAuth token below the bearer in the precedence chain,
+a worker that somehow still launched keyless would fail closed *inside* the VM
+too, instead of silently falling back to — and burning — a subscription.
+Because `ANTHROPIC_AUTH_TOKEN` (env) outranks OAuth, declaring it makes *any*
+agent session on that kit use the bearer, so keep worker kits that declare it
+distinct from a kit you `chat` into on a personal subscription.
 
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
