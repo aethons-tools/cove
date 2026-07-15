@@ -114,6 +114,14 @@ without executing anything.
 Flags specific to a command (e.g. `--raw`, `--ws`, `--kit-dir`) go *after* the
 command name; each command only accepts its own flags.
 
+Three more global flags (also before the subcommand) configure structured
+logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
+`--log-level debug|info|warn|error` (default `info`), and `--no-log-file`
+(disable the JSON debug-level log file). As of this writing they are parsed
+into `cli.Globals` but not yet consumed — `dispatch` and `work` will wire them
+into a per-run `internal/logging` logger (see
+[`docs/superpowers/specs/2026-07-15-structured-logging-design.md`](superpowers/specs/2026-07-15-structured-logging-design.md)).
+
 ### The `chat` command and collaborator sessions
 
 `chat` is the interactive command (a hard rename of the former `connect`, no

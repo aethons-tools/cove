@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -30,6 +31,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -145,6 +147,44 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		},
 	}
 	return app.Run(argv, stdout, stderr)
+}
+
+// logModeFrom maps the --log-mode flag value to a logging.Mode. An empty or
+// unrecognized value falls back to logging.Auto (TTY-detected).
+func logModeFrom(s string) logging.Mode {
+	switch s {
+	case "attended":
+		return logging.Attended
+	case "unattended":
+		return logging.Unattended
+	default:
+		return logging.Auto
+	}
+}
+
+// logLevelFrom maps the --log-level flag value to a slog.Level. An
+// unrecognized value falls back to slog.LevelInfo.
+func logLevelFrom(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// envOr returns flag when it is non-empty, else os.Getenv(key) — the env
+// fallback for global flags left at their zero value (AT_LOG_MODE,
+// AT_LOG_LEVEL).
+func envOr(flag, key string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv(key)
 }
 
 // kitDirFlag registers the standard --kit-dir flag on fs (default ".", i.e. the

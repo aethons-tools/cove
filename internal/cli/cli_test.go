@@ -90,6 +90,31 @@ func TestAppUnknownGlobalFlag(t *testing.T) {
 	}
 }
 
+// TestGlobalsParseLogFlags mirrors TestAppDispatchesWithGlobals but for the
+// new --log-mode/--log-level/--no-log-file globals: since there is no
+// standalone ParseGlobals entry point (globals are parsed inline in
+// App.Run), a probe command captures the Globals it receives.
+func TestGlobalsParseLogFlags(t *testing.T) {
+	var got Globals
+	app := App{
+		Name: "tool", Version: "1.2.3",
+		Commands: []Command{
+			{Name: "probe", Brief: "capture globals", Run: func(args []string, g Globals, stdout, stderr io.Writer) int {
+				got = g
+				return 0
+			}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	code := app.Run([]string{"--log-mode", "unattended", "--log-level", "debug", "--no-log-file", "probe"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut.String())
+	}
+	if got.LogMode != "unattended" || got.LogLevel != "debug" || !got.NoLogFile {
+		t.Fatalf("globals not parsed: %+v", got)
+	}
+}
+
 func TestParseInterspersed(t *testing.T) {
 	for _, args := range [][]string{
 		{"./kit", "--raw"},
