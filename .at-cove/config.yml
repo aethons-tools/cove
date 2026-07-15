@@ -34,12 +34,10 @@ workers:
 
 collaborators:
   planner:
-    secrets:
-      LINEAR_TOKEN:
-        command: [ "true" ]
+    prompt: Work with the user to intake and plan work from the Linear board.
 
 secrets:
-  ANTHROPIC_API_KEY: {}
+  ANTHROPIC_AUTH_TOKEN: {}
 
 image:
   setup-scripts:
