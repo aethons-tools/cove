@@ -752,10 +752,9 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 			return 1
 		}
 		defer lg.Close()
-		ctx := logging.Into(context.Background(), lg)
 		bearerErr := fmt.Errorf("agent bearer %s is unresolved for kit %q — the worker would fail closed with a 401; wire it under kits: %q in %s (or secrets.local.yml)",
 			agentBearerSecret, cfg.Name, cfg.Name, secretsPath)
-		logging.From(ctx).UserError(ctx, bearerErr, slog.String("step", "secrets"), slog.String("secret", agentBearerSecret), slog.String("kit", cfg.Name))
+		lg.UserError(context.Background(), bearerErr, slog.String("step", "secrets"), slog.String("secret", agentBearerSecret), slog.String("kit", cfg.Name))
 		return 1
 	}
 

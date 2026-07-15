@@ -133,8 +133,8 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
    - on the `work`/`dispatch` path specifically, the agent's Anthropic
      bearer, **`ANTHROPIC_AUTH_TOKEN`**, is required the same way (declared
      with no supply, or not declared at all) — a keyless worker is a
-     guaranteed 401, so `at-cove work` **fails closed** before assembling or
-     dispatching a VM, naming the secret and the kit, instead of building a
+     guaranteed 401, so `at-cove work` **fails closed** before building or
+     launching a VM, naming the secret and the kit, instead of building a
      container that is certain to fail authentication.
    - any other **general / agent demand** instead
      **warns to stderr and is left unset**; the run continues without it.

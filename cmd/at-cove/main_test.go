@@ -695,7 +695,11 @@ func TestWorkRequiresWorkers(t *testing.T) {
 // alongside the required source-control.github AT_TASK_GIT_TOKEN demand and a
 // worker class — everything doWork needs to reach the secret-resolution
 // block. It deliberately supplies no secrets.yml entry for
-// ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved.
+// ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved. AT_TASK_GIT_TOKEN, by
+// contrast, is resolved cleanly by the test (see
+// TestWorkFailsClosedWhenAgentBearerUnresolved) so the bearer is the ONLY
+// unresolved secret — isolating the new gate from the pre-existing
+// planRequired fail-closed check on the git token.
 const workerBearerKitConfig = `name: box
 secrets:
   ANTHROPIC_AUTH_TOKEN: {}
@@ -722,7 +726,15 @@ func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seedConfigDir(t) // hermetic XDG_CONFIG_HOME: fresh temp dir, no secrets.yml, pre-seeded keypair
+	seedConfigDir(t) // hermetic XDG_CONFIG_HOME: fresh temp dir, pre-seeded keypair
+	// Resolve AT_TASK_GIT_TOKEN cleanly so the bearer gate is the ONLY unresolved
+	// secret: without this, the pre-existing planRequired fail-closed check on
+	// the git token would ALSO abort the VM, and the "no ssh/no docker run"
+	// assertions below would pass even if the bearer gate were deleted.
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inFile := filepath.Join(dir, "in.json")
 	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
