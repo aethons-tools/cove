@@ -158,6 +158,40 @@ func TestListUnblockableFiltersByBlockerState(t *testing.T) {
 	}
 }
 
+func TestListInProgressParsesStartedAtAndSkipsUnparseable(t *testing.T) {
+	// i1 has a parseable startedAt; i2's is absent → skipped (can't establish staleness).
+	const resp = `{"data":{"issues":{"nodes":[
+	 {"id":"i1","identifier":"AET-1","title":"T1","description":"","startedAt":"2026-07-15T09:00:00.000Z","labels":{"nodes":[{"name":"class:implement"}]}},
+	 {"id":"i2","identifier":"AET-2","title":"T2","description":"","startedAt":"","labels":{"nodes":[]}}
+	]}}}`
+	var vars map[string]any
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		vars, _ = body["variables"].(map[string]any)
+		return jsonResp(resp), nil
+	})
+	got, err := c.ListInProgress(context.Background())
+	if err != nil {
+		t.Fatalf("ListInProgress: %v", err)
+	}
+	if vars["state"] != "In Progress" {
+		t.Fatalf("query state = %v; want In Progress", vars["state"])
+	}
+	if len(got) != 1 || got[0].ID != "i1" || got[0].Class != "implement" {
+		t.Fatalf("ListInProgress = %+v; want only i1 with class implement", got)
+	}
+	if got[0].StartedAt.IsZero() {
+		t.Fatalf("StartedAt not parsed for i1")
+	}
+}
+
 func TestCommentsParsesThread(t *testing.T) {
 	const resp = `{"data":{"issue":{"comments":{"nodes":[
 	 {"body":"hi","user":{"displayName":"brent"}},

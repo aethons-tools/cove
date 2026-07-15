@@ -19,6 +19,7 @@ type fakeTracker struct {
 	mu          sync.Mutex
 	ready       []Issue
 	unblockable []Issue
+	inProgress  []InProgressIssue
 	comments    map[string][]Comment
 	transitions []transition
 	posts       []post
@@ -35,6 +36,9 @@ func newFakeTracker() *fakeTracker {
 
 func (f *fakeTracker) ListReady(context.Context) ([]Issue, error)       { return f.ready, nil }
 func (f *fakeTracker) ListUnblockable(context.Context) ([]Issue, error) { return f.unblockable, nil }
+func (f *fakeTracker) ListInProgress(context.Context) ([]InProgressIssue, error) {
+	return f.inProgress, nil
+}
 func (f *fakeTracker) Comments(_ context.Context, id string) ([]Comment, error) {
 	return f.comments[id], nil
 }
