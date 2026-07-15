@@ -95,11 +95,41 @@ func TestCompleteWorkerError(t *testing.T) {
 }
 
 // missing worker-result → error, no echo
+func writeAgentLog(t *testing.T, dir, body string) {
+	t.Helper()
+	os.MkdirAll(filepath.Join(dir, taskSubdir), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, taskSubdir, agentLogName), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompleteMissingWorkerResult(t *testing.T) {
 	dir := t.TempDir()
 	tr := Complete(context.Background(), dir, implementTask(), &fakeGit{}, &fakeCodeHost{})
 	if v, _ := tr.Status.ActiveTask(); v != "error" || tr.WorkerResult != nil {
 		t.Fatalf("missing: %+v echo=%v", tr.Status, tr.WorkerResult)
+	}
+	// No worker-result → "Agent did not respond"; with no captured output the
+	// detail is empty (but the message still names the real failure).
+	if tr.Status.Error == nil || tr.Status.Error.Message != "Agent did not respond" {
+		t.Fatalf("want message 'Agent did not respond'; got %+v", tr.Status.Error)
+	}
+	if tr.Status.Error.Detail != "" {
+		t.Fatalf("no agent log → empty detail; got %q", tr.Status.Error.Detail)
+	}
+}
+
+// When the agent left no worker-result but its captured output exists, that output
+// rides along verbatim as the detail — so a silent 401 is self-explaining.
+func TestCompleteMissingWorkerResultSurfacesAgentLog(t *testing.T) {
+	dir := t.TempDir()
+	writeAgentLog(t, dir, "Failed to authenticate. API Error: 401 Invalid authentication credentials\n")
+	tr := Complete(context.Background(), dir, implementTask(), &fakeGit{}, &fakeCodeHost{})
+	if tr.Status.Error == nil || tr.Status.Error.Message != "Agent did not respond" {
+		t.Fatalf("want message 'Agent did not respond'; got %+v", tr.Status.Error)
+	}
+	if !strings.Contains(tr.Status.Error.Detail, "401 Invalid authentication credentials") {
+		t.Fatalf("agent output must ride along as detail; got %q", tr.Status.Error.Detail)
 	}
 }
 
