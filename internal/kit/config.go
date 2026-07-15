@@ -265,6 +265,9 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := rejectReservedSecretNames("secrets", cfg.Secrets); err != nil {
 		return Config{}, err
 	}
+	if err := rejectRootBearers(cfg.Secrets); err != nil {
+		return Config{}, err
+	}
 	for i, s := range cfg.Image.SetupScripts {
 		if strings.TrimSpace(s) == "" {
 			return Config{}, fmt.Errorf("config.yml: image.setup-scripts[%d]: must not be empty", i)
@@ -417,6 +420,26 @@ var reservedSecretNames = map[string]bool{
 	"AT_TASK_GIT_TOKEN":          true,
 	"AT_DISPATCH_TRACKER_TOKEN":  true,
 	"AT_DISPATCH_WEBHOOK_SECRET": true,
+}
+
+// rootRejectedBearers are agent-auth credentials that must NOT live at the kit
+// root: root secrets are injected into `chat` too, where an Anthropic bearer
+// outranks the subscription login and disables the session's connectors. They
+// belong under workers.<class>.secrets.
+var rootRejectedBearers = map[string]bool{
+	"ANTHROPIC_AUTH_TOKEN": true,
+	"ANTHROPIC_API_KEY":    true,
+}
+
+// rejectRootBearers forbids an Anthropic agent bearer in the root secrets
+// bucket, pointing the author at workers.<class>.secrets instead.
+func rejectRootBearers(got map[string]SecretConfig) error {
+	for k := range got {
+		if rootRejectedBearers[k] {
+			return fmt.Errorf("config.yml: secrets: %q must be declared under workers.<class>.secrets (or workers.<common>.secrets), not at the root — a root agent bearer is injected into `chat` sessions too, where it outranks the subscription login and disables their connectors; move it under `workers:`", k)
+		}
+	}
+	return nil
 }
 
 // rejectReservedSecretNames forbids the subsystem well-known secret names in a

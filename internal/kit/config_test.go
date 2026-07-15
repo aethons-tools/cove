@@ -10,8 +10,8 @@ func TestParseConfigValid(t *testing.T) {
 name: claude-on-myrepo
 secrets:
   GITHUB_TOKEN: {}
-  ANTHROPIC_API_KEY:
-    description: Anthropic key
+  SOME_OTHER_TOKEN:
+    description: some other key
 `)
 	cfg, err := ParseConfig(data)
 	if err != nil {
@@ -23,8 +23,8 @@ secrets:
 	if len(cfg.Secrets) != 2 {
 		t.Fatalf("secrets = %+v", cfg.Secrets)
 	}
-	if cfg.Secrets["ANTHROPIC_API_KEY"].Description != "Anthropic key" {
-		t.Fatalf("description not parsed: %+v", cfg.Secrets["ANTHROPIC_API_KEY"])
+	if cfg.Secrets["SOME_OTHER_TOKEN"].Description != "some other key" {
+		t.Fatalf("description not parsed: %+v", cfg.Secrets["SOME_OTHER_TOKEN"])
 	}
 }
 
@@ -446,6 +446,24 @@ func TestParseConfigRejectsWellKnownNameInCollaboratorSecrets(t *testing.T) {
 	src := "name: k\ncollaborators:\n  triager:\n    secrets:\n      AT_TASK_GIT_TOKEN: {}\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
 		t.Fatal("collaborator secrets must not accept a reserved subsystem name")
+	}
+}
+
+func TestRootBearerIsRejectedWithMigrationNote(t *testing.T) {
+	for _, name := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		yml := "name: k\nsecrets:\n  " + name + ": {}\n"
+		_, err := ParseConfig([]byte(yml))
+		if err == nil {
+			t.Fatalf("%s at root must be rejected", name)
+		}
+		if !strings.Contains(err.Error(), "workers") {
+			t.Fatalf("%s error must point to workers.<class>.secrets; got %v", name, err)
+		}
+	}
+	// The same name under workers is fine.
+	ok := "name: k\nworkers:\n  implementor:\n    prompt: p\n    timeout: 30m\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n"
+	if _, err := ParseConfig([]byte(ok)); err != nil {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN under workers must load; got %v", err)
 	}
 }
 
