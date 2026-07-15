@@ -564,7 +564,7 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 	return specs[0], nil
 }
 
-// doWork runs `at-cove work <kit-dir> --in <f> --out <f> [--timeout]
+// doWork runs `at-cove work --kit-dir <dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
 // crashed dispatch orphans). It registers the --kit-dir flag itself (rather

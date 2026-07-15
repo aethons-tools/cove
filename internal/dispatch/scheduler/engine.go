@@ -101,7 +101,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	}
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
-	argv := []string{"at-cove", "work", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
+	argv := []string{"at-cove", "work", "--kit-dir", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
 	e.log.Printf("dispatch %s: exec %s", iss.Identifier, strings.Join(argv, " "))
 	runErr := e.exec.Run(rctx, argv, nil)
 

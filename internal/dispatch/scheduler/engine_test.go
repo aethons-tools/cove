@@ -47,7 +47,7 @@ func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 		t.Fatalf("task.json wrong:\n%s", ex.GotInput)
 	}
 	joined := strings.Join(ex.GotArgv, " ")
-	if !strings.Contains(joined, "at-cove work /kits/implement") || !strings.Contains(joined, "--timeout 30m") {
+	if !strings.Contains(joined, "at-cove work --kit-dir /kits/implement") || !strings.Contains(joined, "--timeout 30m") {
 		t.Fatalf("argv wrong: %v", ex.GotArgv)
 	}
 	if tr.lastRole != RoleInReview {
@@ -98,7 +98,7 @@ func TestHandleLogsExecArgv(t *testing.T) {
 	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
 	eng := New(testConfig(), "/kits/implement", tr, ex, log.New(&logs, "", 0))
 	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
-	if !strings.Contains(logs.String(), "at-cove work /kits/implement") {
+	if !strings.Contains(logs.String(), "at-cove work --kit-dir /kits/implement") {
 		t.Fatalf("expected the exec argv to be logged; got: %q", logs.String())
 	}
 }
