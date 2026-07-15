@@ -3,7 +3,10 @@
 // worker.class to resolve the kit's prompt for that class, then drives the
 // prepare/agent/complete bracket step-by-step over ssh, with the code-host token
 // withheld from the agent step. It reuses at-cove's secret, ssh, and backend
-// machinery; it never parses the task-result.
+// machinery; it never parses the task-result. When the bracket fails, it first
+// checks the hardening layer's squid access log for egress-wall denials and, if
+// found, surfaces them as a first-class NEEDS INPUT result (see egress.go) rather
+// than an opaque error.
 package dispatchrun
 
 import (
@@ -178,7 +181,7 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("mint token for prepare: %w", err)
 	}
 	if err := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout); err != nil {
-		return fmt.Errorf("at-task prepare: %w", err)
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task prepare: %w", err))
 	}
 	if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 		return err
@@ -190,15 +193,15 @@ func Dispatch(o Options) error {
 		return fmt.Errorf("mint token for complete: %w", err)
 	}
 	if err := runStep(o.R, tgt, compEnv, "at-task complete", o.Timeout); err != nil {
-		return fmt.Errorf("at-task complete: %w", err)
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task complete: %w", err))
 	}
 
 	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+resultVMPath)...)
 	if err != nil {
-		return fmt.Errorf("extract result at %s: %w", resultVMPath, err)
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("extract result at %s: %w", resultVMPath, err))
 	}
 	if strings.TrimSpace(out) == "" {
-		return fmt.Errorf("dispatch produced no result at %s", resultVMPath)
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("dispatch produced no result at %s", resultVMPath))
 	}
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)
 }
