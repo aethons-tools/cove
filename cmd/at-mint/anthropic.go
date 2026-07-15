@@ -20,18 +20,29 @@ type anthropicInput struct {
 	Workspace      string
 }
 
+// tokenResp is the subset of an OAuth token response we care about. ExpiresIn is
+// the token's lifetime in seconds (0 when the server omits it); RefreshToken is
+// non-empty only when the server offers one.
+type tokenResp struct {
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+}
+
 // mintAnthropic mints an sk-ant-oat01 via two hops: an Auth0 client-credentials
-// JWT (hop 1) exchanged through Anthropic federation (hop 2).
-func mintAnthropic(ctx context.Context, httpc *http.Client, in anthropicInput) (string, error) {
+// JWT (hop 1) exchanged through Anthropic federation (hop 2). It returns the full
+// token response so the caller can surface the lifetime (expires_in), which the
+// federation rule sets server-side — at-mint requests no TTL.
+func mintAnthropic(ctx context.Context, httpc *http.Client, in anthropicInput) (tokenResp, error) {
 	if in.Tenant == "" || in.ClientID == "" || in.Audience == "" || in.ClientSecret == "" {
-		return "", fmt.Errorf("auth0 tenant, client-id, audience and client secret are required")
+		return tokenResp{}, fmt.Errorf("auth0 tenant, client-id, audience and client secret are required")
 	}
 	if in.Org == "" || in.Rule == "" || in.ServiceAccount == "" {
-		return "", fmt.Errorf("anthropic org, rule and service-account are required")
+		return tokenResp{}, fmt.Errorf("anthropic org, rule and service-account are required")
 	}
 	assertion, err := auth0Token(ctx, httpc, in)
 	if err != nil {
-		return "", err
+		return tokenResp{}, err
 	}
 	return anthropicExchange(ctx, httpc, in, assertion)
 }
@@ -51,10 +62,10 @@ func auth0Token(ctx context.Context, httpc *http.Client, in anthropicInput) (str
 	if err != nil {
 		return "", fmt.Errorf("auth0 client-credentials: %w", err)
 	}
-	return tok, nil
+	return tok.AccessToken, nil
 }
 
-func anthropicExchange(ctx context.Context, httpc *http.Client, in anthropicInput, assertion string) (string, error) {
+func anthropicExchange(ctx context.Context, httpc *http.Client, in anthropicInput, assertion string) (tokenResp, error) {
 	payload := map[string]string{
 		"grant_type":         "urn:ietf:params:oauth:grant-type:jwt-bearer",
 		"assertion":          assertion,
@@ -67,22 +78,23 @@ func anthropicExchange(ctx context.Context, httpc *http.Client, in anthropicInpu
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return tokenResp{}, err
 	}
 	tok, err := postForToken(ctx, httpc, "https://api.anthropic.com/v1/oauth/token",
 		map[string]string{"anthropic-version": "2023-06-01"}, body)
 	if err != nil {
-		return "", fmt.Errorf("anthropic federation exchange: %w", err)
+		return tokenResp{}, fmt.Errorf("anthropic federation exchange: %w", err)
 	}
 	return tok, nil
 }
 
-// postForToken POSTs a JSON body and returns the response's access_token, failing
-// closed on any non-2xx or a missing token.
-func postForToken(ctx context.Context, httpc *http.Client, url string, extraHeaders map[string]string, body []byte) (string, error) {
+// postForToken POSTs a JSON body and returns the parsed token response, failing
+// closed on any non-2xx or a missing access_token. expires_in / refresh_token are
+// preserved so callers can reason about the token's lifetime.
+func postForToken(ctx context.Context, httpc *http.Client, url string, extraHeaders map[string]string, body []byte) (tokenResp, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return tokenResp{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range extraHeaders {
@@ -90,24 +102,22 @@ func postForToken(ctx context.Context, httpc *http.Client, url string, extraHead
 	}
 	res, err := httpc.Do(req)
 	if err != nil {
-		return "", err
+		return tokenResp{}, err
 	}
 	defer res.Body.Close()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(res.Body); err != nil {
-		return "", fmt.Errorf("reading response: %w", err)
+		return tokenResp{}, fmt.Errorf("reading response: %w", err)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(buf.String()))
+		return tokenResp{}, fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(buf.String()))
 	}
-	var out struct {
-		AccessToken string `json:"access_token"`
-	}
+	var out tokenResp
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-		return "", fmt.Errorf("parse token response: %w", err)
+		return tokenResp{}, fmt.Errorf("parse token response: %w", err)
 	}
 	if out.AccessToken == "" {
-		return "", fmt.Errorf("response contained no access_token")
+		return tokenResp{}, fmt.Errorf("response contained no access_token")
 	}
-	return out.AccessToken, nil
+	return out, nil
 }

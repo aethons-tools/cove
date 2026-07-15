@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -35,8 +37,12 @@ func TestMintAnthropicTwoHops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tok != "sk-ant-oat01-xyz" {
-		t.Fatalf("token = %q", tok)
+	if tok.AccessToken != "sk-ant-oat01-xyz" {
+		t.Fatalf("token = %q", tok.AccessToken)
+	}
+	// expires_in from the hop-2 response is preserved, not discarded.
+	if tok.ExpiresIn != 600 {
+		t.Fatalf("expires_in = %d; want 600", tok.ExpiresIn)
 	}
 	// hop 1: client-credentials with audience + secret
 	if hop1Body["grant_type"] != "client_credentials" || hop1Body["client_id"] != "cid" ||
@@ -81,5 +87,72 @@ func TestMintAnthropicOmitsEmptyWorkspace(t *testing.T) {
 	}
 	if _, present := hop2Body["workspace_id"]; present {
 		t.Fatal("workspace_id must be omitted when Workspace is empty")
+	}
+}
+
+// anthropicArgs is the minimal valid flag set for `at-mint anthropic`.
+func anthropicArgs() []string {
+	return []string{
+		"--auth0-tenant", "tenant.us.auth0.com", "--auth0-client-id", "cid",
+		"--auth0-audience", "urn:cove:wif", "--anthropic-org", "org-uuid",
+		"--anthropic-rule", "fdrl_1", "--anthropic-service-account", "svac_1",
+	}
+}
+
+// envFunc builds a lookup func over a map, matching the shape doAnthropic expects.
+func envFunc(m map[string]string) func(string) (string, bool) {
+	return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
+}
+
+// anthropicClient returns a fake HTTP client whose hop-2 response advertises the
+// given expires_in.
+func anthropicClient(expiresIn int) *http.Client {
+	return &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.String(), "auth0.com") {
+			return resp(200, `{"access_token":"j"}`), nil
+		}
+		return resp(200, fmt.Sprintf(`{"access_token":"sk-ant-oat01-xyz","expires_in":%d}`, expiresIn)), nil
+	})}
+}
+
+func TestDoAnthropicFailsClosedWhenTokenExpiresBeforeRunEnds(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh", "COVE_RUN_TIMEOUT": "90m0s"})
+	code := doAnthropic(anthropicArgs(), env, anthropicClient(90), &out, &errb)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when the token TTL (90s) is below the run timeout (90m)")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("no token must be printed on a fail-closed exit; got %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "shorter than the run timeout") {
+		t.Fatalf("stderr must explain the TTL/timeout mismatch; got %q", errb.String())
+	}
+}
+
+func TestDoAnthropicAllowsTokenThatOutlastsRun(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh", "COVE_RUN_TIMEOUT": "90m0s"})
+	code := doAnthropic(anthropicArgs(), env, anthropicClient(7200), &out, &errb)
+	if code != 0 {
+		t.Fatalf("expected exit 0 when TTL (7200s) exceeds the run timeout; stderr=%q", errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "sk-ant-oat01-xyz" {
+		t.Fatalf("token = %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "expires_in=7200s") {
+		t.Fatalf("stderr should surface expires_in; got %q", errb.String())
+	}
+}
+
+func TestDoAnthropicSkipsTTLCheckWithoutRunTimeout(t *testing.T) {
+	var out, errb bytes.Buffer
+	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh"}) // no COVE_RUN_TIMEOUT (e.g. chat/manual)
+	code := doAnthropic(anthropicArgs(), env, anthropicClient(90), &out, &errb)
+	if code != 0 {
+		t.Fatalf("without COVE_RUN_TIMEOUT the TTL check must not fire; exit=%d stderr=%q", code, errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "sk-ant-oat01-xyz" {
+		t.Fatalf("token = %q", out.String())
 	}
 }

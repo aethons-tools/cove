@@ -93,6 +93,14 @@ account, org, and (if set) workspace, for the bearer token. Any missing
 required flag, a missing `AT_MINT_AUTH0_CLIENT_SECRET`, or a non-2xx at
 either hop fails closed.
 
+The token's lifetime is set **server-side by the federation rule** (and bounded
+by the Auth0 assertion's own expiry) — at-mint requests no TTL. It logs the
+minted token's `expires_in` and whether a `refresh_token` was offered to stderr.
+When run as an at-cove worker secret supply (`COVE_RUN_TIMEOUT` is set), it also
+**fails closed if `expires_in` is shorter than the run timeout** — a bearer that
+would expire mid-run is caught before any VM is built, rather than surfacing
+later as an opaque agent `401`.
+
 ## Using it as a secret supply
 
 Normally you don't invoke `at-mint` yourself — a `{ mint: <profile> }` demand

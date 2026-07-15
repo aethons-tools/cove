@@ -109,11 +109,29 @@ func doAnthropic(args []string, env func(string) (string, bool), httpc *http.Cli
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	tok, err := mintAnthropic(ctx, httpc, in)
+	resp, err := mintAnthropic(ctx, httpc, in)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-mint: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, tok)
+	// Surface the lifetime we used to discard: the token's TTL is set by the
+	// federation rule server-side, and a token shorter than the run silently 401s
+	// mid-way. refresh_token presence flags whether an in-VM refresh path exists.
+	refresh := "absent"
+	if resp.RefreshToken != "" {
+		refresh = "present"
+	}
+	fmt.Fprintf(stderr, "at-mint: anthropic token minted (expires_in=%ds, refresh_token=%s)\n", resp.ExpiresIn, refresh)
+	// Fail closed when the token would expire before the run finishes: at-cove work
+	// passes COVE_RUN_TIMEOUT to the resolver, and a bearer whose TTL is below that
+	// is guaranteed to 401 mid-run (build/prepare overhead makes it worse). Catch it
+	// here, before any VM is built, instead of burning a run on a doomed token.
+	if to := getenv(env, "COVE_RUN_TIMEOUT"); to != "" && resp.ExpiresIn > 0 {
+		if d, perr := time.ParseDuration(to); perr == nil && time.Duration(resp.ExpiresIn)*time.Second < d {
+			fmt.Fprintf(stderr, "at-mint: minted token TTL %ds is shorter than the run timeout %s; it would expire mid-run — raise the Auth0 API token expiration or the federation rule token lifetime\n", resp.ExpiresIn, d)
+			return 1
+		}
+	}
+	fmt.Fprintln(stdout, resp.AccessToken)
 	return 0
 }
