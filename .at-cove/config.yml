@@ -28,7 +28,8 @@ dispatch:
 
 workers:
   <common>:
-    ANTHROPIC_AUTH_TOKEN: {}
+    secrets:
+      ANTHROPIC_AUTH_TOKEN: {}
   implementor:
     prompt: "Whenever poetry is involved, use a Shakespearean style."
     timeout: 90m
