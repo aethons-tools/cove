@@ -768,6 +768,124 @@ func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
 	}
 }
 
+// workerAPIKeyBearerKitConfig is a dispatch-ready worker kit whose root
+// `secrets:` declares ONLY ANTHROPIC_API_KEY — the alternate well-known bearer
+// name (COV-24's config validation accepts either it or ANTHROPIC_AUTH_TOKEN as
+// the worker-bucket bearer). It is otherwise identical to workerBearerKitConfig
+// so the gate is exercised on the API-key name alone.
+const workerAPIKeyBearerKitConfig = `name: box
+secrets:
+  ANTHROPIC_API_KEY: {}
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement: { prompt: "impl", timeout: 30m }
+`
+
+// TestWorkAcceptsAnthropicAPIKeyAsBearer guards COV-28: a worker kit that
+// declares ONLY ANTHROPIC_API_KEY (with a supply) must pass the fail-closed
+// bearer gate and proceed to dispatch, rather than being hard-failed pre-VM for
+// a missing ANTHROPIC_AUTH_TOKEN. We feed an empty task ("{}") so dispatch
+// bails deterministically on the missing worker.class *after* the gate — proof
+// the run cleared the gate — without the gate ever firing its 401 abort.
+func TestWorkAcceptsAnthropicAPIKeyAsBearer(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerAPIKeyBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	// Supply BOTH the API-key bearer and the git token so neither gate aborts:
+	// the run must reach dispatch, which then fails on the empty task below.
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    ANTHROPIC_API_KEY: { value: \"sk-ant-api-test\" }\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	// The bearer gate must NOT have fired: its message names the 401 it prevents.
+	if strings.Contains(errOut.String(), "401") {
+		t.Fatalf("bearer gate must accept ANTHROPIC_API_KEY, not fail closed; got %q", errOut.String())
+	}
+	// Proof we cleared the gate and reached dispatch: it rejects the empty task.
+	if code == 0 || !strings.Contains(errOut.String(), "worker.class") {
+		t.Fatalf("run should clear the gate and reach dispatch; code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+// workerNoBearerKitConfig is a dispatch-ready worker kit that declares NEITHER
+// well-known bearer name in its root `secrets:` — only the required git token.
+// The fail-closed gate must still abort pre-VM.
+const workerNoBearerKitConfig = `name: box
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement: { prompt: "impl", timeout: 30m }
+`
+
+// TestWorkFailsClosedWhenNoBearerDeclared guards COV-28's other half: a worker
+// that declares neither ANTHROPIC_AUTH_TOKEN nor ANTHROPIC_API_KEY must still
+// fail closed before any VM, and the attribution must name BOTH bearer names it
+// looked for so the operator knows either would satisfy the gate.
+func TestWorkFailsClosedWhenNoBearerDeclared(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerNoBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when no agent bearer is declared")
+	}
+	if !strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") || !strings.Contains(errOut.String(), "ANTHROPIC_API_KEY") {
+		t.Fatalf("stderr must name both bearer names the gate looked for; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "fail") {
+		t.Fatalf("stderr must read as a fail-closed message; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "box") {
+		t.Fatalf("stderr must name the kit; got %q", errOut.String())
+	}
+	for _, c := range f.Calls {
+		if c.Name == "ssh" {
+			t.Fatalf("must abort before any SSH step; calls=%+v", f.Calls)
+		}
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("must abort before running the work VM; calls=%+v", f.Calls)
+	}
+}
+
 // TestDryRunWorkPrintsNoExec guards Fix A: --dry-run work must print
 // the plan and exit 0 without touching the backend, assembling, or resolving
 // secrets (no calls recorded on the fake runner at all).
