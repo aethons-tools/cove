@@ -41,10 +41,11 @@ const (
 )
 
 const (
-	workDir      = "/home/agent/work"
-	taskVMPath   = workDir + "/.at-task/task.json"
-	resultVMPath = workDir + "/.at-task/task-result.json"
-	promptVMPath = "/dev/shm/at-cove-prompt"
+	workDir        = "/home/agent/work"
+	taskVMPath     = workDir + "/.at-task/task.json"
+	resultVMPath   = workDir + "/.at-task/task-result.json"
+	agentLogVMPath = workDir + "/.at-task/agent.log" // agent step's combined output; at-task complete reads it when the agent leaves no result
+	promptVMPath   = "/dev/shm/at-cove-prompt"
 )
 
 type Options struct {
@@ -186,7 +187,11 @@ func Dispatch(o Options) error {
 	if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 		return err
 	}
-	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\"", shellQuote(promptVMPath))
+	// Tee the agent's combined output to a VM-local file: it still streams live to
+	// the host, and at-task complete reads it back as the "Agent did not respond"
+	// detail when the agent leaves no worker-result (e.g. an auth 401).
+	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\" 2>&1 | tee %s",
+		shellQuote(promptVMPath), shellQuote(agentLogVMPath))
 	_ = runStep(o.R, tgt, base, agentCmd, o.Timeout) // agent: no token; failure tolerated
 	compEnv, err := mint()
 	if err != nil {
