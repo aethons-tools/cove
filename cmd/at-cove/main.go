@@ -721,22 +721,25 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
 
-	const agentBearerSecret = "ANTHROPIC_AUTH_TOKEN"
-	// The dispatched agent cannot authenticate without its bearer; a keyless
-	// worker is a guaranteed 401. Fail closed with attribution (like the
-	// git/tracker well-known secrets below) rather than launch a doomed VM.
-	bearerUnresolved := false
-	if _, declared := cfg.Secrets[agentBearerSecret]; !declared {
-		bearerUnresolved = true
-	} else {
-		for _, name := range unresolved {
-			if name == agentBearerSecret {
-				bearerUnresolved = true
-				break
-			}
+	// The dispatched agent authenticates to Anthropic under either well-known
+	// bearer name; config validation accepts either as the worker-bucket bearer,
+	// so the gate does too. A keyless worker is a guaranteed 401, so we fail
+	// closed with attribution (like the git/tracker well-known secrets below)
+	// rather than launch a doomed VM — but only when NEITHER name is declared
+	// and resolved. Bearer-name knowledge is confined to this gate.
+	agentBearerSecrets := []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"}
+	unresolvedSet := make(map[string]bool, len(unresolved))
+	for _, name := range unresolved {
+		unresolvedSet[name] = true
+	}
+	bearerResolved := false
+	for _, name := range agentBearerSecrets {
+		if _, declared := cfg.Secrets[name]; declared && !unresolvedSet[name] {
+			bearerResolved = true
+			break
 		}
 	}
-	if bearerUnresolved {
+	if !bearerResolved {
 		// Build a work-path logger from env only (mirroring g.LogMode/LogLevel's
 		// env fallback): doWork has no cli.Globals in scope, and this is the
 		// only site in the work path that needs a logger, so a full logger
@@ -752,9 +755,10 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 			return 1
 		}
 		defer lg.Close()
-		bearerErr := fmt.Errorf("agent bearer %s is unresolved for kit %q — the worker would fail closed with a 401; wire it under kits: %q in %s (or secrets.local.yml)",
-			agentBearerSecret, cfg.Name, cfg.Name, secretsPath)
-		lg.UserError(context.Background(), bearerErr, slog.String("step", "secrets"), slog.String("secret", agentBearerSecret), slog.String("kit", cfg.Name))
+		bearerNames := strings.Join(agentBearerSecrets, " or ")
+		bearerErr := fmt.Errorf("no agent bearer (%s) is resolved for kit %q — the worker would fail closed with a 401; wire one under kits: %q in %s (or secrets.local.yml)",
+			bearerNames, cfg.Name, cfg.Name, secretsPath)
+		lg.UserError(context.Background(), bearerErr, slog.String("step", "secrets"), slog.String("secret", bearerNames), slog.String("kit", cfg.Name))
 		return 1
 	}
 

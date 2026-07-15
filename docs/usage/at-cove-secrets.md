@@ -131,11 +131,13 @@ For each secret **S** demanded by kit **K** at canonical path **P**:
      *before* any VM is built or any SSH happens, naming the secret and the
      kit.
    - on the `work`/`dispatch` path specifically, the agent's Anthropic
-     bearer, **`ANTHROPIC_AUTH_TOKEN`**, is required the same way (declared
-     with no supply, or not declared at all) — a keyless worker is a
-     guaranteed 401, so `at-cove work` **fails closed** before building or
-     launching a VM, naming the secret and the kit, instead of building a
-     container that is certain to fail authentication.
+     bearer — under **either** well-known name, `ANTHROPIC_AUTH_TOKEN` **or**
+     `ANTHROPIC_API_KEY` — is required the same way: the gate passes when at
+     least one is declared *and* resolves, and **fails closed** (before
+     building or launching a VM, naming the bearer names it looked for and the
+     kit) only when neither does. A keyless worker is a guaranteed 401, so
+     `at-cove work` refuses to build a container that is certain to fail
+     authentication.
    - any other **general / agent demand** instead
      **warns to stderr and is left unset**; the run continues without it.
      (This is still `chat`'s behavior for `ANTHROPIC_AUTH_TOKEN` — the

@@ -278,11 +278,13 @@ A worker runs unattended, where a personal subscription is neither permitted nor
 practical, so its agent authenticates with an **`ANTHROPIC_AUTH_TOKEN`** — a
 short-lived bearer — declared as a root `secrets` *demand* and supplied
 machine-side (memory-only, like any secret; see
-[at-cove-secrets.md](usage/at-cove-secrets.md)). Unlike a general secret demand,
-an unresolved `ANTHROPIC_AUTH_TOKEN` is not a warn-and-continue: `at-cove work`
-**fails closed on the host**, before building or launching a VM, naming the
-secret and the kit — a keyless worker is a guaranteed 401, so at-cove refuses to
-build one rather than launch a doomed container. As a second, independent
+[at-cove-secrets.md](usage/at-cove-secrets.md)). The gate accepts either
+well-known bearer name (`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`). Unlike a
+general secret demand, a worker with *neither* bearer declared-and-resolved is
+not a warn-and-continue: `at-cove work` **fails closed on the host**, before
+building or launching a VM, naming the bearer names it looked for and the kit —
+a keyless worker is a guaranteed 401, so at-cove refuses to build one rather than
+launch a doomed container. As a second, independent
 layer, at-cove also deliberately does **not** seed the OAuth `credentials.json`
 on the work path: with no OAuth token below the bearer in the precedence chain,
 a worker that somehow still launched keyless would fail closed *inside* the VM
