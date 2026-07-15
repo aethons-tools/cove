@@ -690,6 +690,69 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 }
 
+// workerBearerKitConfig is a complete, dispatch-ready worker kit whose root
+// `secrets:` declares ANTHROPIC_AUTH_TOKEN (the agent's Anthropic bearer)
+// alongside the required source-control.github AT_TASK_GIT_TOKEN demand and a
+// worker class — everything doWork needs to reach the secret-resolution
+// block. It deliberately supplies no secrets.yml entry for
+// ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved.
+const workerBearerKitConfig = `name: box
+secrets:
+  ANTHROPIC_AUTH_TOKEN: {}
+source-control:
+  github:
+    project: your-org/your-repo
+    secrets:
+      AT_TASK_GIT_TOKEN: {}
+workers:
+  implement: { prompt: "impl", timeout: 30m }
+`
+
+// TestWorkFailsClosedWhenAgentBearerUnresolved guards the motivating
+// production bug: a dispatched worker with no ANTHROPIC_AUTH_TOKEN is a
+// guaranteed 401 once it reaches the agent inside the VM. doWork must fail
+// closed — naming the unresolved secret and the kit — before it ever
+// assembles/dispatches a VM, not warn-and-continue like a general secret.
+func TestWorkFailsClosedWhenAgentBearerUnresolved(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t) // hermetic XDG_CONFIG_HOME: fresh temp dir, no secrets.yml, pre-seeded keypair
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--kit-dir", kitDir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when the agent bearer is unresolved")
+	}
+	if !strings.Contains(errOut.String(), "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("stderr must name the unresolved bearer secret; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "fail") {
+		t.Fatalf("stderr must read as a fail-closed message; got %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "box") {
+		t.Fatalf("stderr must name the kit; got %q", errOut.String())
+	}
+	for _, c := range f.Calls {
+		if c.Name == "ssh" {
+			t.Fatalf("must abort before any SSH step; calls=%+v", f.Calls)
+		}
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("must abort before running the work VM; calls=%+v", f.Calls)
+	}
+}
+
 // TestDryRunWorkPrintsNoExec guards Fix A: --dry-run work must print
 // the plan and exit 0 without touching the backend, assembling, or resolving
 // secrets (no calls recorded on the fake runner at all).

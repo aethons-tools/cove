@@ -720,6 +720,45 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	for _, name := range unresolved {
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
 	}
+
+	const agentBearerSecret = "ANTHROPIC_AUTH_TOKEN"
+	// The dispatched agent cannot authenticate without its bearer; a keyless
+	// worker is a guaranteed 401. Fail closed with attribution (like the
+	// git/tracker well-known secrets below) rather than launch a doomed VM.
+	bearerUnresolved := false
+	if _, declared := cfg.Secrets[agentBearerSecret]; !declared {
+		bearerUnresolved = true
+	} else {
+		for _, name := range unresolved {
+			if name == agentBearerSecret {
+				bearerUnresolved = true
+				break
+			}
+		}
+	}
+	if bearerUnresolved {
+		// Build a work-path logger from env only (mirroring g.LogMode/LogLevel's
+		// env fallback): doWork has no cli.Globals in scope, and this is the
+		// only site in the work path that needs a logger, so a full logger
+		// threaded through doWork's signature would be more machinery than the
+		// gate warrants. No log file here — this aborts before .state exists.
+		lg, err := logging.New(logging.Options{
+			Mode:   logModeFrom(envOr("", "AT_LOG_MODE")),
+			Stderr: stderr,
+			Level:  logLevelFrom(envOr("", "AT_LOG_LEVEL")),
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: %v\n", err)
+			return 1
+		}
+		defer lg.Close()
+		ctx := logging.Into(context.Background(), lg)
+		bearerErr := fmt.Errorf("agent bearer %s is unresolved for kit %q — the worker would fail closed with a 401; wire it under kits: %q in %s (or secrets.local.yml)",
+			agentBearerSecret, cfg.Name, cfg.Name, secretsPath)
+		logging.From(ctx).UserError(ctx, bearerErr, slog.String("step", "secrets"), slog.String("secret", agentBearerSecret), slog.String("kit", cfg.Name))
+		return 1
+	}
+
 	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
 	gitName, ok := cfg.GitTokenName()
 	if !ok {
