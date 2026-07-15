@@ -18,7 +18,7 @@ spec stays portable). It lives at the kit root — by convention `<repo>/.at-cov
 Parsing is **strict**: an unknown or misspelled field is a hard error (`config.yml: field
 … not found`), so typos surface immediately rather than being silently ignored.
 
-`at-cove dispatch --kit-dir <dir>` reads this same file directly — the scheduler now
+`at-cove dispatch --project-dir <dir>` reads this same file directly — the scheduler now
 consumes the kit like every other command; there is no separate scheduler config file.
 
 ## Fields
@@ -80,7 +80,7 @@ source-control:
 *tagged union — one provider (`linear` only today)*
 
 Names the issue tracker the kit's scheduler drives. Parsed, validated, and read
-directly by `at-cove dispatch --kit-dir <dir>` — the scheduler consumes the kit's
+directly by `at-cove dispatch --project-dir <dir>` — the scheduler consumes the kit's
 `tracker`/`dispatch`/`workers` fields instead of a separate config file.
 
 #### tracker.linear.team*
@@ -138,7 +138,7 @@ tracker:
 ```
 
 ### dispatch
-Scheduler policy knobs, read by `at-cove dispatch --kit-dir <dir>`.
+Scheduler policy knobs, read by `at-cove dispatch --project-dir <dir>`.
 
 #### dispatch.concurrency*
 *int >= 1*

@@ -121,7 +121,8 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	}
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
-	argv := []string{"at-cove", "work", "--kit-dir", e.kitDir, "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
+	// e.kitDir is the .at-cove dir; --project-dir names its parent (the project root).
+	argv := []string{"at-cove", "work", "--project-dir", filepath.Dir(e.kitDir), "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
 	dl.Info("dispatching work", slog.String("step", "dispatch"), slog.String("argv", strings.Join(argv, " ")))
 	runErr := e.exec.Run(rctx, argv, nil)
 
