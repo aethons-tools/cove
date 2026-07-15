@@ -188,9 +188,17 @@ Describes the content and use of the secret. The only field a kit secret carries
 
 ```yaml
 secrets:
-  ANTHROPIC_AUTH_TOKEN:
-    description: short-lived Anthropic bearer for the worker agent
+  GITHUB_TOKEN:
+    description: private-repo git over HTTPS (interactive sessions)
 ```
+
+An Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) may
+**not** be declared here — the root bucket reaches `chat` as well as `work`,
+and there the bearer would outrank the subscription OAuth login and disable
+the session's connectors. `config.yml` rejects it as a hard parse error;
+declare it under `workers.*class*.secrets` (see [workers](#workers)) instead
+— see
+[at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
 
 ### workers
 *map of classname → config*
@@ -214,17 +222,33 @@ Per-run timeout for the worker's agent step.
 
 Max concurrent runs of this class.
 
+#### workers.*class*.secrets
+*map of secret env name → config, optional, inherited from `<common>` (own key wins)*
+
+Same declaration shape as the root `secrets`, but a distinct bucket (see
+[Secret buckets](#secret-buckets)): **work-only**, and resolved **lazily** —
+immediately before the class's agent step, after `at-task prepare` has already
+succeeded. It never reaches `chat`, and never reaches the git steps (`at-task
+prepare`/`complete`) of a dispatched run — only the agent process on that one
+run sees it. This is where a worker's Anthropic bearer belongs:
+`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY` must be declared here (or under
+`workers.<common>.secrets`), never at the kit root — see
+[at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
+
 ```yaml
 workers:
   <common>:
     timeout: 30m
     concurrency: 1
+    secrets:
+      ANTHROPIC_AUTH_TOKEN:
+        description: short-lived Anthropic bearer for the worker agent
   triage:
     prompt: Determine what needs to be done and write TODOs.
 ```
 
-`at-cove` resolves a class's effective config (the `<common>` merge, own overrides base) via
-`kit.Config.ResolvedWorker`.
+`at-cove` resolves a class's effective config — `timeout`/`concurrency`/`secrets`
+all `<common>`-merged, own overrides base — via `kit.Config.ResolvedWorker`.
 
 ### collaborators
 *map of classname → config*
@@ -345,23 +369,27 @@ image:
 
 ## Secret buckets
 
-A secret's declaration lives in one of **four schema locations**, and that location — not
+A secret's declaration lives in one of **five schema locations**, and that location — not
 a naming convention — *is* its trust boundary: which process resolves it and which process
-(if any) ever sees the value inside a VM. This is a **structural** air-gap: a secret can't
-leak across a boundary by name collision, because each consumer reads its own bucket, not a
-flat merged list.
+(if any) ever sees the value inside a VM, in which command mode. This is a **structural**
+air-gap: a secret can't leak across a boundary by name collision, because each consumer
+reads its own bucket, not a flat merged list.
 
-| Bucket | Resolved by | Reaches a sandbox VM? | Used by |
-|---|---|---|---|
-| `secrets` (root) | host, at `chat`/`dispatch` time | yes — injected in memory, both `chat` and `at-cove work` | the agent process |
-| `source-control.github.secrets` | host, minted fresh per git step | no — held on the host | `at-task prepare`/`complete` only |
-| `tracker.linear.secrets` | host, scheduler-only | never | `at-cove dispatch` (a later plan) |
-| `collaborators.*.secrets` | host, at `chat` time | yes — injected in memory, `<common>`-merged | the collaborator session (usually empty; GitHub/Linear ride connectors) |
+| Bucket | Resolved by | `chat` | `work`/`dispatch` | Used by |
+|---|---|---|---|---|
+| `secrets` (root) | host, at `chat`/`dispatch` time | injected | injected | the agent process |
+| `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually empty; GitHub/Linear ride connectors) |
+| `workers.*.secrets` | host, resolved lazily right before the agent step, `<common>`-merged | — | injected (agent step only) | the dispatched agent process |
+| `source-control.github.secrets` | host, minted fresh per git step | — | injected (git steps only) | `at-task prepare`/`complete` only |
+| `tracker.linear.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
 
 Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
 mechanics (the two host files, the four sources, precedence, the anti-mining invariant,
-fail-closed behavior) are the same across all four buckets and documented once, in
+fail-closed behavior) are the same across all five buckets and documented once, in
 [at-cove-secrets.md](at-cove-secrets.md) — this table only draws the boundaries between them.
+In particular, an Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) must
+live in the `workers.*.secrets` row, not the root row — see
+[at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
 
 ## Full example
 
@@ -408,6 +436,12 @@ workers:
   <common>:
     timeout: 30m
     concurrency: 1
+    secrets:
+      # Work-only, agent-step only — never chat, never the git steps (see
+      # Secret buckets above). Must live here, not the root `secrets` bucket
+      # (see at-cove-secrets.md).
+      ANTHROPIC_AUTH_TOKEN:
+        description: short-lived Anthropic bearer for the worker agent
   implement:
     prompt: |
       You are an implementer. Make the change described in the task and run the
@@ -448,6 +482,10 @@ the template kit for `at-cove dispatch`.
   contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
   class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative;
+- the root `secrets` declares `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — an Anthropic
+  agent bearer must be declared under `workers.<class>.secrets` (or
+  `workers.<common>.secrets`) instead; see
+  [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket);
 - `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
   isn't a positive Go duration, a `states` entry is missing, or `secrets` doesn't declare
   exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (demand-only — each
@@ -456,7 +494,7 @@ the template kit for `at-cove dispatch`.
   Go duration;
 - a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`
   or `default`; or more than one class sets `default: true`;
-- any `secrets` entry (at any of the four bucket locations) sets a field other than
+- any `secrets` entry (at any of the five bucket locations) sets a field other than
   `description` — most notably, a `command` under a kit secret is a hard parse error (see
   [at-cove-secrets.md](at-cove-secrets.md)).
 
