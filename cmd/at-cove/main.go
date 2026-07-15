@@ -59,12 +59,12 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "build", Brief: "assemble the kit's build context", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("build", flag.ContinueOnError)
 				fs.SetOutput(errw)
-				kd := kitDirFlag(fs)
+				pd := projectDirFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveKitDir(*kd, pos, "build", errw)
+				kitDir, code := resolveProjectDir(*pd, pos, "build", errw)
 				if code != 0 {
 					return code
 				}
@@ -73,14 +73,14 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
 				fs.SetOutput(errw)
-				kd := kitDirFlag(fs)
+				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveKitDir(*kd, pos, "create", errw)
+				kitDir, code := resolveProjectDir(*pd, pos, "create", errw)
 				if code != 0 {
 					return code
 				}
@@ -89,7 +89,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 				fs.SetOutput(errw)
-				kd := kitDirFlag(fs)
+				pd := projectDirFlag(fs)
 				raw := fs.Bool("raw", false, "open a raw shell instead of the agent")
 				noAuth := fs.Bool("no-auth", false, "skip the interactive login step")
 				fresh := fs.Bool("fresh", false, "start a fresh agent session")
@@ -104,7 +104,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					fmt.Fprintln(errw, "at-cove: chat takes at most one collaborator")
 					return 2
 				}
-				kitDir, err := resolveKit(*kd)
+				kitDir, err := resolveKit(*pd)
 				if err != nil {
 					fmt.Fprintln(errw, "at-cove:", err)
 					return 1
@@ -114,14 +114,14 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
 				fs.SetOutput(errw)
-				kd := kitDirFlag(fs)
+				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveKitDir(*kd, pos, "recreate", errw)
+				kitDir, code := resolveProjectDir(*pd, pos, "recreate", errw)
 				if code != 0 {
 					return code
 				}
@@ -186,18 +186,19 @@ func envOr(flag, key string) string {
 	return os.Getenv(key)
 }
 
-// kitDirFlag registers the standard --kit-dir flag on fs (default ".", i.e. the
-// current directory / single-kit resolution). Every command that targets a kit
-// registers it.
-func kitDirFlag(fs *flag.FlagSet) *string {
-	return fs.String("kit-dir", ".", "kit directory (default: current dir / the single kit)")
+// projectDirFlag registers the standard --project-dir flag on fs. It names the
+// project root, under which .at-cove/ must sit. An empty default means "walk up
+// from cwd to the nearest ancestor holding .at-cove". Every command that targets
+// a kit registers it.
+func projectDirFlag(fs *flag.FlagSet) *string {
+	return fs.String("project-dir", "", "project root holding .at-cove/ (default: walk up from cwd)")
 }
 
-// resolveKitDir resolves the --kit-dir flag value to a kit directory, rejecting
-// any leftover positional (commands other than `chat` take none).
-func resolveKitDir(flagVal string, pos []string, cmd string, stderr io.Writer) (string, int) {
+// resolveProjectDir resolves the --project-dir flag value to a kit directory,
+// rejecting any leftover positional (commands other than `chat` take none).
+func resolveProjectDir(flagVal string, pos []string, cmd string, stderr io.Writer) (string, int) {
 	if len(pos) > 0 {
-		fmt.Fprintf(stderr, "at-cove: %s takes no positional arguments (use --kit-dir)\n", cmd)
+		fmt.Fprintf(stderr, "at-cove: %s takes no positional arguments (use --project-dir)\n", cmd)
 		return "", 2
 	}
 	kitDir, err := resolveKit(flagVal)
@@ -208,17 +209,17 @@ func resolveKitDir(flagVal string, pos []string, cmd string, stderr io.Writer) (
 	return kitDir, 0
 }
 
-// instanceCmd handles destroy/status: it parses the shared --kit-dir flag
+// instanceCmd handles destroy/status: it parses the shared --project-dir flag
 // and resolves to the interactive instance.
 func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(errw)
-	kd := kitDirFlag(fs)
+	pd := projectDirFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
-	kitDir, code := resolveKitDir(*kd, pos, cmd, errw)
+	kitDir, code := resolveProjectDir(*pd, pos, cmd, errw)
 	if code != 0 {
 		return code
 	}
@@ -238,15 +239,19 @@ func exitCode(name string, err error, stderr io.Writer) int {
 	return 1
 }
 
-func resolveKit(start string) (string, error) {
-	// An explicit path that already ends in .at-cove (or contains config.yml) is used directly.
-	if filepath.Base(start) == ".at-cove" {
-		return start, nil
+// resolveKit resolves the --project-dir flag value to the kit directory. An
+// explicit project root <dir> requires .at-cove/ (its config.yml) to sit there,
+// erroring clearly otherwise; omitted (empty), it walks up from cwd to the
+// nearest ancestor holding .at-cove.
+func resolveKit(projectDir string) (string, error) {
+	if projectDir == "" {
+		return kit.Discover(".")
 	}
-	if _, err := os.Stat(filepath.Join(start, "config.yml")); err == nil {
-		return start, nil
+	kitDir := filepath.Join(projectDir, ".at-cove")
+	if _, err := os.Stat(filepath.Join(kitDir, "config.yml")); err != nil {
+		return "", fmt.Errorf("no .at-cove/ at project root %s", projectDir)
 	}
-	return kit.Discover(start)
+	return kitDir, nil
 }
 
 func configDir() string {
@@ -603,11 +608,11 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 	return specs[0], nil
 }
 
-// doWork runs `at-cove work --kit-dir <dir> --in <f> --out <f> [--timeout]
+// doWork runs `at-cove work --project-dir <dir> --in <f> --out <f> [--timeout]
 // [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
 // command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
-// crashed dispatch orphans). It registers the --kit-dir flag itself (rather
-// than through the shared single-kit-dir resolution in run(), which does not
+// crashed dispatch orphans). It registers the --project-dir flag itself (rather
+// than through the shared project-dir resolution in run(), which does not
 // know about these flags), assembles the build context and resolves secrets
 // exactly as `create`/`chat` do, then hands off to dispatchrun. With dryRun
 // it prints the planned actions and returns before touching the backend,
@@ -616,7 +621,7 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	kd := kitDirFlag(fs)
+	pd := projectDirFlag(fs)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
@@ -626,7 +631,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	if err != nil {
 		return 2
 	}
-	kitDir, code := resolveKitDir(*kd, pos, "work", stderr)
+	kitDir, code := resolveProjectDir(*pd, pos, "work", stderr)
 	if code != 0 {
 		return code
 	}
@@ -651,7 +656,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 			return 1
 		}
 		img := "at-cove-for-" + cfg.Name
-		fmt.Fprintf(stdout, "would dispatch %s (kit-dir %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
+		fmt.Fprintf(stdout, "would dispatch %s (kit %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
 			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
 	}
@@ -792,19 +797,19 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	return 0
 }
 
-// doDispatch runs `at-cove dispatch [kit-dir]`: it loads the kit, resolves the
-// tracker API token on the host, connects to the tracker, and runs the poll →
-// dispatch → broker loop until SIGINT/SIGTERM. Each ready issue is dispatched as
-// a fresh `at-cove work` run (see internal/dispatch/scheduler).
+// doDispatch runs `at-cove dispatch [--project-dir <dir>]`: it loads the kit,
+// resolves the tracker API token on the host, connects to the tracker, and runs
+// the poll → dispatch → broker loop until SIGINT/SIGTERM. Each ready issue is
+// dispatched as a fresh `at-cove work` run (see internal/dispatch/scheduler).
 func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	kd := kitDirFlag(fs)
+	pd := projectDirFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
-	kitDir, code := resolveKitDir(*kd, pos, "dispatch", stderr)
+	kitDir, code := resolveProjectDir(*pd, pos, "dispatch", stderr)
 	if code != 0 {
 		return code
 	}
