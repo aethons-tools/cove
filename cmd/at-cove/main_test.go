@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -905,4 +908,48 @@ func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	if !strings.Contains(errOut.String(), "must declare") {
 		t.Fatalf("stderr = %q; want the missing-surface error", errOut.String())
 	}
+}
+
+// TestLogLevelEnvFallbackOnDispatchPath guards the AT_LOG_LEVEL env fallback
+// used by doDispatch (and mirrored by doWork's bearer-gate logger): the
+// --log-level global flag must default to "" so envOr(g.LogLevel,
+// "AT_LOG_LEVEL") actually falls through to the environment. It exercises
+// the real flag-parsing path (cli.App.Run with a probe command), not
+// logLevelFrom in isolation, so it fails if the flag's zero value regresses
+// back to a non-empty "info".
+func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
+	var got cli.Globals
+	app := cli.App{
+		Name: "at-cove", Version: "test",
+		Commands: []cli.Command{
+			{Name: "probe", Brief: "capture globals", Run: func(args []string, g cli.Globals, stdout, stderr io.Writer) int {
+				got = g
+				return 0
+			}},
+		},
+	}
+
+	t.Run("AT_LOG_LEVEL set, flag omitted", func(t *testing.T) {
+		t.Setenv("AT_LOG_LEVEL", "debug")
+		var out, errOut bytes.Buffer
+		if code := app.Run([]string{"probe"}, &out, &errOut); code != 0 {
+			t.Fatalf("code=%d stderr=%s", code, errOut.String())
+		}
+		if got.LogLevel != "" {
+			t.Fatalf("g.LogLevel = %q, want %q (flag omitted) — --log-level flag default is no longer empty, so envOr can never see AT_LOG_LEVEL", got.LogLevel, "")
+		}
+		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelDebug {
+			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (AT_LOG_LEVEL=debug ignored)", lvl, slog.LevelDebug)
+		}
+	})
+
+	t.Run("neither flag nor env set", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		if code := app.Run([]string{"probe"}, &out, &errOut); code != 0 {
+			t.Fatalf("code=%d stderr=%s", code, errOut.String())
+		}
+		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelInfo {
+			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (effective default)", lvl, slog.LevelInfo)
+		}
+	})
 }

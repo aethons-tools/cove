@@ -46,7 +46,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() {}
 	dry := fs.Bool("dry-run", false, "print planned actions without executing")
 	logMode := fs.String("log-mode", "", `logging mode: "attended" or "unattended" (default: auto-detect)`)
-	logLevel := fs.String("log-level", "info", "minimum log level shown on stderr: debug, info, warn, error")
+	logLevel := fs.String("log-level", "", "debug|info|warn|error (default info)")
 	noLogFile := fs.Bool("no-log-file", false, "disable the JSON debug-level log file")
 	ver := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(argv); err != nil {

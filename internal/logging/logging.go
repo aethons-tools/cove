@@ -1,3 +1,7 @@
+// Package logging provides structured slog-based logging for the cove
+// binaries: an attended (human, colorized stderr) mode and an unattended
+// (plain stderr plus an optional JSON debug-level file sink) mode, along
+// with correlation helpers for tagging related log lines across a run.
 package logging
 
 import (
