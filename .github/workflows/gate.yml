@@ -1,0 +1,65 @@
+name: gate
+
+# The merge gate for main: every PR must pass this before it can be merged, and
+# the post-merge commit on main is verified too. Branch protection (configured
+# in repo settings, not here) is what makes it blocking; this workflow only
+# reports.
+#
+# Scope: the hermetic checks only — `go test ./...` and scripts/lint.sh. The
+# real-ssh integration suite and `just e2e` are deliberately out (e2e needs live
+# infra and E2E_REPO; integration is tracked separately).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Supersede in-flight runs for the same PR, but never skip a commit on main:
+# each one must be verified on its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # NOTE: this job's name ("gate") is what branch protection lists as the
+  # required status check. Renaming it silently un-gates main — protection goes
+  # on waiting for a check that no longer reports — so only rename it together
+  # with the branch-protection setting.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # scripts/lint.sh skips shellcheck/hadolint when they are absent, so a
+      # runner without them would pass this gate having linted nothing. Install
+      # both, then run with STRICT=1 so a missing linter is a hard failure
+      # rather than a silent skip.
+      - name: Install linters
+        env:
+          # Keep in step with scripts/setup-test-tools.sh.
+          HADOLINT_VERSION: v2.12.0
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends shellcheck
+          curl -fsSL -o /tmp/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
+
+      # Mirrors `just test` — hermetic, no docker/network/ssh.
+      - name: test
+        run: go test ./...
+
+      # Mirrors `just lint` — both call scripts/lint.sh, so CI and the local
+      # loop cannot drift.
+      - name: lint
+        run: STRICT=1 ./scripts/lint.sh

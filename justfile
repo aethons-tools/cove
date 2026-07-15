@@ -56,12 +56,9 @@ integration:
 e2e:
     E2E_REPO=${E2E_REPO:?set E2E_REPO=<org>/<scratch-repo>} go test -tags integration ./internal/dispatchrun/ -run TestE2EReferenceWorker -v
 
-# go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent)
+# go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent; STRICT=1 to require them)
 lint:
-    go vet ./...
-    @test -z "$(gofmt -l .)" || { echo "gofmt -w needed for:"; gofmt -l .; exit 1; }
-    @if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh internal/assemble/hardening/image-files/usr/local/bin/*.sh; else echo "shellcheck not installed (skipping)"; fi
-    @if command -v hadolint >/dev/null; then hadolint internal/assemble/hardening/Dockerfile; else echo "hadolint not installed (skipping)"; fi
+    ./scripts/lint.sh
 
 # install dev/test tooling (podman, shellcheck, hadolint, jq, just)
 setup:

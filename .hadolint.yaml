@@ -1,0 +1,21 @@
+# hadolint config for the Dockerfiles scripts/lint.sh checks.
+#
+# Only rules that are wrong *for this repo* are ignored, each with its reason.
+# The failure threshold is left at hadolint's default on purpose: any finding
+# other than the two below — including info-level ones — fails the lint gate.
+
+ignored:
+  # DL3007 "Using latest is prone to errors ... pin to a release tag".
+  # A false positive here: internal/assemble/hardening/Dockerfile starts
+  # `FROM cove-base:latest`, which is not pulled from a registry — it is the
+  # local image scripts/build-images.sh builds from images/Dockerfile moments
+  # earlier, and *that* file pins its own base (`FROM ubuntu:24.04`). There is
+  # no floating upstream tag to pin.
+  - DL3007
+
+  # DL3059 "Multiple consecutive RUN instructions. Consider consolidation."
+  # Deliberate: this is the hardening layer (nftables, squid, sshd, the git
+  # credential helper). One RUN per step keeps each hardening action readable
+  # and auditable on its own — the security review value outweighs saving a
+  # few image layers.
+  - DL3059
