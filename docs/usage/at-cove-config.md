@@ -1,10 +1,10 @@
 ---
 summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
 read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
-owns: the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)
+owns: "the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-07-14
+updated: 2026-07-15
 ---
 
 # at-cove `config.yml`
@@ -325,7 +325,10 @@ gate). Use `paths:` to extend `PATH`.
 #### image.allowed-domains
 *list of strings*
 
-Added to the squid egress allow-list. Each must be non-empty.
+Added to the squid egress allow-list. Each must be non-empty. When a dispatched
+run is blocked by this allow-list, at-cove ends the issue in **NEEDS INPUT**
+naming the blocked host(s) and pointing back to this key as the remedy — see
+[at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
 
 ```yaml
 image:

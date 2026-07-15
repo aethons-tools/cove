@@ -4,7 +4,7 @@ read_when: You are implementing or reviewing how the scheduler launches workers 
 owns: the at-cove work substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
-updated: 2026-07-14
+updated: 2026-07-15
 ---
 
 # at-cove Work Interface
@@ -58,6 +58,10 @@ The untrusted-brief-ingesting **agent never holds the code-host token**; only `a
 The worker's contract is **at-task's**, not a bespoke `result.json`. The scheduler builds the task file (naming **no repo**); at-cove fills the target repo from the kit's `source-control`, injects the task at `.at-task/task.json`, and extracts the result from `.at-task/task-result.json`, both fixed, at-cove-owned VM paths (no kit-declared input/output). The file shapes, the JSON Schemas, and the `.at-task/` file-handoff convention (`task.json` → `worker-result.json` → `task-result.json`) are owned by the [at-task usage doc](../usage/at-task.md) and its linked [inputs](../usage/at-task-inputs.md)/[output](../usage/at-task-output.md) contract docs — not restated here.
 
 The worker does **no tracker I/O** — it writes its result, pushes any branch/PR, and exits; the scheduler reads `task-result.json` and performs **all** tracker writes (the single-writer property). The scheduler's mapping of the result → tracker transitions is owned by [at-cove-config.md](../usage/at-cove-config.md).
+
+### Egress-wall denials surface as NEEDS INPUT
+
+When a step of the bracket fails, at-cove checks the **hardening layer's own squid access log** (`/var/log/squid/access.log`) for `TCP_DENIED` records before reporting the failure. If the run was blocked by the [egress allow-list](../usage/at-cove-config.md#imageallowed-domains), at-cove writes a first-class **NEEDS INPUT** `task-result.json` naming the blocked host(s) and the fix — *add them to the kit's `image.allowed-domains` and recreate* — instead of an opaque error. This keys off the reliable, hardening-owned denial signal rather than brittle matching of agent stdout, rides the existing NEEDS INPUT contract (no separate routing), and only ever **reports** a wall — it never opens one. A failure with no denial in the log is surfaced unchanged.
 
 ## Three separated authorities
 
