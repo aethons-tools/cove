@@ -36,6 +36,9 @@ workers:
     concurrency: 3
 
 collaborators:
+  <common>:
+    secrets:
+      GITHUB_TOKEN: {}
   planner:
     prompt: Work with the user to intake and plan work from the Linear board.
 
