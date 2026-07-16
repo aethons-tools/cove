@@ -28,7 +28,7 @@ RUN mkdir -p /run/sshd \
 
 COPY /base-install-files/. /base-install-files/.
 WORKDIR /base-install-files
-RUN echo "$(pwd)"
+RUN pwd
 RUN ./install-go.sh
 RUN ./install-java.sh
 RUN ./install-node.sh
