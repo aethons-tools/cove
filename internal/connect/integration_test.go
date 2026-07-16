@@ -30,6 +30,13 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
+// noopInhibitor is a stand-in awake.Inhibitor for the connect tests: it holds
+// no OS assertion and its release is a safe no-op, keeping these tests off any
+// platform-specific sleep-prevention machinery.
+type noopInhibitor struct{}
+
+func (noopInhibitor) Inhibit() (func(), error) { return func() {}, nil }
+
 // sshdServer is a running throwaway sshd and the knobs the tests need.
 type sshdServer struct {
 	Target sshargs.Target // points the ssh client at this server
@@ -186,7 +193,7 @@ func TestRealConnectFirstSessionLogsInThenLaunches(t *testing.T) {
 	s := startSSHD(t)
 	b := liveBackend{ep: backend.Endpoint{Host: s.Target.Host, Port: s.Target.Port, User: s.Target.User}}
 	o := Options{Container: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
-	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, o); err != nil {
+	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, noopInhibitor{}, o); err != nil {
 		t.Fatalf("Connect (first session): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(s.Dir, "authed.marker")); err != nil {
@@ -202,7 +209,7 @@ func TestRealConnectAuthedSkipsLogin(t *testing.T) {
 	mustWriteFile(t, filepath.Join(s.Dir, "authed.marker"), "x") // already logged in
 	b := liveBackend{ep: backend.Endpoint{Host: s.Target.Host, Port: s.Target.Port, User: s.Target.User}}
 	o := Options{Container: "box", IdentityFile: s.Target.IdentityFile, KnownHostsDir: filepath.Join(s.Dir, "kh")}
-	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, o); err != nil {
+	if err := Connect(b, runner.OS{}, SendEnv{R: runner.OS{}}, noopInhibitor{}, o); err != nil {
 		t.Fatalf("Connect (authed): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(s.Dir, "login.log")); err == nil {
