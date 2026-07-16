@@ -1,0 +1,28 @@
+name: renovate-validate
+
+# Schema-validate renovate.json so a malformed config is caught in CI rather
+# than silently ignored by the Renovate app. Runs only when the config or this
+# workflow changes.
+
+on:
+  pull_request:
+    paths:
+      - renovate.json
+      - .github/workflows/renovate-validate.yml
+  push:
+    branches: [main]
+    paths:
+      - renovate.json
+      - .github/workflows/renovate-validate.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate renovate.json
+        run: npx --yes --package renovate renovate-config-validator --strict

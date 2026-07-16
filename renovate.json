@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "cove-base-image and cove-base are built locally in this repo (not pulled from a registry), so Renovate must not try to update those FROM lines.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["cove-base-image", "cove-base"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Go toolchain — GO_VERSION arg in the cove-image Dockerfile",
+      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "matchStrings": ["ARG GO_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "golang-version",
+      "depNameTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "hadolint — HADOLINT_VERSION arg in the cove-image Dockerfile",
+      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "matchStrings": ["ARG HADOLINT_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "hadolint/hadolint"
+    },
+    {
+      "customType": "regex",
+      "description": "Eclipse Temurin JDK — JDK_RELEASE arg (captures the version after the jdk- prefix)",
+      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "matchStrings": ["ARG JDK_RELEASE=jdk-(?<currentValue>\\S+)"],
+      "datasourceTemplate": "java-version",
+      "depNameTemplate": "java-jdk"
+    },
+    {
+      "customType": "regex",
+      "description": "Node.js — NODE_VERSION arg (nodesource deb; track the upstream node version, keep the -1nodesourceN suffix)",
+      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "matchStrings": ["ARG NODE_VERSION=(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)-"],
+      "datasourceTemplate": "node-version",
+      "depNameTemplate": "node"
+    }
+  ]
+}
