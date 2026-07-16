@@ -392,6 +392,10 @@ so no Docker, network, or live VM is required.
 The real-ssh integration suite (build tag `integration`) boots a throwaway `sshd` on loopback with a fake `claude`
 and exercises the transports and TOFU end-to-end without Docker.
 
+The sandbox images are built from a shared, pinned, multi-arch **image tree**
+(`cove-base-image` → `cove-image`) published to GHCR and consumed by both CI and
+the sandboxes — see [DEVELOPMENT.md](DEVELOPMENT.md#the-image-tree).
+
 ## Status and roadmap
 
 Implemented and on `main`:

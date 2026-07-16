@@ -73,10 +73,52 @@ loop cannot drift.
 - CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.
-- `scripts/lint.sh` runs `hadolint` on both Dockerfiles — the base
-  `images/Dockerfile` and `internal/assemble/hardening/Dockerfile`.
-  `.hadolint.yaml` records the rules ignored for them, each with its reason.
-  Everything else fails the gate.
+- `scripts/lint.sh` runs `hadolint` on all three Dockerfiles —
+  `images/cove-base-image/Dockerfile`, `images/cove-image/Dockerfile`, and
+  `internal/assemble/hardening/Dockerfile`. `.hadolint.yaml` records the rules
+  ignored for them, each with its reason. Everything else fails the gate.
+
+## The image tree
+
+The utility set lives in one published, pinned, multi-arch image tree — the
+single source of truth shared by CI job containers and the agent sandboxes
+at-cove hardens, so their tooling can't drift. See
+[the design](superpowers/specs/2026-07-16-shared-base-image-design.md) for the
+full rationale.
+
+- **`images/cove-base-image/Dockerfile`** — the universal lean floor: OS +
+  git/gh/sshd + the egress stack (nftables/squid/podman) + core utils + `at-task`
+  (the generic worker harness, compiled from this repo and baked in per-arch).
+  No language toolchains, chrome, or java.
+- **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
+  build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
+  Base for both CI and the sandboxes.
+
+**Reproducible by pinning.** Every input is pinned: the `FROM ubuntu:24.04`
+manifest digest, each apt package `pkg=version`, and the toolchain args
+(`GO_VERSION`, `JDK_RELEASE`, `NODE_VERSION`, `HADOLINT_VERSION`). Versions are
+identical across amd64/arm64, so one pin serves both. A pin that ages out of the
+archive fails the build loudly. [`renovate.json`](../renovate.json) keeps them
+current — Renovate opens a bump PR per newer version instead of a silent float.
+(The one input not yet pinned is chromium, which rides whatever `playwright`
+resolves.)
+
+**Build & publish** — [`.github/workflows/build-images.yml`](../.github/workflows/build-images.yml):
+
+- Both arches build **natively** (amd64 on `ubuntu-latest`, arm64 on
+  `ubuntu-24.04-arm`) and smoke-test that every tool resolves, **before** any
+  publish.
+- **Pull requests build + smoke only — they never publish.** Only a push to
+  `main` publishes: each arch pushes its smoke-tested images to GHCR under an
+  intermediate `sha-<sha>-<arch>` tag, then a `publish` job merges them into
+  one multi-arch manifest per image, tagged `<date>-<sha>` (immutable) and
+  `latest` (moving). The run summary prints the manifest-list digest.
+- Published (private) to `ghcr.io/aethons-tools/cove-base-image` and
+  `…/cove-image`. Consumers **pin by `@sha256` digest**, never a moving tag
+  (wired up in COV-34/COV-35).
+- [`scripts/build-images.sh`](../scripts/build-images.sh) builds the tree
+  locally (host arch, no publish) for iteration; it is slated for retirement in
+  COV-34.
 
 ## Verified `claude` CLI facts
 
