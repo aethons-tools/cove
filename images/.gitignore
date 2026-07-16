@@ -1,1 +1,3 @@
 /.build-install-files/
+# at-task binary staged into the base-image build context by the build workflow.
+/cove-base-image/at-task
