@@ -12,7 +12,7 @@ ARG GO_VERSION=1.26.4
 ARG JDK_RELEASE=jdk-25.0.3+9
 ARG NODE_MAJOR_VERSION=22
 ARG NODE_VERSION=22.23.1-1nodesource1
-ARG HADOLINT_VERSION=v2.12.0
+ARG HADOLINT_VERSION=v2.14.0
 
 # CI/lint tooling from apt (pinned; see the note in cove-base-image's Dockerfile).
 RUN apt-get update \
