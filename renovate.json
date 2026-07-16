@@ -9,6 +9,19 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": ["cove-base-image", "cove-base"],
       "enabled": false
+    },
+    {
+      "description": "Node stays on the 22.x LTS line. NODE_VERSION (the exact pin) and NODE_MAJOR_VERSION (the nodesource channel) are coupled, but Renovate only bumps NODE_VERSION — a major jump would leave the channel behind and fail the build. Pin to <23; move the ceiling deliberately (and bump NODE_MAJOR_VERSION with it) to change majors.",
+      "matchDatasources": ["node-version"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "<23"
+    },
+    {
+      "description": "Stay on Ubuntu 24.04 LTS: refresh the pinned base digest, but don't jump the distro version (Renovate offered 26.04). Digest updates keep the 24.04 tag and stay enabled; a version bump is deliberate.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ubuntu"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
     }
   ],
   "customManagers": [
