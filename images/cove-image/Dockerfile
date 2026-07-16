@@ -8,7 +8,7 @@ ARG BASE_TAG=latest
 FROM cove-base-image:${BASE_TAG}
 ARG TARGETARCH
 # Toolchain versions — pinned for reproducibility; Renovate keeps them current.
-ARG GO_VERSION=1.26.4
+ARG GO_VERSION=1.26.5
 ARG JDK_RELEASE=jdk-25.0.3+9
 ARG NODE_MAJOR_VERSION=22
 ARG NODE_VERSION=22.23.1-1nodesource1
