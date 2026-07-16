@@ -24,7 +24,8 @@ This design makes the base **kit-selectable** — name an image to harden, or dr
   - **Neither → default `cove-base-image@<digest>`** (the lean floor — not `cove-image`, whose go/java/chrome toolchain a generic worker sandbox doesn't need).
 - **Provenance gate.** The resolved base must **descend from a blessed `cove-base-image`** (§4). A non-descendant is rejected — *unless* `--i-know-what-im-doing` is passed, which downgrades the rejection to a loud warning (deliberate friction relief during rapid change).
 - **`setup-scripts` is removed.** Kit build-time customization moves into the kit's own Dockerfile.
-- **Session env moves to a well-known file, not `ENV`.** A Dockerfile `ENV` never reaches SSH sessions (they read `/etc/environment` via `pam_env`). So the kit writes a well-known `.env` file that the sealed layer folds into `/etc/environment`, exactly as `apply-image-env.sh` does today — `PATH` is just an entry in it.
+- **`image-files/` is *only* the kit Dockerfile's build context.** It is not overlaid, not COPYed by hardening, and irrelevant when a base tag is used. If there is no kit `Dockerfile`, `image-files/` does nothing.
+- **Session env moves to a well-known in-image file, not `ENV`.** A Dockerfile `ENV` never reaches SSH sessions (they read `/etc/environment` via `pam_env`). So the base image carries a well-known `.env` file at a fixed *in-image* path — the kit's Dockerfile writes it there, or a tagged base already contains it — and the sealed layer folds it into `/etc/environment`, exactly as `apply-image-env.sh` does today. `PATH` is just an entry in it.
 - **`allowed-domains` stays in `config.yml`.** It feeds the sealed squid allow-list, a hardening concern, not a kit-Dockerfile one.
 
 ## 3. The kit config change
@@ -64,9 +65,10 @@ This design makes the base **kit-selectable** — name an image to harden, or dr
 
 - *Open decision (explore, willing to bail):* accept exactly **one** blessed digest, or a small **rolling set** (kits whose bases were built on an earlier `cove-base-image` publish still descend from *that* digest, not the current one). A set is more merciful across republishes but harder to implement — explore it, and fall back to a single embedded digest if it proves costly.
 
-## 5. Session env via a well-known `.env` file
+## 5. Session env via a well-known in-image `.env` file
 
-- The kit provides a well-known `.env` file (exact path/format — e.g. `image-files/.cove-env` — is an open detail to settle first in implementation).
+- The **base image** carries a `.env` file at a fixed, well-known *in-image* path (e.g. `/etc/cove/env` — exact path is an open detail, §7). The kit's Dockerfile writes it there; a tagged base may already contain it; if absent, there is simply no kit-supplied session env.
+- Because `image-files/` is inert during hardening (§2), the `.env` is **not** an overlaid file — it lives inside the resolved base and hardening reads it from that in-image path.
 - The sealed layer reads it and writes the entries into `/etc/environment`, so `pam_env` exposes them to every SSH session — the same job `apply-image-env.sh` does today for `config.yml`'s `env`/`paths`.
 - `PATH` is a well-known entry in that file, handled as today.
 - The kit's Dockerfile must **not** rely on `ENV` for session env (it never reaches PAM); the file is the mechanism.
@@ -74,17 +76,17 @@ This design makes the base **kit-selectable** — name an image to harden, or dr
 ## 6. What changes in the assemble/hardening layer
 
 - **`internal/kit/config.go`** — the `ImageConfig` schema change (§3) + validation (base/Dockerfile mutual exclusion).
-- **`internal/assemble/`** — a new pre-hardening stage: detect `image-files/Dockerfile`, build it, resolve the base digest, run the provenance gate; thread the resolved base into the hardening `Dockerfile` as a build ARG (`FROM ${BASE}`).
-- **Hardening `Dockerfile`** — `FROM cove-base:latest` → `FROM ${BASE}` (ARG, default the blessed `cove-base-image@digest`); injects the embedded at-task (COV-36).
+- **`internal/assemble/`** — a new pre-hardening stage: detect `image-files/Dockerfile`, build it (context `image-files/`), resolve the base digest, run the provenance gate; thread the resolved base into the hardening `Dockerfile` as a build ARG (`FROM ${BASE}`). Hardening **no longer COPYs `image-files/`** — that tree is only the kit Dockerfile's context now.
+- **Hardening `Dockerfile`** — `FROM cove-base:latest` → `FROM ${BASE}` (ARG, default the blessed `cove-base-image@digest`); injects the embedded at-task (COV-36); COPYs only the sealed files (+ the overridable defaults, pending §7 #1).
 - **`run-setup.sh`** — deleted (setup-scripts gone).
-- **`apply-image-env.sh`** — retargeted from `config.yml` env/paths to the well-known `.env` file.
+- **`apply-image-env.sh`** — retargeted from `config.yml` env/paths to reading the well-known in-image `.env` file (§5).
 - **Migration** — `.at-cove/config.yml` and `kits/reference-worker/config.yml` both use `setup-scripts` today; convert each to an `image-files/Dockerfile` (+ a `.env` file if they set env/paths).
 
 ## 7. Open decisions to resolve first in implementation
 
-1. **Kit Dockerfile vs the overlay assembly.** Today assembly merges overridable defaults + kit `image-files/` + sealed hardening files into one context, and the hardening `Dockerfile` COPYs the merged tree. Under this design there are two build stages with two contexts: (a) the kit's `Dockerfile`, context `image-files/`, produces the base; (b) the hardening `Dockerfile`, `FROM` that base, COPYs the sealed files. The open question: does `image-files/` serve as *both* the kit-build context *and* still contribute to the hardening COPY (risking double-placement), or does the kit's Dockerfile own all kit-file placement while hardening COPYs only the sealed layer (+ overridable defaults)? Recommended direction: the kit's Dockerfile owns kit content (the "unhide Docker" tradeoff — the author writes the COPYs); hardening COPYs only the sealed files + overridable defaults + reads the well-known `.env`. Confirm and pin the exact overlay boundary before coding.
+1. **Where the overridable defaults land** (consequent of the `image-files/` decision). `image-files/` is now *only* the kit Dockerfile's build context — it is no longer overlaid, so the old mechanism where a kit dropped a file in `image-files/` to shadow an overridable default (`CLAUDE.md`, `settings.json`, stock skills, default entrypoint) is gone. Two clean options: **(a)** the overridable defaults ship in `cove-base-image`, so a kit's Dockerfile (which is `FROM` a cove-base descendant) can override them by writing its own, and hardening COPYs *only* the sealed, non-overridable files; or **(b)** hardening keeps applying the defaults but as a genuine fallback (only where absent). Recommended: **(a)** — it keeps hardening purely sealed and makes overrides a normal Dockerfile concern. Pin this before coding.
 2. **Blessed-digest cardinality** — one embedded digest vs a rolling set (§4). Explore the set; bail to one if hard.
-3. **The `.env` file** — exact path and format (§5); it lives among the kit's overlaid files (read by the sealed layer), so it is independent of whether the base came from a tag or a kit Dockerfile.
+3. **The in-image `.env` path** — the fixed path the base carries and the sealed layer reads (§5), plus its format.
 4. **`--i-know-what-im-doing`** — flag name/scope and how loud the warning is.
 
 ## 8. Testing
