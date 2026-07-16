@@ -22,6 +22,16 @@
       "matchPackageNames": ["ubuntu"],
       "matchUpdateTypes": ["major", "minor"],
       "enabled": false
+    },
+    {
+      "description": "Ubuntu 24.04 (noble) archive suites for the apt `deb` datasource — base + updates + security, main and universe. Requires Dependency-Dashboard approval for now: a first check that the datasource resolves the pins before it may open PRs. Drop dependencyDashboardApproval once confirmed working.",
+      "matchDatasources": ["deb"],
+      "registryUrls": [
+        "https://archive.ubuntu.com/ubuntu?suite=noble&components=main,universe&binaryArch=amd64",
+        "https://archive.ubuntu.com/ubuntu?suite=noble-updates&components=main,universe&binaryArch=amd64",
+        "https://security.ubuntu.com/ubuntu?suite=noble-security&components=main,universe&binaryArch=amd64"
+      ],
+      "dependencyDashboardApproval": true
     }
   ],
   "customManagers": [
@@ -56,6 +66,14 @@
       "matchStrings": ["ARG NODE_VERSION=(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)-"],
       "datasourceTemplate": "node-version",
       "depNameTemplate": "node"
+    },
+    {
+      "customType": "regex",
+      "description": "Ubuntu apt pins (pkg=version) in the base + cove-image Dockerfiles. Matches indented lowercase-name = digit-leading-version lines; the ARG toolchain lines (uppercase names / non-digit values) are not matched. Datasource + registryUrls supplied by the deb packageRule above.",
+      "managerFilePatterns": ["images/cove-base-image/Dockerfile", "images/cove-image/Dockerfile"],
+      "matchStrings": ["(?<depName>[a-z][a-z0-9.+-]*)=(?<currentValue>[0-9][^\\s\\\\]*)"],
+      "datasourceTemplate": "deb",
+      "versioningTemplate": "deb"
     }
   ]
 }
