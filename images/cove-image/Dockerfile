@@ -7,15 +7,18 @@
 ARG BASE_TAG=latest
 FROM cove-base-image:${BASE_TAG}
 ARG TARGETARCH
+# Toolchain versions — pinned for reproducibility; Renovate keeps them current.
 ARG GO_VERSION=1.26.4
-ARG JDK_VERSION=25
+ARG JDK_RELEASE=jdk-25.0.3+9
 ARG NODE_MAJOR_VERSION=22
+ARG NODE_VERSION=22.23.1-1nodesource1
 ARG HADOLINT_VERSION=v2.12.0
 
-# CI/lint tooling from apt (unpinned in this first increment — see COV-33).
+# CI/lint tooling from apt (pinned; see the note in cove-base-image's Dockerfile).
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      shellcheck just \
+      shellcheck=0.9.0-1 \
+      just=1.21.0-1 \
  && rm -rf /var/lib/apt/lists/*
 
 # hadolint (Dockerfile linter) — no apt package; fetch the release binary.
@@ -30,11 +33,14 @@ RUN case "${TARGETARCH}" in \
 
 # Language toolchains + headless chromium, via the install scripts (run in place,
 # then removed). Order matters: chromium is installed through npx, so node first.
+# chromium is the one input not version-pinned here — it rides whatever
+# `playwright` npx resolves; pinning it needs the playwright npm version (a
+# follow-up).
 COPY install-files/ /base-install-files/
 WORKDIR /base-install-files
 RUN TARGETARCH="${TARGETARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
-RUN TARGETARCH="${TARGETARCH}" JDK_VERSION="${JDK_VERSION}" ./install-java.sh
-RUN NODE_MAJOR_VERSION="${NODE_MAJOR_VERSION}" ./install-node.sh
+RUN TARGETARCH="${TARGETARCH}" JDK_RELEASE="${JDK_RELEASE}" ./install-java.sh
+RUN NODE_MAJOR_VERSION="${NODE_MAJOR_VERSION}" NODE_VERSION="${NODE_VERSION}" ./install-node.sh
 RUN ./install-chrome.sh
 WORKDIR /
 RUN rm -rf /base-install-files
