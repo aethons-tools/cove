@@ -14,11 +14,11 @@
 # Target: Debian/Ubuntu (the image base is ubuntu:24.04). Arch-aware (arm64/amd64).
 # Idempotent and safe to re-run. Uses sudo for system installs.
 #
-# After this, run the full local test loop:
-#   go test ./...                              # hermetic unit tests
-#   go test -tags integration ./internal/...  # real ssh/sshd integration
-#   shellcheck internal/assemble/hardening/image-files/usr/local/bin/entrypoint.sh
-#   hadolint   internal/assemble/hardening/Dockerfile
+# After this, run the full local test loop ($ marks the prompt — a comment whose
+# first word is "shellcheck" would parse as a shellcheck directive, not prose):
+#   $ go test ./...                             # hermetic unit tests
+#   $ go test -tags integration ./internal/...  # real ssh/sshd integration
+#   $ scripts/lint.sh                           # vet, gofmt, shellcheck, hadolint
 #
 # Rootless-podman caveat: the sandbox image locks egress with nftables+squid
 # inside the container's netns (needs --cap-add=NET_ADMIN, which cove already
@@ -64,7 +64,10 @@ USER_NAME="${SUDO_USER:-$USER}"
 if ! grep -q "^${USER_NAME}:" /etc/subuid 2>/dev/null; then
   log "Adding subuid/subgid ranges for ${USER_NAME} (rootless podman)"
   sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "${USER_NAME}"
-  command -v podman >/dev/null && podman system migrate || true
+  # Re-migrating is best-effort: the ranges above are what matter.
+  if command -v podman >/dev/null; then
+    podman system migrate || true
+  fi
 fi
 
 log "Installing hadolint ${HADOLINT_VERSION} (${HADO_ARCH})"

@@ -52,6 +52,30 @@ GOPATH=/home/agent/workspace/.gopath GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod
   podman covers the SSH/lifecycle mechanics,
   but the in-container `nftables`/Squid egress lockdown under rootless is the part to watch.
 
+## CI — the merge gate
+
+[`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
+to `main`, and on `main` itself. It runs the two hermetic checks —
+`go test ./...` and [`scripts/lint.sh`](../scripts/lint.sh) — the same ones
+`just test` and `just lint` run, through the same script, so CI and the local
+loop cannot drift.
+
+- The job is named **`gate`**, and that name is what branch protection lists as
+  the required check. Renaming the job silently un-gates `main`: protection goes
+  on waiting for a check that never reports. Rename only alongside the setting.
+- CI runs lint as `STRICT=1 scripts/lint.sh`. Outside CI a missing `shellcheck`
+  or `hadolint` is skipped with a note, so a fresh clone can lint before
+  `just setup`; in CI that default would let the gate pass having linted
+  nothing, so `STRICT=1` turns a missing linter into a failure.
+- The workflow needs no `just` — the logic lives in `scripts/`, per the
+  justfile's header.
+- **Not** gated: `just integration` (real-ssh) and `just e2e` (live infra).
+- CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
+  above are a workaround for *this sandbox's* egress lock; a runner has open
+  egress and should verify module checksums against `go.sum`.
+- `.hadolint.yaml` records the two rules ignored for the hardening Dockerfile,
+  each with its reason. Everything else fails the gate.
+
 ## Verified `claude` CLI facts
 
 Checked against the `claude` CLI present in this sandbox (v2.1.x):
@@ -62,9 +86,17 @@ Checked against the `claude` CLI present in this sandbox (v2.1.x):
 
 ## Git / pushing
 
-The repo's `origin` is `git@github.com:aethons-tools/cove.git` (SSH form).
-This egress-locked box **cannot push**:
-port 22 is blocked and there is no key on it.
-Pushing is done from a machine with normal network access.
+`origin` is `https://github.com/aethons-tools/cove.git`.
+SSH git is impossible here — the egress lock drops port 22 —
+so the hardening layer rewrites GitHub remotes to HTTPS
+and a credential helper supplies the token from `GITHUB_TOKEN` in the session env
+(see [`OVERVIEW.md`](OVERVIEW.md#authentication) for the mechanism).
+A session whose kit does not declare that secret has no token,
+and git fails closed rather than prompting;
+this repo's kit declares it under `collaborators.<common>.secrets`
+(see [at-cove-config.md](usage/at-cove-config.md#collaborators)).
+
+`main` is protected: changes land through a PR whose **`gate`** check passes.
+Direct pushes to `main` are rejected, including for admins.
 Inside a *sandbox* the story is different —
 the hardening rewrites GitHub remotes to HTTPS and feeds a `GITHUB_TOKEN` via a credential helper (see [`OVERVIEW.md`](OVERVIEW.md#authentication)).
