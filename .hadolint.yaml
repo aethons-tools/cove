@@ -13,6 +13,14 @@ ignored:
   # no floating upstream tag to pin.
   - DL3007
 
+  # DL3008 "Pin versions in apt-get install".
+  # Deliberate for this repo: images/Dockerfile rebuilds cove-base fresh from
+  # `ubuntu:24.04` rather than pinning every apt package. Pinning exact versions
+  # is high-maintenance churn against a moving Ubuntu archive (packages age out
+  # and the build breaks), for little benefit when the base is rebuilt from a
+  # pinned distro release each time.
+  - DL3008
+
   # DL3059 "Multiple consecutive RUN instructions. Consider consolidation."
   # Deliberate: this is the hardening layer (nftables, squid, sshd, the git
   # credential helper). One RUN per step keeps each hardening action readable

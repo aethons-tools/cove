@@ -73,8 +73,10 @@ loop cannot drift.
 - CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.
-- `.hadolint.yaml` records the two rules ignored for the hardening Dockerfile,
-  each with its reason. Everything else fails the gate.
+- `scripts/lint.sh` runs `hadolint` on both Dockerfiles — the base
+  `images/Dockerfile` and `internal/assemble/hardening/Dockerfile`.
+  `.hadolint.yaml` records the rules ignored for them, each with its reason.
+  Everything else fails the gate.
 
 ## Verified `claude` CLI facts
 
