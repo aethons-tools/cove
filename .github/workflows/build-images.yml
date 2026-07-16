@@ -7,16 +7,22 @@ name: build-images
 
 on:
   pull_request:
-    paths:
+    paths: &image_inputs
+      # The image definitions themselves.
       - images/**
+      # at-task is compiled from source and baked into cove-base-image, so any
+      # of its inputs can change the image: its own package, every internal
+      # package it imports (watch the whole tree — imports drift), and the
+      # module files. `go list -deps ./cmd/at-task` today: internal/{cli,
+      # dispatch/github,dispatch/worker}.
       - cmd/at-task/**
+      - internal/**
+      - go.mod
+      - go.sum
       - .github/workflows/build-images.yml
   push:
     branches: [main]
-    paths:
-      - images/**
-      - cmd/at-task/**
-      - .github/workflows/build-images.yml
+    paths: *image_inputs
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
