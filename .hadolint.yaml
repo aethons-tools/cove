@@ -6,19 +6,20 @@
 
 ignored:
   # DL3007 "Using latest is prone to errors ... pin to a release tag".
-  # A false positive here: internal/assemble/hardening/Dockerfile starts
-  # `FROM cove-base:latest`, which is not pulled from a registry — it is the
-  # local image scripts/build-images.sh builds from images/Dockerfile moments
-  # earlier, and *that* file pins its own base (`FROM ubuntu:24.04`). There is
-  # no floating upstream tag to pin.
+  # A false positive here: our own locally-built images are referenced by a
+  # `:latest`-style tag, not pulled from a registry. images/cove-image/Dockerfile
+  # is `FROM cove-base-image:${BASE_TAG}` (default `latest`), and
+  # internal/assemble/hardening/Dockerfile is `FROM cove-base:latest` — each names
+  # an image built moments earlier in the same pipeline, while the real upstream
+  # base (images/cove-base-image/Dockerfile) pins `FROM ubuntu:24.04`. Nothing
+  # floating to pin.
   - DL3007
 
   # DL3008 "Pin versions in apt-get install".
-  # Deliberate for this repo: images/Dockerfile rebuilds cove-base fresh from
-  # `ubuntu:24.04` rather than pinning every apt package. Pinning exact versions
-  # is high-maintenance churn against a moving Ubuntu archive (packages age out
-  # and the build breaks), for little benefit when the base is rebuilt from a
-  # pinned distro release each time.
+  # INTERIM: the image tree (images/cove-base-image, images/cove-image) is being
+  # pinned exhaustively (apt pkg=version, kept current by Renovate) in a follow-on
+  # increment of COV-33. Until that lands, apt is unpinned and this ignore keeps
+  # the gate green. Remove it once pinning is in place.
   - DL3008
 
   # DL3059 "Multiple consecutive RUN instructions. Consider consolidation."

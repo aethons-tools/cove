@@ -63,5 +63,5 @@ if have shellcheck; then
 fi
 
 if have hadolint; then
-  hadolint images/Dockerfile internal/assemble/hardening/Dockerfile
+  hadolint images/cove-base-image/Dockerfile images/cove-image/Dockerfile internal/assemble/hardening/Dockerfile
 fi

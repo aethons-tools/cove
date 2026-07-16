@@ -1,0 +1,82 @@
+name: build-images
+
+# Build the shared image tree (cove-base-image → cove-image) and smoke-test the
+# toolchain, natively per arch. First increment (COV-33): build + smoke only —
+# no registry publish, no version pinning yet (those land in follow-on PRs).
+# Runs when the image definitions, the at-task source, or this workflow change.
+
+on:
+  pull_request:
+    paths: &image_inputs
+      # The image definitions themselves.
+      - images/**
+      # at-task is compiled from source and baked into cove-base-image, so any
+      # of its inputs can change the image: its own package, every internal
+      # package it imports (watch the whole tree — imports drift), and the
+      # module files. `go list -deps ./cmd/at-task` today: internal/{cli,
+      # dispatch/github,dispatch/worker}.
+      - cmd/at-task/**
+      - internal/**
+      - go.mod
+      - go.sum
+      - .github/workflows/build-images.yml
+  push:
+    branches: [main]
+    paths: *image_inputs
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # at-task is baked into cove-base-image; build it from source for this
+      # runner's native arch and stage it into the base build context.
+      - name: Build at-task (${{ matrix.arch }})
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -trimpath -ldflags "-s -w" \
+            -o images/cove-base-image/at-task ./cmd/at-task
+
+      - name: Build cove-base-image
+        run: docker build --tag cove-base-image:ci images/cove-base-image
+
+      - name: Build cove-image
+        run: docker build --build-arg BASE_TAG=ci --tag cove-image:ci images/cove-image
+
+      # Every expected tool must resolve inside the image. A missing tool or a
+      # bad layer fails here, on a native runner, before anything downstream.
+      - name: Smoke-test cove-image
+        run: |
+          docker run --rm cove-image:ci bash -euo pipefail -c '
+            echo "arch: $(uname -m)"
+            go version
+            just --version
+            shellcheck --version | head -n2
+            hadolint --version
+            at-task version
+            node --version
+            npm --version
+            chromium --version
+            java -version
+          '
