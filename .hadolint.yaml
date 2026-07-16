@@ -15,13 +15,6 @@ ignored:
   # floating to pin.
   - DL3007
 
-  # DL3008 "Pin versions in apt-get install".
-  # INTERIM: the image tree (images/cove-base-image, images/cove-image) is being
-  # pinned exhaustively (apt pkg=version, kept current by Renovate) in a follow-on
-  # increment of COV-33. Until that lands, apt is unpinned and this ignore keeps
-  # the gate green. Remove it once pinning is in place.
-  - DL3008
-
   # DL3059 "Multiple consecutive RUN instructions. Consider consolidation."
   # Deliberate: this is the hardening layer (nftables, squid, sshd, the git
   # credential helper). One RUN per step keeps each hardening action readable

@@ -3,7 +3,7 @@ set -euxo pipefail
 
 # Required env args
 # TARGETARCH
-# JDK_VERSION
+# JDK_RELEASE — exact Eclipse Temurin release, e.g. jdk-25.0.3+9
 
 # Map TARGETARCH to the labels the Adoptium API uses.
 case "${TARGETARCH}" in
@@ -14,15 +14,18 @@ esac
 echo "Detected arch: ${TARGETARCH} (adoptium=${ADOPT_ARCH})"
 
 # ---------------------------------------------------------------------------
-# JDK ${JDK_VERSION} (Eclipse Temurin) — bootstraps Gradle AND satisfies
+# JDK ${JDK_RELEASE} (Eclipse Temurin) — bootstraps Gradle AND satisfies
 # the project's jvmToolchain(25), so Gradle does not need to download a
 # toolchain JDK through the locked-down proxy at runtime. (The runtime egress
 # allow-list has no JDK vendor host, and foojay's Disco API is blocked, so the
 # toolchain MUST be baked in here — Gradle auto-detects /opt/jdk because it is
 # the JVM running Gradle, and jvmToolchain(25) matches it exactly.)
 # ---------------------------------------------------------------------------
-echo "Installing Eclipse Temurin JDK ${JDK_VERSION} (${ADOPT_ARCH})"
-JDK_URL="https://api.adoptium.net/v3/binary/latest/${JDK_VERSION}/ga/linux/${ADOPT_ARCH}/jdk/hotspot/normal/eclipse"
+echo "Installing Eclipse Temurin ${JDK_RELEASE} (${ADOPT_ARCH})"
+# Pin the exact release via Adoptium's /version endpoint (the /latest/<major>/ga
+# endpoint floats). The release name carries a '+', which must be URL-encoded.
+RELEASE_ENC="${JDK_RELEASE//+/%2B}"
+JDK_URL="https://api.adoptium.net/v3/binary/version/${RELEASE_ENC}/linux/${ADOPT_ARCH}/jdk/hotspot/normal/eclipse"
 TMP_JDK="$(mktemp)"
 curl -fsSL "$JDK_URL" -o "$TMP_JDK"
 mkdir -p /opt/jdk
