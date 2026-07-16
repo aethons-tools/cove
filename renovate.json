@@ -15,6 +15,13 @@
       "matchDatasources": ["node-version"],
       "matchPackageNames": ["node"],
       "allowedVersions": "<23"
+    },
+    {
+      "description": "Stay on Ubuntu 24.04 LTS: refresh the pinned base digest, but don't jump the distro version (Renovate offered 26.04). Digest updates keep the 24.04 tag and stay enabled; a version bump is deliberate.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ubuntu"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
     }
   ],
   "customManagers": [
