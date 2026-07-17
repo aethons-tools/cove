@@ -61,10 +61,6 @@ jobs:
             just --version
             shellcheck --version | head -n2
             hadolint --version
-            node --version
-            npm --version
-            chromium --version
-            java -version
           '
 
       # main only: push this arch's smoke-tested images under an intermediate
