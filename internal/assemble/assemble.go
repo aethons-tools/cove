@@ -30,25 +30,25 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 	if hits, err := collisions(kitDir); err != nil {
 		return err
 	} else if len(hits) > 0 {
-		return fmt.Errorf("kit image-files collide with the sealed hardening layer (these would be silently overwritten — rename or remove them): %s", strings.Join(hits, ", "))
+		return fmt.Errorf("kit image/ files collide with the sealed hardening layer (these would be silently overwritten — rename or remove them): %s", strings.Join(hits, ", "))
 	}
 
-	if _, err := os.Stat(filepath.Join(kitDir, "image-files", ".cove")); err == nil {
-		return fmt.Errorf("kit image-files/.cove is reserved for cove-generated build files; rename or remove it")
+	if _, err := os.Stat(filepath.Join(kitDir, "image", ".cove")); err == nil {
+		return fmt.Errorf("kit image/.cove is reserved for cove-generated build files; rename or remove it")
 	}
 
 	// Layer 1: overridable defaults (strip the "overridable/" prefix).
 	if err := copyEmbed(overridableFS, "overridable", buildDir); err != nil {
 		return err
 	}
-	// Layer 2: kit's local image-files (if present).
-	localIF := filepath.Join(kitDir, "image-files")
+	// Layer 2: kit's local image/ tree (if present).
+	localIF := filepath.Join(kitDir, "image")
 	if _, err := os.Stat(localIF); err == nil {
 		if err := copyTree(localIF, filepath.Join(buildDir, "image-files")); err != nil {
 			return err
 		}
 	}
-	// Layer 3 (deferred): .local/image-files — intentionally not applied yet.
+	// Layer 3 (deferred): .local/image — intentionally not applied yet.
 	// Layer 4: non-overridable hardening (Dockerfile + image-files), wins.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
 		return err
@@ -103,12 +103,12 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 	})
 }
 
-// collisions returns the image-files paths present in BOTH the kit overlay and
+// collisions returns the kit image/ paths present in BOTH the kit overlay and
 // the sealed hardening tree. Such a path would be silently overwritten by the
 // winning hardening copy, so Assemble rejects the build instead of surprising
 // the kit author.
 func collisions(kitDir string) ([]string, error) {
-	localIF := filepath.Join(kitDir, "image-files")
+	localIF := filepath.Join(kitDir, "image")
 	if _, err := os.Stat(localIF); err != nil {
 		return nil, nil // no kit overlay → nothing to collide
 	}
@@ -157,13 +157,13 @@ func writeAllowedDomains(buildDir string, domains []string) error {
 
 // writeSetupManifest writes the ordered list of in-image absolute script paths
 // for the build-time runner. Each entry is interpreted relative to the kit's
-// image-files root: on disk kitDir/image-files/<entry>, in the image /<entry>
-// (the file is placed there by `COPY image-files/. /.`). Always written (empty
-// list → empty file) so the runner can read it unconditionally.
+// image/ root: on disk kitDir/image/<entry>, in the image /<entry> (the file is
+// placed there by `COPY image-files/. /.`). Always written (empty list → empty
+// file) so the runner can read it unconditionally.
 func writeSetupManifest(kitDir, buildDir string, scripts []string) error {
 	var b strings.Builder
 	for _, s := range scripts {
-		onDisk := filepath.Join(kitDir, "image-files", filepath.FromSlash(s))
+		onDisk := filepath.Join(kitDir, "image", filepath.FromSlash(s))
 		info, err := os.Stat(onDisk)
 		if err != nil {
 			return fmt.Errorf("image.setup-scripts %q: %w", s, err)

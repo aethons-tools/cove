@@ -36,7 +36,7 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 
 	// Local override: a benign file that does not collide with hardening.
-	mustWrite(t, filepath.Join(kitDir, "image-files/home/agent/note.txt"), "local")
+	mustWrite(t, filepath.Join(kitDir, "image/home/agent/note.txt"), "local")
 
 	if err := Assemble(kitDir, buildDir, []byte("ssh-ed25519 AAAA k\n"), kit.ImageConfig{}); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestAssembleRejectsCollision(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	// etc/nftables.conf is shipped by the hardening layer; shadowing it must fail.
-	mustWrite(t, filepath.Join(kitDir, "image-files/etc/nftables.conf"), "PWNED")
+	mustWrite(t, filepath.Join(kitDir, "image/etc/nftables.conf"), "PWNED")
 
 	err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{})
 	if err == nil {
@@ -116,7 +116,7 @@ func TestSquidConfReferencesKitFile(t *testing.T) {
 func TestAssembleSetupManifest(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	mustWrite(t, filepath.Join(kitDir, "image-files/.install-files/install.sh"), "#!/bin/bash\n")
+	mustWrite(t, filepath.Join(kitDir, "image/.install-files/install.sh"), "#!/bin/bash\n")
 	img := kit.ImageConfig{SetupScripts: []string{".install-files/install.sh"}}
 	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestAssembleSetupMissingScript(t *testing.T) {
 func TestAssembleRejectsReservedCove(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	mustWrite(t, filepath.Join(kitDir, "image-files/.cove/x"), "nope")
+	mustWrite(t, filepath.Join(kitDir, "image/.cove/x"), "nope")
 	err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{})
 	if err == nil || !strings.Contains(err.Error(), ".cove") {
 		t.Fatalf("expected reserved-namespace error, got %v", err)

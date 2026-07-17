@@ -52,7 +52,7 @@ so they work from subdirectories.
 repo/
   .at-cove/
     config.yml        # the spec: name, secrets, workers, image
-    image-files/      # your local overrides, overlaid onto the VM root (image-files/ → /)
+    image/            # kit build-time files, overlaid onto the VM root (image/ → /); may hold a Dockerfile naming the base
     .state/           # records the running instance (state.json) + lockfile (gitignored)
     .build/           # assembled build context (gitignored)
 ```
@@ -75,7 +75,7 @@ source-control:                 # the target repo (required for `dispatch`)
 `name` is the only always-required field;
 `source-control` (the target repo — a github union; required for `dispatch`, the single source
 of the repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
-(additive build customization) are optional.
+(the base to harden via `image.base` — mutually exclusive with an `image/Dockerfile` — plus additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
 the secret model — kits **demand** secrets by name only, the machine **supplies**
@@ -179,10 +179,10 @@ Each `build` stacks overlays into `<kit>/.build/`,
 1. **Overridable defaults** (embedded) —
    sensible defaults you may replace:
    `CLAUDE.md`, `settings.json`, stock skills, default entrypoint.
-2. **Kit `image-files/`** —
+2. **Kit `image/`** —
    your committed local files;
    shadow any default at the same path.
-3. *(deferred)* **`.local/image-files/`** —
+3. *(deferred)* **`.local/image/`** —
    uncommitted machine-specific overrides;
    the slot is reserved.
 4. **Non-overridable hardening** (embedded, applied last) —
@@ -427,7 +427,7 @@ kit root, which `config.yml` now rejects as a hard error (see
 [Migrating the worker bearer off the root bucket](usage/at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket)).
 
 Designed but deferred (see the specs):
-the `image-files/.local/` override layer,
+the `.local/image/` override layer,
 the Firecracker and Fly backends,
 and declarative repo cloning.
 Further out, the [agent-orchestration design](orchestration/INDEX.md) proposes turning at-cove into a **dispatch substrate** for autonomous workers —
