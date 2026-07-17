@@ -10,11 +10,15 @@ import (
 // Compile-time proof colima satisfies the dispatch surface.
 var _ backend.DispatchOps = (*Colima)(nil)
 
-func (c *Colima) BuildImage(buildDir, tag string) error {
+func (c *Colima) BuildImage(buildDir, tag string, base backend.BaseSpec) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs("build", "-t", tag, buildDir)...)
+	ref, err := c.resolveBase(base)
+	if err != nil {
+		return err
+	}
+	return c.r.Run("docker", dargs("build", "--build-arg", "BASE="+ref, "-t", tag, buildDir)...)
 }
 
 // RunEphemeral starts a fresh, labeled, volume-less container with --rm and a

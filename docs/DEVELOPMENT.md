@@ -46,6 +46,9 @@ GOPATH=/home/agent/workspace/.gopath GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod
   it boots an unprivileged throwaway `sshd` on loopback with a fake `claude`
   and exercises the transports and TOFU end-to-end with the real `ssh` client.
   Needs `ssh`/`sshd`/`ssh-keygen` but **not** Docker.
+- `go test -tags integration ./internal/baseimage/` proves the provenance gate against
+  **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
+  `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
 - The remaining untested gap is a full `create`→container→`connect` against a real image,
   which needs a container runtime;

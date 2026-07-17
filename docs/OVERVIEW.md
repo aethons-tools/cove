@@ -197,6 +197,29 @@ After the overlays,
 an explicit assembly step,
 keeping overlay precedence pure.
 
+### The base image and the provenance gate
+
+The hardening `Dockerfile` is applied `FROM ${BASE}` — a build arg the backend
+resolves per build:
+
+1. the kit's `image/Dockerfile` if present (at-cove builds it; the built image is the base),
+2. else `config.yml image.base` (mutually exclusive with an `image/Dockerfile`),
+3. else the default: the newest **blessed** `cove-base-image`, pinned by digest.
+
+A **kit-chosen** base (1 or 2) must pass a **provenance gate**: at-cove reads the
+resolved image's OCI rootfs `diff_ids` and asserts some blessed
+`cove-base-image`'s layers are their exact prefix — i.e. it was really built
+*FROM* a blessed base, unforgeably (matching the prefix means those bottom layers
+*are* that image, byte-for-byte). The blessed digests are embedded
+(`internal/basedigest`, a rolling set); the default base is blessed by
+construction, so it skips the gate. A base that descends from no blessed image is
+**rejected**, unless `--allow-unverified-base` downgrades the rejection to a loud
+warning. This lets hardening *trust* its prerequisites (the egress stack, the
+`agent` user, the expected layout) rather than probe for them. The gate lives in
+`internal/baseimage` (pure prefix logic) with the docker execution behind the
+backend seam; the full model is in
+[the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
+
 ## Workspace and state volumes
 
 The working directory is realized one of two ways,

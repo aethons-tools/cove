@@ -40,12 +40,24 @@ type Endpoint struct {
 	User string
 }
 
+// BaseSpec tells the backend how to resolve and verify the base image the sealed
+// hardening layer is applied FROM (COV-34). The backend selects the ref (a kit
+// image/Dockerfile it builds, or image.base, or the default blessed
+// cove-base-image), runs the provenance gate, and passes the result as the
+// hardening build's BASE arg.
+type BaseSpec struct {
+	KitDir          string // holds image/Dockerfile, if the kit ships one
+	Base            string // config.yml image.base; "" if unset
+	AllowUnverified bool   // --allow-unverified-base: downgrade a failed gate to a warning
+}
+
 // CreateContext is everything a backend needs to provision a VM.
 type CreateContext struct {
 	Name      string
 	BuildDir  string
 	Kit       string // identity for the shared image tag; "" => derive from Name.
 	Workspace WorkspaceMount
+	Base      BaseSpec
 }
 
 // Instance identifies a provisioned VM. Create returns it; the CLI records it in
@@ -75,7 +87,7 @@ type Backend interface {
 // DispatchOps is the ephemeral-container surface `at-cove work` needs, beyond
 // the persistent Create/Destroy lifecycle. A Backend may implement it.
 type DispatchOps interface {
-	BuildImage(buildDir, tag string) error
+	BuildImage(buildDir, tag string, base BaseSpec) error
 	RunEphemeral(image, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal

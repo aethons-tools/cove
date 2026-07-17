@@ -59,7 +59,11 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		kit = ctx.Name
 	}
 	img := image(kit)
-	if err := c.r.Run("docker", dargs("build", "-t", img, ctx.BuildDir)...); err != nil {
+	base, err := c.resolveBase(ctx.Base)
+	if err != nil {
+		return backend.Instance{}, err
+	}
+	if err := c.r.Run("docker", dargs("build", "--build-arg", "BASE="+base, "-t", img, ctx.BuildDir)...); err != nil {
 		return backend.Instance{}, err
 	}
 	ws := ctx.Name + "-workspace:/home/agent/workspace"

@@ -24,7 +24,7 @@ type fakeOps struct {
 	removed   bool
 }
 
-func (f *fakeOps) BuildImage(_, _ string) error { f.built = true; return nil }
+func (f *fakeOps) BuildImage(_, _ string, _ backend.BaseSpec) error { f.built = true; return nil }
 func (f *fakeOps) RunEphemeral(_, name, _ string) (backend.Instance, error) {
 	f.ran = true
 	return backend.Instance{Container: name}, nil
