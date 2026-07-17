@@ -30,6 +30,17 @@ RUN mkdir -p /run/sshd \
 # DISABLE_UPDATES=1 to also block manual updates.
 ENV DISABLE_AUTOUPDATER=1
 
+# Install the embedded, version-locked at-task the orchestrating at-cove staged
+# into the build context (COV-34). Install only when non-empty: a plain
+# `go build` without scripts/build.sh stages a 0-byte placeholder, in which case
+# we keep the base image's at-task rather than clobbering it with a broken one.
+COPY attask/ /tmp/attask/
+RUN arch="$(dpkg --print-architecture)" \
+ && if [ -s "/tmp/attask/at-task-linux-${arch}" ]; then \
+      install -m 0755 "/tmp/attask/at-task-linux-${arch}" /usr/local/bin/at-task; \
+    fi \
+ && rm -rf /tmp/attask
+
 
 COPY image-files/. /.
 # `COPY image-files/. /.` carries home/agent/ directory entries (for .ssh and
@@ -71,23 +82,15 @@ RUN bash /usr/local/lib/cove/seed-plugins.sh
 # in place. Replaces the old hardcoded /.install-files/install.sh convention.
 RUN /usr/local/lib/cove/run-setup.sh
 
-# SSH sessions read /etc/environment via pam_env. Put ~/.local/bin on PATH,
-# point claude at its state on the persistent volume, and force every login
-# shell + the SSH session through the local proxy.
-RUN printf '%s\n' \
-  'PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' \
-  'CLAUDE_CONFIG_DIR=/agent-data' \
-  'http_proxy=http://127.0.0.1:3128' \
-  'https_proxy=http://127.0.0.1:3128' \
-  'HTTP_PROXY=http://127.0.0.1:3128' \
-  'HTTPS_PROXY=http://127.0.0.1:3128' \
-  'no_proxy=localhost,127.0.0.1,::1,.internal' \
-  'NO_PROXY=localhost,127.0.0.1,::1,.internal' \
-  >> /etc/environment
+# SSH sessions read /etc/environment via pam_env. The base image ships the
+# session env in /etc/cove/env.d/00-base.env (PATH, CLAUDE_CONFIG_DIR, the egress
+# proxy vars); fold every /etc/cove/env.d/*.env fragment — the base's plus any a
+# kit Dockerfile dropped — into /etc/environment (COV-34).
+RUN /usr/local/lib/cove/apply-env-d.sh
 
-# Fold kit-declared PATH/env (config.yml image.paths/image.env) into
-# /etc/environment, so pam_env exposes them to every session — the mechanism
-# bashrc cannot reach for non-interactive SSH command execution.
+# Also fold kit-declared PATH/env (config.yml image.paths/image.env) into
+# /etc/environment — the legacy mechanism, retired once kits migrate to env.d
+# fragments (COV-34 sub-issue 4).
 RUN /usr/local/lib/cove/apply-image-env.sh
 
 # Drop cove's build-time consumables from the final image.

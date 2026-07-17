@@ -56,6 +56,21 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	}
 }
 
+// Assemble stages the at-task binaries into the build context (buildDir/attask/)
+// for the sealed layer to install. In hermetic tests the embed is unstaged, so
+// the placeholders are 0-byte — hardening then keeps the base image's at-task.
+func TestAssembleStagesAtTask(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), kit.ImageConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		if _, err := os.Stat(filepath.Join(buildDir, "attask", "at-task-linux-"+arch)); err != nil {
+			t.Fatalf("at-task-linux-%s not staged into the context: %v", arch, err)
+		}
+	}
+}
+
 func TestAssembleRejectsCollision(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")

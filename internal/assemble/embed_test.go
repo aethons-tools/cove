@@ -24,10 +24,18 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
 		}
 	}
-	// The overridable layer still ships the replaceable user-settings default.
-	if _, err := fs.Stat(overridableFS, "overridable/image-files/home/agent/.init-agent-data/settings.json"); err != nil {
-		t.Errorf("overridableFS missing settings.json: %v", err)
+	// The replaceable user-settings default now ships in cove-base-image (COV-34),
+	// not the sealed embed.
+	if _, err := os.Stat(baseInitAgentData("settings.json")); err != nil {
+		t.Errorf("cove-base-image missing settings.json default: %v", err)
 	}
+}
+
+// baseInitAgentData resolves a file the cove-base-image seeds into
+// /home/agent/.init-agent-data (the overridable startup defaults, COV-34),
+// relative to this package's directory.
+func baseInitAgentData(name string) string {
+	return filepath.Join("..", "..", "images", "cove-base-image", "init-agent-data", name)
 }
 
 // TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
@@ -166,9 +174,9 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 // by the real install) and that the Dockerfile blends the install's ~/.claude.json
 // under it via jq.
 func TestClaudeJSONPrunedAndBlended(t *testing.T) {
-	cj, err := fs.ReadFile(overridableFS, "overridable/image-files/home/agent/.init-agent-data/.claude.json")
+	cj, err := os.ReadFile(baseInitAgentData(".claude.json"))
 	if err != nil {
-		t.Fatalf(".claude.json not embedded: %v", err)
+		t.Fatalf(".claude.json default not found in cove-base-image: %v", err)
 	}
 	s := string(cj)
 	for _, want := range []string{"hasCompletedOnboarding", "hasTrustDialogAccepted"} {
@@ -213,15 +221,24 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 	}
 }
 
-// TestDockerfileSetsConfigDir guards that CLAUDE_CONFIG_DIR points at the
-// persistent volume for every ssh session (via /etc/environment), so the OAuth
-// login and the agent session agree on where credentials live.
-func TestDockerfileSetsConfigDir(t *testing.T) {
-	b, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+// TestConfigDirReachesEnvironment guards that CLAUDE_CONFIG_DIR points at the
+// persistent volume for every ssh session, so the OAuth login and the agent
+// session agree on where credentials live. Post-COV-34 it ships in the base's
+// 00-base.env and the sealed layer folds /etc/cove/env.d/*.env into
+// /etc/environment via apply-env-d.sh.
+func TestConfigDirReachesEnvironment(t *testing.T) {
+	baseEnv, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "cove-env.d", "00-base.env"))
 	if err != nil {
-		t.Fatalf("Dockerfile not embedded: %v", err)
+		t.Fatalf("00-base.env not found: %v", err)
 	}
-	if !strings.Contains(string(b), "CLAUDE_CONFIG_DIR=/agent-data") {
-		t.Errorf("Dockerfile must put CLAUDE_CONFIG_DIR=/agent-data in /etc/environment; got:\n%s", b)
+	if !strings.Contains(string(baseEnv), "CLAUDE_CONFIG_DIR=/agent-data") {
+		t.Errorf("00-base.env must set CLAUDE_CONFIG_DIR=/agent-data; got:\n%s", baseEnv)
+	}
+	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(df), "apply-env-d.sh") {
+		t.Errorf("Dockerfile must fold /etc/cove/env.d into /etc/environment via apply-env-d.sh; got:\n%s", df)
 	}
 }
