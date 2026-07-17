@@ -1,0 +1,30 @@
+name: release-validate
+
+# Validate .goreleaser.yaml with `goreleaser check` so a malformed release config
+# is caught in CI rather than at tag time. Runs when the release config, its
+# workflows, or the shared staging script change.
+
+on:
+  pull_request:
+    paths: &release_inputs
+      - .goreleaser.yaml
+      - .github/workflows/release.yml
+      - .github/workflows/release-validate.yml
+      - scripts/stage-attask.sh
+  push:
+    branches: [main]
+    paths: *release_inputs
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
