@@ -176,22 +176,24 @@ so a sandbox can't be torn down underneath a live connection.
 Each `build` stacks overlays into `<kit>/.build/`,
 **last writer wins**:
 
-1. **Overridable defaults** (embedded) —
-   sensible defaults you may replace:
-   `CLAUDE.md`, `settings.json`, stock skills, default entrypoint.
-2. **Kit `image/`** —
+1. **Kit `image/`** (legacy overlay) —
    your committed local files;
-   shadow any default at the same path.
-3. *(deferred)* **`.local/image/`** —
+   overlaid onto the VM root. *(Being retired: `image/` becomes purely a Dockerfile
+   build context — see the base-image section below.)*
+2. *(deferred)* **`.local/image/`** —
    uncommitted machine-specific overrides;
    the slot is reserved.
-4. **Non-overridable hardening** (embedded, applied last) —
-   `nftables.conf`, `squid.conf`, sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper.
+3. **Non-overridable hardening** (embedded, applied last) —
+   `nftables.conf`, `squid.conf`, sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
 
-Layer 4 extracting last is the **security boundary**:
+The **overridable startup defaults** (`settings.json`, `.claude.json`) no longer
+overlay here — they ship in `cove-base-image`, so a kit's Dockerfile overrides
+them the normal way and the sealed layer stays purely sealed.
+
+Layer 3 extracting last is the **security boundary**:
 local files can never weaken the egress lock or sshd hardening.
-Both embedded layers ship inside the binary via Go `embed.FS`,
-so the hardening cannot be misplaced or forgotten.
+The hardening layer ships inside the binary via Go `embed.FS`,
+so it cannot be misplaced or forgotten.
 After the overlays,
 `create` writes the managed public key into the context's `authorized_keys` —
 an explicit assembly step,
@@ -219,6 +221,15 @@ warning. This lets hardening *trust* its prerequisites (the egress stack, the
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
 backend seam; the full model is in
 [the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
+
+Because hardening trusts the base, `cove-base-image` carries the pieces every
+sandbox needs under it: the overridable startup defaults (`settings.json`,
+`.claude.json` in `/home/agent/.init-agent-data`) and the session env in
+`/etc/cove/env.d/00-base.env` (`PATH`, `CLAUDE_CONFIG_DIR`, the egress proxy
+vars). The sealed layer then, last: installs the embedded version-locked
+`at-task`, folds every `/etc/cove/env.d/*.env` fragment into `/etc/environment`
+(so `pam_env` exposes it to every SSH session), and re-asserts the egress/sshd
+hardening.
 
 ## Workspace and state volumes
 

@@ -4,5 +4,13 @@
 # gate compares the base's OCI layer diff_ids against the blessed image's. This
 # list is committed (reproducible builds, no registry access to know what's
 # trusted) and embedded into at-cove; the cove-base-image publish appends a new
-# digest here on each republish (COV-36).
+# digest here on each republish (COV-36). The FIRST entry is the default base
+# at-cove hardens (basedigest.DefaultRef); older entries stay valid for the
+# provenance gate.
+#
+# ⚠️ COV-42 HANDOFF: this repo now adds the overridable startup defaults and
+# /etc/cove/env.d/00-base.env to cove-base-image. Once cove-base-image is
+# REPUBLISHED with those, PREPEND the new digest above the line below (newest
+# first) so it becomes the default base. Until then, the default base predates
+# this furniture and a default build lacks it.
 sha256:de2c3c0165a994d7ba7c3896be4af15f284f3c5c2d2c60d920338dc4c9302caf
