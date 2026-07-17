@@ -79,8 +79,13 @@ func TestResolveBaseAllowUnverified(t *testing.T) {
 	}
 }
 
-// A kit image/Dockerfile is built (docker build -q → image ID) and that ID
-// becomes the gated base.
+// A kit image/Dockerfile is built (docker build -q → image ID); that ID is
+// tagged under a local, content-derived tag and the tag becomes the gated base.
+// The bare `sha256:<id>` that `docker build -q` prints is NOT usable in `FROM` —
+// Docker parses it as the repo/tag `docker.io/library/sha256:<id>` and fails to
+// pull — and there is no way to reference the local build cache by digest in a
+// FROM. Tagging the just-built image and handing back the tag gives `FROM ${BASE}`
+// a name the local daemon resolves without a registry fetch.
 func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	kitDir := t.TempDir()
 	imageDir := filepath.Join(kitDir, "image")
@@ -91,6 +96,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	const builtID = "sha256:builtlocal"
+	const wantRef = "cove-kit-base:builtlocal"
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: builtID + "\n"},                       // docker build -q
 		{Stdout: `["sha256:a","sha256:b","sha256:k"]`}, // the built image's layers
@@ -101,11 +107,16 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref != builtID {
-		t.Fatalf("ref = %q, want built image ID %q", ref, builtID)
+	if ref != wantRef {
+		t.Fatalf("ref = %q, want local tag ref %q", ref, wantRef)
 	}
 	if dockerCall(f.Calls, "build") == nil {
 		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
+	}
+	// The built ID must be tagged under wantRef so `FROM ${BASE}` can resolve it.
+	tag := dockerCall(f.Calls, "tag")
+	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
+		t.Fatalf("expected `docker tag %s %s`, calls: %+v", builtID, wantRef, f.Calls)
 	}
 }
 
