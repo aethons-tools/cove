@@ -15,12 +15,26 @@ import (
 type dockerImg struct{ c *Colima }
 
 func (d dockerImg) Build(contextDir string) (string, error) {
-	// -q: emit only the built image ID (the base ref we harden FROM).
+	// -q: emit only the built image ID (a bare `sha256:<hex>`).
 	out, err := d.c.r.Output("docker", dargs("build", "-q", contextDir)...)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	id := strings.TrimSpace(out)
+	if id == "" {
+		return id, nil
+	}
+	// A bare local image ID is not usable in `FROM ${BASE}`: `FROM sha256:<hex>`
+	// is misparsed as the repo/tag `docker.io/library/sha256:<hex>`, and there is
+	// no way to reference the local build cache by digest in a FROM at all. So tag
+	// the just-built image under a stable, content-derived local tag and hand that
+	// back — `FROM <tag>` resolves it from the local daemon (never a registry fetch,
+	// since the tag exists locally), and `docker inspect` (the gate) accepts it too.
+	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	if err := d.c.r.Run("docker", dargs("tag", id, tag)...); err != nil {
+		return "", err
+	}
+	return tag, nil
 }
 
 func (d dockerImg) Layers(ref string) ([]string, error) {
