@@ -78,20 +78,11 @@ RUN if [ -f /home/agent/.claude.json ]; then \
 # installs. See docs/OVERVIEW.md ("Workspace and state volumes").
 RUN bash /usr/local/lib/cove/seed-plugins.sh
 
-# Run kit-declared setup scripts (config.yml image.setup-scripts) as root, each
-# in place. Replaces the old hardcoded /.install-files/install.sh convention.
-RUN /usr/local/lib/cove/run-setup.sh
-
 # SSH sessions read /etc/environment via pam_env. The base image ships the
 # session env in /etc/cove/env.d/00-base.env (PATH, CLAUDE_CONFIG_DIR, the egress
 # proxy vars); fold every /etc/cove/env.d/*.env fragment — the base's plus any a
 # kit Dockerfile dropped — into /etc/environment (COV-34).
 RUN /usr/local/lib/cove/apply-env-d.sh
-
-# Also fold kit-declared PATH/env (config.yml image.paths/image.env) into
-# /etc/environment — the legacy mechanism, retired once kits migrate to env.d
-# fragments (COV-34 sub-issue 4).
-RUN /usr/local/lib/cove/apply-image-env.sh
 
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove

@@ -330,12 +330,18 @@ collaborators:
   role injected (today's behavior, unchanged).
 
 ### image
-**Additive** build-time customizations of the sandbox image. Every field layers **onto**
-the hardened baseline and can never override it — cove translates each to the correct
-sealed mechanism.
+The image at-cove hardens, plus the kit's additive egress. Build-time customization
+lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries only `base`
+and `allowed-domains`.
 
-A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`);
-`setup-scripts` paths are resolved relative to it.
+A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`),
+which is the Docker **build context** for an `image/Dockerfile` — it is **not** overlaid
+onto the sandbox. To customize the build (install a toolchain, seed files), write an
+`image/Dockerfile`. To add session env for every SSH session, have that Dockerfile drop
+an `/etc/cove/env.d/<NN>-<name>.env` fragment: the sealed layer folds every
+`/etc/cove/env.d/*.env` into `/etc/environment` in lexical order. A later fragment
+shadows the base's `00-base.env` (pam_env is last-wins), so restate `PATH`'s base
+entries if you extend it. at-task is injected by the sealed layer — never install it.
 
 #### image.base
 *string*
@@ -354,24 +360,6 @@ base that descends from none is **rejected** — pass `--allow-unverified-base` 
 proceed at your own risk. The default base skips the gate (it is blessed by
 construction).
 
-#### image.setup-scripts
-*list of strings*
-Kit-relative scripts (under the kit's `image/` directory) run **as root at build**, in place (e.g. install a toolchain). Each must be non-empty.
-
-#### image.paths
-*list of strings*
-
-Appended to `PATH` in `/etc/environment`. Each must be non-empty and single-line.
-
-#### image.env
-*map string → string*
-
-`KEY=VALUE` written to `/etc/environment`. Keys must be non-empty and free of `=`/newline; values single-line.
-**Cannot set base-owned keys** — `PATH`, `CLAUDE_CONFIG_DIR`, `http_proxy`/`https_proxy`
-(and their upper-case / `no_proxy` variants) are owned by the sealed hardening layer;
-setting them is a hard error (it would breach the additive guarantee or weaken the egress
-gate). Use `paths:` to extend `PATH`.
-
 #### image.allowed-domains
 *list of strings*
 
@@ -381,13 +369,9 @@ naming the blocked host(s) and pointing back to this key as the remedy — see
 [at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
 
 ```yaml
+# base + build-time customization live in image/Dockerfile (FROM a blessed base,
+# install your toolchain, drop an /etc/cove/env.d fragment). config.yml carries:
 image:
-  setup-scripts:
-    - .install-files/install-go.sh
-  paths:
-    - /usr/local/go/bin
-  env:
-    GOFLAGS: "-mod=mod"
   allowed-domains:
     - proxy.golang.org
     - sum.golang.org

@@ -52,7 +52,7 @@ so they work from subdirectories.
 repo/
   .at-cove/
     config.yml        # the spec: name, secrets, workers, image
-    image/            # kit build-time files, overlaid onto the VM root (image/ → /); may hold a Dockerfile naming the base
+    image/            # Docker build context for image/Dockerfile (selects/builds the base); not overlaid
     .state/           # records the running instance (state.json) + lockfile (gitignored)
     .build/           # assembled build context (gitignored)
 ```
@@ -173,28 +173,24 @@ so a sandbox can't be torn down underneath a live connection.
 
 ## How the build context is assembled
 
-Each `build` stacks overlays into `<kit>/.build/`,
-**last writer wins**:
+Each `build` writes `<kit>/.build/`. The context is **just the sealed layer** plus
+a few generated files — there is no kit overlay anymore:
 
-1. **Kit `image/`** (legacy overlay) —
-   your committed local files;
-   overlaid onto the VM root. *(Being retired: `image/` becomes purely a Dockerfile
-   build context — see the base-image section below.)*
-2. *(deferred)* **`.local/image/`** —
-   uncommitted machine-specific overrides;
-   the slot is reserved.
-3. **Non-overridable hardening** (embedded, applied last) —
+1. **Non-overridable hardening** (embedded) —
    `nftables.conf`, `squid.conf`, sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
+2. **Generated** — the kit's egress allow-list (`config.yml image.allowed-domains`) and the managed public key.
 
-The **overridable startup defaults** (`settings.json`, `.claude.json`) no longer
-overlay here — they ship in `cove-base-image`, so a kit's Dockerfile overrides
-them the normal way and the sealed layer stays purely sealed.
+The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
+for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
+(see the base-image section below). The **overridable startup defaults**
+(`settings.json`, `.claude.json`) ship in `cove-base-image`, so a kit's Dockerfile
+overrides them the normal way and the sealed layer stays purely sealed.
 
-Layer 3 extracting last is the **security boundary**:
-local files can never weaken the egress lock or sshd hardening.
+The hardening extracting last is the **security boundary**:
+nothing a kit provides can weaken the egress lock or sshd hardening.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
-After the overlays,
+After it,
 `create` writes the managed public key into the context's `authorized_keys` —
 an explicit assembly step,
 keeping overlay precedence pure.
