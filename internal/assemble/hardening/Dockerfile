@@ -1,4 +1,12 @@
-FROM cove-base:latest
+# The base at-cove hardens FROM. at-cove always injects --build-arg BASE (the
+# resolved, provenance-gated base: a blessed cove-base-image by default, or the
+# kit's image.base / built image/Dockerfile). Declared before FROM so it applies
+# to the base line; no default, so a bare `docker build` without BASE fails loud
+# rather than silently hardening the wrong floor.
+ARG BASE
+# BASE is an at-cove-injected, digest-pinned ref, so "always tag" does not apply.
+# hadolint ignore=DL3006
+FROM ${BASE}
 
 # Pre-install Claude Code (native) at BUILD time, as the agent user.
 # Fly's builders have open network, so this fetch happens BEFORE the runtime

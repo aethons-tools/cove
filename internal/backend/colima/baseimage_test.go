@@ -1,0 +1,125 @@
+package colima
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/basedigest"
+	"github.com/aethons-tools/cove/internal/runner"
+)
+
+// The default path (no image.base, no image/Dockerfile) needs no gate: the ref
+// is a blessed cove-base-image by construction, so no docker inspect runs.
+func TestResolveBaseDefaultSkipsGate(t *testing.T) {
+	f := &runner.Fake{}
+	c := &Colima{r: f}
+	ref, err := c.resolveBase(backend.BaseSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != basedigest.DefaultRef() {
+		t.Fatalf("ref = %q, want %q", ref, basedigest.DefaultRef())
+	}
+	for _, call := range f.Calls {
+		if contains(call.Args, "inspect") {
+			t.Fatalf("default path must not inspect: %+v", f.Calls)
+		}
+	}
+}
+
+// A kit-chosen base tag that descends from the blessed image passes the gate.
+func TestResolveBaseTagVerified(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the base tag's layers
+		{Stdout: `["sha256:a","sha256:b"]`},            // the blessed image's layers (a prefix)
+	}}
+	c := &Colima{r: f}
+	const tag = "ghcr.io/acme/cove-image@sha256:child"
+	ref, err := c.resolveBase(backend.BaseSpec{Base: tag})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != tag {
+		t.Fatalf("ref = %q, want %q", ref, tag)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// A base that descends from no blessed image is rejected.
+func TestResolveBaseTagRejected(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: `["sha256:x","sha256:y"]`}, // unrelated base
+		{Stdout: `["sha256:a","sha256:b"]`}, // blessed
+	}}
+	c := &Colima{r: f}
+	_, err := c.resolveBase(backend.BaseSpec{Base: "ubuntu@sha256:evil"})
+	if err == nil {
+		t.Fatal("a non-descendant base must be rejected")
+	}
+}
+
+// --allow-unverified-base downgrades the rejection and proceeds with the ref.
+func TestResolveBaseAllowUnverified(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: `["sha256:x","sha256:y"]`},
+		{Stdout: `["sha256:a","sha256:b"]`},
+	}}
+	c := &Colima{r: f}
+	const tag = "ubuntu@sha256:evil"
+	ref, err := c.resolveBase(backend.BaseSpec{Base: tag, AllowUnverified: true})
+	if err != nil {
+		t.Fatalf("--allow-unverified-base must proceed, got: %v", err)
+	}
+	if ref != tag {
+		t.Fatalf("ref = %q, want %q", ref, tag)
+	}
+}
+
+// A kit image/Dockerfile is built (docker build -q → image ID) and that ID
+// becomes the gated base.
+func TestResolveBaseBuildsDockerfile(t *testing.T) {
+	kitDir := t.TempDir()
+	imageDir := filepath.Join(kitDir, "image")
+	if err := os.MkdirAll(imageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(imageDir, "Dockerfile"), []byte("FROM x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const builtID = "sha256:builtlocal"
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: builtID + "\n"},                       // docker build -q
+		{Stdout: `["sha256:a","sha256:b","sha256:k"]`}, // the built image's layers
+		{Stdout: `["sha256:a","sha256:b"]`},            // blessed
+	}}
+	c := &Colima{r: f}
+	ref, err := c.resolveBase(backend.BaseSpec{KitDir: kitDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != builtID {
+		t.Fatalf("ref = %q, want built image ID %q", ref, builtID)
+	}
+	if dockerCall(f.Calls, "build") == nil {
+		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
+	}
+}
+
+// Create injects the resolved base as --build-arg BASE on the hardening build.
+func TestCreateInjectsBaseBuildArg(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Create(backend.CreateContext{
+		Name: "box", BuildDir: "/b",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE="+basedigest.DefaultRef()) {
+		t.Fatalf("build must inject BASE build-arg: %+v", f.Calls)
+	}
+}

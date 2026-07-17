@@ -39,3 +39,20 @@ func TestBlessedFileIsWellFormed(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultRefAndBlessedRefs(t *testing.T) {
+	blessed := Blessed()
+	want := Image + "@" + blessed[0]
+	if got := DefaultRef(); got != want {
+		t.Fatalf("DefaultRef() = %q, want %q", got, want)
+	}
+	refs := BlessedRefs()
+	if len(refs) != len(blessed) {
+		t.Fatalf("BlessedRefs() len = %d, want %d", len(refs), len(blessed))
+	}
+	for i, d := range blessed {
+		if refs[i] != Image+"@"+d {
+			t.Fatalf("BlessedRefs()[%d] = %q, want %q", i, refs[i], Image+"@"+d)
+		}
+	}
+}

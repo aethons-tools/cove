@@ -78,6 +78,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
+				allowUnverified := allowUnverifiedBaseFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -86,7 +87,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doCreate(kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doCreate(kitDir, r, *ws, *allowUnverified, g.DryRun, out), errw)
 			}},
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
@@ -119,6 +120,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
+				allowUnverified := allowUnverifiedBaseFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -127,7 +129,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doRecreate(kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doRecreate(kitDir, r, *ws, *allowUnverified, g.DryRun, out), errw)
 			}},
 			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return instanceCmd("destroy", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
@@ -186,6 +188,14 @@ func envOr(flag, key string) string {
 		return flag
 	}
 	return os.Getenv(key)
+}
+
+// allowUnverifiedBaseFlag registers the --allow-unverified-base escape hatch: it
+// downgrades the provenance gate's rejection of a base that descends from no
+// blessed cove-base-image to a loud warning, then proceeds. Interim placement on
+// the build-triggering commands; COV-38 consolidates it onto `at-cove install`.
+func allowUnverifiedBaseFlag(fs *flag.FlagSet) *bool {
+	return fs.Bool("allow-unverified-base", false, "harden a base that fails the provenance gate (loud warning; at your own risk)")
 }
 
 // projectDirFlag registers the standard --project-dir flag on fs. It names the
@@ -304,7 +314,7 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 	return assemble.Assemble(kitDir, buildDir, pub, cfg.Image)
 }
 
-func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+func doCreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -333,6 +343,7 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 	}
 	inst, err := b.Create(backend.CreateContext{
 		Name: cfg.Name, BuildDir: filepath.Join(kitDir, ".build"), Workspace: ws,
+		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: allowUnverifiedBase},
 	})
 	if err != nil {
 		return err
@@ -533,7 +544,7 @@ func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout 
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it
 // refuses with active connections) and creates a fresh one, keeping volumes.
-func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+func doRecreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -557,7 +568,7 @@ func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdo
 			return err
 		}
 	}
-	return doCreate(kitDir, r, wsPath, false, stdout)
+	return doCreate(kitDir, r, wsPath, allowUnverifiedBase, false, stdout)
 }
 
 func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
@@ -640,6 +651,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
+	allowUnverifiedBase := allowUnverifiedBaseFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
@@ -826,6 +838,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
+		Base:          backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: *allowUnverifiedBase},
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,

@@ -1,0 +1,58 @@
+package colima
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/basedigest"
+	"github.com/aethons-tools/cove/internal/baseimage"
+)
+
+// dockerImg adapts colima's context-pinned docker to baseimage.Docker so the
+// resolver's selection + provenance logic stays backend-agnostic and unit-tested.
+type dockerImg struct{ c *Colima }
+
+func (d dockerImg) Build(contextDir string) (string, error) {
+	// -q: emit only the built image ID (the base ref we harden FROM).
+	out, err := d.c.r.Output("docker", dargs("build", "-q", contextDir)...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (d dockerImg) Layers(ref string) ([]string, error) {
+	out, err := d.c.r.Output("docker", dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
+	if err != nil {
+		// Not present locally: pull once, then retry. (A locally-built image ID is
+		// already present, so it never reaches the pull.)
+		if perr := d.c.r.Run("docker", dargs("pull", ref)...); perr != nil {
+			return nil, err
+		}
+		out, err = d.c.r.Output("docker", dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return baseimage.ParseLayers(out)
+}
+
+// resolveBase selects and verifies the base ref for a build, returning the value
+// to pass as the hardening build's BASE arg. The gate runs only for a kit-chosen
+// base; the default is a blessed cove-base-image by construction.
+func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
+	s := baseimage.Spec{
+		Base:            spec.Base,
+		DefaultRef:      basedigest.DefaultRef(),
+		AllowUnverified: spec.AllowUnverified,
+	}
+	if spec.KitDir != "" {
+		imageDir := filepath.Join(spec.KitDir, "image")
+		if _, err := os.Stat(filepath.Join(imageDir, "Dockerfile")); err == nil {
+			s.DockerfileDir = imageDir
+		}
+	}
+	return baseimage.Resolve(dockerImg{c}, s, basedigest.BlessedRefs(), os.Stderr)
+}

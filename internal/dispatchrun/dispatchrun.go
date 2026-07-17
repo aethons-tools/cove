@@ -53,11 +53,12 @@ type Options struct {
 	R               runner.Runner
 	Cfg             kit.Config
 	BuildDir        string
-	Name            string        // unique container name
-	Secrets         []secret.Spec // root (shared) secrets — resolved up front, all steps
-	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
-	GitToken        secret.Spec   // code-host token; withheld from the agent step
-	CredentialsFile string        // host-saved agent login to seed; "" = none
+	Base            backend.BaseSpec // base-image resolution + provenance gate inputs
+	Name            string           // unique container name
+	Secrets         []secret.Spec    // root (shared) secrets — resolved up front, all steps
+	WorkerSecrets   []secret.Spec    // worker-class bucket — resolved lazily, agent step only
+	GitToken        secret.Spec      // code-host token; withheld from the agent step
+	CredentialsFile string           // host-saved agent login to seed; "" = none
 	IdentityFile    string
 	KnownHostsDir   string
 	InputPath       string
@@ -142,7 +143,7 @@ func Dispatch(o Options) error {
 	}
 
 	img := "at-cove-for-" + o.Cfg.Name
-	if err := o.Ops.BuildImage(o.BuildDir, img); err != nil {
+	if err := o.Ops.BuildImage(o.BuildDir, img, o.Base); err != nil {
 		return err
 	}
 	if _, err := o.Ops.RunEphemeral(img, o.Name, Label); err != nil {

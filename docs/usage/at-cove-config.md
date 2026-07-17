@@ -346,6 +346,14 @@ Names the base image at-cove hardens (an image ref, e.g. `ghcr.io/acme/base@sha2
 the same thing — pick one). Set neither and at-cove hardens the default
 `cove-base-image`.
 
+A kit-chosen base (this field or an `image/Dockerfile`) must pass a **provenance
+gate**: it must descend from a blessed `cove-base-image` (proven by an OCI layer
+`diff_id` prefix), so the sealed hardening layer can trust its prerequisites. A
+base that descends from none is **rejected** — pass `--allow-unverified-base` (on
+`create`/`recreate`/`work`) to downgrade the rejection to a loud warning and
+proceed at your own risk. The default base skips the gate (it is blessed by
+construction).
+
 #### image.setup-scripts
 *list of strings*
 Kit-relative scripts (under the kit's `image/` directory) run **as root at build**, in place (e.g. install a toolchain). Each must be non-empty.
