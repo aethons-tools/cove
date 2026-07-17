@@ -26,11 +26,20 @@ func Discover(start string) (string, error) {
 	}
 }
 
-// Load reads and parses <kitDir>/config.yml.
+// Load reads and parses <kitDir>/config.yml, then runs the kit-dir-aware
+// validations that ParseConfig (byte-only) cannot — currently the image.base vs
+// image/Dockerfile mutual exclusion.
 func Load(kitDir string) (Config, error) {
 	data, err := os.ReadFile(filepath.Join(kitDir, "config.yml"))
 	if err != nil {
 		return Config{}, err
 	}
-	return ParseConfig(data)
+	cfg, err := ParseConfig(data)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := ValidateImageSource(cfg, kitDir); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

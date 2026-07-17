@@ -40,6 +40,7 @@ var baseEnvKeys = map[string]bool{
 // cove translates each field to the correct sealed mechanism; every field is
 // additive to the hardened baseline and never overrides it.
 type ImageConfig struct {
+	Base           string            `yaml:"base"`            // image ref to harden; mutually exclusive with an image/Dockerfile
 	SetupScripts   []string          `yaml:"setup-scripts"`   // kit-relative scripts run as root at build, in place
 	Paths          []string          `yaml:"paths"`           // appended to PATH in /etc/environment
 	Env            map[string]string `yaml:"env"`             // KEY=VALUE written to /etc/environment

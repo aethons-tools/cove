@@ -334,9 +334,21 @@ collaborators:
 the hardened baseline and can never override it — cove translates each to the correct
 sealed mechanism.
 
+A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`);
+`setup-scripts` paths are resolved relative to it.
+
+#### image.base
+*string*
+
+Names the base image at-cove hardens (an image ref, e.g. `ghcr.io/acme/base@sha256:…`).
+**Mutually exclusive** with an `image/Dockerfile`: if the kit both sets `image.base`
+**and** ships an `image/Dockerfile`, `at-cove` rejects the kit (they are two ways to name
+the same thing — pick one). Set neither and at-cove hardens the default
+`cove-base-image`.
+
 #### image.setup-scripts
 *list of strings*
-Kit-relative scripts run **as root at build**, in place (e.g. install a toolchain). Each must be non-empty.
+Kit-relative scripts (under the kit's `image/` directory) run **as root at build**, in place (e.g. install a toolchain). Each must be non-empty.
 
 #### image.paths
 *list of strings*
