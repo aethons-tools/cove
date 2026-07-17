@@ -1,0 +1,32 @@
+name: release
+
+# Cut a (private) GitHub Release of the cove host binaries (at-cove + at-mint,
+# at-task embedded) on a version tag. See .goreleaser.yaml + COV-36.
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions:
+  contents: write # create the release + upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # goreleaser needs full history + tags
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

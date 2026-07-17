@@ -1,0 +1,56 @@
+# goreleaser config for the cove host binaries. Release is internal-first: a git
+# tag cuts a (private) GitHub Release of at-cove + at-mint for darwin/linux ×
+# amd64/arm64. at-task is NOT shipped standalone — it is embedded in at-cove (the
+# before-hook stages the linux at-task binaries first). See COV-36 + the spec at
+# docs/superpowers/specs/2026-07-17-at-cove-release-embed-design.md.
+#
+# Public phase (later): add a `brews:` block that installs both at-cove and
+# at-mint from the single archive below, so `brew install` yields both.
+version: 2
+
+project_name: cove
+
+before:
+  hooks:
+    # Build the linux at-task binaries at-cove embeds, before goreleaser builds.
+    - bash scripts/stage-attask.sh
+
+builds:
+  - id: at-cove
+    main: ./cmd/at-cove
+    binary: at-cove
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+  - id: at-mint
+    main: ./cmd/at-mint
+    binary: at-mint
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  # One archive carrying both binaries — brew-phase installs them together.
+  - id: cove
+    ids: [at-cove, at-mint]
+    name_template: "cove_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # Private repo → the release is private. Auto-mark pre-releases (-rc/-beta/…).
+  prerelease: auto
+
+changelog:
+  use: github

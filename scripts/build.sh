@@ -30,17 +30,10 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
 BINARIES=(at-cove at-task at-mint)
 
-# Stage the linux at-task binaries that at-cove embeds (version lockstep — see
-# internal/attask + COV-36). Built here, BEFORE at-cove, so its `//go:embed bin`
-# picks them up. Both arches always, regardless of the build target: at-cove may
-# build a sandbox for either VM arch. These are gitignored build artifacts.
+# Stage the linux at-task binaries at-cove embeds, before at-cove is built —
+# shared with the goreleaser before-hook, see scripts/stage-attask.sh.
 echo "Staging embedded at-task (linux amd64+arm64)"
-attask_bin="internal/attask/bin"
-mkdir -p "$attask_bin"
-for a in amd64 arm64; do
-  CGO_ENABLED=0 GOOS=linux GOARCH="$a" \
-    go build -trimpath -ldflags "$LDFLAGS" -o "${attask_bin}/at-task-linux-${a}" ./cmd/at-task
-done
+VERSION="$VERSION" ./scripts/stage-attask.sh
 
 # Choose targets from the args (default: just the current host).
 case "${1:-}" in
