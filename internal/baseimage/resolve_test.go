@@ -137,3 +137,42 @@ func TestResolveAllowUnverifiedWarnsAndProceeds(t *testing.T) {
 		t.Fatalf("the warning must name the unverified ref, got: %q", warn.String())
 	}
 }
+
+// A rejection must explain itself: name the base and each blessed ref, and show
+// the descends verdict — so "is the kit bad or the gate bad?" is answered on
+// screen, not via a multi-command investigation.
+func TestResolveRejectionDiagnoses(t *testing.T) {
+	const tag = "ubuntu@sha256:evil"
+	d := &fakeDocker{layers: map[string][]string{
+		blessedRef: {"sha256:a", "sha256:b"},
+		tag:        {"sha256:a", "sha256:x"}, // shares only the first layer, then diverges
+	}}
+	_, err := Resolve(d, Spec{Base: tag}, []string{blessedRef}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected rejection")
+	}
+	for _, want := range []string{tag, blessedRef, "descends from it: false", "layers"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("rejection must mention %q; got:\n%s", want, err.Error())
+		}
+	}
+}
+
+// A blessed ref whose inspect yields no layers (e.g. a multi-arch index digest
+// with no .RootFS) must be called out distinctly — not silently read as "not
+// descended". This is the exact ambiguity that made the real-world reject a
+// mystery.
+func TestResolveEmptyBlessedLayersSurfaced(t *testing.T) {
+	const tag = "ghcr.io/acme/img@sha256:child"
+	d := &fakeDocker{layers: map[string][]string{
+		blessedRef: {},                       // inspect returned nothing
+		tag:        {"sha256:a", "sha256:b"}, // a real base, unrelated to the (unreadable) blessed
+	}}
+	_, err := Resolve(d, Spec{Base: tag}, []string{blessedRef}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected rejection (no readable blessed layers)")
+	}
+	if !strings.Contains(err.Error(), "no layers") {
+		t.Fatalf("must flag the empty blessed layers distinctly; got:\n%s", err.Error())
+	}
+}
