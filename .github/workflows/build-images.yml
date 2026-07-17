@@ -3,23 +3,16 @@ name: build-images
 # Build the shared image tree (cove-base-image → cove-image), smoke-test the
 # toolchain natively per arch, and — on main only — publish both as multi-arch
 # manifests to GHCR. Pull requests build + smoke but never publish (spec §5:
-# only main publishes). Runs when the image definitions, the at-task source, or
-# this workflow change.
+# only main publishes). Runs when the image definitions or this workflow change —
+# the images carry no at-task and no Go build, so Go changes never rebuild them
+# (COV-44).
 
 on:
   pull_request:
     paths: &image_inputs
-      # The image definitions themselves.
+      # The image definitions themselves. The base is pure tools (no at-task, no
+      # Go), so nothing outside images/ affects it.
       - images/**
-      # at-task is compiled from source and baked into cove-base-image, so any
-      # of its inputs can change the image: its own package, every internal
-      # package it imports (watch the whole tree — imports drift), and the
-      # module files. `go list -deps ./cmd/at-task` today: internal/{cli,
-      # dispatch/github,dispatch/worker}.
-      - cmd/at-task/**
-      - internal/**
-      - go.mod
-      - go.sum
       - .github/workflows/build-images.yml
   push:
     branches: [main]
@@ -52,19 +45,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      # at-task is baked into cove-base-image; build it from source for this
-      # runner's native arch and stage it into the base build context. Stamp the
-      # commit so `at-task version` is traceable instead of reporting "dev".
-      - name: Build at-task (${{ matrix.arch }})
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
-            go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" \
-            -o images/cove-base-image/at-task ./cmd/at-task
-
       - name: Build cove-base-image
         run: docker build --tag cove-base-image:ci images/cove-base-image
 
@@ -81,7 +61,6 @@ jobs:
             just --version
             shellcheck --version | head -n2
             hadolint --version
-            at-task version
             node --version
             npm --version
             chromium --version

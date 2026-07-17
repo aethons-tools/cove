@@ -90,9 +90,10 @@ at-cove hardens, so their tooling can't drift. See
 full rationale.
 
 - **`images/cove-base-image/Dockerfile`** — the universal lean floor: OS +
-  git/gh/sshd + the egress stack (nftables/squid/podman) + core utils + `at-task`
-  (the generic worker harness, compiled from this repo and baked in per-arch).
-  No language toolchains, chrome, or java.
+  git/gh/sshd + the egress stack (nftables/squid/podman) + core utils. **Pure
+  tools**: no language toolchains, chrome, or java — and **no `at-task`**. at-cove
+  injects the version-locked `at-task` into its sealed hardening layer (COV-42),
+  so the base has no Go build and rebuilds only when `images/` changes (COV-44).
 - **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
   Base for both CI and the sandboxes.

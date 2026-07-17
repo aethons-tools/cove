@@ -1,13 +1,14 @@
 # cove-base-image — the universal lean floor every org repo can build on.
 #
-# OS + git/gh/sshd + the egress stack + core utilities + at-task (the generic
-# dispatched-worker harness, built from this repo and baked in per-arch by the
-# build workflow). It deliberately EXCLUDES language toolchains, chrome, and
-# java — those live in cove-image, which builds FROM this.
+# OS + git/gh/sshd + the egress stack + core utilities. It deliberately EXCLUDES
+# language toolchains, chrome, and java — those live in cove-image, which builds
+# FROM this. It also carries no at-task: at-cove injects the exact version-locked
+# at-task into its sealed hardening layer (COV-42/COV-44), so the base is pure
+# tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
-LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + at-task"
+LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack (pure tools)"
 
 # Base tooling: sshd, git, the GitHub CLI, curl, the egress stack (nftables,
 # squid, podman + rootless plumbing), and core utilities. No language toolchains.
@@ -55,9 +56,3 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                                   /etc/ssh/sshd_config \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'               /etc/ssh/sshd_config
-
-# at-task: the generic dispatched-worker harness. The build workflow compiles it
-# from this repo's source for the native arch and stages it next to this
-# Dockerfile (gitignored) before the build.
-COPY at-task /usr/local/bin/at-task
-RUN chmod 0755 /usr/local/bin/at-task
