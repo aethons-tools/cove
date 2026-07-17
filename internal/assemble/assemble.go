@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -37,10 +38,8 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return fmt.Errorf("kit image/.cove is reserved for cove-generated build files; rename or remove it")
 	}
 
-	// Layer 1: overridable defaults (strip the "overridable/" prefix).
-	if err := copyEmbed(overridableFS, "overridable", buildDir); err != nil {
-		return err
-	}
+	// Overridable defaults (CLAUDE.md, settings.json, .claude.json) now ship in
+	// cove-base-image (COV-34), so there is no overridable overlay layer here.
 	// Layer 2: kit's local image/ tree (if present).
 	localIF := filepath.Join(kitDir, "image")
 	if _, err := os.Stat(localIF); err == nil {
@@ -51,6 +50,10 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 	// Layer 3 (deferred): .local/image — intentionally not applied yet.
 	// Layer 4: non-overridable hardening (Dockerfile + image-files), wins.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
+		return err
+	}
+
+	if err := writeAtTask(buildDir); err != nil {
 		return err
 	}
 
@@ -72,6 +75,30 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return err
 	}
 	return os.WriteFile(ak, pub, 0o600)
+}
+
+// writeAtTask stages the embedded linux at-task binaries into the build context
+// (buildDir/attask/at-task-linux-<arch>), so the sealed hardening layer can
+// install the arch-matching one — the at-cove that orchestrates a dispatch ships
+// the exact at-task it expects (COV-34/COV-36). When the embed was not staged (a
+// plain `go build` without scripts/build.sh — never the release path), a 0-byte
+// placeholder is written instead; hardening installs the binary only when it is
+// non-empty, so it falls back to the base image's at-task rather than a broken one.
+func writeAtTask(buildDir string) error {
+	dir := filepath.Join(buildDir, "attask")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		b, err := attask.Binary(arch)
+		if err != nil {
+			b = nil // not staged → placeholder; hardening keeps the base's at-task
+		}
+		if err := os.WriteFile(filepath.Join(dir, "at-task-linux-"+arch), b, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // copyEmbed copies efs under root into dst, stripping the root prefix.
