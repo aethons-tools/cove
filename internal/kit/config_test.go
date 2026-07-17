@@ -76,29 +76,12 @@ func TestParseConfigRejectsRemovedSetupField(t *testing.T) {
 }
 
 func TestParseConfigImage(t *testing.T) {
-	cfg, err := ParseConfig([]byte(`
-name: k
-image:
-  setup-scripts:
-    - .install-files/install.sh
-  paths:
-    - /usr/local/go/bin
-  env:
-    GOROOT: /usr/local/go
-  allowed-domains:
-    - .example.com
-`))
+	cfg, err := ParseConfig([]byte("name: k\nimage:\n  base: ghcr.io/x/y@sha256:abc\n  allowed-domains:\n    - .example.com\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Image.SetupScripts) != 1 || cfg.Image.SetupScripts[0] != ".install-files/install.sh" {
-		t.Fatalf("SetupScripts = %v", cfg.Image.SetupScripts)
-	}
-	if len(cfg.Image.Paths) != 1 || cfg.Image.Paths[0] != "/usr/local/go/bin" {
-		t.Fatalf("Paths = %v", cfg.Image.Paths)
-	}
-	if cfg.Image.Env["GOROOT"] != "/usr/local/go" {
-		t.Fatalf("Env = %v", cfg.Image.Env)
+	if cfg.Image.Base != "ghcr.io/x/y@sha256:abc" {
+		t.Fatalf("Base = %q", cfg.Image.Base)
 	}
 	if len(cfg.Image.AllowedDomains) != 1 || cfg.Image.AllowedDomains[0] != ".example.com" {
 		t.Fatalf("AllowedDomains = %v", cfg.Image.AllowedDomains)
@@ -110,78 +93,18 @@ func TestParseConfigImageAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Image.SetupScripts) != 0 || len(cfg.Image.Paths) != 0 || len(cfg.Image.Env) != 0 || len(cfg.Image.AllowedDomains) != 0 {
+	if cfg.Image.Base != "" || len(cfg.Image.AllowedDomains) != 0 {
 		t.Fatalf("absent image must be zero-valued, got %+v", cfg.Image)
 	}
 }
 
-func TestParseConfigImageRejectsEmptyScript(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nimage:\n  setup-scripts:\n    - \"\"\n"))
-	if err == nil || !strings.Contains(err.Error(), "setup-scripts") {
-		t.Fatalf("expected empty setup-scripts error, got %v", err)
-	}
-}
-
-func TestParseConfigImageRejectsReservedEnvKey(t *testing.T) {
-	// PATH is a base-owned key; overriding it would produce a second PATH= line.
-	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    PATH: /evil\n"))
-	if err == nil {
-		t.Fatal("expected error for reserved PATH env key, got nil")
-	}
-	if !strings.Contains(err.Error(), "PATH") {
-		t.Fatalf("error should mention PATH, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "overridden") {
-		t.Fatalf("error should mention 'overridden', got: %v", err)
-	}
-
-	// Proxy keys are also base-owned (egress gate).
-	_, err = ParseConfig([]byte("name: k\nimage:\n  env:\n    https_proxy: http://x\n"))
-	if err == nil {
-		t.Fatal("expected error for reserved https_proxy env key, got nil")
-	}
-	if !strings.Contains(err.Error(), "https_proxy") {
-		t.Fatalf("error should mention https_proxy, got: %v", err)
-	}
-}
-
-func TestParseConfigImageRejectsEnvValueNewline(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    FOO: \"a\\nb\"\n"))
-	if err == nil {
-		t.Fatal("expected error for env value with newline, got nil")
-	}
-	if !strings.Contains(err.Error(), "newline") {
-		t.Fatalf("error should mention 'newline', got: %v", err)
-	}
-}
-
-func TestParseConfigImageRejectsPathNewline(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nimage:\n  paths:\n    - \"a\\nb\"\n"))
-	if err == nil {
-		t.Fatal("expected error for path with newline, got nil")
-	}
-	if !strings.Contains(err.Error(), "newline") {
-		t.Fatalf("error should mention 'newline', got: %v", err)
-	}
-}
-
-func TestParseConfigImageRejectsEmptyPath(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nimage:\n  paths:\n    - \"\"\n"))
-	if err == nil {
-		t.Fatal("expected error for empty path entry, got nil")
-	}
-	if !strings.Contains(err.Error(), "paths") {
-		t.Fatalf("error should mention 'paths', got: %v", err)
-	}
-}
-
-func TestParseConfigImageRejectsEmptyEnvKey(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nimage:\n  env:\n    \"\": x\n"))
-	if err == nil {
-		t.Fatal("expected error for empty env key, got nil")
-	}
-	if !strings.Contains(err.Error(), "env") {
-		t.Fatalf("error should mention 'env', got: %v", err)
+// The retired setup-scripts/env/paths fields (COV-34) are rejected as unknown,
+// so a stale kit config fails loudly instead of being silently ignored.
+func TestParseConfigImageRejectsRetiredFields(t *testing.T) {
+	for _, field := range []string{"setup-scripts:\n    - x", "paths:\n    - /x", "env:\n    K: v"} {
+		if _, err := ParseConfig([]byte("name: k\nimage:\n  " + field + "\n")); err == nil {
+			t.Fatalf("image field %q must be rejected as unknown", field)
+		}
 	}
 }
 

@@ -37,9 +37,10 @@ collaborators:
     secrets:
       LINEAR_TOKEN: { description: "Linear API token for the triager collaborator" }
 
+# Build-time customization (the base + any project toolchain) lives in
+# image/Dockerfile — see that file. config.yml carries only the additive egress
+# allow-list. at-task is injected by at-cove's sealed layer; you never install it.
 image:
-  setup-scripts:
-    - .install-files/install.sh
   allowed-domains:
     - api.anthropic.com   # the agent (claude)
     - api.github.com      # at-task PR API

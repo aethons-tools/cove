@@ -42,19 +42,10 @@ collaborators:
   planner:
     prompt: Work with the user to intake and plan work from the Linear board.
 
+# The base + build-time customization live in image/Dockerfile (FROM cove-image,
+# nodocker/subuid, Go env via /etc/cove/env.d/50-go.env). config.yml carries only
+# the additive egress allow-list.
 image:
-  setup-scripts:
-    - .install-files/install.sh
-    # TODO - rm -rf /.install-files
-  paths:
-    - /usr/local/go/bin
-    - /home/agent/go/bin
-  env:
-    GOROOT: /usr/local/go
-    GOPATH: /home/agent/go
-    GOPROXY: direct
-    GOSUMDB: off
-    GOFLAGS: -mod=mod
   allowed-domains:
     # Go dependencies
     - gopkg.in
