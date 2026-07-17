@@ -35,7 +35,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 // /home/agent/.init-agent-data (the overridable startup defaults, COV-34),
 // relative to this package's directory.
 func baseInitAgentData(name string) string {
-	return filepath.Join("..", "..", "images", "cove-base-image", "init-agent-data", name)
+	return filepath.Join("..", "..", "images", "cove-base-image", "home", "agent", ".init-agent-data", name)
 }
 
 // TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
