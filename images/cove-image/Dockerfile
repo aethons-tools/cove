@@ -27,8 +27,18 @@ RUN TARGETARCH="${TARGETARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
 WORKDIR /
 RUN rm -rf /install
 
-# Put the go toolchain on PATH for non-login shells. A `docker run` / CI container
-# does NOT read /etc/environment (that path — used by SSH agent sessions — is set
-# later by at-cove's hardening layer, which folds /etc/cove/env.d/*.env into it).
-# So the bare image (CI smoke tests, job containers) needs go on PATH here.
+# Put the go toolchain on PATH via ENV, so it works for BOTH usages with no
+# duplication: a bare `docker run` / CI container reads ENV directly, and at-cove's
+# hardening layer copies the live PATH (intrinsic in COVE_SSHENV) into
+# /etc/environment for SSH agent sessions. One statement, both contexts.
 ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Go dev env. COVE_SSHENV names the vars the hardening layer transfers from this
+# image's ENV into the SSH-session environment (PATH is intrinsic, so the go bin
+# above already flows through — these are the rest of the Go toolchain env).
+ENV GOROOT=/usr/local/go \
+    GOPATH=/home/agent/go \
+    GOPROXY=direct \
+    GOSUMDB=off \
+    GOFLAGS=-mod=mod
+ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"

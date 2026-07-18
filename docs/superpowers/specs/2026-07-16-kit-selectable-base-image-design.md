@@ -69,6 +69,15 @@ This design makes the base **kit-selectable** — name an image to harden, or dr
 
 ## 5. Session env via a well-known in-image `/etc/cove/env.d/` drop-in directory
 
+> **Superseded (2026-07-18).** The `/etc/cove/env.d/` drop-in mechanism below was
+> replaced by **`COVE_SSHENV`**: an image sets session env with plain `ENV` and
+> names the vars in a colon-separated `COVE_SSHENV` (`PATH` intrinsic); the sealed
+> layer's `apply-sshenv.sh` copies those live values into `/etc/environment`. This
+> removes the footgun where an image had to maintain an env.d fragment *and* an
+> `ENV` (forgetting the fragment silently dropped the toolchain from SSH sessions).
+> The egress proxy vars + `CLAUDE_CONFIG_DIR` are now sealed-layer-written, not
+> image-provided. The rest of this section is retained for history.
+
 - Session env lives in a fixed, well-known *in-image* **drop-in directory `/etc/cove/env.d/`** holding `*.env` fragments, each a block of `KEY=VALUE` lines. A directory (not a single file) so the base and a kit's Dockerfile can each *contribute a fragment* without rewriting one shared file.
 - The `cove-base-image` ships **`/etc/cove/env.d/00-base.env`** carrying the base-owned keys (`PATH`, `CLAUDE_CONFIG_DIR`, the proxy vars). A kit's Dockerfile adds its own fragment (e.g. `/etc/cove/env.d/50-kit.env`) for kit session env; a tagged base may already contain fragments; absent any, there is simply no kit-supplied session env.
 - Because `image/` is inert during hardening (§2), fragments are **not** overlaid — they live inside the resolved base and the sealed layer reads them from that in-image path.
