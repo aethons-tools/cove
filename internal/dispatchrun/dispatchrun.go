@@ -52,13 +52,12 @@ type Options struct {
 	Ops             backend.DispatchOps
 	R               runner.Runner
 	Cfg             kit.Config
-	BuildDir        string
-	Base            backend.BaseSpec // base-image resolution + provenance gate inputs
-	Name            string           // unique container name
-	Secrets         []secret.Spec    // root (shared) secrets — resolved up front, all steps
-	WorkerSecrets   []secret.Spec    // worker-class bucket — resolved lazily, agent step only
-	GitToken        secret.Spec      // code-host token; withheld from the agent step
-	CredentialsFile string           // host-saved agent login to seed; "" = none
+	Image           string        // the pre-built installed image ref to run (from install.json); never built here
+	Name            string        // unique container name
+	Secrets         []secret.Spec // root (shared) secrets — resolved up front, all steps
+	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
+	GitToken        secret.Spec   // code-host token; withheld from the agent step
+	CredentialsFile string        // host-saved agent login to seed; "" = none
 	IdentityFile    string
 	KnownHostsDir   string
 	InputPath       string
@@ -74,9 +73,10 @@ func Reap(ops backend.DispatchOps, grace time.Duration, now time.Time) error {
 	return err
 }
 
-// Dispatch runs one unit of work: resolve the class → build → ephemeral run → inject the
-// task → prepare/agent/complete bracket (token withheld from the agent, minted fresh
-// before each git step) → extract → destroy.
+// Dispatch runs one unit of work: resolve the class → ephemeral run of the
+// pre-built installed image → inject the task → prepare/agent/complete bracket
+// (token withheld from the agent, minted fresh before each git step) → extract →
+// destroy. It never builds — the image is compiled once by `at-cove install`.
 func Dispatch(o Options) error {
 	input, err := os.ReadFile(o.InputPath)
 	if err != nil {
@@ -142,11 +142,11 @@ func Dispatch(o Options) error {
 		return e, nil
 	}
 
-	img := "at-cove-for-" + o.Cfg.Name
-	if err := o.Ops.BuildImage(o.BuildDir, img, o.Base); err != nil {
-		return err
-	}
-	if _, err := o.Ops.RunEphemeral(img, o.Name, Label); err != nil {
+	// The image was built + gated once by `at-cove install`; work never builds
+	// (COV-38). doWork verified the install is current before calling here, so we
+	// simply run the pre-built image — no per-unit build, no per-unit gate, so
+	// concurrent dispatch units never race on a shared .build dir.
+	if _, err := o.Ops.RunEphemeral(o.Image, o.Name, Label); err != nil {
 		return err
 	}
 	defer o.Ops.RemoveContainer(o.Name)

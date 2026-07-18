@@ -98,9 +98,11 @@ resolver that wants them (`at-mint` itself takes `--repo`, not the env var).
 ```
 E2E_REPO=<org>/<scratch-repo> go test -tags integration ./internal/dispatchrun/ -run TestE2EReferenceWorker -v
 ```
-or, hand-run:
+or, hand-run — compile the kit once, then run a unit of work against the pre-built
+image (`work` never builds; it consumes what `install` produced):
 ```
-at-cove dispatch kits/reference-worker \
+at-cove install --project-dir kits/reference-worker
+at-cove work --project-dir kits/reference-worker \
   --in kits/reference-worker/testdata/task.json --out /tmp/task-result.json --timeout 20m
 ```
 (edit `testdata/task.json`'s `repo.name` to your scratch repo first).
