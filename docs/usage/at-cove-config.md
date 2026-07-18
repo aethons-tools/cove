@@ -358,9 +358,9 @@ A kit-chosen base (this field or an `image/Dockerfile`) must pass a **provenance
 gate**: it must descend from a blessed `cove-base-image` (proven by an OCI layer
 `diff_id` prefix), so the sealed hardening layer can trust its prerequisites. A
 base that descends from none is **rejected** — pass `--allow-unverified-base` (on
-`create`/`recreate`/`work`) to downgrade the rejection to a loud warning and
-proceed at your own risk. The default base skips the gate (it is blessed by
-construction).
+`at-cove install`, the single build+gate step) to downgrade the rejection to a
+loud warning and proceed at your own risk. The default base skips the gate (it is
+blessed by construction).
 
 #### image.allowed-domains
 *list of strings*

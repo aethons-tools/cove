@@ -57,7 +57,7 @@ repo/
     .build/           # assembled build context (gitignored)
 ```
 
-at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`build`/`create`/`work`) or instance state is saved, so no command can leak those artifacts into git.
+at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`/`create`/`work`) or instance/install state is saved, so no command can leak those artifacts into git.
 
 ### `config.yml`
 
@@ -101,8 +101,8 @@ positional is the optional collaborator (below), not the project dir.
 
 | Command | Behavior |
 |---|---|
-| `at-cove build [--project-dir DIR]` | Assemble `<kit>/.build/` from the overlays and inject the managed public key. No backend, no VM — for authoring/inspection. |
-| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | `build`, then create the VM via the backend. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
+| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | Assemble, build the image via the backend, then create the VM. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
 | `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
 | `at-cove destroy [--project-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
@@ -173,8 +173,9 @@ so a sandbox can't be torn down underneath a live connection.
 
 ## How the build context is assembled
 
-Each `build` writes `<kit>/.build/`. The context is **just the sealed layer** plus
-a few generated files — there is no kit overlay anymore:
+Each `install` (and, in S2, `create`/`work`) writes `<kit>/.build/`. The context
+is **just the sealed layer** plus a few generated files — there is no kit overlay
+anymore:
 
 1. **Non-overridable hardening** (embedded) —
    `nftables.conf`, `squid.conf`, sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
@@ -198,7 +199,8 @@ keeping overlay precedence pure.
 ### The base image and the provenance gate
 
 The hardening `Dockerfile` is applied `FROM ${BASE}` — a build arg the backend
-resolves per build:
+resolves when it builds the image (in `Backend.Install`, the single build+gate
+path):
 
 1. the kit's `image/Dockerfile` if present (at-cove builds it; the built image is the base),
 2. else `config.yml image.base` (mutually exclusive with an `image/Dockerfile`),
@@ -211,8 +213,9 @@ resolved image's OCI rootfs `diff_ids` and asserts some blessed
 *are* that image, byte-for-byte). The blessed digests are embedded
 (`internal/basedigest`, a rolling set); the default base (the head) is blessed by
 construction, so it skips the gate. A base that descends from no blessed image is
-**rejected**, unless `--allow-unverified-base` downgrades the rejection to a loud
-warning. This lets hardening *trust* its prerequisites (the egress stack, the
+**rejected**, unless `at-cove install --allow-unverified-base` downgrades the
+rejection to a loud warning — the gate and that flag live only on `install`, the
+one place a base is built. This lets hardening *trust* its prerequisites (the egress stack, the
 `agent` user, the expected layout) rather than probe for them. The gate lives in
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
 backend seam; the full model is in
@@ -371,7 +374,7 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
 
 - **Colima** — the only implemented backend.
   Native Docker via Colima (no `sbx`):
-  `docker build` the assembled context,
+  `Install` resolves + gates the base and `docker build`s the assembled context (the single build site),
   `docker run -d` with `NET_ADMIN`,
   the state + workspace volumes,
   and a published `localhost:<port>` mapped to the in-VM `sshd`.
@@ -403,13 +406,13 @@ internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live ca
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry
-internal/backend/colima/      Colima impl: docker build / run / inspect / rm
+internal/backend/colima/      Colima impl: Install (build+gate+tag) / run / inspect / rm
 internal/connect/             backend-agnostic: resolve → dial → TOFU → launch
 internal/secret/              run each host command, capture value
 internal/sshargs/             pure argv builders for the ssh client
 internal/keys/                managed SSH keypair (~/.config/at-cove/id_ed25519)
 internal/state/               per-kit state file + shared/exclusive locking
-internal/install/             install.json manifest: Compile + currency hash + read/write (pure; the compiled artifact of a kit)
+internal/install/             install.json manifest: Compile + currency hash + read/write (pure); written by `at-cove install`
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
@@ -456,7 +459,7 @@ from the repo diff what to rebuild and tags everything `<N>-<MMDD>` — see
 ## Status and roadmap
 
 Implemented and on `main`:
-the full `build`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
+the full `install`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
 (every command's project root is a uniform `--project-dir` flag, not a positional),
 the Colima backend,
 layered assembly with embedded hardening,

@@ -60,6 +60,22 @@ type CreateContext struct {
 	Base      BaseSpec
 }
 
+// InstallContext is everything Backend.Install needs to build + gate + tag a
+// kit's hardened image (COV-38). It is the one place a base is resolved and the
+// provenance gate runs.
+type InstallContext struct {
+	Kit      string   // identity for the built image tag (at-cove-for-<Kit>)
+	BuildDir string   // the assembled .build context to build
+	Base     BaseSpec // base resolution + provenance gate inputs (owns AllowUnverified)
+}
+
+// InstalledImage is Backend.Install's result: the built, tagged image and the
+// base ref it resolved to. The CLI freezes both into install.json.
+type InstalledImage struct {
+	Ref        string // the built, tagged image (the stable at-cove-for-<kit> identity)
+	BaseDigest string // the resolved base ref/digest the image was built FROM
+}
+
 // Instance identifies a provisioned VM. Create returns it; the CLI records it in
 // the kit's state file, and connect/destroy/status drive the backend from it
 // (rather than from the kit config), so a live sandbox is independent of kit edits.
@@ -74,6 +90,10 @@ type Instance struct {
 // container handle from a recorded Instance; Destroy takes the whole Instance so
 // it can also clean up the image.
 type Backend interface {
+	// Install builds + gates + tags a kit's hardened image — the single
+	// docker-build path (COV-38). It resolves the base (running the provenance
+	// gate), builds the assembled context FROM it, and tags the result.
+	Install(ctx InstallContext) (InstalledImage, error)
 	Create(ctx CreateContext) (Instance, error)
 	Dial(container string) (Endpoint, func(), error)
 	// Destroy removes the instance's container and (for the interactive instance)

@@ -180,6 +180,9 @@ func TestRealStdinScriptDeliversSecretViaTmpfs(t *testing.T) {
 // liveBackend dials the throwaway sshd instead of a real VM.
 type liveBackend struct{ ep backend.Endpoint }
 
+func (liveBackend) Install(backend.InstallContext) (backend.InstalledImage, error) {
+	return backend.InstalledImage{}, nil
+}
 func (liveBackend) Create(backend.CreateContext) (backend.Instance, error) {
 	return backend.Instance{}, nil
 }

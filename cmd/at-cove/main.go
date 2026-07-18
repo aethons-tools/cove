@@ -23,6 +23,7 @@ import (
 	"github.com/aethons-tools/cove/internal/awake"
 	"github.com/aethons-tools/cove/internal/backend"
 	_ "github.com/aethons-tools/cove/internal/backend/colima" // register colima
+	"github.com/aethons-tools/cove/internal/basedigest"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
 	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
@@ -30,6 +31,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
+	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -58,19 +60,20 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	app := cli.App{
 		Name: "at-cove", Version: version,
 		Commands: []cli.Command{
-			{Name: "build", Brief: "assemble the kit's build context", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				fs := flag.NewFlagSet("build", flag.ContinueOnError)
+			{Name: "install", Brief: "compile the kit: build + gate the image and write install.json", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("install", flag.ContinueOnError)
 				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
+				allowUnverified := allowUnverifiedBaseFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveProjectDir(*pd, pos, "build", errw)
+				kitDir, code := resolveProjectDir(*pd, pos, "install", errw)
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doBuild(kitDir, r, g.DryRun, out), errw)
+				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, g.DryRun, out), errw)
 			}},
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -78,7 +81,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
-				allowUnverified := allowUnverifiedBaseFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -87,7 +89,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doCreate(kitDir, r, *ws, *allowUnverified, g.DryRun, out), errw)
+				return exitCode("at-cove", doCreate(kitDir, r, *ws, g.DryRun, out), errw)
 			}},
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
@@ -120,7 +122,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
 				fs.StringVar(ws, "ws", "", "alias for --workspace")
-				allowUnverified := allowUnverifiedBaseFlag(fs)
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -129,7 +130,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doRecreate(kitDir, r, *ws, *allowUnverified, g.DryRun, out), errw)
+				return exitCode("at-cove", doRecreate(kitDir, r, *ws, g.DryRun, out), errw)
 			}},
 			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return instanceCmd("destroy", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
@@ -192,8 +193,8 @@ func envOr(flag, key string) string {
 
 // allowUnverifiedBaseFlag registers the --allow-unverified-base escape hatch: it
 // downgrades the provenance gate's rejection of a base that descends from no
-// blessed cove-base-image to a loud warning, then proceeds. Interim placement on
-// the build-triggering commands; COV-38 consolidates it onto `at-cove install`.
+// blessed cove-base-image to a loud warning, then proceeds. It lives only on
+// `at-cove install` — the one command that builds a base and runs the gate (COV-38).
 func allowUnverifiedBaseFlag(fs *flag.FlagSet) *bool {
 	return fs.Bool("allow-unverified-base", false, "harden a base that fails the provenance gate (loud warning; at your own risk)")
 }
@@ -296,12 +297,11 @@ func getBackend(name string, r runner.Runner) (backend.Backend, error) {
 	return f(r), nil
 }
 
-func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
-	buildDir := filepath.Join(kitDir, ".build")
-	if dryRun {
-		fmt.Fprintf(stdout, "would write %s/.gitignore, assemble %s, and inject managed key\n", kitDir, buildDir)
-		return nil
-	}
+// assembleContext writes the kit's managed .gitignore and assembles the .build
+// context, injecting the managed public key. Shared by `install` (which then
+// builds the image via the backend) and `create` (which still builds inline in
+// S2, until S3 makes it consume the installed image).
+func assembleContext(kitDir string, r runner.Runner) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -311,10 +311,83 @@ func doBuild(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) erro
 		return err
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
-	return assemble.Assemble(kitDir, buildDir, pub, cfg.Image)
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, cfg.Image)
 }
 
-func doCreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
+// doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
+// context, build + gate + tag the hardened image via the backend, then freeze the
+// resolved result into install.json. It is the single build+gate path and the only
+// home of --allow-unverified-base. `--dry-run` assembles the context and reports
+// what a full install would do (the old `build`'s "assemble + inspect" use),
+// without touching docker or writing the manifest.
+func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return err
+	}
+	if err := assembleContext(kitDir, r); err != nil {
+		return err
+	}
+	buildDir := filepath.Join(kitDir, ".build")
+	img := "at-cove-for-" + cfg.Name
+	if dryRun {
+		fmt.Fprintf(stdout, "assembled %s; would build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
+		return nil
+	}
+	b, err := getBackend(defaultBackend, r)
+	if err != nil {
+		return err
+	}
+	installed, err := b.Install(backend.InstallContext{
+		Kit: cfg.Name, BuildDir: buildDir,
+		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: allowUnverifiedBase},
+	})
+	if err != nil {
+		return err
+	}
+	in, err := currencyInputs(kitDir, cfg)
+	if err != nil {
+		return err
+	}
+	m := install.Compile(cfg, install.ResolvedBuild{
+		Image:        installed.Ref,
+		BaseRef:      in.BaseRef,
+		BaseDigest:   installed.BaseDigest,
+		CurrencyHash: install.CurrencyHash(in),
+		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+	if err := install.Save(kitDir, m); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "installed %s: built %s and wrote %s\n", cfg.Name, installed.Ref, install.Path(kitDir))
+	return nil
+}
+
+// currencyInputs gathers the build-affecting inputs the install manifest hashes
+// (§5): the kit source tree, at-cove's embedded build identity, and the base ref
+// as configured (or the blessed default). install writes the resulting hash; the
+// run commands (S3/S4) recompute it from the live kit to detect a stale install.
+func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, error) {
+	kitTree, err := install.KitSourceTree(kitDir)
+	if err != nil {
+		return install.CurrencyInputs{}, err
+	}
+	identity, err := install.AtCoveIdentity()
+	if err != nil {
+		return install.CurrencyInputs{}, err
+	}
+	baseRef := cfg.Image.Base
+	if baseRef == "" {
+		baseRef = basedigest.DefaultRef()
+	}
+	return install.CurrencyInputs{
+		KitSourceTree:       kitTree,
+		AtCoveBuildIdentity: identity,
+		BaseRef:             baseRef,
+	}, nil
+}
+
+func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -338,12 +411,12 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBase
 	if err != nil {
 		return err
 	}
-	if err := doBuild(kitDir, r, false, stdout); err != nil {
+	if err := assembleContext(kitDir, r); err != nil {
 		return err
 	}
 	inst, err := b.Create(backend.CreateContext{
 		Name: cfg.Name, BuildDir: filepath.Join(kitDir, ".build"), Workspace: ws,
-		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: allowUnverifiedBase},
+		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base},
 	})
 	if err != nil {
 		return err
@@ -544,7 +617,7 @@ func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout 
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it
 // refuses with active connections) and creates a fresh one, keeping volumes.
-func doRecreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
+func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -568,7 +641,7 @@ func doRecreate(kitDir string, r runner.Runner, wsPath string, allowUnverifiedBa
 			return err
 		}
 	}
-	return doCreate(kitDir, r, wsPath, allowUnverifiedBase, false, stdout)
+	return doCreate(kitDir, r, wsPath, false, stdout)
 }
 
 func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
@@ -641,7 +714,7 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 // worker (agent-step only) secret sets — as create/chat do for the root set —
 // then hands off to dispatchrun. With dryRun it prints the planned actions and
 // returns before touching the backend, assembling, or resolving any secret —
-// mirroring doBuild/doCreate's dry-run convention.
+// mirroring doInstall/doCreate's dry-run convention.
 func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -651,7 +724,6 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
-	allowUnverifiedBase := allowUnverifiedBaseFlag(fs)
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
@@ -838,7 +910,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
-		Base:          backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: *allowUnverifiedBase},
+		Base:          backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base},
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,

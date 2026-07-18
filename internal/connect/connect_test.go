@@ -35,6 +35,9 @@ type fakeBackend struct {
 	dialCalled   bool
 }
 
+func (b *fakeBackend) Install(backend.InstallContext) (backend.InstalledImage, error) {
+	return backend.InstalledImage{}, nil
+}
 func (b *fakeBackend) Create(backend.CreateContext) (backend.Instance, error) {
 	return backend.Instance{}, nil
 }

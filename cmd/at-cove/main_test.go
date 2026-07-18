@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -246,6 +247,102 @@ func TestUnknownBackendErrors(t *testing.T) {
 	code := run([]string{"status", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "bogus") {
 		t.Fatalf("expected unknown-backend error, code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+// TestInstallBuildsGatesTagsAndWritesManifest: `at-cove install` is the single
+// build+gate path — it assembles the context, builds + tags the image via the
+// backend (no container run), and freezes the result into install.json with a
+// non-empty currency hash and the resolved base recorded.
+func TestInstallBuildsGatesTagsAndWritesManifest(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("install exit=%d stderr=%s", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "build") == -1 {
+		t.Fatalf("install must docker build; calls=%+v", f.Calls)
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("install must not run a container; calls=%+v", f.Calls)
+	}
+	m, err := install.Load(kitDir)
+	if err != nil {
+		t.Fatalf("install.json not written: %v", err)
+	}
+	if m.Image != "at-cove-for-box" || m.Name != "box" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if m.CurrencyHash == "" || m.BaseRef == "" || m.BaseDigest == "" {
+		t.Fatalf("manifest must record currency + base: %+v", m)
+	}
+}
+
+// TestInstallOwnsAllowUnverifiedFlag: --allow-unverified-base is accepted only by
+// `install` (the one command that builds a base + runs the gate).
+func TestInstallOwnsAllowUnverifiedFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--allow-unverified-base", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("install --allow-unverified-base should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+}
+
+// TestAllowUnverifiedFlagRelocatedOffRunCommands: create/recreate/work reject the
+// flag now that it lives only on install (a flag-parse error → exit 2).
+func TestAllowUnverifiedFlagRelocatedOffRunCommands(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	for _, cmd := range []string{"create", "recreate", "work"} {
+		var out, errOut bytes.Buffer
+		code := run([]string{cmd, "--allow-unverified-base", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+		if code != 2 {
+			t.Fatalf("%s must reject --allow-unverified-base (exit 2); code=%d stderr=%s", cmd, code, errOut.String())
+		}
+	}
+}
+
+// TestDryRunInstallAssemblesNoDocker: `--dry-run install` assembles the context
+// and reports, but touches no docker and writes no manifest (the old `build`'s
+// assemble+inspect use).
+func TestDryRunInstallAssemblesNoDocker(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--dry-run", "install", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("dry-run install exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run install executed commands: %+v", f.Calls)
+	}
+	if install.Exists(kitDir) {
+		t.Fatalf("dry-run install must not write install.json")
+	}
+	if _, err := os.Stat(filepath.Join(kitDir, ".build")); err != nil {
+		t.Fatalf("dry-run install should assemble the .build context: %v", err)
+	}
+	if !strings.Contains(out.String(), "would build") {
+		t.Fatalf("dry-run install should describe the planned build: %q", out.String())
+	}
+}
+
+// TestBuildCommandRetired: the `build` command is gone (COV-38) — `install`
+// subsumes it (with --dry-run for assemble+inspect).
+func TestBuildCommandRetired(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	var out, errOut bytes.Buffer
+	code := run([]string{"build", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 2 || !strings.Contains(errOut.String(), "unknown command") {
+		t.Fatalf("build must be an unknown command; code=%d stderr=%q", code, errOut.String())
 	}
 }
 
