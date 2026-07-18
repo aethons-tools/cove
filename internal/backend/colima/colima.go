@@ -50,22 +50,48 @@ func (c *Colima) preflight() error {
 // `docker images`/`ps` for troubleshooting.
 func image(name string) string { return "at-cove-for-" + name }
 
-func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
+// dockerBuild is the single docker-build site (COV-38): it resolves + gates the
+// base, then builds buildDir FROM it and tags the result. Install, Create, and the
+// interim dispatch BuildImage all route their build through here, so `docker build`
+// appears in exactly one place and the gate can never be bypassed.
+func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase string, err error) {
 	if err := c.preflight(); err != nil {
-		return backend.Instance{}, err
+		return "", err
 	}
+	resolvedBase, err = c.resolveBase(base)
+	if err != nil {
+		return "", err
+	}
+	if err := c.r.Run("docker", dargs("build", "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)...); err != nil {
+		return "", err
+	}
+	return resolvedBase, nil
+}
+
+// Install builds + gates + tags a kit's hardened image and reports the result —
+// the only build path (COV-38). Run commands consume the tagged image; the base
+// is resolved and the provenance gate runs exactly here.
+func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, error) {
+	img := image(ctx.Kit)
+	base, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base)
+	if err != nil {
+		return backend.InstalledImage{}, err
+	}
+	return backend.InstalledImage{Ref: img, BaseDigest: base}, nil
+}
+
+func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	kit := ctx.Kit
 	if kit == "" {
 		kit = ctx.Name
 	}
-	img := image(kit)
-	base, err := c.resolveBase(ctx.Base)
+	// Build via Install so the docker-build + gate lives in one place. (S3 makes
+	// Create run-only, consuming a pre-built image; for now it still builds.)
+	installed, err := c.Install(backend.InstallContext{Kit: kit, BuildDir: ctx.BuildDir, Base: ctx.Base})
 	if err != nil {
 		return backend.Instance{}, err
 	}
-	if err := c.r.Run("docker", dargs("build", "--build-arg", "BASE="+base, "-t", img, ctx.BuildDir)...); err != nil {
-		return backend.Instance{}, err
-	}
+	img := installed.Ref
 	ws := ctx.Name + "-workspace:/home/agent/workspace"
 	if ctx.Workspace.Mode == backend.Shared {
 		ws = ctx.Workspace.HostPath + ":/home/agent/workspace"

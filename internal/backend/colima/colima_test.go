@@ -8,6 +8,46 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
+// TestInstallBuildsGatesTags: Install is the sole docker-build path — it resolves
+// the base, builds the assembled context FROM it, tags at-cove-for-<kit>, and does
+// NOT run a container. With no kit base, the base resolves to the blessed default
+// (no gate inspect needed), which Install records as the InstalledImage.BaseDigest.
+func TestInstallBuildsGatesTags(t *testing.T) {
+	f := &runner.Fake{}
+	installed, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "-t") ||
+		!contains(build, "at-cove-for-box") || !contains(build, "/b") {
+		t.Fatalf("build call = %+v", f.Calls)
+	}
+	if dockerCall(f.Calls, "run") != nil {
+		t.Fatalf("Install must not run a container: %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+	if installed.Ref != "at-cove-for-box" || installed.BaseDigest == "" {
+		t.Fatalf("installed = %+v", installed)
+	}
+	// The BASE build-arg carries the resolved base Install reports.
+	if !contains(build, "BASE="+installed.BaseDigest) {
+		t.Fatalf("build must pass the resolved base as BASE=; build=%v base=%q", build, installed.BaseDigest)
+	}
+}
+
+// TestInstallPreflightFailsActionably: an unreachable colima surfaces the
+// `colima start` guidance from Install, like every other op.
+func TestInstallPreflightFailsActionably(t *testing.T) {
+	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
+	if _, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"}); err == nil ||
+		!strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("Install should fail actionably; err=%v", err)
+	}
+}
+
 func TestCreateIsolated(t *testing.T) {
 	f := &runner.Fake{}
 	b := New(f)
