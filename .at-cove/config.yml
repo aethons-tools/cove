@@ -48,3 +48,6 @@ image:
   allowed-domains:
     # Go dependencies
     - gopkg.in
+    # Go toolchain download (GOTOOLCHAIN auto-fetch; agent Go (re)install)
+    - go.dev
+    - dl.google.com

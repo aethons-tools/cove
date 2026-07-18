@@ -26,3 +26,9 @@ WORKDIR /install
 RUN TARGETARCH="${TARGETARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
 WORKDIR /
 RUN rm -rf /install
+
+# Put the go toolchain on PATH for non-login shells. A `docker run` / CI container
+# does NOT read /etc/environment (that path — used by SSH agent sessions — is set
+# later by at-cove's hardening layer, which folds /etc/cove/env.d/*.env into it).
+# So the bare image (CI smoke tests, job containers) needs go on PATH here.
+ENV PATH="/usr/local/go/bin:${PATH}"
