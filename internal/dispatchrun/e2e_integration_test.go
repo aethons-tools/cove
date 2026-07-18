@@ -35,7 +35,16 @@ func TestE2EReferenceWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("at-cove", "work", "kits/reference-worker", "--in", in, "--out", out, "--timeout", "20m")
+	// Compile the kit once (build + gate the image, write install.json); `work`
+	// then consumes that pre-built image (COV-38 — it never builds).
+	installCmd := exec.Command("at-cove", "install", "--project-dir", "kits/reference-worker")
+	installCmd.Dir = repoRoot(t)
+	installCmd.Stdout, installCmd.Stderr = os.Stdout, os.Stderr
+	if err := installCmd.Run(); err != nil {
+		t.Fatalf("at-cove install: %v", err)
+	}
+
+	cmd := exec.Command("at-cove", "work", "--project-dir", "kits/reference-worker", "--in", in, "--out", out, "--timeout", "20m")
 	cmd.Dir = repoRoot(t)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {

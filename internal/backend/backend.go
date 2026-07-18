@@ -108,9 +108,10 @@ type Backend interface {
 }
 
 // DispatchOps is the ephemeral-container surface `at-cove work` needs, beyond
-// the persistent Create/Destroy lifecycle. A Backend may implement it.
+// the persistent Create/Destroy lifecycle. A Backend may implement it. Work
+// consumes the image `at-cove install` pre-built (COV-38); there is no build op
+// here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	BuildImage(buildDir, tag string, base BaseSpec) error
 	RunEphemeral(image, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal

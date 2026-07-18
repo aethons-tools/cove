@@ -388,13 +388,15 @@ func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, erro
 }
 
 // loadCurrentInstall loads the kit's install manifest and verifies it is still
-// current against the live kit source (COV-38 §5). Run commands consume the
-// pre-built image — they never build — so a missing or stale install is a hard
-// error pointing the user at `at-cove install`. The currency check recomputes the
-// hash from the live kit source + at-cove's embedded identity + the manifest's
-// (frozen) base ref; the raw config.yml bytes are folded into KitSourceTree, so
-// any edit to the kit source flips the hash even though config.yml is never
-// re-interpreted here.
+// current against the live kit source (COV-38 §5/§6). Run commands
+// (create/recreate/chat and work/dispatch) consume the pre-built image — they
+// never build — so a missing or stale install is a hard error pointing the user
+// at `at-cove install`. The currency check recomputes the hash from the live kit
+// source + at-cove's embedded identity + the manifest's (frozen) base ref; the raw
+// config.yml bytes are folded into KitSourceTree, so any edit to the kit source
+// flips the hash even though config.yml is never re-interpreted here. Because the
+// check hashes source (never re-assembling .build), concurrent work units under
+// dispatch cannot race.
 func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	// install.ErrNotInstalled already reads "…(run `at-cove install` first)", so
 	// the not-installed case needs no further wrapping.
@@ -769,13 +771,14 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 2
 	}
 
-	cfg, err := kit.Load(kitDir)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
-		return 1
-	}
-
 	if dryRun {
+		// Dry-run describes the plan from config.yml (source); it consumes nothing,
+		// so it does not require an install.
+		cfg, err := kit.Load(kitDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: %v\n", err)
+			return 1
+		}
 		if *reap {
 			fmt.Fprintf(stdout, "would scavenge %s dispatch orphans older than %s\n", cfg.Name, *grace)
 			return 0
@@ -785,7 +788,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 			return 1
 		}
 		img := "at-cove-for-" + cfg.Name
-		fmt.Fprintf(stdout, "would dispatch %s (kit %s, image %s): scavenge orphans, build image, run an ephemeral labeled container, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
+		fmt.Fprintf(stdout, "would dispatch %s (kit %s, image %s): verify the install is current, scavenge orphans, run an ephemeral labeled container from the installed image, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
 			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
 	}
@@ -809,19 +812,25 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 0
 	}
 
+	// Consume the pre-built installed image (COV-38): verify the install is current
+	// and fail fast (`run at-cove install`) if it is missing or stale — work never
+	// builds. The run-config comes from the manifest, not config.yml.
+	m, err := loadCurrentInstall(kitDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	cfg := m.RunConfig
+
 	if len(cfg.Workers) == 0 {
 		fmt.Fprintf(stderr, "at-cove: kit %q declares no workers\n", cfg.Name)
 		return 1
 	}
 
-	// Assemble the build context (public key injected), as `build`/`create` do.
-	buildDir := filepath.Join(kitDir, ".build")
-	priv, pub, err := keys.Ensure(r, configDir())
+	// Only the ssh identity key is needed on the run path: the matching public key
+	// was baked into the installed image at install time, so work never assembles.
+	priv, _, err := keys.Ensure(r, configDir())
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
-		return 1
-	}
-	if err := assemble.Assemble(kitDir, buildDir, pub, cfg.Image); err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
@@ -941,8 +950,7 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 	}
 
 	err = dispatchrun.Dispatch(dispatchrun.Options{
-		Ops: ops, R: r, Cfg: cfg, BuildDir: buildDir, Name: workName(cfg.Name),
-		Base:          backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base},
+		Ops: ops, R: r, Cfg: cfg, Image: m.Image, Name: workName(cfg.Name),
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,
@@ -980,11 +988,16 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	cfg, err := kit.Load(kitDir)
+	// dispatch reads its tracker/source-control/dispatch/workers run-config from
+	// install.json (COV-38), and fails fast if the install is missing or stale
+	// (`run at-cove install`). Its dispatched `work` units then consume the one
+	// warm installed image — no per-unit build, no per-unit gate.
+	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
 		return 1
 	}
+	cfg := m.RunConfig
 	// dispatch requires the full scheduler surface.
 	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
 		fmt.Fprintln(stderr, "at-cove dispatch: kit must declare source-control, tracker.linear, dispatch, and at least one worker")

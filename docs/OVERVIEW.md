@@ -57,7 +57,7 @@ repo/
     .build/           # assembled build context (gitignored)
 ```
 
-at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`/`work`) or instance/install state is saved (`create`/`recreate`), so no command can leak those artifacts into git.
+at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`) or instance/install state is saved (`create`/`recreate`), so no command can leak those artifacts into git.
 
 ### `config.yml`
 
@@ -108,8 +108,8 @@ positional is the optional collaborator (below), not the project dir.
 | `at-cove destroy [--project-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [--project-dir DIR]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
-| `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM: inject `--in` as the task, run the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class` (declared in the kit's `workers`), extract the result to `--out`, destroy. Scavenges crashed dispatch orphans. |
-| `at-cove dispatch [--project-dir DIR]` | Poll the kit's tracker and dispatch ready work via `at-cove work`. |
+| `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM. Reads `.state/install.json`, **verifies the install is current** (fails fast with `run at-cove install` if missing/stale), then runs the **pre-built installed image** — it never builds. Injects `--in` as the task, runs the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class`, extracts the result to `--out`, destroys. Scavenges crashed dispatch orphans. |
+| `at-cove dispatch [--project-dir DIR]` | Poll the tracker and dispatch ready work via `at-cove work`. Reads its tracker/source-control/dispatch/workers run-config from `.state/install.json` (fails fast with `run at-cove install` if missing/stale); dispatched `work` units consume the one warm installed image — no per-unit build. |
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
@@ -176,9 +176,9 @@ so a sandbox can't be torn down underneath a live connection.
 
 ## How the build context is assembled
 
-`install` (and `work`, until S4 makes it consume the installed image) writes
-`<kit>/.build/` — the single build path. The run commands (`create`/`recreate`/
-`chat`) no longer assemble; they consume the image `install` built. The context
+`install` writes `<kit>/.build/` — the single build path. The run commands
+(`create`/`recreate`/`chat` and `work`/`dispatch`) never assemble; they consume
+the image `install` already built. The context
 is **just the sealed layer** plus a few generated files — there is no kit overlay
 anymore:
 
@@ -353,9 +353,9 @@ table](usage/at-cove-config.md#secret-buckets)), this bearer never reaches a
 `chat` session by declaration alone, whatever else that kit's root `secrets`
 demands. Unlike a general secret demand, a worker with *neither* bearer
 declared-and-resolved is not a warn-and-continue: `at-cove work` **fails closed
-on the host**, before building or launching a VM, naming the bearer names it
+on the host**, before launching a VM, naming the bearer names it
 looked for and the kit — a keyless worker is a guaranteed 401, so at-cove
-refuses to build one rather than launch a doomed container. The gate accepts
+refuses to launch a doomed container. The gate accepts
 either well-known name, so a class declaring only `ANTHROPIC_API_KEY` clears it.
 As a second, independent layer, at-cove also deliberately
 does **not** seed the OAuth `credentials.json` on the work path: with no OAuth

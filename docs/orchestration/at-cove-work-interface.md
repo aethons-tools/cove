@@ -37,11 +37,12 @@ at-cove work [--project-dir <dir>] --in <task.json> --out <task-result.json> [--
 ```
 
 One invocation, start to finish:
-1. **Scavenge** crash orphans — remove any container labeled `at-cove.work` older than `--grace` (self-healing after a crashed prior run).
-2. **Build** the kit's image (docker-cached) and **run a fresh ephemeral container** — labeled, `--rm`, **no persistent volume**, not recorded in `.state` (dispatch owns its lifecycle).
-3. **Fill + inject the task** — at-cove parses `--in`, **fills the target repo** into it from the kit's [`source-control`](../usage/at-cove-config.md) (repo + `main-branch`; the scheduler names no repo — the kit is the single source), and writes the completed task over SSH stdin to the at-cove-owned VM path `/home/agent/work/.at-task/task.json`.
-4. **Drive the worker bracket itself, step-by-step over ssh**: `at-task prepare` (env **with** `AT_TASK_GIT_TOKEN`) → `claude -p "<class prompt + result protocol>"` (env **without** the token) → `at-task complete` (env **with** the token), each bounded by `--timeout`. at-cove reads `worker.class` from the task to resolve the kit's `workers[class].prompt` — so the task is not opaque (at-cove reads the class and fills the repo), but its brief and other contents are.
-5. **Extract** the at-cove-owned VM path `/home/agent/work/.at-task/task-result.json` to `--out`; **destroy** the container on every exit path.
+1. **Verify the install is current** — read `.state/install.json` and re-hash the kit source; a missing or stale install fails fast with `run at-cove install`. `work` never builds — the image was compiled + gated once by [`at-cove install`](../OVERVIEW.md) (COV-38).
+2. **Scavenge** crash orphans — remove any container labeled `at-cove.work` older than `--grace` (self-healing after a crashed prior run).
+3. **Run a fresh ephemeral container** from the pre-built installed image — labeled, `--rm`, **no persistent volume**, not recorded in `.state` (dispatch owns its lifecycle). Because the image is pre-built and currency is hashed from source (never re-assembled), concurrent dispatch units never race on a shared `.build` dir.
+4. **Fill + inject the task** — at-cove parses `--in`, **fills the target repo** into it from the kit's [`source-control`](../usage/at-cove-config.md) (repo + `main-branch`; the scheduler names no repo — the kit is the single source), and writes the completed task over SSH stdin to the at-cove-owned VM path `/home/agent/work/.at-task/task.json`.
+5. **Drive the worker bracket itself, step-by-step over ssh**: `at-task prepare` (env **with** `AT_TASK_GIT_TOKEN`) → `claude -p "<class prompt + result protocol>"` (env **without** the token) → `at-task complete` (env **with** the token), each bounded by `--timeout`. at-cove reads `worker.class` from the task to resolve the kit's `workers[class].prompt` — so the task is not opaque (at-cove reads the class and fills the repo), but its brief and other contents are.
+6. **Extract** the at-cove-owned VM path `/home/agent/work/.at-task/task-result.json` to `--out`; **destroy** the container on every exit path.
 
 `--reap` runs only the scavenge and exits. File I/O is SSH-based (backend-agnostic). The kit's `workers` schema is owned by [at-cove-config.md](../usage/at-cove-config.md); the `.at-task/` file shapes are owned by the [at-task usage doc](../usage/at-task.md). Full design: [`../superpowers/specs/2026-07-09-at-cove-config-v2-design.md`](../superpowers/specs/2026-07-09-at-cove-config-v2-design.md) §3.
 

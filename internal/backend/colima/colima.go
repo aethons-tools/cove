@@ -51,10 +51,10 @@ func (c *Colima) preflight() error {
 func image(name string) string { return "at-cove-for-" + name }
 
 // dockerBuild is the single docker-build site (COV-38): it resolves + gates the
-// base, then builds buildDir FROM it and tags the result. Install and the interim
-// dispatch BuildImage route their build through here, so `docker build` appears in
-// exactly one place and the gate can never be bypassed. Create no longer builds —
-// it runs the image Install produced.
+// base, then builds buildDir FROM it and tags the result. Only Install routes its
+// build through here, so `docker build` appears in exactly one place and the gate
+// can never be bypassed. The run paths never build — create/recreate, chat, and
+// work/dispatch all run the image Install already produced.
 func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase string, err error) {
 	if err := c.preflight(); err != nil {
 		return "", err

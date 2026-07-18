@@ -60,7 +60,7 @@ func TestDispatchEgressWallSurfacesNeedsInput(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-egress",
+		Image: "at-cove-for-w", Name: "disp-egress",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
