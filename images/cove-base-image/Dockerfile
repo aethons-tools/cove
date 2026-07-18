@@ -34,25 +34,28 @@ RUN apt-get update \
       gnupg=2.4.4-2ubuntu17.4 \
       xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
       unzip=6.0-28ubuntu4.1 \
-      python3=3.12.3-0ubuntu2.1 \
+      python3=3.12.3-0ubuntu2.1  \
+      shellcheck=0.9.0-1 \
+      just=1.21.0-1 \
  && rm -rf /var/lib/apt/lists/*
-
-# Non-root user the agent runs as (so --dangerously-skip-permissions is allowed).
-RUN useradd -m -s /bin/bash agent
-
-# Overridable startup defaults (COV-34): the agent's first-boot settings and the
-# base .claude.json, seeded into /agent-data on first boot. at-cove's sealed
-# hardening layer no longer ships these (it COPYs only sealed files); a consumer
-# kit's Dockerfile can replace either by writing its own.
-COPY --chown=agent:agent init-agent-data/ /home/agent/.init-agent-data/
-
-# Session env drop-in (COV-34): the sealed layer concatenates /etc/cove/env.d/*.env
-# into /etc/environment. 00-base.env owns PATH, CLAUDE_CONFIG_DIR, and the egress
-# proxy vars; a kit Dockerfile may drop higher-numbered fragments to add its own.
-COPY cove-env.d/ /etc/cove/env.d/
 
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
 RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                                   /etc/ssh/sshd_config \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'               /etc/ssh/sshd_config
+
+# Non-root user the agent runs as (so --dangerously-skip-permissions is allowed).
+RUN useradd -m -s /bin/bash agent
+
+# Rootless-podman ergonomics for the Colima-backed e2e tests (podman + plumbing
+# already ship in the base): silence the podman-docker banner and give the agent
+# subuid/subgid ranges if the base image did not (useradd may not add them).
+RUN touch /etc/containers/nodocker \
+ && if ! grep -q '^agent:' /etc/subuid; then \
+      usermod --add-subuids 100000-165535 --add-subgids 100000-165535 agent; \
+    fi
+
+COPY image-files/. /.
+
+RUN chown -R agent:agent /home/agent

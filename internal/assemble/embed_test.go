@@ -35,7 +35,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 // /home/agent/.init-agent-data (the overridable startup defaults, COV-34),
 // relative to this package's directory.
 func baseInitAgentData(name string) string {
-	return filepath.Join("..", "..", "images", "cove-base-image", "init-agent-data", name)
+	return filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data", name)
 }
 
 // TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
@@ -227,7 +227,7 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 // 00-base.env and the sealed layer folds /etc/cove/env.d/*.env into
 // /etc/environment via apply-env-d.sh.
 func TestConfigDirReachesEnvironment(t *testing.T) {
-	baseEnv, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "cove-env.d", "00-base.env"))
+	baseEnv, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "image-files", "etc", "cove", "env.d", "00-base.env"))
 	if err != nil {
 		t.Fatalf("00-base.env not found: %v", err)
 	}
