@@ -46,8 +46,10 @@ jobs:
       # rather than a silent skip.
       - name: Install linters
         env:
-          # Keep in step with scripts/setup-test-tools.sh.
-          HADOLINT_VERSION: v2.12.0
+          # hadolint pin. Renovate keeps this in lockstep with the copies in
+          # scripts/setup-test-tools.sh and images/cove-image/Dockerfile (one
+          # customManager watches all three), so image/CI/local never drift.
+          HADOLINT_VERSION: v2.14.0
         run: |
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends shellcheck
