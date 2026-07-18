@@ -30,7 +30,7 @@ func TestParseEmpty(t *testing.T) {
 func TestBlessedFileIsWellFormed(t *testing.T) {
 	got := Blessed()
 	if len(got) == 0 {
-		t.Fatal("Blessed() returned no digests; blessed-digests.txt must list at least one")
+		t.Fatal("Blessed() returned no digests; blessed/watermark.txt must list at least one")
 	}
 	re := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	for _, d := range got {

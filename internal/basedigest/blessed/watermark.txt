@@ -1,0 +1,16 @@
+# Low-watermark: the OLDEST cove-base-image (sha256 manifest digest) still blessed.
+#
+# This committed file holds exactly one digest — the low-watermark. At build time
+# cmd/gen-blessed lists the published cove-base-image digests from the registry
+# and walks newest->oldest through this watermark, writing the result to the
+# sibling generated.txt (gitignored) for go:embed (COV-44 spec §4). A routine base
+# republish is then blessed automatically — no commit-back loop. When generated.txt
+# is absent (offline builds, fresh checkout) at-cove embeds this watermark alone.
+#
+# To DROP older bases after a breaking base change (e.g. shedding at-task, which
+# changes the layer prefix), bump this to the first post-break digest — one line,
+# one deliberate commit. The watermark MUST still exist in the registry or the
+# build fails loudly.
+#
+# Current watermark: cove-base-image:2026.07.18-9528dd2 (post-at-task-shed, COV-46).
+sha256:7ba377681641d4828af92e05ad97a42a6246347337908414aa4687feed73e6bb

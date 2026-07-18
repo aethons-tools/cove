@@ -23,18 +23,20 @@ Two host constraints shape how `go` is run here:
   Set `GOPROXY=direct` and `GOSUMDB=off` so `go get gopkg.in/yaml.v3@v3.0.1` resolves directly through the allow-listed hosts —
   no module proxy, no checksum DB.
   This is why the one dependency can be fetched without a vendor tree or an allow-list change.
-- **`/home/agent` is not writable**, so the default `GOPATH` (`~/go`) can't be created.
-  Redirect it to a writable path outside the repo: `GOPATH=/home/agent/workspace/.gopath`.
-  (`GOCACHE` under `~/.cache` works by default.)
+- **The default `GOPATH` (`~/go` → `/home/agent/go`) works.** `cove-image` provides
+  a writable home with `~/go` pre-created, and bakes `GOROOT`/`GOPATH`/`GOPROXY`/
+  `GOSUMDB`/`GOFLAGS` as image `ENV` surfaced into the session via `COVE_SSHENV`
+  (see [`OVERVIEW.md`](OVERVIEW.md#the-image-tree)). (Older sandboxes redirected
+  `GOPATH` to `/home/agent/workspace/.gopath` because `~` was not writable; that
+  override is now unnecessary — harmless if a stale `settings.json` still sets it.)
 
-These are already exported in this environment.
-If you need to set them inline (e.g. a fresh shell, or `settings.json` `env` not yet picked up), prefix the command:
+These are already exported in this environment (via `COVE_SSHENV`), and `go` is on
+`PATH`. If you need to set them inline (e.g. a non-session shell that didn't read
+`/etc/environment`), prefix the command:
 
 ```bash
-GOPATH=/home/agent/workspace/.gopath GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go test ./...
+GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go test ./...
 ```
-
-`go` itself may not be on `PATH` in every shell — install it / add it before building.
 
 ## Tests
 

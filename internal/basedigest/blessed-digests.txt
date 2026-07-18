@@ -1,8 +1,0 @@
-# Blessed cove-base-image manifest digests (sha256), newest first.
-#
-# A kit's resolved base must descend from one of these — COV-34's provenance
-# gate compares the base's OCI layer diff_ids against the blessed image's. The
-# list is committed and embedded into at-cove; the head is the default base.
-# (COV-44 replaces this hand-maintained list with a low-watermark + a registry
-# snapshot at build time.)
-sha256:c44725f8340521e1f80956d2f926d67ee35d443d9a7927d8d4e658390814d345
