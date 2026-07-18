@@ -10,14 +10,6 @@ import (
 // Compile-time proof colima satisfies the dispatch surface.
 var _ backend.DispatchOps = (*Colima)(nil)
 
-// BuildImage is the interim dispatch build path (S4 retires it in favor of
-// consuming the installed image). It routes through the shared dockerBuild so the
-// gate + docker-build stay in one place.
-func (c *Colima) BuildImage(buildDir, tag string, base backend.BaseSpec) error {
-	_, err := c.dockerBuild(buildDir, tag, base)
-	return err
-}
-
 // RunEphemeral starts a fresh, labeled, volume-less container with --rm and a
 // published sshd, so a force-remove (or --rm on stop) reclaims everything.
 func (c *Colima) RunEphemeral(image, name, label string) (backend.Instance, error) {

@@ -121,6 +121,7 @@ func TestDispatchTrackerTokenFromSecretsYML(t *testing.T) {
 	}
 	// A valid dispatch kit (kits declare demand only — no resolver command).
 	dir := writeDispatchKit(t, dispatchGoodConfig)
+	writeInstall(t, filepath.Join(dir, ".at-cove")) // dispatch reads run-config from a current install
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	// It must get PAST token resolution (past "kit OK"); it then fails connecting to
@@ -145,6 +146,34 @@ func writeKit(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return cove
+}
+
+// writeInstall compiles the kit at kitDir into a current install.json — as
+// `at-cove install` would, but without docker — so the run commands (work/dispatch)
+// see a fresh, current install. It hashes the live kit source, so the manifest
+// stays current until the kit changes (a later edit would make currentInstall
+// report it stale). Returns the written manifest.
+func writeInstall(t *testing.T, kitDir string) install.Manifest {
+	t.Helper()
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		t.Fatalf("writeInstall: load kit: %v", err)
+	}
+	in, err := currencyInputs(kitDir, cfg)
+	if err != nil {
+		t.Fatalf("writeInstall: currency inputs: %v", err)
+	}
+	m := install.Compile(cfg, install.ResolvedBuild{
+		Image:        "at-cove-for-" + cfg.Name,
+		BaseRef:      in.BaseRef,
+		BaseDigest:   "sha256:test",
+		CurrencyHash: install.CurrencyHash(in),
+		InstalledAt:  "2026-07-18T00:00:00Z",
+	})
+	if err := install.Save(kitDir, m); err != nil {
+		t.Fatalf("writeInstall: save: %v", err)
+	}
+	return m
 }
 
 // writeState records a created instance so the state-driven commands have
@@ -791,7 +820,8 @@ func TestWorkReapDoesNotRequireInOut(t *testing.T) {
 
 func TestWorkRequiresWorkers(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir) // no workers declared
+	kitDir := writeKit(t, dir) // no workers declared
+	writeInstall(t, kitDir)    // work reads run-config from a current install
 	inFile := filepath.Join(dir, "in.json")
 	outFile := filepath.Join(dir, "out.json")
 	if err := os.WriteFile(inFile, []byte("{}"), 0o644); err != nil {
@@ -805,6 +835,91 @@ func TestWorkRequiresWorkers(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "declares no workers") {
 		t.Fatalf("stderr = %q; want mention of declares no workers", errOut.String())
+	}
+}
+
+// TestWorkFailsFastWhenNotInstalled: with no install.json, `work` must fail fast
+// telling the operator to run `at-cove install` — it never builds and never
+// touches the backend (COV-38 §6). A dispatch-ready kit with resolvable secrets
+// isolates the missing-install gate as the sole cause.
+func TestWorkFailsFastWhenNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t) // note: no writeInstall — the kit is not installed
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("work must fail fast when the kit is not installed")
+	}
+	if !strings.Contains(errOut.String(), "at-cove install") {
+		t.Fatalf("stderr must tell the operator to run `at-cove install`; got %q", errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "build") != -1 || dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("work must not build or run anything without an install; calls=%+v", f.Calls)
+	}
+}
+
+// TestWorkFailsFastWhenStale: an install that no longer matches the kit source
+// (here config.yml is edited after install) is stale, and `work` must fail fast
+// with `at-cove install` rather than run a mismatched image.
+func TestWorkFailsFastWhenStale(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	writeInstall(t, kitDir) // install against the current source...
+	// ...then edit config.yml so the frozen currency hash no longer matches.
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig+"\n# drift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("work must fail fast when the install is stale")
+	}
+	if !strings.Contains(errOut.String(), "stale") || !strings.Contains(errOut.String(), "at-cove install") {
+		t.Fatalf("stderr must report a stale install and point at `at-cove install`; got %q", errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "run") != -1 {
+		t.Fatalf("work must not run a stale image; calls=%+v", f.Calls)
+	}
+}
+
+// TestDispatchFailsFastWhenNotInstalled: `dispatch` reads its run-config from
+// install.json, so a missing install fails fast with `at-cove install` — before
+// it ever validates the scheduler surface or resolves a tracker token.
+func TestDispatchFailsFastWhenNotInstalled(t *testing.T) {
+	dir := writeDispatchKit(t, dispatchGoodConfig) // valid kit, but never installed
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1 (not installed)", code)
+	}
+	if !strings.Contains(errOut.String(), "at-cove install") {
+		t.Fatalf("stderr must tell the operator to run `at-cove install`; got %q", errOut.String())
 	}
 }
 
@@ -853,7 +968,8 @@ func TestWorkFailsClosedWhenWorkerBearerUnresolved(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seedConfigDir(t) // hermetic XDG_CONFIG_HOME: fresh temp dir, pre-seeded keypair
+	seedConfigDir(t)        // hermetic XDG_CONFIG_HOME: fresh temp dir, pre-seeded keypair
+	writeInstall(t, kitDir) // work consumes a current installed image
 	// Resolve AT_TASK_GIT_TOKEN cleanly so the bearer gate is the ONLY unresolved
 	// secret: without this, the pre-existing planRequired fail-closed check on
 	// the git token would ALSO abort the VM, and the "no ssh/no docker run"
@@ -907,6 +1023,7 @@ func TestWorkResolvesWorkerBearerFromWorkerBucket(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedConfigDir(t)
+	writeInstall(t, kitDir) // work consumes a current installed image
 	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
 		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n    ANTHROPIC_AUTH_TOKEN: { value: \"sk-ant-test\" }\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -924,6 +1041,10 @@ func TestWorkResolvesWorkerBearerFromWorkerBucket(t *testing.T) {
 	}
 	if dockerArg0Index(f.Calls, "run") == -1 {
 		t.Fatalf("expected the gate to clear and dispatch to reach the VM; calls=%+v stderr=%q", f.Calls, errOut.String())
+	}
+	// The run path consumes the installed image — it must never `docker build`.
+	if dockerArg0Index(f.Calls, "build") != -1 {
+		t.Fatalf("work must consume the installed image, not build; calls=%+v", f.Calls)
 	}
 }
 
@@ -961,6 +1082,7 @@ func TestWorkAcceptsAnthropicAPIKeyAsBearer(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedConfigDir(t)
+	writeInstall(t, kitDir) // work consumes a current installed image
 	// Supply BOTH the API-key bearer and the git token so neither gate aborts:
 	// the run must clear the gate and reach dispatch.
 	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
@@ -1012,6 +1134,7 @@ func TestWorkFailsClosedWhenNoBearerDeclared(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedConfigDir(t)
+	writeInstall(t, kitDir) // work consumes a current installed image
 	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
 		[]byte("kits:\n  box:\n    AT_TASK_GIT_TOKEN: { value: \"git-tok\" }\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1154,6 +1277,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := writeDispatchKit(t, dispatchGoodConfig)
+	writeInstall(t, filepath.Join(dir, ".at-cove")) // dispatch reads run-config from a current install
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
@@ -1168,6 +1292,7 @@ func TestDispatchTokenResolveFailure(t *testing.T) {
 // check rejects it, exit 1.
 func TestDispatchRejectsBadConfig(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\nworkers:\n  implement: { prompt: \"impl\", timeout: 30m }\n")
+	writeInstall(t, filepath.Join(dir, ".at-cove")) // dispatch reads run-config from a current install
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {
@@ -1182,6 +1307,7 @@ func TestDispatchRejectsBadConfig(t *testing.T) {
 // with the missing-surface message.
 func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	dir := writeDispatchKit(t, "name: dispatch-kit\n")
+	writeInstall(t, filepath.Join(dir, ".at-cove")) // dispatch reads run-config from a current install
 	var out, errOut bytes.Buffer
 	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 1 {

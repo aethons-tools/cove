@@ -19,15 +19,15 @@ import (
 // fakeOps records DispatchOps calls; Dial returns a fixed endpoint.
 type fakeOps struct {
 	scavenged bool
-	built     bool
 	ran       bool
+	ranImage  string // the image RunEphemeral was asked to run
 	removed   bool
 }
 
-func (f *fakeOps) BuildImage(_, _ string, _ backend.BaseSpec) error { f.built = true; return nil }
-func (f *fakeOps) RunEphemeral(_, name, _ string) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, name, _ string) (backend.Instance, error) {
 	f.ran = true
-	return backend.Instance{Container: name}, nil
+	f.ranImage = image
+	return backend.Instance{Container: name, Image: image}, nil
 }
 func (f *fakeOps) Dial(string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
@@ -53,7 +53,7 @@ func TestDispatchRunsBracket(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-1",
+		Image: "at-cove-for-w", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -87,6 +87,15 @@ func TestDispatchRunsBracket(t *testing.T) {
 	}
 	if b := readFile(t, out); !strings.Contains(b, `"ok"`) {
 		t.Fatalf("result not written: %q", b)
+	}
+	// The run path consumes the pre-built installed image via RunEphemeral and
+	// never builds (COV-38): the image passed must be the one from install.json,
+	// and no `docker build` may appear on the recorded argv.
+	if !ops.ran || ops.ranImage != "at-cove-for-w" {
+		t.Fatalf("RunEphemeral must run the installed image; ran=%v image=%q", ops.ran, ops.ranImage)
+	}
+	if strings.Contains(calls, "docker build") || strings.Contains(calls, "build --build-arg") {
+		t.Fatalf("dispatch must not build on the run path:\n%s", calls)
 	}
 }
 
@@ -126,7 +135,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 			{Name: "OTHER", Command: []string{"echo", "x"}},
 		},
 		GitToken: secret.Spec{Name: "AT_TASK_GIT_TOKEN", Command: []string{"gh", "auth", "token"}},
-		BuildDir: dir, Name: "disp-ag", InputPath: in, OutputPath: out,
+		Image:    "at-cove-for-w", Name: "disp-ag", InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
@@ -186,7 +195,7 @@ func TestDispatchPassesRunParamsToResolvers(t *testing.T) {
 		Secrets: []secret.Spec{
 			{Name: "OTHER", Command: []string{"echo", "x"}},
 		},
-		BuildDir: dir, Name: "disp-runparams", InputPath: in, OutputPath: out,
+		Image: "at-cove-for-w", Name: "disp-runparams", InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
@@ -230,7 +239,7 @@ func TestWorkerSecretsInjectedOnlyAtAgentStep(t *testing.T) {
 		},
 		Secrets:       []secret.Spec{{Name: "SHARED", Value: "shared-secret-abc", Literal: true}},
 		WorkerSecrets: []secret.Spec{{Name: "ANTHROPIC_AUTH_TOKEN", Value: "worker-tok-xyz", Literal: true}},
-		BuildDir:      dir, Name: "disp-worker",
+		Image:         "at-cove-for-w", Name: "disp-worker",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -280,8 +289,8 @@ func TestDispatchUndeclaredClassErrors(t *testing.T) {
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"nope"}}`)
 	err := Dispatch(Options{
 		Ops: &fakeOps{}, R: &runner.Fake{},
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
-		BuildDir: dir, Name: "x", InputPath: in, OutputPath: dir + "/o.json",
+		Cfg:   kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Image: "at-cove-for-w", Name: "x", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
 	if err == nil {
@@ -306,7 +315,7 @@ func TestDispatchSourceBranchOverride(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-override",
+		Image: "at-cove-for-w", Name: "disp-override",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -335,8 +344,8 @@ func TestDispatchRequiresOrigin(t *testing.T) {
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
 	err := Dispatch(Options{
 		Ops: &fakeOps{}, R: &runner.Fake{},
-		Cfg:      kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
-		BuildDir: dir, Name: "disp-noorigin", InputPath: in, OutputPath: dir + "/o.json",
+		Cfg:   kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
+		Image: "at-cove-for-w", Name: "disp-noorigin", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
 	if err == nil {
@@ -356,7 +365,7 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
+		Image: "at-cove-for-w", Name: "disp-2", InputPath: in, OutputPath: dir + "/o.json",
 		IdentityFile: "id", KnownHostsDir: t.TempDir(), Timeout: time.Minute, GraceWindow: time.Hour, Now: time.Now(),
 	})
 	if err == nil {
@@ -410,7 +419,7 @@ func TestDispatchPrepareFailureAborts(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-1",
+		Image: "at-cove-for-w", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -443,7 +452,7 @@ func TestDispatchDoesNotSeedCredentialsWhenEmpty(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		BuildDir: dir, Name: "disp-1",
+		Image: "at-cove-for-w", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		CredentialsFile: "", // no OAuth creds on the work path
 		IdentityFile:    "id", KnownHostsDir: t.TempDir(),
