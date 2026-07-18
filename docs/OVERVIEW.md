@@ -57,7 +57,7 @@ repo/
     .build/           # assembled build context (gitignored)
 ```
 
-at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`/`create`) or instance/install state is saved, so no command can leak those artifacts into git.
+at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`) or instance/install state is saved (`create`/`recreate`), so no command can leak those artifacts into git.
 
 ### `config.yml`
 
@@ -102,9 +102,9 @@ positional is the optional collaborator (below), not the project dir.
 | Command | Behavior |
 |---|---|
 | `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
-| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | Assemble, build the image via the backend, then create the VM. Secret-free. Records the instance in `.state/state.json`. `--workspace` selects Shared (bind-mount) mode. |
-| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
-| `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and create it again, **keeping the volumes** (saved login + workspace). The UAT rebuild loop. |
+| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in `.state/state.json` (image sourced from the manifest). A missing/stale install errors `run at-cove install`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
+| `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
 | `at-cove destroy [--project-dir DIR]` | Remove the container (volumes retained) and image, then delete the state file. |
 | `at-cove status [--project-dir DIR]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
@@ -135,9 +135,11 @@ dispatches. `work` does not yet consume these flags (see
 ### The `chat` command and collaborator sessions
 
 `chat` is the interactive command (a hard rename of the former `connect`, no
-alias). Unlike the other commands, `chat` also loads the kit's `config.yml` —
-a malformed or absent kit config is a hard error, since a collaborator session
-is kit-defined — and uses its `collaborators:` tree (see
+alias). Unlike the other state-driven commands, `chat` also reads the resolved
+run-config from `.state/install.json` (never `config.yml`) and verifies the
+install is current — a missing or stale install is a hard error (`run at-cove
+install`), since a collaborator session is defined by that run-config — and uses
+its `collaborators:` tree (see
 [at-cove-config.md](usage/at-cove-config.md#collaborators)) to select a role:
 
 - an explicit `at-cove chat <collaborator>` positional must match a declared
@@ -165,7 +167,8 @@ for the dispatched-worker side of that boundary.
 
 `create` records the running instance in `.at-cove/.state/state.json`;
 **`chat`, `destroy`, and `status` operate on that recorded state, not on `config.yml`**
-(`chat` additionally loads `config.yml` for its `collaborators:` tree, as above).
+(`chat` additionally reads the current `.state/install.json` for its `collaborators:`
+tree and secret demands, as above — never `config.yml`).
 A lockfile guards concurrency:
 `chat` holds a *shared* lock for the whole session,
 and `destroy` takes an *exclusive* lock —
@@ -173,9 +176,9 @@ so a sandbox can't be torn down underneath a live connection.
 
 ## How the build context is assembled
 
-Each `install` (and, until S3, `create`) writes `<kit>/.build/`. The run
-commands (`work`/`dispatch`) never assemble — they consume the image `install`
-already built. The context
+`install` writes `<kit>/.build/` — the single build path. The run commands
+(`create`/`recreate`/`chat` and `work`/`dispatch`) never assemble; they consume
+the image `install` already built. The context
 is **just the sealed layer** plus a few generated files — there is no kit overlay
 anymore:
 
@@ -194,7 +197,7 @@ nothing a kit provides can weaken the egress lock or sshd hardening.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
 After it,
-`create` writes the managed public key into the context's `authorized_keys` —
+`install` writes the managed public key into the context's `authorized_keys` —
 an explicit assembly step,
 keeping overlay precedence pure.
 
@@ -376,8 +379,8 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
 
 - **Colima** — the only implemented backend.
   Native Docker via Colima (no `sbx`):
-  `Install` resolves + gates the base and `docker build`s the assembled context (the single build site),
-  `docker run -d` with `NET_ADMIN`,
+  `Install` resolves + gates the base and `docker build`s the assembled context (the single build site);
+  `Create` is **run-only** — `docker run -d` the pre-built image with `NET_ADMIN`,
   the state + workspace volumes,
   and a published `localhost:<port>` mapped to the in-VM `sshd`.
   `Dial` returns that port;
