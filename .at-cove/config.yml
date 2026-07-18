@@ -44,7 +44,7 @@ collaborators:
 
 image:
   # This repo builds out its toolchain image in CI rather than locally.
-  base: ghcr.io/aethons-tools/cove-image:2026.07.17-35b3bf2
+  base: ghcr.io/aethons-tools/cove-image:2026.07.18-9528dd2
   allowed-domains:
     # Go dependencies
     - gopkg.in
