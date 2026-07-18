@@ -1,33 +1,253 @@
 name: release
 
-# Cut a (private) GitHub Release of the cove host binaries (at-cove + at-mint,
-# at-task embedded) on a version tag. See .goreleaser.yaml + COV-36.
+# Monolithic continuous-delivery pipeline (COV-44, spec §3/§5/§6). ONE workflow
+# on every push to main decides — from the repo diff — which artifacts to
+# (re)build and publish, in DAG order (spec §3, no cycle):
+#
+#   cove-base-image ──publish──► digest D ──► (registry) ──► blessed-list snapshot
+#         │                                                        │
+#         ▼                                                        ▼
+#   cove-image (FROM cove-base-image:ci)                  at-cove (embeds at-task + list)
+#
+# Pull requests build + smoke the touched legs but NEVER publish (spec §5).
+# Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
+# build-images.yml + the goreleaser-on-tags release + release-validate.yml.
 
 on:
   push:
-    tags:
-      - v*
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Serialize main (each push may publish); let a PR's own reruns cancel.
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write # create the release + upload assets
-  packages: read # gen-blessed lists cove-base-image versions to snapshot the blessed set (COV-44 §4)
+  contents: write # gh cuts the at-cove release + its <N>-<MMDD> tag
+  packages: write # GHCR push (also grants the read gen-blessed needs)
+
+env:
+  BASE_IMAGE: ghcr.io/aethons-tools/cove-base-image
+  COVE_IMAGE: ghcr.io/aethons-tools/cove-image
 
 jobs:
-  release:
+  # Decide, from the push/PR diff, which DAG legs run — and stamp the version.
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.legs.outputs.base }} # rebuild+publish cove-base-image
+      cove_image: ${{ steps.legs.outputs.cove_image }} # (re)build cove-image
+      atcove: ${{ steps.legs.outputs.atcove }} # re-cut at-cove (+ blessed list)
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # goreleaser needs full history + tags
+          fetch-depth: 0 # rev-list --count + paths-filter's base diff
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            base:
+              - 'images/cove-base-image/**'
+            cove_image:
+              - 'images/cove-image/**'
+            go:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.goreleaser.yaml'
+              - 'scripts/stage-attask.sh'
+      - id: legs
+        # Fan the raw path filters into the DAG's legs (spec §3):
+        #   base change     => rebuild base AND cove-image (downstream) AND at-cove
+        #                      (new digest => new DefaultRef + blessed-list head).
+        #   cove-image only => cove-image only (FROM the current published base).
+        #   go change       => at-cove only (blessed list recomputed from the head).
+        env:
+          BASE: ${{ steps.filter.outputs.base }}
+          COVE: ${{ steps.filter.outputs.cove_image }}
+          GO: ${{ steps.filter.outputs.go }}
+        run: |
+          base=false; cove=false; atcove=false
+          if [ "$BASE" = 'true' ]; then base=true; fi
+          if [ "$BASE" = 'true' ] || [ "$COVE" = 'true' ]; then cove=true; fi
+          if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then atcove=true; fi
+          {
+            echo "base=$base"
+            echo "cove_image=$cove"
+            echo "atcove=$atcove"
+          } >>"$GITHUB_OUTPUT"
+      - id: version
+        # <N>-<MMDD>: N (git rev-list --count HEAD) is the monotonic version; the
+        # month-day is advisory; '-' (not '.') so it is never mistaken for SemVer.
+        run: echo "version=$(git rev-list --count HEAD)-$(date -u +%m%d)" >>"$GITHUB_OUTPUT"
 
+  # Build the image tree for the touched legs, smoke-test natively per arch, and —
+  # on main — push per-arch tags the publish job merges. Runs whenever cove-image
+  # is (re)built, which subsumes a base rebuild (base => cove-image downstream).
+  images:
+    needs: changes
+    if: needs.changes.outputs.cove_image == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Login on PRs too: a cove-image-only change pulls the (private) published
+      # base below. The actual push of built images stays main-only (guarded).
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Provide cove-base-image:ci for the cove-image build. Rebuild it from source
+      # when the base changed; else pull the current published base so a
+      # cove-image-only change does NOT republish the base (spec §3).
+      - name: Prepare base image
+        run: |
+          if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
+            docker build --tag cove-base-image:ci images/cove-base-image
+          else
+            docker pull "${BASE_IMAGE}:latest"
+            docker tag  "${BASE_IMAGE}:latest" cove-base-image:ci
+          fi
+
+      - name: Build cove-image
+        run: docker build --build-arg BASE_TAG=ci --tag cove-image:ci images/cove-image
+
+      # Every expected tool must resolve inside the image, on a native runner,
+      # BEFORE anything is published.
+      - name: Smoke-test cove-image
+        run: |
+          docker run --rm cove-image:ci bash -euo pipefail -c '
+            echo "arch: $(uname -m)"
+            go version
+            just --version
+            shellcheck --version | head -n2
+            hadolint --version
+          '
+
+      # main only: push this arch's smoke-tested image(s) under an intermediate
+      # per-arch tag; the publish job merges them into the multi-arch manifests.
+      - name: Push per-arch images
+        if: github.event_name == 'push'
+        run: |
+          sha="${GITHUB_SHA::7}"
+          if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
+            docker tag  cove-base-image:ci "${BASE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+            docker push                    "${BASE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+          fi
+          docker tag  cove-image:ci "${COVE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+          docker push               "${COVE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+
+  # main only: assemble the per-arch tags into one multi-arch manifest per built
+  # image, tagged <N>-<MMDD> (immutable) + latest (moving). Publishes the base
+  # FIRST so its new digest D is in the registry before the at-cove leg's
+  # blessed-list snapshot runs.
+  publish-images:
+    needs: [changes, images]
+    if: github.event_name == 'push' && needs.changes.outputs.cove_image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifests
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          sha="${GITHUB_SHA::7}"
+          echo "## Published images" >> "$GITHUB_STEP_SUMMARY"
+          images=("${COVE_IMAGE}")
+          if [ "$BASE" = 'true' ]; then images=("${BASE_IMAGE}" "${COVE_IMAGE}"); fi
+          for image in "${images[@]}"; do
+            docker buildx imagetools create \
+              --tag "${image}:${VERSION}" \
+              --tag "${image}:latest" \
+              "${image}:sha-${sha}-amd64" \
+              "${image}:sha-${sha}-arm64"
+            digest="$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{.Manifest.Digest}}')"
+            echo "${image}:${VERSION} -> ${digest}"
+            echo "- \`${image}:${VERSION}\` @ \`${digest}\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  # Re-cut at-cove (with at-task embedded + the blessed-list snapshot). Ordered
+  # AFTER publish-images so a freshly-published base digest is already the registry
+  # head when gen-blessed (a goreleaser before-hook) snapshots the blessed list.
+  # PRs build + validate only; main builds a snapshot and cuts the GH release.
+  atcove:
+    needs: [changes, images, publish-images]
+    # Run when the at-cove leg is selected and nothing upstream failed. On PRs and
+    # go-only main pushes the image jobs are skipped (not failed), so still run.
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.atcove == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # goreleaser wants full history
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - uses: goreleaser/goreleaser-action@v7
+      # Config sanity (absorbs the old release-validate workflow).
+      - name: Validate goreleaser config
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: check
+
+      # PR: compile all binaries (+ run the stage-attask / gen-blessed before-hooks)
+      # to prove the release builds; never publish.
+      - name: Build at-cove (PR — no publish)
+        if: github.event_name == 'pull_request'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: build --snapshot --clean
         env:
+          VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # main: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
+      # mode skips goreleaser's own publishing, sidestepping its SemVer tag
+      # assumption); the next step cuts the release.
+      - name: Build at-cove (main)
+        if: github.event_name == 'push'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish at-cove release
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "Continuous release from ${GITHUB_SHA::7} (at-cove + at-mint; at-task embedded)." \
+            --target "$GITHUB_SHA" \
+            dist/cove_*.tar.gz dist/checksums.txt
+          echo "## Released at-cove \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
