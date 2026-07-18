@@ -409,6 +409,7 @@ internal/secret/              run each host command, capture value
 internal/sshargs/             pure argv builders for the ssh client
 internal/keys/                managed SSH keypair (~/.config/at-cove/id_ed25519)
 internal/state/               per-kit state file + shared/exclusive locking
+internal/install/             install.json manifest: Compile + currency hash + read/write (pure; the compiled artifact of a kit)
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 

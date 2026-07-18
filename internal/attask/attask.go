@@ -27,6 +27,11 @@ func Binary(goarch string) ([]byte, error) {
 	return lookup(binFS, goarch)
 }
 
+// BinFS returns the embedded at-task binaries as a read-only FS (rooted at
+// "bin"). internal/install hashes it as part of at-cove's build identity for the
+// install currency check (COV-38), so an at-task rebuild invalidates installs.
+func BinFS() fs.FS { return binFS }
+
 func lookup(fsys fs.FS, goarch string) ([]byte, error) {
 	name := "bin/at-task-linux-" + goarch
 	b, err := fs.ReadFile(fsys, name)
