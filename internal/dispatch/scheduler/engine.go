@@ -284,8 +284,11 @@ func (e *Engine) tick(ctx context.Context) {
 	e.reap(ctx)
 }
 
-// reap moves orphaned IN PROGRESS issues to NEEDS INPUT: those stuck past
-// reaper-timeout that no live in-process dispatch owns. It backstops the case a
+// reap moves orphaned IN PROGRESS issues to NEEDS INPUT: those in a dispatchable
+// worker class, stuck past reaper-timeout, that no live in-process dispatch owns.
+// It only ever considers issues the dispatcher itself could have claimed (a
+// configured worker class); interactive, unknown, or unlabeled IN PROGRESS issues
+// are a human's to manage and are left untouched (COV-55). It backstops the case a
 // per-dispatch time budget can't — the in-process dispatch is gone (a crashed or
 // hung worker, or a scheduler restart mid-run) but the tracker still shows IN
 // PROGRESS. A run this process is actively dispatching is never reaped, however
@@ -301,6 +304,10 @@ func (e *Engine) reap(ctx context.Context) {
 		return
 	}
 	for _, ip := range inProgress {
+		if _, err := e.cfg.ResolvedWorker(ip.Class); err != nil {
+			continue // not a dispatchable worker class — the dispatcher never claims it
+			// (interactive/unknown/unlabeled issues), so it is never ours to reap (COV-55)
+		}
 		if e.isLive(ip.ID) {
 			continue // this process still owns the run; never reap a live dispatch
 		}

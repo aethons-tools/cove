@@ -228,9 +228,10 @@ func TestTickReapsStaleOrphansOnly(t *testing.T) {
 	cfg.Dispatch.ReaperTimeout = "45m"
 	tr := newFakeTracker()
 	tr.inProgress = []InProgressIssue{
-		{Issue: Issue{ID: "stale", Identifier: "AET-STALE"}, StartedAt: time.Now().Add(-2 * time.Hour)},
-		{Issue: Issue{ID: "fresh", Identifier: "AET-FRESH"}, StartedAt: time.Now().Add(-1 * time.Minute)},
-		{Issue: Issue{ID: "live", Identifier: "AET-LIVE"}, StartedAt: time.Now().Add(-2 * time.Hour)},
+		{Issue: Issue{ID: "stale", Identifier: "AET-STALE", Class: "implement"}, StartedAt: time.Now().Add(-2 * time.Hour)},
+		{Issue: Issue{ID: "fresh", Identifier: "AET-FRESH", Class: "implement"}, StartedAt: time.Now().Add(-1 * time.Minute)},
+		{Issue: Issue{ID: "live", Identifier: "AET-LIVE", Class: "implement"}, StartedAt: time.Now().Add(-2 * time.Hour)},
+		{Issue: Issue{ID: "noclass", Identifier: "AET-NOCLASS"}, StartedAt: time.Now().Add(-2 * time.Hour)},
 	}
 	e := newEngine(cfg, tr, &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`})
 	e.markLive("live") // this process still owns the "live" run — never reap it
@@ -238,7 +239,8 @@ func TestTickReapsStaleOrphansOnly(t *testing.T) {
 	e.tick(context.Background())
 	e.wait()
 
-	// over-age orphan → NEEDS INPUT with an explanatory comment naming the timeout
+	// over-age orphan (a dispatchable worker class) → NEEDS INPUT with an
+	// explanatory comment naming the timeout
 	if got := tr.roles("stale"); len(got) != 1 || got[0] != RoleNeedsInput {
 		t.Fatalf("stale transitions = %v; want [NeedsInput]", got)
 	}
@@ -252,6 +254,11 @@ func TestTickReapsStaleOrphansOnly(t *testing.T) {
 	// live-owned over-age left untouched
 	if got := tr.roles("live"); len(got) != 0 {
 		t.Errorf("live-owned transitions = %v; want none (never reap a live dispatch)", got)
+	}
+	// A stale IN PROGRESS issue with no dispatchable worker class was never the
+	// dispatcher's to claim, so the reaper must leave it for the human (COV-55).
+	if got := tr.roles("noclass"); len(got) != 0 {
+		t.Errorf("no-worker-class transitions = %v; want none (reaper must not touch non-dispatch issues)", got)
 	}
 }
 
