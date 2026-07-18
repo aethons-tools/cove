@@ -337,11 +337,13 @@ and `allowed-domains`.
 A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`),
 which is the Docker **build context** for an `image/Dockerfile` — it is **not** overlaid
 onto the sandbox. To customize the build (install a toolchain, seed files), write an
-`image/Dockerfile`. To add session env for every SSH session, have that Dockerfile drop
-an `/etc/cove/env.d/<NN>-<name>.env` fragment: the sealed layer folds every
-`/etc/cove/env.d/*.env` into `/etc/environment` in lexical order. A later fragment
-shadows the base's `00-base.env` (pam_env is last-wins), so restate `PATH`'s base
-entries if you extend it. at-task is injected by the sealed layer — never install it.
+`image/Dockerfile`. To add session env for every SSH session, just set it with **`ENV`**
+and name it in **`COVE_SSHENV`** (colon-separated): the sealed hardening layer copies
+`PATH` (intrinsic) plus every `COVE_SSHENV`-named variable's live value into
+`/etc/environment`. So one `ENV` satisfies both `docker run`/CI and SSH sessions — e.g.
+`ENV FOO=bar` then `ENV COVE_SSHENV="${COVE_SSHENV}:FOO"`. (The egress proxy vars and
+`CLAUDE_CONFIG_DIR` are sealed-owned and cannot be set this way.) at-task is injected by
+the sealed layer — never install it.
 
 #### image.base
 *string*
@@ -370,7 +372,7 @@ naming the blocked host(s) and pointing back to this key as the remedy — see
 
 ```yaml
 # base + build-time customization live in image/Dockerfile (FROM a blessed base,
-# install your toolchain, drop an /etc/cove/env.d fragment). config.yml carries:
+# install your toolchain, ENV + COVE_SSHENV for session env). config.yml carries:
 image:
   allowed-domains:
     - proxy.golang.org

@@ -218,14 +218,22 @@ warning. This lets hardening *trust* its prerequisites (the egress stack, the
 backend seam; the full model is in
 [the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
 
-Because hardening trusts the base, `cove-base-image` carries the pieces every
-sandbox needs under it: the overridable startup defaults (`settings.json`,
-`.claude.json` in `/home/agent/.init-agent-data`) and the session env in
-`/etc/cove/env.d/00-base.env` (`PATH`, `CLAUDE_CONFIG_DIR`, the egress proxy
-vars). The sealed layer then, last: installs the embedded version-locked
-`at-task`, folds every `/etc/cove/env.d/*.env` fragment into `/etc/environment`
-(so `pam_env` exposes it to every SSH session), and re-asserts the egress/sshd
-hardening.
+Because hardening trusts the base, `cove-base-image` carries the overridable
+startup defaults every sandbox needs (`settings.json`, `.claude.json` in
+`/home/agent/.init-agent-data`). The sealed layer then, last: installs the
+embedded version-locked `at-task`; populates `/etc/environment` (so `pam_env`
+exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
+egress/sshd hardening.
+
+**Session env — `COVE_SSHENV`.** SSH sessions read `/etc/environment`, which a
+bare `docker run` / CI container does *not* — so the toolchain an image sets via
+`ENV` (e.g. `PATH` with `/usr/local/go/bin`) wouldn't reach sessions without help.
+`apply-sshenv.sh` bridges the gap: it copies the image's live `PATH` (intrinsic)
+plus every variable named in the image's `COVE_SSHENV` (colon-separated) into
+`/etc/environment`. So one `ENV` statement feeds both `docker run`/CI and SSH
+sessions — no separate fragment to keep in sync. The egress proxy vars and
+`CLAUDE_CONFIG_DIR` are the exception: the sealed layer writes them itself (never
+image `ENV`, which would poison the build), last, so they always win.
 
 ## Workspace and state volumes
 

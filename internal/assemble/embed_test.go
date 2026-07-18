@@ -223,22 +223,23 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 
 // TestConfigDirReachesEnvironment guards that CLAUDE_CONFIG_DIR points at the
 // persistent volume for every ssh session, so the OAuth login and the agent
-// session agree on where credentials live. Post-COV-34 it ships in the base's
-// 00-base.env and the sealed layer folds /etc/cove/env.d/*.env into
-// /etc/environment via apply-env-d.sh.
+// session agree on where credentials live. It is sealed-layer-owned (the
+// COVE_SSHENV redesign): apply-sshenv.sh writes it into /etc/environment, and the
+// hardening Dockerfile runs that script. It is deliberately NOT an image ENV (as
+// ENV it would misdirect the build-time claude install).
 func TestConfigDirReachesEnvironment(t *testing.T) {
-	baseEnv, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "image-files", "etc", "cove", "env.d", "00-base.env"))
+	script, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/lib/cove/apply-sshenv.sh")
 	if err != nil {
-		t.Fatalf("00-base.env not found: %v", err)
+		t.Fatalf("apply-sshenv.sh not embedded: %v", err)
 	}
-	if !strings.Contains(string(baseEnv), "CLAUDE_CONFIG_DIR=/agent-data") {
-		t.Errorf("00-base.env must set CLAUDE_CONFIG_DIR=/agent-data; got:\n%s", baseEnv)
+	if !strings.Contains(string(script), "CLAUDE_CONFIG_DIR=/agent-data") {
+		t.Errorf("apply-sshenv.sh must set CLAUDE_CONFIG_DIR=/agent-data; got:\n%s", script)
 	}
 	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(df), "apply-env-d.sh") {
-		t.Errorf("Dockerfile must fold /etc/cove/env.d into /etc/environment via apply-env-d.sh; got:\n%s", df)
+	if !strings.Contains(string(df), "apply-sshenv.sh") {
+		t.Errorf("Dockerfile must run apply-sshenv.sh to populate /etc/environment; got:\n%s", df)
 	}
 }

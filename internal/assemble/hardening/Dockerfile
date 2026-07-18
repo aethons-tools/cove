@@ -78,11 +78,12 @@ RUN if [ -f /home/agent/.claude.json ]; then \
 # installs. See docs/OVERVIEW.md ("Workspace and state volumes").
 RUN bash /usr/local/lib/cove/seed-plugins.sh
 
-# SSH sessions read /etc/environment via pam_env. The base image ships the
-# session env in /etc/cove/env.d/00-base.env (PATH, CLAUDE_CONFIG_DIR, the egress
-# proxy vars); fold every /etc/cove/env.d/*.env fragment — the base's plus any a
-# kit Dockerfile dropped — into /etc/environment (COV-34).
-RUN /usr/local/lib/cove/apply-env-d.sh
+# SSH sessions read /etc/environment via pam_env. Bridge the image's Docker ENV
+# into it: PATH (intrinsic, ~/.local/bin prepended) + the vars named in
+# COVE_SSHENV, then the sealed egress-proxy / CLAUDE_CONFIG_DIR the hardening layer
+# owns. One ENV statement feeds both `docker run`/CI and SSH sessions — no
+# separate env.d fragment to keep in sync.
+RUN /usr/local/lib/cove/apply-sshenv.sh
 
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove
