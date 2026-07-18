@@ -109,22 +109,53 @@ current — Renovate opens a bump PR per newer version instead of a silent float
 (The one input not yet pinned is chromium, which rides whatever `playwright`
 resolves.)
 
-**Build & publish** — [`.github/workflows/build-images.yml`](../.github/workflows/build-images.yml):
+**Build & publish** — the images are built and published by the monolithic
+pipeline (below); consumers **pin by `@sha256` digest**, never a moving tag
+(COV-34/COV-35). Both arches build **natively** (amd64 on `ubuntu-latest`, arm64
+on `ubuntu-24.04-arm`) and smoke-test that every tool resolves **before** any
+publish. Published (private) to `ghcr.io/aethons-tools/cove-base-image` and
+`…/cove-image`.
 
-- Both arches build **natively** (amd64 on `ubuntu-latest`, arm64 on
-  `ubuntu-24.04-arm`) and smoke-test that every tool resolves, **before** any
-  publish.
-- **Pull requests build + smoke only — they never publish.** Only a push to
-  `main` publishes: each arch pushes its smoke-tested images to GHCR under an
-  intermediate `sha-<sha>-<arch>` tag, then a `publish` job merges them into
-  one multi-arch manifest per image, tagged `<date>-<sha>` (immutable) and
-  `latest` (moving). The run summary prints the manifest-list digest.
-- Published (private) to `ghcr.io/aethons-tools/cove-base-image` and
-  `…/cove-image`. Consumers **pin by `@sha256` digest**, never a moving tag
-  (wired up in COV-34/COV-35).
-- [`scripts/build-images.sh`](../scripts/build-images.sh) builds the tree
-  locally (host arch, no publish) for iteration; it is slated for retirement in
-  COV-34.
+## CI — the release pipeline
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) is **one
+monolithic continuous-delivery pipeline** (COV-44, design:
+[monolithic-release-pipeline](superpowers/specs/2026-07-17-monolithic-release-pipeline-design.md)).
+It runs on every push to `main` and on every PR, and **decides from the repo diff
+which artifacts to (re)build** — there is no version-tag trigger and no manual
+"cut a release" step.
+
+- **Change-detection** (path-based) selects the legs: `images/cove-base-image/**`
+  → rebuild the base **and** cove-image (downstream) **and** re-cut at-cove (its
+  new digest becomes the default base + blessed-list head);
+  `images/cove-image/**` → rebuild just cove-image (FROM the current published
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` → re-cut at-cove
+  (blessed list recomputed from the registry head). Docs-only → nothing publishes.
+- **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
+  snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task + list);
+  cove-image = `FROM cove-base-image:ci`. The base publishes **before** the
+  at-cove leg so `gen-blessed` sees **D** as the registry head.
+- **PRs build + smoke the touched legs but never publish** (spec §5); only a push
+  to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
+  manifests tagged `<N>-<MMDD>` (immutable) + `latest`; at-cove is built by
+  `goreleaser --snapshot` (archives + checksums, stamped `<N>-<MMDD>`) and the
+  release cut with `gh` (private). See [Versioning](#versioning).
+- **at-task is embedded**, not shipped standalone — re-cutting at-cove re-cuts the
+  embedded at-task ([`.goreleaser.yaml`](../.goreleaser.yaml) before-hook).
+
+### Versioning
+
+`<N>-<MMDD>` — `<N>` = `git rev-list --count HEAD` is the version (globally
+monotonic, reproducible offline); `<MM><DD>` is an advisory month-day; `-` (not
+`.`) so it is never mistaken for SemVer. Every published artifact
+(`cove-base-image`, `cove-image`, `at-cove`) is tagged `<N>-<MMDD>` + a moving
+`latest`. Because only what changed is rebuilt, artifacts' `<N>` values may
+differ — each reflects when it was last built. at-cove references the base by
+**digest**, never version, so divergent tags don't affect the gate.
+
+[`scripts/build.sh`](../scripts/build.sh) builds the host binaries locally (no
+publish) for iteration; `scripts/build-images.sh` does the same for the image
+tree.
 
 ## Verified `claude` CLI facts
 
