@@ -35,6 +35,14 @@ BINARIES=(at-cove at-task at-mint)
 echo "Staging embedded at-task (linux amd64+arm64)"
 VERSION="$VERSION" ./scripts/stage-attask.sh
 
+# Snapshot the blessed cove-base-image digests from the registry into the
+# embedded (gitignored) blessed/generated.txt, before at-cove is built (COV-44
+# spec §4). With no GITHUB_TOKEN this is a no-op: the committed low-watermark is
+# embedded alone, so local/offline builds never need registry access. CI runs it
+# with a packages:read token to pick up every current base with no commit-back loop.
+echo "Snapshotting blessed cove-base-image digests (no-op offline)"
+go run ./cmd/gen-blessed
+
 # Choose targets from the args (default: just the current host).
 case "${1:-}" in
   "" | host) TARGETS=("$(go env GOOS)/$(go env GOARCH)") ;;

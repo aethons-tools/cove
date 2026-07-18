@@ -209,7 +209,7 @@ resolved image's OCI rootfs `diff_ids` and asserts some blessed
 `cove-base-image`'s layers are their exact prefix — i.e. it was really built
 *FROM* a blessed base, unforgeably (matching the prefix means those bottom layers
 *are* that image, byte-for-byte). The blessed digests are embedded
-(`internal/basedigest`, a rolling set); the default base is blessed by
+(`internal/basedigest`, a rolling set); the default base (the head) is blessed by
 construction, so it skips the gate. A base that descends from no blessed image is
 **rejected**, unless `--allow-unverified-base` downgrades the rejection to a loud
 warning. This lets hardening *trust* its prerequisites (the egress stack, the
@@ -217,6 +217,20 @@ warning. This lets hardening *trust* its prerequisites (the egress stack, the
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
 backend seam; the full model is in
 [the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
+
+**How the blessed set is maintained — low-watermark + registry snapshot.** The
+repo commits exactly one digest in `internal/basedigest/blessed/watermark.txt`:
+the **low-watermark**, the oldest `cove-base-image` still trusted. Before `go
+build`, `cmd/gen-blessed` lists the published `cove-base-image` digests from the
+registry and walks newest→oldest **through** the watermark, writing that list to
+the sibling `generated.txt` (gitignored) for `go:embed` (`internal/blessgen` holds
+the pure walk; the GHCR query sits behind a seam). `basedigest.Blessed` prefers
+`generated.txt` and falls back to the committed watermark, so a routine base
+republish is trusted automatically with no commit-back loop, a breaking base
+change is a one-line watermark bump that drops everything older, and a fresh clone
+or offline build (no `GITHUB_TOKEN`) still compiles and trusts the watermark
+alone. A watermark absent from the registry **fails the build loudly**. The full
+model is in [the release-pipeline spec](superpowers/specs/2026-07-17-monolithic-release-pipeline-design.md#4-blessing-the-low-watermark--the-registry).
 
 Because hardening trusts the base, `cove-base-image` carries the overridable
 startup defaults every sandbox needs (`settings.json`, `.claude.json` in

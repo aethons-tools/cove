@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write # create the release + upload assets
+  packages: read # gen-blessed lists cove-base-image versions to snapshot the blessed set (COV-44 §4)
 
 jobs:
   release:

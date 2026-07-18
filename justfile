@@ -44,6 +44,11 @@ install: build
       echo "warning: $bin is not on your PATH — add it or use BINDIR=/usr/local/bin"
     fi
 
+# regenerate internal/basedigest/blessed-digests.txt from the registry (COV-44 §4).
+# no-op without GITHUB_TOKEN; needs a packages:read token to snapshot the base list.
+gen-blessed:
+    go run ./cmd/gen-blessed
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
