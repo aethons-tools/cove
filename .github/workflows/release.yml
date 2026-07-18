@@ -26,6 +26,7 @@ concurrency:
 permissions:
   contents: write # gh cuts the at-cove release + its <N>-<MMDD> tag
   packages: write # GHCR push (also grants the read gen-blessed needs)
+  pull-requests: read # paths-filter reads the PR's changed-files list
 
 env:
   BASE_IMAGE: ghcr.io/aethons-tools/cove-base-image
