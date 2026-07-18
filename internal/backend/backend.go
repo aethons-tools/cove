@@ -51,13 +51,14 @@ type BaseSpec struct {
 	AllowUnverified bool   // --allow-unverified-base: downgrade a failed gate to a warning
 }
 
-// CreateContext is everything a backend needs to provision a VM.
+// CreateContext is everything a backend needs to provision a VM from a
+// pre-built image. Create is run-only (COV-38): it consumes the image `install`
+// built (Image, sourced from install.json) and does `docker run` — no build, no
+// base resolution, no gate (those live in Backend.Install).
 type CreateContext struct {
 	Name      string
-	BuildDir  string
-	Kit       string // identity for the shared image tag; "" => derive from Name.
+	Image     string // the pre-built image ref to run (from install.json)
 	Workspace WorkspaceMount
-	Base      BaseSpec
 }
 
 // InstallContext is everything Backend.Install needs to build + gate + tag a
@@ -94,6 +95,8 @@ type Backend interface {
 	// docker-build path (COV-38). It resolves the base (running the provenance
 	// gate), builds the assembled context FROM it, and tags the result.
 	Install(ctx InstallContext) (InstalledImage, error)
+	// Create runs a pre-built image (COV-38): `docker run` only, consuming the
+	// image `install` produced. It does not build, resolve a base, or run the gate.
 	Create(ctx CreateContext) (Instance, error)
 	Dial(container string) (Endpoint, func(), error)
 	// Destroy removes the instance's container and (for the interactive instance)

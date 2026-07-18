@@ -147,6 +147,34 @@ func writeKit(t *testing.T, dir string) string {
 	return cove
 }
 
+// writeInstall freezes a current install.json for the kit at kitDir, so the
+// run-only commands (create/recreate/chat) find a manifest that passes the
+// strict currency check (COV-38). It computes the real currency hash from the
+// live kit source + at-cove's embedded identity — no docker, no keys — so the
+// manifest is current until the kit source changes. It returns the manifest.
+func writeInstall(t *testing.T, kitDir string) install.Manifest {
+	t.Helper()
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := currencyInputs(kitDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := install.Compile(cfg, install.ResolvedBuild{
+		Image:        "at-cove-for-" + cfg.Name,
+		BaseRef:      in.BaseRef,
+		BaseDigest:   "sha256:testbase",
+		CurrencyHash: install.CurrencyHash(in),
+		InstalledAt:  "2026-01-01T00:00:00Z",
+	})
+	if err := install.Save(kitDir, m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
 // writeState records a created instance so the state-driven commands have
 // something to operate on.
 func writeState(t *testing.T, kitDir, backendName, container string, secrets ...state.Secret) {
@@ -348,7 +376,8 @@ func TestBuildCommandRetired(t *testing.T) {
 
 func TestDryRunCreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir) // create consumes the installed image (COV-38)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -366,14 +395,18 @@ func TestDryRunCreatePrintsNoExec(t *testing.T) {
 func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
-	seedConfigDir(t)
+	writeInstall(t, kitDir) // create consumes the pre-built image (COV-38)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
-	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
-		t.Fatalf("create must build + run; calls=%+v", f.Calls)
+	// Create is run-only now — it runs the installed image and never builds.
+	if dockerArg0Index(f.Calls, "build") != -1 {
+		t.Fatalf("create must not build (run-only); calls=%+v", f.Calls)
+	}
+	if dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("create must run the installed image; calls=%+v", f.Calls)
 	}
 	st, err := state.Load(kitDir)
 	if err != nil {
@@ -386,6 +419,74 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 	code := run([]string{"create", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &o2, &e2)
 	if code == 0 || !strings.Contains(e2.String(), "already created") {
 		t.Fatalf("second create should refuse; code=%d stderr=%q", code, e2.String())
+	}
+}
+
+// TestCreateRequiresInstall: with no install.json, create (and recreate) fail
+// closed with a clear "run `at-cove install`" pointer and touch no docker —
+// strict currency, no auto-build (COV-38).
+func TestCreateRequiresInstall(t *testing.T) {
+	for _, cmd := range []string{"create", "recreate"} {
+		dir := t.TempDir()
+		writeKit(t, dir) // kit, but no install.json
+		f := &runner.Fake{}
+		var out, errOut bytes.Buffer
+		code := run([]string{cmd, "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+		if code == 0 {
+			t.Fatalf("%s must fail with no install; stdout=%q", cmd, out.String())
+		}
+		if !strings.Contains(errOut.String(), "at-cove install") {
+			t.Fatalf("%s error must point at `at-cove install`; stderr=%q", cmd, errOut.String())
+		}
+		if len(f.Calls) != 0 {
+			t.Fatalf("%s must not touch docker with no install; calls=%+v", cmd, f.Calls)
+		}
+	}
+}
+
+// TestCreateRejectsStaleInstall: an install whose kit source has since changed is
+// stale — create (and recreate) refuse with a "stale … run `at-cove install`"
+// error and build nothing, rather than silently running an out-of-date image.
+func TestCreateRejectsStaleInstall(t *testing.T) {
+	for _, cmd := range []string{"create", "recreate"} {
+		dir := t.TempDir()
+		kitDir := writeKit(t, dir)
+		writeInstall(t, kitDir)
+		// Edit config.yml after install → the currency hash no longer matches.
+		if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte("name: box\n# changed\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f := &runner.Fake{}
+		var out, errOut bytes.Buffer
+		code := run([]string{cmd, "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+		if code == 0 {
+			t.Fatalf("%s must fail on a stale install; stdout=%q", cmd, out.String())
+		}
+		if !strings.Contains(errOut.String(), "stale") || !strings.Contains(errOut.String(), "at-cove install") {
+			t.Fatalf("%s error must name the stale install and `at-cove install`; stderr=%q", cmd, errOut.String())
+		}
+		if len(f.Calls) != 0 {
+			t.Fatalf("%s must not touch docker on a stale install; calls=%+v", cmd, f.Calls)
+		}
+	}
+}
+
+// TestChatRequiresCurrentInstall: chat reads its run-config from install.json and
+// verifies currency, so a missing install fails with the `at-cove install`
+// pointer before dialing the backend.
+func TestChatRequiresCurrentInstall(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeState(t, kitDir, "colima", "box") // created, but never installed
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("chat must fail with no install; stdout=%q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "at-cove install") {
+		t.Fatalf("chat error must point at `at-cove install`; stderr=%q", errOut.String())
 	}
 }
 
@@ -444,6 +545,7 @@ func TestDryRunChatRawNoAuth(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // hermetic: no real ~/.config/at-cove/secrets.yml
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeInstall(t, kitDir) // chat reads run-config from install.json (COV-38)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "chat", "--raw", "--no-auth", "--project-dir", dir},
@@ -481,7 +583,8 @@ func TestVersionFlag(t *testing.T) {
 
 func TestDryRunRecreatePrintsNoExec(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -500,7 +603,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box") // already created -> recreate must destroy first
-	seedConfigDir(t)
+	writeInstall(t, kitDir)                // recreate re-runs the installed image (no rebuild)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -508,16 +611,19 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
 	rmIdx := dockerArg0Index(f.Calls, "rm")
-	buildIdx := dockerArg0Index(f.Calls, "build")
 	runIdx := dockerArg0Index(f.Calls, "run")
 	if rmIdx == -1 {
 		t.Fatalf("recreate must destroy the existing container; calls=%+v", f.Calls)
 	}
-	if buildIdx == -1 || runIdx == -1 {
-		t.Fatalf("recreate must create the container; calls=%+v", f.Calls)
+	// recreate re-runs the installed image — it never rebuilds (COV-38).
+	if dockerArg0Index(f.Calls, "build") != -1 {
+		t.Fatalf("recreate must not build (run-only); calls=%+v", f.Calls)
 	}
-	if rmIdx > buildIdx {
-		t.Fatalf("destroy must precede create; calls=%+v", f.Calls)
+	if runIdx == -1 {
+		t.Fatalf("recreate must re-run the container; calls=%+v", f.Calls)
+	}
+	if rmIdx > runIdx {
+		t.Fatalf("destroy must precede the re-run; calls=%+v", f.Calls)
 	}
 	for _, a := range f.Calls[rmIdx].Args {
 		if a == "-v" || a == "--volumes" {
@@ -568,7 +674,7 @@ func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSharedState(t, kitDir, "box", hostPath)
-	seedConfigDir(t)
+	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -600,7 +706,7 @@ func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
 		}
 	}
 	writeSharedState(t, kitDir, "box", oldPath)
-	seedConfigDir(t)
+	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"recreate", "--project-dir", dir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -617,8 +723,8 @@ func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
 
 func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
-	writeKit(t, dir)
-	seedConfigDir(t)
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
 	f := &runner.Fake{} // no state -> nothing to destroy
 	var out, errOut bytes.Buffer
 	code := run([]string{"recreate", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -628,8 +734,12 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	if dockerArg0Index(f.Calls, "rm") != -1 {
 		t.Fatalf("must not destroy when nothing is created; calls=%+v", f.Calls)
 	}
-	if dockerArg0Index(f.Calls, "build") == -1 || dockerArg0Index(f.Calls, "run") == -1 {
-		t.Fatalf("recreate must still create the container; calls=%+v", f.Calls)
+	// recreate re-runs the installed image; it never builds (COV-38).
+	if dockerArg0Index(f.Calls, "build") != -1 {
+		t.Fatalf("recreate must not build (run-only); calls=%+v", f.Calls)
+	}
+	if dockerArg0Index(f.Calls, "run") == -1 {
+		t.Fatalf("recreate must still run the container; calls=%+v", f.Calls)
 	}
 }
 
@@ -637,7 +747,8 @@ func TestDryRunChatWarnsUnresolvedSecret(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"}) // demanded, no command
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())                                   // empty config dir -> no secrets.yml
+	writeInstall(t, kitDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // empty config dir -> no secrets.yml
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -660,6 +771,7 @@ func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "chat", "--fresh", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -686,6 +798,7 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeInstall(t, kitDir) // the collaborator is read from install.json's run-config
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
 	code := run([]string{"--dry-run", "chat", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -701,6 +814,7 @@ func TestChatMalformedSecretsFileAborts(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
+	writeInstall(t, kitDir)
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	coveCfg := filepath.Join(cfgHome, "at-cove")

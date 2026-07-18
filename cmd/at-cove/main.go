@@ -298,9 +298,9 @@ func getBackend(name string, r runner.Runner) (backend.Backend, error) {
 }
 
 // assembleContext writes the kit's managed .gitignore and assembles the .build
-// context, injecting the managed public key. Shared by `install` (which then
-// builds the image via the backend) and `create` (which still builds inline in
-// S2, until S3 makes it consume the installed image).
+// context, injecting the managed public key. Used by `install` — the single
+// build path — which then builds the image via the backend. Run commands
+// (create/recreate/chat) no longer assemble; they consume the installed image.
 func assembleContext(kitDir string, r runner.Runner) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
@@ -387,11 +387,40 @@ func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, erro
 	}, nil
 }
 
+// loadCurrentInstall loads the kit's install manifest and verifies it is still
+// current against the live kit source (COV-38 §5). Run commands consume the
+// pre-built image — they never build — so a missing or stale install is a hard
+// error pointing the user at `at-cove install`. The currency check recomputes the
+// hash from the live kit source + at-cove's embedded identity + the manifest's
+// (frozen) base ref; the raw config.yml bytes are folded into KitSourceTree, so
+// any edit to the kit source flips the hash even though config.yml is never
+// re-interpreted here.
+func loadCurrentInstall(kitDir string) (install.Manifest, error) {
+	// install.ErrNotInstalled already reads "…(run `at-cove install` first)", so
+	// the not-installed case needs no further wrapping.
+	m, err := install.Load(kitDir)
+	if err != nil {
+		return install.Manifest{}, err
+	}
+	in, err := currencyInputs(kitDir, m.RunConfig)
+	if err != nil {
+		return install.Manifest{}, err
+	}
+	if m.Stale(in) {
+		return install.Manifest{}, fmt.Errorf("install for %q is stale (the kit changed since the last build); run `at-cove install`", m.Name)
+	}
+	return m, nil
+}
+
+// doCreate consumes the installed image (COV-38): it verifies the install is
+// current, runs the pre-built image via the backend (no build), and records the
+// running instance in state.json — sourcing the image from the manifest.
 func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
-	cfg, err := kit.Load(kitDir)
+	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
+	cfg := m.RunConfig
 	if state.Exists(kitDir) {
 		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", cfg.Name)
 	}
@@ -404,19 +433,15 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would build then create %s and write %s\n", cfg.Name, state.Path(kitDir))
+		fmt.Fprintf(stdout, "would run %s (image %s) and write %s\n", cfg.Name, m.Image, state.Path(kitDir))
 		return nil
 	}
 	b, err := getBackend(defaultBackend, r)
 	if err != nil {
 		return err
 	}
-	if err := assembleContext(kitDir, r); err != nil {
-		return err
-	}
 	inst, err := b.Create(backend.CreateContext{
-		Name: cfg.Name, BuildDir: filepath.Join(kitDir, ".build"), Workspace: ws,
-		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base},
+		Name: cfg.Name, Image: m.Image, Workspace: ws,
 	})
 	if err != nil {
 		return err
@@ -467,18 +492,21 @@ func instanceFromState(st state.State) backend.Instance {
 // and are left unset. It holds a SHARED lock on the state file for the whole
 // session, so destroy can't tear the sandbox down underneath it. With raw it
 // drops into bash instead of claude; with noAuth it skips `claude auth login`.
-// chat is kit-aware (unlike the rest of the state-driven commands): a
-// malformed/absent kit config is a hard error, since selecting a collaborator
-// and its role prompt requires the kit config.
+// chat is install-aware (unlike the rest of the state-driven commands): it reads
+// the resolved run-config (collaborators, secret demands) from install.json —
+// never config.yml (COV-38) — and verifies the install is current, since
+// selecting a collaborator and its role prompt requires that run-config. A
+// missing or stale install is a hard error pointing at `at-cove install`.
 func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, stdout, stderr io.Writer) error {
 	st, err := state.Load(kitDir)
 	if err != nil {
 		return err
 	}
-	cfg, err := kit.Load(kitDir)
+	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
-		return fmt.Errorf("chat requires a valid kit config: %w", err)
+		return err
 	}
+	cfg := m.RunConfig
 	class, hasCollab, err := cfg.SelectCollaborator(collaborator)
 	if err != nil {
 		return err
@@ -616,12 +644,16 @@ func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout 
 }
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it
-// refuses with active connections) and creates a fresh one, keeping volumes.
+// refuses with active connections) and re-runs the installed image, keeping
+// volumes. It no longer rebuilds (COV-38): it verifies the install is current and
+// re-runs the pre-built image, so a stale/missing install fails before any
+// teardown, pointing at `at-cove install`.
 func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
-	cfg, err := kit.Load(kitDir)
+	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
+	cfg := m.RunConfig
 	// Recreate keeps volumes, but a shared workspace is a host bind-mount, not a
 	// volume — it must be re-specified at `docker run`. When the caller does not
 	// pass --ws, recover the previously shared workspace from state so recreate

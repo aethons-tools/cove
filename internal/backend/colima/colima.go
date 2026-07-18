@@ -51,9 +51,10 @@ func (c *Colima) preflight() error {
 func image(name string) string { return "at-cove-for-" + name }
 
 // dockerBuild is the single docker-build site (COV-38): it resolves + gates the
-// base, then builds buildDir FROM it and tags the result. Install, Create, and the
-// interim dispatch BuildImage all route their build through here, so `docker build`
-// appears in exactly one place and the gate can never be bypassed.
+// base, then builds buildDir FROM it and tags the result. Install and the interim
+// dispatch BuildImage route their build through here, so `docker build` appears in
+// exactly one place and the gate can never be bypassed. Create no longer builds —
+// it runs the image Install produced.
 func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase string, err error) {
 	if err := c.preflight(); err != nil {
 		return "", err
@@ -80,18 +81,14 @@ func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, er
 	return backend.InstalledImage{Ref: img, BaseDigest: base}, nil
 }
 
+// Create runs a pre-built image (COV-38): `docker run` only. The image comes
+// from install.json (via ctx.Image) — Create never builds, resolves a base, or
+// runs the gate; those live in Install.
 func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
-	kit := ctx.Kit
-	if kit == "" {
-		kit = ctx.Name
-	}
-	// Build via Install so the docker-build + gate lives in one place. (S3 makes
-	// Create run-only, consuming a pre-built image; for now it still builds.)
-	installed, err := c.Install(backend.InstallContext{Kit: kit, BuildDir: ctx.BuildDir, Base: ctx.Base})
-	if err != nil {
+	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
-	img := installed.Ref
+	img := ctx.Image
 	ws := ctx.Name + "-workspace:/home/agent/workspace"
 	if ctx.Workspace.Mode == backend.Shared {
 		ws = ctx.Workspace.HostPath + ":/home/agent/workspace"

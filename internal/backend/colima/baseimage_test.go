@@ -120,12 +120,12 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	}
 }
 
-// Create injects the resolved base as --build-arg BASE on the hardening build.
-func TestCreateInjectsBaseBuildArg(t *testing.T) {
+// Install injects the resolved base as --build-arg BASE on the hardening build
+// (the single build path — Create is run-only, COV-38).
+func TestInstallInjectsBaseBuildArg(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", BuildDir: "/b",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	if _, err := New(f).Install(backend.InstallContext{
+		Kit: "box", BuildDir: "/b",
 	}); err != nil {
 		t.Fatal(err)
 	}

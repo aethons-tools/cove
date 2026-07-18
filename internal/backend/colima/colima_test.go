@@ -48,22 +48,23 @@ func TestInstallPreflightFailsActionably(t *testing.T) {
 	}
 }
 
+// TestCreateIsolated: Create is run-only (COV-38) — it runs the pre-built image
+// (ctx.Image) with the state + isolated-workspace volumes and does NOT build.
 func TestCreateIsolated(t *testing.T) {
 	f := &runner.Fake{}
 	b := New(f)
 	inst, err := b.Create(backend.CreateContext{
-		Name: "box", BuildDir: "/b",
+		Name: "box", Image: "at-cove-for-box",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "at-cove-for-box") {
-		t.Fatalf("build call = %+v", f.Calls)
+	if dockerCall(f.Calls, "build") != nil {
+		t.Fatalf("Create must not build (run-only): %+v", f.Calls)
 	}
 	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "box-workspace:/home/agent/workspace") || !contains(run, "box-state:/agent-data") {
+	if run == nil || !contains(run, "at-cove-for-box") || !contains(run, "box-workspace:/home/agent/workspace") || !contains(run, "box-state:/agent-data") {
 		t.Fatalf("isolated run call = %+v", f.Calls)
 	}
 	if !allPinned(f.Calls) {
@@ -77,7 +78,7 @@ func TestCreateIsolated(t *testing.T) {
 func TestCreateShared(t *testing.T) {
 	f := &runner.Fake{}
 	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", BuildDir: "/b",
+		Name: "box", Image: "at-cove-for-box",
 		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
 	}); err != nil {
 		t.Fatal(err)
@@ -193,30 +194,27 @@ func TestDestroyPurgesVolumes(t *testing.T) {
 	}
 }
 
-func TestCreateSharesImageViaKit(t *testing.T) {
+// TestCreateRunsGivenImageContainerFromName: Create runs the pre-built image it
+// is handed (ctx.Image), while the container and its volumes still derive from
+// Name — so one installed kit image can back several distinct instances.
+func TestCreateRunsGivenImageContainerFromName(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f)
 	_, err := c.Create(backend.CreateContext{
 		Name:      "box-loop-foo",
-		BuildDir:  "/b",
-		Kit:       "box",
+		Image:     "at-cove-for-box",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Build tags the SHARED kit image (derived from Kit), not from the instance Name.
-	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "at-cove-for-box") {
-		t.Fatalf("build call = %+v", f.Calls)
+	if dockerCall(f.Calls, "build") != nil {
+		t.Fatalf("Create must not build (run-only): %+v", f.Calls)
 	}
-	if contains(build, "at-cove-for-box-loop-foo") {
-		t.Fatalf("must not derive a per-loop image tag: %v", build)
-	}
-	// Container and volumes still derive from Name.
+	// run uses the shared kit image, while container + volumes derive from Name.
 	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-state:/agent-data") {
-		t.Fatalf("container/volumes must derive from Name: %+v", f.Calls)
+	if run == nil || !contains(run, "at-cove-for-box") || !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-state:/agent-data") {
+		t.Fatalf("container/volumes must derive from Name over the given image: %+v", f.Calls)
 	}
 }
 
@@ -224,7 +222,7 @@ func TestCreateSharesImageViaKit(t *testing.T) {
 // uses a different daemon than colima.
 func TestPinsContext(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{Name: "box", BuildDir: "/b"}); err != nil {
+	if _, err := New(f).Create(backend.CreateContext{Name: "box", Image: "at-cove-for-box"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Calls) == 0 || !allPinned(f.Calls) {
@@ -245,7 +243,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 		return &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	}
 	// Create
-	if _, err := New(mkFail()).Create(backend.CreateContext{Name: "box", BuildDir: "/b"}); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if _, err := New(mkFail()).Create(backend.CreateContext{Name: "box", Image: "at-cove-for-box"}); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("Create should fail actionably; err=%v", err)
 	}
 	// Dial
