@@ -99,6 +99,17 @@ the command walks up from the cwd to the nearest ancestor containing `.at-cove/`
 invariant. There is no positional project-dir on any command — `chat`'s one
 positional is the optional collaborator (below), not the project dir.
 
+**The install lifecycle** — `config.yml → install → install.json → run commands`.
+`config.yml` is *source*; [`at-cove install`](#how-the-build-context-is-assembled)
+compiles it once — resolve + **gate** the base, `docker build` + tag, freeze the
+resolved run-config — into `.state/install.json`, the *compiled manifest*. Every
+other command (`create`/`recreate`/`chat`, `work`/`dispatch`) reads `install.json`
+(never `config.yml`), verifies it is still **current** (a cheap, offline
+source-hash check), and **consumes the pre-built image** — a missing or stale
+install fails fast with `run at-cove install`. There is no separate `build`
+command, and no run command builds inline; the provenance gate and
+`--allow-unverified-base` live only on `install`, the one place a base is built.
+
 | Command | Behavior |
 |---|---|
 | `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
