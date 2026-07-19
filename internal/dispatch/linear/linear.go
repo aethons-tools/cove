@@ -156,10 +156,11 @@ type issueNode struct {
 		Nodes []struct {
 			Type  string `json:"type"`
 			Issue struct {
-				State struct {
-					Type string `json:"type"`
-				} `json:"state"`
+				ID string `json:"id"`
 			} `json:"issue"`
+			RelatedIssue struct {
+				ID string `json:"id"`
+			} `json:"relatedIssue"`
 		} `json:"nodes"`
 	} `json:"inverseRelations"`
 }
@@ -195,9 +196,19 @@ func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
 	return issues, nil
 }
 
-// ListUnblockable returns BLOCKED issues all of whose "blocks" blockers are complete.
+// ListUnblockable returns BLOCKED issues all of whose "blocks" blockers have
+// reached the Done (completed) state. A dependency is satisfied ONLY at Done —
+// In Progress / In Review / Backlog do NOT count (COV-56).
+//
+// Blocker doneness is resolved by a SEPARATE, authoritative id→state lookup
+// (doneBlockers), never read from the relation projection. Reading the blocker's
+// state through inverseRelations proved unreliable and cascaded premature
+// unblocks down multi-level chains (completing a grandparent released a
+// grandchild whose direct blocker was not yet Done). We also take the blocker as
+// the relation endpoint that isn't the issue itself, sidestepping any
+// issue/relatedIssue ambiguity in how Linear presents an inverse relation.
 func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error) {
-	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{state{type}}}}}}}`
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{id} relatedIssue{id}}}}}}`
 	var out struct {
 		Issues struct {
 			Nodes []issueNode `json:"nodes"`
@@ -206,20 +217,82 @@ func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error)
 	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.Blocked}, &out); err != nil {
 		return nil, err
 	}
+
+	// Map each blocked issue to its blocker ids, and union those ids for one
+	// authoritative state lookup.
+	blockersOf := make(map[string][]string, len(out.Issues.Nodes))
+	idSet := map[string]struct{}{}
+	for _, n := range out.Issues.Nodes {
+		for _, rel := range n.InverseRelations.Nodes {
+			if rel.Type != "blocks" {
+				continue
+			}
+			blocker := rel.Issue.ID
+			if blocker == "" || blocker == n.ID {
+				blocker = rel.RelatedIssue.ID // the endpoint that isn't this issue
+			}
+			if blocker == "" || blocker == n.ID {
+				continue
+			}
+			blockersOf[n.ID] = append(blockersOf[n.ID], blocker)
+			idSet[blocker] = struct{}{}
+		}
+	}
+
+	done, err := c.doneBlockers(ctx, idSet)
+	if err != nil {
+		return nil, err
+	}
+
 	var issues []scheduler.Issue
 	for _, n := range out.Issues.Nodes {
-		allDone := true
-		for _, rel := range n.InverseRelations.Nodes {
-			if rel.Type == "blocks" && rel.Issue.State.Type != "completed" {
-				allDone = false
+		unblockable := true
+		for _, b := range blockersOf[n.ID] {
+			if !done[b] {
+				unblockable = false
 				break
 			}
 		}
-		if allDone {
+		if unblockable {
 			issues = append(issues, c.toIssue(n))
 		}
 	}
 	return issues, nil
+}
+
+// doneBlockers looks the given issue ids up directly and returns the set in a
+// completed (Done) state — the authoritative satisfied-dependency check. Ids the
+// lookup doesn't return (deleted/inaccessible) are treated as NOT done, so a
+// dependent stays blocked rather than releasing on a phantom blocker.
+func (c *Client) doneBlockers(ctx context.Context, ids map[string]struct{}) (map[string]bool, error) {
+	done := make(map[string]bool, len(ids))
+	if len(ids) == 0 {
+		return done, nil
+	}
+	list := make([]string, 0, len(ids))
+	for id := range ids {
+		list = append(list, id)
+	}
+	const q = `query($ids:[ID!]){issues(filter:{id:{in:$ids}}){nodes{id state{type}}}}`
+	var out struct {
+		Issues struct {
+			Nodes []struct {
+				ID    string `json:"id"`
+				State struct {
+					Type string `json:"type"`
+				} `json:"state"`
+			} `json:"nodes"`
+		} `json:"issues"`
+	}
+	if err := c.do(ctx, q, map[string]any{"ids": list}, &out); err != nil {
+		return nil, err
+	}
+	for _, n := range out.Issues.Nodes {
+		if n.State.Type == "completed" {
+			done[n.ID] = true
+		}
+	}
+	return done, nil
 }
 
 // ListInProgress returns issues currently IN PROGRESS paired with the time each

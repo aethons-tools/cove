@@ -133,28 +133,83 @@ func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	}
 }
 
-func TestListUnblockableFiltersByBlockerState(t *testing.T) {
-	// b1: sole blocker is completed → unblockable. b2: a blocker still started → not.
-	const resp = `{"data":{"issues":{"nodes":[
-	 {"id":"b1","identifier":"AET-B1","title":"","description":"","labels":{"nodes":[]},
-	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"state":{"type":"completed"}}}]}},
-	 {"id":"b2","identifier":"AET-B2","title":"","description":"","labels":{"nodes":[]},
-	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"state":{"type":"started"}}}]}}
-	]}}}`
+// runUnblockable drives ListUnblockable with canned responses: the state map (at
+// New), then the BLOCKED-issues query, then the authoritative blocker-state
+// lookup.
+func runUnblockable(t *testing.T, backlog, blockerStates string) []scheduler.Issue {
+	t.Helper()
 	calls := 0
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
 		calls++
-		if calls == 1 {
+		switch calls {
+		case 1:
 			return jsonResp(statesResponse), nil
+		case 2:
+			return jsonResp(backlog), nil
+		default:
+			return jsonResp(blockerStates), nil
 		}
-		return jsonResp(resp), nil
 	})
 	got, err := c.ListUnblockable(context.Background())
 	if err != nil {
 		t.Fatalf("ListUnblockable: %v", err)
 	}
+	return got
+}
+
+func TestListUnblockableReleasesOnlyWhenBlockersDone(t *testing.T) {
+	// b1's sole blocker is Done → unblockable. b2's blocker is still In Review
+	// (started) → not: a dependency is satisfied ONLY at Done (COV-56). Blocker
+	// doneness comes from the authoritative id→state lookup, not the relation.
+	const backlog = `{"data":{"issues":{"nodes":[
+	 {"id":"b1","identifier":"AET-B1","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"blk1"},"relatedIssue":{"id":"b1"}}]}},
+	 {"id":"b2","identifier":"AET-B2","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"blk2"},"relatedIssue":{"id":"b2"}}]}}
+	]}}}`
+	const blockerStates = `{"data":{"issues":{"nodes":[
+	 {"id":"blk1","state":{"type":"completed"}},
+	 {"id":"blk2","state":{"type":"started"}}
+	]}}}`
+	got := runUnblockable(t, backlog, blockerStates)
 	if len(got) != 1 || got[0].ID != "b1" {
-		t.Fatalf("ListUnblockable = %+v; want only b1", got)
+		t.Fatalf("ListUnblockable = %+v; want only b1 (its blocker is Done)", got)
+	}
+}
+
+// A mid-chain completion must not cascade down the chain: when a grandparent is
+// Done but the direct blocker is not, the dependent stays blocked (COV-56).
+func TestListUnblockableDoesNotCascadeMultiLevel(t *testing.T) {
+	// c2 is blocked by c1 (Done); c3 is blocked by c2 (still in Backlog). Completing
+	// c1 must release ONLY c2 — c3 stays blocked because its own blocker c2 is not
+	// Done. c2 appears both as a BLOCKED issue and as c3's blocker; the authoritative
+	// lookup reports c2's real state (backlog), so its done-ness can't leak.
+	const backlog = `{"data":{"issues":{"nodes":[
+	 {"id":"c2","identifier":"AET-C2","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"c1"},"relatedIssue":{"id":"c2"}}]}},
+	 {"id":"c3","identifier":"AET-C3","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"c2"},"relatedIssue":{"id":"c3"}}]}}
+	]}}}`
+	const blockerStates = `{"data":{"issues":{"nodes":[
+	 {"id":"c1","state":{"type":"completed"}},
+	 {"id":"c2","state":{"type":"backlog"}}
+	]}}}`
+	got := runUnblockable(t, backlog, blockerStates)
+	if len(got) != 1 || got[0].ID != "c2" {
+		t.Fatalf("ListUnblockable = %+v; want only c2 (c3 must stay blocked — its blocker c2 is not Done)", got)
+	}
+}
+
+// A blocked issue whose blocker id resolves to nothing (deleted/missing) stays
+// blocked rather than releasing on a phantom satisfied dependency.
+func TestListUnblockableHoldsOnMissingBlocker(t *testing.T) {
+	const backlog = `{"data":{"issues":{"nodes":[
+	 {"id":"d1","identifier":"AET-D1","title":"","description":"","labels":{"nodes":[]},
+	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"gone"},"relatedIssue":{"id":"d1"}}]}}
+	]}}}`
+	const blockerStates = `{"data":{"issues":{"nodes":[]}}}`
+	if got := runUnblockable(t, backlog, blockerStates); len(got) != 0 {
+		t.Fatalf("ListUnblockable = %+v; want none (blocker missing → not satisfied)", got)
 	}
 }
 
