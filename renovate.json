@@ -45,9 +45,17 @@
     },
     {
       "customType": "regex",
-      "description": "hadolint — HADOLINT_VERSION arg in the cove-image Dockerfile",
-      "managerFilePatterns": ["images/cove-image/Dockerfile"],
-      "matchStrings": ["ARG HADOLINT_VERSION=(?<currentValue>\\S+)"],
+      "description": "hadolint — HADOLINT_VERSION pinned in three places that must not drift: the cove-image Dockerfile (ARG), the merge gate (env), and the dev setup script (shell var). One manager watches all three so Renovate bumps them together in a single PR (COV-35).",
+      "managerFilePatterns": [
+        "images/cove-image/Dockerfile",
+        ".github/workflows/gate.yml",
+        "scripts/setup-test-tools.sh"
+      ],
+      "matchStrings": [
+        "HADOLINT_VERSION=\"(?<currentValue>[^\"]+)\"",
+        "HADOLINT_VERSION=(?<currentValue>[^\"\\s]+)",
+        "HADOLINT_VERSION: (?<currentValue>\\S+)"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "hadolint/hadolint"
     },

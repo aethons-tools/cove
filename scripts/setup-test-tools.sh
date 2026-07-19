@@ -28,7 +28,8 @@
 
 set -euo pipefail
 
-HADOLINT_VERSION="v2.12.0"
+# Renovate keeps this in lockstep with the gate workflow + cove-image Dockerfile.
+HADOLINT_VERSION="v2.14.0"
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 

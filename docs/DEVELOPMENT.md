@@ -72,6 +72,17 @@ loop cannot drift.
   or `hadolint` is skipped with a note, so a fresh clone can lint before
   `just setup`; in CI that default would let the gate pass having linted
   nothing, so `STRICT=1` turns a missing linter into a failure.
+- The gate runs on the **plain runner** and installs the linters per-run — it is
+  deliberately *not* run inside `cove-image` (COV-35). A container gate would
+  inherit the image's sandbox-tuned `GOPROXY=direct`/`GOSUMDB=off` (see above) and
+  silently stop verifying module checksums, and would add a digest-pin to chase.
+  Instead the drift the container would have solved is handled directly: the
+  `hadolint` version is pinned in **three** places — this gate, `cove-image`'s
+  Dockerfile, and [`scripts/setup-test-tools.sh`](../scripts/setup-test-tools.sh)
+  (local dev) — and one Renovate `customManager` ([`renovate.json`](../renovate.json))
+  watches all three, so a bump lands in a single PR and image/CI/local never
+  diverge. (`shellcheck` comes from the distro `apt` in the gate + setup script;
+  it is not version-pinned there.)
 - The workflow needs no `just` — the logic lives in `scripts/`, per the
   justfile's header.
 - **Not** gated: `just integration` (real-ssh) and `just e2e` (live infra).
