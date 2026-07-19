@@ -4,7 +4,7 @@ read_when: You are implementing or reviewing how the scheduler launches workers 
 owns: the at-cove work substrate contract, at-cove's host-orchestrated worker bracket + credential air-gap, the worker input/output handoff pointer, the three-authority credential model, and per-class isolation
 prereqs: linear-agent-workflow.md
 tier: leaf
-updated: 2026-07-15
+updated: 2026-07-19
 ---
 
 # at-cove Work Interface
@@ -15,12 +15,12 @@ In this repo the scheduler is **`at-cove dispatch`** and the worker is **`at-tas
 
 ## What at-cove is (grounding)
 
-at-cove assembles a layered build context, `docker build`s it, and runs it on a backend (Colima today), then reaches it over SSH — see [`../OVERVIEW.md`](../OVERVIEW.md). Two phases matter here:
+at-cove compiles a kit into a hardened image **once** with [`at-cove install`](../OVERVIEW.md) — assemble the layered build context, gate the base, `docker build` + tag — and every run command **consumes that pre-built image**, running it on a backend (Colima today) and reaching it over SSH — see [`../OVERVIEW.md`](../OVERVIEW.md). Two phases matter here:
 
-- **Build time:** egress is open; a setup script bakes the **project's toolchain** into the image.
+- **Install time:** egress is open; `at-cove install` bakes the **project's toolchain** into the image (via the kit's `image/` build context).
 - **Run time:** egress is locked by squid + nftables to the kit's `allowed-domains`; **secrets are acquired by running a configured command whose stdout is injected in memory only** — never baked into the image ([secret-injection flow](../OVERVIEW.md#secret-injection-the-chat-data-flow)).
 
-A **worker is therefore a container from the kit's image**, and **dispatch is a hardened, non-interactive run** at-cove mediates so the egress lock, secret injection, and baseline all apply.
+A **worker is therefore a container from the kit's installed image**, and **dispatch is a hardened, non-interactive run** at-cove mediates so the egress lock, secret injection, and baseline all apply.
 
 ## Governing principle: gate the image, automate the run
 
