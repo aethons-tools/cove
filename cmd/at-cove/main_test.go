@@ -34,7 +34,7 @@ func TestProjectDirFlagResolves(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errb bytes.Buffer
-	got, code := resolveProjectDir(dir, nil, "build", &errb)
+	got, code := resolveProjectDir(dir, &errb)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errb.String())
 	}
@@ -47,7 +47,7 @@ func TestProjectDirFlagResolves(t *testing.T) {
 func TestProjectDirFlagErrorsWithoutKit(t *testing.T) {
 	dir := t.TempDir() // no .at-cove/ here
 	var errb bytes.Buffer
-	if _, code := resolveProjectDir(dir, nil, "build", &errb); code != 1 {
+	if _, code := resolveProjectDir(dir, &errb); code != 1 {
 		t.Fatalf("code=%d, want 1 when the project root has no .at-cove/", code)
 	}
 	if !strings.Contains(errb.String(), "no .at-cove/ at project root") || !strings.Contains(errb.String(), dir) {
@@ -55,13 +55,39 @@ func TestProjectDirFlagErrorsWithoutKit(t *testing.T) {
 	}
 }
 
-func TestProjectDirFlagRejectsPositional(t *testing.T) {
+// The shared project-dir resolver reads the flag only — it no longer consumes a
+// positional. Rejecting a stray positional is the caller's job, via noPositionals.
+func TestNoPositionalsRejectsStray(t *testing.T) {
 	var errb bytes.Buffer
-	if _, code := resolveProjectDir("", []string{"stray"}, "build", &errb); code != 2 {
-		t.Fatalf("code=%d, want 2 for a stray positional", code)
+	if noPositionals([]string{"stray"}, "build", &errb) {
+		t.Fatal("noPositionals should reject a stray positional")
 	}
 	if !strings.Contains(errb.String(), "--project-dir") {
 		t.Fatalf("error should mention --project-dir; got %q", errb.String())
+	}
+}
+
+func TestNoPositionalsAllowsNone(t *testing.T) {
+	var errb bytes.Buffer
+	if !noPositionals(nil, "build", &errb) {
+		t.Fatalf("noPositionals should allow no positional; stderr=%q", errb.String())
+	}
+}
+
+// install/uninstall/work/dispatch take the project root only from --project-dir; a
+// stray positional is a usage error (exit 2), matching the interactive verbs.
+func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
+	for _, cmd := range []string{"install", "uninstall", "work", "dispatch"} {
+		t.Run(cmd, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := run([]string{cmd, "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+			if code != 2 {
+				t.Fatalf("exit = %d; want 2 (stray positional), stderr=%q", code, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "--project-dir") {
+				t.Fatalf("stderr = %q; want mention of --project-dir", errOut.String())
+			}
+		})
 	}
 }
 

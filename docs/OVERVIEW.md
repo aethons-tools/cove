@@ -102,7 +102,11 @@ the kit is `<DIR>/.at-cove`, so a project root **must** hold a `.at-cove/`
 the command walks up from the cwd to the nearest ancestor containing `.at-cove/`
 (run-from-anywhere). This encodes the "kit at the project root" convention as an
 invariant. There is no positional project-dir on any command — `chat`'s one
-positional is the optional collaborator (below), not the project dir.
+positional is the optional collaborator (below), not the project dir. The
+flag-only commands (`install`/`uninstall`/`work`/`dispatch`) take **no** positional
+at all: a stray one is a usage error (exit 2, `takes no positional arguments (use
+--project-dir)`), matching how the interactive verbs reject extra positionals
+(COV-73).
 
 **The install lifecycle** — `config.yml → install → install.json → run commands`.
 `config.yml` is *source*; [`at-cove install`](#how-the-build-context-is-assembled)

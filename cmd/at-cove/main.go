@@ -69,7 +69,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveProjectDir(*pd, pos, "install", errw)
+				if !noPositionals(pos, "install", errw) {
+					return 2
+				}
+				kitDir, code := resolveProjectDir(*pd, errw)
 				if code != 0 {
 					return code
 				}
@@ -155,7 +158,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveProjectDir(*pd, pos, "uninstall", errw)
+				if !noPositionals(pos, "uninstall", errw) {
+					return 2
+				}
+				kitDir, code := resolveProjectDir(*pd, errw)
 				if code != 0 {
 					return code
 				}
@@ -250,19 +256,28 @@ func projectDirFlag(fs *flag.FlagSet) *string {
 	return fs.String("project-dir", "", "project root holding .at-cove/ (default: walk up from cwd)")
 }
 
-// resolveProjectDir resolves the --project-dir flag value to a kit directory,
-// rejecting any leftover positional (commands other than `chat` take none).
-func resolveProjectDir(flagVal string, pos []string, cmd string, stderr io.Writer) (string, int) {
-	if len(pos) > 0 {
-		fmt.Fprintf(stderr, "at-cove: %s takes no positional arguments (use --project-dir)\n", cmd)
-		return "", 2
-	}
+// resolveProjectDir resolves the --project-dir flag value to a kit directory. The
+// project root is a flag-only input: this reads the flag, never a positional.
+// Callers that take no positional guard that separately with noPositionals.
+func resolveProjectDir(flagVal string, stderr io.Writer) (string, int) {
 	kitDir, err := resolveKit(flagVal)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-cove:", err)
 		return "", 1
 	}
 	return kitDir, 0
+}
+
+// noPositionals guards commands that take no positional (install/uninstall/work/
+// dispatch): the project root comes only from --project-dir, so a stray positional
+// is a usage error. It reports the error and returns false; the caller then exits
+// 2, matching how the interactive verbs reject extra positionals (COV-73).
+func noPositionals(pos []string, cmd string, stderr io.Writer) bool {
+	if len(pos) > 0 {
+		fmt.Fprintf(stderr, "at-cove: %s takes no positional arguments (use --project-dir)\n", cmd)
+		return false
+	}
+	return true
 }
 
 // resolveCollaborator resolves the --project-dir flag plus an optional single
@@ -1111,7 +1126,10 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	if err != nil {
 		return 2
 	}
-	kitDir, code := resolveProjectDir(*pd, pos, "work", stderr)
+	if !noPositionals(pos, "work", stderr) {
+		return 2
+	}
+	kitDir, code := resolveProjectDir(*pd, stderr)
 	if code != 0 {
 		return code
 	}
@@ -1365,7 +1383,10 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	if err != nil {
 		return 2
 	}
-	kitDir, code := resolveProjectDir(*pd, pos, "dispatch", stderr)
+	if !noPositionals(pos, "dispatch", stderr) {
+		return 2
+	}
+	kitDir, code := resolveProjectDir(*pd, stderr)
 	if code != 0 {
 		return code
 	}
