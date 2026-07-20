@@ -141,7 +141,7 @@ func TestWorkspaceClonePlanIsolated(t *testing.T) {
 	}
 }
 
-// A shared workspace (--ws) is never cloned — the user brought their own checkout.
+// A shared workspace (share-repo-dir) is never cloned — the host checkout is shared live.
 func TestWorkspaceClonePlanSharedSkips(t *testing.T) {
 	st := state.State{Name: "box", WorkspaceMode: "shared", WorkspaceHostPath: "/host/repo"}
 	plan, err := workspaceClonePlan(sourceControlKit(), st, gitTokenStore(), nil, "/kitpath", "/secrets.yml")
@@ -847,7 +847,7 @@ func TestRecreateDestroysThenCreatesKeepingVolumes(t *testing.T) {
 }
 
 // writeSharedState records a previously created instance whose workspace was a
-// shared bind-mount (i.e. `create --ws <hostPath>`).
+// shared bind-mount (i.e. a share-repo-dir collaborator).
 func writeSharedState(t *testing.T, kitDir, container, hostPath string) {
 	t.Helper()
 	if err := state.Save(kitDir, state.State{
@@ -874,8 +874,8 @@ func dockerRunHasArg(t *testing.T, calls []runner.Call, want string) bool {
 }
 
 // Recreate keeps volumes, but a shared bind-mount is not a volume — it must be
-// re-specified at `docker run`. Without --ws, recreate must recover the shared
-// workspace from state instead of silently falling back to an isolated volume.
+// re-specified at `docker run`. recreate must recover the shared workspace from
+// state instead of silently falling back to an isolated volume.
 func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
@@ -904,30 +904,98 @@ func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 	}
 }
 
-// An explicit --ws on recreate overrides whatever the prior state recorded.
-func TestRecreateWorkspaceFlagOverridesState(t *testing.T) {
+// The arbitrary-host-path bind-mount flag is gone (COV-72): --ws/--workspace are
+// no longer accepted by create or recreate (a flag-parse error → exit 2), and
+// touch no docker. Only a share-repo-dir collaborator can now share the kit repo.
+func TestWorkspaceFlagRemoved(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
-	oldPath := filepath.Join(dir, "old")
-	newPath := filepath.Join(dir, "new")
-	for _, p := range []string{oldPath, newPath} {
-		if err := os.MkdirAll(p, 0o755); err != nil {
-			t.Fatal(err)
+	writeInstall(t, kitDir)
+	for _, cmd := range []string{"create", "recreate"} {
+		for _, flag := range []string{"--ws", "--workspace"} {
+			f := &runner.Fake{}
+			var out, errOut bytes.Buffer
+			code := run([]string{cmd, flag, filepath.Join(dir, "x"), "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+			if code != 2 {
+				t.Fatalf("%s %s must be rejected (exit 2); code=%d stderr=%s", cmd, flag, code, errOut.String())
+			}
+			if len(f.Calls) != 0 {
+				t.Fatalf("%s %s must not touch docker; calls=%+v", cmd, flag, f.Calls)
+			}
 		}
 	}
-	writeSharedState(t, kitDir, "box", oldPath)
+}
+
+// A share-repo-dir collaborator's create shares the kit's repo dir (the .at-cove
+// parent) as a live-.git bind-mount, and records the shared mode in state.
+func TestCreateShareRepoDirSharesKitRepo(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeShareRepoKit(t, dir, "steward")
 	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
-	code := run([]string{"recreate", "--project-dir", dir, "--ws", newPath}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	want := dir + ":/home/agent/workspace" // the repo dir is the .at-cove parent
+	if !dockerRunHasArg(t, f.Calls, want) {
+		t.Fatalf("share-repo-dir create must bind-mount the kit repo dir; want %q in run args %+v", want, f.Calls)
+	}
+	// It must NOT also mount an isolated workspace volume for this instance.
+	if dockerRunHasArg(t, f.Calls, "box-steward-workspace:/home/agent/workspace") {
+		t.Fatalf("share-repo-dir create must not use an isolated workspace volume; calls=%+v", f.Calls)
+	}
+	st, err := state.LoadFor(kitDir, state.Instance("steward"))
+	if err != nil {
+		t.Fatalf("class-keyed state not written: %v", err)
+	}
+	if st.WorkspaceMode != "shared" || st.WorkspaceHostPath != dir {
+		t.Fatalf("state must record the shared repo mount; state=%+v (want host %q)", st, dir)
+	}
+}
+
+// A collaborator without share-repo-dir gets an isolated workspace volume (so
+// COV-25's clone-on-first-session populates it), never a bind-mount.
+func TestCreateWithoutShareRepoDirIsIsolated(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	if !dockerRunHasArg(t, f.Calls, "box-steward-workspace:/home/agent/workspace") {
+		t.Fatalf("a non-share-repo-dir collaborator must use an isolated volume; calls=%+v", f.Calls)
+	}
+	if dockerRunHasArg(t, f.Calls, dir+":/home/agent/workspace") {
+		t.Fatalf("a non-share-repo-dir collaborator must not bind-mount the repo dir; calls=%+v", f.Calls)
+	}
+	st, err := state.LoadFor(kitDir, state.Instance("steward"))
+	if err != nil {
+		t.Fatalf("state not written: %v", err)
+	}
+	if st.WorkspaceMode != "isolated" {
+		t.Fatalf("state must record isolated mode; state=%+v", st)
+	}
+}
+
+// The share-repo-dir dry-run intent line names the shared repo path.
+func TestDryRunCreateShareRepoDirIntent(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeShareRepoKit(t, dir, "steward")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d stderr=%s", code, errOut.String())
 	}
-	if !dockerRunHasArg(t, f.Calls, newPath+":/home/agent/workspace") {
-		t.Fatalf("explicit --ws must win over state; calls=%+v", f.Calls)
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run executed commands: %+v", f.Calls)
 	}
-	if dockerRunHasArg(t, f.Calls, oldPath+":/home/agent/workspace") {
-		t.Fatalf("recreate used the stale workspace from state; calls=%+v", f.Calls)
+	if !strings.Contains(out.String(), "sharing repo dir "+dir) {
+		t.Fatalf("dry-run must name the shared repo dir; got %q", out.String())
 	}
 }
 
@@ -1929,6 +1997,21 @@ func writeCollabKit(t *testing.T, dir string, classes ...string) string {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cove
+}
+
+// writeShareRepoKit writes a kit whose sole collaborator opts into share-repo-dir
+// (COV-72): that class's VM shares the kit's repo dir instead of an isolated volume.
+func writeShareRepoKit(t *testing.T, dir, class string) string {
+	t.Helper()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\ncollaborators:\n  " + class + ":\n    prompt: \"be " + class + "\"\n    share-repo-dir: true\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return cove

@@ -79,8 +79,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
 				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
-				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -89,7 +87,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doCreate(collaborator, kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doCreate(collaborator, kitDir, r, g.DryRun, out), errw)
 			}},
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
@@ -112,8 +110,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
 				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				ws := fs.String("workspace", "", "share a host workspace path instead of an isolated volume")
-				fs.StringVar(ws, "ws", "", "alias for --workspace")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -122,7 +118,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doRecreate(collaborator, kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doRecreate(collaborator, kitDir, r, g.DryRun, out), errw)
 			}},
 			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("destroy", flag.ContinueOnError)
@@ -570,30 +566,61 @@ func resolveInstanceLenient(kitDir, collaborator string) (state.Instance, error)
 // doCreate consumes the installed image (COV-38): it verifies the install is
 // current, resolves the collaborator to a per-class instance (COV-71), runs the
 // pre-built image via the backend (no build), and records the running instance in
-// the instance's state file — sourcing the image from the manifest.
-func doCreate(collaborator, kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+// the instance's state file — sourcing the image from the manifest. The workspace
+// mount is decided by the selected collaborator's share-repo-dir (COV-72): true →
+// a Shared bind-mount of the kit's repo dir (live .git), else Isolated (COV-25's
+// clone-on-first-session populates it).
+func doCreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
 	cfg := m.RunConfig
-	_, _, instKey, name, err := instanceFor(cfg, collaborator)
+	class, hasCollab, instKey, name, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
+	ws, err := sharedWorkspaceMount(cfg, kitDir, class, hasCollab)
+	if err != nil {
+		return err
+	}
+	return createInstance(kitDir, r, cfg, m.Image, instKey, name, ws, dryRun, stdout)
+}
+
+// sharedWorkspaceMount resolves a fresh create's workspace mount from the selected
+// collaborator's share-repo-dir (COV-72). Only the kit's repo dir — the parent of
+// the .at-cove kit — is shareable, so a true flag yields a Shared bind-mount at
+// that (absolute) path, sharing the live .git with the host; absent/false (and any
+// no-collaborator kit) yields an Isolated volume. Arbitrary host paths are no
+// longer mountable.
+func sharedWorkspaceMount(cfg kit.Config, kitDir, class string, hasCollab bool) (backend.WorkspaceMount, error) {
+	if !hasCollab {
+		return backend.WorkspaceMount{Mode: backend.Isolated}, nil
+	}
+	role, err := cfg.ResolvedCollaborator(class)
+	if err != nil {
+		return backend.WorkspaceMount{}, err
+	}
+	if !role.ShareRepoDir {
+		return backend.WorkspaceMount{Mode: backend.Isolated}, nil
+	}
+	abs, err := filepath.Abs(filepath.Dir(kitDir))
+	if err != nil {
+		return backend.WorkspaceMount{}, err
+	}
+	return backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}, nil
+}
+
+// createInstance runs the installed image for one resolved instance with the given
+// workspace mount and records it in state. It is the shared tail of doCreate (mount
+// from config) and doRecreate (mount recovered from state). The dry-run intent line
+// reflects shared-repo vs isolated + the repo path (COV-72).
+func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image string, instKey state.Instance, name string, ws backend.WorkspaceMount, dryRun bool, stdout io.Writer) error {
 	if state.ExistsFor(kitDir, instKey) {
 		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", name)
 	}
-	ws := backend.WorkspaceMount{Mode: backend.Isolated}
-	if wsPath != "" {
-		abs, err := filepath.Abs(wsPath)
-		if err != nil {
-			return err
-		}
-		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}
-	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would run %s (image %s) and write %s\n", name, m.Image, state.PathFor(kitDir, instKey))
+		fmt.Fprintf(stdout, "would run %s (image %s, %s) and write %s\n", name, image, workspaceIntent(ws), state.PathFor(kitDir, instKey))
 		return nil
 	}
 	b, err := getBackend(defaultBackend, r)
@@ -601,12 +628,21 @@ func doCreate(collaborator, kitDir string, r runner.Runner, wsPath string, dryRu
 		return err
 	}
 	bi, err := b.Create(backend.CreateContext{
-		Name: name, Image: m.Image, Workspace: ws,
+		Name: name, Image: image, Workspace: ws,
 	})
 	if err != nil {
 		return err
 	}
 	return saveState(kitDir, instKey, cfg, bi)
+}
+
+// workspaceIntent renders a mount as a human dry-run phrase: the shared repo dir
+// and its host path, or an isolated workspace.
+func workspaceIntent(ws backend.WorkspaceMount) string {
+	if ws.Mode == backend.Shared {
+		return "sharing repo dir " + ws.HostPath
+	}
+	return "isolated workspace"
 }
 
 // buildState assembles the state snapshot for a created instance: the backend
@@ -816,7 +852,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 // mirrors the worker path's git plumbing (GitTokenName + planRequired) so the
 // clone reuses the same demand/supply resolution rather than inventing new logic.
 //
-// It returns nil (skip, start empty — today's behavior) for a shared --ws
+// It returns nil (skip, start empty — today's behavior) for a shared (share-repo-dir)
 // workspace or when source-control/AT_TASK_GIT_TOKEN is not declared. When the
 // token IS declared but has no supply on this machine, that is a hard error
 // (fail closed): cloning a configured repo without its token cannot succeed.
@@ -919,7 +955,7 @@ func doDestroyAll(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer)
 // resolved collaborator, keeping volumes. It no longer rebuilds (COV-38): it
 // verifies the install is current and re-runs the pre-built image, so a
 // stale/missing install fails before any teardown, pointing at `at-cove install`.
-func doRecreate(collaborator, kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
@@ -930,14 +966,13 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, wsPath string, dry
 		return err
 	}
 	// Recreate keeps volumes, but a shared workspace is a host bind-mount, not a
-	// volume — it must be re-specified at `docker run`. When the caller does not
-	// pass --ws, recover the previously shared workspace from this instance's state
-	// so recreate preserves it instead of silently reverting to an isolated volume.
-	// This must happen before the destroy, which deletes the state file.
-	if wsPath == "" {
-		if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
-			wsPath = st.WorkspaceHostPath
-		}
+	// volume — it must be re-specified at `docker run`. Recover the previously
+	// recorded mount from this instance's state (never re-read config, COV-72) so
+	// recreate preserves what create chose instead of silently reverting to an
+	// isolated volume. This must happen before the destroy, which deletes the state.
+	ws := backend.WorkspaceMount{Mode: backend.Isolated}
+	if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
+		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
 	}
 	if dryRun {
 		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", name)
@@ -948,7 +983,7 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, wsPath string, dry
 			return err
 		}
 	}
-	return doCreate(collaborator, kitDir, r, wsPath, false, stdout)
+	return createInstance(kitDir, r, cfg, m.Image, instKey, name, ws, false, stdout)
 }
 
 // doStatus reports the status of one resolved instance (`status [collaborator]`).

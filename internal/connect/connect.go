@@ -73,7 +73,7 @@ type Options struct {
 	// WorkspaceClone, when non-nil, clones the repo's default branch into the VM's
 	// isolated workspace on first session start — once for the VM's lifetime (a
 	// reconnect that finds an existing checkout reuses it). nil means never clone
-	// (a shared --ws workspace, or source-control/token not configured).
+	// (a shared share-repo-dir workspace, or source-control/token not configured).
 	WorkspaceClone *WorkspaceClone
 }
 

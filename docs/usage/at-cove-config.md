@@ -10,9 +10,10 @@ updated: 2026-07-20
 # at-cove `config.yml`
 
 `config.yml` is a kit's **spec** — identity and wiring only, for both the sandbox
-(`chat`/`work`) and the scheduler (`dispatch`). It carries **no secret values**, no
-hardening knobs, and no workspace mode (those are chosen at `create` time so a committed
-spec stays portable). It lives at the kit root — by convention `<repo>/.at-cove/config.yml`
+(`chat`/`work`) and the scheduler (`dispatch`). It carries **no secret values** and no
+hardening knobs (those stay machine-side so a committed spec stays portable). The one
+workspace-mode knob is a per-collaborator opt-in — [`share-repo-dir`](#collaboratorsclassshare-repo-dir).
+It lives at the kit root — by convention `<repo>/.at-cove/config.yml`
 (see the [kit layout](../OVERVIEW.md#the-kit-at-cove)).
 
 Parsing is **strict**: an unknown or misspelled field is a hard error (`config.yml: field
@@ -314,6 +315,19 @@ Marks this class as the one `at-cove chat` picks when invoked with no collaborat
 positional and the kit defines more than one. **At most one** class may set
 `default: true` — `config.yml` fails to parse if two or more do. See the
 [selection rule](#chat-collaborator-selection) below.
+
+#### collaborators.*class*.share-repo-dir
+*bool, optional, own-only (not inherited); `<common>` must not set it*
+
+Opts this class's VM into a **Shared** workspace: instead of an isolated volume,
+`create <class>` bind-mounts the **kit's repo dir** — the directory that contains
+`.at-cove/` — at `/home/agent/workspace`, so host and VM share the live `.git`.
+Absent/false (the default), the workspace is **Isolated** and the
+[clone-on-first-session](../OVERVIEW.md#workspace-and-state-volumes) populates it.
+Only the kit repo dir is shareable — arbitrary host paths are not mountable (the
+former `--workspace`/`--ws` flag is gone). `recreate` recovers the recorded mount
+from the instance's state, never re-reading this field. See
+[Workspace and state volumes](../OVERVIEW.md#workspace-and-state-volumes).
 
 #### collaborators.*class*.secrets
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
