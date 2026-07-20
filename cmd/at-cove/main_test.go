@@ -101,6 +101,83 @@ func TestPlanRequiredExpandsMint(t *testing.T) {
 	}
 }
 
+// gitTokenStore supplies AT_TASK_GIT_TOKEN as a literal for the kit named box.
+func gitTokenStore() usersecret.Store {
+	return usersecret.Store{Kits: map[string]map[string]usersecret.Source{
+		"box": {"AT_TASK_GIT_TOKEN": {Value: ptr("git-tok")}},
+	}}
+}
+
+func sourceControlKit() kit.Config {
+	return kit.Config{
+		Name: "box",
+		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{
+			Project:    "your-org/your-repo",
+			MainBranch: "main",
+			Secrets:    map[string]kit.SecretConfig{"AT_TASK_GIT_TOKEN": {}},
+		}},
+	}
+}
+
+// An isolated workspace with source-control + a supplied git token yields a
+// clone plan with the derived URL/branch and the resolved token.
+func TestWorkspaceClonePlanIsolated(t *testing.T) {
+	st := state.State{Name: "box", WorkspaceMode: "isolated"}
+	plan, err := workspaceClonePlan(sourceControlKit(), st, gitTokenStore(), nil, "/kitpath", "/secrets.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan == nil {
+		t.Fatal("expected a clone plan for an isolated workspace with source-control")
+	}
+	if plan.RepoURL != "https://github.com/your-org/your-repo.git" {
+		t.Fatalf("RepoURL = %q", plan.RepoURL)
+	}
+	if plan.Branch != "main" {
+		t.Fatalf("Branch = %q; want main", plan.Branch)
+	}
+	if !plan.Token.Literal || plan.Token.Value != "git-tok" {
+		t.Fatalf("Token = %+v; want the resolved literal git-tok", plan.Token)
+	}
+}
+
+// A shared workspace (--ws) is never cloned — the user brought their own checkout.
+func TestWorkspaceClonePlanSharedSkips(t *testing.T) {
+	st := state.State{Name: "box", WorkspaceMode: "shared", WorkspaceHostPath: "/host/repo"}
+	plan, err := workspaceClonePlan(sourceControlKit(), st, gitTokenStore(), nil, "/kitpath", "/secrets.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan != nil {
+		t.Fatalf("shared workspace must not clone; got %+v", plan)
+	}
+}
+
+// No source-control (or no AT_TASK_GIT_TOKEN declared) → skip cloning, start empty.
+func TestWorkspaceClonePlanUnconfiguredSkips(t *testing.T) {
+	st := state.State{Name: "box", WorkspaceMode: "isolated"}
+	plan, err := workspaceClonePlan(kit.Config{Name: "box"}, st, gitTokenStore(), nil, "/kitpath", "/secrets.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan != nil {
+		t.Fatalf("unconfigured source-control must not clone; got %+v", plan)
+	}
+}
+
+// Configured source-control whose git token has no supply is a hard error
+// (fail closed), never a silent empty workspace.
+func TestWorkspaceClonePlanUnsuppliedTokenErrors(t *testing.T) {
+	st := state.State{Name: "box", WorkspaceMode: "isolated"}
+	_, err := workspaceClonePlan(sourceControlKit(), st, usersecret.Store{}, nil, "/kitpath", "/secrets.yml")
+	if err == nil {
+		t.Fatal("a declared-but-unsupplied git token must be a hard error")
+	}
+	if !strings.Contains(err.Error(), "AT_TASK_GIT_TOKEN") {
+		t.Fatalf("error should name the git token; got %v", err)
+	}
+}
+
 func TestCanonicalKitPath(t *testing.T) {
 	dir := t.TempDir()
 	got := canonicalKitPath(dir)

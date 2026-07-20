@@ -93,6 +93,114 @@ func opts(dir string) Options {
 	}
 }
 
+// cloneOpts is opts plus a workspace-clone request with a literal token (so
+// resolving it consumes no queued Output).
+func cloneOpts(dir string) Options {
+	o := opts(dir)
+	o.WorkspaceClone = &WorkspaceClone{
+		RepoURL: "https://github.com/acme/myrepo.git",
+		Branch:  "main",
+		Token:   secret.Spec{Name: "AT_TASK_GIT_TOKEN", Value: "ghp_secret_value", Literal: true},
+	}
+	return o
+}
+
+// On first session start into an empty isolated workspace, Connect clones the
+// repo's default branch in — with the derived URL and branch — before launching,
+// and the token flows via stdin (never on argv).
+func TestConnectClonesEmptyWorkspace(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	// [0] secret, [1] auth probe, [2] workspace probe (empty), [3] the clone.
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}, {Stdout: "cove-ws-empty\n"}, {Stdout: ""},
+	}}
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, cloneOpts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	cloneIdx := callIndex(r.Calls, "git clone")
+	if cloneIdx == -1 {
+		t.Fatalf("expected a git clone into the empty workspace; calls=%+v", r.Calls)
+	}
+	joined := strings.Join(r.Calls[cloneIdx].Args, " ")
+	if !strings.Contains(joined, "https://github.com/acme/myrepo.git") {
+		t.Fatalf("clone must use the derived repo URL; args=%q", joined)
+	}
+	if !strings.Contains(joined, "main") {
+		t.Fatalf("clone must check out the default branch; args=%q", joined)
+	}
+	if !strings.Contains(joined, workspaceDir) {
+		t.Fatalf("clone must target the workspace dir; args=%q", joined)
+	}
+	if !tr.launched {
+		t.Fatal("must still launch the session after cloning")
+	}
+	// The token value must never reach argv — only stdin (the tmpfs env file).
+	if calledWith(r.Calls, "ghp_secret_value") {
+		t.Fatalf("token value leaked onto argv; calls=%+v", r.Calls)
+	}
+	var stagedViaStdin bool
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, "ghp_secret_value") {
+			stagedViaStdin = true
+		}
+	}
+	if !stagedViaStdin {
+		t.Fatalf("token must be staged into the VM via stdin; calls=%+v", r.Calls)
+	}
+}
+
+// Reconnecting to a VM whose workspace already holds a checkout must not
+// re-clone — the once-per-lifetime guard reuses the existing (possibly
+// in-progress) workspace.
+func TestConnectSkipsCloneWhenWorkspaceReady(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}, {Stdout: "cove-ws-cloned\n"},
+	}}
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, cloneOpts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, "git clone") {
+		t.Fatalf("must not re-clone a workspace that already has a checkout; calls=%+v", r.Calls)
+	}
+	if !tr.launched {
+		t.Fatal("must still launch the session")
+	}
+}
+
+// With no WorkspaceClone (shared workspace, or source-control/token not
+// configured), Connect never probes or clones the workspace.
+func TestConnectNoCloneWhenUnset(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}}}
+	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	if calledWith(r.Calls, "git clone") || calledWith(r.Calls, "cove-ws-") {
+		t.Fatalf("no clone/probe expected without a WorkspaceClone; calls=%+v", r.Calls)
+	}
+}
+
+// A configured clone that fails is a hard error: the session must not launch.
+func TestConnectCloneFailureAborts(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "tok\n"}, {Stdout: "cove-authed\n"}, {Stdout: "cove-ws-empty\n"},
+		{Err: &runner.ExitError{Code: 128}},
+	}}
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, cloneOpts(t.TempDir()))
+	if err == nil {
+		t.Fatal("expected a hard error when the clone fails")
+	}
+	if tr.launched {
+		t.Fatal("must not launch the session after a failed clone")
+	}
+}
+
 func TestConnectHappyPath(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
