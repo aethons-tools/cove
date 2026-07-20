@@ -102,6 +102,31 @@ func TestSyncResumesExistingRemoteBranch(t *testing.T) {
 	}
 }
 
+func TestClonePopulatesFreshCheckout(t *testing.T) {
+	remote := newRemote(t)
+	g, err := NewShellGit("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "wt")
+	ctx := context.Background()
+	if err := g.Clone(ctx, remote, "main", dir); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	// The working tree is checked out (a real clone, not a bare init).
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); err != nil {
+		t.Fatalf("clone did not check out the working tree: %v", err)
+	}
+	// origin points at the remote.
+	if url, _ := g.git(ctx, dir, "remote", "get-url", "origin"); url != remote {
+		t.Fatalf("origin = %q; want %q", url, remote)
+	}
+	// The requested branch is checked out.
+	if br, _ := g.git(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"); br != "main" {
+		t.Fatalf("HEAD branch = %q; want main", br)
+	}
+}
+
 func TestChangeOps(t *testing.T) {
 	remote := newRemote(t)
 	g, _ := NewShellGit("")

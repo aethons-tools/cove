@@ -1,10 +1,10 @@
 ---
-summary: at-task usage — the prepare/complete/version CLI, the AT_TASK_GIT_TOKEN credential, and the cwd file handoff under .at-task/ (JSON or YAML): task.json in; worker-result.json and task-result.json out. The per-file JSON Schemas live in the linked contract docs.
+summary: at-task usage — the prepare/complete/clone-workspace/version CLI, the AT_TASK_GIT_TOKEN credential, and the cwd file handoff under .at-task/ (JSON or YAML): task.json in; worker-result.json and task-result.json out. The per-file JSON Schemas live in the linked contract docs.
 read_when: You are invoking at-task directly, or you need the file-handoff flow and the JSON/YAML file-format rules before reading a contract schema.
 owns: the at-task CLI usage, the .at-task/ file handoff, and the JSON/YAML file-format + unknown-field rules (the per-file JSON Schemas are owned by at-task-inputs.md and at-task-output.md)
 prereqs: none — for how at-task is dispatched inside a sandbox see ../orchestration/at-cove-work-interface.md
 tier: leaf
-updated: 2026-07-10
+updated: 2026-07-20
 ---
 
 # `at-task` usage
@@ -36,9 +36,11 @@ sandbox, see the [work interface](../orchestration/at-cove-work-interface.md).
 
 ## Commands
 
-`at-task` runs in the **current working directory** — the root of the target repo — and
-communicates entirely through files under `.at-task/`; it takes **no path arguments**. One
-environment variable is required by `prepare` and `complete`:
+`prepare` and `complete` run in the **current working directory** — the root of the target
+repo — and communicate entirely through files under `.at-task/`; they take **no path
+arguments**. (`clone-workspace` is the exception: a task-less helper that takes an explicit
+target dir and no `.at-task/` handoff — see below.) One environment variable is required by
+`prepare`, `complete`, and `clone-workspace`:
 
 - `AT_TASK_GIT_TOKEN` — a code-host API token for the target repo, scoped for read, push,
   and PR/MR creation. Never passed on argv or logged.
@@ -74,6 +76,19 @@ a structured result, never nothing.
 only if the `task-result` write itself fails (there is then no result to deliver) · `2` bad
 usage (extra arguments).
 
+### `at-task clone-workspace --repo <url> --branch <branch> <dir>`
+
+Clone `<url>`'s `<branch>` into `<dir>` — a **task-less** helper with no `.at-task/` handoff
+and no work branch. It exists so that all git-with-token goes through one env-only askpass
+(the same `ShellGit` plumbing `prepare`/`complete` use): `at-cove chat` uses it to populate an
+[isolated collaborator workspace](../OVERVIEW.md#workspace-and-state-volumes) on the first
+session, staging `AT_TASK_GIT_TOKEN` into this process's env in memory (never on argv) and
+running the verb over SSH. Unlike `prepare`, it does a plain `git clone` into an empty dir —
+no init-in-place, no `.at-task/` excludes.
+
+*Exit:* `0` cloned · `1` a clone or IO failure (fail closed) · `2` bad usage (missing
+`--repo`/`--branch`/`<dir>`).
+
 ### `at-task version`
 
 Print `at-task <version>` and exit.
@@ -83,7 +98,7 @@ Print `at-task <version>` and exit.
 Stdout carries only the command's data output; diagnostics go to **stderr** as
 structured [`slog`](https://pkg.go.dev/log/slog) records. at-task runs unattended
 inside the sandbox VM (stderr is not a TTY), so each record is one JSON line
-carrying a `step` attr (`prepare` / `complete`) that self-identifies the layer,
+carrying a `step` attr (`prepare` / `complete` / `clone-workspace`) that self-identifies the layer,
 plus the shared `--log-mode` / `--log-level` flags (and `AT_LOG_MODE` /
 `AT_LOG_LEVEL` env fallbacks) — at a real terminal the same records render as
 human-friendly text. Records are **secret-free by construction**: only self-owned

@@ -407,12 +407,14 @@ workspace volume empty, so the first `chat` populates it: it clones the target
 `main-branch` into `/home/agent/workspace`, **once for the VM's lifetime**. A
 reconnect that finds an existing checkout reuses it verbatim (in-progress work is
 never re-cloned or clobbered) — the guard is a `.git` probe on session start.
-Auth reuses the worker path's git plumbing: `chat` resolves the
-`source-control.github.secrets.AT_TASK_GIT_TOKEN` demand host-side (like `work`
-does) and the token flows into the VM via the same env-only askpass as
-`internal/dispatch/worker/git.go` — never on disk, argv, or in the **agent's
-session env** (the code-host air-gap: a collaborator reaches GitHub through the
-human's claude.ai connectors, not this token). If `source-control` (or the
+Auth reuses the worker path's git plumbing through a **single** git-with-token
+path: `chat` resolves the `source-control.github.secrets.AT_TASK_GIT_TOKEN` demand
+host-side (like `work` does), stages it into the VM's `at-task` process env in
+memory, and runs `at-task clone-workspace` — the task-less clone verb that clones
+with the same env-only askpass (`internal/dispatch/worker/git.go`) as `prepare`.
+`chat` implements no askpass of its own. The token is never on disk, argv, or in
+the **agent's session env** (the code-host air-gap: a collaborator reaches GitHub
+through the human's claude.ai connectors, not this token). If `source-control` (or the
 `AT_TASK_GIT_TOKEN` demand) is not configured, the clone is **skipped** and the
 session starts in an empty workspace (the prior behavior); if it *is* configured
 but the clone **fails**, session start is a **hard error** (fail closed). A

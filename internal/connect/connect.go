@@ -45,11 +45,11 @@ const (
 	// connection failed, not "empty workspace" (mirrors authProbe).
 	workspaceProbe      = `if [ -e ` + workspaceDir + `/.git ]; then echo ` + workspaceClonedMark + `; else echo cove-ws-empty; fi`
 	workspaceClonedMark = "cove-ws-cloned"
-	// cloneEnvVMPath / cloneAskpassVMPath live on tmpfs (/dev/shm): the git token
-	// is staged into the env file in memory (never on disk or argv) and the askpass
-	// echoes it, mirroring the dispatch worker's env-only askpass (worker/git.go).
-	cloneEnvVMPath     = "/dev/shm/cove-clone-env"
-	cloneAskpassVMPath = "/dev/shm/cove-clone-askpass"
+	// cloneEnvVMPath lives on tmpfs (/dev/shm): the git token is staged into this
+	// env file in memory (never on disk or argv), then sourced into at-task's
+	// process env so its own env-only askpass (worker/git.go) supplies credentials.
+	// Connect owns no askpass of its own — at-task is the single git-with-token path.
+	cloneEnvVMPath = "/dev/shm/cove-clone-env"
 )
 
 // Options configures a connect. Container/Secrets come from the recorded state,
@@ -237,13 +237,14 @@ func writeCollaboratorRole(r runner.Runner, tgt sshargs.Target, prompt string) e
 	return nil
 }
 
-// ensureWorkspace clones the repo's default branch into the isolated workspace
+// ensureWorkspace populates the isolated workspace with the repo's default branch
 // the first time a session starts, and never again for the VM's lifetime. It is
 // a no-op when w is nil (a shared workspace, or source-control/token not
 // configured). It probes for an existing checkout first (host-observable, so the
 // once-per-lifetime guard is testable and a reconnect reuses in-progress work),
-// then stages the token into VM tmpfs in memory and clones with an env-only
-// askpass — the token never reaches argv, disk, or the session env. A clone
+// then stages the token into at-task's VM env in memory and runs at-task's
+// task-less clone verb — the single git-with-token path (worker/git.go's env-only
+// askpass). The token never reaches argv, disk, or the session env. A clone
 // failure is returned so the caller fails closed rather than launching an empty
 // session.
 func ensureWorkspace(r runner.Runner, tgt sshargs.Target, w *WorkspaceClone) error {
@@ -263,17 +264,13 @@ func ensureWorkspace(r runner.Runner, tgt sshargs.Target, w *WorkspaceClone) err
 	if err != nil {
 		return err
 	}
-	// Stage the token into a tmpfs env file over ssh stdin (never on argv), then
-	// clone with a GIT_ASKPASS that echoes it — the dispatch worker's env-only
-	// askpass approach (internal/dispatch/worker/git.go).
-	tokenScript := fmt.Sprintf("export AT_TASK_ASKPASS_TOKEN=%s\n", shellQuote(env[w.Token.Name]))
+	// Stage the token into a tmpfs env file over ssh stdin (never on argv). The
+	// clone command sources it into at-task's process env, so at-task's own
+	// env-only askpass (internal/dispatch/worker/git.go) supplies the credentials —
+	// connect implements no askpass of its own.
+	tokenScript := fmt.Sprintf("export AT_TASK_GIT_TOKEN=%s\n", shellQuote(env[w.Token.Name]))
 	if err := writeVM(r, tgt, tokenScript, cloneEnvVMPath); err != nil {
 		return fmt.Errorf("staging clone token: %w", err)
-	}
-	// The askpass content is static (no secret), so it can be written plainly.
-	askpass := "#!/bin/sh\nprintf '%s\\n' \"$AT_TASK_ASKPASS_TOKEN\"\n"
-	if err := writeVM(r, tgt, askpass, cloneAskpassVMPath); err != nil {
-		return fmt.Errorf("staging clone askpass: %w", err)
 	}
 	if _, err := r.Output("ssh", append(sshargs.Base(tgt), cloneCmd(w.RepoURL, w.Branch))...); err != nil {
 		return fmt.Errorf("cloning %s into workspace: %w", w.RepoURL, err)
@@ -281,17 +278,14 @@ func ensureWorkspace(r runner.Runner, tgt sshargs.Target, w *WorkspaceClone) err
 	return nil
 }
 
-// cloneCmd builds the remote shell that clones the repo into the workspace: make
-// the askpass executable, source the token env from tmpfs then scrub it, clone
-// the default branch with the askpass supplying credentials (GIT_TERMINAL_PROMPT=0
-// fails closed instead of hanging on a prompt), and scrub the askpass. The token
-// never appears on this command line — only the tmpfs paths do.
+// cloneCmd builds the remote shell that populates the workspace: source the token
+// env from tmpfs into at-task's process env then scrub the file, and run at-task's
+// task-less clone-workspace verb, which clones the default branch into the
+// workspace with its own env-only askpass. The token never appears on this command
+// line — only the tmpfs path does.
 func cloneCmd(url, branch string) string {
-	return "chmod 700 " + cloneAskpassVMPath + "; " +
-		"set -a; . " + cloneEnvVMPath + "; set +a; rm -f " + cloneEnvVMPath + "; " +
-		"GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=" + cloneAskpassVMPath +
-		" git clone --branch " + shellQuote(branch) + " " + shellQuote(url) + " " + workspaceDir + "; " +
-		"rc=$?; rm -f " + cloneAskpassVMPath + "; exit $rc"
+	return "set -a; . " + cloneEnvVMPath + "; set +a; rm -f " + cloneEnvVMPath + "; " +
+		"at-task clone-workspace --repo " + shellQuote(url) + " --branch " + shellQuote(branch) + " " + workspaceDir
 }
 
 // writeVM writes data to vmPath in the VM over ssh stdin (mode 077, never on

@@ -27,6 +27,10 @@ func (f *fakeGit) EnsureClean(_ context.Context, _, _ string) error {
 	}
 	return f.err("EnsureClean")
 }
+func (f *fakeGit) Clone(_ context.Context, _, b, _ string) error {
+	f.rec("Clone:" + b)
+	return f.err("Clone")
+}
 func (f *fakeGit) Sync(_ context.Context, _, b string) error {
 	f.rec("Sync:" + b)
 	return f.err("Sync")

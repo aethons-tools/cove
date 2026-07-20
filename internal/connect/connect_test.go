@@ -118,11 +118,16 @@ func TestConnectClonesEmptyWorkspace(t *testing.T) {
 	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, cloneOpts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	cloneIdx := callIndex(r.Calls, "git clone")
+	// The clone runs at-task's task-less verb, not a raw git clone: all
+	// git-with-token lives in ShellGit, so connect owns no second askpass.
+	cloneIdx := callIndex(r.Calls, "clone-workspace")
 	if cloneIdx == -1 {
-		t.Fatalf("expected a git clone into the empty workspace; calls=%+v", r.Calls)
+		t.Fatalf("expected an at-task clone-workspace into the empty workspace; calls=%+v", r.Calls)
 	}
 	joined := strings.Join(r.Calls[cloneIdx].Args, " ")
+	if !strings.Contains(joined, "at-task clone-workspace") {
+		t.Fatalf("must invoke the at-task clone verb; args=%q", joined)
+	}
 	if !strings.Contains(joined, "https://github.com/acme/myrepo.git") {
 		t.Fatalf("clone must use the derived repo URL; args=%q", joined)
 	}
@@ -143,10 +148,23 @@ func TestConnectClonesEmptyWorkspace(t *testing.T) {
 	for _, c := range r.Calls {
 		if strings.Contains(c.Stdin, "ghp_secret_value") {
 			stagedViaStdin = true
+			// The token stages into at-task's own env var, not a connect-side askpass.
+			if !strings.Contains(c.Stdin, "AT_TASK_GIT_TOKEN") {
+				t.Fatalf("token must stage into at-task's AT_TASK_GIT_TOKEN env; stdin=%q", c.Stdin)
+			}
 		}
 	}
 	if !stagedViaStdin {
 		t.Fatalf("token must be staged into the VM via stdin; calls=%+v", r.Calls)
+	}
+	// No second askpass: connect must not write its own askpass script anymore.
+	if calledWith(r.Calls, "AT_TASK_ASKPASS_TOKEN") {
+		t.Fatalf("connect must not implement its own askpass; calls=%+v", r.Calls)
+	}
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, "AT_TASK_ASKPASS_TOKEN") {
+			t.Fatalf("connect must not stage its own askpass; stdin=%q", c.Stdin)
+		}
 	}
 }
 
@@ -162,7 +180,7 @@ func TestConnectSkipsCloneWhenWorkspaceReady(t *testing.T) {
 	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, cloneOpts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	if calledWith(r.Calls, "git clone") {
+	if calledWith(r.Calls, "clone-workspace") {
 		t.Fatalf("must not re-clone a workspace that already has a checkout; calls=%+v", r.Calls)
 	}
 	if !tr.launched {
@@ -179,7 +197,7 @@ func TestConnectNoCloneWhenUnset(t *testing.T) {
 	if err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, opts(t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	if calledWith(r.Calls, "git clone") || calledWith(r.Calls, "cove-ws-") {
+	if calledWith(r.Calls, "clone-workspace") || calledWith(r.Calls, "cove-ws-") {
 		t.Fatalf("no clone/probe expected without a WorkspaceClone; calls=%+v", r.Calls)
 	}
 }
