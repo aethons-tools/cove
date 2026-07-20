@@ -150,6 +150,44 @@ func TestNamedInstancesAreIsolated(t *testing.T) {
 	}
 }
 
+func TestListEnumeratesInstancesIgnoringInstallJSON(t *testing.T) {
+	dir := t.TempDir()
+	// No .state dir yet -> empty list, no error.
+	if got, err := List(dir); err != nil || len(got) != 0 {
+		t.Fatalf("List on absent .state = (%v, %v), want ([], nil)", got, err)
+	}
+	if err := SaveFor(dir, Interactive, State{Name: "box", Backend: "colima", Container: "box"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveFor(dir, Instance("steward"), State{Name: "box", Backend: "colima", Container: "box-steward"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveFor(dir, Instance("planner"), State{Name: "box", Backend: "colima", Container: "box-planner"}); err != nil {
+		t.Fatal(err)
+	}
+	// install.json shares the .state dir; it must never be mistaken for an instance.
+	if err := os.WriteFile(filepath.Join(Dir(dir), "install.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A subdirectory (e.g. logs/) must be skipped too.
+	if err := os.MkdirAll(filepath.Join(Dir(dir), "logs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Instance{Interactive, Instance("planner"), Instance("steward")} // sorted: "" < "planner" < "steward"
+	if len(got) != len(want) {
+		t.Fatalf("List = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("List[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestLoadForMissingInstance(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := LoadFor(dir, Instance("nope")); !errors.Is(err, ErrNotCreated) {

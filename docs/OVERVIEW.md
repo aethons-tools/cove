@@ -121,12 +121,12 @@ the image; only `uninstall` removes the image.
 | Command | Behavior |
 |---|---|
 | `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
-| `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in `.state/state.json` (image sourced from the manifest). A missing/stale install errors `run at-cove install`. `--workspace` selects Shared (bind-mount) mode. |
-| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
-| `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
-| `at-cove destroy [--project-dir DIR]` | Force-remove the container **and its volumes**, then delete the state file — teardown of the running *instance*. The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
-| `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while a created instance exists** (an instance holds the image), pointing at `at-cove destroy` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
-| `at-cove status [--project-dir DIR]` | Report `running` / `stopped` / `absent`. |
+| `at-cove create [collaborator] [--project-dir DIR] [--workspace\|--ws <path>]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
+| `at-cove recreate [collaborator] [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
+| `at-cove destroy [collaborator] [--project-dir DIR] [--all]` | Force-remove the resolved instance's container **and its volumes**, then delete its state file — teardown of the running *instance*. The optional positional selects the collaborator instance (mirroring `chat`); `--all` removes **every** instance of the kit. Unlike `create`/`recreate`/`chat`, it tolerates a stale/absent install (you can always tear down what you created). The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
+| `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while any created instance exists** (an instance — plain or per-collaborator — holds the image), pointing at `at-cove destroy --all` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
+| `at-cove status [collaborator] [--project-dir DIR]` | With no positional, **list every instance** of the kit (class, running state, container, workspace mode). With a collaborator positional, show just that one instance's `running` / `stopped` / `absent`. Tolerates a stale/absent install. |
 | `at-cove version` | Print the build version. |
 | `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM. Reads `.state/install.json`, **verifies the install is current** (fails fast with `run at-cove install` if missing/stale), then runs the **pre-built installed image** — it never builds. Injects `--in` as the task, runs the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class`, extracts the result to `--out`, destroys. Scavenges crashed dispatch orphans. |
 | `at-cove dispatch [--project-dir DIR]` | Poll the tracker and dispatch ready work via `at-cove work`. Reads its tracker/source-control/dispatch/workers run-config from `.state/install.json` (fails fast with `run at-cove install` if missing/stale); dispatched `work` units consume the one warm installed image — no per-unit build. |
@@ -223,14 +223,45 @@ the config shape.
 
 ### State vs. config
 
-`create` records the running instance in `.at-cove/.state/state.json`;
+`create` records the running instance in a per-instance state file under
+`.at-cove/.state/` (`state.json` for the plain instance, `<class>.json` per
+collaborator — see [Per-collaborator instances](#per-collaborator-interactive-instances));
 **`chat`, `destroy`, and `status` operate on that recorded state, not on `config.yml`**
-(`chat` additionally reads the current `.state/install.json` for its `collaborators:`
-tree and secret demands, as above — never `config.yml`).
-A lockfile guards concurrency:
-`chat` holds a *shared* lock for the whole session,
-and `destroy` takes an *exclusive* lock —
-so a sandbox can't be torn down underneath a live connection.
+(all four additionally read the `.state/install.json` `collaborators:` tree to
+resolve *which* instance a positional selects — never `config.yml`; `chat`/`create`/
+`recreate` require a current install, `destroy`/`status` tolerate a stale/absent one).
+A lockfile guards concurrency, **per instance**:
+`chat` holds a *shared* lock on its instance for the whole session,
+and `destroy` takes an *exclusive* lock on the instance it removes —
+so a sandbox can't be torn down underneath a live connection, and one
+collaborator's session never blocks another's.
+
+### Per-collaborator interactive instances
+
+When a kit defines `collaborators:`, each collaborator class is its **own
+interactive VM** — its own container, state file, and volumes — so a steward and
+a planner run side by side without colliding (COV-71). The five instance-aware
+verbs (`create`/`chat`/`recreate`/`destroy`/`status`) all resolve the same way,
+via the optional collaborator positional:
+
+- explicit `<class>` → that class;
+- omitted → the sole class, or the one marked `default: true` (error if several
+  are declared with no default);
+- a kit that defines **no** collaborators → the plain `Interactive` instance —
+  the exact single-VM behavior from before this change, unchanged.
+
+The resolved class keys the instance's identity (`<class>` → state file
+`<class>.json`, container `<kit>-<class>`, volumes `<kit>-<class>-workspace` and
+`<kit>-<class>-state`; the plain instance keeps `state.json` / `<kit>` / today's
+volume names — see [Workspace and state volumes](#workspace-and-state-volumes)).
+Two verbs add multi-VM ergonomics on top of that positional: `status` with no
+positional **lists every instance** of the kit (rather than resolving a default),
+and `destroy --all` **removes every instance**. The saved OAuth login still
+propagates across a kit's VMs through the host `credentials.json` (see
+[Authentication](#authentication)), so per-class `-state` volumes don't force a
+re-login per collaborator. This is a pure instance-keying change: it does **not**
+alter workspace-mount selection, `--ws`, or the
+[clone-on-first-session](#workspace-and-state-volumes) logic.
 
 ## How the build context is assembled
 
@@ -381,6 +412,23 @@ but the clone **fails**, session start is a **hard error** (fail closed). A
 A second volume, **`<name>-state`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates,
 and is seeded once (guarded by a `.seeded` marker).
+
+**Volume naming is per instance.** Here `<name>` is the *instance* name, not
+always the bare kit name: a collaborator instance keys its volumes
+`<kit>-<class>-workspace` / `<kit>-<class>-state` (container `<kit>-<class>`),
+while a no-collaborator kit keeps `<kit>-workspace` / `<kit>-state` (container
+`<kit>`) — see [Per-collaborator instances](#per-collaborator-interactive-instances).
+The saved login still crosses a kit's VMs via the host `credentials.json`, so a
+per-class `-state` volume is not a per-class re-login.
+
+> **No migration when adopting collaborators.** A kit that previously ran as a
+> plain single VM recorded its state in `state.json` (container = the bare kit
+> name). Once you add `collaborators:` and re-`install`, `create`/`chat` target
+> the class-keyed instances instead, leaving that pre-existing VM **orphaned**
+> (its `state.json` is never touched by the class verbs; only `destroy --all`,
+> which enumerates state files, still reaches it). There is deliberately **no
+> migration code** — `destroy` (or `destroy --all`) the old instance **before**
+> upgrading, then `create` the collaborator instances fresh.
 
 The seed also carries the Claude Code **plugins** enabled in managed settings
 (the `claude-plugins-official` marketplace and `superpowers`),
@@ -602,6 +650,9 @@ the `mint:` supply expansion — a `minters:` profile resolved through
 optional positional, its `prompt:` injected as role context and its
 `secrets:` resolved like the agent bucket (see
 [The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)),
+per-collaborator interactive instances — each class its own VM/state/volumes,
+with `status` listing all and `destroy --all` removing all (see
+[Per-collaborator instances](#per-collaborator-interactive-instances)),
 and worker/collaborator secret segregation — a `workers.<class>.secrets`
 bucket (`<common>`-merged, work-only, resolved lazily right before the agent
 step) that a dispatched worker's Anthropic bearer must live in instead of the
