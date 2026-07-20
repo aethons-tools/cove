@@ -179,8 +179,22 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 	}
 }
 
+// ListReady returns issues in the READY state that are dispatchable now: every
+// "blocks" blocker has reached the Done (completed) state, or the issue has no
+// blockers. Blocked-ness lives in the relationships, not the state — the
+// scheduler no longer promotes BLOCKED→READY and never touches the backlog
+// (COV-65). A READY issue still waiting on a blocker is simply not returned; it
+// waits in READY until its blockers finish.
+//
+// A dependency is satisfied ONLY at Done — In Progress / In Review / Backlog do
+// NOT count. Blocker doneness is resolved by a SEPARATE, authoritative id→state
+// lookup (doneBlockers), never read from the relation projection, which proved
+// unreliable and cascaded premature releases down multi-level chains (COV-56).
+// The blocker is taken as the relation endpoint that isn't the issue itself,
+// sidestepping any issue/relatedIssue ambiguity in how Linear presents an
+// inverse relation.
 func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
-	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}}}}}`
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{id} relatedIssue{id}}}}}}`
 	var out struct {
 		Issues struct {
 			Nodes []issueNode `json:"nodes"`
@@ -189,36 +203,8 @@ func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
 	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.Ready}, &out); err != nil {
 		return nil, err
 	}
-	issues := make([]scheduler.Issue, 0, len(out.Issues.Nodes))
-	for _, n := range out.Issues.Nodes {
-		issues = append(issues, c.toIssue(n))
-	}
-	return issues, nil
-}
 
-// ListUnblockable returns BLOCKED issues all of whose "blocks" blockers have
-// reached the Done (completed) state. A dependency is satisfied ONLY at Done —
-// In Progress / In Review / Backlog do NOT count (COV-56).
-//
-// Blocker doneness is resolved by a SEPARATE, authoritative id→state lookup
-// (doneBlockers), never read from the relation projection. Reading the blocker's
-// state through inverseRelations proved unreliable and cascaded premature
-// unblocks down multi-level chains (completing a grandparent released a
-// grandchild whose direct blocker was not yet Done). We also take the blocker as
-// the relation endpoint that isn't the issue itself, sidestepping any
-// issue/relatedIssue ambiguity in how Linear presents an inverse relation.
-func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error) {
-	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{id} relatedIssue{id}}}}}}`
-	var out struct {
-		Issues struct {
-			Nodes []issueNode `json:"nodes"`
-		} `json:"issues"`
-	}
-	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.Blocked}, &out); err != nil {
-		return nil, err
-	}
-
-	// Map each blocked issue to its blocker ids, and union those ids for one
+	// Map each ready issue to its blocker ids, and union those ids for one
 	// authoritative state lookup.
 	blockersOf := make(map[string][]string, len(out.Issues.Nodes))
 	idSet := map[string]struct{}{}
@@ -246,14 +232,14 @@ func (c *Client) ListUnblockable(ctx context.Context) ([]scheduler.Issue, error)
 
 	var issues []scheduler.Issue
 	for _, n := range out.Issues.Nodes {
-		unblockable := true
+		dispatchable := true
 		for _, b := range blockersOf[n.ID] {
 			if !done[b] {
-				unblockable = false
+				dispatchable = false
 				break
 			}
 		}
-		if unblockable {
+		if dispatchable {
 			issues = append(issues, c.toIssue(n))
 		}
 	}

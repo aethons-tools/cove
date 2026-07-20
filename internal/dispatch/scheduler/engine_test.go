@@ -151,9 +151,11 @@ func TestHandleFailedClaimStops(t *testing.T) {
 	}
 }
 
-func TestTickReconcilesAndDispatches(t *testing.T) {
+func TestTickDispatchesReadyByClass(t *testing.T) {
+	// ListReady only ever returns dispatchable READY issues (blockers Done — the
+	// tracker gates that). The scheduler dispatches the autonomous worker class and
+	// leaves interactive/unknown classes alone; it never promotes from the backlog.
 	tr := &fakeTracker{
-		unblockable: []Issue{{ID: "b1", Identifier: "AET-B1"}},
 		ready: []Issue{
 			{ID: "i1", Identifier: "AET-1", Class: "implement"},
 			{ID: "s1", Identifier: "AET-S1", Class: "spec"},    // interactive → skipped
@@ -166,10 +168,6 @@ func TestTickReconcilesAndDispatches(t *testing.T) {
 	e.tick(context.Background())
 	e.wait()
 
-	// unblockable moved to READY
-	if got := tr.roles("b1"); len(got) != 1 || got[0] != RoleReady {
-		t.Fatalf("unblock transitions = %v; want [Ready]", got)
-	}
 	// implement issue dispatched (claimed + brokered)
 	if got := tr.roles("i1"); len(got) != 2 || got[0] != RoleInProgress || got[1] != RoleInReview {
 		t.Fatalf("i1 transitions = %v; want [InProgress InReview]", got)

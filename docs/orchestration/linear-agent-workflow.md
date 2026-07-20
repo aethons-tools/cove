@@ -1,5 +1,5 @@
 ---
-summary: Product-agnostic design for a Linear-driven agent workflow that runs work from idea → spec → plan → implementation → PR → review → closeout. Every issue flows one uniform lifecycle (BLOCKED → READY → IN PROGRESS → IN REVIEW → DONE, plus NEEDS INPUT); the "stage" lives in the issue's identity and its handler class, not the state. A dedicated non-LLM scheduler (webhook-driven, poll-backstopped) claims ready work and dispatches it to one-shot LLM worker agents on hardened infrastructure; humans are surfaced their issues to drive in chat sessions.
+summary: Product-agnostic design for a Linear-driven agent workflow that runs work from idea → spec → plan → implementation → PR → review → closeout. Every issue flows one uniform lifecycle (READY → IN PROGRESS → IN REVIEW → DONE, with BACKLOG for parked work and NEEDS INPUT as a side state); the "stage" lives in the issue's identity and its handler class, not the state. A dedicated non-LLM scheduler (webhook-driven, poll-backstopped) claims ready work and dispatches it to one-shot LLM worker agents on hardened infrastructure; humans are surfaced their issues to drive in chat sessions.
 read_when: You are building, operating, or extending Linear-based orchestration of software work — the uniform lifecycle, the fan-out into per-stage subissues, assignment by handler class, the dedicated scheduler and webhook receiver, the worker fleet, the stop-and-write-needs-back protocol, or dependency-gated readiness.
 owns: the uniform issue lifecycle, the idea→issues→subissues fan-out model, assignment by handler class, the stage-agnostic orchestrator principle, the webhook-driven dedicated-scheduler dispatch architecture, the worker execution model, the stop-and-write-needs-back protocol, and dependency-gated readiness
 prereqs: none — the companion at-cove-work-interface.md covers the dispatch substrate this doc references
@@ -25,7 +25,7 @@ The worker-execution substrate — how the scheduler actually launches workers o
 Binding on everything below:
 
 - **One uniform lifecycle for every issue.**
-  Every issue — regardless of what kind of work it is — flows `BLOCKED → READY → IN PROGRESS → IN REVIEW → DONE`, with `NEEDS INPUT` as a side state.
+  Every issue — regardless of what kind of work it is — flows `READY → IN PROGRESS → IN REVIEW → DONE`, with `BACKLOG` as the parked-until-active state and `NEEDS INPUT` as a side state.
   The lifecycle *state* does not encode the *stage*.
   This is very nearly a stock tracker workflow; only `NEEDS INPUT` is custom.
 - **Work fans out as a dependency graph, not a fixed pipeline.**
@@ -61,23 +61,22 @@ Every issue and subissue uses the same states.
 
 | State | Type | Meaning |
 |-------|------|---------|
-| **BLOCKED** | backlog/unstarted | has unfinished `blockedBy` dependencies; not yet dispatchable |
-| **READY** | unstarted | all blockers are `DONE`; eligible for its handler class to pick up |
+| **BACKLOG** | backlog | not active — parked for later. The scheduler never looks here. |
+| **READY** | unstarted | active: should be worked. Dispatched once its `blockedBy` blockers are all `DONE` (or it has none). |
 | **IN PROGRESS** | started | a handler (bot worker or human session) is actively working it |
 | **IN REVIEW** | started | work produced; awaiting the review handler for this issue |
-| **DONE** | completed | accepted; closing it unblocks its dependents |
+| **DONE** | completed | accepted; a dependent becomes dispatchable once all its blockers are `DONE` |
 | **NEEDS INPUT** | unstarted | a handler hit a wall and wrote back; waiting on a human |
 | *(Canceled / Duplicate)* | canceled | terminal |
 
 ```
-              (blockers cleared, automatically)
-  BLOCKED ─────────────────────────────────► READY
-                                               │  handler class picks up
+  BACKLOG ──(a human decides it's active)──► READY
+                                               │  dispatched when every blockedBy blocker is DONE
                                                ▼
                                           IN PROGRESS ───────► IN REVIEW ───────► DONE
-                                               │                                    │
-                                               │ hits a wall                        │ closing unblocks
-                                               ▼                                    ▼  dependents → READY
+                                               │
+                                               │ hits a wall
+                                               ▼
                                           NEEDS INPUT ──(human answers, moves back to READY)──► re-dispatch
 ```
 
@@ -85,8 +84,13 @@ The **state transition is the handshake; comments are the payload.**
 A human moving an issue out of `NEEDS INPUT` back to `READY` *is* the "your question is answered" signal —
 the handler does not parse comment authorship to decide whether it may resume.
 
-`BLOCKED → READY` is **automatic**: the scheduler flips it when the last blocker reaches `DONE`.
-No human hand-manages the queue.
+**Readiness is not a state the scheduler manages — blocked-ness lives in the relationships.**
+The scheduler only ever considers `READY` issues and dispatches one when all of its `blockedBy` blockers
+are `DONE`; a `READY` issue still waiting on a blocker simply sits in `READY` until they finish. It does
+**not** auto-promote from `BACKLOG` — `BACKLOG` means "not active," full stop, and a human moves work to
+`READY` when it should be picked up (COV-65). So a dependency chain is filed with every link in `READY`,
+wired by `blockedBy`; the links light up in order as each blocker completes. Nothing is hand-queued, and
+nothing parked in `BACKLOG` is ever dispatched.
 
 ## Work structure — idea → issues → subissues
 
@@ -148,9 +152,9 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
      │  ┌─────────────────┐        ┌──────────────────────────┐
      │  │ Webhook receiver │ ─────► │  Dedicated scheduler      │
      │  │ (thin, hardened, │ enqueue│  (non-LLM service)        │
-     │  │  edge; verify →  │  wake  │  • BLOCKED→READY (auto)   │
-     │  │  enqueue → done) │        │  • claim READY→IN PROGRESS │
-     │  └─────────────────┘        │    (single writer)        │
+     │  │  edge; verify →  │  wake  │  • dispatch READY once    │
+     │  │  enqueue → done) │        │    blockers all DONE →     │
+     │  └─────────────────┘        │    claim IN PROGRESS       │
      │        ▲                    │  • enqueue autonomous jobs │
      └────────┘ backstop poll ─────│  • assign+notify humans    │
        (low-frequency reconcile)   │  • reap stale IN PROGRESS  │
@@ -174,7 +178,7 @@ A dedicated, non-LLM scheduler service; a thin webhook receiver; a durable queue
 **Components:**
 
 - **Webhook receiver** — the one inbound component. Verifies the signature, enqueues an event, wakes the scheduler. No business logic, no LLM.
-- **Dedicated scheduler (non-LLM)** — talks the tracker API directly. It is the **only writer of claims**, which makes claiming race-free (below). Responsibilities: auto `BLOCKED → READY`; claim `READY → IN PROGRESS` and enqueue for autonomous classes; assign + notify for interactive classes; reap stale claims. Runs cheaply 24/7.
+- **Dedicated scheduler (non-LLM)** — talks the tracker API directly. It is the **only writer of claims**, which makes claiming race-free (below). Responsibilities: dispatch a `READY` issue once its `blockedBy` blockers are all `DONE` — claim `READY → IN PROGRESS` and enqueue for autonomous classes; assign + notify for interactive classes; reap stale claims. It never promotes from `BACKLOG` and never hand-manages a queue. Runs cheaply 24/7.
 - **Dispatch queue** — durable, on our infra. Its **single-delivery** guarantee means exactly one worker gets each job — no distributed lock, no compare-and-swap against the tracker.
 - **Worker fleet** — hardened at-cove containers running the LLM agents. Each pulls a job, works from a **self-contained brief** the scheduler assembled (issue description + linked spec/plan + comment thread), runs the class-specific handler in a fresh checkout, one-shot. A worker holds **no tracker credentials** and does no tracker I/O; it returns a structured `task-result.json` and the scheduler brokers every tracker write. See the [at-cove work interface](at-cove-work-interface.md#worker-contract).
 
@@ -220,7 +224,7 @@ The **scheduler** then performs the tracker writes: it posts the `❓ NEEDS INPU
 
 ## How this leverages the tracker
 
-- **`blockedBy` = the scheduler's read side.** The dependency graph is the schedule, running itself; finishing an issue auto-unblocks its dependents.
+- **`blockedBy` = the scheduler's read side.** The dependency graph gates dispatch: a `READY` issue is dispatched only when all its `blockedBy` blockers are `DONE`, so finishing an issue makes its `READY` dependents dispatchable on the next tick — no promotion, no hand-queuing.
 - **Human-class dispatch is free** — the tracker's own assignment + notifications surface the issue; no custom notifier.
 - **Sub-issue rollup** gives the idea-level progress view for nothing.
 - **Code-host integration** auto-links the PR to the issue on `IN REVIEW`.

@@ -133,10 +133,9 @@ func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	}
 }
 
-// runUnblockable drives ListUnblockable with canned responses: the state map (at
-// New), then the BLOCKED-issues query, then the authoritative blocker-state
-// lookup.
-func runUnblockable(t *testing.T, backlog, blockerStates string) []scheduler.Issue {
+// runReadyGated drives ListReady with canned responses: the state map (at New),
+// then the READY-issues query, then the authoritative blocker-state lookup.
+func runReadyGated(t *testing.T, ready, blockerStates string) []scheduler.Issue {
 	t.Helper()
 	calls := 0
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
@@ -145,23 +144,23 @@ func runUnblockable(t *testing.T, backlog, blockerStates string) []scheduler.Iss
 		case 1:
 			return jsonResp(statesResponse), nil
 		case 2:
-			return jsonResp(backlog), nil
+			return jsonResp(ready), nil
 		default:
 			return jsonResp(blockerStates), nil
 		}
 	})
-	got, err := c.ListUnblockable(context.Background())
+	got, err := c.ListReady(context.Background())
 	if err != nil {
-		t.Fatalf("ListUnblockable: %v", err)
+		t.Fatalf("ListReady: %v", err)
 	}
 	return got
 }
 
-func TestListUnblockableReleasesOnlyWhenBlockersDone(t *testing.T) {
-	// b1's sole blocker is Done → unblockable. b2's blocker is still In Review
-	// (started) → not: a dependency is satisfied ONLY at Done (COV-56). Blocker
-	// doneness comes from the authoritative id→state lookup, not the relation.
-	const backlog = `{"data":{"issues":{"nodes":[
+func TestListReadyDispatchesOnlyWhenBlockersDone(t *testing.T) {
+	// Both are in READY. b1's sole blocker is Done → dispatchable. b2's blocker is
+	// still In Review (started) → held: a dependency is satisfied ONLY at Done
+	// (COV-56/COV-65). Doneness comes from the authoritative id→state lookup.
+	const ready = `{"data":{"issues":{"nodes":[
 	 {"id":"b1","identifier":"AET-B1","title":"","description":"","labels":{"nodes":[]},
 	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"blk1"},"relatedIssue":{"id":"b1"}}]}},
 	 {"id":"b2","identifier":"AET-B2","title":"","description":"","labels":{"nodes":[]},
@@ -171,20 +170,33 @@ func TestListUnblockableReleasesOnlyWhenBlockersDone(t *testing.T) {
 	 {"id":"blk1","state":{"type":"completed"}},
 	 {"id":"blk2","state":{"type":"started"}}
 	]}}}`
-	got := runUnblockable(t, backlog, blockerStates)
+	got := runReadyGated(t, ready, blockerStates)
 	if len(got) != 1 || got[0].ID != "b1" {
-		t.Fatalf("ListUnblockable = %+v; want only b1 (its blocker is Done)", got)
+		t.Fatalf("ListReady = %+v; want only b1 (its blocker is Done)", got)
 	}
 }
 
-// A mid-chain completion must not cascade down the chain: when a grandparent is
-// Done but the direct blocker is not, the dependent stays blocked (COV-56).
-func TestListUnblockableDoesNotCascadeMultiLevel(t *testing.T) {
-	// c2 is blocked by c1 (Done); c3 is blocked by c2 (still in Backlog). Completing
-	// c1 must release ONLY c2 — c3 stays blocked because its own blocker c2 is not
-	// Done. c2 appears both as a BLOCKED issue and as c3's blocker; the authoritative
-	// lookup reports c2's real state (backlog), so its done-ness can't leak.
-	const backlog = `{"data":{"issues":{"nodes":[
+// A READY issue with NO blockers is dispatchable — and the blocker lookup is not
+// even needed. (No third request is made when there are no blocker ids.)
+func TestListReadyDispatchesUnblockedIssue(t *testing.T) {
+	const ready = `{"data":{"issues":{"nodes":[
+	 {"id":"free","identifier":"AET-FREE","title":"","description":"","labels":{"nodes":[{"name":"class:implement"}]},
+	  "inverseRelations":{"nodes":[]}}
+	]}}}`
+	// blockerStates would only be used if there were blocker ids; there are none.
+	got := runReadyGated(t, ready, `{"data":{"issues":{"nodes":[]}}}`)
+	if len(got) != 1 || got[0].ID != "free" || got[0].Class != "implement" {
+		t.Fatalf("ListReady = %+v; want the unblocked free issue", got)
+	}
+}
+
+// A mid-chain completion must not cascade: with a grandparent Done but the direct
+// blocker not, only the direct dependent is dispatchable (COV-56).
+func TestListReadyDoesNotCascadeMultiLevel(t *testing.T) {
+	// c2 blocked by c1 (Done); c3 blocked by c2 (not Done). Only c2 dispatchable.
+	// c2 is both a READY issue and c3's blocker; the authoritative lookup reports
+	// c2's real state (not completed), so its done-ness can't leak to c3.
+	const ready = `{"data":{"issues":{"nodes":[
 	 {"id":"c2","identifier":"AET-C2","title":"","description":"","labels":{"nodes":[]},
 	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"c1"},"relatedIssue":{"id":"c2"}}]}},
 	 {"id":"c3","identifier":"AET-C3","title":"","description":"","labels":{"nodes":[]},
@@ -192,24 +204,24 @@ func TestListUnblockableDoesNotCascadeMultiLevel(t *testing.T) {
 	]}}}`
 	const blockerStates = `{"data":{"issues":{"nodes":[
 	 {"id":"c1","state":{"type":"completed"}},
-	 {"id":"c2","state":{"type":"backlog"}}
+	 {"id":"c2","state":{"type":"started"}}
 	]}}}`
-	got := runUnblockable(t, backlog, blockerStates)
+	got := runReadyGated(t, ready, blockerStates)
 	if len(got) != 1 || got[0].ID != "c2" {
-		t.Fatalf("ListUnblockable = %+v; want only c2 (c3 must stay blocked — its blocker c2 is not Done)", got)
+		t.Fatalf("ListReady = %+v; want only c2 (c3 held — its blocker c2 is not Done)", got)
 	}
 }
 
-// A blocked issue whose blocker id resolves to nothing (deleted/missing) stays
-// blocked rather than releasing on a phantom satisfied dependency.
-func TestListUnblockableHoldsOnMissingBlocker(t *testing.T) {
-	const backlog = `{"data":{"issues":{"nodes":[
+// A READY issue whose blocker id resolves to nothing (deleted/missing) is held,
+// not dispatched on a phantom satisfied dependency.
+func TestListReadyHoldsOnMissingBlocker(t *testing.T) {
+	const ready = `{"data":{"issues":{"nodes":[
 	 {"id":"d1","identifier":"AET-D1","title":"","description":"","labels":{"nodes":[]},
 	  "inverseRelations":{"nodes":[{"type":"blocks","issue":{"id":"gone"},"relatedIssue":{"id":"d1"}}]}}
 	]}}}`
 	const blockerStates = `{"data":{"issues":{"nodes":[]}}}`
-	if got := runUnblockable(t, backlog, blockerStates); len(got) != 0 {
-		t.Fatalf("ListUnblockable = %+v; want none (blocker missing → not satisfied)", got)
+	if got := runReadyGated(t, ready, blockerStates); len(got) != 0 {
+		t.Fatalf("ListReady = %+v; want none (blocker missing → not satisfied)", got)
 	}
 }
 

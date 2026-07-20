@@ -238,19 +238,12 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// tick is one poll pass: reconcile BLOCKED→READY, claim+dispatch ready
-// autonomous issues up to the concurrency caps, then reap stale claims.
+// tick is one poll pass: claim+dispatch the ready autonomous issues whose
+// blockers are all Done, up to the concurrency caps, then reap stale claims.
 func (e *Engine) tick(ctx context.Context) {
-	if unb, err := e.tracker.ListUnblockable(ctx); err != nil {
-		e.log.Error("list unblockable failed", slog.Any("err", err))
-	} else {
-		for _, iss := range unb {
-			if err := e.tracker.Transition(ctx, iss.ID, RoleReady); err != nil {
-				e.log.Error("unblock failed", slog.String("issue", iss.Identifier), slog.Any("err", err))
-			}
-		}
-	}
-
+	// Dispatch is READY-only: ListReady returns issues whose blockers are all Done
+	// (the tracker gates on the relationships). The scheduler never promotes from
+	// the backlog — backlog means "not active" and is left untouched (COV-65).
 	ready, err := e.tracker.ListReady(ctx)
 	if err != nil {
 		e.log.Error("list ready failed", slog.Any("err", err))
