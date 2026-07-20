@@ -404,7 +404,9 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`,
   and `backend.SessionEgress` — `ApplySessionEgress` `docker exec`s the sealed
   `apply-session-domains.sh` (as root, domains piped on stdin) to apply a session's
-  per-class egress delta + `squid -k reconfigure` (COV-39 §5; wired in S4/S5).
+  per-class egress delta + `squid -k reconfigure` (COV-39 §5). The ephemeral
+  (`work`/`dispatch`) path wires it in before the agent step (see
+  [the work interface](orchestration/at-cove-work-interface.md)); the persistent (`chat`) path is still pending (S5).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
