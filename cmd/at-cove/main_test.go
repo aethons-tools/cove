@@ -929,6 +929,134 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	}
 }
 
+// sessionEgressCalls returns the recorded `docker exec … apply-session-domains.sh`
+// calls (the per-session egress deliveries, COV-39 §5), in order, so tests can
+// assert apply-on-start and clear-on-exit distinctly.
+func sessionEgressCalls(calls []runner.Call) []runner.Call {
+	var out []runner.Call
+	for _, c := range calls {
+		if c.Name != "docker" {
+			continue
+		}
+		for _, a := range c.Args {
+			if strings.Contains(a, "apply-session-domains.sh") {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// launchIndex returns the index of the interactive launch ssh call (`-tt`), the
+// point at which the session is handed to the agent.
+func launchIndex(calls []runner.Call) int {
+	for i, c := range calls {
+		if c.Name != "ssh" {
+			continue
+		}
+		for _, a := range c.Args {
+			if a == "-tt" {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// egressCallIndices returns the f.Calls indices of the session-egress deliveries.
+func egressCallIndices(calls []runner.Call) []int {
+	var idx []int
+	for i, c := range calls {
+		if c.Name != "docker" {
+			continue
+		}
+		for _, a := range c.Args {
+			if strings.Contains(a, "apply-session-domains.sh") {
+				idx = append(idx, i)
+				break
+			}
+		}
+	}
+	return idx
+}
+
+// TestChatAppliesCollaboratorEgressAndClearsOnExit asserts the persistent
+// (interactive) path scopes egress to the selected collaborator class on start
+// and reverts it on exit (COV-39 §5): before connect hands the session to the
+// agent, chat applies the class's resolved <common> ∪ class delta (from the
+// install.json RunConfig) via ApplySessionEgress; on exit it clears the session
+// file so the idle container reverts to root-only.
+func TestChatAppliesCollaboratorEgressAndClearsOnExit(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\ncollaborators:\n  <common>:\n    allowed-domains: [docs.internal]\n  planner:\n    prompt: \"plan it\"\n    allowed-domains: [linear.app]\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t) // keypair present so keys.Ensure doesn't shell out
+	writeState(t, kitDir, "colima", "box")
+	writeInstall(t, kitDir) // collaborator domains are sourced from install.json
+	// GetStatus -> running; Dial -> host:port. --no-auth skips the ssh auth probe.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"chat", "planner", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	egr := sessionEgressCalls(f.Calls)
+	if len(egr) != 2 {
+		t.Fatalf("want exactly 2 session-egress calls (apply-on-start + clear-on-exit); got %d: %+v", len(egr), egr)
+	}
+	// apply-on-start carries the resolved, deduped, sorted <common> ∪ class delta
+	// on stdin (one host per line), never on argv.
+	if want := "docs.internal\nlinear.app\n"; egr[0].Stdin != want {
+		t.Fatalf("apply-on-start stdin = %q; want %q", egr[0].Stdin, want)
+	}
+	// clear-on-exit carries an empty delta so the container reverts to root-only.
+	if egr[1].Stdin != "" {
+		t.Fatalf("clear-on-exit stdin = %q; want empty", egr[1].Stdin)
+	}
+	// Ordering: apply BEFORE the agent handoff (the `-tt` launch), clear AFTER it.
+	idx := egressCallIndices(f.Calls)
+	li := launchIndex(f.Calls)
+	if li < 0 {
+		t.Fatalf("expected an interactive launch ssh call; calls=%+v", f.Calls)
+	}
+	if !(idx[0] < li && li < idx[1]) {
+		t.Fatalf("egress order wrong: apply@%d launch@%d clear@%d (want apply<launch<clear)", idx[0], li, idx[1])
+	}
+}
+
+// TestChatPlainSessionAppliesRootOnlyEgress asserts a no-collaborator plain
+// session applies an empty delta on start (root only — no widened egress) and
+// still clears on exit (COV-39 §5).
+func TestChatPlainSessionAppliesRootOnlyEgress(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir) // no collaborators -> plain session
+	seedConfigDir(t)           // keypair present so keys.Ensure doesn't shell out
+	writeState(t, kitDir, "colima", "box")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"chat", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	egr := sessionEgressCalls(f.Calls)
+	if len(egr) != 2 {
+		t.Fatalf("want exactly 2 session-egress calls (apply empty + clear); got %d: %+v", len(egr), egr)
+	}
+	for i, c := range egr {
+		if c.Stdin != "" {
+			t.Fatalf("call %d stdin = %q; a plain session applies root-only (empty delta)", i, c.Stdin)
+		}
+	}
+}
+
 func TestChatMalformedSecretsFileAborts(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)

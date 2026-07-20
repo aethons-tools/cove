@@ -322,7 +322,11 @@ Egress domains scoped to this collaborator class, mirroring
 [`workers.*class*.allowed-domains`](#workersclassallowed-domains): a **set union**
 with the collaborators `<common>` list (deduped, order-normalized), added to the
 root `image.allowed-domains` for a `chat` session of this class. Resolved via
-`kit.Config.ResolvedCollaboratorDomains`; part of the per-class egress model under
+`kit.Config.ResolvedCollaboratorDomains` (from the current `install.json`, never a
+live `config.yml`); `chat` applies this delta on session start and clears it on exit,
+so an idle persistent container reverts to root-only (COV-39 §5 — see
+[The `chat` command and collaborator sessions](../OVERVIEW.md#the-chat-command-and-collaborator-sessions)).
+Part of the per-class egress model under
 [COV-39](../superpowers/specs/2026-07-19-per-class-egress-design.md).
 
 ```yaml
