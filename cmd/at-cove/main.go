@@ -650,6 +650,35 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if raw {
 		cmd = "bash"
 	}
+
+	// Scope this interactive session's egress to the selected collaborator class
+	// (COV-39 §5). The persistent container booted with only the baked sealed +
+	// root lists; we add this class's <common> ∪ class delta on start — before
+	// connect hands the session to the agent — and clear it on exit, so an idle
+	// persistent container reverts to root-only rather than retaining a
+	// collaborator's widened egress. The clear is deferred so it also runs on
+	// error paths. A no-collaborator plain session applies an empty delta (root
+	// only). Only one active class per persistent container at a time (a single
+	// interactive session) — a documented constraint, not enforced (spec §5, §8).
+	// Domains come from the currency-pinned install.json RunConfig (cfg), never a
+	// live config.yml — "install froze it" (COV-38). The delivery op is privileged
+	// (host docker exec as root) and lives in its own interface, so we type-assert
+	// it off the Backend, exactly as the ephemeral path does off DispatchOps.
+	eg, ok := b.(backend.SessionEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support session egress (required to scope a collaborator's allow-list)")
+	}
+	var domains []string
+	if hasCollab {
+		if domains, err = cfg.ResolvedCollaboratorDomains(class); err != nil {
+			return err
+		}
+	}
+	if err := eg.ApplySessionEgress(st.Container, domains); err != nil {
+		return fmt.Errorf("apply session egress: %w", err)
+	}
+	defer func() { _ = eg.ApplySessionEgress(st.Container, nil) }()
+
 	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: st.Name}, awake.New(), connect.Options{
 		Container:          st.Container,
 		Secrets:            specs,

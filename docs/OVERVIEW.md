@@ -179,6 +179,20 @@ GitHub and Linear through the human's own **claude.ai account connectors**
 [the orchestration work interface](orchestration/at-cove-work-interface.md)
 for the dispatched-worker side of that boundary.
 
+**Session-scoped egress.** On start — before the session is handed to the agent —
+`chat` scopes the container's egress to the selected collaborator: it resolves the
+class's `<common> ∪ class` allowed-domains delta from the current `install.json`
+(never `config.yml`) and applies it via `ApplySessionEgress`, so the collaborator
+reaches only its role's domains on top of the baked sealed + root lists. On exit it
+clears the session file (a deferred clear, so it runs on error paths too), reverting
+the idle persistent container to root-only rather than retaining a widened egress. A
+plain session (no collaborator) applies an empty delta — root only. Only one active
+class per persistent container at a time (a single interactive session) — a
+documented constraint, not enforced (COV-39 §5). See the
+[per-class egress design](superpowers/specs/2026-07-19-per-class-egress-design.md)
+and [at-cove-config.md](usage/at-cove-config.md#collaboratorsclassallowed-domains) for
+the config shape.
+
 ### State vs. config
 
 `create` records the running instance in `.at-cove/.state/state.json`;
@@ -406,7 +420,9 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   `apply-session-domains.sh` (as root, domains piped on stdin) to apply a session's
   per-class egress delta + `squid -k reconfigure` (COV-39 §5). The ephemeral
   (`work`/`dispatch`) path wires it in before the agent step (see
-  [the work interface](orchestration/at-cove-work-interface.md)); the persistent (`chat`) path is still pending (S5).
+  [the work interface](orchestration/at-cove-work-interface.md)); the persistent
+  (`chat`) path applies the selected collaborator's delta on start and clears it
+  on exit (see [The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
