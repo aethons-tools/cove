@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-07-15
+updated: 2026-07-20
 ---
 
 # at-cove `config.yml`
@@ -235,20 +235,41 @@ run sees it. This is where a worker's Anthropic bearer belongs:
 `workers.<common>.secrets`), never at the kit root — see
 [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
 
+#### workers.*class*.allowed-domains
+*list of strings, optional, unioned with `<common>` (a set, not overwritten)*
+
+Egress domains scoped to this worker class, **added to** the root
+[`image.allowed-domains`](#imageallowed-domains) for a run of this class. Same
+per-entry rule as the root list (each non-empty). Unlike the `<common>`-merge of
+scalars/secrets (where own overwrites base), domains are a **set union**: a
+class's effective per-class list is `workers.<common>.allowed-domains ∪
+workers.<class>.allowed-domains`, deduped and order-normalized. This gives an
+autonomous class a wider (never narrower) egress than the kit default — part of
+the per-class session-scoped egress model being built under
+[COV-39](../superpowers/specs/2026-07-19-per-class-egress-design.md); this field
+is the config + resolver layer (`kit.Config.ResolvedWorkerDomains`).
+
 ```yaml
 workers:
   <common>:
     timeout: 30m
     concurrency: 1
+    allowed-domains: [github.com]          # every worker class
     secrets:
       ANTHROPIC_AUTH_TOKEN:
         description: short-lived Anthropic bearer for the worker agent
   triage:
     prompt: Determine what needs to be done and write TODOs.
+  deploy:
+    prompt: Ship it.
+    allowed-domains: [registry.example.com]  # deploy also reaches the registry
 ```
 
 `at-cove` resolves a class's effective config — `timeout`/`concurrency`/`secrets`
-all `<common>`-merged, own overrides base — via `kit.Config.ResolvedWorker`.
+all `<common>`-merged, own overrides base — via `kit.Config.ResolvedWorker`, and
+its per-class egress delta (`<common> ∪ class`) via
+`kit.Config.ResolvedWorkerDomains` (root stays separate, delivered to every
+session).
 
 ### collaborators
 *map of classname → config*
@@ -293,6 +314,16 @@ positional and the kit defines more than one. **At most one** class may set
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
 [Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` — see above.
+
+#### collaborators.*class*.allowed-domains
+*list of strings, optional, unioned with `<common>` (a set, not overwritten)*
+
+Egress domains scoped to this collaborator class, mirroring
+[`workers.*class*.allowed-domains`](#workersclassallowed-domains): a **set union**
+with the collaborators `<common>` list (deduped, order-normalized), added to the
+root `image.allowed-domains` for a `chat` session of this class. Resolved via
+`kit.Config.ResolvedCollaboratorDomains`; part of the per-class egress model under
+[COV-39](../superpowers/specs/2026-07-19-per-class-egress-design.md).
 
 ```yaml
 collaborators:
@@ -493,7 +524,8 @@ the template kit for `at-cove dispatch`.
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
   contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
-  class omits `prompt`; a `timeout` isn't a positive Go duration; or a `concurrency` is negative;
+  class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative;
+  or a `workers.*.allowed-domains[i]` / `collaborators.*.allowed-domains[i]` entry is empty;
 - the root `secrets` declares `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — an Anthropic
   agent bearer must be declared under `workers.<class>.secrets` (or
   `workers.<common>.secrets`) instead; see
