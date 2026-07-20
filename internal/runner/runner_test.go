@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -173,5 +174,74 @@ func TestOSRunStdinFeedsStdin(t *testing.T) {
 	// `cat` echoes stdin to stdout; with stdout not captured this just must not error.
 	if err := (OS{}).RunStdin(strings.NewReader("hi"), "cat"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOSRunIOStreamsToInjectedWriters is the injection contract on the production
+// runner: when a caller supplies stdout/stderr writers, the child's streams flow
+// there instead of the host console.
+func TestOSRunIOStreamsToInjectedWriters(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	err := (OS{}).RunIO(nil, &out, &errBuf, "sh", "-c", "printf out; printf err >&2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "out" {
+		t.Fatalf("stdout = %q, want %q", out.String(), "out")
+	}
+	if errBuf.String() != "err" {
+		t.Fatalf("stderr = %q, want %q", errBuf.String(), "err")
+	}
+}
+
+// TestOSRunIONilWritersDefaultToProcessStreams guards the unchanged-by-default
+// behaviour: nil writers fall back to the process's os.Stdout/os.Stderr, so
+// existing callers keep streaming live.
+func TestOSRunIONilWritersDefaultToProcessStreams(t *testing.T) {
+	if err := (OS{}).RunIO(nil, nil, nil, "true"); err != nil {
+		t.Fatalf("got %v, want nil", err)
+	}
+}
+
+func TestOSRunIOPropagatesExitCode(t *testing.T) {
+	var xe *ExitError
+	err := (OS{}).RunIO(nil, nil, nil, "sh", "-c", "exit 9")
+	if !errors.As(err, &xe) {
+		t.Fatalf("got %T (%v), want *ExitError", err, err)
+	}
+	if xe.ExitCode() != 9 {
+		t.Fatalf("ExitCode() = %d, want 9", xe.ExitCode())
+	}
+}
+
+// TestFakeRunIORedirectsOutputToBuffer is the DoD scenario: a host caller
+// redirects a runner's output into a buffer and reads it back via Fake. Fake
+// streams its queued stdout to the injected writer (mirroring OS) and records the
+// writers it was handed so the caller can assert redirection.
+func TestFakeRunIORedirectsOutputToBuffer(t *testing.T) {
+	f := &Fake{Outputs: []FakeResult{{Stdout: "vm output\n"}}}
+	var buf bytes.Buffer
+	if err := f.RunIO(nil, &buf, nil, "ssh", "host", "at-task"); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "vm output\n" {
+		t.Fatalf("redirected output = %q, want %q", buf.String(), "vm output\n")
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "ssh" {
+		t.Fatalf("call not recorded: %+v", f.Calls)
+	}
+	if f.Calls[0].Stdout != &buf {
+		t.Fatalf("Fake did not record injected stdout writer")
+	}
+}
+
+// TestFakeRunIORecordsStdin confirms RunIO records piped stdin like RunStdin.
+func TestFakeRunIORecordsStdin(t *testing.T) {
+	f := &Fake{}
+	if err := f.RunIO(strings.NewReader("payload"), nil, nil, "ssh", "host", "cat > /x"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Stdin != "payload" {
+		t.Fatalf("stdin not recorded: %+v", f.Calls)
 	}
 }
