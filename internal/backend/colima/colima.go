@@ -157,6 +157,19 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	return nil
 }
 
+// RemoveImage removes a kit's compiled image (`docker rmi`) — the inverse of
+// Install and the sole image-teardown path (COV-64). It is invoked only by
+// `at-cove uninstall`; the container lifecycle (Destroy/recreate) never removes
+// the image, which is an `install` artifact (COV-63). The command layer treats a
+// failure here as best-effort (the image may already be gone), so RemoveImage
+// simply reports what `docker rmi` did.
+func (c *Colima) RemoveImage(image string) error {
+	if err := c.preflight(); err != nil {
+		return err
+	}
+	return c.r.Run("docker", dargs("rmi", image)...)
+}
+
 func (c *Colima) GetStatus(name string) (backend.State, error) {
 	if err := c.preflight(); err != nil {
 		return backend.StateAbsent, err

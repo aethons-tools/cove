@@ -112,6 +112,17 @@ func Save(kitDir string, m Manifest) error {
 	return os.WriteFile(Path(kitDir), append(b, '\n'), 0o600)
 }
 
+// Delete removes the kit's install.json. Idempotent — a missing manifest is not
+// an error. `at-cove uninstall` uses it to return a kit to "not installed" once
+// the compiled image is gone (mirroring state.Delete for the instance file).
+func Delete(kitDir string) error {
+	err := os.Remove(Path(kitDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // Load reads the kit's install.json. Returns ErrNotInstalled if absent.
 func Load(kitDir string) (Manifest, error) {
 	b, err := os.ReadFile(Path(kitDir))

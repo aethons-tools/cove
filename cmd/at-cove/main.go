@@ -137,6 +137,20 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return doDestroyInstance(kitDir, r, inst, false, g.DryRun, out)
 				})
 			}},
+			{Name: "uninstall", Brief: "remove the compiled kit image + install.json (inverse of install)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				pd := projectDirFlag(fs)
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				kitDir, code := resolveProjectDir(*pd, pos, "uninstall", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doUninstall(kitDir, r, g.DryRun, out), errw)
+			}},
 			{Name: "status", Brief: "print sandbox status", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return instanceCmd("status", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
 					return doStatusInstance(kitDir, r, inst, g.DryRun, out)
@@ -360,6 +374,54 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, dryRun bool,
 		return err
 	}
 	fmt.Fprintf(stdout, "installed %s: built %s and wrote %s\n", cfg.Name, installed.Ref, install.Path(kitDir))
+	return nil
+}
+
+// doUninstall is the inverse of doInstall (COV-64): it removes a kit's compiled
+// artifacts — the image (backend RemoveImage) and install.json — returning the kit
+// to "not installed" (a later create/chat then reports `run at-cove install`).
+// It is the ONLY command that removes the image; the container lifecycle
+// (destroy/recreate) deliberately keeps it (COV-63). It refuses while a created
+// instance still exists (that instance holds the image), directing the user to
+// `at-cove destroy` first. Image removal is best-effort: when install.json is
+// present but the image is already gone (e.g. a machine left broken by the
+// pre-COV-63 bug), it still deletes install.json. A not-installed kit is a
+// friendly no-op. `--dry-run` reports the image + manifest it would remove and
+// touches nothing.
+func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	cfg, err := kit.Load(kitDir)
+	if err != nil {
+		return err
+	}
+	if !install.Exists(kitDir) {
+		fmt.Fprintf(stdout, "%q is not installed; nothing to uninstall\n", cfg.Name)
+		return nil
+	}
+	m, err := install.Load(kitDir)
+	if err != nil {
+		return err
+	}
+	if state.Exists(kitDir) {
+		return fmt.Errorf("refusing to uninstall %q: an instance is still created (it holds the image); run `at-cove destroy` first", m.Name)
+	}
+	if dryRun {
+		fmt.Fprintf(stdout, "would remove image %s and delete %s\n", m.Image, install.Path(kitDir))
+		return nil
+	}
+	b, err := getBackend(defaultBackend, r)
+	if err != nil {
+		return err
+	}
+	// Best-effort image removal: the image may already be gone (a pre-COV-63
+	// destroy could have deleted it), so a failed rmi must not block returning the
+	// kit to "not installed" — warn and still delete the manifest.
+	if err := b.RemoveImage(m.Image); err != nil {
+		fmt.Fprintf(stdout, "warning: could not remove image %s (%v); deleting %s anyway\n", m.Image, err, install.Path(kitDir))
+	}
+	if err := install.Delete(kitDir); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "uninstalled %q: removed image %s and deleted %s\n", m.Name, m.Image, install.Path(kitDir))
 	return nil
 }
 
