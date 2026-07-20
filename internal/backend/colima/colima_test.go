@@ -134,7 +134,9 @@ func TestRegistered(t *testing.T) {
 // TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: with
 // keepVolumes=true, Destroy force-removes the container but never its named
 // volumes (no -v/--volumes, no `volume rm`), so /agent-data (saved login) and the
-// workspace survive a recreate. It also removes the image to keep the namespace clean.
+// workspace survive a recreate. It must also NOT remove the image: the image is
+// an `install` artifact (COV-38), and recreate re-runs it without rebuilding —
+// deleting it would leave `docker run` with no image to run (COV-63).
 func TestDestroyKeepsVolumes(t *testing.T) {
 	f := &runner.Fake{}
 	err := New(f).Destroy(backend.Instance{Container: "box", Image: "at-cove-for-box"}, true)
@@ -153,9 +155,8 @@ func TestDestroyKeepsVolumes(t *testing.T) {
 	if vol := dockerCall(f.Calls, "volume"); vol != nil {
 		t.Fatalf("keepVolumes must not issue `docker volume rm`: %v", vol)
 	}
-	rmi := dockerCall(f.Calls, "rmi")
-	if rmi == nil || !contains(rmi, "at-cove-for-box") {
-		t.Fatalf("destroy should remove the image: %+v", f.Calls)
+	if rmi := dockerCall(f.Calls, "rmi"); rmi != nil {
+		t.Fatalf("destroy must NOT remove the image (it belongs to install; recreate re-runs it): %+v", f.Calls)
 	}
 }
 
@@ -188,6 +189,12 @@ func TestDestroyPurgesVolumes(t *testing.T) {
 	}
 	if rmIdx == -1 || volIdx == -1 || rmIdx > volIdx {
 		t.Fatalf("container rm must precede volume rm: %+v", f.Calls)
+	}
+	// A full destroy tears down the instance (container + volumes), but the image
+	// is an install artifact — leave it, so install.json stays consistent and a
+	// later create can re-run it without a rebuild (COV-63).
+	if rmi := dockerCall(f.Calls, "rmi"); rmi != nil {
+		t.Fatalf("destroy must NOT remove the image: %+v", f.Calls)
 	}
 	if !allPinned(f.Calls) {
 		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
