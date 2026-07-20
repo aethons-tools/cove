@@ -66,7 +66,8 @@ at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/`
 ### `config.yml`
 
 Lean — identity and wiring only.
-No secret *values*, no hardening knobs, no workspace mode.
+No secret *values* and no hardening knobs (a collaborator may opt its VM into
+sharing the kit repo dir via [`share-repo-dir`](usage/at-cove-config.md#collaborators)).
 
 ```yaml
 name: claude-on-myrepo          # sandbox/VM name; also keys the per-sandbox known_hosts
@@ -125,9 +126,9 @@ the image; only `uninstall` removes the image.
 | Command | Behavior |
 |---|---|
 | `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
-| `at-cove create [collaborator] [--project-dir DIR] [--workspace\|--ws <path>]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. `--workspace` selects Shared (bind-mount) mode. |
+| `at-cove create [collaborator] [--project-dir DIR]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. The selected collaborator's [`share-repo-dir`](usage/at-cove-config.md#collaborators) picks Shared (bind-mount of the kit repo dir) vs Isolated — see [Workspace and state volumes](#workspace-and-state-volumes). |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
-| `at-cove recreate [collaborator] [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
+| `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
 | `at-cove destroy [collaborator] [--project-dir DIR] [--all]` | Force-remove the resolved instance's container **and its volumes**, then delete its state file — teardown of the running *instance*. The optional positional selects the collaborator instance (mirroring `chat`); `--all` removes **every** instance of the kit. Unlike `create`/`recreate`/`chat`, it tolerates a stale/absent install (you can always tear down what you created). The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
 | `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while any created instance exists** (an instance — plain or per-collaborator — holds the image), pointing at `at-cove destroy --all` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
 | `at-cove status [collaborator] [--project-dir DIR]` | With no positional, **list every instance** of the kit (class, running state, container, workspace mode). With a collaborator positional, show just that one instance's `running` / `stopped` / `absent`. Tolerates a stale/absent install. |
@@ -138,7 +139,7 @@ the image; only `uninstall` removes the image.
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
 without executing anything.
-Flags specific to a command (e.g. `--raw`, `--ws`, `--project-dir`) go *after* the
+Flags specific to a command (e.g. `--raw`, `--project-dir`) go *after* the
 command name; each command only accepts its own flags.
 
 Three more global flags (also before the subcommand) configure structured
@@ -263,9 +264,10 @@ positional **lists every instance** of the kit (rather than resolving a default)
 and `destroy --all` **removes every instance**. The saved OAuth login still
 propagates across a kit's VMs through the host `credentials.json` (see
 [Authentication](#authentication)), so per-class `-state` volumes don't force a
-re-login per collaborator. This is a pure instance-keying change: it does **not**
-alter workspace-mount selection, `--ws`, or the
-[clone-on-first-session](#workspace-and-state-volumes) logic.
+re-login per collaborator. Each instance's workspace mount is decided per
+collaborator by [`share-repo-dir`](usage/at-cove-config.md#collaborators), and the
+[clone-on-first-session](#workspace-and-state-volumes) still populates an isolated
+one.
 
 ## How the build context is assembled
 
@@ -386,17 +388,20 @@ the per-command wiring is under [The `chat` command](#the-chat-command-and-colla
 
 ## Workspace and state volumes
 
-The working directory is realized one of two ways,
-chosen at `create` time (not in `config.yml`, so a spec stays portable):
+The working directory is realized one of two ways, chosen per collaborator at
+`create` time by the selected class's
+[`share-repo-dir`](usage/at-cove-config.md#collaborators):
 
-- **Isolated (default)** —
+- **Isolated (default — `share-repo-dir` absent/false)** —
   a backend-managed volume; `chat` clones the repo's default branch into it on
   the **first** collaborator session (see below), so the checkout is ready when
   the chat opens.
-- **Shared** —
-  a bind-mount of a host folder via `--workspace <path>` (host and VM share `.git/config`).
+- **Shared (`share-repo-dir: true`)** —
+  a bind-mount of the **kit's repo dir** (the directory that contains `.at-cove/`),
+  so host and VM share the live `.git`. Only that dir is shareable — arbitrary host
+  paths are not mountable (the old `--workspace`/`--ws` flag is gone).
 
-**Clone-on-first-session (isolated only).** A `create` without `--ws` leaves the
+**Clone-on-first-session (isolated only).** An isolated `create` leaves the
 workspace volume empty, so the first `chat` populates it: it clones the target
 `source-control.github` repo (`https://github.com/<owner>/<name>.git`) on its
 `main-branch` into `/home/agent/workspace`, **once for the VM's lifetime**. A
@@ -411,7 +416,7 @@ human's claude.ai connectors, not this token). If `source-control` (or the
 `AT_TASK_GIT_TOKEN` demand) is not configured, the clone is **skipped** and the
 session starts in an empty workspace (the prior behavior); if it *is* configured
 but the clone **fails**, session start is a **hard error** (fail closed). A
-`--ws` shared workspace is never cloned — the user brings their own checkout.
+`share-repo-dir` shared workspace is never cloned — the host checkout is shared live.
 
 A second volume, **`<name>-state`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates,

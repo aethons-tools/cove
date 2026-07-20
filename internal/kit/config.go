@@ -171,6 +171,7 @@ type Dispatch struct {
 type Collaborator struct {
 	Prompt         string                  `yaml:"prompt,omitempty"`
 	Default        bool                    `yaml:"default,omitempty"`
+	ShareRepoDir   bool                    `yaml:"share-repo-dir,omitempty"` // opt this class's VM into a Shared bind-mount of the kit's repo dir (per-class only; rejected on <common>)
 	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
@@ -413,8 +414,8 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 		}
 		if name == commonKey {
-			if col.Prompt != "" || col.Default {
-				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt or default", commonKey)
+			if col.Prompt != "" || col.Default || col.ShareRepoDir {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt, default, or share-repo-dir", commonKey)
 			}
 			continue
 		}
