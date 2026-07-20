@@ -13,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/state"
@@ -1692,4 +1693,124 @@ func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
 			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (effective default)", lvl, slog.LevelInfo)
 		}
 	})
+}
+
+// TestLogModeFrom covers the --log-mode/AT_LOG_MODE value mapper directly: the
+// two recognized modes map to their logging.Mode, and everything else (empty,
+// garbage) falls back to Auto (TTY-detected).
+func TestLogModeFrom(t *testing.T) {
+	cases := map[string]logging.Mode{
+		"attended":   logging.Attended,
+		"unattended": logging.Unattended,
+		"":           logging.Auto,
+		"nonsense":   logging.Auto,
+	}
+	for in, want := range cases {
+		if got := logModeFrom(in); got != want {
+			t.Errorf("logModeFrom(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
+// TestLogLevelFrom covers the --log-level/AT_LOG_LEVEL value mapper directly:
+// the four recognized levels map through, and everything else (empty, "info",
+// garbage) falls back to Info.
+func TestLogLevelFrom(t *testing.T) {
+	cases := map[string]slog.Level{
+		"debug":    slog.LevelDebug,
+		"warn":     slog.LevelWarn,
+		"error":    slog.LevelError,
+		"info":     slog.LevelInfo,
+		"":         slog.LevelInfo,
+		"nonsense": slog.LevelInfo,
+	}
+	for in, want := range cases {
+		if got := logLevelFrom(in); got != want {
+			t.Errorf("logLevelFrom(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
+// TestEnvOr covers the flag-else-env fallback: a non-empty flag wins verbatim
+// (env ignored), and an empty flag falls through to os.Getenv(key).
+func TestEnvOr(t *testing.T) {
+	t.Setenv("AT_TEST_ENVOR", "from-env")
+	if got := envOr("from-flag", "AT_TEST_ENVOR"); got != "from-flag" {
+		t.Errorf("envOr with non-empty flag = %q; want %q", got, "from-flag")
+	}
+	if got := envOr("", "AT_TEST_ENVOR"); got != "from-env" {
+		t.Errorf("envOr with empty flag = %q; want %q (env fallback)", got, "from-env")
+	}
+	if got := envOr("", "AT_TEST_ENVOR_UNSET"); got != "" {
+		t.Errorf("envOr with empty flag and unset env = %q; want %q", got, "")
+	}
+}
+
+// TestWorkEmitsStructuredDiagnostic proves the operational work path routes its
+// diagnostics through the structured logger (logging.UserError) rather than a
+// bare Fprintf: in the test's non-TTY (unattended) mode the not-installed error
+// must be a JSON record on stderr, carrying a step attr and the actionable
+// message.
+func TestWorkEmitsStructuredDiagnostic(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(workerBearerKitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t) // no writeInstall — the kit is not installed
+	inFile := filepath.Join(dir, "in.json")
+	if err := os.WriteFile(inFile, []byte(implementTaskJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(dir, "out.json")
+	var out, errOut bytes.Buffer
+	code := run([]string{"work", "--project-dir", dir, "--in", inFile, "--out", outFile}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatal("work must fail fast when not installed")
+	}
+	s := errOut.String()
+	if !strings.Contains(s, `"level":"ERROR"`) || !strings.Contains(s, `"step":`) {
+		t.Fatalf("work diagnostic must be a structured record with a step attr; got %q", s)
+	}
+	if !strings.Contains(s, "at-cove install") {
+		t.Fatalf("structured record must carry the actionable message; got %q", s)
+	}
+}
+
+// TestDispatchEmitsStructuredDiagnostic is the doDispatch counterpart: the
+// missing-scheduler-surface rejection must be a structured record (JSON on
+// stderr in unattended mode) with a step attr, not a bare Fprintln.
+func TestDispatchEmitsStructuredDiagnostic(t *testing.T) {
+	dir := writeDispatchKit(t, "name: dispatch-kit\n")
+	writeInstall(t, filepath.Join(dir, ".at-cove"))
+	var out, errOut bytes.Buffer
+	code := run([]string{"dispatch", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d; want 1", code)
+	}
+	s := errOut.String()
+	if !strings.Contains(s, `"level":"ERROR"`) || !strings.Contains(s, `"step":`) {
+		t.Fatalf("dispatch diagnostic must be a structured record with a step attr; got %q", s)
+	}
+	if !strings.Contains(s, "must declare") {
+		t.Fatalf("structured record must carry the missing-surface message; got %q", s)
+	}
+}
+
+// TestDispatchStartHintMentionsCtrlC guards the restored scheduler-start hint:
+// the "scheduler started" line must tell the operator how to stop it (Ctrl-C),
+// a UX affordance dropped when the plain logger became structured.
+func TestDispatchStartHintMentionsCtrlC(t *testing.T) {
+	var errb bytes.Buffer
+	lg, err := logging.New(logging.Options{Mode: logging.Unattended, Stderr: &errb, Level: slog.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg.Info(schedulerStartMsg)
+	if !strings.Contains(errb.String(), "Ctrl-C") {
+		t.Fatalf("scheduler-start message must mention Ctrl-C to stop; got %q", errb.String())
+	}
 }

@@ -5,6 +5,7 @@
 package logging
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -66,11 +67,11 @@ func New(o Options) (*Logger, error) {
 	var sink *slog.Logger
 	if o.FilePath != "" {
 		if err := os.MkdirAll(filepath.Dir(o.FilePath), 0o755); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("create log dir: %w", err)
 		}
 		f, err := os.OpenFile(o.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open log file: %w", err)
 		}
 		fileH := slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})
 		handlers = append(handlers, fileH)
@@ -100,9 +101,14 @@ func (l *Logger) With(attrs ...slog.Attr) *Logger {
 	return &child
 }
 
+// Close closes the attended-mode log file if one is open. It is idempotent:
+// the closer is cleared after the first call, so a second Close (e.g. a deferred
+// Close after an explicit one) is a no-op rather than a double os.File.Close.
 func (l *Logger) Close() error {
-	if l.closer != nil {
-		return l.closer.Close()
+	if l.closer == nil {
+		return nil
 	}
-	return nil
+	c := l.closer
+	l.closer = nil
+	return c.Close()
 }

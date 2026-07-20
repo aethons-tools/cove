@@ -140,19 +140,16 @@ command name; each command only accepts its own flags.
 Three more global flags (also before the subcommand) configure structured
 logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
 `--log-level debug|info|warn|error` (default `info`), and `--no-log-file`
-(suppress the attended-mode log file). They're parsed into `cli.Globals`;
-`dispatch` and `work` both wire them into a per-run `internal/logging` logger. In
-**attended** (TTY) mode the logger writes human-friendly text to stderr **and** a
-JSON debug-level file under `<kit>/.state/logs/` (`at-cove-dispatch.jsonl` for the
-scheduler, `at-cove-work-<issue>.jsonl` for a work run; unless `--no-log-file`).
-In **unattended** (headless / non-TTY) mode — the normal way `dispatch` runs as a
-service — it writes JSON to stderr only, with no file; the platform capturing
-stderr is the log sink. Each dispatched issue's log lines carry a `run` id and
-`issue`/`class`/`step` attrs, so one dispatch's logs are grep-able out of
-interleaved concurrent dispatches. The scheduler passes its `run` id into the
-`work` subprocess via `COVE_RUN_ID`, so a dispatched worker's own logs — and the
-VM records it merges (below) — join the same trace. See
-[`docs/superpowers/specs/2026-07-15-structured-logging-design.md`](superpowers/specs/2026-07-15-structured-logging-design.md).
+(suppress the attended-mode log file). `dispatch` and `work` wire them into a
+per-run `internal/logging` logger: **attended** (TTY) mode writes human text to
+stderr plus a JSON debug file under `<kit>/.state/logs/`; **unattended**
+(headless — the normal way `dispatch` runs) writes JSON to stderr only, for the
+platform to capture. One dispatch is correlated end-to-end — host scheduler →
+`at-cove work` (via a `COVE_RUN_ID` handoff) → the VM's merged records — by a
+shared `run` id plus `issue`/`class`/`step` attrs. The output-mode model, the
+log-file locations, the correlation contract, and the secrets-never-in-logs
+invariant are the [observability reference](usage/observability.md); the full
+design is [the structured-logging design spec](superpowers/specs/2026-07-15-structured-logging-design.md).
 
 **VM output capture, demux, and merge.** Rather than let the VM's SSH channel
 spill raw and undemuxed to the host console, `dispatchrun` uses the runner's

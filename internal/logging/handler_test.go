@@ -17,6 +17,20 @@ func TestMultiFansOutToAllChildren(t *testing.T) {
 	}
 }
 
+func TestSkipUserShownIgnoresNonBoolValue(t *testing.T) {
+	var text bytes.Buffer
+	h := skipUserShown(slog.NewTextHandler(&text, nil))
+	log := slog.New(h)
+
+	// A record carrying a non-bool user_shown attr must not panic (slog.Value.Bool
+	// panics on a non-bool Kind) and must be treated as "not shown" — the guard
+	// only skips a genuine bool true.
+	log.LogAttrs(context.Background(), slog.LevelError, "boom", slog.String(userShownKey, "yes"))
+	if !strings.Contains(text.String(), "boom") {
+		t.Fatalf("non-bool user_shown must not suppress the record; got %q", text.String())
+	}
+}
+
 func TestSkipUserShownDropsMarkedRecords(t *testing.T) {
 	var text, json bytes.Buffer
 	stderr := skipUserShown(slog.NewTextHandler(&text, nil))

@@ -108,3 +108,43 @@ func TestWithAddsAttrsToFileSink(t *testing.T) {
 		t.Fatalf("expected run attr on file sink from With; got %q", string(b))
 	}
 }
+
+// TestCloseIdempotent covers the foundation-polish invariant that Close may be
+// called more than once on the same Logger without erroring — the second call is
+// a no-op, not a double os.File.Close (which would return "file already closed").
+func TestCloseIdempotent(t *testing.T) {
+	var errb bytes.Buffer
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "x.jsonl")
+	lg, err := New(Options{Mode: Attended, Stderr: &errb, FilePath: fp, Level: slog.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lg.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := lg.Close(); err != nil {
+		t.Fatalf("second Close must be a no-op; got %v", err)
+	}
+}
+
+// TestNewWrapsFileErrors covers the foundation-polish invariant that a failure
+// to create the log dir or open the file is wrapped with context (not returned
+// bare), so an operator can tell which step failed.
+func TestNewWrapsFileErrors(t *testing.T) {
+	var errb bytes.Buffer
+	dir := t.TempDir()
+	// A regular file where a directory is expected makes MkdirAll(filepath.Dir)
+	// fail — the parent of the requested log path is not a directory.
+	notDir := filepath.Join(dir, "afile")
+	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(Options{Mode: Attended, Stderr: &errb, FilePath: filepath.Join(notDir, "sub", "x.jsonl"), Level: slog.LevelInfo})
+	if err == nil {
+		t.Fatal("expected an error creating the log dir under a non-directory")
+	}
+	if !strings.Contains(err.Error(), "log") {
+		t.Fatalf("error must be wrapped with log-file context; got %v", err)
+	}
+}

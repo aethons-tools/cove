@@ -56,7 +56,7 @@ func skipUserShown(h slog.Handler) slog.Handler { return skipHandler{Handler: h}
 func (s skipHandler) Handle(ctx context.Context, r slog.Record) error {
 	shown := false
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == userShownKey && a.Value.Bool() {
+		if a.Key == userShownKey && a.Value.Kind() == slog.KindBool && a.Value.Bool() {
 			shown = true
 			return false
 		}

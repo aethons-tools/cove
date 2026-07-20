@@ -49,10 +49,22 @@ what the project is, the kit format, the command surface, the security model, th
   and must always win over user files.
   Don't move hardening into the overridable layer or weaken the egress allow-list
   without understanding the threat model in the overview.
-- **Secrets never hit disk or argv.**
+- **Secrets never hit disk or argv — and never hit logs.**
   Resolver commands run on the host;
   values flow into the VM in memory only.
   Don't add code paths that write secret values to files, logs, or command lines.
+  Structured logging preserves this by construction: injection paths (resolved
+  secret values, the VM env map) are never logged at any level, only self-owned
+  records reach the sink, and raw agent/VM output stays VM-local — see the
+  [observability reference](docs/usage/observability.md#secrets-never-reach-a-log).
+
+- **Diagnostics are structured; pure-UX output stays plain.**
+  Diagnostics/errors go through `internal/logging` (dual-output `UserError`) on
+  **stderr**; help text, `--dry-run` intent lines, and machine-readable command
+  data stay plain on **stdout**. The mode is chosen per consumer, not by a format
+  flag: **attended** (TTY) writes human text to stderr + a JSON file; **unattended**
+  (headless) writes JSON to stderr only. See the
+  [observability reference](docs/usage/observability.md).
 
 - **Toolchain quirks** —
   this repo is developed in an egress-locked sandbox;
