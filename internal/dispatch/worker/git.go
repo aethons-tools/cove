@@ -12,8 +12,9 @@ import (
 
 // Git is the git surface at-task needs. See ShellGit for the real implementation.
 type Git interface {
-	EnsureClean(ctx context.Context, remote, dir string) error // init in place if absent; else verify clean
-	Sync(ctx context.Context, dir, branch string) error        // checkout + fast-forward from origin
+	EnsureClean(ctx context.Context, remote, dir string) error   // init in place if absent; else verify clean
+	Clone(ctx context.Context, remote, branch, dir string) error // fresh clone of remote's branch into an empty dir
+	Sync(ctx context.Context, dir, branch string) error          // checkout + fast-forward from origin
 	RemoteHasBranch(ctx context.Context, dir, branch string) (bool, error)
 	NewBranch(ctx context.Context, dir, branch, from string) error
 	HasChanges(ctx context.Context, dir string) (bool, error)
@@ -110,6 +111,17 @@ func excludeAtTask(dir string) error {
 	}
 	defer f.Close()
 	_, err = f.WriteString("\n/" + taskSubdir + "/\n")
+	return err
+}
+
+// Clone populates dir with a standard checkout of remote's branch (origin remote
+// + working tree), authenticating https remotes through the same env-only askpass
+// as every other op. Unlike EnsureClean, which inits in place over an
+// orchestrator-injected .at-task/, Clone targets an empty dir — the collaborator
+// workspace on first session — so a plain `git clone` (which refuses a non-empty
+// dir) is exactly right, and Sync's single-branch fetch is not.
+func (g *ShellGit) Clone(ctx context.Context, remote, branch, dir string) error {
+	_, err := g.git(ctx, "", "clone", "--branch", branch, remote, dir)
 	return err
 }
 

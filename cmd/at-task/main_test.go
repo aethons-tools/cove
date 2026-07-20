@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,6 +128,71 @@ func TestScrubErrRedactsGitToken(t *testing.T) {
 	}
 	if !strings.Contains(got, "«redacted»") {
 		t.Fatalf("scrubErr did not mark the redaction: %q", got)
+	}
+}
+
+// gitRun execs a git command for test setup, failing on error.
+func gitRun(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+	}
+}
+
+// seedBareRemote makes a bare repo with one commit on main and returns its path.
+func seedBareRemote(t *testing.T) string {
+	t.Helper()
+	base := t.TempDir()
+	bare := filepath.Join(base, "remote.git")
+	gitRun(t, "", "git", "init", "--bare", "-b", "main", bare)
+	seed := filepath.Join(base, "seed")
+	gitRun(t, "", "git", "clone", bare, seed)
+	if err := os.WriteFile(filepath.Join(seed, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, seed, "git", "add", "-A")
+	gitRun(t, seed, "git", "commit", "-m", "init")
+	gitRun(t, seed, "git", "push", "origin", "main")
+	return bare
+}
+
+// TestCloneWorkspaceClonesRepo drives the task-less clone verb against a local
+// bare remote (no token needed): it must populate an empty dir with the branch.
+func TestCloneWorkspaceClonesRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	remote := seedBareRemote(t)
+	dst := filepath.Join(t.TempDir(), "ws")
+	var out, errOut bytes.Buffer
+	code := run([]string{"clone-workspace", "--repo", remote, "--branch", "main", dst}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d; want 0\nstderr: %s", code, errOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(dst, "README.md")); err != nil {
+		t.Fatalf("clone-workspace did not populate the dir: %v", err)
+	}
+}
+
+// TestCloneWorkspaceRequiresRepoBranchDir rejects a missing --repo, --branch, or
+// positional dir with exit 2 (bad usage).
+func TestCloneWorkspaceRequiresRepoBranchDir(t *testing.T) {
+	cases := [][]string{
+		{"clone-workspace", "--branch", "main", "/tmp/x"},      // no --repo
+		{"clone-workspace", "--repo", "r", "/tmp/x"},           // no --branch
+		{"clone-workspace", "--repo", "r", "--branch", "main"}, // no dir
+	}
+	for _, args := range cases {
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 2 {
+			t.Fatalf("%v: exit = %d; want 2", args, code)
+		}
 	}
 }
 

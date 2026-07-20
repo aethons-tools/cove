@@ -16,7 +16,7 @@ environment, and the concrete input/output contracts (with JSON Schemas). This i
 
 | Doc | What it covers | Read when |
 |-----|----------------|-----------|
-| [at-task.md](at-task.md) | The `at-task` git/PR worker — usage: the `prepare`/`complete`/`version` CLI, the `AT_TASK_GIT_TOKEN` credential, the `.at-task/` file handoff, and the JSON-or-YAML file-format rules. | You are invoking `at-task`, or need the handoff flow / file-format rules before reading a contract schema. |
+| [at-task.md](at-task.md) | The `at-task` git/PR worker — usage: the `prepare`/`complete`/`clone-workspace`/`version` CLI, the `AT_TASK_GIT_TOKEN` credential, the `.at-task/` file handoff, and the JSON-or-YAML file-format rules. | You are invoking `at-task`, or need the handoff flow / file-format rules before reading a contract schema. |
 | [at-task-inputs.md](at-task-inputs.md) | The JSON Schemas + examples for the two files `at-task` reads: `task.json` (the work spec) and `worker-result.json` (the worker's self-report). | You are building a `task.json`, or writing a worker that produces `worker-result.json`. |
 | [at-task-output.md](at-task-output.md) | The JSON Schema + examples for `task-result.json` — `at-task`'s authoritative outcome (`ok`/`needs-input`/`error`) with the echoed `worker-result`. | You are consuming `at-task`'s result — brokering its status, or troubleshooting a run. |
 | [at-cove-config.md](at-cove-config.md) | The `at-cove` kit `config.yml` schema — every field (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), validation rules, and a full annotated example. | You are authoring or editing a kit's `.at-cove/config.yml`. |

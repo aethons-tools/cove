@@ -1,10 +1,12 @@
 // Command at-task is the git/PR worker: `prepare` sets up the work branch from
-// .at-task/task.json; `complete` reads the worker's result and opens the PR. See
+// .at-task/task.json; `complete` reads the worker's result and opens the PR;
+// `clone-workspace` is a task-less clone of a repo's branch into a dir (it
+// populates a collaborator's isolated workspace on first session). See
 // docs/usage/at-task.md.
 //
 // at-task runs inside a hardened VM (driven by `at-cove work`) and is inherently
 // unattended, so its diagnostics are structured slog JSONL on stderr, tagged with
-// a `step` attr (`prepare`/`complete`) so every record self-identifies its layer.
+// a `step` attr (`prepare`/`complete`/`clone-workspace`) so every record self-identifies its layer.
 // The host captures that stderr and merges it into the unified run stream (spec
 // docs/superpowers/specs/2026-07-15-structured-logging-design.md §6, §7). Records
 // are secret-free by construction (§6.2): only self-owned fields, and any error
@@ -14,6 +16,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"io"
 	"log/slog"
 	"os"
@@ -35,6 +38,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}},
 			{Name: "complete", Brief: "broker the worker's result into commit/push/PR", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doComplete(args, g, errw)
+			}},
+			{Name: "clone-workspace", Brief: "clone a repo's branch into a dir (task-less; populates a collaborator workspace)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				return doCloneWorkspace(args, g, errw)
 			}},
 		},
 	}
@@ -107,6 +113,45 @@ func doPrepare(args []string, g cli.Globals, stderr io.Writer) int {
 	lg.InfoContext(ctx, "prepared work branch",
 		slog.String("issue", task.Issue.Key),
 		slog.String("branch", task.Repo.WorkBranch))
+	return 0
+}
+
+// doCloneWorkspace clones a repo's branch into a target dir, with no task.json and
+// no work branch — the task-less collaborator-workspace path. It reuses ShellGit
+// (the one env-only askpass) and authenticates with AT_TASK_GIT_TOKEN from its own
+// process env, exactly like prepare/complete; the host (internal/connect) stages
+// that env in memory over ssh and never puts the token on this argv. Keeping the
+// git-with-token here means connect owns no second askpass.
+func doCloneWorkspace(args []string, g cli.Globals, stderr io.Writer) int {
+	lg, ctx := stepLogger(g, stderr, "clone-workspace")
+	defer lg.Close()
+	fs := flag.NewFlagSet("clone-workspace", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	repo := fs.String("repo", "", "https clone URL of the target repo")
+	branch := fs.String("branch", "", "branch to check out")
+	rest, err := cli.ParseInterspersed(fs, args)
+	if err != nil {
+		lg.ErrorContext(ctx, "clone-workspace: "+err.Error())
+		return 2
+	}
+	if *repo == "" || *branch == "" || len(rest) != 1 {
+		lg.ErrorContext(ctx, "usage: clone-workspace --repo <url> --branch <branch> <dir>")
+		return 2
+	}
+	gc, ok := gitClient(ctx, lg)
+	if !ok {
+		return 1
+	}
+	if err := gc.Clone(ctx, *repo, *branch, rest[0]); err != nil {
+		lg.ErrorContext(ctx, "clone-workspace failed",
+			slog.String("err", scrubErr(err)),
+			slog.String("repo", *repo),
+			slog.String("branch", *branch))
+		return 1
+	}
+	lg.InfoContext(ctx, "cloned workspace",
+		slog.String("repo", *repo),
+		slog.String("branch", *branch))
 	return 0
 }
 
