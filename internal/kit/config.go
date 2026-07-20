@@ -33,10 +33,11 @@ const commonKey = "<common>"
 // agent (own-only, required) plus scheduling attrs that may be inherited from the
 // workers <common> base.
 type Worker struct {
-	Prompt      string                  `yaml:"prompt,omitempty"`
-	Timeout     string                  `yaml:"timeout,omitempty"` // Go duration
-	Concurrency int                     `yaml:"concurrency,omitempty"`
-	Secrets     map[string]SecretConfig `yaml:"secrets,omitempty"`
+	Prompt         string                  `yaml:"prompt,omitempty"`
+	Timeout        string                  `yaml:"timeout,omitempty"` // Go duration
+	Concurrency    int                     `yaml:"concurrency,omitempty"`
+	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
+	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the workers <common> list)
 }
 
 // ResolvedWorker returns the named worker with the workers <common> base merged
@@ -66,6 +67,23 @@ func (c Config) ResolvedWorker(class string) (Worker, error) {
 	}
 	own.Secrets = merged
 	return own, nil
+}
+
+// ResolvedWorkerDomains returns the deduped, order-normalized union of the
+// workers <common> allowed-domains and the named class's own list — the
+// per-session egress *delta* squid receives at session start. Root
+// (image.allowed-domains) is delivered separately by the baked kit file and is
+// NOT part of this resolver, mirroring how root secrets sit outside
+// ResolvedWorker. Errors like ResolvedWorker (empty / <common> / absent class).
+func (c Config) ResolvedWorkerDomains(class string) ([]string, error) {
+	if class == "" || class == commonKey {
+		return nil, fmt.Errorf("kit %q: %q is not a dispatchable worker class", c.Name, class)
+	}
+	own, ok := c.Workers[class]
+	if !ok {
+		return nil, fmt.Errorf("kit %q declares no worker class %q", c.Name, class)
+	}
+	return unionDomains(c.Workers[commonKey].AllowedDomains, own.AllowedDomains), nil
 }
 
 // SourceControl names the code host + repo the kit targets — a tagged union
@@ -151,9 +169,10 @@ type Dispatch struct {
 // bucket (inherited from the collaborators <common> base). GitHub/Linear ride
 // the human's connectors, so secrets are often empty.
 type Collaborator struct {
-	Prompt  string                  `yaml:"prompt,omitempty"`
-	Default bool                    `yaml:"default,omitempty"`
-	Secrets map[string]SecretConfig `yaml:"secrets,omitempty"`
+	Prompt         string                  `yaml:"prompt,omitempty"`
+	Default        bool                    `yaml:"default,omitempty"`
+	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
+	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
 
 // ResolvedCollaborator returns the named collaborator with the collaborators
@@ -175,6 +194,38 @@ func (c Config) ResolvedCollaborator(class string) (Collaborator, error) {
 	}
 	own.Secrets = merged
 	return own, nil
+}
+
+// ResolvedCollaboratorDomains returns the deduped, order-normalized union of the
+// collaborators <common> allowed-domains and the named class's own list — the
+// per-session egress delta. Root is separate (see ResolvedWorkerDomains). Errors
+// like ResolvedCollaborator.
+func (c Config) ResolvedCollaboratorDomains(class string) ([]string, error) {
+	if class == "" || class == commonKey {
+		return nil, fmt.Errorf("kit %q: %q is not a collaborator class", c.Name, class)
+	}
+	own, ok := c.Collaborators[class]
+	if !ok {
+		return nil, fmt.Errorf("kit %q declares no collaborator class %q", c.Name, class)
+	}
+	return unionDomains(c.Collaborators[commonKey].AllowedDomains, own.AllowedDomains), nil
+}
+
+// unionDomains returns the deduped, sorted set union of the given domain lists.
+// Domains are additive (a set), unlike the map-overwrite secrets merge.
+func unionDomains(lists ...[]string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, list := range lists {
+		for _, d := range list {
+			if !seen[d] {
+				seen[d] = true
+				out = append(out, d)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // SelectCollaborator resolves the CLI's optional collaborator positional to a
@@ -280,6 +331,11 @@ func ParseConfig(data []byte) (Config, error) {
 		if err := rejectReservedSecretNames(fmt.Sprintf("workers[%q].secrets", class), w.Secrets); err != nil {
 			return Config{}, err
 		}
+		for i, d := range w.AllowedDomains {
+			if strings.TrimSpace(d) == "" {
+				return Config{}, fmt.Errorf("config.yml: workers[%q].allowed-domains[%d]: must not be empty", class, i)
+			}
+		}
 	}
 	if cfg.SourceControl != nil {
 		if _, err := cfg.SourceControl.Active(); err != nil {
@@ -350,6 +406,11 @@ func ParseConfig(data []byte) (Config, error) {
 	for name, col := range cfg.Collaborators {
 		if err := rejectReservedSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets); err != nil {
 			return Config{}, err
+		}
+		for i, d := range col.AllowedDomains {
+			if strings.TrimSpace(d) == "" {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q].allowed-domains[%d]: must not be empty", name, i)
+			}
 		}
 		if name == commonKey {
 			if col.Prompt != "" || col.Default {
