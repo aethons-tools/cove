@@ -438,6 +438,42 @@ collaborators:
 	}
 }
 
+// share-repo-dir is a per-class opt-in (like prompt/default): the selected
+// collaborator's VM shares the kit's repo dir instead of an isolated volume.
+func TestCollaboratorShareRepoDir(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  triager:
+    prompt: "be triager"
+    share-repo-dir: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := cfg.ResolvedCollaborator("triager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.ShareRepoDir {
+		t.Fatalf("resolved collaborator should carry share-repo-dir: %+v", c)
+	}
+}
+
+// share-repo-dir on the <common> base is a hard config error — it is per-class
+// opt-in only, never inherited.
+func TestCollaboratorCommonRejectsShareRepoDir(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+collaborators:
+  <common>: { share-repo-dir: true }
+  triager: { prompt: "be triager" }
+`))
+	if err == nil {
+		t.Fatal("want error: <common> must not set share-repo-dir")
+	}
+}
+
 func selCfg(t *testing.T, body string) Config {
 	t.Helper()
 	cfg, err := ParseConfig([]byte(body))
