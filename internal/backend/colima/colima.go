@@ -149,11 +149,11 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	if !keepVolumes {
 		_ = c.r.Run("docker", dargs("volume", "rm", "-f", inst.Container+"-state", inst.Container+"-workspace")...)
 	}
-	// Remove the image so the namespace stays clean — best-effort, since the build
-	// cache is separate and a missing image shouldn't fail the teardown.
-	if inst.Image != "" {
-		_ = c.r.Run("docker", dargs("rmi", inst.Image)...)
-	}
+	// The image is deliberately NOT removed: it is an `install` artifact (COV-38),
+	// not a per-create build. create/recreate/work consume it without rebuilding,
+	// so removing it here would break `recreate` (destroy→create finds no image)
+	// and leave a still-present install.json pointing at a deleted image (COV-63).
+	// Image lifecycle belongs to `install` (a re-install overwrites the tag).
 	return nil
 }
 

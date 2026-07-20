@@ -613,7 +613,7 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 		volumes = "keeping volumes"
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would destroy %s (%s), remove image %s, and delete %s\n",
+		fmt.Fprintf(stdout, "would destroy %s (%s), keep image %s (an install artifact), and delete %s\n",
 			st.Container, volumes, st.Image, state.PathFor(kitDir, inst))
 		return nil
 	}

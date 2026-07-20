@@ -493,7 +493,7 @@ func TestChatRequiresCurrentInstall(t *testing.T) {
 	}
 }
 
-func TestDestroyRemovesContainerImageAndState(t *testing.T) {
+func TestDestroyRemovesContainerAndState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box")
@@ -502,8 +502,13 @@ func TestDestroyRemovesContainerImageAndState(t *testing.T) {
 	if code := run([]string{"destroy", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
 	}
-	if dockerArg0Index(f.Calls, "rm") == -1 || dockerArg0Index(f.Calls, "rmi") == -1 {
-		t.Fatalf("destroy must rm + rmi; calls=%+v", f.Calls)
+	if dockerArg0Index(f.Calls, "rm") == -1 {
+		t.Fatalf("destroy must force-remove the container; calls=%+v", f.Calls)
+	}
+	// The image is an install artifact (COV-63): destroy tears down the instance
+	// but must NOT rmi the image, so install.json stays consistent.
+	if dockerArg0Index(f.Calls, "rmi") != -1 {
+		t.Fatalf("destroy must NOT rmi the image; calls=%+v", f.Calls)
 	}
 	// A real destroy purges the instance's named volumes (no orphaned -state/-workspace).
 	vol := dockerArg0Index(f.Calls, "volume")
