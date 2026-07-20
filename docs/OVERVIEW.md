@@ -23,7 +23,11 @@ or touch files it shouldn't.
    the VM can only reach an allow-listed set of domains (Anthropic, GitHub, PyPI, …)
    through an in-VM Squid proxy,
    with `nftables` dropping everything else.
-   A user's own kit files can never weaken this.
+   The allow-list is **additive across three tiers** — a sealed base, the kit's
+   baked root list, and a per-session, per-class delta applied at session start
+   (see [Egress: three additive allow-lists](#egress-three-additive-allow-lists-session-scoped)) —
+   so a kit can *widen* egress for one worker or collaborator class without ever
+   weakening the sealed base. A user's own kit files can never weaken this.
 2. **Secrets never touch disk or the host process table** —
    they are resolved on the host just-in-time at `chat`/`work`/`dispatch` time,
    streamed into the VM over SSH stdin into a tmpfs file,
@@ -213,8 +217,8 @@ is **just the sealed layer** plus a few generated files — there is no kit over
 anymore:
 
 1. **Non-overridable hardening** (embedded) —
-   `nftables.conf`, `squid.conf`, sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
-2. **Generated** — the kit's egress allow-list (`config.yml image.allowed-domains`) and the managed public key.
+   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
+2. **Generated** — the kit's **root** egress allow-list (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: three additive allow-lists](#egress-three-additive-allow-lists-session-scoped)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
 for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
@@ -286,6 +290,40 @@ plus every variable named in the image's `COVE_SSHENV` (colon-separated) into
 sessions — no separate fragment to keep in sync. The egress proxy vars and
 `CLAUDE_CONFIG_DIR` are the exception: the sealed layer writes them itself (never
 image `ENV`, which would poison the build), last, so they always win.
+
+### Egress: three additive allow-lists, session-scoped
+
+The sealed `squid.conf` is default-deny with **three additive allow-list ACLs** — a
+request passes if it matches **any**, so a kit can only *widen* egress, never bypass
+the sealed base or the `nftables` lock:
+
+| file | source | when | scope |
+|---|---|---|---|
+| `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
+| `allowed_domains.kit.txt` | `config.yml image.allowed-domains` (root) | baked at `install` | every session |
+| `allowed_domains.session.txt` | `<common> ∪ class` **delta** | delivered per session | this session's handler class |
+
+So a class's effective egress is the union **`root ∪ <common> ∪ class`**: root is
+baked into *every* session, and only the per-class *delta* is delivered at session
+start, so no domain is written twice. The session file is **baked empty** (header-only)
+by the hardening layer, so the ACL never dangles and a no-class session (`create`)
+simply stays root-only. See [`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains)
+for the config shape and union semantics.
+
+**Applied at session start, privileged — not baked.** Per-class egress is *not* baked
+into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the
+class's delta from the currency-pinned `install.json` (never a live `config.yml`) and
+applies it to the running container via the backend's `ApplySessionEgress` — a host
+`docker exec` (as root) of the sealed `apply-session-domains.sh`, which overwrites the
+session file from stdin and runs `squid -k reconfigure` (squid re-reads its ACL files
+without dropping the process). The non-root `agent` workload reaches the VM only over
+SSH and cannot run this, so it can never widen its own egress. The ephemeral
+(`work`/`dispatch`) path applies the worker class's delta **before the agent step**;
+the persistent (`chat`) path applies the collaborator's on start and **clears it on
+exit**, so an idle container reverts to root-only. Full model:
+[the per-class egress design](superpowers/specs/2026-07-19-per-class-egress-design.md);
+the per-command wiring is under [The `chat` command](#the-chat-command-and-collaborator-sessions),
+[Backends](#backends), and [the work interface](orchestration/at-cove-work-interface.md).
 
 ## Workspace and state volumes
 
