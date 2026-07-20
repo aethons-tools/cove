@@ -170,8 +170,11 @@ the run. After the bracket, `dispatchrun` emits one self-attributing
 INPUT detection](orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input)
 uses) classification hooks — so a bare agent `401` becomes a structured,
 correlated record instead of an opaque console line.
-(`at-task` still emits unstructured text until it adopts `slog`; until then every
-merged line falls to the scrubbed debug path.)
+`at-task` itself emits structured `slog` JSONL to its stderr, each record tagged
+with a `step` attr (`prepare`/`complete`) that self-identifies its layer and
+secret-free by construction (only self-owned fields; any error text is scrubbed of
+the code-host token before it enters a record), so those records merge cleanly
+rather than falling to the scrubbed debug path.
 
 ### The `chat` command and collaborator sessions
 

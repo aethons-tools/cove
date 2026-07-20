@@ -78,6 +78,19 @@ usage (extra arguments).
 
 Print `at-task <version>` and exit.
 
+## Diagnostics
+
+Stdout carries only the command's data output; diagnostics go to **stderr** as
+structured [`slog`](https://pkg.go.dev/log/slog) records. at-task runs unattended
+inside the sandbox VM (stderr is not a TTY), so each record is one JSON line
+carrying a `step` attr (`prepare` / `complete`) that self-identifies the layer,
+plus the shared `--log-mode` / `--log-level` flags (and `AT_LOG_MODE` /
+`AT_LOG_LEVEL` env fallbacks) — at a real terminal the same records render as
+human-friendly text. Records are **secret-free by construction**: only self-owned
+fields, and any error text is scrubbed of the `AT_TASK_GIT_TOKEN` value before it
+enters a record. The host captures this stderr and merges it into the unified run
+stream — see [VM output capture, demux, and merge](../OVERVIEW.md#command-surface).
+
 ## File format
 
 The `.at-task/` contract files may be **JSON or YAML** (`task.json` or `task.yml`, and so
