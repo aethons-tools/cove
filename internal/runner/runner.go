@@ -27,6 +27,29 @@ type Runner interface {
 	// RunStdin is Run with the child's stdin connected to the given reader
 	// (or the process's os.Stdin when stdin is nil, for interactive use).
 	RunStdin(stdin io.Reader, name string, args ...string) error
+	// RunIO is the general form of Run: the caller supplies the child's stdin
+	// reader and its stdout/stderr writers. A nil stream falls back to the
+	// process default (os.Stdin/os.Stdout/os.Stderr), so RunIO(nil, nil, nil, …)
+	// behaves exactly like Run. It is the injection seam a host caller uses to
+	// capture a child's output — e.g. redirect an SSH channel into a buffer —
+	// instead of letting it spill to the host console.
+	RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error
+}
+
+// orReader returns r, or def when r is nil.
+func orReader(r, def io.Reader) io.Reader {
+	if r != nil {
+		return r
+	}
+	return def
+}
+
+// orWriter returns w, or def when w is nil.
+func orWriter(w, def io.Writer) io.Writer {
+	if w != nil {
+		return w
+	}
+	return def
 }
 
 // ExitError reports that a command exited with a non-zero status. It carries
@@ -44,11 +67,15 @@ func (e *ExitError) ExitCode() int { return e.Code }
 // translating a non-zero exit into *ExitError.
 type OS struct{}
 
-func (OS) Run(name string, args ...string) error {
+func (o OS) Run(name string, args ...string) error {
+	return o.RunIO(nil, nil, nil, name, args...)
+}
+
+func (OS) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdin = orReader(stdin, os.Stdin)
+	cmd.Stdout = orWriter(stdout, os.Stdout)
+	cmd.Stderr = orWriter(stderr, os.Stderr)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -106,29 +133,18 @@ func (OS) Probe(name string, args ...string) error {
 	return err
 }
 
-func (OS) RunStdin(stdin io.Reader, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	if stdin != nil {
-		cmd.Stdin = stdin
-	} else {
-		cmd.Stdin = os.Stdin
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return &ExitError{Code: ee.ExitCode(), Err: ee}
-	}
-	return err
+func (o OS) RunStdin(stdin io.Reader, name string, args ...string) error {
+	return o.RunIO(stdin, nil, nil, name, args...)
 }
 
 // Call records a single Run invocation for the Fake runner.
 type Call struct {
-	Name  string
-	Args  []string
-	Env   []string
-	Stdin string // bytes the caller piped via RunStdin (empty for other methods or a nil reader)
+	Name   string
+	Args   []string
+	Env    []string
+	Stdin  string    // bytes the caller piped via RunStdin/RunIO (empty for other methods or a nil reader)
+	Stdout io.Writer // stdout writer the caller injected via RunIO (nil if none)
+	Stderr io.Writer // stderr writer the caller injected via RunIO (nil if none)
 }
 
 // FakeResult is one queued result for Fake.Output.
@@ -156,12 +172,26 @@ func (f *Fake) RunEnv(extraEnv []string, name string, args ...string) error {
 }
 
 func (f *Fake) RunStdin(stdin io.Reader, name string, args ...string) error {
+	return f.RunIO(stdin, nil, nil, name, args...)
+}
+
+func (f *Fake) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	var in string
 	if stdin != nil {
 		b, _ := io.ReadAll(stdin)
 		in = string(b)
 	}
-	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Stdin: in})
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Stdin: in, Stdout: stdout, Stderr: stderr})
+	// Mirror OS: when a caller injects a stdout writer, stream the next queued
+	// output to it so a host test can read the redirected child output back.
+	if stdout != nil && f.out < len(f.Outputs) {
+		r := f.Outputs[f.out]
+		f.out++
+		_, _ = io.WriteString(stdout, r.Stdout)
+		if r.Err != nil {
+			return r.Err
+		}
+	}
 	return f.Err
 }
 
