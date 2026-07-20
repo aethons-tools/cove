@@ -1,6 +1,7 @@
 package dispatchrun
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestDispatchEgressWallSurfacesNeedsInput(t *testing.T) {
 		{Stdout: "1626000000.123 0 172.17.0.1 TCP_DENIED/403 3921 CONNECT api.example.com:443 - HIER_NONE/- text/html\n"},
 	}}}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: &fakeOps{}, R: pf,
 		Cfg: kit.Config{
 			Name:          "w",

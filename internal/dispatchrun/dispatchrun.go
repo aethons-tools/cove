@@ -11,8 +11,10 @@ package dispatchrun
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +24,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -77,7 +80,13 @@ func Reap(ops backend.DispatchOps, grace time.Duration, now time.Time) error {
 // pre-built installed image → inject the task → prepare/agent/complete bracket
 // (token withheld from the agent, minted fresh before each git step) → extract →
 // destroy. It never builds — the image is compiled once by `at-cove install`.
-func Dispatch(o Options) error {
+//
+// ctx carries the host logger (via logging.From) already seeded with the run's
+// run/issue/class context; Dispatch captures the VM's SSH channel and grafts the
+// per-step `step` attribution as it merges the VM's structured records back into
+// that host stream (spec §7), rather than letting VM output spill undemuxed.
+func Dispatch(ctx context.Context, o Options) error {
+	lg := logging.From(ctx)
 	input, err := os.ReadFile(o.InputPath)
 	if err != nil {
 		return err
@@ -203,8 +212,15 @@ func Dispatch(o Options) error {
 	if err != nil {
 		return fmt.Errorf("mint token for prepare: %w", err)
 	}
-	if err := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout); err != nil {
-		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task prepare: %w", err))
+	// Capture each at-task step's stderr (its structured JSONL, spec §7) rather
+	// than letting it spill; merge it into the host stream even on failure, so a
+	// step's own error record surfaces before we return. stdout is left to spill
+	// (it carries no structured records); the merge reads the stderr channel.
+	var prepErr bytes.Buffer
+	prepStepErr := runStep(o.R, tgt, prepEnv, "at-task prepare", o.Timeout, nil, &prepErr)
+	mergeVMRecords(ctx, lg, "prepare", prepErr.Bytes(), secretValues(prepEnv))
+	if prepStepErr != nil {
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task prepare: %w", prepStepErr))
 	}
 	if err := writeVM(o.R, tgt, []byte(agentPrompt(w.Prompt)), promptVMPath); err != nil {
 		return err
@@ -227,18 +243,26 @@ func Dispatch(o Options) error {
 			agentEnv[k] = v
 		}
 	}
-	// Tee the agent's combined output to a VM-local file: it still streams live to
-	// the host, and at-task complete reads it back as the "Agent did not respond"
-	// detail when the agent leaves no worker-result (e.g. an auth 401).
-	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\" 2>&1 | tee %s",
+	// The agent's raw output is demuxed away from the structured sink (§6.3): tee
+	// it to a VM-local file (which at-task complete reads back as the "Agent did
+	// not respond" detail when the agent leaves no worker-result, e.g. an auth
+	// 401) and route the pipeline's combined stream to the SSH channel's stderr,
+	// which the host captures instead of letting it spill. That raw output NEVER
+	// reaches the structured/cloud sink — it stays VM-local and is only scanned
+	// in memory (for a 401) to classify the agent-outcome record below.
+	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\" 2>&1 | tee %s 1>&2",
 		shellQuote(promptVMPath), shellQuote(agentLogVMPath))
-	_ = runStep(o.R, tgt, agentEnv, agentCmd, o.Timeout) // agent: root + worker bucket; no git token
+	var agentOut bytes.Buffer
+	_ = runStep(o.R, tgt, agentEnv, agentCmd, o.Timeout, nil, &agentOut) // agent: root + worker bucket; no git token
 	compEnv, err := mint()
 	if err != nil {
 		return fmt.Errorf("mint token for complete: %w", err)
 	}
-	if err := runStep(o.R, tgt, compEnv, "at-task complete", o.Timeout); err != nil {
-		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task complete: %w", err))
+	var compErr bytes.Buffer
+	compStepErr := runStep(o.R, tgt, compEnv, "at-task complete", o.Timeout, nil, &compErr)
+	mergeVMRecords(ctx, lg, "complete", compErr.Bytes(), secretValues(compEnv))
+	if compStepErr != nil {
+		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("at-task complete: %w", compStepErr))
 	}
 
 	out, err := o.R.Output("ssh", append(sshargs.Base(tgt), "cat "+resultVMPath)...)
@@ -248,12 +272,17 @@ func Dispatch(o Options) error {
 	if strings.TrimSpace(out) == "" {
 		return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("dispatch produced no result at %s", resultVMPath))
 	}
+	// Classify the run's outcome into one self-attributing structured record
+	// (ok / needs-input / error), with the auth_failed + egress-wall hooks (§6.3).
+	emitAgentOutcome(ctx, lg, o.R, tgt, out, agentOut.String())
 	return os.WriteFile(o.OutputPath, []byte(out), 0o600)
 }
 
 // runStep sources the given env from a tmpfs file (never on argv), removes it, cds to the
-// workdir, and runs command under a timeout.
-func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command string, timeout time.Duration) error {
+// workdir, and runs command under a timeout. It uses the runner's writer-injection
+// seam (COV-66) so the caller can capture the SSH channel — a nil stdout/stderr
+// falls back to the process default (spill), a supplied writer captures it.
+func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command string, timeout time.Duration, stdout, stderr io.Writer) error {
 	if err := writeVM(r, tgt, []byte(envScript(env)), envVMPath); err != nil {
 		return err
 	}
@@ -263,7 +292,7 @@ func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command
 	}
 	remote := fmt.Sprintf("set -a; . %s; rm -f %s; cd %s; timeout %d %s",
 		envVMPath, envVMPath, shellQuote(workDir), secs, command)
-	return r.RunStdin(nil, "ssh", append(sshargs.Base(tgt), remote)...)
+	return r.RunIO(nil, stdout, stderr, "ssh", append(sshargs.Base(tgt), remote)...)
 }
 
 // agentPrompt joins the class's role prompt with the standard worker-result protocol.

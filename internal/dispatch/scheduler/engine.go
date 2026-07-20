@@ -91,8 +91,9 @@ func (e *Engine) isLive(issueID string) bool {
 // working, and a step attr naming the phase, so one dispatch's logs are
 // grep-able out of interleaved concurrent dispatches.
 func (e *Engine) handle(ctx context.Context, iss Issue) {
+	rid := runID(iss.Identifier)
 	dl := e.log.With(
-		slog.String("run", runID(iss.Identifier)),
+		slog.String("run", rid),
 		slog.String("issue", iss.Identifier),
 		slog.String("class", iss.Class),
 	)
@@ -148,7 +149,9 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	// e.kitDir is the .at-cove dir; --project-dir names its parent (the project root).
 	argv := []string{"at-cove", "work", "--project-dir", filepath.Dir(e.kitDir), "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
 	dl.Info("dispatching work", slog.String("step", "dispatch"), slog.String("argv", strings.Join(argv, " ")))
-	runErr := e.exec.Run(rctx, argv, nil)
+	// Pass the run id into the work subprocess (spec §7) so its own records — and
+	// the VM records it merges — join this dispatch's trace under the same `run`.
+	runErr := e.exec.Run(rctx, argv, []string{"COVE_RUN_ID=" + rid})
 
 	e.broker(ctx, iss, readResult(outPath), runErr, dl)
 }

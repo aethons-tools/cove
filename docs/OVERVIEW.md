@@ -141,16 +141,37 @@ Three more global flags (also before the subcommand) configure structured
 logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
 `--log-level debug|info|warn|error` (default `info`), and `--no-log-file`
 (suppress the attended-mode log file). They're parsed into `cli.Globals`;
-`dispatch` wires them into a per-run `internal/logging` logger. In **attended**
-(TTY) mode the logger writes human-friendly text to stderr **and** a JSON
-debug-level file at `<kit>/.state/logs/at-cove-dispatch.jsonl` (unless
-`--no-log-file`). In **unattended** (headless / non-TTY) mode — the normal way
-`dispatch` runs as a service — it writes JSON to stderr only, with no file; the
-platform capturing stderr is the log sink. Each
-dispatched issue's log lines carry a `run` id and `issue`/`class`/`step`
-attrs, so one dispatch's logs are grep-able out of interleaved concurrent
-dispatches. `work` does not yet consume these flags (see
-[`docs/superpowers/specs/2026-07-15-structured-logging-design.md`](superpowers/specs/2026-07-15-structured-logging-design.md)).
+`dispatch` and `work` both wire them into a per-run `internal/logging` logger. In
+**attended** (TTY) mode the logger writes human-friendly text to stderr **and** a
+JSON debug-level file under `<kit>/.state/logs/` (`at-cove-dispatch.jsonl` for the
+scheduler, `at-cove-work-<issue>.jsonl` for a work run; unless `--no-log-file`).
+In **unattended** (headless / non-TTY) mode — the normal way `dispatch` runs as a
+service — it writes JSON to stderr only, with no file; the platform capturing
+stderr is the log sink. Each dispatched issue's log lines carry a `run` id and
+`issue`/`class`/`step` attrs, so one dispatch's logs are grep-able out of
+interleaved concurrent dispatches. The scheduler passes its `run` id into the
+`work` subprocess via `COVE_RUN_ID`, so a dispatched worker's own logs — and the
+VM records it merges (below) — join the same trace. See
+[`docs/superpowers/specs/2026-07-15-structured-logging-design.md`](superpowers/specs/2026-07-15-structured-logging-design.md).
+
+**VM output capture, demux, and merge.** Rather than let the VM's SSH channel
+spill raw and undemuxed to the host console, `dispatchrun` uses the runner's
+writer-injection seam to **capture** each bracket step's output. The two streams
+are **demuxed**: `at-task`'s structured JSONL arrives on **stderr** and is
+**merged** into the host stream — each record re-emitted through the host logger
+so it inherits the run/issue/class context, with the layer `step` grafted on; an
+unparseable line is not dropped but logged at **debug** as raw, scrubbed of any
+known secret value (the redaction backstop). The **agent's** raw output is
+demuxed the other way: teed to a **VM-local file** (`.at-task/agent.log`) and
+never shipped to the structured sink — it is only scanned in memory to classify
+the run. After the bracket, `dispatchrun` emits one self-attributing
+**agent-outcome** record — `ok` / `needs-input` / `error`, with `auth_failed` (a
+`401`) and egress-wall (a squid denial — the same signal the [egress-wall NEEDS
+INPUT detection](orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input)
+uses) classification hooks — so a bare agent `401` becomes a structured,
+correlated record instead of an opaque console line.
+(`at-task` still emits unstructured text until it adopts `slog`; until then every
+merged line falls to the scrubbed debug path.)
 
 ### The `chat` command and collaborator sessions
 
@@ -475,7 +496,7 @@ a `Fake` records calls for tests.
 
 ```
 cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend + work + dispatch
-internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy)
+internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy) + VM output capture/demux/merge (below)
 internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
