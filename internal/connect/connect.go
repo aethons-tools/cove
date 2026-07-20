@@ -38,6 +38,18 @@ const (
 	// prompt; the seeded CLAUDE.md @-includes it. Not a secret (source-controlled
 	// kit content), but written the same in-memory-over-ssh way.
 	collaboratorVMPath = "/agent-data/COLLABORATOR.md"
+	// workspaceProbe reports whether the isolated workspace already holds a
+	// checkout, so the first-session clone runs exactly once for the VM's lifetime
+	// (a reconnect reuses the existing, possibly in-progress, workspace). It always
+	// exits 0 and reports on stdout, so a non-zero ssh exit still means the
+	// connection failed, not "empty workspace" (mirrors authProbe).
+	workspaceProbe      = `if [ -e ` + workspaceDir + `/.git ]; then echo ` + workspaceClonedMark + `; else echo cove-ws-empty; fi`
+	workspaceClonedMark = "cove-ws-cloned"
+	// cloneEnvVMPath / cloneAskpassVMPath live on tmpfs (/dev/shm): the git token
+	// is staged into the env file in memory (never on disk or argv) and the askpass
+	// echoes it, mirroring the dispatch worker's env-only askpass (worker/git.go).
+	cloneEnvVMPath     = "/dev/shm/cove-clone-env"
+	cloneAskpassVMPath = "/dev/shm/cove-clone-askpass"
 )
 
 // Options configures a connect. Container/Secrets come from the recorded state,
@@ -58,6 +70,20 @@ type Options struct {
 	// collaboratorVMPath before launch so the session's CLAUDE.md includes it.
 	// Empty writes a benign placeholder (clears any prior role).
 	CollaboratorPrompt string
+	// WorkspaceClone, when non-nil, clones the repo's default branch into the VM's
+	// isolated workspace on first session start — once for the VM's lifetime (a
+	// reconnect that finds an existing checkout reuses it). nil means never clone
+	// (a shared --ws workspace, or source-control/token not configured).
+	WorkspaceClone *WorkspaceClone
+}
+
+// WorkspaceClone describes a first-session clone of the target repo into the
+// isolated workspace. The Token is resolved in memory just for the clone and is
+// never added to the session env handed to the agent (the code-host air-gap).
+type WorkspaceClone struct {
+	RepoURL string      // https clone URL, e.g. https://github.com/owner/name.git
+	Branch  string      // default branch to check out
+	Token   secret.Spec // code-host token; flows into the VM via an env-only askpass
 }
 
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
@@ -108,6 +134,14 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 	}
 
 	if err := writeCollaboratorRole(r, tgt, o.CollaboratorPrompt); err != nil {
+		return err
+	}
+
+	// Populate an empty isolated workspace with the repo's default branch, once
+	// for the VM's lifetime, so the checkout is ready when the chat opens. A
+	// configured clone that fails is a hard error (fail closed) — it aborts before
+	// the session launches rather than dropping the collaborator into an empty dir.
+	if err := ensureWorkspace(r, tgt, o.WorkspaceClone); err != nil {
 		return err
 	}
 
@@ -201,6 +235,70 @@ func writeCollaboratorRole(r runner.Runner, tgt sshargs.Target, prompt string) e
 		return fmt.Errorf("writing collaborator role: %w", err)
 	}
 	return nil
+}
+
+// ensureWorkspace clones the repo's default branch into the isolated workspace
+// the first time a session starts, and never again for the VM's lifetime. It is
+// a no-op when w is nil (a shared workspace, or source-control/token not
+// configured). It probes for an existing checkout first (host-observable, so the
+// once-per-lifetime guard is testable and a reconnect reuses in-progress work),
+// then stages the token into VM tmpfs in memory and clones with an env-only
+// askpass — the token never reaches argv, disk, or the session env. A clone
+// failure is returned so the caller fails closed rather than launching an empty
+// session.
+func ensureWorkspace(r runner.Runner, tgt sshargs.Target, w *WorkspaceClone) error {
+	if w == nil {
+		return nil
+	}
+	out, err := r.Output("ssh", append(sshargs.Base(tgt), workspaceProbe)...)
+	if err != nil {
+		return fmt.Errorf("checking workspace state: %w", err)
+	}
+	if strings.Contains(out, workspaceClonedMark) {
+		return nil // already cloned: reuse the existing workspace, never re-clone
+	}
+	// Resolve the token on the host, in memory only — it is deliberately NOT part
+	// of o.Secrets, so it never enters the agent's session env.
+	env, err := secret.Resolve(r, nil, []secret.Spec{w.Token})
+	if err != nil {
+		return err
+	}
+	// Stage the token into a tmpfs env file over ssh stdin (never on argv), then
+	// clone with a GIT_ASKPASS that echoes it — the dispatch worker's env-only
+	// askpass approach (internal/dispatch/worker/git.go).
+	tokenScript := fmt.Sprintf("export AT_TASK_ASKPASS_TOKEN=%s\n", shellQuote(env[w.Token.Name]))
+	if err := writeVM(r, tgt, tokenScript, cloneEnvVMPath); err != nil {
+		return fmt.Errorf("staging clone token: %w", err)
+	}
+	// The askpass content is static (no secret), so it can be written plainly.
+	askpass := "#!/bin/sh\nprintf '%s\\n' \"$AT_TASK_ASKPASS_TOKEN\"\n"
+	if err := writeVM(r, tgt, askpass, cloneAskpassVMPath); err != nil {
+		return fmt.Errorf("staging clone askpass: %w", err)
+	}
+	if _, err := r.Output("ssh", append(sshargs.Base(tgt), cloneCmd(w.RepoURL, w.Branch))...); err != nil {
+		return fmt.Errorf("cloning %s into workspace: %w", w.RepoURL, err)
+	}
+	return nil
+}
+
+// cloneCmd builds the remote shell that clones the repo into the workspace: make
+// the askpass executable, source the token env from tmpfs then scrub it, clone
+// the default branch with the askpass supplying credentials (GIT_TERMINAL_PROMPT=0
+// fails closed instead of hanging on a prompt), and scrub the askpass. The token
+// never appears on this command line — only the tmpfs paths do.
+func cloneCmd(url, branch string) string {
+	return "chmod 700 " + cloneAskpassVMPath + "; " +
+		"set -a; . " + cloneEnvVMPath + "; set +a; rm -f " + cloneEnvVMPath + "; " +
+		"GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=" + cloneAskpassVMPath +
+		" git clone --branch " + shellQuote(branch) + " " + shellQuote(url) + " " + workspaceDir + "; " +
+		"rc=$?; rm -f " + cloneAskpassVMPath + "; exit $rc"
+}
+
+// writeVM writes data to vmPath in the VM over ssh stdin (mode 077, never on
+// argv), the same in-memory transport used for the collaborator role and creds.
+func writeVM(r runner.Runner, tgt sshargs.Target, data, vmPath string) error {
+	args := append(sshargs.Base(tgt), "umask 077; cat > "+vmPath)
+	return r.RunStdin(strings.NewReader(data), "ssh", args...)
 }
 
 // saveCredentials copies the VM's live login back to the host file (mode 0600),

@@ -605,8 +605,9 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if err != nil {
 		return err
 	}
-	expand := mint.Expander(r, store.Global, "") // chat mints no github token (connectors)
-	specs, unresolved, err := store.Plan(st.Name, canonicalKitPath(kitDir), demanded, expand)
+	kitPath := canonicalKitPath(kitDir)
+	expand := mint.Expander(r, store.Global, "") // chat mints no github token into the session (connectors)
+	specs, unresolved, err := store.Plan(st.Name, kitPath, demanded, expand)
 	if err != nil {
 		return err
 	}
@@ -624,9 +625,28 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		if hasCollab {
 			who = "collaborator " + class
 		}
-		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s\n",
-			len(specs), st.Container, who, launch)
+		clone := ""
+		if _, ok := cfg.GitTokenName(); ok && st.WorkspaceMode == "isolated" {
+			clone = fmt.Sprintf(", cloning %s on first session start", cfg.SourceControl.GitHub.Project)
+		}
+		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s%s\n",
+			len(specs), st.Container, who, launch, clone)
 		return nil
+	}
+
+	// First-session workspace clone (isolated mode only). The git token is
+	// resolved on the git-scoped expander (so a mint: supply gets the repo) and
+	// kept out of `specs` above — it flows to connect separately and never into
+	// the agent's session env (the code-host air-gap). Unconfigured source-control
+	// yields nil (empty workspace, session still starts); a declared-but-unsupplied
+	// token is a hard error before any SSH.
+	repo := ""
+	if cfg.SourceControl != nil && cfg.SourceControl.GitHub != nil {
+		repo = cfg.SourceControl.GitHub.Project
+	}
+	wsClone, err := workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
+	if err != nil {
+		return err
 	}
 	b, err := getBackend(st.Backend, r)
 	if err != nil {
@@ -688,7 +708,39 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		Stderr:             stderr,
 		CredentialsFile:    filepath.Join(configDir(), "credentials.json"),
 		CollaboratorPrompt: role.Prompt,
+		WorkspaceClone:     wsClone,
 	})
+}
+
+// workspaceClonePlan decides whether a chat session should clone the target repo
+// into the isolated workspace on first start, and with what URL/branch/token. It
+// mirrors the worker path's git plumbing (GitTokenName + planRequired) so the
+// clone reuses the same demand/supply resolution rather than inventing new logic.
+//
+// It returns nil (skip, start empty — today's behavior) for a shared --ws
+// workspace or when source-control/AT_TASK_GIT_TOKEN is not declared. When the
+// token IS declared but has no supply on this machine, that is a hard error
+// (fail closed): cloning a configured repo without its token cannot succeed.
+// The returned Token spec is resolved in memory by connect only if it actually
+// clones; it is never added to the agent's session env (the code-host air-gap).
+func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, expand usersecret.MintExpander, kitPath, secretsPath string) (*connect.WorkspaceClone, error) {
+	if st.WorkspaceMode != "isolated" {
+		return nil, nil // shared: the user brought their own checkout
+	}
+	gitName, ok := cfg.GitTokenName()
+	if !ok {
+		return nil, nil // no source-control/token declared: start empty
+	}
+	tok, err := planRequired(store, expand, st.Name, kitPath, gitName, secretsPath)
+	if err != nil {
+		return nil, err
+	}
+	gh := cfg.SourceControl.GitHub
+	return &connect.WorkspaceClone{
+		RepoURL: "https://github.com/" + gh.Project + ".git",
+		Branch:  gh.MainBranch, // defaulted to "main" at parse
+		Token:   tok,
+	}, nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses

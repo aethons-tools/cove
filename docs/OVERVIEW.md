@@ -199,7 +199,10 @@ the implementation**. The one exception is **review or troubleshooting**,
 where the same session may make direct fixes in place. The session reaches
 GitHub and Linear through the human's own **claude.ai account connectors**
 (subscription OAuth) — never a minted token; token minting stays a `work`/
-`dispatch` concern only. See
+`dispatch` concern only. (An isolated workspace is populated by a one-time
+repo clone on first session start — a `chat`-side step whose git token is kept
+out of the agent's session env; see
+[Workspace and state volumes](#workspace-and-state-volumes).) See
 [at-cove-config.md](usage/at-cove-config.md#collaborators) for the schema and
 [the orchestration work interface](orchestration/at-cove-work-interface.md)
 for the dispatched-worker side of that boundary.
@@ -352,10 +355,28 @@ The working directory is realized one of two ways,
 chosen at `create` time (not in `config.yml`, so a spec stays portable):
 
 - **Isolated (default)** —
-  a backend-managed volume;
-  the agent clones the repo in once secrets are present.
+  a backend-managed volume; `chat` clones the repo's default branch into it on
+  the **first** collaborator session (see below), so the checkout is ready when
+  the chat opens.
 - **Shared** —
   a bind-mount of a host folder via `--workspace <path>` (host and VM share `.git/config`).
+
+**Clone-on-first-session (isolated only).** A `create` without `--ws` leaves the
+workspace volume empty, so the first `chat` populates it: it clones the target
+`source-control.github` repo (`https://github.com/<owner>/<name>.git`) on its
+`main-branch` into `/home/agent/workspace`, **once for the VM's lifetime**. A
+reconnect that finds an existing checkout reuses it verbatim (in-progress work is
+never re-cloned or clobbered) — the guard is a `.git` probe on session start.
+Auth reuses the worker path's git plumbing: `chat` resolves the
+`source-control.github.secrets.AT_TASK_GIT_TOKEN` demand host-side (like `work`
+does) and the token flows into the VM via the same env-only askpass as
+`internal/dispatch/worker/git.go` — never on disk, argv, or in the **agent's
+session env** (the code-host air-gap: a collaborator reaches GitHub through the
+human's claude.ai connectors, not this token). If `source-control` (or the
+`AT_TASK_GIT_TOKEN` demand) is not configured, the clone is **skipped** and the
+session starts in an empty workspace (the prior behavior); if it *is* configured
+but the clone **fails**, session start is a **hard error** (fail closed). A
+`--ws` shared workspace is never cloned — the user brings their own checkout.
 
 A second volume, **`<name>-state`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates,
@@ -590,7 +611,9 @@ kit root, which `config.yml` now rejects as a hard error (see
 Designed but deferred (see the specs):
 the `.local/image/` override layer,
 the Firecracker and Fly backends,
-and declarative repo cloning.
+and fully declarative (config-driven, multi-repo) cloning — the isolated
+workspace is already auto-cloned on the first collaborator session (see
+[Workspace and state volumes](#workspace-and-state-volumes)).
 Further out, the [agent-orchestration design](orchestration/INDEX.md) proposes turning at-cove into a **dispatch substrate** for autonomous workers —
 non-interactive `run --detach`, per-run lifecycle verbs, and per-task scoped-token minting —
 a net-new direction beyond the deferred items above.
