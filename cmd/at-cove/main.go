@@ -885,20 +885,81 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 0
 	}
 
-	b, err := getBackend(defaultBackend, r)
+	// Read the dispatched task up front (--reap carries none): it names the per-run
+	// log file and selects the worker secret bucket. dispatchrun.Dispatch re-reads
+	// --in itself later for the actual bracket — this earlier read only drives the
+	// logger's correlation and which worker bucket to plan and gate on.
+	var task worker.Task
+	if !*reap {
+		taskBytes, err := os.ReadFile(*inPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: %v\n", err)
+			return 1
+		}
+		if err := json.Unmarshal(taskBytes, &task); err != nil {
+			fmt.Fprintf(stderr, "at-cove: parse task: %v\n", err)
+			return 1
+		}
+	}
+
+	// Build the work-run logger up front and seed it with the run/issue/class
+	// correlation (spec §7/§8) so every diagnostic below — backend, install
+	// currency, secret resolution, the fail-closed bearer gate, dispatch — is a
+	// structured, correlated record rather than a bare Fprintf. In attended mode
+	// the full trace goes to a per-run JSON file under the kit's excluded runtime
+	// dir; in unattended mode (the normal way a dispatched worker runs) it is JSON
+	// to stderr for the platform to capture. dispatchrun grafts `step` per record
+	// and merges the VM's captured structured output into this one stream. run
+	// flows from the scheduler via COVE_RUN_ID. --reap carries no task/run, so it
+	// writes no per-run file.
+	logFile := ""
+	if !g.NoLogFile && !*reap {
+		// Sanitize the issue key before it names a host file — it originates in the
+		// task input, so keep it to a safe slug (no path separators / traversal).
+		slug := strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+				return r
+			default:
+				return '_'
+			}
+		}, task.Issue.Key)
+		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-work-"+slug+".jsonl")
+	}
+	lg, err := logging.New(logging.Options{
+		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Stderr:   stderr,
+		FilePath: logFile,
+		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
 		return 1
 	}
+	defer lg.Close()
+	if !*reap {
+		lg = lg.With(
+			slog.String("run", envOr("", "COVE_RUN_ID")),
+			slog.String("issue", task.Issue.Key),
+			slog.String("class", task.Worker.Class),
+		)
+	}
+	ctx := logging.Into(context.Background(), lg)
+
+	b, err := getBackend(defaultBackend, r)
+	if err != nil {
+		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		return 1
+	}
 	ops, ok := b.(backend.DispatchOps)
 	if !ok {
-		fmt.Fprintf(stderr, "at-cove: backend %q does not support dispatch\n", defaultBackend)
+		lg.UserError(ctx, fmt.Errorf("backend %q does not support dispatch", defaultBackend), slog.String("step", "assemble"))
 		return 1
 	}
 
 	if *reap {
 		if err := dispatchrun.Reap(ops, *grace, time.Now()); err != nil {
-			fmt.Fprintf(stderr, "at-cove: reap: %v\n", err)
+			lg.UserError(ctx, fmt.Errorf("reap: %w", err), slog.String("step", "broker"))
 			return 1
 		}
 		return 0
@@ -909,13 +970,13 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// builds. The run-config comes from the manifest, not config.yml.
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "assemble"))
 		return 1
 	}
 	cfg := m.RunConfig
 
 	if len(cfg.Workers) == 0 {
-		fmt.Fprintf(stderr, "at-cove: kit %q declares no workers\n", cfg.Name)
+		lg.UserError(ctx, fmt.Errorf("kit %q declares no workers", cfg.Name), slog.String("step", "assemble"))
 		return 1
 	}
 
@@ -923,7 +984,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// was baked into the installed image at install time, so work never assembles.
 	priv, _, err := keys.Ensure(r, configDir())
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "assemble"))
 		return 1
 	}
 
@@ -931,28 +992,14 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	localPath := filepath.Join(configDir(), "secrets.local.yml")
 	store, err := usersecret.Load(secretsPath, localPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
 	}
 	kitPath := canonicalKitPath(kitDir)
 
-	// Read the dispatched task's worker class up front: the gate below and the
-	// worker secret bucket both need it, and dispatchrun.Dispatch re-reads --in
-	// itself later for the actual bracket — this earlier read only determines
-	// which worker bucket to plan and gate on.
-	taskBytes, err := os.ReadFile(*inPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
-		return 1
-	}
-	var task worker.Task
-	if err := json.Unmarshal(taskBytes, &task); err != nil {
-		fmt.Fprintf(stderr, "at-cove: parse task: %v\n", err)
-		return 1
-	}
 	rw, err := cfg.ResolvedWorker(task.Worker.Class)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
 	}
 
@@ -969,20 +1016,20 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	rootDemanded := keysOf(cfg.Secrets)
 	rootSpecs, rootUnresolved, err := store.Plan(cfg.Name, kitPath, rootDemanded, expand)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
 	}
 	for _, name := range rootUnresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
+		lg.Warn("secret has no supply; it will not be set", slog.String("step", "secrets"), slog.String("secret", name), slog.String("kit", cfg.Name))
 	}
 	workerDemanded := keysOf(rw.Secrets)
 	workerSpecs, workerUnresolved, err := store.Plan(cfg.Name, kitPath, workerDemanded, expand)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
 	}
 	for _, name := range workerUnresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, cfg.Name, secretsPath)
+		lg.Warn("secret has no supply; it will not be set", slog.String("step", "secrets"), slog.String("secret", name), slog.String("kit", cfg.Name))
 	}
 
 	// The dispatched agent authenticates to Anthropic under either well-known
@@ -1007,77 +1054,24 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		}
 	}
 	if !bearerResolved {
-		// Build a work-path logger from env only (mirroring g.LogMode/LogLevel's
-		// env fallback): doWork has no cli.Globals in scope, and this is the
-		// only site in the work path that needs a logger, so a full logger
-		// threaded through doWork's signature would be more machinery than the
-		// gate warrants. No log file here — this aborts before .state exists.
-		lg, err := logging.New(logging.Options{
-			Mode:   logModeFrom(envOr("", "AT_LOG_MODE")),
-			Stderr: stderr,
-			Level:  logLevelFrom(envOr("", "AT_LOG_LEVEL")),
-		})
-		if err != nil {
-			fmt.Fprintf(stderr, "at-cove: %v\n", err)
-			return 1
-		}
-		defer lg.Close()
 		bearerNames := strings.Join(agentBearerSecrets, " or ")
 		bearerErr := fmt.Errorf("no agent bearer (%s) is resolved for kit %q — the worker would fail closed with a 401; wire one under kits: %q in %s (or secrets.local.yml)",
 			bearerNames, cfg.Name, cfg.Name, secretsPath)
-		lg.UserError(context.Background(), bearerErr, slog.String("step", "secrets"), slog.String("secret", bearerNames), slog.String("kit", cfg.Name))
+		lg.UserError(ctx, bearerErr, slog.String("step", "secrets"), slog.String("secret", bearerNames), slog.String("kit", cfg.Name))
 		return 1
 	}
 
 	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
 	gitName, ok := cfg.GitTokenName()
 	if !ok {
-		fmt.Fprintf(stderr, "at-cove: kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN\n", cfg.Name)
+		lg.UserError(ctx, fmt.Errorf("kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN", cfg.Name), slog.String("step", "secrets"))
 		return 1
 	}
 	gitTok, err := planRequired(store, expand, cfg.Name, kitPath, gitName, secretsPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
 	}
-
-	// Build the work-run logger and seed it with the run/issue/class correlation
-	// (spec §7): dispatchrun grafts `step` per record and merges the VM's captured
-	// structured output into this one stream. In attended mode the full trace goes
-	// to a per-run JSON file under the kit's excluded runtime dir; in unattended
-	// mode (the normal way a dispatched worker runs) it is JSON to stderr for the
-	// platform to capture. run flows from the scheduler via COVE_RUN_ID.
-	logFile := ""
-	if !g.NoLogFile {
-		// Sanitize the issue key before it names a host file — it originates in the
-		// task input, so keep it to a safe slug (no path separators / traversal).
-		slug := strings.Map(func(r rune) rune {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-				return r
-			default:
-				return '_'
-			}
-		}, task.Issue.Key)
-		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-work-"+slug+".jsonl")
-	}
-	lg, err := logging.New(logging.Options{
-		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
-		Stderr:   stderr,
-		FilePath: logFile,
-		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove: %v\n", err)
-		return 1
-	}
-	defer lg.Close()
-	lg = lg.With(
-		slog.String("run", envOr("", "COVE_RUN_ID")),
-		slog.String("issue", task.Issue.Key),
-		slog.String("class", task.Worker.Class),
-	)
-	ctx := logging.Into(context.Background(), lg)
 
 	err = dispatchrun.Dispatch(ctx, dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, Image: m.Image, Name: workName(cfg.Name),
@@ -1096,7 +1090,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		Timeout: *timeout, GraceWindow: *grace, Now: time.Now(),
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "at-cove work: %v\n", err)
+		lg.UserError(ctx, fmt.Errorf("work: %w", err), slog.String("step", "dispatch"))
 		return 1
 	}
 	return 0
@@ -1118,61 +1112,14 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	// dispatch reads its tracker/source-control/dispatch/workers run-config from
-	// install.json (COV-38), and fails fast if the install is missing or stale
-	// (`run at-cove install`). Its dispatched `work` units then consume the one
-	// warm installed image — no per-unit build, no per-unit gate.
-	m, err := loadCurrentInstall(kitDir)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
-		return 1
-	}
-	cfg := m.RunConfig
-	// dispatch requires the full scheduler surface.
-	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
-		fmt.Fprintln(stderr, "at-cove dispatch: kit must declare source-control, tracker.linear, dispatch, and at least one worker")
-		return 1
-	}
 
-	classes := make([]string, 0, len(cfg.Workers))
-	for name := range cfg.Workers {
-		if _, err := cfg.ResolvedWorker(name); err == nil {
-			classes = append(classes, name)
-		}
-	}
-	sort.Strings(classes)
-	if len(classes) == 0 {
-		fmt.Fprintln(stderr, "at-cove dispatch: kit declares no dispatchable worker class (only <common>?)")
-		return 1
-	}
-	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
-
-	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	localPath := filepath.Join(configDir(), "secrets.local.yml")
-	store, err := usersecret.Load(secretsPath, localPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
-		return 1
-	}
-	kitPath := canonicalKitPath(kitDir)
-	expand := mint.Expander(runner.OS{}, store.Global, "") // dispatch resolves the tracker token, not a github token
-	planned, err := planRequired(store, expand, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: %v\n", err)
-		return 1
-	}
-	resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{planned})
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: resolve tracker token: %v\n", err)
-		return 1
-	}
-	token := resolved["AT_DISPATCH_TRACKER_TOKEN"]
-
-	tracker, err := linear.New(cfg, token, nil)
-	if err != nil {
-		fmt.Fprintf(stderr, "at-cove dispatch: connect to Linear: %v\n", err)
-		return 1
-	}
+	// Build the dispatch logger up front (spec §7/§8) so every startup diagnostic
+	// — install/currency, the scheduler-surface check, secret resolution, tracker
+	// connect — is a structured, correlated record rather than a bare Fprintf.
+	// Attended mode writes human text to stderr plus the full JSON trace to a
+	// fixed per-command file under the kit's excluded runtime dir; unattended mode
+	// emits JSON to stderr for the platform to capture. The signal context is
+	// established here too, so Ctrl-C is honored even during startup.
 	logFile := ""
 	if !g.NoLogFile {
 		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-dispatch.jsonl")
@@ -1188,14 +1135,75 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer lg.Close()
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ctx = logging.Into(ctx, lg)
 
+	// dispatch reads its tracker/source-control/dispatch/workers run-config from
+	// install.json (COV-38), and fails fast if the install is missing or stale
+	// (`run at-cove install`). Its dispatched `work` units then consume the one
+	// warm installed image — no per-unit build, no per-unit gate.
+	m, err := loadCurrentInstall(kitDir)
+	if err != nil {
+		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		return 1
+	}
+	cfg := m.RunConfig
+	// dispatch requires the full scheduler surface.
+	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
+		lg.UserError(ctx, errors.New("kit must declare source-control, tracker.linear, dispatch, and at least one worker"), slog.String("step", "assemble"))
+		return 1
+	}
+
+	classes := make([]string, 0, len(cfg.Workers))
+	for name := range cfg.Workers {
+		if _, err := cfg.ResolvedWorker(name); err == nil {
+			classes = append(classes, name)
+		}
+	}
+	sort.Strings(classes)
+	if len(classes) == 0 {
+		lg.UserError(ctx, errors.New("kit declares no dispatchable worker class (only <common>?)"), slog.String("step", "assemble"))
+		return 1
+	}
+	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
+
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
+	if err != nil {
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
+		return 1
+	}
+	kitPath := canonicalKitPath(kitDir)
+	expand := mint.Expander(runner.OS{}, store.Global, "") // dispatch resolves the tracker token, not a github token
+	planned, err := planRequired(store, expand, cfg.Name, kitPath, "AT_DISPATCH_TRACKER_TOKEN", secretsPath)
+	if err != nil {
+		lg.UserError(ctx, err, slog.String("step", "secrets"))
+		return 1
+	}
+	resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{planned})
+	if err != nil {
+		// The error names a failed resolver command, never the token value.
+		lg.UserError(ctx, fmt.Errorf("resolve tracker token: %w", err), slog.String("step", "secrets"))
+		return 1
+	}
+	token := resolved["AT_DISPATCH_TRACKER_TOKEN"]
+
+	tracker, err := linear.New(cfg, token, nil)
+	if err != nil {
+		lg.UserError(ctx, fmt.Errorf("connect to Linear: %w", err), slog.String("step", "broker"))
+		return 1
+	}
+
 	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), lg)
-	lg.Info("scheduler started", slog.String("poll", cfg.Tracker.Linear.PollInterval))
+	lg.Info(schedulerStartMsg, slog.String("poll", cfg.Tracker.Linear.PollInterval))
 	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
 	lg.Info("scheduler stopped")
 	return 0
 }
+
+// schedulerStartMsg is the dispatch scheduler's start line. It keeps the
+// "Ctrl-C to stop" affordance for the attended operator (the poll interval
+// rides as a structured attr, not in the message text).
+const schedulerStartMsg = "scheduler started; Ctrl-C to stop"

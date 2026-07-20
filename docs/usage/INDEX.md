@@ -4,7 +4,7 @@ read_when: You are running one of the cove binaries directly (not developing it)
 owns: the map of the per-binary usage docs
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: section
-updated: 2026-07-14
+updated: 2026-07-20
 ---
 
 # Usage reference
@@ -22,3 +22,4 @@ environment, and the concrete input/output contracts (with JSON Schemas). This i
 | [at-cove-config.md](at-cove-config.md) | The `at-cove` kit `config.yml` schema — every field (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), validation rules, and a full annotated example. | You are authoring or editing a kit's `.at-cove/config.yml`. |
 | [at-cove-secrets.md](at-cove-secrets.md) | The demand/supply secret model — `config.yml` `secrets` are demand-only (name + description); the machine supplies values via `~/.config/at-cove/secrets.yml`/`secrets.local.yml` (`minters`/`global`/`kits`), the four supply sources, precedence, and the anti-mining trust boundary. | You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, or reasoning about secret trust. |
 | [at-mint.md](at-mint.md) | The `at-mint` host-side token minter — the `github` (GitHub App installation token) and `anthropic` (Auth0→federation bearer) subcommands, their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract. | You are configuring a machine-side secret supply that mints a token — a GitHub App installation token or an Anthropic WIF bearer. |
+| [observability.md](observability.md) | The observability model — the attended/unattended output modes and their flags, where log files land, the `run`/`issue`/`class`/`step` correlation contract, and the secrets-never-in-logs invariant. | You are reading, capturing, or shipping `dispatch`/`work`/`at-task` logs — choosing a mode, finding a log file, grepping one run, or confirming secrets stay out of logs. |
