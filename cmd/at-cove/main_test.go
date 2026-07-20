@@ -268,6 +268,19 @@ func writeState(t *testing.T, kitDir, backendName, container string, secrets ...
 	}
 }
 
+// writeStateFor records a created instance keyed by a collaborator class
+// (state file <class>.json, container <kit>-<class>), so the instance-aware
+// verbs (COV-71) find the per-class VM they now target.
+func writeStateFor(t *testing.T, kitDir string, inst state.Instance, kitName, container string, secrets ...state.Secret) {
+	t.Helper()
+	if err := state.SaveFor(kitDir, inst, state.State{
+		Name: kitName, Backend: "colima", Container: container,
+		Image: "at-cove-for-" + container, WorkspaceMode: "isolated", Secrets: secrets,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func dummyLookPath(string) (string, error) { return "/usr/bin/x", nil }
 
 func dockerArg0Index(calls []runner.Call, arg0 string) int {
@@ -994,7 +1007,9 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	// The sole collaborator keys its own instance: state file steward.json,
+	// container box-steward (COV-71).
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
 	writeInstall(t, kitDir) // the collaborator is read from install.json's run-config
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1076,7 +1091,9 @@ func TestChatAppliesCollaboratorEgressAndClearsOnExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedConfigDir(t) // keypair present so keys.Ensure doesn't shell out
-	writeState(t, kitDir, "colima", "box")
+	// The planner collaborator keys its own instance: state planner.json,
+	// container box-planner (COV-71).
+	writeStateFor(t, kitDir, state.Instance("planner"), "box", "box-planner")
 	writeInstall(t, kitDir) // collaborator domains are sourced from install.json
 	// GetStatus -> running; Dial -> host:port. --no-auth skips the ssh auth probe.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
@@ -1173,7 +1190,7 @@ func TestSaveStateSnapshot(t *testing.T) {
 	}}
 	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
-	if err := saveState(dir, cfg, inst); err != nil {
+	if err := saveState(dir, state.Interactive, cfg, inst); err != nil {
 		t.Fatal(err)
 	}
 	st, err := state.Load(dir)
@@ -1890,4 +1907,339 @@ func TestDispatchStartHintMentionsCtrlC(t *testing.T) {
 	if !strings.Contains(errb.String(), "Ctrl-C") {
 		t.Fatalf("scheduler-start message must mention Ctrl-C to stop; got %q", errb.String())
 	}
+}
+
+// --- COV-71: per-collaborator interactive instances ---
+
+// writeCollabKit writes a kit whose config.yml declares the given collaborator
+// classes (a bare "prompt" each). The first entry is marked default:true when
+// more than one is given, so SelectCollaborator has an unambiguous default.
+func writeCollabKit(t *testing.T, dir string, classes ...string) string {
+	t.Helper()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString("name: box\ncollaborators:\n")
+	for i, c := range classes {
+		b.WriteString("  " + c + ":\n    prompt: \"be " + c + "\"\n")
+		if i == 0 && len(classes) > 1 {
+			b.WriteString("    default: true\n")
+		}
+	}
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cove
+}
+
+// TestCreateKeysInstanceByCollaborator: `create <class>` runs a container and
+// volumes keyed by <kit>-<class>, and records them in <class>.json — while the
+// interactive state.json stays untouched.
+func TestCreateKeysInstanceByCollaborator(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	for _, want := range []string{"box-steward", "box-steward-state:/agent-data", "box-steward-workspace:/home/agent/workspace"} {
+		if !dockerRunHasArg(t, f.Calls, want) {
+			t.Fatalf("create must key the container/volumes by class; missing %q in run args %+v", want, f.Calls)
+		}
+	}
+	st, err := state.LoadFor(kitDir, state.Instance("steward"))
+	if err != nil {
+		t.Fatalf("class-keyed state not written: %v", err)
+	}
+	if st.Container != "box-steward" || st.Name != "box" {
+		t.Fatalf("state = %+v (want container box-steward, kit name box)", st)
+	}
+	if state.ExistsFor(kitDir, state.Interactive) {
+		t.Fatal("a collaborator create must not write the interactive state.json")
+	}
+}
+
+// TestCreateAmbiguousCollaboratorErrors: with several classes and no positional,
+// resolution is ambiguous (no default) and create refuses, touching no docker.
+func TestCreateAmbiguousCollaboratorErrors(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward")
+	// Add a second class with no default so resolution is ambiguous.
+	yml := "name: box\ncollaborators:\n  steward:\n    prompt: \"be steward\"\n  planner:\n    prompt: \"be planner\"\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("ambiguous create should refuse; stdout=%q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "multiple collaborators") {
+		t.Fatalf("error must name the ambiguity; stderr=%q", errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("ambiguous create must not touch docker; calls=%+v", f.Calls)
+	}
+}
+
+// TestCreateUnknownCollaboratorErrors: an explicit class the kit does not declare
+// is rejected before any docker call.
+func TestCreateUnknownCollaboratorErrors(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"create", "nope", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), "no collaborator") {
+		t.Fatalf("unknown collaborator should error; code=%d stderr=%q", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("unknown collaborator must not touch docker; calls=%+v", f.Calls)
+	}
+}
+
+// TestCreateNoCollaboratorKeepsInteractiveInstance: a kit that defines no
+// collaborators still uses the plain Interactive instance (state.json, container
+// <kit>, today's volume names) — the plain path is preserved exactly.
+func TestCreateNoCollaboratorKeepsInteractiveInstance(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	for _, want := range []string{"box", "box-state:/agent-data", "box-workspace:/home/agent/workspace"} {
+		if !dockerRunHasArg(t, f.Calls, want) {
+			t.Fatalf("plain create must keep today's names; missing %q in run args", want)
+		}
+	}
+	if !state.ExistsFor(kitDir, state.Interactive) {
+		t.Fatal("plain create must write the interactive state.json")
+	}
+}
+
+// TestCreateEachCollaboratorIsIndependentVM: two classes create two independent
+// instances (own state files, own containers/volumes) side by side.
+func TestCreateEachCollaboratorIsIndependentVM(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeInstall(t, kitDir)
+	for _, c := range []string{"steward", "planner"} {
+		f := &runner.Fake{}
+		var out, errOut bytes.Buffer
+		if code := run([]string{"create", c, "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+			t.Fatalf("create %s exit=%d stderr=%s", c, code, errOut.String())
+		}
+	}
+	for _, c := range []string{"steward", "planner"} {
+		st, err := state.LoadFor(kitDir, state.Instance(c))
+		if err != nil {
+			t.Fatalf("instance %s state missing: %v", c, err)
+		}
+		if st.Container != "box-"+c {
+			t.Fatalf("instance %s container = %q, want box-%s", c, st.Container, c)
+		}
+	}
+	// Creating steward again is refused (that instance exists), independently of planner.
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), "already created") {
+		t.Fatalf("second create of steward should refuse; code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+// TestRecreateKeyedByCollaborator: recreate <class> destroys and re-runs that
+// class's container, keeping volumes — leaving other instances alone.
+func TestRecreateKeyedByCollaborator(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"recreate", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("recreate exit=%d stderr=%s", code, errOut.String())
+	}
+	rmIdx := dockerArg0Index(f.Calls, "rm")
+	if rmIdx == -1 || !contains(f.Calls[rmIdx].Args, "box-steward") {
+		t.Fatalf("recreate must rm the class-keyed container; calls=%+v", f.Calls)
+	}
+	if !dockerRunHasArg(t, f.Calls, "box-steward") {
+		t.Fatalf("recreate must re-run the class-keyed container; calls=%+v", f.Calls)
+	}
+	// Volumes kept (saved login survives).
+	if dockerArg0Index(f.Calls, "volume") != -1 {
+		t.Fatalf("recreate must keep volumes; calls=%+v", f.Calls)
+	}
+}
+
+// TestDestroyKeyedByCollaborator: destroy <class> tears down only that instance's
+// container + volumes and deletes only that class's state file.
+func TestDestroyKeyedByCollaborator(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeStateFor(t, kitDir, state.Instance("planner"), "box", "box-planner")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
+	}
+	rmIdx := dockerArg0Index(f.Calls, "rm")
+	if rmIdx == -1 || !contains(f.Calls[rmIdx].Args, "box-steward") {
+		t.Fatalf("destroy must rm box-steward; calls=%+v", f.Calls)
+	}
+	volIdx := dockerArg0Index(f.Calls, "volume")
+	if volIdx == -1 || !contains(f.Calls[volIdx].Args, "box-steward-state") {
+		t.Fatalf("destroy must purge box-steward volumes; calls=%+v", f.Calls)
+	}
+	if state.ExistsFor(kitDir, state.Instance("steward")) {
+		t.Fatal("destroy must delete the steward state file")
+	}
+	if !state.ExistsFor(kitDir, state.Instance("planner")) {
+		t.Fatal("destroy of one instance must not touch the other")
+	}
+}
+
+// TestDestroyAllRemovesEveryInstance: destroy --all tears down every instance of
+// the kit (enumerated from state files), leaving none behind.
+func TestDestroyAllRemovesEveryInstance(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeStateFor(t, kitDir, state.Instance("planner"), "box", "box-planner")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", "--all", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy --all exit=%d stderr=%s", code, errOut.String())
+	}
+	// Both containers removed.
+	var rmed []string
+	for _, c := range f.Calls {
+		if c.Name == "docker" && contains(c.Args, "rm") {
+			for _, a := range c.Args {
+				if a == "box-steward" || a == "box-planner" {
+					rmed = append(rmed, a)
+				}
+			}
+		}
+	}
+	if len(rmed) != 2 {
+		t.Fatalf("destroy --all must rm both containers; rmed=%v calls=%+v", rmed, f.Calls)
+	}
+	if got, _ := state.List(kitDir); len(got) != 0 {
+		t.Fatalf("destroy --all must delete every state file; remaining=%v", got)
+	}
+}
+
+// TestStatusListsAllInstances: status with no positional lists every instance of
+// the kit, naming each class, its running state, and its container.
+func TestStatusListsAllInstances(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeStateFor(t, kitDir, state.Instance("planner"), "box", "box-planner")
+	writeInstall(t, kitDir)
+	// Two instances -> two GetStatus Output calls (preflight is a Probe).
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "false\n"}}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"status", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("status exit=%d stderr=%s", code, errOut.String())
+	}
+	s := out.String()
+	for _, want := range []string{"planner", "steward", "box-planner", "box-steward"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("status list must mention %q; got %q", want, s)
+		}
+	}
+	// planner sorts first (true) -> running; steward -> stopped.
+	if !strings.Contains(s, "running") || !strings.Contains(s, "stopped") {
+		t.Fatalf("status list must report each instance's run state; got %q", s)
+	}
+}
+
+// TestStatusSingleCollaborator: status <class> shows just that instance.
+func TestStatusSingleCollaborator(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward", "planner")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"status", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("status steward exit=%d stderr=%s", code, errOut.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, "steward") || !strings.Contains(s, "running") {
+		t.Fatalf("status steward must show that one instance running; got %q", s)
+	}
+	if strings.Contains(s, "planner") {
+		t.Fatalf("status steward must not list other instances; got %q", s)
+	}
+}
+
+// TestDestroyToleratesStaleInstall: a stale install must not block tearing down
+// an instance — destroy resolves the collaborator leniently and still removes it.
+func TestDestroyToleratesStaleInstall(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeInstall(t, kitDir)
+	// Drift the kit source so the install is now stale.
+	yml := "name: box\ncollaborators:\n  steward:\n    prompt: \"be steward\"\n# changed\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy on stale install should still work; exit=%d stderr=%s", code, errOut.String())
+	}
+	if state.ExistsFor(kitDir, state.Instance("steward")) {
+		t.Fatal("destroy must delete the state file even with a stale install")
+	}
+}
+
+// TestUninstallRefusesWhileCollaboratorInstanceExists: a per-collaborator
+// instance holds the image too, so uninstall must refuse while any <class>.json
+// remains — not just the interactive state.json (COV-71).
+func TestUninstallRefusesWhileCollaboratorInstanceExists(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeCollabKit(t, dir, "steward")
+	writeInstall(t, kitDir)
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward") // a class instance, no state.json
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), "at-cove destroy") {
+		t.Fatalf("uninstall must refuse while a collaborator instance exists; code=%d stderr=%q", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "rmi") != -1 {
+		t.Fatalf("uninstall must not rmi while an instance exists; calls=%+v", f.Calls)
+	}
+	if !install.Exists(kitDir) {
+		t.Fatal("uninstall must keep install.json while an instance exists")
+	}
+}
+
+// contains reports whether s is in ss.
+func contains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

@@ -85,11 +85,11 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveProjectDir(*pd, pos, "create", errw)
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "create", errw)
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doCreate(kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doCreate(collaborator, kitDir, r, *ws, g.DryRun, out), errw)
 			}},
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
@@ -102,17 +102,9 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				collaborator := ""
-				if len(pos) == 1 {
-					collaborator = pos[0]
-				} else if len(pos) > 1 {
-					fmt.Fprintln(errw, "at-cove: chat takes at most one collaborator")
-					return 2
-				}
-				kitDir, err := resolveKit(*pd)
-				if err != nil {
-					fmt.Fprintln(errw, "at-cove:", err)
-					return 1
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "chat", errw)
+				if code != 0 {
+					return code
 				}
 				return exitCode("at-cove", doChat(collaborator, kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
 			}},
@@ -126,16 +118,38 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if err != nil {
 					return 2
 				}
-				kitDir, code := resolveProjectDir(*pd, pos, "recreate", errw)
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "recreate", errw)
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doRecreate(kitDir, r, *ws, g.DryRun, out), errw)
+				return exitCode("at-cove", doRecreate(collaborator, kitDir, r, *ws, g.DryRun, out), errw)
 			}},
 			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return instanceCmd("destroy", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
-					return doDestroyInstance(kitDir, r, inst, false, g.DryRun, out)
-				})
+				fs := flag.NewFlagSet("destroy", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				pd := projectDirFlag(fs)
+				all := fs.Bool("all", false, "destroy every instance of the kit")
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				if *all {
+					if len(pos) > 0 {
+						fmt.Fprintln(errw, "at-cove: destroy --all takes no collaborator")
+						return 2
+					}
+					kitDir, err := resolveKit(*pd)
+					if err != nil {
+						fmt.Fprintln(errw, "at-cove:", err)
+						return 1
+					}
+					return exitCode("at-cove", doDestroyAll(kitDir, r, g.DryRun, out), errw)
+				}
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "destroy", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doDestroy(collaborator, kitDir, r, g.DryRun, out), errw)
 			}},
 			{Name: "uninstall", Brief: "remove the compiled kit image + install.json (inverse of install)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
@@ -152,9 +166,28 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				return exitCode("at-cove", doUninstall(kitDir, r, g.DryRun, out), errw)
 			}},
 			{Name: "status", Brief: "print sandbox status", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return instanceCmd("status", args, r, g, out, errw, func(kitDir string, inst state.Instance) error {
-					return doStatusInstance(kitDir, r, inst, g.DryRun, out)
-				})
+				fs := flag.NewFlagSet("status", flag.ContinueOnError)
+				fs.SetOutput(errw)
+				pd := projectDirFlag(fs)
+				pos, err := cli.ParseInterspersed(fs, args)
+				if err != nil {
+					return 2
+				}
+				// No positional lists every instance of the kit; an explicit
+				// collaborator shows just that one (multi-VM ergonomics, COV-71).
+				if len(pos) == 0 {
+					kitDir, err := resolveKit(*pd)
+					if err != nil {
+						fmt.Fprintln(errw, "at-cove:", err)
+						return 1
+					}
+					return exitCode("at-cove", doStatusAll(kitDir, r, g.DryRun, out), errw)
+				}
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "status", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doStatus(collaborator, kitDir, r, g.DryRun, out), errw)
 			}},
 			{Name: "work", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doWork(args, r, g, out, errw)
@@ -236,21 +269,25 @@ func resolveProjectDir(flagVal string, pos []string, cmd string, stderr io.Write
 	return kitDir, 0
 }
 
-// instanceCmd handles destroy/status: it parses the shared --project-dir flag
-// and resolves to the interactive instance.
-func instanceCmd(cmd string, args []string, r runner.Runner, g cli.Globals, out, errw io.Writer, do func(kitDir string, inst state.Instance) error) int {
-	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	fs.SetOutput(errw)
-	pd := projectDirFlag(fs)
-	pos, err := cli.ParseInterspersed(fs, args)
+// resolveCollaborator resolves the --project-dir flag plus an optional single
+// collaborator positional — the uniform argument shape of the five instance-aware
+// verbs (create/chat/recreate/destroy/status), each keyed per collaborator class
+// (COV-71). At most one positional is allowed (the collaborator class); the
+// project root is always the --project-dir flag, never a positional.
+func resolveCollaborator(flagVal string, pos []string, cmd string, stderr io.Writer) (collaborator, kitDir string, code int) {
+	if len(pos) > 1 {
+		fmt.Fprintf(stderr, "at-cove: %s takes at most one collaborator\n", cmd)
+		return "", "", 2
+	}
+	if len(pos) == 1 {
+		collaborator = pos[0]
+	}
+	kitDir, err := resolveKit(flagVal)
 	if err != nil {
-		return 2
+		fmt.Fprintln(stderr, "at-cove:", err)
+		return "", "", 1
 	}
-	kitDir, code := resolveProjectDir(*pd, pos, cmd, errw)
-	if code != 0 {
-		return code
-	}
-	return exitCode("at-cove", do(kitDir, state.Interactive), errw)
+	return collaborator, kitDir, 0
 }
 
 // exitCode maps a doX error to a process exit code (unwrapping ExitError).
@@ -401,8 +438,13 @@ func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) 
 	if err != nil {
 		return err
 	}
-	if state.Exists(kitDir) {
-		return fmt.Errorf("refusing to uninstall %q: an instance is still created (it holds the image); run `at-cove destroy` first", m.Name)
+	// Any created instance — the plain one or any per-collaborator one (COV-71) —
+	// holds the image, so uninstall must refuse while any state file remains, not
+	// just the interactive one.
+	if insts, err := state.List(kitDir); err != nil {
+		return err
+	} else if len(insts) > 0 {
+		return fmt.Errorf("refusing to uninstall %q: %d instance(s) still created (they hold the image); run `at-cove destroy --all` first", m.Name, len(insts))
 	}
 	if dryRun {
 		fmt.Fprintf(stdout, "would remove image %s and delete %s\n", m.Image, install.Path(kitDir))
@@ -476,17 +518,71 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	return m, nil
 }
 
+// instanceFor resolves a CLI collaborator positional against a kit config to the
+// instance identity (COV-71): the state.Instance key (Interactive for a kit that
+// defines no collaborators, else Instance(class)) and the backend name, which
+// keys the container and its -workspace/-state volumes. A plain (no-collaborator)
+// kit keeps the bare kit name (container <kit>, today's volume names); a
+// class-keyed instance is "<kit>-<class>" (container <kit>-<class>, volumes
+// <kit>-<class>-workspace/-state). Resolution mirrors chat exactly: explicit
+// class → that one; omitted → the sole/default:true class (error if ambiguous);
+// no collaborators → the plain Interactive instance.
+func instanceFor(cfg kit.Config, collaborator string) (class string, hasCollab bool, instKey state.Instance, name string, err error) {
+	class, hasCollab, err = cfg.SelectCollaborator(collaborator)
+	if err != nil {
+		return "", false, state.Interactive, "", err
+	}
+	if !hasCollab {
+		return "", false, state.Interactive, cfg.Name, nil
+	}
+	return class, true, state.Instance(class), cfg.Name + "-" + class, nil
+}
+
+// lenientRunConfig loads a kit's frozen run-config (its collaborators tree) from
+// install.json WITHOUT the currency check the run commands enforce. The
+// teardown/inspection verbs (destroy/status) resolve the collaborator positional
+// through this — you can always tear down or inspect what you created, even after
+// the kit source drifts and the install goes stale. A not-installed kit yields an
+// empty config (no collaborators → the plain Interactive instance), so an orphan
+// state.json is still addressable.
+func lenientRunConfig(kitDir string) (kit.Config, error) {
+	m, err := install.Load(kitDir)
+	if errors.Is(err, install.ErrNotInstalled) {
+		return kit.Config{}, nil
+	}
+	if err != nil {
+		return kit.Config{}, err
+	}
+	return m.RunConfig, nil
+}
+
+// resolveInstanceLenient resolves a collaborator positional to a state.Instance
+// key for destroy/status, via the lenient (non-currency) run-config.
+func resolveInstanceLenient(kitDir, collaborator string) (state.Instance, error) {
+	cfg, err := lenientRunConfig(kitDir)
+	if err != nil {
+		return state.Interactive, err
+	}
+	_, _, instKey, _, err := instanceFor(cfg, collaborator)
+	return instKey, err
+}
+
 // doCreate consumes the installed image (COV-38): it verifies the install is
-// current, runs the pre-built image via the backend (no build), and records the
-// running instance in state.json — sourcing the image from the manifest.
-func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+// current, resolves the collaborator to a per-class instance (COV-71), runs the
+// pre-built image via the backend (no build), and records the running instance in
+// the instance's state file — sourcing the image from the manifest.
+func doCreate(collaborator, kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
 	cfg := m.RunConfig
-	if state.Exists(kitDir) {
-		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", cfg.Name)
+	_, _, instKey, name, err := instanceFor(cfg, collaborator)
+	if err != nil {
+		return err
+	}
+	if state.ExistsFor(kitDir, instKey) {
+		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", name)
 	}
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if wsPath != "" {
@@ -497,20 +593,20 @@ func doCreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would run %s (image %s) and write %s\n", cfg.Name, m.Image, state.Path(kitDir))
+		fmt.Fprintf(stdout, "would run %s (image %s) and write %s\n", name, m.Image, state.PathFor(kitDir, instKey))
 		return nil
 	}
 	b, err := getBackend(defaultBackend, r)
 	if err != nil {
 		return err
 	}
-	inst, err := b.Create(backend.CreateContext{
-		Name: cfg.Name, Image: m.Image, Workspace: ws,
+	bi, err := b.Create(backend.CreateContext{
+		Name: name, Image: m.Image, Workspace: ws,
 	})
 	if err != nil {
 		return err
 	}
-	return saveState(kitDir, cfg, inst)
+	return saveState(kitDir, instKey, cfg, bi)
 }
 
 // buildState assembles the state snapshot for a created instance: the backend
@@ -536,9 +632,10 @@ func buildState(cfg kit.Config, inst backend.Instance) state.State {
 	return st
 }
 
-// saveState snapshots the created interactive instance into the kit state file.
-func saveState(kitDir string, cfg kit.Config, inst backend.Instance) error {
-	return state.Save(kitDir, buildState(cfg, inst))
+// saveState snapshots a created instance into its per-instance state file
+// (state.json for Interactive, <class>.json otherwise — COV-71).
+func saveState(kitDir string, instKey state.Instance, cfg kit.Config, inst backend.Instance) error {
+	return state.SaveFor(kitDir, instKey, buildState(cfg, inst))
 }
 
 func instanceFromState(st state.State) backend.Instance {
@@ -562,16 +659,12 @@ func instanceFromState(st state.State) backend.Instance {
 // selecting a collaborator and its role prompt requires that run-config. A
 // missing or stale install is a hard error pointing at `at-cove install`.
 func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, fresh bool, stdout, stderr io.Writer) error {
-	st, err := state.Load(kitDir)
-	if err != nil {
-		return err
-	}
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
 	cfg := m.RunConfig
-	class, hasCollab, err := cfg.SelectCollaborator(collaborator)
+	class, hasCollab, instKey, _, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
@@ -580,6 +673,12 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		if role, err = cfg.ResolvedCollaborator(class); err != nil {
 			return err
 		}
+	}
+	// The selected collaborator keys its own VM/state/volumes (COV-71): chat
+	// operates on this instance's state file, not the single interactive one.
+	st, err := state.LoadFor(kitDir, instKey)
+	if err != nil {
+		return err
 	}
 
 	// Demand (from state, plus the selected collaborator's secrets) resolved
@@ -653,7 +752,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		return err
 	}
 
-	lock, err := state.AcquireShared(kitDir)
+	lock, err := state.AcquireSharedFor(kitDir, instKey)
 	if err != nil {
 		if errors.Is(err, state.ErrLocked) {
 			return fmt.Errorf("sandbox %q is being destroyed; try again shortly", st.Container)
@@ -781,50 +880,120 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 	return state.DeleteFor(kitDir, inst)
 }
 
-// doDestroy tears the interactive instance down for the user-facing `destroy`
-// command: it purges the instance's volumes (keepVolumes=false). recreate calls
-// the keepVolumes=true path directly so the saved login survives.
-func doDestroy(kitDir string, r runner.Runner, keepVolumes, dryRun bool, stdout io.Writer) error {
-	return doDestroyInstance(kitDir, r, state.Interactive, keepVolumes, dryRun, stdout)
+// doDestroy tears one resolved instance down for the user-facing `destroy
+// [collaborator]` command: it purges that instance's volumes (keepVolumes=false).
+// The collaborator is resolved through the lenient run-config so a stale/absent
+// install never blocks a teardown (COV-71). recreate calls the keepVolumes=true
+// path directly so the saved login survives.
+func doDestroy(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	instKey, err := resolveInstanceLenient(kitDir, collaborator)
+	if err != nil {
+		return err
+	}
+	return doDestroyInstance(kitDir, r, instKey, false, dryRun, stdout)
+}
+
+// doDestroyAll tears down every created instance of the kit (`destroy --all`,
+// COV-71): it enumerates the instance state files and destroys each, purging its
+// volumes. Enumerating actual state files (not config) means it also cleans up an
+// orphaned pre-upgrade instance.
+func doDestroyAll(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	insts, err := state.List(kitDir)
+	if err != nil {
+		return err
+	}
+	if len(insts) == 0 {
+		fmt.Fprintln(stdout, "no instances to destroy")
+		return nil
+	}
+	for _, instKey := range insts {
+		if err := doDestroyInstance(kitDir, r, instKey, false, dryRun, stdout); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // doRecreate tears down the existing instance (under the exclusive lock, so it
-// refuses with active connections) and re-runs the installed image, keeping
-// volumes. It no longer rebuilds (COV-38): it verifies the install is current and
-// re-runs the pre-built image, so a stale/missing install fails before any
-// teardown, pointing at `at-cove install`.
-func doRecreate(kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
+// refuses with active connections) and re-runs the installed image for the
+// resolved collaborator, keeping volumes. It no longer rebuilds (COV-38): it
+// verifies the install is current and re-runs the pre-built image, so a
+// stale/missing install fails before any teardown, pointing at `at-cove install`.
+func doRecreate(collaborator, kitDir string, r runner.Runner, wsPath string, dryRun bool, stdout io.Writer) error {
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
 		return err
 	}
 	cfg := m.RunConfig
+	_, _, instKey, name, err := instanceFor(cfg, collaborator)
+	if err != nil {
+		return err
+	}
 	// Recreate keeps volumes, but a shared workspace is a host bind-mount, not a
 	// volume — it must be re-specified at `docker run`. When the caller does not
-	// pass --ws, recover the previously shared workspace from state so recreate
-	// preserves it instead of silently reverting to an isolated volume. This must
-	// happen before doDestroy, which deletes the state file.
+	// pass --ws, recover the previously shared workspace from this instance's state
+	// so recreate preserves it instead of silently reverting to an isolated volume.
+	// This must happen before the destroy, which deletes the state file.
 	if wsPath == "" {
-		if st, err := state.Load(kitDir); err == nil && st.WorkspaceMode == "shared" {
+		if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
 			wsPath = st.WorkspaceHostPath
 		}
 	}
 	if dryRun {
-		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", cfg.Name)
+		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", name)
 		return nil
 	}
-	if state.Exists(kitDir) {
-		if err := doDestroy(kitDir, r, true, false, stdout); err != nil {
+	if state.ExistsFor(kitDir, instKey) {
+		if err := doDestroyInstance(kitDir, r, instKey, true, false, stdout); err != nil {
 			return err
 		}
 	}
-	return doCreate(kitDir, r, wsPath, false, stdout)
+	return doCreate(collaborator, kitDir, r, wsPath, false, stdout)
+}
+
+// doStatus reports the status of one resolved instance (`status [collaborator]`).
+// The collaborator is resolved through the lenient run-config (COV-71).
+func doStatus(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	instKey, err := resolveInstanceLenient(kitDir, collaborator)
+	if err != nil {
+		return err
+	}
+	return doStatusInstance(kitDir, r, instKey, dryRun, stdout)
+}
+
+// doStatusAll lists every created instance of the kit (`status` with no
+// positional, COV-71): class, running state, container, and workspace mode. An
+// uncreated kit reports "absent (not created)", matching the single-instance case.
+func doStatusAll(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
+	insts, err := state.List(kitDir)
+	if err != nil {
+		return err
+	}
+	if len(insts) == 0 {
+		fmt.Fprintln(stdout, "absent (not created)")
+		return nil
+	}
+	for _, instKey := range insts {
+		if err := doStatusInstance(kitDir, r, instKey, dryRun, stdout); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// instanceClass labels an instance in status output: the class name, or
+// "(interactive)" for the plain no-collaborator instance.
+func instanceClass(inst state.Instance) string {
+	if inst == state.Interactive {
+		return "(interactive)"
+	}
+	return string(inst)
 }
 
 func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRun bool, stdout io.Writer) error {
 	st, err := state.LoadFor(kitDir, inst)
 	if errors.Is(err, state.ErrNotCreated) {
-		fmt.Fprintln(stdout, "absent (not created)")
+		fmt.Fprintf(stdout, "%s: absent (not created)\n", instanceClass(inst))
 		return nil
 	}
 	if err != nil {
@@ -847,7 +1016,8 @@ func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRu
 		backend.StateStopped: "stopped",
 		backend.StateRunning: "running",
 	}
-	fmt.Fprintf(stdout, "%s  (image %s)\n", labels[vmState], st.Image)
+	fmt.Fprintf(stdout, "%s: %s  (container %s, %s, image %s)\n",
+		instanceClass(inst), labels[vmState], st.Container, st.WorkspaceMode, st.Image)
 	return nil
 }
 

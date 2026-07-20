@@ -12,6 +12,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/kit"
 )
@@ -130,3 +132,37 @@ func DeleteFor(kitDir string, inst Instance) error {
 
 // Delete removes the interactive instance's state file. Idempotent.
 func Delete(kitDir string) error { return DeleteFor(kitDir, Interactive) }
+
+// List returns every instance that has a state file in the kit's .state dir, so
+// multi-VM verbs (status list-all, destroy --all) can enumerate a kit's
+// instances without consulting config. The interactive state.json maps to
+// Interactive; every other "<class>.json" maps to Instance("<class>").
+// install.json (the compiled manifest, which shares the .state dir), non-.json
+// files, and subdirectories (e.g. logs/) are ignored. The result is sorted for
+// determinism, so a plain kit's single Interactive instance sorts first.
+func List(kitDir string) ([]Instance, error) {
+	entries, err := os.ReadDir(Dir(kitDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var insts []Instance
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") || name == "install.json" {
+			continue
+		}
+		if name == "state.json" {
+			insts = append(insts, Interactive)
+			continue
+		}
+		insts = append(insts, Instance(strings.TrimSuffix(name, ".json")))
+	}
+	sort.Slice(insts, func(i, j int) bool { return insts[i] < insts[j] })
+	return insts, nil
+}
