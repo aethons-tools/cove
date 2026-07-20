@@ -14,6 +14,8 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/Dockerfile",
 		"hardening/image-files/etc/nftables.conf",
 		"hardening/image-files/etc/squid/squid.conf",
+		"hardening/image-files/etc/squid/allowed_domains.session.txt",
+		"hardening/image-files/usr/local/lib/cove/apply-session-domains.sh",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
 		"hardening/image-files/etc/claude-code/managed-settings.json",
 		// Agent-instruction docs are hardening-owned (moved from overridable in

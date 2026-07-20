@@ -59,7 +59,9 @@ if [ -n "$unformatted" ]; then
 fi
 
 if have shellcheck; then
-  shellcheck scripts/*.sh internal/assemble/hardening/image-files/usr/local/bin/*.sh
+  shellcheck scripts/*.sh \
+    internal/assemble/hardening/image-files/usr/local/bin/*.sh \
+    internal/assemble/hardening/image-files/usr/local/lib/cove/*.sh
 fi
 
 if have hadolint; then

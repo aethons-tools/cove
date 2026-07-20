@@ -93,6 +93,10 @@ loop cannot drift.
   `images/cove-base-image/Dockerfile`, `images/cove-image/Dockerfile`, and
   `internal/assemble/hardening/Dockerfile`. `.hadolint.yaml` records the rules
   ignored for them, each with its reason. Everything else fails the gate.
+- `scripts/lint.sh` runs `shellcheck` on `scripts/*.sh` and the sealed hardening
+  helpers under `internal/assemble/hardening/image-files/usr/local/{bin,lib/cove}/`
+  — so a sealed helper delivered into a sandbox (e.g. `apply-session-domains.sh`)
+  is gated, not just the host scripts.
 
 ## The image tree
 

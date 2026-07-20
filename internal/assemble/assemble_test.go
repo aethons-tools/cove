@@ -105,6 +105,30 @@ func TestSquidConfReferencesKitFile(t *testing.T) {
 	}
 }
 
+// The sealed squid.conf must reference the per-session allow-list (COV-58 / COV-39
+// §4), so at-cove can widen a session's egress by rewriting that one file and
+// reconfiguring squid — additive on top of the sealed base + kit lists.
+func TestSquidConfReferencesSessionFile(t *testing.T) {
+	got := read(t, "hardening/image-files/etc/squid/squid.conf")
+	if !strings.Contains(got, "allowed_domains.session.txt") {
+		t.Fatalf("squid.conf must reference the session allow-list: %q", got)
+	}
+}
+
+// The hardening layer bakes an empty, header-only session allow-list so the ACL
+// never dangles and a no-class session works (COV-39 §4). It must exist and carry
+// no domain entries (only comment/blank lines) in the sealed embed.
+func TestSessionAllowlistBakedEmpty(t *testing.T) {
+	got := read(t, "hardening/image-files/etc/squid/allowed_domains.session.txt")
+	for _, line := range strings.Split(got, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		t.Fatalf("baked session allow-list must be empty (header only); found entry %q in:\n%s", trimmed, got)
+	}
+}
+
 func TestCollaboratorRoleFileSeeded(t *testing.T) {
 	base := filepath.Join("hardening", "image-files", "home", "agent", ".init-agent-data")
 	b, err := os.ReadFile(filepath.Join(base, "CLAUDE.md"))

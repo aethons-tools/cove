@@ -1,0 +1,6 @@
+# Per-session egress domains: the handler class's <common> ∪ class delta,
+# resolved host-side from install.json and applied at session start by
+# apply-session-domains.sh (root-only, via host `docker exec`) + squid -k reconfigure.
+# Additive to the sealed base + kit lists; leading dot = subdomains.
+# Baked EMPTY (header only): a no-class session leaves it empty, so the ACL
+# never dangles. The agent workload cannot write this file or widen its egress.
