@@ -126,6 +126,21 @@ type DispatchOps interface {
 	ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error)
 }
 
+// SessionEgress applies a session's per-class egress delta to a running
+// container (COV-39 §5). It is a privileged delivery op — implemented via host
+// `docker exec` as root — kept in its own interface so both the ephemeral
+// (DispatchOps) and persistent (Backend) paths can type-assert it independently,
+// without either lifecycle interface having to grow the method.
+type SessionEgress interface {
+	// ApplySessionEgress execs the sealed apply-session-domains.sh helper inside
+	// container (as root) with domains piped on stdin, one per line; the helper
+	// overwrites /etc/squid/allowed_domains.session.txt and runs `squid -k
+	// reconfigure`. An empty domains clears the session file (the container
+	// reverts to the baked sealed + kit lists — root-only for a no-class or
+	// exited session). Domains flow on stdin only, never on argv.
+	ApplySessionEgress(container string, domains []string) error
+}
+
 // Factory constructs a Backend bound to a Runner.
 type Factory func(r runner.Runner) Backend
 

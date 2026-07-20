@@ -401,7 +401,10 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   and a published `localhost:<port>` mapped to the in-VM `sshd`.
   `Dial` returns that port;
   `Destroy` is `docker rm -f` (volumes retained).
-  Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`.
+  Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`,
+  and `backend.SessionEgress` — `ApplySessionEgress` `docker exec`s the sealed
+  `apply-session-domains.sh` (as root, domains piped on stdin) to apply a session's
+  per-class egress delta + `squid -k reconfigure` (COV-39 §5; wired in S4/S5).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
