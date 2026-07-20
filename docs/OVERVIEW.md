@@ -109,6 +109,10 @@ source-hash check), and **consumes the pre-built image** — a missing or stale
 install fails fast with `run at-cove install`. There is no separate `build`
 command, and no run command builds inline; the provenance gate and
 `--allow-unverified-base` live only on `install`, the one place a base is built.
+`at-cove uninstall` is its inverse — it removes the compiled artifact (image +
+`install.json`), returning the kit to "not installed". This is distinct from
+`destroy`, which tears down the running *instance* (container + volumes) but keeps
+the image; only `uninstall` removes the image.
 
 | Command | Behavior |
 |---|---|
@@ -116,7 +120,8 @@ command, and no run command builds inline; the provenance gate and
 | `at-cove create [--project-dir DIR] [--workspace\|--ws <path>]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in `.state/state.json` (image sourced from the manifest). A missing/stale install errors `run at-cove install`. `--workspace` selects Shared (bind-mount) mode. |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
 | `at-cove recreate [--project-dir DIR] [--workspace\|--ws <path>]` | Destroy the container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
-| `at-cove destroy [--project-dir DIR]` | Force-remove the container **and its volumes**, then delete the state file. The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. |
+| `at-cove destroy [--project-dir DIR]` | Force-remove the container **and its volumes**, then delete the state file — teardown of the running *instance*. The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
+| `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while a created instance exists** (an instance holds the image), pointing at `at-cove destroy` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
 | `at-cove status [--project-dir DIR]` | Report `running` / `stopped` / `absent`. |
 | `at-cove version` | Print the build version. |
 | `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM. Reads `.state/install.json`, **verifies the install is current** (fails fast with `run at-cove install` if missing/stale), then runs the **pre-built installed image** — it never builds. Injects `--in` as the task, runs the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class`, extracts the result to `--out`, destroys. Scavenges crashed dispatch orphans. |
@@ -475,7 +480,7 @@ from the repo diff what to rebuild and tags everything `<N>-<MMDD>` — see
 ## Status and roadmap
 
 Implemented and on `main`:
-the full `install`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
+the full `install`/`uninstall`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
 (every command's project root is a uniform `--project-dir` flag, not a positional),
 the Colima backend,
 layered assembly with embedded hardening,

@@ -134,6 +134,26 @@ func TestSaveLoadExists(t *testing.T) {
 	}
 }
 
+// TestDeleteIsIdempotent: Delete removes install.json and returns nil whether or
+// not it was present (uninstall calls it, sometimes when the manifest is the only
+// artifact left after a pre-COV-63 image loss).
+func TestDeleteIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	// Deleting a missing manifest is a no-op, not an error.
+	if err := Delete(dir); err != nil {
+		t.Fatalf("Delete on a missing manifest: %v", err)
+	}
+	if err := Save(dir, Compile(sampleConfig(), sampleBuild())); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(dir); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if Exists(dir) {
+		t.Fatal("install.json should be gone after Delete")
+	}
+}
+
 // Save writes the kit's managed .gitignore so the machine-generated manifest
 // never leaks into git (the .state/ entry covers install.json).
 func TestSaveEnsuresGitignore(t *testing.T) {

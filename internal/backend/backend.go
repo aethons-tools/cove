@@ -104,6 +104,12 @@ type Backend interface {
 	// relies on this so the saved login on /agent-data persists. When false, a
 	// real `destroy` also removes the instance's named volumes.
 	Destroy(inst Instance, keepVolumes bool) error
+	// RemoveImage removes a kit's compiled image (`docker rmi`). It is the inverse
+	// of Install and is invoked ONLY by `at-cove uninstall` — the container
+	// lifecycle (Destroy/recreate) deliberately keeps the image, which is an
+	// `install` artifact, not a per-create build (COV-63). Kept separate from
+	// Destroy so the image is torn down solely when the user uninstalls the kit.
+	RemoveImage(image string) error
 	GetStatus(container string) (State, error)
 }
 

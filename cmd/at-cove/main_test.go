@@ -548,6 +548,117 @@ func TestDestroyBlockedByActiveConnection(t *testing.T) {
 	}
 }
 
+// TestUninstallRemovesImageAndManifest: uninstall is the inverse of install — it
+// `docker rmi`s the compiled image (via the backend) and deletes install.json,
+// returning the kit to "not installed". No container/instance exists here.
+func TestUninstallRemovesImageAndManifest(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir) // installed, but never created
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall exit=%d stderr=%s", code, errOut.String())
+	}
+	rmi := dockerArg0Index(f.Calls, "rmi")
+	if rmi == -1 {
+		t.Fatalf("uninstall must docker rmi the image; calls=%+v", f.Calls)
+	}
+	gotImage := false
+	for _, a := range f.Calls[rmi].Args {
+		if a == "at-cove-for-box" {
+			gotImage = true
+		}
+	}
+	if !gotImage {
+		t.Fatalf("uninstall must rmi at-cove-for-box; calls=%+v", f.Calls[rmi].Args)
+	}
+	if install.Exists(kitDir) {
+		t.Fatal("uninstall must delete install.json")
+	}
+}
+
+// TestUninstallRefusesWhileCreated: uninstall removes the build artifact, so it
+// refuses while a created instance still exists (state.json present), pointing the
+// user at `at-cove destroy` — and touches neither the image nor install.json.
+func TestUninstallRefusesWhileCreated(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
+	writeState(t, kitDir, "colima", "box") // an instance is still created
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), "at-cove destroy") {
+		t.Fatalf("uninstall must refuse while created and point at `at-cove destroy`; code=%d stderr=%q", code, errOut.String())
+	}
+	if dockerArg0Index(f.Calls, "rmi") != -1 {
+		t.Fatalf("a refused uninstall must not rmi the image; calls=%+v", f.Calls)
+	}
+	if !install.Exists(kitDir) {
+		t.Fatal("a refused uninstall must not delete install.json")
+	}
+}
+
+// TestUninstallIdempotentWhenImageGone: when install.json is present but the image
+// is already gone (a machine left broken by the pre-COV-63 bug), uninstall still
+// removes install.json (best-effort rmi) and succeeds.
+func TestUninstallIdempotentWhenImageGone(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
+	// A runner whose docker rmi (and preflight) fails, standing in for a
+	// vanished image — uninstall must proceed regardless.
+	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall must succeed when the image is already gone; code=%d stderr=%q", code, errOut.String())
+	}
+	if install.Exists(kitDir) {
+		t.Fatal("uninstall must delete install.json even when rmi fails")
+	}
+}
+
+// TestUninstallNoOpWhenNotInstalled: a kit that was never installed has nothing to
+// tear down — uninstall prints a friendly no-op and touches no docker.
+func TestUninstallNoOpWhenNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir) // kit, but no install.json
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall of a not-installed kit exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("no-op uninstall must not touch docker; calls=%+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "not installed") {
+		t.Fatalf("no-op uninstall should report nothing to do; stdout=%q", out.String())
+	}
+}
+
+// TestDryRunUninstall: `--dry-run uninstall` reports the image + manifest it would
+// remove and touches nothing (no docker, install.json intact).
+func TestDryRunUninstall(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--dry-run", "uninstall", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("dry-run uninstall exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run uninstall executed commands: %+v", f.Calls)
+	}
+	if !install.Exists(kitDir) {
+		t.Fatal("dry-run uninstall must not delete install.json")
+	}
+	if !strings.Contains(out.String(), "would remove") || !strings.Contains(out.String(), "at-cove-for-box") {
+		t.Fatalf("dry-run uninstall should describe the image + manifest it would remove; stdout=%q", out.String())
+	}
+}
+
 func TestDryRunChatRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)

@@ -201,6 +201,35 @@ func TestDestroyPurgesVolumes(t *testing.T) {
 	}
 }
 
+// TestRemoveImage: RemoveImage is the inverse of Install — it `docker rmi`s the
+// kit's compiled image (pinned to the colima context) and nothing else. It is the
+// sole image-teardown path (COV-64); Destroy never touches the image (COV-63).
+func TestRemoveImage(t *testing.T) {
+	f := &runner.Fake{}
+	if err := New(f).RemoveImage("at-cove-for-box"); err != nil {
+		t.Fatal(err)
+	}
+	rmi := dockerCall(f.Calls, "rmi")
+	if rmi == nil || !contains(rmi, "at-cove-for-box") {
+		t.Fatalf("RemoveImage must docker rmi the image: %+v", f.Calls)
+	}
+	if dockerCall(f.Calls, "rm") != nil || dockerCall(f.Calls, "volume") != nil {
+		t.Fatalf("RemoveImage must not touch containers or volumes: %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// TestRemoveImagePreflightFailsActionably: an unreachable colima surfaces the
+// `colima start` guidance from RemoveImage, like every other op.
+func TestRemoveImagePreflightFailsActionably(t *testing.T) {
+	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
+	if err := New(f).RemoveImage("at-cove-for-box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("RemoveImage should fail actionably; err=%v", err)
+	}
+}
+
 // TestCreateRunsGivenImageContainerFromName: Create runs the pre-built image it
 // is handed (ctx.Image), while the container and its volumes still derive from
 // Name — so one installed kit image can back several distinct instances.
