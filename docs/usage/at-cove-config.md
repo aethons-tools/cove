@@ -244,10 +244,16 @@ per-entry rule as the root list (each non-empty). Unlike the `<common>`-merge of
 scalars/secrets (where own overwrites base), domains are a **set union**: a
 class's effective per-class list is `workers.<common>.allowed-domains ∪
 workers.<class>.allowed-domains`, deduped and order-normalized. This gives an
-autonomous class a wider (never narrower) egress than the kit default — part of
-the per-class session-scoped egress model being built under
-[COV-39](../superpowers/specs/2026-07-19-per-class-egress-design.md); this field
-is the config + resolver layer (`kit.Config.ResolvedWorkerDomains`).
+autonomous class a wider (never narrower) egress than the kit default. It is the
+config + resolver layer (`kit.Config.ResolvedWorkerDomains`) of the per-class
+**session-scoped** egress model
+([COV-39](../superpowers/specs/2026-07-19-per-class-egress-design.md)): at-cove
+resolves this delta from the current `install.json` (never a live `config.yml`) and
+applies it to the running container **before the agent step** via `ApplySessionEgress`
+(a privileged `docker exec` of the sealed `apply-session-domains.sh` + `squid -k
+reconfigure`), so squid reaches only `root ∪ <common> ∪ class` for that run — see the
+[three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
+and [the work interface](../orchestration/at-cove-work-interface.md).
 
 ```yaml
 workers:
@@ -400,10 +406,16 @@ blessed by construction).
 #### image.allowed-domains
 *list of strings*
 
-Added to the squid egress allow-list. Each must be non-empty. When a dispatched
-run is blocked by this allow-list, at-cove ends the issue in **NEEDS INPUT**
-naming the blocked host(s) and pointing back to this key as the remedy — see
-[at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
+The **root** egress allow-list — added to the squid allow-list and **baked into
+every session** (as `allowed_domains.kit.txt`), on top of the sealed base. Each
+entry must be non-empty. It is the base term of the per-class union: a class's
+effective egress is **`image.allowed-domains ∪ workers.<common> ∪ workers.<class>`**
+(and likewise for `collaborators`), where only the `<common> ∪ class` delta is
+delivered per session — see [`workers.*class*.allowed-domains`](#workersclassallowed-domains)
+and the [three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
+model. When a dispatched run is blocked by the allow-list, at-cove ends the issue in
+**NEEDS INPUT** naming the blocked host(s) and pointing back to this key as the remedy
+— see [at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
 
 ```yaml
 # base + build-time customization live in image/Dockerfile (FROM a blessed base,
