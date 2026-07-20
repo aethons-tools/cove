@@ -47,8 +47,12 @@ type InProgressIssue struct {
 // Tracker is every tracker operation the engine needs. The implementation owns
 // team scoping and the Role→state-id mapping.
 type Tracker interface {
+	// ListReady returns issues in the READY state that are dispatchable now: all
+	// of their "blocks" blockers are Done (or they have none). Blocked-ness lives
+	// in the issue relationships, not the state — the scheduler never promotes
+	// BLOCKED→READY and never looks at the backlog (COV-65). A human moves work to
+	// READY when it should be considered; a still-blocked READY issue simply waits.
 	ListReady(ctx context.Context) ([]Issue, error)
-	ListUnblockable(ctx context.Context) ([]Issue, error)
 	ListInProgress(ctx context.Context) ([]InProgressIssue, error)
 	Comments(ctx context.Context, issueID string) ([]Comment, error)
 	Transition(ctx context.Context, issueID string, role Role) error
