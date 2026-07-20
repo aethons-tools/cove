@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -479,5 +480,115 @@ func TestSelectCollaborator(t *testing.T) {
 	// <common> is not selectable
 	if _, _, err := sole.SelectCollaborator(commonKey); err == nil {
 		t.Fatal("<common> must not be selectable")
+	}
+}
+
+func TestResolvedWorkerDomainsUnion(t *testing.T) {
+	cfg := Config{Name: "k", Workers: map[string]Worker{
+		commonKey: {AllowedDomains: []string{"github.com", "pypi.org"}},
+		"deploy":  {Prompt: "p", AllowedDomains: []string{"registry.example.com", "github.com"}},
+		"docs":    {Prompt: "p"},
+	}}
+	// <common> ∪ class, deduped + order-normalized (sorted).
+	got, err := cfg.ResolvedWorkerDomains("deploy")
+	if err != nil {
+		t.Fatalf("ResolvedWorkerDomains(deploy): %v", err)
+	}
+	want := []string{"github.com", "pypi.org", "registry.example.com"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deploy domains = %v; want %v", got, want)
+	}
+	// A class with no own list gets exactly <common>.
+	got, err = cfg.ResolvedWorkerDomains("docs")
+	if err != nil {
+		t.Fatalf("ResolvedWorkerDomains(docs): %v", err)
+	}
+	if want := []string{"github.com", "pypi.org"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("docs domains = %v; want %v", got, want)
+	}
+	// Root (image.allowed-domains) is NOT part of the per-class resolver.
+	if _, err := cfg.ResolvedWorkerDomains(commonKey); err == nil {
+		t.Fatal("ResolvedWorkerDomains(<common>) should error")
+	}
+	if _, err := cfg.ResolvedWorkerDomains("nope"); err == nil {
+		t.Fatal("ResolvedWorkerDomains(nope) should error (absent)")
+	}
+	if _, err := cfg.ResolvedWorkerDomains(""); err == nil {
+		t.Fatal("ResolvedWorkerDomains(\"\") should error")
+	}
+}
+
+func TestResolvedWorkerDomainsEmpty(t *testing.T) {
+	cfg := Config{Name: "k", Workers: map[string]Worker{
+		"docs": {Prompt: "p"},
+	}}
+	got, err := cfg.ResolvedWorkerDomains("docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("no <common> and no own list should yield empty; got %v", got)
+	}
+}
+
+func TestResolvedCollaboratorDomainsUnion(t *testing.T) {
+	cfg := Config{Name: "k", Collaborators: map[string]Collaborator{
+		commonKey: {AllowedDomains: []string{"docs.internal"}},
+		"planner": {AllowedDomains: []string{"linear.app", "docs.internal"}},
+		"triager": {},
+	}}
+	got, err := cfg.ResolvedCollaboratorDomains("planner")
+	if err != nil {
+		t.Fatalf("ResolvedCollaboratorDomains(planner): %v", err)
+	}
+	if want := []string{"docs.internal", "linear.app"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("planner domains = %v; want %v", got, want)
+	}
+	got, err = cfg.ResolvedCollaboratorDomains("triager")
+	if err != nil {
+		t.Fatalf("ResolvedCollaboratorDomains(triager): %v", err)
+	}
+	if want := []string{"docs.internal"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("triager domains = %v; want %v", got, want)
+	}
+	if _, err := cfg.ResolvedCollaboratorDomains(commonKey); err == nil {
+		t.Fatal("ResolvedCollaboratorDomains(<common>) should error")
+	}
+	if _, err := cfg.ResolvedCollaboratorDomains("nope"); err == nil {
+		t.Fatal("ResolvedCollaboratorDomains(nope) should error (absent)")
+	}
+}
+
+func TestParseConfigWorkerDomainsParsedAndValidated(t *testing.T) {
+	src := "name: k\nworkers:\n  <common>:\n    allowed-domains: [github.com]\n  deploy:\n    prompt: p\n    allowed-domains: [registry.example.com]\n"
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := cfg.Workers["deploy"].AllowedDomains; len(got) != 1 || got[0] != "registry.example.com" {
+		t.Fatalf("deploy.allowed-domains = %v", got)
+	}
+	if got := cfg.Workers[commonKey].AllowedDomains; len(got) != 1 || got[0] != "github.com" {
+		t.Fatalf("<common>.allowed-domains = %v", got)
+	}
+	// Empty entry rejected, mirroring image.allowed-domains.
+	bad := "name: k\nworkers:\n  deploy:\n    prompt: p\n    allowed-domains: [\"\"]\n"
+	if _, err := ParseConfig([]byte(bad)); err == nil || !strings.Contains(err.Error(), "allowed-domains") {
+		t.Fatalf("empty worker domain must be rejected mentioning allowed-domains; got %v", err)
+	}
+}
+
+func TestParseConfigCollaboratorDomainsParsedAndValidated(t *testing.T) {
+	src := "name: k\ncollaborators:\n  <common>:\n    allowed-domains: [docs.internal]\n  planner:\n    allowed-domains: [linear.app]\n"
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := cfg.Collaborators["planner"].AllowedDomains; len(got) != 1 || got[0] != "linear.app" {
+		t.Fatalf("planner.allowed-domains = %v", got)
+	}
+	bad := "name: k\ncollaborators:\n  planner:\n    allowed-domains: [\"  \"]\n"
+	if _, err := ParseConfig([]byte(bad)); err == nil || !strings.Contains(err.Error(), "allowed-domains") {
+		t.Fatalf("empty collaborator domain must be rejected mentioning allowed-domains; got %v", err)
 	}
 }
