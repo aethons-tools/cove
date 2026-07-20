@@ -167,6 +167,26 @@ func Dispatch(o Options) error {
 	if err := waitForSSH(o.R, tgt, sshReadyAttempts, sshReadyDelay, time.Sleep); err != nil {
 		return err
 	}
+	// Scope egress to the worker class before any step runs (COV-39 §5). The
+	// container booted with the baked sealed + root lists; this adds the class's
+	// <common> ∪ class delta for this unit only, sourced from the currency-pinned
+	// install.json RunConfig (o.Cfg) — "install froze it", never a live config.yml.
+	// It is applied before the agent step, so the workload never sees a
+	// wider-than-intended window (a class with no extra domains applies an empty
+	// delta; root still applies via the baked kit file). The delivery op is
+	// privileged (host docker exec as root) and lives in its own interface, so we
+	// type-assert it independently of the DispatchOps lifecycle.
+	eg, ok := o.Ops.(backend.SessionEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support session egress (required to scope a dispatched worker's allow-list)")
+	}
+	domains, err := o.Cfg.ResolvedWorkerDomains(task.Worker.Class)
+	if err != nil {
+		return err
+	}
+	if err := eg.ApplySessionEgress(o.Name, domains); err != nil {
+		return fmt.Errorf("apply session egress: %w", err)
+	}
 	if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 		return fmt.Errorf("seed agent credentials: %w", err)
 	}

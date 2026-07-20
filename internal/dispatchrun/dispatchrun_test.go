@@ -16,12 +16,22 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
-// fakeOps records DispatchOps calls; Dial returns a fixed endpoint.
+// fakeOps records DispatchOps + SessionEgress calls; Dial returns a fixed
+// endpoint. When r is set, ApplySessionEgress snapshots the seam ordering so
+// tests can assert egress is applied before the agent step.
 type fakeOps struct {
 	scavenged bool
 	ran       bool
 	ranImage  string // the image RunEphemeral was asked to run
 	removed   bool
+
+	r *runner.Fake // when set, ApplySessionEgress inspects its call log for ordering
+
+	egressCalls       int      // times ApplySessionEgress was invoked
+	egressContainer   string   // container it was invoked against
+	egressDomains     []string // the domains delivered
+	egressRanAfterRun bool     // RunEphemeral had run when egress was applied
+	agentRanBeforeEg  bool     // the agent step ("claude -p") had run when egress was applied
 }
 
 func (f *fakeOps) RunEphemeral(image, name, _ string) (backend.Instance, error) {
@@ -36,6 +46,20 @@ func (f *fakeOps) RemoveContainer(string) error { f.removed = true; return nil }
 func (f *fakeOps) ScavengeLabeled(string, time.Duration, time.Time) (int, error) {
 	f.scavenged = true
 	return 0, nil
+}
+func (f *fakeOps) ApplySessionEgress(container string, domains []string) error {
+	f.egressCalls++
+	f.egressContainer = container
+	f.egressDomains = append([]string(nil), domains...)
+	f.egressRanAfterRun = f.ran
+	if f.r != nil {
+		for _, c := range f.r.Calls {
+			if strings.Contains(strings.Join(c.Args, " "), "claude -p") {
+				f.agentRanBeforeEg = true
+			}
+		}
+	}
+	return nil
 }
 
 func TestDispatchRunsBracket(t *testing.T) {
@@ -97,6 +121,106 @@ func TestDispatchRunsBracket(t *testing.T) {
 	if strings.Contains(calls, "docker build") || strings.Contains(calls, "build --build-arg") {
 		t.Fatalf("dispatch must not build on the run path:\n%s", calls)
 	}
+}
+
+// TestDispatchAppliesSessionEgressBeforeAgent asserts the ephemeral path scopes
+// egress to the dispatched worker class (COV-39 §5): after RunEphemeral boots the
+// container and before the agent step runs, it applies the class's resolved
+// <common> ∪ class domain delta (from the install.json RunConfig) via
+// ApplySessionEgress. The workload must never see a wider-than-intended window.
+func TestDispatchAppliesSessionEgressBeforeAgent(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"deploy"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{r: r}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers: map[string]kit.Worker{
+				"<common>": {AllowedDomains: []string{"github.com"}},
+				"deploy":   {Prompt: "ship it", AllowedDomains: []string{"registry.example.com"}},
+			},
+		},
+		Image: "at-cove-for-w", Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if ops.egressCalls != 1 {
+		t.Fatalf("ApplySessionEgress called %d times; want exactly 1", ops.egressCalls)
+	}
+	if ops.egressContainer != "disp-1" {
+		t.Fatalf("egress applied to container %q; want %q", ops.egressContainer, "disp-1")
+	}
+	// The delta is the deduped <common> ∪ class union (sorted), not the root list.
+	want := []string{"github.com", "registry.example.com"}
+	if !equalStrings(ops.egressDomains, want) {
+		t.Fatalf("egress domains = %v; want %v", ops.egressDomains, want)
+	}
+	if !ops.egressRanAfterRun {
+		t.Fatal("egress must be applied AFTER RunEphemeral boots the container")
+	}
+	if ops.agentRanBeforeEg {
+		t.Fatal("egress must be applied BEFORE the agent step, so the workload never sees a wider window")
+	}
+}
+
+// TestDispatchAppliesEmptyEgressForClasslessDomains asserts a worker class with
+// no extra domains still applies an empty delta (root still applies via the baked
+// kit file) — the session file is always written before the agent.
+func TestDispatchAppliesEmptyEgressForClasslessDomains(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"docs"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{r: r}
+
+	err := Dispatch(Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"docs": {Prompt: "write docs"}},
+		},
+		Image: "at-cove-for-w", Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if ops.egressCalls != 1 {
+		t.Fatalf("ApplySessionEgress called %d times; want exactly 1 (empty delta)", ops.egressCalls)
+	}
+	if len(ops.egressDomains) != 0 {
+		t.Fatalf("egress domains = %v; want empty delta", ops.egressDomains)
+	}
+	if ops.agentRanBeforeEg {
+		t.Fatal("egress must be applied BEFORE the agent step")
+	}
+}
+
+// equalStrings reports whether a and b hold the same elements in the same order.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestDispatchAirGapsTokenFromAgent is THE security test: the code-host token
