@@ -1,6 +1,7 @@
 package dispatchrun
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -70,7 +71,7 @@ func TestDispatchRunsBracket(t *testing.T) {
 	setOutputForCat(r, `{"status":{"ok":{}}}`) // the final `cat …/task-result.json`
 	ops := &fakeOps{}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -136,7 +137,7 @@ func TestDispatchAppliesSessionEgressBeforeAgent(t *testing.T) {
 	setOutputForCat(r, `{"status":{"ok":{}}}`)
 	ops := &fakeOps{r: r}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -184,7 +185,7 @@ func TestDispatchAppliesEmptyEgressForClasslessDomains(t *testing.T) {
 	setOutputForCat(r, `{"status":{"ok":{}}}`)
 	ops := &fakeOps{r: r}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -243,7 +244,7 @@ func TestDispatchAirGapsTokenFromAgent(t *testing.T) {
 		{Stdout: `{"status":{"ok":{}}}`}, // cat result
 	}}
 	ops := &fakeOps{}
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name: "w",
@@ -309,7 +310,7 @@ func TestDispatchPassesRunParamsToResolvers(t *testing.T) {
 		{Stdout: `{"status":{"ok":{}}}`}, // cat result
 	}}
 	ops := &fakeOps{}
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -354,7 +355,7 @@ func TestWorkerSecretsInjectedOnlyAtAgentStep(t *testing.T) {
 	setOutputForCat(r, `{"status":{"ok":{}}}`)
 	ops := &fakeOps{}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -411,7 +412,7 @@ func containsEnv(env []string, want string) bool {
 func TestDispatchUndeclaredClassErrors(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"nope"}}`)
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: &fakeOps{}, R: &runner.Fake{},
 		Cfg:   kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
 		Image: "at-cove-for-w", Name: "x", InputPath: in, OutputPath: dir + "/o.json",
@@ -432,7 +433,7 @@ func TestDispatchSourceBranchOverride(t *testing.T) {
 	setOutputForCat(r, `{"status":{"ok":{}}}`)
 	ops := &fakeOps{}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -466,7 +467,7 @@ func TestDispatchSourceBranchOverride(t *testing.T) {
 func TestDispatchRequiresOrigin(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: &fakeOps{}, R: &runner.Fake{},
 		Cfg:   kit.Config{Name: "w", Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}}},
 		Image: "at-cove-for-w", Name: "disp-noorigin", InputPath: in, OutputPath: dir + "/o.json",
@@ -482,7 +483,7 @@ func TestDispatchRemovesContainerOnFailure(t *testing.T) {
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
 	r := &runner.Fake{} // no cat output → extraction fails
 	ops := &fakeOps{}
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: ops, R: r,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -515,12 +516,13 @@ func (f *flakyRunner) Run(name string, args ...string) error {
 	return nil
 }
 
-// prepareFailer fails only the `at-task prepare` ssh step; every other RunStdin
-// succeeds. It records each call (via the embedded Fake) for inspection.
+// prepareFailer fails only the `at-task prepare` ssh step; every other step
+// succeeds. Bracket steps run through RunIO (the capture seam), so it overrides
+// RunIO and records each call (via the embedded Fake) for inspection.
 type prepareFailer struct{ *runner.Fake }
 
-func (p *prepareFailer) RunStdin(stdin io.Reader, name string, args ...string) error {
-	_ = p.Fake.RunStdin(stdin, name, args...) // record the call
+func (p *prepareFailer) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	_ = p.Fake.RunIO(stdin, stdout, stderr, name, args...) // record the call
 	if strings.Contains(strings.Join(args, " "), "at-task prepare") {
 		return &runner.ExitError{Code: 128, Err: errors.New("git fetch origin main: exit status 128")}
 	}
@@ -536,7 +538,7 @@ func TestDispatchPrepareFailureAborts(t *testing.T) {
 	out := dir + "/task-result.json"
 	pf := &prepareFailer{Fake: &runner.Fake{}}
 
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: &fakeOps{}, R: pf,
 		Cfg: kit.Config{
 			Name:          "w",
@@ -569,7 +571,7 @@ func TestDispatchDoesNotSeedCredentialsWhenEmpty(t *testing.T) {
 	out := dir + "/task-result.json"
 	r := &runner.Fake{}
 	setOutputForCat(r, `{"status":{"ok":{}}}`)
-	err := Dispatch(Options{
+	err := Dispatch(context.Background(), Options{
 		Ops: &fakeOps{}, R: r,
 		Cfg: kit.Config{
 			Name:          "w",

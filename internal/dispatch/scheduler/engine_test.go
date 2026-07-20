@@ -139,6 +139,35 @@ func TestHandleLogsRunAndStepAttrs(t *testing.T) {
 	}
 }
 
+// The scheduler must pass its per-dispatch run id into the `at-cove work`
+// subprocess via COVE_RUN_ID, and it must be the SAME id it stamps on its own
+// logs — so the work process (and the VM records it merges) join this dispatch's
+// trace under one `run` (spec §7).
+func TestHandlePassesRunIDToWork(t *testing.T) {
+	var buf bytes.Buffer
+	lg := newTestLogger(&buf)
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := New(testConfig(), "/kits/implement", tr, ex, lg)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+
+	var runEnv string
+	for _, e := range ex.GotEnv {
+		if strings.HasPrefix(e, "COVE_RUN_ID=") {
+			runEnv = strings.TrimPrefix(e, "COVE_RUN_ID=")
+		}
+	}
+	if runEnv == "" {
+		t.Fatalf("work subprocess did not receive COVE_RUN_ID; env=%v", ex.GotEnv)
+	}
+	if !strings.HasPrefix(runEnv, "run_AET-9_") {
+		t.Fatalf("COVE_RUN_ID = %q; want a run_AET-9_* id", runEnv)
+	}
+	if !strings.Contains(buf.String(), `"run":"`+runEnv+`"`) {
+		t.Fatalf("COVE_RUN_ID %q must match the run id stamped on the scheduler's own logs; got %q", runEnv, buf.String())
+	}
+}
+
 func TestHandleFailedClaimStops(t *testing.T) {
 	tr := &fakeTracker{failClaim: true}
 	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}

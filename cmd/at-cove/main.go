@@ -157,7 +157,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				})
 			}},
 			{Name: "work", Brief: "run one unit of work in a fresh ephemeral sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
-				return doWork(args, r, g.DryRun, out, errw)
+				return doWork(args, r, g, out, errw)
 			}},
 			{Name: "dispatch", Brief: "poll the tracker and dispatch ready work", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				return doDispatch(args, g, out, errw)
@@ -840,7 +840,8 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 // then hands off to dispatchrun. With dryRun it prints the planned actions and
 // returns before touching the backend, assembling, or resolving any secret —
 // mirroring doInstall/doCreate's dry-run convention.
-func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) int {
+func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Writer) int {
+	dryRun := g.DryRun
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	pd := projectDirFlag(fs)
@@ -1040,7 +1041,45 @@ func doWork(args []string, r runner.Runner, dryRun bool, stdout, stderr io.Write
 		return 1
 	}
 
-	err = dispatchrun.Dispatch(dispatchrun.Options{
+	// Build the work-run logger and seed it with the run/issue/class correlation
+	// (spec §7): dispatchrun grafts `step` per record and merges the VM's captured
+	// structured output into this one stream. In attended mode the full trace goes
+	// to a per-run JSON file under the kit's excluded runtime dir; in unattended
+	// mode (the normal way a dispatched worker runs) it is JSON to stderr for the
+	// platform to capture. run flows from the scheduler via COVE_RUN_ID.
+	logFile := ""
+	if !g.NoLogFile {
+		// Sanitize the issue key before it names a host file — it originates in the
+		// task input, so keep it to a safe slug (no path separators / traversal).
+		slug := strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+				return r
+			default:
+				return '_'
+			}
+		}, task.Issue.Key)
+		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-work-"+slug+".jsonl")
+	}
+	lg, err := logging.New(logging.Options{
+		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Stderr:   stderr,
+		FilePath: logFile,
+		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "at-cove: %v\n", err)
+		return 1
+	}
+	defer lg.Close()
+	lg = lg.With(
+		slog.String("run", envOr("", "COVE_RUN_ID")),
+		slog.String("issue", task.Issue.Key),
+		slog.String("class", task.Worker.Class),
+	)
+	ctx := logging.Into(context.Background(), lg)
+
+	err = dispatchrun.Dispatch(ctx, dispatchrun.Options{
 		Ops: ops, R: r, Cfg: cfg, Image: m.Image, Name: workName(cfg.Name),
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,

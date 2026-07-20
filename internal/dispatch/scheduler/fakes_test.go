@@ -92,14 +92,16 @@ type fakeExecutor struct {
 	RunErr   error
 	GotInput string // captured contents of the --in file
 	GotArgv  []string
+	GotEnv   []string // captured env passed to the work subprocess
 
 	panicMsg string        // if non-empty, Run panics (to test recovery)
 	started  chan struct{} // if non-nil, closed when Run starts
 	release  chan struct{} // if non-nil, Run blocks until this is closed
 }
 
-func (f *fakeExecutor) Run(ctx context.Context, argv []string, _ []string) error {
+func (f *fakeExecutor) Run(ctx context.Context, argv []string, env []string) error {
 	f.GotArgv = argv
+	f.GotEnv = env
 	if f.panicMsg != "" {
 		panic(f.panicMsg)
 	}
