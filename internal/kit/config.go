@@ -176,6 +176,22 @@ type Collaborator struct {
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
 
+// ModelProvider switches the sandbox's agent off first-party Anthropic and onto a
+// third-party Claude provider — a union keyed by provider name (vertex only today).
+// Its presence is the switch; absent, the Anthropic auth paths are unchanged.
+type ModelProvider struct {
+	Vertex *VertexProvider `yaml:"vertex,omitempty"`
+}
+
+// VertexProvider configures Claude on Google Vertex AI. Because Claude Code's
+// Vertex configuration is entirely environment-driven, the payload is a non-secret
+// env map: at-cove demands the required keys and passes any other (non-protected)
+// key through. The GCP *credential* is not here — it is a host-supplied file
+// (see cmd/at-cove: the GOOGLE_APPLICATION_CREDENTIALS_JSON demand).
+type VertexProvider struct {
+	Env map[string]string `yaml:"env"`
+}
+
 // ResolvedCollaborator returns the named collaborator with the collaborators
 // <common> secrets merged in (own key wins). Errors like ResolvedWorker.
 func (c Config) ResolvedCollaborator(class string) (Collaborator, error) {
@@ -276,6 +292,7 @@ type Config struct {
 	Tracker       *Tracker                `yaml:"tracker,omitempty"`
 	Dispatch      *Dispatch               `yaml:"dispatch,omitempty"`
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
+	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -426,6 +443,9 @@ func ParseConfig(data []byte) (Config, error) {
 	if defaults > 1 {
 		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
+	if err := validateModelProvider(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -524,6 +544,75 @@ func checkKitDuration(field, v string) error {
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {
 		return fmt.Errorf("config.yml: %s must be a positive Go duration (e.g. 30m), got %q", field, v)
+	}
+	return nil
+}
+
+// vertexProtectedEnvKeys are sealed-owned or security-relevant variables a kit's
+// model-provider env map must never set. Unlike a *secret* (demanded by the kit,
+// supplied by the machine — the operator is the gate), an env value is
+// kit-authored with no host gate, and the per-session env file is *sourced* in the
+// session shell, so an unchecked value would shadow the sealed /etc/environment
+// (e.g. the proxy vars) and could defeat egress. Rejected at validation and
+// dropped defensively at injection ("additive, sealed-wins" for env).
+var vertexProtectedEnvKeys = map[string]bool{
+	"http_proxy": true, "https_proxy": true, "no_proxy": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
+	"CLAUDE_CONFIG_DIR":              true,
+	"GOOGLE_APPLICATION_CREDENTIALS": true,
+	"PATH":                           true,
+}
+
+// vertexRequiredEnvKeys must be present in the provider env map.
+var vertexRequiredEnvKeys = []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}
+
+// Vertex returns the Vertex provider config and true when the kit targets Vertex.
+func (c Config) Vertex() (*VertexProvider, bool) {
+	if c.ModelProvider == nil || c.ModelProvider.Vertex == nil {
+		return nil, false
+	}
+	return c.ModelProvider.Vertex, true
+}
+
+// VertexEnv returns the effective non-secret session env for a Vertex kit:
+// CLAUDE_CODE_USE_VERTEX=1 (at-cove-owned) plus every non-protected key from the
+// kit's env map. Protected keys are dropped defensively (validation already
+// rejected them). Returns nil for a non-Vertex kit. GOOGLE_APPLICATION_CREDENTIALS
+// (the ADC file pointer) is set by connect, not here.
+func (c Config) VertexEnv() map[string]string {
+	v, ok := c.Vertex()
+	if !ok {
+		return nil
+	}
+	env := map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"}
+	for k, val := range v.Env {
+		if vertexProtectedEnvKeys[k] {
+			continue
+		}
+		env[k] = val
+	}
+	return env
+}
+
+// validateModelProvider enforces the provider union, required keys, and the
+// hardening denylist.
+func validateModelProvider(cfg Config) error {
+	if cfg.ModelProvider == nil {
+		return nil
+	}
+	v := cfg.ModelProvider.Vertex
+	if v == nil {
+		return fmt.Errorf("config.yml: model-provider: must set exactly one provider (vertex)")
+	}
+	for _, req := range vertexRequiredEnvKeys {
+		if strings.TrimSpace(v.Env[req]) == "" {
+			return fmt.Errorf("config.yml: model-provider.vertex.env.%s is required", req)
+		}
+	}
+	for k := range v.Env {
+		if vertexProtectedEnvKeys[k] {
+			return fmt.Errorf("config.yml: model-provider.vertex.env: %q is a sealed-owned/security-relevant variable and cannot be set by a kit", k)
+		}
 	}
 	return nil
 }

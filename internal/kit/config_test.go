@@ -628,3 +628,73 @@ func TestParseConfigCollaboratorDomainsParsedAndValidated(t *testing.T) {
 		t.Fatalf("empty collaborator domain must be rejected mentioning allowed-domains; got %v", err)
 	}
 }
+
+func TestParseConfig_VertexValid(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+      CLOUD_ML_REGION: us-east5
+      ANTHROPIC_MODEL: claude-opus-4-8
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	v, ok := cfg.Vertex()
+	if !ok {
+		t.Fatalf("Vertex() ok = false, want true")
+	}
+	if v.Env["ANTHROPIC_VERTEX_PROJECT_ID"] != "my-proj" {
+		t.Fatalf("project id = %q", v.Env["ANTHROPIC_VERTEX_PROJECT_ID"])
+	}
+	env := cfg.VertexEnv()
+	if env["CLAUDE_CODE_USE_VERTEX"] != "1" {
+		t.Fatalf("VertexEnv missing CLAUDE_CODE_USE_VERTEX=1: %v", env)
+	}
+	if env["ANTHROPIC_MODEL"] != "claude-opus-4-8" || env["CLOUD_ML_REGION"] != "us-east5" {
+		t.Fatalf("VertexEnv passthrough wrong: %v", env)
+	}
+}
+
+func TestParseConfig_VertexMissingRequired(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+`))
+	if err == nil || !strings.Contains(err.Error(), "CLOUD_ML_REGION is required") {
+		t.Fatalf("want CLOUD_ML_REGION required error, got %v", err)
+	}
+}
+
+func TestParseConfig_VertexRejectsProtectedKey(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+      CLOUD_ML_REGION: us
+      https_proxy: http://evil:3128
+`))
+	if err == nil || !strings.Contains(err.Error(), "https_proxy") {
+		t.Fatalf("want protected-key rejection for https_proxy, got %v", err)
+	}
+}
+
+func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.VertexEnv() != nil {
+		t.Fatalf("VertexEnv should be nil for a non-vertex kit")
+	}
+	if _, ok := cfg.Vertex(); ok {
+		t.Fatalf("Vertex() ok = true for a non-vertex kit")
+	}
+}
