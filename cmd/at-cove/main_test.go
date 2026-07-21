@@ -2500,3 +2500,63 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+func TestVertexPlan_ResolvesADCAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	secretsPath := filepath.Join(dir, "secrets.yml")
+	localPath := filepath.Join(dir, "secrets.local.yml")
+	if err := os.WriteFile(secretsPath, []byte(`
+kits:
+  vkit:
+    GOOGLE_APPLICATION_CREDENTIALS_JSON:
+      value: '{"type":"authorized_user","refresh_token":"r"}'
+`), 0o600); err != nil {
+		t.Fatalf("write secrets: %v", err)
+	}
+	store, err := usersecret.Load(secretsPath, localPath)
+	if err != nil {
+		t.Fatalf("usersecret.Load: %v", err)
+	}
+	cfg, err := kit.ParseConfig([]byte(`
+name: vkit
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	r := &runner.Fake{}
+	expand := mint.Expander(r, store.Global, "")
+	va, env, err := vertexPlan(cfg, store, expand, "vkit", "/canon/vkit", secretsPath, r)
+	if err != nil {
+		t.Fatalf("vertexPlan: %v", err)
+	}
+	if !strings.Contains(string(va.ADC), "authorized_user") {
+		t.Fatalf("ADC not resolved: %q", va.ADC)
+	}
+	if env["CLAUDE_CODE_USE_VERTEX"] != "1" || env["ANTHROPIC_VERTEX_PROJECT_ID"] != "p" {
+		t.Fatalf("vertex env wrong: %v", env)
+	}
+}
+
+func TestVertexPlan_FailsClosedWhenUnsupplied(t *testing.T) {
+	dir := t.TempDir()
+	secretsPath := filepath.Join(dir, "secrets.yml")
+	localPath := filepath.Join(dir, "secrets.local.yml")
+	if err := os.WriteFile(secretsPath, []byte("kits: {}\n"), 0o600); err != nil {
+		t.Fatalf("write secrets: %v", err)
+	}
+	store, err := usersecret.Load(secretsPath, localPath)
+	if err != nil {
+		t.Fatalf("usersecret.Load: %v", err)
+	}
+	cfg, _ := kit.ParseConfig([]byte("name: vkit\nmodel-provider:\n  vertex:\n    env:\n      ANTHROPIC_VERTEX_PROJECT_ID: p\n      CLOUD_ML_REGION: us\n"))
+	r := &runner.Fake{}
+	expand := mint.Expander(r, store.Global, "")
+	if _, _, err := vertexPlan(cfg, store, expand, "vkit", "/canon/vkit", secretsPath, r); err == nil {
+		t.Fatalf("want a fail-closed error when the ADC is unsupplied")
+	}
+}

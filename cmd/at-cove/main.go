@@ -781,6 +781,17 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
+	// A Vertex kit's GCP ADC is resolved host-side, kept out of `specs` above (it
+	// is a file connect seeds, never the agent's session env) — mirroring how the
+	// workspace-clone git token is handled below.
+	var vertexAuth *connect.VertexAuth
+	var vertexEnv map[string]string
+	if _, isVertex := cfg.Vertex(); isVertex {
+		if vertexAuth, vertexEnv, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+			return err
+		}
+	}
+
 	launch := "claude"
 	if raw {
 		launch = "bash"
@@ -880,6 +891,8 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		CredentialsFile:    filepath.Join(configDir(), "credentials.json"),
 		CollaboratorPrompt: role.Prompt,
 		WorkspaceClone:     wsClone,
+		ExtraEnv:           vertexEnv,
+		Vertex:             vertexAuth,
 	})
 }
 
@@ -912,6 +925,31 @@ func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, 
 		Branch:  gh.MainBranch, // defaulted to "main" at parse
 		Token:   tok,
 	}, nil
+}
+
+// gcpADCDemand is the well-known demand name a Vertex kit's GCP Application Default
+// Credentials are supplied under (machine-side, in secrets.yml/secrets.local.yml).
+// It is resolved host-side and seeded into the VM as a file — it never enters the
+// agent's session env.
+const gcpADCDemand = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+
+// vertexPlan resolves a Vertex kit's GCP credential host-side (kept out of the
+// session secret env) and returns it plus the non-secret provider env. Fails
+// closed (via planRequired) when no supply is wired for the kit.
+func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, secretsPath string, r runner.Runner) (*connect.VertexAuth, map[string]string, error) {
+	spec, err := planRequired(store, expand, kitName, kitPath, gcpADCDemand, secretsPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolved, err := secret.Resolve(r, nil, []secret.Spec{spec})
+	if err != nil {
+		return nil, nil, err
+	}
+	adc := resolved[gcpADCDemand]
+	if strings.TrimSpace(adc) == "" {
+		return nil, nil, fmt.Errorf("vertex kit %q: resolved GCP credential %s is empty", kitName, gcpADCDemand)
+	}
+	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
