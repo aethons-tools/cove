@@ -781,17 +781,6 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
-	// A Vertex kit's GCP ADC is resolved host-side, kept out of `specs` above (it
-	// is a file connect seeds, never the agent's session env) — mirroring how the
-	// workspace-clone git token is handled below.
-	var vertexAuth *connect.VertexAuth
-	var vertexEnv map[string]string
-	if _, isVertex := cfg.Vertex(); isVertex {
-		if vertexAuth, vertexEnv, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
-			return err
-		}
-	}
-
 	launch := "claude"
 	if raw {
 		launch = "bash"
@@ -809,6 +798,19 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s%s\n",
 			len(specs), st.Container, who, launch, clone)
 		return nil
+	}
+
+	// A Vertex kit's GCP ADC is resolved host-side, kept out of `specs` above (it
+	// is a file connect seeds, never the agent's session env) — mirroring how the
+	// workspace-clone git token is handled below. Deliberately after the dry-run
+	// return: like workspaceClonePlan, this can execute a resolver command, which
+	// must never happen as a side effect of a --dry-run preview.
+	var vertexAuth *connect.VertexAuth
+	var vertexEnv map[string]string
+	if _, isVertex := cfg.Vertex(); isVertex {
+		if vertexAuth, vertexEnv, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+			return err
+		}
 	}
 
 	// First-session workspace clone (isolated mode only). The git token is
