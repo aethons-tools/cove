@@ -238,11 +238,10 @@ inside the VM).
 
 A kit with a [`model-provider.vertex`](at-cove-config.md#model-provider) block
 authenticates `chat` via a GCP Application Default Credentials (ADC) file instead
-of Anthropic subscription OAuth (see
-[Authentication](../OVERVIEW.md#authentication-claude-on-vertex)). That credential
-is not part of the `env` map — it is resolved through the ordinary demand/supply
-model above, under the well-known demand name **`GOOGLE_APPLICATION_CREDENTIALS_JSON`**,
-supplied under `kits: <kit>:` like any other secret:
+of Anthropic subscription OAuth. That credential is not part of the `env` map —
+it is resolved through the ordinary demand/supply model above, under the
+well-known demand name **`GOOGLE_APPLICATION_CREDENTIALS_JSON`**, supplied under
+`kits: <kit>:` like any other secret:
 
 ```yaml
 # ~/.config/at-cove/secrets.yml
@@ -252,16 +251,13 @@ kits:
       command: ["cat", "~/.config/gcloud/application_default_credentials.json"]
 ```
 
-Resolved **host-side**, same as any `command:` supply — here, reading the
-`authorized_user` ADC that `gcloud auth application-default login` already
-produced on the operator's machine. Unlike every other demand in this doc, its
-value is never injected into the session **env**: `chat` seeds it as a **file**
-onto the `/agent-data` volume (`/agent-data/.gcp-adc.json`) and points
-`GOOGLE_APPLICATION_CREDENTIALS` at that path. It is **seeded, not saved back** —
-a `gcloud` `authorized_user` ADC is static (a refresh token), so google-auth
-refreshes access tokens **in-VM** over the newly-allowed `oauth2.googleapis.com`
-without ever rewriting the file, unlike the rolling Anthropic
-`credentials.json` this parallels.
+Resolved **host-side**, same as any `command:` supply. Unlike every other demand
+in this doc, its value is never injected into the session **env**: `chat` seeds
+it as a **file** onto the `/agent-data` volume (`/agent-data/.gcp-adc.json`) and
+points `GOOGLE_APPLICATION_CREDENTIALS` at that path. For *why* it's seeded
+rather than saved back (a static `authorized_user` ADC, refreshed in-VM), see
+[Authentication — Claude on Vertex](../OVERVIEW.md#authentication-claude-on-vertex),
+which owns that explanation.
 
 ## Security caveats
 

@@ -414,10 +414,14 @@ for the config shape and union semantics.
 
 **Vertex kits auto-gain their GCP hosts.** A kit with a
 [`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its
-GCP endpoints folded into `allowed_domains.kit.txt` at `install` time —
-derived from the block, not hand-listed: the region-templated Vertex inference
-host (`<region>-aiplatform.googleapis.com`, plus the multi-region and global
-`aiplatform.googleapis.com` forms) and the auth hosts
+GCP endpoints folded into `allowed_domains.kit.txt` at `install` time — derived
+from the block's `CLOUD_ML_REGION`, not hand-listed. The global inference host
+`aiplatform.googleapis.com` is always included, plus one region-specific host
+depending on `CLOUD_ML_REGION`: unset/`global` adds nothing more (the global
+host already covers it); the multi-region values `us`/`eu` add the distinct
+`aiplatform.us.rep.googleapis.com` / `aiplatform.eu.rep.googleapis.com` host;
+any other value is taken as a specific region and adds
+`<region>-aiplatform.googleapis.com`. Always added alongside: the auth hosts
 `oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
 This only *widens* the kit-root tier, exactly like a hand-written
 `image.allowed-domains` entry — the sealed base and `nftables` are unchanged.
