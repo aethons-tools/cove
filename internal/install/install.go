@@ -28,7 +28,7 @@ const schemaVersion = 1
 // produces this from the backend's build op; Compile stays pure by taking it as
 // plain data rather than performing the build itself.
 type ResolvedBuild struct {
-	Image        string // the built, tagged image ref (the stable at-cove-for-<kit> identity)
+	Image        string // the built, tagged image ref (the stable atcove-<kit> identity)
 	BaseRef      string // the base as configured (or the blessed default)
 	BaseDigest   string // the digest the base resolved to
 	CurrencyHash string // sha256 over the build-affecting inputs (§5)

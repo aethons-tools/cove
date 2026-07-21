@@ -36,6 +36,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
+	"github.com/aethons-tools/cove/internal/naming"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/state"
@@ -391,7 +392,7 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, dryRun bool,
 		return err
 	}
 	buildDir := filepath.Join(kitDir, ".build")
-	img := "at-cove-for-" + cfg.Name
+	img := naming.Image(cfg.Name)
 	if dryRun {
 		fmt.Fprintf(stdout, "assembled %s; would build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
 		return nil
@@ -532,21 +533,22 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 // instanceFor resolves a CLI collaborator positional against a kit config to the
 // instance identity (COV-71): the state.Instance key (Interactive for a kit that
 // defines no collaborators, else Instance(class)) and the backend name, which
-// keys the container and its -workspace/-state volumes. A plain (no-collaborator)
-// kit keeps the bare kit name (container <kit>, today's volume names); a
-// class-keyed instance is "<kit>-<class>" (container <kit>-<class>, volumes
-// <kit>-<class>-workspace/-state). Resolution mirrors chat exactly: explicit
-// class → that one; omitted → the sole/default:true class (error if ambiguous);
-// no collaborators → the plain Interactive instance.
+// keys the container and its -workspace/-agent-data volumes (all via naming —
+// COV-77). A plain (no-collaborator) kit uses container atcove-{kit} (volumes
+// atcove-{kit}-workspace/-agent-data); a class-keyed instance uses container
+// atcove-{kit}-{class} (volumes atcove-{kit}-{class}-workspace/-agent-data).
+// Resolution mirrors chat exactly: explicit class → that one; omitted → the
+// sole/default:true class (error if ambiguous); no collaborators → the plain
+// Interactive instance.
 func instanceFor(cfg kit.Config, collaborator string) (class string, hasCollab bool, instKey state.Instance, name string, err error) {
 	class, hasCollab, err = cfg.SelectCollaborator(collaborator)
 	if err != nil {
 		return "", false, state.Interactive, "", err
 	}
 	if !hasCollab {
-		return "", false, state.Interactive, cfg.Name, nil
+		return "", false, state.Interactive, naming.Container(cfg.Name, ""), nil
 	}
-	return class, true, state.Instance(class), cfg.Name + "-" + class, nil
+	return class, true, state.Instance(class), naming.Container(cfg.Name, class), nil
 }
 
 // lenientRunConfig loads a kit's frozen run-config (its collaborators tree) from
@@ -1086,11 +1088,13 @@ func doStatusInstance(kitDir string, r runner.Runner, inst state.Instance, dryRu
 	return nil
 }
 
-// workName derives a container name unique to one dispatch run: the kit
-// name for readability, plus the pid and a nanosecond timestamp so concurrent
-// dispatches of the same kit (even from separate processes) never collide.
+// workName derives a container name unique to one dispatch run via the naming
+// helper (COV-77) — the kit name for readability plus the pid and a nanosecond
+// timestamp so concurrent dispatches of the same kit (even from separate
+// processes) never collide. The impure pid/nanotime are supplied here so the
+// naming helper stays pure.
 func workName(kitName string) string {
-	return fmt.Sprintf("at-cove-work-%s-%d-%d", kitName, os.Getpid(), time.Now().UnixNano())
+	return naming.WorkerContainer(kitName, os.Getpid(), time.Now().UnixNano())
 }
 
 // keysOf returns a kit secrets map's demanded names, for store.Plan.
@@ -1169,7 +1173,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 			fmt.Fprintf(stderr, "at-cove: kit %q declares no workers\n", cfg.Name)
 			return 1
 		}
-		img := "at-cove-for-" + cfg.Name
+		img := naming.Image(cfg.Name)
 		fmt.Fprintf(stdout, "would dispatch %s (kit %s, image %s): verify the install is current, scavenge orphans, run an ephemeral labeled container from the installed image, inject %s, run the at-task worker bracket (prepare → agent → complete), extract %s, then destroy the container\n",
 			cfg.Name, kitDir, img, *inPath, *outPath)
 		return 0
