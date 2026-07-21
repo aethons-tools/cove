@@ -456,7 +456,16 @@ var reservedSecretNames = map[string]bool{
 	"AT_TASK_GIT_TOKEN":          true,
 	"AT_DISPATCH_TRACKER_TOKEN":  true,
 	"AT_DISPATCH_WEBHOOK_SECRET": true,
+	gcpADCDemandName:             true,
 }
+
+// gcpADCDemandName is the well-known demand name a Vertex kit's GCP Application
+// Default Credentials are supplied under (mirrors cmd/at-cove's gcpADCDemand
+// const — duplicated here rather than imported, since internal/kit must not
+// depend on cmd/at-cove). It is resolved host-side (from secrets.yml, never
+// config.yml) and seeded into the VM as a file; it must never be declared as a
+// general secret, which would also inject it into the agent's session env.
+const gcpADCDemandName = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
 // rootRejectedBearers are agent-auth credentials that must NOT live at the kit
 // root: root secrets are injected into `chat` too, where an Anthropic bearer
@@ -483,9 +492,13 @@ func rejectRootBearers(got map[string]SecretConfig) error {
 // can never shadow the host-side, air-gapped subsystem credentials.
 func rejectReservedSecretNames(field string, got map[string]SecretConfig) error {
 	for k := range got {
-		if reservedSecretNames[k] {
-			return fmt.Errorf("config.yml: %s: %q is a reserved subsystem secret and must be declared under source-control/tracker, not here", field, k)
+		if !reservedSecretNames[k] {
+			continue
 		}
+		if k == gcpADCDemandName {
+			return fmt.Errorf("config.yml: %s: %q is the Vertex GCP credential — it is supplied host-side (secrets.yml) and seeded as a file, and must not be declared as a secret here (that would inject it into the agent's session env)", field, k)
+		}
+		return fmt.Errorf("config.yml: %s: %q is a reserved subsystem secret and must be declared under source-control/tracker, not here", field, k)
 	}
 	return nil
 }

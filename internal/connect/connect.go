@@ -86,7 +86,9 @@ type Options struct {
 	ExtraEnv map[string]string
 	// Vertex, when set, makes this a Claude-on-Vertex session: connect seeds the
 	// GCP ADC file and points GOOGLE_APPLICATION_CREDENTIALS at it, instead of the
-	// Anthropic subscription OAuth flow.
+	// Anthropic subscription OAuth flow. Both only happen when SkipAuth is false —
+	// with --no-auth, neither the file nor the env var is set (the escape hatch
+	// means "I manage auth myself"; a set-but-unseeded path would be incoherent).
 	Vertex *VertexAuth
 }
 
@@ -119,9 +121,6 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 		if _, taken := env[k]; !taken {
 			env[k] = v
 		}
-	}
-	if o.Vertex != nil {
-		env["GOOGLE_APPLICATION_CREDENTIALS"] = gcpADCVMPath
 	}
 
 	stderr := o.Stderr
@@ -161,6 +160,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 			if err := seedVertexCredentials(r, tgt, o.Vertex.ADC); err != nil {
 				return err
 			}
+			env["GOOGLE_APPLICATION_CREDENTIALS"] = gcpADCVMPath
 		} else {
 			if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
 				return err

@@ -805,11 +805,22 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// workspace-clone git token is handled below. Deliberately after the dry-run
 	// return: like workspaceClonePlan, this can execute a resolver command, which
 	// must never happen as a side effect of a --dry-run preview.
+	//
+	// The provider (non-secret) env is set directly from the kit config regardless
+	// of --no-auth — CLAUDE_CODE_USE_VERTEX etc. must still point the agent at
+	// Vertex. But ADC *resolution* is skipped under --no-auth: the escape hatch
+	// means "I manage auth myself", and connect itself will neither seed the file
+	// nor set GOOGLE_APPLICATION_CREDENTIALS when SkipAuth is set, so resolving a
+	// credential here would just be wasted (and, for a mint: supply, needless)
+	// work.
 	var vertexAuth *connect.VertexAuth
 	var vertexEnv map[string]string
 	if _, isVertex := cfg.Vertex(); isVertex {
-		if vertexAuth, vertexEnv, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
-			return err
+		vertexEnv = cfg.VertexEnv()
+		if !noAuth {
+			if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+				return err
+			}
 		}
 	}
 

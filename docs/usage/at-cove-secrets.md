@@ -259,6 +259,16 @@ rather than saved back (a static `authorized_user` ADC, refreshed in-VM), see
 [Authentication: Claude on Vertex](../OVERVIEW.md#authentication-claude-on-vertex),
 which owns that explanation.
 
+Because seeding-as-a-file (never env) is the whole point, `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+is a **reserved name**: `config.yml` rejects it in every general secrets bucket —
+root `secrets`, `workers.*.secrets`, and `collaborators.*.secrets` — the same
+enforcement as the `AT_*` subsystem names (see
+[Secret buckets](at-cove-config.md#secret-buckets)), just with a Vertex-specific
+error explaining *why*: declaring it there would inject the resolved credential
+into the agent's session env too, breaking the file-only air-gap above. It is
+only ever supplied under `secrets.yml`'s `kits: <kit>:` map, as shown above —
+never demanded in `config.yml` at all.
+
 ## Security caveats
 
 - **Host-execution vector.** A `command:` (in `secrets.yml`, `secrets.local.yml`,

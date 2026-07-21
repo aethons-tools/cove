@@ -543,6 +543,37 @@ func TestConnect_VertexSeedsADCAndSkipsOAuth(t *testing.T) {
 	}
 }
 
+// --no-auth on a Vertex session ("I manage auth myself") must be coherent: the
+// ADC file must not be seeded, and GOOGLE_APPLICATION_CREDENTIALS must not be
+// set in the launch env — a set-but-unseeded pointer would be worse than unset.
+func TestConnect_VertexSkipAuthDoesNotSeedOrSetEnv(t *testing.T) {
+	r := &runner.Fake{}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container:     "c1",
+		IdentityFile:  "id",
+		KnownHostsDir: t.TempDir(),
+		SkipAuth:      true,
+		ExtraEnv:      map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "CLOUD_ML_REGION": "us-east5"},
+		Vertex:        &VertexAuth{ADC: []byte(`{"type":"authorized_user"}`)},
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if calledWith(r.Calls, gcpADCVMPath) {
+		t.Fatalf("--no-auth must not seed the ADC file; calls: %+v", r.Calls)
+	}
+	if v, set := tr.gotEnv["GOOGLE_APPLICATION_CREDENTIALS"]; set {
+		t.Fatalf("--no-auth must not set GOOGLE_APPLICATION_CREDENTIALS in the launch env; got %q", v)
+	}
+	// The non-secret provider env is still applied — only the credential pointer
+	// is suppressed.
+	if tr.gotEnv["CLAUDE_CODE_USE_VERTEX"] != "1" || tr.gotEnv["CLOUD_ML_REGION"] != "us-east5" {
+		t.Fatalf("launch env missing provider vars: %v", tr.gotEnv)
+	}
+}
+
 func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}

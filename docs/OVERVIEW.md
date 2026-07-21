@@ -648,6 +648,15 @@ rewriting the file — seeding is the whole of the flow. This is `chat`-only
 today; the dispatched-worker path is designed but not yet built (see the
 [Vertex design spec](superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
 
+`--no-auth` on a Vertex kit means the same thing it means on the Anthropic path
+above ("I manage auth myself"): the ADC file is **not** seeded and
+`GOOGLE_APPLICATION_CREDENTIALS` is **not** set in the launch env, and `chat`
+does not even resolve the credential host-side, so an unsupplied `secrets.yml`
+entry is not an error under `--no-auth`. The non-secret provider env
+(`CLAUDE_CODE_USE_VERTEX`, `CLOUD_ML_REGION`, …) is still applied regardless of
+`--no-auth` — only the credential pointer is suppressed, since a set-but-unseeded
+path would be worse than an unset one.
+
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
 and a credential helper feeds the token from the session env (memory-only).

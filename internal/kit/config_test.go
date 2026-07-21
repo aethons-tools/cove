@@ -207,6 +207,35 @@ func TestWorkerBucketRejectsReservedName(t *testing.T) {
 	}
 }
 
+// The Vertex ADC demand name must never be declarable as a general secret
+// (root, worker, or collaborator bucket) — that would inject the resolved GCP
+// credential into the agent's session env, breaking the air-gap invariant that
+// it is only ever seeded as a file by connect.Connect.
+func TestParseConfigRejectsGCPADCUnderRootSecrets(t *testing.T) {
+	yml := "name: k\nsecrets:\n  GOOGLE_APPLICATION_CREDENTIALS_JSON: {}\n"
+	_, err := ParseConfig([]byte(yml))
+	if err == nil {
+		t.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON under root secrets must be rejected")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
+		t.Fatalf("error should mention the name; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "session env") {
+		t.Fatalf("error should explain the air-gap risk, not the generic subsystem message; got %v", err)
+	}
+}
+
+func TestParseConfigRejectsGCPADCUnderCollaboratorSecrets(t *testing.T) {
+	yml := "name: k\ncollaborators:\n  planner:\n    prompt: p\n    secrets:\n      GOOGLE_APPLICATION_CREDENTIALS_JSON: {}\n"
+	_, err := ParseConfig([]byte(yml))
+	if err == nil {
+		t.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON under collaborators.<class>.secrets must be rejected")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
+		t.Fatalf("error should mention the name; got %v", err)
+	}
+}
+
 func TestParseConfigRejectsUnknownAngleKey(t *testing.T) {
 	src := "name: k\nworkers:\n  <bogus>:\n    timeout: 30m\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
@@ -683,6 +712,13 @@ model-provider:
 `))
 	if err == nil || !strings.Contains(err.Error(), "https_proxy") {
 		t.Fatalf("want protected-key rejection for https_proxy, got %v", err)
+	}
+}
+
+func TestParseConfig_ModelProviderEmptyUnionRejected(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nmodel-provider: {}\n"))
+	if err == nil || !strings.Contains(err.Error(), "must set exactly one provider") {
+		t.Fatalf("empty model-provider union must be rejected mentioning 'must set exactly one provider'; got %v", err)
 	}
 }
 
