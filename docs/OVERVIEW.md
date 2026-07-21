@@ -241,13 +241,16 @@ and `destroy` takes an *exclusive* lock on the instance it removes —
 so a sandbox can't be torn down underneath a live connection, and one
 collaborator's session never blocks another's.
 
-The state file records the backend handles (container, image), the workspace mount,
+The state file records the backend handles (container, image tag **and the
+built-image `imageDigest`** the run was pinned to — see [The base image and the
+provenance gate](#the-base-image-and-the-provenance-gate)), the workspace mount,
 the demanded secret **names** (never values), and the
 named **volumes** the backend created (so teardown removes exactly those rather than
 re-deriving them — see [Workspace and state volumes](#workspace-and-state-volumes)).
 Its `schemaVersion` is stamped on every write; older files load without error
-(schema version 2 added the `volumes` object, and destroy falls back for files that
-predate it).
+(version 2 added the `volumes` object, version 3 the `imageDigest`, and each has a
+fallback for files that predate it — reconstructing volume names from the
+container, and running the mutable tag when no digest was recorded).
 
 ### Per-collaborator interactive instances
 
@@ -341,6 +344,23 @@ one place a base is built. This lets hardening *trust* its prerequisites (the eg
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
 backend seam; the full model is in
 [the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
+
+**Pinning the built image by digest (COV-78).** `install` records *two* distinct
+digests, and they must not be confused. `baseDigest` is the **FROM-base** digest —
+the base the hardening layer was applied *on top of*, the provenance-gate input
+above. `imageDigest` is the **built image's own** sha256 (its image ID), captured
+right after the build (`docker inspect --format '{{.Id}}'` on the just-tagged
+image) and frozen into `install.json` alongside the mutable `image` tag
+(`atcove-{kit}`). Every run path — `create`/`recreate` and the ephemeral
+`work`/`dispatch` container — then `docker run`s the **digest**, not the tag, so a
+rebuilt or moved tag can never make a run silently execute a different image than
+the one `install` gated. The tag is kept for display/diagnostics (and recorded in
+the instance's [state file](#state-vs-config) alongside the digest). A **legacy**
+manifest written before this field existed carries no `imageDigest`; those runs
+**fall back to the tag** (`schemaVersion` bumped to 2 for the manifest, 3 for
+state). The built-image digest is orthogonal to the currency gate, which still
+keys off `baseDigest` and the build inputs — see
+[the install lifecycle](#command-surface).
 
 **How the blessed set is maintained — low-watermark + registry snapshot.** The
 repo commits exactly one digest in `internal/basedigest/blessed/watermark.txt`:
@@ -461,6 +481,15 @@ never collides with an unrelated docker object:
 The saved login still crosses a kit's VMs via the host `credentials.json`, so a
 per-class `-agent-data` volume is not a per-class re-login. The state-file key and
 the interactive session label are **not** docker names and keep the bare kit name.
+
+**A named volume's identity *is* its name — there is no separate volume ID**
+(grounded finding, COV-74). Docker assigns a named volume only a name (unlike an
+image, which has both a mutable tag and an immutable content digest, or a
+container, which has both a name and an ID). So there is nothing to pin a volume
+*by* beyond the name the create path already records, and no volume-ID field is
+added — the digest-pinning that `imageDigest` gives the image (above) has no
+volume analogue. This is why teardown removing volumes *by recorded name* is the
+whole of the identity story for volumes.
 
 **The create path names the volumes once; state records them; destroy reads them
 back (COV-76).** `create` records the actual volume names in the state file's

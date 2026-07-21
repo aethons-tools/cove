@@ -28,6 +28,7 @@ func sampleConfig() kit.Config {
 func sampleBuild() ResolvedBuild {
 	return ResolvedBuild{
 		Image:        "at-cove-for-box",
+		ImageDigest:  "sha256:cafef00d",
 		BaseRef:      "ghcr.io/x/y:1",
 		BaseDigest:   "sha256:deadbeef",
 		CurrencyHash: "abc123",
@@ -48,7 +49,7 @@ func TestCompileFreezesConfigAndBuild(t *testing.T) {
 	if m.Name != cfg.Name {
 		t.Errorf("Name = %q, want %q", m.Name, cfg.Name)
 	}
-	if m.Image != rb.Image || m.BaseRef != rb.BaseRef || m.BaseDigest != rb.BaseDigest {
+	if m.Image != rb.Image || m.ImageDigest != rb.ImageDigest || m.BaseRef != rb.BaseRef || m.BaseDigest != rb.BaseDigest {
 		t.Errorf("build outputs not frozen: %+v", m)
 	}
 	if m.CurrencyHash != rb.CurrencyHash {
@@ -119,7 +120,7 @@ func TestSaveLoadExists(t *testing.T) {
 	if got.SchemaVersion != schemaVersion {
 		t.Errorf("schemaVersion = %d, want %d", got.SchemaVersion, schemaVersion)
 	}
-	if got.Image != want.Image || got.BaseDigest != want.BaseDigest || got.CurrencyHash != want.CurrencyHash {
+	if got.Image != want.Image || got.ImageDigest != want.ImageDigest || got.BaseDigest != want.BaseDigest || got.CurrencyHash != want.CurrencyHash {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}
 	if got.RunConfig.Workers["implementor"].Concurrency != 2 ||

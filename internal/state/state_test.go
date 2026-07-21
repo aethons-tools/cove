@@ -35,7 +35,7 @@ func TestSaveLoadDelete(t *testing.T) {
 
 	want := State{
 		Name: "box", Backend: "colima", Container: "box",
-		Image: "at-cove-for-box", WorkspaceMode: "isolated",
+		Image: "at-cove-for-box", ImageDigest: "sha256:cafef00d", WorkspaceMode: "isolated",
 		Secrets:   []Secret{{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}}},
 		CreatedAt: "2026-06-27T00:00:00Z",
 	}
@@ -52,7 +52,7 @@ func TestSaveLoadDelete(t *testing.T) {
 	if got.SchemaVersion != schemaVersion {
 		t.Errorf("schemaVersion = %d, want %d", got.SchemaVersion, schemaVersion)
 	}
-	if got.Container != "box" || got.Image != "at-cove-for-box" || got.WorkspaceMode != "isolated" {
+	if got.Container != "box" || got.Image != "at-cove-for-box" || got.ImageDigest != "sha256:cafef00d" || got.WorkspaceMode != "isolated" {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}
 	if len(got.Secrets) != 1 || got.Secrets[0].Name != "GITHUB_TOKEN" || got.Secrets[0].Command[0] != "op" {

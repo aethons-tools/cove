@@ -430,6 +430,32 @@ func TestInstallBuildsGatesTagsAndWritesManifest(t *testing.T) {
 	}
 }
 
+// TestInstallRecordsBuiltImageDigest: install captures the built image's own
+// sha256 (via a post-build `docker inspect` of the tag) and freezes it into
+// install.json as the built-image digest — distinct from the FROM-base digest —
+// so runs pin the exact image install gated (COV-78).
+func TestInstallRecordsBuiltImageDigest(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	seedConfigDir(t)
+	// The queued Output feeds the post-build `docker inspect --format {{.Id}}`.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:cafef00d\n"}}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("install exit=%d stderr=%s", code, errOut.String())
+	}
+	m, err := install.Load(kitDir)
+	if err != nil {
+		t.Fatalf("install.json not written: %v", err)
+	}
+	if m.ImageDigest != "sha256:cafef00d" {
+		t.Fatalf("manifest must record the built-image digest; got %q (base=%q)", m.ImageDigest, m.BaseDigest)
+	}
+	if m.ImageDigest == m.BaseDigest {
+		t.Fatalf("built-image digest must be distinct from the FROM-base digest: %+v", m)
+	}
+}
+
 // TestInstallOwnsAllowUnverifiedFlag: --allow-unverified-base is accepted only by
 // `install` (the one command that builds a base + runs the gate).
 func TestInstallOwnsAllowUnverifiedFlag(t *testing.T) {
@@ -1404,7 +1430,7 @@ func TestSaveStateSnapshot(t *testing.T) {
 	cfg := kit.Config{Name: "box", Secrets: map[string]kit.SecretConfig{
 		"GITHUB_TOKEN": {Description: "code host token"},
 	}}
-	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img",
+	inst := backend.Instance{Backend: "colima", Container: "box", Image: "img", ImageDigest: "sha256:cafe",
 		Workspace: backend.WorkspaceMount{Mode: backend.Isolated}}
 	if err := saveState(dir, state.Interactive, cfg, inst); err != nil {
 		t.Fatal(err)
@@ -1413,7 +1439,7 @@ func TestSaveStateSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Name != "box" || st.Backend != "colima" || st.Container != "box" || st.Image != "img" {
+	if st.Name != "box" || st.Backend != "colima" || st.Container != "box" || st.Image != "img" || st.ImageDigest != "sha256:cafe" {
 		t.Fatalf("state = %+v", st)
 	}
 	if len(st.Secrets) != 1 || st.Secrets[0].Name != "GITHUB_TOKEN" {

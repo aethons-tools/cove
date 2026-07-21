@@ -414,6 +414,7 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, dryRun bool,
 	}
 	m := install.Compile(cfg, install.ResolvedBuild{
 		Image:        installed.Ref,
+		ImageDigest:  installed.Digest,
 		BaseRef:      in.BaseRef,
 		BaseDigest:   installed.BaseDigest,
 		CurrencyHash: install.CurrencyHash(in),
@@ -601,7 +602,7 @@ func doCreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout 
 	if err != nil {
 		return err
 	}
-	return createInstance(kitDir, r, cfg, m.Image, instKey, name, ws, dryRun, stdout)
+	return createInstance(kitDir, r, cfg, m.Image, m.ImageDigest, instKey, name, ws, dryRun, stdout)
 }
 
 // sharedWorkspaceMount resolves a fresh create's workspace mount from the selected
@@ -632,11 +633,13 @@ func sharedWorkspaceMount(cfg kit.Config, kitDir, class string, hasCollab bool) 
 // workspace mount and records it in state. It is the shared tail of doCreate (mount
 // from config) and doRecreate (mount recovered from state). The dry-run intent line
 // reflects shared-repo vs isolated + the repo path (COV-72).
-func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image string, instKey state.Instance, name string, ws backend.WorkspaceMount, dryRun bool, stdout io.Writer) error {
+func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, digest string, instKey state.Instance, name string, ws backend.WorkspaceMount, dryRun bool, stdout io.Writer) error {
 	if state.ExistsFor(kitDir, instKey) {
 		return fmt.Errorf("%q is already created; run `at-cove recreate` or `at-cove destroy` first", name)
 	}
 	if dryRun {
+		// The intent line names the human-readable tag; the actual run is pinned to
+		// the manifest's built-image digest when present (COV-78).
 		fmt.Fprintf(stdout, "would run %s (image %s, %s) and write %s\n", name, image, workspaceIntent(ws), state.PathFor(kitDir, instKey))
 		return nil
 	}
@@ -645,7 +648,7 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image string
 		return err
 	}
 	bi, err := b.Create(backend.CreateContext{
-		Name: name, Image: image, Workspace: ws,
+		Name: name, Image: image, Digest: digest, Workspace: ws,
 	})
 	if err != nil {
 		return err
@@ -672,6 +675,7 @@ func buildState(cfg kit.Config, inst backend.Instance) state.State {
 		Backend:       inst.Backend,
 		Container:     inst.Container,
 		Image:         inst.Image,
+		ImageDigest:   inst.ImageDigest,
 		WorkspaceMode: "isolated",
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
@@ -699,7 +703,7 @@ func instanceFromState(st state.State) backend.Instance {
 	if st.WorkspaceMode == "shared" {
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
 	}
-	inst := backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, Workspace: ws}
+	inst := backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, ImageDigest: st.ImageDigest, Workspace: ws}
 	// A legacy state file (schemaVersion 1) has no recorded volumes; leave
 	// Instance.Volumes zero so Destroy falls back to the container-derived names
 	// (COV-76).
@@ -1015,7 +1019,7 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdou
 			return err
 		}
 	}
-	return createInstance(kitDir, r, cfg, m.Image, instKey, name, ws, false, stdout)
+	return createInstance(kitDir, r, cfg, m.Image, m.ImageDigest, instKey, name, ws, false, stdout)
 }
 
 // doStatus reports the status of one resolved instance (`status [collaborator]`).
@@ -1368,7 +1372,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	}
 
 	err = dispatchrun.Dispatch(ctx, dispatchrun.Options{
-		Ops: ops, R: r, Cfg: cfg, Image: m.Image, Name: workName(cfg.Name),
+		Ops: ops, R: r, Cfg: cfg, Image: m.Image, ImageDigest: m.ImageDigest, Name: workName(cfg.Name),
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,
