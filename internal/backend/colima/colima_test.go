@@ -23,6 +23,12 @@ func TestInstallBuildsGatesTags(t *testing.T) {
 		!contains(build, "atcove-box") || !contains(build, "/b") {
 		t.Fatalf("build call = %+v", f.Calls)
 	}
+	// Plain progress: BuildKit's TTY progress renderer right-aligns each step's
+	// duration and can overflow the terminal by a column (a stray wrapped "s").
+	// Plain output is line-by-line and never wraps that way.
+	if !contains(build, "--progress=plain") {
+		t.Fatalf("build must pass --progress=plain: %v", build)
+	}
 	if dockerCall(f.Calls, "run") != nil {
 		t.Fatalf("Install must not run a container: %+v", f.Calls)
 	}
