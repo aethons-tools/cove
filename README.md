@@ -49,7 +49,16 @@ Add `--dry-run` to any command to print the planned actions without executing.
 ## Requirements
 
 - Go (to build) and [`just`](https://github.com/casey/just) (optional task runner — logic lives in `scripts/`).
-- A Colima/Docker host to actually run a sandbox.
+- A [Colima](https://github.com/abiosoft/colima) host to actually run a sandbox. Start it on its **default** profile — at-cove pins the `colima` docker context:
+
+  ```bash
+  colima start --cpu 4 --memory 8 --disk 60 --vm-type vz --mount-type virtiofs
+  ```
+
+  A reasonable starting size; tune to taste. `--vm-type vz --mount-type virtiofs`
+  are macOS (Apple Silicon) options — drop them on other hosts. Colima persists a
+  profile's settings, so a later `colima start` resumes with them; you only re-pass
+  a flag to change it. Don't use `--profile` — at-cove needs the default `colima` context.
 - An `ssh` client.
 
 The sandbox authenticates via **claude.ai subscription OAuth** on first `chat`
