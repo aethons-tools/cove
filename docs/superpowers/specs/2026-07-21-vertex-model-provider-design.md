@@ -52,7 +52,7 @@ model-provider:
   vertex:
     env:
       ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project    # required
-      CLOUD_ML_REGION: us-east5                       # required (region | "us" | "eu" | "global")
+      CLOUD_ML_REGION: us                       # required (region | "us" | "eu" | "global")
       # CLAUDE_CODE_USE_VERTEX=1 is set by at-cove — implied by the vertex block
       ANTHROPIC_VERTEX_BASE_URL: https://…            # optional pass-through
       VERTEX_REGION_CLAUDE_HAIKU_4_5: us-central1     # optional pass-through
@@ -90,13 +90,13 @@ The exact host derivation from `env.CLOUD_ML_REGION` is settled during implement
 `chat`'s auth step (`internal/connect`, the Authentication data flow) gains a provider branch. On a Vertex kit:
 
 1. **Resolve the GCP ADC host-side** from the human's existing identity — *assume host ADC, mint from it*. Delivered as a new `at-mint` **`vertex` provider** (`internal/mint`) referenced from `secrets.yml` via a `{ mint: <name> }` supply, or a bare host-side resolver `command:`. It reads/derives an `authorized_user` ADC from `~/.config/gcloud/application_default_credentials.json` (the artifact of `gcloud auth application-default login`). at-cove never invokes `gcloud auth login` itself.
-2. **Seed the ADC file onto the `/agent-data` volume**, mirroring the Anthropic `credentials.json` seed/save exactly: seed before launch, set `GOOGLE_APPLICATION_CREDENTIALS` to the seeded path, and save rotations back to a host copy so the shared credential stays current across sandboxes and recreates. google-auth **refreshes the file in-VM** over the newly-allowed `oauth2.googleapis.com`, so a long chat survives token expiry.
+2. **Seed the ADC file onto the `/agent-data` volume — seed-only, no save-back.** Seed it before launch and set `GOOGLE_APPLICATION_CREDENTIALS` to the seeded path. Unlike the Anthropic `credentials.json` (which stores the live access token and is rewritten on rotation, hence the save-back), a `gcloud` **`authorized_user` ADC is static**: it holds a long-lived refresh token, and google-auth mints access tokens **in-VM, in memory** over the newly-allowed `oauth2.googleapis.com` without rewriting the file. So a long chat survives token expiry with no save-back path — the file never changes.
 3. **Skip the Anthropic OAuth flow entirely** — no `claude auth status` probe, no `claude auth login --claudeai`, no `credentials.json` seed — for a Vertex session.
 4. **Inject the non-secret Vertex env** via the existing env-file transport, sourced from the provider `env` map (§4) rather than the secret store: at-cove's auto-set `CLAUDE_CODE_USE_VERTEX=1`, the at-cove-owned `GOOGLE_APPLICATION_CREDENTIALS` pointer to the seeded ADC, and every non-protected key from the map. The denylist is re-checked here (defensive drop) so a protected key can never be emitted regardless of source.
 
-**Placement decision:** the ADC file lives on the persistent `/agent-data` volume (seed+save), the same posture at-cove already documents for the saved OAuth login — a refresh-token file in a user-owned location. This is chosen over a tmpfs/memory-only delivery because a long chat needs in-VM refresh persistence; a one-shot short-lived token would die mid-session.
+**Placement decision:** the ADC file lives on the persistent `/agent-data` volume (seed-only), the same posture at-cove already documents for the saved OAuth login — a refresh-token file in a user-owned location. This is chosen over a tmpfs/memory-only delivery because a long chat needs a credential that survives token expiry; a one-shot short-lived access token would die mid-session with no re-injection channel. (An `authorized_user` ADC is static, so unlike the Anthropic login there is nothing to *save back* — seeding is the whole of the flow.)
 
-**Trust-boundary note:** like the Anthropic subscription credentials it parallels, the seeded GCP ADC (a refresh-token file) is written to the host copy and the VM volume — distinct from memory-only *secrets*. This is the same boundary the existing saved-login note documents; the design carries that note across to GCP ADC.
+**Trust-boundary note:** like the Anthropic subscription credentials it parallels, the seeded GCP ADC (a refresh-token file) is written to the VM volume — distinct from memory-only *secrets*. This is the same boundary the existing saved-login note documents; the design carries that note across to GCP ADC. The ADC value itself is resolved host-side through the ordinary demand/supply model (a well-known `GOOGLE_APPLICATION_CREDENTIALS_JSON` demand) and seeded as a file, never injected into the agent's session env.
 
 ## 7. Credential flow — worker (designed now, built second)
 
@@ -112,7 +112,7 @@ The worker path is one-shot and unattended, so it takes the short-lived-credenti
 | Area | Change |
 |---|---|
 | `internal/kit/config.go` | `ModelProvider`/`Vertex` structs (`env` map + required-key set); validation incl. the **hardening denylist** (reject protected keys, fail loud) |
-| `internal/install` | freeze `model-provider` into `install.json` run-config |
+| `internal/install` | none — the manifest embeds `kit.Config` wholesale, so `model-provider` freezes into `install.json` automatically; and `CurrencyInputs.KitSourceTree` already hashes raw `config.yml`, so currency re-hashes with no change |
 | egress derivation (`internal/assemble` / install) | `providerDomains(cfg)` — inject GCP domains into kit-root allow-list when Vertex present |
 | `internal/connect` | **the main change** — provider branch in the auth flow: seed GCP ADC vs. Anthropic OAuth; inject the provider `env` map (with defensive denylist re-check) |
 | `internal/mint` (`at-mint`) | new `vertex` provider (host ADC → authorized_user for chat; short-lived scoped ADC for worker) |
