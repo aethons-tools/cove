@@ -78,8 +78,9 @@ source-control:                 # the target repo (required for `dispatch`)
 ```
 
 `name` is the only always-required field;
-`source-control` (the target repo — a github union; required for `dispatch`, the single source
-of the repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
+`source-control` (the target repo — a **GitHub or GitLab** union driving repo identity,
+the clone URL, and the PR/MR client; required for `dispatch`, the single source of the
+repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
 (the base to harden via `image.base` — mutually exclusive with an `image/Dockerfile` — plus additive build customization) are optional.
 The full field-by-field schema, validation, and a complete example live in
 [`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
@@ -425,6 +426,13 @@ any other value is taken as a specific region and adds
 `oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
 This only *widens* the kit-root tier, exactly like a hand-written
 `image.allowed-domains` entry — the sealed base and `nftables` are unchanged.
+
+**GitLab kits reach their host too.** `gitlab.com` is already in the sealed base
+(alongside `github.com`), so the common case needs no widening at all. A self-hosted
+[`source-control.gitlab.host`](usage/at-cove-config.md#source-controlgitlabhost) is
+folded into `allowed_domains.kit.txt` at `install` time — derived from the config, not
+hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above. This
+only *widens* the kit-root tier; the sealed base and `nftables` are unchanged.
 
 **Applied at session start, privileged — not baked.** Per-class egress is *not* baked
 into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the
