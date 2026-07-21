@@ -269,6 +269,15 @@ collaborator by [`share-repo-dir`](usage/at-cove-config.md#collaborators), and t
 [clone-on-first-session](#workspace-and-state-volumes) still populates an isolated
 one.
 
+The Claude Code **session name** is collaborator-aware for the same reason
+(COV-75): a collaborator instance launches as `-n "<kit> <collaborator> cove"`
+(e.g. `cove planner cove`), a plain no-collaborator instance stays exactly
+`-n "<kit> cove"` — so each collaborator carries a distinct session/tmux identity
+rather than every instance of the kit sharing one. The name is derived from the
+kit name plus the resolved class, deliberately **not** from `State.Name`: the bare
+kit name in `State.Name` is the shared secret-bucket lookup key that collaborators
+intentionally share, and must not be re-keyed to make the session name unique.
+
 ## How the build context is assembled
 
 `install` writes `<kit>/.build/` — the single build path. The run commands
@@ -475,7 +484,7 @@ Backend-agnostic, in `internal/connect`:
    The primary transport writes `export NAME=…` lines over SSH **stdin** into a tmpfs file (`/dev/shm/cove-env-*`, mode 600);
    a second interactive `ssh -tt` sources it,
    removes it,
-   and `exec`s `claude` (named `-n "<kit> cove"` so a cove session is easy to tell apart from a remote-control one).
+   and `exec`s `claude` (named `-n "<kit> cove"` — or `"<kit> <collaborator> cove"` for a collaborator instance, see [Per-collaborator interactive instances](#per-collaborator-interactive-instances) — so a cove session is easy to tell apart from a remote-control one, and per-collaborator sessions don't collide on session identity).
    A `SendEnv`/`AcceptEnv` transport is the proven fallback.
    Both keep values off every command line and off disk.
 

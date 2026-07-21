@@ -49,14 +49,21 @@ func resumeLaunch(flag string) string {
 
 // nameFlag renders the claude `-n <name>` session-name argument, tagged with a
 // trailing " cove" so a cove session is easy to tell apart from a remote-control
-// one. Empty name (e.g. from a program replacement like --raw, or an unnamed kit)
-// yields no flag. The value is shell-quoted and leads with a space so it can be
-// concatenated straight onto a `claude` invocation.
-func nameFlag(name string) string {
+// one. A collaborator class (when set) is folded in as "<kit> <collaborator> cove"
+// so per-collaborator instances of the same kit don't collide on session identity
+// (COV-75); a plain (no-collaborator) session stays exactly "<kit> cove". Empty
+// name (e.g. from a program replacement like --raw, or an unnamed kit) yields no
+// flag. The value is shell-quoted and leads with a space so it can be concatenated
+// straight onto a `claude` invocation.
+func nameFlag(name, collaborator string) string {
 	if name == "" {
 		return ""
 	}
-	return " -n " + shellQuote(name+" cove")
+	label := name
+	if collaborator != "" {
+		label += " " + collaborator
+	}
+	return " -n " + shellQuote(label+" cove")
 }
 
 // launchProgram returns the remote shell tail that exec's the session program.
@@ -64,12 +71,12 @@ func nameFlag(name string) string {
 // is a whole-program replacement that never resumes and takes no session name.
 // When resume is set, claude reopens the most-recent session for the workspace
 // dir if one exists, else starts fresh — making a first-ever connect
-// deterministic. name tags the claude session (see nameFlag).
-func launchProgram(cmd string, resume bool, name string) string {
+// deterministic. name/collaborator tag the claude session (see nameFlag).
+func launchProgram(cmd string, resume bool, name, collaborator string) string {
 	if cmd != "" {
 		return "exec " + cmd
 	}
-	flag := nameFlag(name)
+	flag := nameFlag(name, collaborator)
 	if !resume {
 		return "exec claude" + flag
 	}
@@ -79,18 +86,19 @@ func launchProgram(cmd string, resume bool, name string) string {
 // remoteExec is the tail of a transport's remote command: cd into the workspace,
 // then exec the launch program. Using && (not ;) fails loudly if the workspace
 // mount is missing rather than silently dropping the session in the home dir.
-func remoteExec(cmd string, resume bool, name string) string {
-	return "cd " + workspaceDir + " && " + launchProgram(cmd, resume, name)
+func remoteExec(cmd string, resume bool, name, collaborator string) string {
+	return "cd " + workspaceDir + " && " + launchProgram(cmd, resume, name, collaborator)
 }
 
 // SendEnv forwards secrets via ssh SendEnv: values live only in the ssh child's
 // environment (never on argv, never on disk). The VM's sshd AcceptEnv allowlist
 // (shipped in the hardening layer) accepts them.
 type SendEnv struct {
-	R      runner.Runner
-	Cmd    string // remote program to exec; "" => claude
-	Resume bool   // when launching claude, resume the most-recent session if one exists
-	Name   string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	R            runner.Runner
+	Cmd          string // remote program to exec; "" => claude
+	Resume       bool   // when launching claude, resume the most-recent session if one exists
+	Name         string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	Collaborator string // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
 }
 
 func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
@@ -103,7 +111,7 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	for _, k := range names {
 		childEnv = append(childEnv, k+"="+env[k])
 	}
-	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd, s.Resume, s.Name))
+	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator))
 	return s.R.RunEnv(childEnv, "ssh", args...)
 }
 
@@ -113,10 +121,11 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 // exec's the program. The file lives only in tmpfs and is deleted before the
 // shell hands off.
 type StdinScript struct {
-	R      runner.Runner
-	Cmd    string // remote program to exec; "" => claude
-	Resume bool   // when launching claude, resume the most-recent session if one exists
-	Name   string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	R            runner.Runner
+	Cmd          string // remote program to exec; "" => claude
+	Resume       bool   // when launching claude, resume the most-recent session if one exists
+	Name         string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	Collaborator string // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
 }
 
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
@@ -131,7 +140,7 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 		return err
 	}
 	// 2) interactive: source the file, remove it, then launch the program.
-	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume, s.Name)
+	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
 }

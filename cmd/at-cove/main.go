@@ -849,7 +849,12 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	}
 	defer func() { _ = eg.ApplySessionEgress(st.Container, nil) }()
 
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: st.Name}, awake.New(), connect.Options{
+	// The session name is collaborator-aware (COV-75): "<kit> <collaborator> cove"
+	// for a collaborator instance, "<kit> cove" for a plain one — so per-collaborator
+	// instances of the same kit don't collide on tmux/session identity. It is derived
+	// from cfg.Name + the resolved class, deliberately NOT from st.Name: State.Name
+	// (the bare kit name) is the shared secret-bucket key and must not be re-keyed.
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: cfg.Name, Collaborator: class}, awake.New(), connect.Options{
 		Container:          st.Container,
 		Secrets:            specs,
 		IdentityFile:       priv,
