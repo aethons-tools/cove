@@ -646,6 +646,65 @@ func TestDestroyRemovesContainerAndState(t *testing.T) {
 	}
 }
 
+// Create records the backend's actual volume names in the state file, so a later
+// destroy removes exactly those instead of re-deriving them (COV-76).
+func TestCreateRecordsVolumesInState(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	st, err := state.Load(kitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Volumes == nil || st.Volumes.State != "box-state" || st.Volumes.Workspace != "box-workspace" {
+		t.Fatalf("create must record the volume names in state; got %+v", st.Volumes)
+	}
+}
+
+// Destroy tears down the volume names recorded in the state file, not names
+// re-derived from the container (COV-76): a state file recording custom volume
+// names removes exactly those.
+func TestDestroyRemovesRecordedVolumes(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	if err := state.Save(kitDir, state.State{
+		Name: "box", Backend: "colima", Container: "box",
+		Image: "at-cove-for-box", WorkspaceMode: "isolated",
+		Volumes: &state.Volumes{State: "recorded-state", Workspace: "recorded-workspace"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
+	}
+	vol := dockerArg0Index(f.Calls, "volume")
+	if vol == -1 {
+		t.Fatalf("destroy must remove volumes; calls=%+v", f.Calls)
+	}
+	gotRecorded, gotDerived := false, false
+	for _, a := range f.Calls[vol].Args {
+		switch a {
+		case "recorded-state", "recorded-workspace":
+			gotRecorded = true
+		case "box-state", "box-workspace":
+			gotDerived = true
+		}
+	}
+	if !gotRecorded {
+		t.Fatalf("destroy must remove the recorded volume names; calls=%+v", f.Calls[vol].Args)
+	}
+	if gotDerived {
+		t.Fatalf("destroy must not re-derive volume names from the container; calls=%+v", f.Calls[vol].Args)
+	}
+}
+
 func TestDestroyBlockedByActiveConnection(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)

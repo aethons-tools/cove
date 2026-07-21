@@ -70,6 +70,47 @@ func TestSaveLoadDelete(t *testing.T) {
 	}
 }
 
+// Volume names recorded at create time round-trip through Save/Load (COV-76),
+// and a legacy state file (older schemaVersion, no "volumes" key) still loads
+// without error — leaving Volumes absent so teardown falls back to reconstructing
+// the names from the container.
+func TestVolumesRoundTripAndLegacyFallback(t *testing.T) {
+	dir := t.TempDir()
+	want := State{
+		Name: "box", Backend: "colima", Container: "box",
+		Image: "at-cove-for-box", WorkspaceMode: "isolated",
+		Volumes: &Volumes{State: "box-state", Workspace: "box-workspace"},
+	}
+	if err := Save(dir, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SchemaVersion != schemaVersion {
+		t.Errorf("schemaVersion = %d, want %d", got.SchemaVersion, schemaVersion)
+	}
+	if got.Volumes == nil || got.Volumes.State != "box-state" || got.Volumes.Workspace != "box-workspace" {
+		t.Fatalf("volumes not round-tripped: %+v", got.Volumes)
+	}
+
+	// A legacy state file (schemaVersion 1, no "volumes" key) must load without
+	// error, with Volumes absent (nil) so teardown falls back to the historical
+	// <container>-state/-workspace reconstruction.
+	legacy := `{"schemaVersion":1,"name":"box","backend":"colima","container":"box","image":"at-cove-for-box","workspaceMode":"isolated","createdAt":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(PathFor(dir, Interactive), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := Load(dir)
+	if err != nil {
+		t.Fatalf("legacy state must load without error: %v", err)
+	}
+	if old.Volumes != nil {
+		t.Fatalf("legacy state must have no recorded volumes; got %+v", old.Volumes)
+	}
+}
+
 func TestLockSharedMultipleExclusiveBlocks(t *testing.T) {
 	dir := t.TempDir()
 	if err := Save(dir, State{Name: "x", Backend: "colima", Container: "x"}); err != nil {

@@ -77,6 +77,15 @@ type InstalledImage struct {
 	BaseDigest string // the resolved base ref/digest the image was built FROM
 }
 
+// VolumeSet records the named volumes an instance was created with, so teardown
+// removes exactly those rather than re-deriving them from the container name
+// (COV-76). State (/agent-data) is always present; Workspace is empty for a
+// shared (bind-mount) workspace, which has no volume to remove.
+type VolumeSet struct {
+	State     string // the /agent-data volume name
+	Workspace string // the workspace volume name; empty for a shared workspace
+}
+
 // Instance identifies a provisioned VM. Create returns it; the CLI records it in
 // the kit's state file, and connect/destroy/status drive the backend from it
 // (rather than from the kit config), so a live sandbox is independent of kit edits.
@@ -85,6 +94,7 @@ type Instance struct {
 	Container string // backend handle (docker container name)
 	Image     string // built image reference (tag)
 	Workspace WorkspaceMount
+	Volumes   VolumeSet // the named volumes Create made; consumed by Destroy (COV-76)
 }
 
 // Backend provisions and manages VMs of one technology. Dial/GetStatus take the

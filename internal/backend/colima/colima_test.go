@@ -89,6 +89,71 @@ func TestCreateShared(t *testing.T) {
 	}
 }
 
+// TestCreateRecordsVolumeNames: Create reports the named volumes it actually
+// created, so teardown removes exactly those rather than re-deriving them from
+// the container name (COV-76). An isolated workspace records both -state and
+// -workspace; a shared (bind-mount) workspace records only -state.
+func TestCreateRecordsVolumeNames(t *testing.T) {
+	inst, err := New(&runner.Fake{}).Create(backend.CreateContext{
+		Name: "box", Image: "at-cove-for-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Volumes.State != "box-state" || inst.Volumes.Workspace != "box-workspace" {
+		t.Fatalf("isolated create must record both volume names; got %+v", inst.Volumes)
+	}
+
+	inst, err = New(&runner.Fake{}).Create(backend.CreateContext{
+		Name: "box", Image: "at-cove-for-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Volumes.State != "box-state" || inst.Volumes.Workspace != "" {
+		t.Fatalf("shared create records only the -state volume (no workspace volume); got %+v", inst.Volumes)
+	}
+}
+
+// TestDestroyUsesRecordedVolumeNames: a real destroy removes the volume names
+// recorded on the instance, not names re-derived from the container (COV-76) —
+// the single-source-of-truth invariant. Only -state is removed when no workspace
+// volume was recorded (a shared workspace).
+func TestDestroyUsesRecordedVolumeNames(t *testing.T) {
+	f := &runner.Fake{}
+	err := New(f).Destroy(backend.Instance{
+		Container: "box",
+		Volumes:   backend.VolumeSet{State: "recorded-state", Workspace: "recorded-workspace"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vol := dockerCall(f.Calls, "volume")
+	if vol == nil || !contains(vol, "recorded-state") || !contains(vol, "recorded-workspace") {
+		t.Fatalf("destroy must remove the recorded volume names: %+v", f.Calls)
+	}
+	if contains(vol, "box-state") || contains(vol, "box-workspace") {
+		t.Fatalf("destroy must not re-derive volume names from the container: %v", vol)
+	}
+}
+
+// TestDestroyFallsBackToContainerDerivedVolumes: a legacy instance that recorded
+// no volume names (Volumes zero) falls back to the historical
+// <container>-state/-workspace reconstruction, so sandboxes created before COV-76
+// still tear down cleanly.
+func TestDestroyFallsBackToContainerDerivedVolumes(t *testing.T) {
+	f := &runner.Fake{}
+	if err := New(f).Destroy(backend.Instance{Container: "box"}, false); err != nil {
+		t.Fatal(err)
+	}
+	vol := dockerCall(f.Calls, "volume")
+	if vol == nil || !contains(vol, "box-state") || !contains(vol, "box-workspace") {
+		t.Fatalf("legacy destroy must fall back to container-derived volume names: %+v", f.Calls)
+	}
+}
+
 func TestDialParsesDockerPort(t *testing.T) {
 	// preflight `info` is a Probe (no Output consumed); `port` is the only Output.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
