@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/naming"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
@@ -46,10 +47,6 @@ func (c *Colima) preflight() error {
 	return nil
 }
 
-// image is the human-readable tag for a kit's image — readable in
-// `docker images`/`ps` for troubleshooting.
-func image(name string) string { return "at-cove-for-" + name }
-
 // dockerBuild is the single docker-build site (COV-38): it resolves + gates the
 // base, then builds buildDir FROM it and tags the result. Only Install routes its
 // build through here, so `docker build` appears in exactly one place and the gate
@@ -73,7 +70,7 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resol
 // the only build path (COV-38). Run commands consume the tagged image; the base
 // is resolved and the provenance gate runs exactly here.
 func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, error) {
-	img := image(ctx.Kit)
+	img := naming.Image(ctx.Kit)
 	base, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base)
 	if err != nil {
 		return backend.InstalledImage{}, err
@@ -89,14 +86,15 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		return backend.Instance{}, err
 	}
 	img := ctx.Image
-	// Name the volumes once here — the single source of truth. They flow out on
-	// the returned Instance (into state), and Destroy consumes them from there
-	// rather than re-deriving the names (COV-76). A shared workspace is a host
-	// bind-mount, so it records no workspace volume.
-	vols := backend.VolumeSet{State: ctx.Name + "-state"}
+	// Name the volumes once here — via the naming helper, the single source of
+	// the name format (COV-77) — and record them once on the returned Instance
+	// (into state), so Destroy consumes them from there rather than re-deriving
+	// (COV-76). ctx.Name is the instance's atcove-{kit}-{class} base. A shared
+	// workspace is a host bind-mount, so it records no workspace volume.
+	vols := backend.VolumeSet{State: naming.AgentDataVolume(ctx.Name)}
 	ws := ctx.Workspace.HostPath + ":/home/agent/workspace"
 	if ctx.Workspace.Mode != backend.Shared {
-		vols.Workspace = ctx.Name + "-workspace"
+		vols.Workspace = naming.WorkspaceVolume(ctx.Name)
 		ws = vols.Workspace + ":/home/agent/workspace"
 	}
 	if err := c.r.Run("docker", dargs("run", "-d",
@@ -164,11 +162,13 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	}
 	// A real destroy purges the instance's named volumes now that the container
 	// (their only user) is gone. The names come from the recorded Instance
-	// (COV-76) — Create named them, so there is no second derivation site. A
-	// legacy instance (state written before volumes were recorded) has no State
-	// name; fall back to the historical <container>-state/-workspace shape so old
-	// sandboxes still tear down. Best-effort: a missing volume (e.g. a shared
-	// workspace records no workspace volume) must not fail the teardown.
+	// (COV-76) — Create named them (via naming), so there is no second derivation
+	// site. A legacy instance (state written before volumes were recorded) has no
+	// State name; fall back to the historical <container>-state/-workspace shape
+	// so pre-rename sandboxes still tear down under their own (old) names — this
+	// is deliberately NOT the naming helper's -agent-data, which would miss the
+	// old -state volume. Best-effort: a missing volume (e.g. a shared workspace
+	// records no workspace volume) must not fail the teardown.
 	if !keepVolumes {
 		vols := []string{inst.Volumes.State, inst.Volumes.Workspace}
 		if inst.Volumes.State == "" {

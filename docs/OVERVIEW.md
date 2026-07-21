@@ -264,9 +264,13 @@ via the optional collaborator positional:
   the exact single-VM behavior from before this change, unchanged.
 
 The resolved class keys the instance's identity (`<class>` → state file
-`<class>.json`, container `<kit>-<class>`, volumes `<kit>-<class>-workspace` and
-`<kit>-<class>-state`; the plain instance keeps `state.json` / `<kit>` / today's
-volume names — see [Workspace and state volumes](#workspace-and-state-volumes)).
+`<class>.json`, container `atcove-<kit>-<class>`, volumes
+`atcove-<kit>-<class>-workspace` and `atcove-<kit>-<class>-agent-data`; the plain
+instance uses `state.json` / container `atcove-<kit>` / volumes `atcove-<kit>-*`
+— see [Workspace and state volumes](#workspace-and-state-volumes)).
+Every runtime docker name is derived by one helper (`internal/naming`) under the
+consistent `atcove-{kit}-{class}-{type}` scheme; the state-file key and the
+session label are not docker names and keep the bare kit name (COV-77).
 Two verbs add multi-VM ergonomics on top of that positional: `status` with no
 positional **lists every instance** of the kit (rather than resolving a default),
 and `destroy --all` **removes every instance**. The saved OAuth login still
@@ -437,17 +441,26 @@ session starts in an empty workspace (the prior behavior); if it *is* configured
 but the clone **fails**, session start is a **hard error** (fail closed). A
 `share-repo-dir` shared workspace is never cloned — the host checkout is shared live.
 
-A second volume, **`<name>-state`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
+A second volume, **`<instance>-agent-data`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates,
-and is seeded once (guarded by a `.seeded` marker).
+and is seeded once (guarded by a `.seeded` marker). The suffix matches the mount
+(`-agent-data`, not the historical `-state`).
 
-**Volume naming is per instance.** Here `<name>` is the *instance* name, not
-always the bare kit name: a collaborator instance keys its volumes
-`<kit>-<class>-workspace` / `<kit>-<class>-state` (container `<kit>-<class>`),
-while a no-collaborator kit keeps `<kit>-workspace` / `<kit>-state` (container
-`<kit>`) — see [Per-collaborator instances](#per-collaborator-interactive-instances).
+**Every runtime docker name comes from one helper (`internal/naming`, COV-77),**
+under the consistent `atcove-{kit}-{class}-{type}` scheme so an at-cove object
+never collides with an unrelated docker object:
+
+| Resource | Name | Notes |
+| --- | --- | --- |
+| Image | `atcove-{kit}` | kit-scoped — **no** class; all collaborators share one image |
+| Container | `atcove-{kit}-{class}` | plain (no-collaborator) instance: `atcove-{kit}` |
+| Workspace volume | `atcove-{kit}-{class}-workspace` | omitted for a shared (bind-mount) workspace |
+| `/agent-data` volume | `atcove-{kit}-{class}-agent-data` | |
+| Ephemeral worker | `atcove-work-{kit}-{pid}-{nanotime}` | pid+nanotime keep concurrent dispatches distinct |
+
 The saved login still crosses a kit's VMs via the host `credentials.json`, so a
-per-class `-state` volume is not a per-class re-login.
+per-class `-agent-data` volume is not a per-class re-login. The state-file key and
+the interactive session label are **not** docker names and keep the bare kit name.
 
 **The create path names the volumes once; state records them; destroy reads them
 back (COV-76).** `create` records the actual volume names in the state file's
@@ -457,7 +470,18 @@ site, so a future change to the name shape can't leak or wrong-delete volumes by
 touching only one end. A **legacy** state file (schema version 1, written before
 this field existed) carries no `volumes` object; teardown falls back to the
 historical `<container>-state` / `<container>-workspace` reconstruction, so old
-sandboxes still tear down cleanly.
+sandboxes still tear down cleanly under their own (pre-rename) names.
+
+> **⚠️ Breaking: the resource rename (COV-77) orphans existing instances.** Every
+> runtime name gained the `atcove-` prefix and the `/agent-data` volume's suffix
+> changed `-state` → `-agent-data`, so any VM/volumes/image created under the old
+> scheme (`<kit>` / `at-cove-for-<kit>` / `<kit>-state`) are **orphaned** — nothing
+> renames them in place (deliberately no live-resource migration). An instance
+> predating this change must be **`destroy`ed under its old names, then `recreate`d**
+> (a plain `recreate` across the rename would re-run under the new names but mount
+> fresh empty volumes, losing the old `/agent-data`). *Deferred (out of scope,
+> tracked separately):* referring to images by sha vs tag, and whether volumes need
+> addressable IDs.
 
 > **No migration when adopting collaborators.** A kit that previously ran as a
 > plain single VM recorded its state in `state.json` (container = the bare kit
@@ -615,6 +639,7 @@ internal/kit/                 locate kit (cwd walk-up); load + validate config.y
 internal/assemble/            layered .build assembly from embed.FS; key injection
 internal/backend/             Backend interface + registry
 internal/backend/colima/      Colima impl: Install (build+gate+tag) / run / inspect / rm
+internal/naming/              pure derivation of every runtime docker resource name (image/container/volumes/worker) — the sole `atcove-{kit}-{class}-{type}` source
 internal/connect/             backend-agnostic: resolve → dial → TOFU → launch
 internal/secret/              run each host command, capture value
 internal/sshargs/             pure argv builders for the ssh client

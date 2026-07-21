@@ -65,7 +65,7 @@ type CreateContext struct {
 // kit's hardened image (COV-38). It is the one place a base is resolved and the
 // provenance gate runs.
 type InstallContext struct {
-	Kit      string   // identity for the built image tag (at-cove-for-<Kit>)
+	Kit      string   // identity for the built image tag (naming.Image → atcove-<Kit>)
 	BuildDir string   // the assembled .build context to build
 	Base     BaseSpec // base resolution + provenance gate inputs (owns AllowUnverified)
 }
@@ -73,7 +73,7 @@ type InstallContext struct {
 // InstalledImage is Backend.Install's result: the built, tagged image and the
 // base ref it resolved to. The CLI freezes both into install.json.
 type InstalledImage struct {
-	Ref        string // the built, tagged image (the stable at-cove-for-<kit> identity)
+	Ref        string // the built, tagged image (the stable atcove-<kit> identity)
 	BaseDigest string // the resolved base ref/digest the image was built FROM
 }
 

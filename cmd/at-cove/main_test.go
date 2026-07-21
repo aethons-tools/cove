@@ -15,6 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
+	"github.com/aethons-tools/cove/internal/naming"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/state"
 	"github.com/aethons-tools/cove/internal/usersecret"
@@ -270,7 +271,7 @@ func writeInstall(t *testing.T, kitDir string) install.Manifest {
 		t.Fatalf("writeInstall: currency inputs: %v", err)
 	}
 	m := install.Compile(cfg, install.ResolvedBuild{
-		Image:        "at-cove-for-" + cfg.Name,
+		Image:        naming.Image(cfg.Name),
 		BaseRef:      in.BaseRef,
 		BaseDigest:   "sha256:test",
 		CurrencyHash: install.CurrencyHash(in),
@@ -288,7 +289,7 @@ func writeState(t *testing.T, kitDir, backendName, container string, secrets ...
 	t.Helper()
 	if err := state.Save(kitDir, state.State{
 		Name: container, Backend: backendName, Container: container,
-		Image: "at-cove-for-" + container, WorkspaceMode: "isolated", Secrets: secrets,
+		Image: naming.Image(container), WorkspaceMode: "isolated", Secrets: secrets,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +302,7 @@ func writeStateFor(t *testing.T, kitDir string, inst state.Instance, kitName, co
 	t.Helper()
 	if err := state.SaveFor(kitDir, inst, state.State{
 		Name: kitName, Backend: "colima", Container: container,
-		Image: "at-cove-for-" + container, WorkspaceMode: "isolated", Secrets: secrets,
+		Image: naming.Image(kitName), WorkspaceMode: "isolated", Secrets: secrets,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +422,7 @@ func TestInstallBuildsGatesTagsAndWritesManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install.json not written: %v", err)
 	}
-	if m.Image != "at-cove-for-box" || m.Name != "box" {
+	if m.Image != "atcove-box" || m.Name != "box" {
 		t.Fatalf("manifest = %+v", m)
 	}
 	if m.CurrencyHash == "" || m.BaseRef == "" || m.BaseDigest == "" {
@@ -532,7 +533,7 @@ func TestCreateWritesStateAndRejectsSecond(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state not written: %v", err)
 	}
-	if st.Container != "box" || st.Image != "at-cove-for-box" || st.Backend != "colima" {
+	if st.Container != "atcove-box" || st.Image != "atcove-box" || st.Backend != "colima" {
 		t.Fatalf("state = %+v", st)
 	}
 	var o2, e2 bytes.Buffer
@@ -661,7 +662,7 @@ func TestCreateRecordsVolumesInState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Volumes == nil || st.Volumes.State != "box-state" || st.Volumes.Workspace != "box-workspace" {
+	if st.Volumes == nil || st.Volumes.State != "atcove-box-agent-data" || st.Volumes.Workspace != "atcove-box-workspace" {
 		t.Fatalf("create must record the volume names in state; got %+v", st.Volumes)
 	}
 }
@@ -674,7 +675,7 @@ func TestDestroyRemovesRecordedVolumes(t *testing.T) {
 	kitDir := writeKit(t, dir)
 	if err := state.Save(kitDir, state.State{
 		Name: "box", Backend: "colima", Container: "box",
-		Image: "at-cove-for-box", WorkspaceMode: "isolated",
+		Image: "atcove-box", WorkspaceMode: "isolated",
 		Volumes: &state.Volumes{State: "recorded-state", Workspace: "recorded-workspace"},
 	}); err != nil {
 		t.Fatal(err)
@@ -742,12 +743,12 @@ func TestUninstallRemovesImageAndManifest(t *testing.T) {
 	}
 	gotImage := false
 	for _, a := range f.Calls[rmi].Args {
-		if a == "at-cove-for-box" {
+		if a == "atcove-box" {
 			gotImage = true
 		}
 	}
 	if !gotImage {
-		t.Fatalf("uninstall must rmi at-cove-for-box; calls=%+v", f.Calls[rmi].Args)
+		t.Fatalf("uninstall must rmi atcove-box; calls=%+v", f.Calls[rmi].Args)
 	}
 	if install.Exists(kitDir) {
 		t.Fatal("uninstall must delete install.json")
@@ -830,7 +831,7 @@ func TestDryRunUninstall(t *testing.T) {
 	if !install.Exists(kitDir) {
 		t.Fatal("dry-run uninstall must not delete install.json")
 	}
-	if !strings.Contains(out.String(), "would remove") || !strings.Contains(out.String(), "at-cove-for-box") {
+	if !strings.Contains(out.String(), "would remove") || !strings.Contains(out.String(), "atcove-box") {
 		t.Fatalf("dry-run uninstall should describe the image + manifest it would remove; stdout=%q", out.String())
 	}
 }
@@ -937,7 +938,7 @@ func writeSharedState(t *testing.T, kitDir, container, hostPath string) {
 	t.Helper()
 	if err := state.Save(kitDir, state.State{
 		Name: container, Backend: "colima", Container: container,
-		Image: "at-cove-for-" + container, WorkspaceMode: "shared", WorkspaceHostPath: hostPath,
+		Image: naming.Image(container), WorkspaceMode: "shared", WorkspaceHostPath: hostPath,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1027,7 +1028,7 @@ func TestCreateShareRepoDirSharesKitRepo(t *testing.T) {
 		t.Fatalf("share-repo-dir create must bind-mount the kit repo dir; want %q in run args %+v", want, f.Calls)
 	}
 	// It must NOT also mount an isolated workspace volume for this instance.
-	if dockerRunHasArg(t, f.Calls, "box-steward-workspace:/home/agent/workspace") {
+	if dockerRunHasArg(t, f.Calls, "atcove-box-steward-workspace:/home/agent/workspace") {
 		t.Fatalf("share-repo-dir create must not use an isolated workspace volume; calls=%+v", f.Calls)
 	}
 	st, err := state.LoadFor(kitDir, state.Instance("steward"))
@@ -1050,7 +1051,7 @@ func TestCreateWithoutShareRepoDirIsIsolated(t *testing.T) {
 	if code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
-	if !dockerRunHasArg(t, f.Calls, "box-steward-workspace:/home/agent/workspace") {
+	if !dockerRunHasArg(t, f.Calls, "atcove-box-steward-workspace:/home/agent/workspace") {
 		t.Fatalf("a non-share-repo-dir collaborator must use an isolated volume; calls=%+v", f.Calls)
 	}
 	if dockerRunHasArg(t, f.Calls, dir+":/home/agent/workspace") {
@@ -2165,8 +2166,8 @@ func writeShareRepoKit(t *testing.T, dir, class string) string {
 }
 
 // TestCreateKeysInstanceByCollaborator: `create <class>` runs a container and
-// volumes keyed by <kit>-<class>, and records them in <class>.json — while the
-// interactive state.json stays untouched.
+// volumes keyed by atcove-<kit>-<class>, and records them in <class>.json —
+// while the interactive state.json stays untouched.
 func TestCreateKeysInstanceByCollaborator(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeCollabKit(t, dir, "steward", "planner")
@@ -2176,7 +2177,7 @@ func TestCreateKeysInstanceByCollaborator(t *testing.T) {
 	if code := run([]string{"create", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
-	for _, want := range []string{"box-steward", "box-steward-state:/agent-data", "box-steward-workspace:/home/agent/workspace"} {
+	for _, want := range []string{"atcove-box-steward", "atcove-box-steward-agent-data:/agent-data", "atcove-box-steward-workspace:/home/agent/workspace"} {
 		if !dockerRunHasArg(t, f.Calls, want) {
 			t.Fatalf("create must key the container/volumes by class; missing %q in run args %+v", want, f.Calls)
 		}
@@ -2185,8 +2186,8 @@ func TestCreateKeysInstanceByCollaborator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("class-keyed state not written: %v", err)
 	}
-	if st.Container != "box-steward" || st.Name != "box" {
-		t.Fatalf("state = %+v (want container box-steward, kit name box)", st)
+	if st.Container != "atcove-box-steward" || st.Name != "box" {
+		t.Fatalf("state = %+v (want container atcove-box-steward, kit name box)", st)
 	}
 	if state.ExistsFor(kitDir, state.Interactive) {
 		t.Fatal("a collaborator create must not write the interactive state.json")
@@ -2237,7 +2238,7 @@ func TestCreateUnknownCollaboratorErrors(t *testing.T) {
 
 // TestCreateNoCollaboratorKeepsInteractiveInstance: a kit that defines no
 // collaborators still uses the plain Interactive instance (state.json, container
-// <kit>, today's volume names) — the plain path is preserved exactly.
+// atcove-<kit>, atcove-<kit> volume names) — the plain path is preserved exactly.
 func TestCreateNoCollaboratorKeepsInteractiveInstance(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
@@ -2247,9 +2248,9 @@ func TestCreateNoCollaboratorKeepsInteractiveInstance(t *testing.T) {
 	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
 	}
-	for _, want := range []string{"box", "box-state:/agent-data", "box-workspace:/home/agent/workspace"} {
+	for _, want := range []string{"atcove-box", "atcove-box-agent-data:/agent-data", "atcove-box-workspace:/home/agent/workspace"} {
 		if !dockerRunHasArg(t, f.Calls, want) {
-			t.Fatalf("plain create must keep today's names; missing %q in run args", want)
+			t.Fatalf("plain create must use the atcove-<kit> names; missing %q in run args", want)
 		}
 	}
 	if !state.ExistsFor(kitDir, state.Interactive) {
@@ -2275,8 +2276,8 @@ func TestCreateEachCollaboratorIsIndependentVM(t *testing.T) {
 		if err != nil {
 			t.Fatalf("instance %s state missing: %v", c, err)
 		}
-		if st.Container != "box-"+c {
-			t.Fatalf("instance %s container = %q, want box-%s", c, st.Container, c)
+		if st.Container != "atcove-box-"+c {
+			t.Fatalf("instance %s container = %q, want atcove-box-%s", c, st.Container, c)
 		}
 	}
 	// Creating steward again is refused (that instance exists), independently of planner.
@@ -2293,7 +2294,7 @@ func TestCreateEachCollaboratorIsIndependentVM(t *testing.T) {
 func TestRecreateKeyedByCollaborator(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeCollabKit(t, dir, "steward", "planner")
-	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward")
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "atcove-box-steward")
 	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -2301,10 +2302,10 @@ func TestRecreateKeyedByCollaborator(t *testing.T) {
 		t.Fatalf("recreate exit=%d stderr=%s", code, errOut.String())
 	}
 	rmIdx := dockerArg0Index(f.Calls, "rm")
-	if rmIdx == -1 || !contains(f.Calls[rmIdx].Args, "box-steward") {
+	if rmIdx == -1 || !contains(f.Calls[rmIdx].Args, "atcove-box-steward") {
 		t.Fatalf("recreate must rm the class-keyed container; calls=%+v", f.Calls)
 	}
-	if !dockerRunHasArg(t, f.Calls, "box-steward") {
+	if !dockerRunHasArg(t, f.Calls, "atcove-box-steward") {
 		t.Fatalf("recreate must re-run the class-keyed container; calls=%+v", f.Calls)
 	}
 	// Volumes kept (saved login survives).
