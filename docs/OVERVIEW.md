@@ -241,6 +241,14 @@ and `destroy` takes an *exclusive* lock on the instance it removes —
 so a sandbox can't be torn down underneath a live connection, and one
 collaborator's session never blocks another's.
 
+The state file records the backend handles (container, image), the workspace mount,
+the demanded secret **names** (never values), and the
+named **volumes** the backend created (so teardown removes exactly those rather than
+re-deriving them — see [Workspace and state volumes](#workspace-and-state-volumes)).
+Its `schemaVersion` is stamped on every write; older files load without error
+(schema version 2 added the `volumes` object, and destroy falls back for files that
+predate it).
+
 ### Per-collaborator interactive instances
 
 When a kit defines `collaborators:`, each collaborator class is its **own
@@ -440,6 +448,16 @@ while a no-collaborator kit keeps `<kit>-workspace` / `<kit>-state` (container
 `<kit>`) — see [Per-collaborator instances](#per-collaborator-interactive-instances).
 The saved login still crosses a kit's VMs via the host `credentials.json`, so a
 per-class `-state` volume is not a per-class re-login.
+
+**The create path names the volumes once; state records them; destroy reads them
+back (COV-76).** `create` records the actual volume names in the state file's
+`volumes` object (`state`, and `workspace` — omitted for a shared workspace, which
+has no volume), and `destroy` removes exactly those. There is no second derivation
+site, so a future change to the name shape can't leak or wrong-delete volumes by
+touching only one end. A **legacy** state file (schema version 1, written before
+this field existed) carries no `volumes` object; teardown falls back to the
+historical `<container>-state` / `<container>-workspace` reconstruction, so old
+sandboxes still tear down cleanly.
 
 > **No migration when adopting collaborators.** A kit that previously ran as a
 > plain single VM recorded its state in `state.json` (container = the bare kit

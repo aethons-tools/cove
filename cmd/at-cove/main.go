@@ -677,6 +677,9 @@ func buildState(cfg kit.Config, inst backend.Instance) state.State {
 		st.WorkspaceMode = "shared"
 		st.WorkspaceHostPath = inst.Workspace.HostPath
 	}
+	// Record the volume names the backend actually used, so destroy removes
+	// exactly those rather than re-deriving them from Container (COV-76).
+	st.Volumes = &state.Volumes{State: inst.Volumes.State, Workspace: inst.Volumes.Workspace}
 	for name := range cfg.Secrets {
 		st.Secrets = append(st.Secrets, state.Secret{Name: name})
 	}
@@ -694,7 +697,14 @@ func instanceFromState(st state.State) backend.Instance {
 	if st.WorkspaceMode == "shared" {
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
 	}
-	return backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, Workspace: ws}
+	inst := backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, Workspace: ws}
+	// A legacy state file (schemaVersion 1) has no recorded volumes; leave
+	// Instance.Volumes zero so Destroy falls back to the container-derived names
+	// (COV-76).
+	if st.Volumes != nil {
+		inst.Volumes = backend.VolumeSet{State: st.Volumes.State, Workspace: st.Volumes.Workspace}
+	}
+	return inst
 }
 
 // doChat launches an interactive collaborator session in the sandbox, driven
