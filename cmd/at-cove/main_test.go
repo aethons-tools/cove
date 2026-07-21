@@ -1305,6 +1305,68 @@ func TestChatPlainSessionAppliesRootOnlyEgress(t *testing.T) {
 	}
 }
 
+// launchRemote returns the remote command string of the interactive launch ssh
+// call (the last arg of the `-tt` invocation), where the claude `-n <name>`
+// session-name flag lives.
+func launchRemote(t *testing.T, calls []runner.Call) string {
+	t.Helper()
+	li := launchIndex(calls)
+	if li < 0 {
+		t.Fatalf("expected an interactive launch ssh call; calls=%+v", calls)
+	}
+	args := calls[li].Args
+	if len(args) == 0 {
+		t.Fatalf("launch ssh call has no args; call=%+v", calls[li])
+	}
+	return args[len(args)-1]
+}
+
+// TestChatCollaboratorSessionName asserts a collaborator session launches claude
+// under "{kit} {collaborator} cove" so per-collaborator instances don't collide
+// on session identity (COV-75).
+func TestChatCollaboratorSessionName(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\ncollaborators:\n  planner:\n    prompt: \"plan it\"\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	writeStateFor(t, kitDir, state.Instance("planner"), "box", "box-planner")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"chat", "planner", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box planner cove'`) {
+		t.Fatalf("collaborator session should be named '<kit> <collaborator> cove': %q", remote)
+	}
+}
+
+// TestChatPlainSessionName asserts a no-collaborator session keeps the "{kit} cove"
+// label exactly — no stray collaborator segment or double spaces (COV-75).
+func TestChatPlainSessionName(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir) // no collaborators -> plain session
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"chat", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box cove'`) {
+		t.Fatalf("plain session should be named exactly '<kit> cove': %q", remote)
+	}
+}
+
 func TestChatMalformedSecretsFileAborts(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
