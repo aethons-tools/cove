@@ -89,9 +89,15 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		return backend.Instance{}, err
 	}
 	img := ctx.Image
-	ws := ctx.Name + "-workspace:/home/agent/workspace"
-	if ctx.Workspace.Mode == backend.Shared {
-		ws = ctx.Workspace.HostPath + ":/home/agent/workspace"
+	// Name the volumes once here — the single source of truth. They flow out on
+	// the returned Instance (into state), and Destroy consumes them from there
+	// rather than re-deriving the names (COV-76). A shared workspace is a host
+	// bind-mount, so it records no workspace volume.
+	vols := backend.VolumeSet{State: ctx.Name + "-state"}
+	ws := ctx.Workspace.HostPath + ":/home/agent/workspace"
+	if ctx.Workspace.Mode != backend.Shared {
+		vols.Workspace = ctx.Name + "-workspace"
+		ws = vols.Workspace + ":/home/agent/workspace"
 	}
 	if err := c.r.Run("docker", dargs("run", "-d",
 		"--name", ctx.Name,
@@ -99,7 +105,7 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		"--cap-add=NET_ADMIN",
 		"--dns", "1.1.1.1",
 		"-p", "127.0.0.1::2222",
-		"-v", ctx.Name+"-state:/agent-data",
+		"-v", vols.State+":/agent-data",
 		"-v", ws,
 		img,
 	)...); err != nil {
@@ -110,7 +116,20 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		Container: ctx.Name,
 		Image:     img,
 		Workspace: ctx.Workspace,
+		Volumes:   vols,
 	}, nil
+}
+
+// nonEmpty returns the non-empty entries of ss, preserving order — used to drop
+// an absent workspace volume from the `docker volume rm` argv.
+func nonEmpty(ss []string) []string {
+	out := ss[:0:0]
+	for _, s := range ss {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
@@ -144,10 +163,19 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 		return err
 	}
 	// A real destroy purges the instance's named volumes now that the container
-	// (their only user) is gone. Best-effort: `-workspace` is absent for a shared
-	// (bind-mount) workspace, so a missing volume must not fail the teardown.
+	// (their only user) is gone. The names come from the recorded Instance
+	// (COV-76) — Create named them, so there is no second derivation site. A
+	// legacy instance (state written before volumes were recorded) has no State
+	// name; fall back to the historical <container>-state/-workspace shape so old
+	// sandboxes still tear down. Best-effort: a missing volume (e.g. a shared
+	// workspace records no workspace volume) must not fail the teardown.
 	if !keepVolumes {
-		_ = c.r.Run("docker", dargs("volume", "rm", "-f", inst.Container+"-state", inst.Container+"-workspace")...)
+		vols := []string{inst.Volumes.State, inst.Volumes.Workspace}
+		if inst.Volumes.State == "" {
+			vols = []string{inst.Container + "-state", inst.Container + "-workspace"}
+		}
+		args := append([]string{"volume", "rm", "-f"}, nonEmpty(vols)...)
+		_ = c.r.Run("docker", dargs(args...)...)
 	}
 	// The image is deliberately NOT removed: it is an `install` artifact (COV-38),
 	// not a per-create build. create/recreate/work consume it without rebuilding,

@@ -18,7 +18,10 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
-const schemaVersion = 1
+// schemaVersion 2 added the Volumes sub-object (COV-76). Older (version 1) files
+// carry no "volumes" key; they load without error, leaving Volumes nil so
+// teardown falls back to reconstructing the names from the container.
+const schemaVersion = 2
 
 // Secret is a snapshot of a kit secret spec (name + resolver argv) taken at
 // create time. Secret VALUES are never stored — only the command that produces
@@ -26,6 +29,18 @@ const schemaVersion = 1
 type Secret struct {
 	Name    string   `json:"name"`
 	Command []string `json:"command"`
+}
+
+// Volumes records the named volumes the backend created for an instance, so
+// teardown removes exactly those rather than re-deriving them from the container
+// name (COV-76). The create path names the volumes, state records them here, and
+// destroy reads them back — one source of truth. State (/agent-data) is always
+// present; Workspace is empty for a shared (bind-mount) workspace. Absent in
+// schemaVersion 1 files, which fall back to <Container>-state/-workspace at
+// teardown.
+type Volumes struct {
+	State     string `json:"state"`
+	Workspace string `json:"workspace,omitempty"`
 }
 
 // State describes one created cove instance.
@@ -37,6 +52,7 @@ type State struct {
 	Image             string   `json:"image"`
 	WorkspaceMode     string   `json:"workspaceMode"`               // "isolated" | "shared"
 	WorkspaceHostPath string   `json:"workspaceHostPath,omitempty"` // set iff shared
+	Volumes           *Volumes `json:"volumes,omitempty"`           // named volumes created (COV-76); nil in legacy files
 	Secrets           []Secret `json:"secrets,omitempty"`
 	CreatedAt         string   `json:"createdAt"`
 }
