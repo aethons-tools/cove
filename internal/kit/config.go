@@ -594,6 +594,39 @@ func (c Config) VertexEnv() map[string]string {
 	return env
 }
 
+// ProviderDomains returns the additive egress domains a model provider needs,
+// derived from the provider config, or nil when the kit targets no provider.
+// For Vertex: the aiplatform inference host (region-templated), plus the GCP
+// auth endpoints google-auth uses to refresh ADC access tokens in-VM.
+func ProviderDomains(c Config) []string {
+	v, ok := c.Vertex()
+	if !ok {
+		return nil
+	}
+	domains := []string{
+		"aiplatform.googleapis.com", // default / global inference host
+		"oauth2.googleapis.com",     // authorized_user ADC token refresh
+		"sts.googleapis.com",        // WIF / external_account
+		"iamcredentials.googleapis.com",
+	}
+	switch region := strings.TrimSpace(v.Env["CLOUD_ML_REGION"]); region {
+	case "", "global":
+		// aiplatform.googleapis.com already covers the global endpoint.
+	case "us", "eu":
+		domains = append(domains, "aiplatform."+region+".rep.googleapis.com")
+	default:
+		domains = append(domains, region+"-aiplatform.googleapis.com")
+	}
+	return domains
+}
+
+// RootDomains is the kit's effective baked egress allow-list: the kit's own
+// image.allowed-domains unioned with any provider-derived domains. Assemble bakes
+// this into allowed_domains.kit.txt.
+func RootDomains(c Config) []string {
+	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c))
+}
+
 // validateModelProvider enforces the provider union, required keys, and the
 // hardening denylist.
 func validateModelProvider(cfg Config) error {

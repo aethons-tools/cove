@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // fakeClaude stands in for the real `claude` CLI: it simulates
@@ -96,7 +94,7 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 // declaratively backed and the reconciler will not prune it.
 func TestManagedSettingsDeclaresMarketplaceForEnabledPlugins(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), kit.ImageConfig{}); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil); err != nil {
 		t.Fatal(err)
 	}
 	raw := read(t, filepath.Join(buildDir, "image-files/etc/claude-code/managed-settings.json"))

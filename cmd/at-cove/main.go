@@ -374,7 +374,7 @@ func assembleContext(kitDir string, r runner.Runner) error {
 		return err
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
-	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, cfg.Image)
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, kit.RootDomains(cfg))
 }
 
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build

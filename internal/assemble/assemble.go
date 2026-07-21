@@ -13,7 +13,7 @@ import (
 // Assemble builds the context in buildDir: the sealed hardening layer, the
 // injected at-task, the kit's egress allow-list, and the managed public key. The
 // kit's image/ is the Dockerfile build context (resolved elsewhere), not overlaid.
-func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
+func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string) error {
 	// Any path that assembles a build context (build/create/work) keeps the kit's
 	// .gitignore current, so generated .build/.state artifacts never leak into git.
 	if err := kit.EnsureGitignore(kitDir); err != nil {
@@ -38,7 +38,7 @@ func Assemble(kitDir, buildDir string, pub []byte, img kit.ImageConfig) error {
 		return err
 	}
 
-	if err := writeAllowedDomains(buildDir, img.AllowedDomains); err != nil {
+	if err := writeAllowedDomains(buildDir, rootDomains); err != nil {
 		return err
 	}
 

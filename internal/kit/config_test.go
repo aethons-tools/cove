@@ -698,3 +698,43 @@ func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
 		t.Fatalf("Vertex() ok = true for a non-vertex kit")
 	}
 }
+
+func TestProviderDomains_Vertex(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+image:
+  allowed-domains: [example.com]
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	root := RootDomains(cfg)
+	joined := strings.Join(root, ",")
+	for _, want := range []string{
+		"example.com",                        // kit root preserved
+		"aiplatform.googleapis.com",          // base vertex host
+		"us-east5-aiplatform.googleapis.com", // regional host
+		"oauth2.googleapis.com",              // ADC refresh
+		"sts.googleapis.com",
+		"iamcredentials.googleapis.com",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("RootDomains missing %q; got %v", want, root)
+		}
+	}
+}
+
+func TestProviderDomains_NilWhenNoProvider(t *testing.T) {
+	cfg, _ := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [only.example]\n"))
+	if ProviderDomains(cfg) != nil {
+		t.Fatalf("ProviderDomains should be nil for a non-vertex kit")
+	}
+	if got := RootDomains(cfg); len(got) != 1 || got[0] != "only.example" {
+		t.Fatalf("RootDomains = %v, want [only.example]", got)
+	}
+}
