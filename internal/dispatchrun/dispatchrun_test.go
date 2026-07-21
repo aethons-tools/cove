@@ -24,6 +24,7 @@ type fakeOps struct {
 	scavenged bool
 	ran       bool
 	ranImage  string // the image RunEphemeral was asked to run
+	ranDigest string // the built-image digest RunEphemeral was asked to pin
 	removed   bool
 
 	r *runner.Fake // when set, ApplySessionEgress inspects its call log for ordering
@@ -35,10 +36,11 @@ type fakeOps struct {
 	agentRanBeforeEg  bool     // the agent step ("claude -p") had run when egress was applied
 }
 
-func (f *fakeOps) RunEphemeral(image, name, _ string) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, digest, name, _ string) (backend.Instance, error) {
 	f.ran = true
 	f.ranImage = image
-	return backend.Instance{Container: name, Image: image}, nil
+	f.ranDigest = digest
+	return backend.Instance{Container: name, Image: image, ImageDigest: digest}, nil
 }
 func (f *fakeOps) Dial(string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
@@ -78,7 +80,7 @@ func TestDispatchRunsBracket(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		Image: "at-cove-for-w", Name: "disp-1",
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -119,6 +121,11 @@ func TestDispatchRunsBracket(t *testing.T) {
 	if !ops.ran || ops.ranImage != "at-cove-for-w" {
 		t.Fatalf("RunEphemeral must run the installed image; ran=%v image=%q", ops.ran, ops.ranImage)
 	}
+	// The run is pinned to the built-image digest recorded in install.json (COV-78),
+	// not just the mutable tag.
+	if ops.ranDigest != "sha256:cafe" {
+		t.Fatalf("RunEphemeral must pin the manifest's built-image digest; got %q", ops.ranDigest)
+	}
 	if strings.Contains(calls, "docker build") || strings.Contains(calls, "build --build-arg") {
 		t.Fatalf("dispatch must not build on the run path:\n%s", calls)
 	}
@@ -147,7 +154,7 @@ func TestDispatchAppliesSessionEgressBeforeAgent(t *testing.T) {
 				"deploy":   {Prompt: "ship it", AllowedDomains: []string{"registry.example.com"}},
 			},
 		},
-		Image: "at-cove-for-w", Name: "disp-1",
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -192,7 +199,7 @@ func TestDispatchAppliesEmptyEgressForClasslessDomains(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"docs": {Prompt: "write docs"}},
 		},
-		Image: "at-cove-for-w", Name: "disp-1",
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -545,7 +552,7 @@ func TestDispatchPrepareFailureAborts(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		Image: "at-cove-for-w", Name: "disp-1",
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
@@ -578,7 +585,7 @@ func TestDispatchDoesNotSeedCredentialsWhenEmpty(t *testing.T) {
 			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
 			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
 		},
-		Image: "at-cove-for-w", Name: "disp-1",
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
 		InputPath: in, OutputPath: out,
 		CredentialsFile: "", // no OAuth creds on the work path
 		IdentityFile:    "id", KnownHostsDir: t.TempDir(),

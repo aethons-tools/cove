@@ -20,7 +20,10 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
-const schemaVersion = 1
+// schemaVersion 2 added ImageDigest — the built image's own sha256, pinned at run
+// time (COV-78). Older (version 1) manifests carry no "imageDigest" key; they load
+// without error, leaving it empty so runs fall back to the mutable Image tag.
+const schemaVersion = 2
 
 // ResolvedBuild is install's build output that Compile freezes into a manifest:
 // the tagged image ref, the resolved base (ref + digest), the currency hash over
@@ -29,6 +32,7 @@ const schemaVersion = 1
 // plain data rather than performing the build itself.
 type ResolvedBuild struct {
 	Image        string // the built, tagged image ref (the stable atcove-<kit> identity)
+	ImageDigest  string // the built image's own sha256 (image ID), pinned at run time (COV-78)
 	BaseRef      string // the base as configured (or the blessed default)
 	BaseDigest   string // the digest the base resolved to
 	CurrencyHash string // sha256 over the build-affecting inputs (§5)
@@ -43,9 +47,13 @@ type Manifest struct {
 	Name          string `json:"name"`
 	InstalledAt   string `json:"installedAt"`
 	Image         string `json:"image"`
-	BaseRef       string `json:"baseRef"`
-	BaseDigest    string `json:"baseDigest"`
-	CurrencyHash  string `json:"currencyHash"`
+	// ImageDigest is the built image's own sha256 (image ID). Runs pin it instead
+	// of the mutable Image tag (COV-78); omitted (empty) in legacy manifests, which
+	// fall back to the tag. Distinct from BaseDigest, the FROM-base digest.
+	ImageDigest  string `json:"imageDigest,omitempty"`
+	BaseRef      string `json:"baseRef"`
+	BaseDigest   string `json:"baseDigest"`
+	CurrencyHash string `json:"currencyHash"`
 	// RunConfig is the resolved run-config materialized from config.yml (workspace
 	// defaults, collaborators, workers, tracker, source-control, dispatch, secret
 	// demands — names only, never values — and allowed-domains): whatever a run
@@ -63,6 +71,7 @@ func Compile(cfg kit.Config, resolved ResolvedBuild) Manifest {
 		Name:          cfg.Name,
 		InstalledAt:   resolved.InstalledAt,
 		Image:         resolved.Image,
+		ImageDigest:   resolved.ImageDigest,
 		BaseRef:       resolved.BaseRef,
 		BaseDigest:    resolved.BaseDigest,
 		CurrencyHash:  resolved.CurrencyHash,

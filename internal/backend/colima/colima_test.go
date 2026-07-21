@@ -38,6 +38,54 @@ func TestInstallBuildsGatesTags(t *testing.T) {
 	}
 }
 
+// TestInstallCapturesBuiltImageDigest: after building + tagging, Install inspects
+// the built tag for its own image ID and reports it as InstalledImage.Digest, so a
+// run can pin the exact built image rather than the mutable tag (COV-78). This is
+// the built-image digest, distinct from BaseDigest (the FROM-base digest).
+func TestInstallCapturesBuiltImageDigest(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:cafe\n"}}}
+	installed, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed.Digest != "sha256:cafe" {
+		t.Fatalf("Install must capture the built image digest; got %q", installed.Digest)
+	}
+	insp := dockerCall(f.Calls, "inspect")
+	if insp == nil || !contains(insp, "{{.Id}}") || !contains(insp, "atcove-box") {
+		t.Fatalf("Install must inspect the built tag for its image ID: %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// TestCreatePinsDigest: when Install captured a built-image digest, Create runs
+// that digest (the immutable pin) instead of the mutable tag, while still
+// recording the human-readable tag on the instance for display/diagnostics
+// (COV-78). A create with no digest (legacy manifest) falls back to the tag —
+// covered by TestCreateIsolated.
+func TestCreatePinsDigest(t *testing.T) {
+	f := &runner.Fake{}
+	inst, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box", Digest: "sha256:cafe",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := dockerCall(f.Calls, "run")
+	if run == nil || !contains(run, "sha256:cafe") {
+		t.Fatalf("Create must run the digest-pinned image: %+v", f.Calls)
+	}
+	if contains(run, "atcove-box") {
+		t.Fatalf("Create must run the digest, not the mutable tag: %v", run)
+	}
+	if inst.Image != "atcove-box" || inst.ImageDigest != "sha256:cafe" {
+		t.Fatalf("instance must keep the tag for display and record the digest: %+v", inst)
+	}
+}
+
 // TestInstallPreflightFailsActionably: an unreachable colima surfaces the
 // `colima start` guidance from Install, like every other op.
 func TestInstallPreflightFailsActionably(t *testing.T) {

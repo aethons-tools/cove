@@ -11,7 +11,8 @@ import (
 func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	inst, err := c.RunEphemeral("img:tag", "disp-1", "at-cove.work")
+	// No digest (legacy manifest): the ephemeral run falls back to the tag.
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work")
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -26,6 +27,25 @@ func TestRunEphemeralArgs(t *testing.T) {
 	}
 	if strings.Contains(got, "-v ") {
 		t.Errorf("ephemeral run must not mount a volume:\n%s", got)
+	}
+}
+
+// TestRunEphemeralPinsDigest: like the persistent create path, the ephemeral
+// dispatch run pins the built-image digest when one was captured, running it
+// instead of the mutable tag while still recording the tag for display (COV-78).
+func TestRunEphemeralPinsDigest(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work")
+	if err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	if inst.Image != "img:tag" || inst.ImageDigest != "sha256:cafe" {
+		t.Fatalf("instance must keep the tag and record the digest: %+v", inst)
+	}
+	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
+	if !strings.Contains(got, "sha256:cafe") || strings.Contains(got, "img:tag") {
+		t.Errorf("ephemeral run must pin the digest, not the tag:\n%s", got)
 	}
 }
 

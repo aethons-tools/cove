@@ -52,18 +52,36 @@ func (c *Colima) preflight() error {
 // build through here, so `docker build` appears in exactly one place and the gate
 // can never be bypassed. The run paths never build — create/recreate, chat, and
 // work/dispatch all run the image Install already produced.
-func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase string, err error) {
+func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase, digest string, err error) {
 	if err := c.preflight(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	resolvedBase, err = c.resolveBase(base)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := c.r.Run("docker", dargs("build", "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)...); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return resolvedBase, nil
+	// Capture the built image's OWN sha256 (its image ID) so runs can pin it
+	// (COV-78). `docker build -t` only moves the mutable tag; inspecting {{.Id}} on
+	// the tag right after the build reads back the exact image the tag now points
+	// at. This is distinct from resolvedBase, which is the FROM-base digest.
+	out, err := c.r.Output("docker", dargs("inspect", "--format", "{{.Id}}", tag)...)
+	if err != nil {
+		return "", "", err
+	}
+	return resolvedBase, strings.TrimSpace(out), nil
+}
+
+// runImage picks the image reference to `docker run`: the built-image digest when
+// install captured one (an immutable pin), else the mutable tag for a legacy
+// manifest that predates digest pinning (COV-78).
+func runImage(tag, digest string) string {
+	if digest != "" {
+		return digest
+	}
+	return tag
 }
 
 // Install builds + gates + tags a kit's hardened image and reports the result —
@@ -71,11 +89,11 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resol
 // is resolved and the provenance gate runs exactly here.
 func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, error) {
 	img := naming.Image(ctx.Kit)
-	base, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base)
+	base, digest, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base)
 	if err != nil {
 		return backend.InstalledImage{}, err
 	}
-	return backend.InstalledImage{Ref: img, BaseDigest: base}, nil
+	return backend.InstalledImage{Ref: img, Digest: digest, BaseDigest: base}, nil
 }
 
 // Create runs a pre-built image (COV-38): `docker run` only. The image comes
@@ -85,7 +103,10 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
-	img := ctx.Image
+	// Pin the run to the built-image digest install captured (COV-78); a legacy
+	// manifest without one falls back to the mutable tag. The tag is still recorded
+	// on the Instance (below) for display/diagnostics.
+	img := runImage(ctx.Image, ctx.Digest)
 	// Name the volumes once here — via the naming helper, the single source of
 	// the name format (COV-77) — and record them once on the returned Instance
 	// (into state), so Destroy consumes them from there rather than re-deriving
@@ -110,11 +131,12 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		return backend.Instance{}, err
 	}
 	return backend.Instance{
-		Backend:   "colima",
-		Container: ctx.Name,
-		Image:     img,
-		Workspace: ctx.Workspace,
-		Volumes:   vols,
+		Backend:     "colima",
+		Container:   ctx.Name,
+		Image:       ctx.Image, // the tag, for display; the run above pinned img (digest when present)
+		ImageDigest: ctx.Digest,
+		Workspace:   ctx.Workspace,
+		Volumes:     vols,
 	}, nil
 }
 

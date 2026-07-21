@@ -18,10 +18,12 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
-// schemaVersion 2 added the Volumes sub-object (COV-76). Older (version 1) files
-// carry no "volumes" key; they load without error, leaving Volumes nil so
-// teardown falls back to reconstructing the names from the container.
-const schemaVersion = 2
+// schemaVersion 2 added the Volumes sub-object (COV-76); version 3 added
+// ImageDigest, the built image's own sha256 the run was pinned to (COV-78). Older
+// files simply omit these keys and load without error — a missing "volumes" falls
+// back to reconstructing names from the container, a missing "imageDigest" leaves
+// the run recorded under its mutable tag alone.
+const schemaVersion = 3
 
 // Secret is a snapshot of a kit secret spec (name + resolver argv) taken at
 // create time. Secret VALUES are never stored — only the command that produces
@@ -49,7 +51,8 @@ type State struct {
 	Name              string   `json:"name"`
 	Backend           string   `json:"backend"`
 	Container         string   `json:"container"`
-	Image             string   `json:"image"`
+	Image             string   `json:"image"`                       // the built image tag (display/diagnostics)
+	ImageDigest       string   `json:"imageDigest,omitempty"`       // built image's own sha256 the run pinned (COV-78); empty in legacy files
 	WorkspaceMode     string   `json:"workspaceMode"`               // "isolated" | "shared"
 	WorkspaceHostPath string   `json:"workspaceHostPath,omitempty"` // set iff shared
 	Volumes           *Volumes `json:"volumes,omitempty"`           // named volumes created (COV-76); nil in legacy files

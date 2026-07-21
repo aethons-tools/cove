@@ -55,7 +55,8 @@ type Options struct {
 	Ops             backend.DispatchOps
 	R               runner.Runner
 	Cfg             kit.Config
-	Image           string        // the pre-built installed image ref to run (from install.json); never built here
+	Image           string        // the pre-built installed image tag (from install.json); never built here
+	ImageDigest     string        // the built image's own sha256 to pin the run to (COV-78); empty for a legacy manifest → falls back to Image
 	Name            string        // unique container name
 	Secrets         []secret.Spec // root (shared) secrets — resolved up front, all steps
 	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
@@ -155,7 +156,7 @@ func Dispatch(ctx context.Context, o Options) error {
 	// (COV-38). doWork verified the install is current before calling here, so we
 	// simply run the pre-built image — no per-unit build, no per-unit gate, so
 	// concurrent dispatch units never race on a shared .build dir.
-	if _, err := o.Ops.RunEphemeral(o.Image, o.Name, Label); err != nil {
+	if _, err := o.Ops.RunEphemeral(o.Image, o.ImageDigest, o.Name, Label); err != nil {
 		return err
 	}
 	defer o.Ops.RemoveContainer(o.Name)

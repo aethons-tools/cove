@@ -56,8 +56,12 @@ type BaseSpec struct {
 // built (Image, sourced from install.json) and does `docker run` — no build, no
 // base resolution, no gate (those live in Backend.Install).
 type CreateContext struct {
-	Name      string
-	Image     string // the pre-built image ref to run (from install.json)
+	Name  string
+	Image string // the pre-built image tag (from install.json) — kept for display/state
+	// Digest is the built image's own sha256 (image ID) captured at install
+	// (COV-78). When set, Create runs it to pin the exact built image rather than
+	// the mutable tag; empty for a legacy manifest, where Create falls back to Image.
+	Digest    string
 	Workspace WorkspaceMount
 }
 
@@ -73,8 +77,11 @@ type InstallContext struct {
 // InstalledImage is Backend.Install's result: the built, tagged image and the
 // base ref it resolved to. The CLI freezes both into install.json.
 type InstalledImage struct {
-	Ref        string // the built, tagged image (the stable atcove-<kit> identity)
-	BaseDigest string // the resolved base ref/digest the image was built FROM
+	Ref    string // the built, tagged image (the stable atcove-<kit> identity)
+	Digest string // the built image's own sha256 (image ID), captured post-build (COV-78)
+	// BaseDigest is the resolved base ref/digest the image was built FROM — the
+	// currency-gate provenance input, distinct from Digest (the built image itself).
+	BaseDigest string
 }
 
 // VolumeSet records the named volumes an instance was created with, so teardown
@@ -90,11 +97,12 @@ type VolumeSet struct {
 // the kit's state file, and connect/destroy/status drive the backend from it
 // (rather than from the kit config), so a live sandbox is independent of kit edits.
 type Instance struct {
-	Backend   string
-	Container string // backend handle (docker container name)
-	Image     string // built image reference (tag)
-	Workspace WorkspaceMount
-	Volumes   VolumeSet // the named volumes Create made; consumed by Destroy (COV-76)
+	Backend     string
+	Container   string // backend handle (docker container name)
+	Image       string // built image reference (tag), kept for display/diagnostics
+	ImageDigest string // the built image's own sha256 the run was pinned to (COV-78); empty for a legacy run
+	Workspace   WorkspaceMount
+	Volumes     VolumeSet // the named volumes Create made; consumed by Destroy (COV-76)
 }
 
 // Backend provisions and manages VMs of one technology. Dial/GetStatus take the
@@ -128,7 +136,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published
+	RunEphemeral(image, digest, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published; pins digest when set (COV-78)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
