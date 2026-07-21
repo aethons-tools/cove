@@ -91,6 +91,7 @@ func (c Config) ResolvedWorkerDomains(class string) ([]string, error) {
 // identity and the host kind.
 type SourceControl struct {
 	GitHub *GitHubSource `yaml:"github,omitempty"`
+	GitLab *GitLabSource `yaml:"gitlab,omitempty"`
 }
 
 type GitHubSource struct {
@@ -99,15 +100,31 @@ type GitHubSource struct {
 	Secrets    map[string]SecretConfig `yaml:"secrets,omitempty"`     // well-known: AT_TASK_GIT_TOKEN
 }
 
-// GitTokenName reports the code-host token demand the kit declares under
-// source-control.github.secrets, if present. The value is supplied machine-side;
-// the kit only names the demand (the structural air-gap: it lives at a distinct
-// schema location from the root/agent secrets).
+// GitLabSource names a GitLab repo — gitlab.com or a self-hosted host. The project
+// path may be nested (group/subgroup/name, ≥2 segments), unlike GitHub's owner/name.
+type GitLabSource struct {
+	Host       string                  `yaml:"host,omitempty"`        // bare hostname; default gitlab.com
+	Project    string                  `yaml:"project"`               // "group/.../name"
+	MainBranch string                  `yaml:"main-branch,omitempty"` // default "main"
+	Secrets    map[string]SecretConfig `yaml:"secrets,omitempty"`     // well-known: AT_TASK_GIT_TOKEN
+}
+
+// GitTokenName reports the code-host token demand under the active provider's
+// source-control.<provider>.secrets, if present.
 func (c Config) GitTokenName() (string, bool) {
-	if c.SourceControl == nil || c.SourceControl.GitHub == nil {
+	if c.SourceControl == nil {
 		return "", false
 	}
-	if _, ok := c.SourceControl.GitHub.Secrets["AT_TASK_GIT_TOKEN"]; !ok {
+	var secrets map[string]SecretConfig
+	switch {
+	case c.SourceControl.GitHub != nil:
+		secrets = c.SourceControl.GitHub.Secrets
+	case c.SourceControl.GitLab != nil:
+		secrets = c.SourceControl.GitLab.Secrets
+	default:
+		return "", false
+	}
+	if _, ok := secrets["AT_TASK_GIT_TOKEN"]; !ok {
 		return "", false
 	}
 	return "AT_TASK_GIT_TOKEN", true
@@ -119,10 +136,39 @@ func (s *SourceControl) Active() (string, error) {
 	if s.GitHub != nil {
 		n, name = n+1, "github"
 	}
+	if s.GitLab != nil {
+		n, name = n+1, "gitlab"
+	}
 	if n != 1 {
-		return "", errors.New("must set exactly one host (github)")
+		return "", errors.New("must set exactly one host (github or gitlab)")
 	}
 	return name, nil
+}
+
+// Repo is the resolved, provider-neutral repo identity a run command needs.
+type Repo struct {
+	Provider   string // "github" | "gitlab"
+	Host       string // github.com | gitlab.com | self-hosted host
+	Project    string // owner/name or group/.../name
+	MainBranch string
+}
+
+// CloneURL is the HTTPS clone URL for the repo.
+func (r Repo) CloneURL() string { return "https://" + r.Host + "/" + r.Project + ".git" }
+
+// Repo returns the active provider's repo identity, or ok=false when no
+// source-control is configured. GitHub has no host field — it is always github.com.
+func (s *SourceControl) Repo() (Repo, bool) {
+	if s == nil {
+		return Repo{}, false
+	}
+	switch {
+	case s.GitHub != nil:
+		return Repo{Provider: "github", Host: "github.com", Project: s.GitHub.Project, MainBranch: s.GitHub.MainBranch}, true
+	case s.GitLab != nil:
+		return Repo{Provider: "gitlab", Host: s.GitLab.Host, Project: s.GitLab.Project, MainBranch: s.GitLab.MainBranch}, true
+	}
+	return Repo{}, false
 }
 
 // Tracker names the issue tracker the kit's scheduler drives — a tagged union
@@ -368,6 +414,31 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 			if len(gh.Secrets) > 0 {
 				if err := checkWellKnownSecrets("source-control.github.secrets", gh.Secrets, "AT_TASK_GIT_TOKEN"); err != nil {
+					return Config{}, err
+				}
+			}
+		}
+		if gl := cfg.SourceControl.GitLab; gl != nil {
+			if strings.ContainsAny(gl.Host, "/:") {
+				return Config{}, fmt.Errorf("config.yml: source-control.gitlab.host must be a bare hostname (no scheme or path), got %q", gl.Host)
+			}
+			segs := strings.Split(gl.Project, "/")
+			if len(segs) < 2 {
+				return Config{}, fmt.Errorf("config.yml: source-control.gitlab.project must be \"group/…/name\" (≥2 segments), got %q", gl.Project)
+			}
+			for _, s := range segs {
+				if strings.TrimSpace(s) == "" {
+					return Config{}, fmt.Errorf("config.yml: source-control.gitlab.project has an empty path segment: %q", gl.Project)
+				}
+			}
+			if gl.Host == "" {
+				gl.Host = "gitlab.com"
+			}
+			if gl.MainBranch == "" {
+				gl.MainBranch = "main"
+			}
+			if len(gl.Secrets) > 0 {
+				if err := checkWellKnownSecrets("source-control.gitlab.secrets", gl.Secrets, "AT_TASK_GIT_TOKEN"); err != nil {
 					return Config{}, err
 				}
 			}
@@ -633,11 +704,25 @@ func ProviderDomains(c Config) []string {
 	return domains
 }
 
+// SourceControlDomains returns the additive egress domain a self-hosted source
+// control host needs. gitlab.com and github.com are in the sealed base, so only a
+// non-default GitLab host is derived here.
+func SourceControlDomains(c Config) []string {
+	if c.SourceControl == nil || c.SourceControl.GitLab == nil {
+		return nil
+	}
+	host := strings.TrimSpace(c.SourceControl.GitLab.Host)
+	if host == "" || host == "gitlab.com" {
+		return nil
+	}
+	return []string{host}
+}
+
 // RootDomains is the kit's effective baked egress allow-list: the kit's own
 // image.allowed-domains unioned with any provider-derived domains. Assemble bakes
 // this into allowed_domains.kit.txt.
 func RootDomains(c Config) []string {
-	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c))
+	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c))
 }
 
 // validateModelProvider enforces the provider union, required keys, and the
