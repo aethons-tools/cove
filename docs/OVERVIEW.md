@@ -626,7 +626,7 @@ token below the bearer in the precedence chain, a worker that somehow still
 launched keyless would fail closed *inside* the VM too, instead of silently
 falling back to — and burning — a subscription.
 
-### Authentication — Claude on Vertex
+### Authentication: Claude on Vertex
 
 A kit with a [`model-provider.vertex`](usage/at-cove-config.md#model-provider)
 block branches `chat`'s auth step instead of using either path above: it
@@ -637,7 +637,7 @@ login --claudeai`, no `credentials.json` seed, for a Vertex session.
 
 The ADC is supplied **host-side**, through the ordinary demand/supply model,
 under the well-known demand `GOOGLE_APPLICATION_CREDENTIALS_JSON` (see
-[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand--google_application_credentials_json))
+[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json))
 — typically the `authorized_user` ADC that `gcloud auth application-default
 login` already produced on the operator's machine. `chat` **seeds** it onto the
 persistent `/agent-data` volume before launch; unlike the Anthropic

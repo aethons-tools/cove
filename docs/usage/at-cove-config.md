@@ -210,7 +210,7 @@ rejected at config validation (a hard parse error) and independently re-checked
   hardening layer writes last, quietly defeating egress;
 - `CLAUDE_CONFIG_DIR` (sealed-owned);
 - `GOOGLE_APPLICATION_CREDENTIALS` (at-cove-owned — it points at the seeded GCP ADC
-  file; see [Authentication](../OVERVIEW.md#authentication--claude-on-vertex));
+  file; see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex));
 - `PATH`.
 
 This is the `env`-block analog of the egress rule "additive, sealed-wins": a kit
@@ -233,8 +233,8 @@ model-provider:
 
 The credential itself (a GCP ADC) is **not** part of this block — it is supplied
 host-side and seeded as a file; see
-[Authentication](../OVERVIEW.md#authentication--claude-on-vertex) and the
-[`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand--google_application_credentials_json).
+[Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
+[`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
 
 ### secrets
 *map of secret env name → config*

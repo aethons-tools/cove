@@ -234,7 +234,7 @@ above. See also [Authentication](../OVERVIEW.md#authentication) for how this
 fits the two-layer fail-closed design (host pre-flight + no OAuth fallback
 inside the VM).
 
-## The Vertex credential demand — `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+## The Vertex credential demand: `GOOGLE_APPLICATION_CREDENTIALS_JSON`
 
 A kit with a [`model-provider.vertex`](at-cove-config.md#model-provider) block
 authenticates `chat` via a GCP Application Default Credentials (ADC) file instead
@@ -256,7 +256,7 @@ in this doc, its value is never injected into the session **env**: `chat` seeds
 it as a **file** onto the `/agent-data` volume (`/agent-data/.gcp-adc.json`) and
 points `GOOGLE_APPLICATION_CREDENTIALS` at that path. For *why* it's seeded
 rather than saved back (a static `authorized_user` ADC, refreshed in-VM), see
-[Authentication — Claude on Vertex](../OVERVIEW.md#authentication--claude-on-vertex),
+[Authentication: Claude on Vertex](../OVERVIEW.md#authentication-claude-on-vertex),
 which owns that explanation.
 
 ## Security caveats
