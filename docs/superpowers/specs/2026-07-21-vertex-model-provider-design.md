@@ -39,26 +39,37 @@ Confirmed Vertex env vars Claude Code reads: `CLAUDE_CODE_USE_VERTEX=1`, `ANTHRO
 - **Provider presence is the switch.** A kit with a `model-provider.vertex` block is a Vertex kit; without it, nothing changes and the Anthropic paths are byte-for-byte as today.
 - **Branch, don't fork.** Vertex reuses the existing credential-seed transport (`chat`), the env-file injection, the `install.json` freeze, and the per-class egress apply. It adds one branch at the auth step and one derived domain set — not a parallel pipeline.
 - **Sealed-wins, additive egress.** The GCP domains are added to the kit-root allow-list; the sealed base and `nftables` lock are unchanged. Egress can only widen.
+- **Configure via env, deny the sealed keys.** Provider *configuration* is entirely env-driven, so the block's payload is an `env` map. But the map is **kit-authored with no host-side gate** (unlike a secret), so it may set only non-protected keys — a hardening denylist keeps it from shadowing sealed-owned vars. This is the env-block analog of "additive, sealed-wins."
 - **Host-side identity, in-VM refresh (chat).** at-cove mints the ADC from the human's host identity; google-auth keeps it alive in-VM. at-cove never drives Google's login UX.
 - **Frozen source.** The provider config is read from the currency-pinned `install.json`, not a live `config.yml` — "install froze it" still holds.
 
 ## 4. Config schema — the `model-provider` block
 
-A new top-level, non-secret wiring block in `config.yml`, modeled like `source-control`/`tracker` (a typed union keyed by provider name):
+A new top-level, non-secret wiring block in `config.yml`, modeled like `source-control`/`tracker` (a union keyed by provider name). Because Claude Code's provider *configuration* is entirely environment-driven (§2), the provider member's payload is an **`env` map of non-secret key/value pairs** rather than a fixed set of typed fields: at-cove demands the keys Vertex requires and passes any other (non-protected) key straight through, so a new Claude Code env knob needs no schema change.
 
 ```yaml
 model-provider:
   vertex:
-    project-id: my-gcp-project      # required — ANTHROPIC_VERTEX_PROJECT_ID
-    region: us-east5                # required — CLOUD_ML_REGION (region | "us" | "eu" | "global")
-    model: claude-opus-4-8          # optional — pins ANTHROPIC_MODEL for the session
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project    # required
+      CLOUD_ML_REGION: us-east5                       # required (region | "us" | "eu" | "global")
+      # CLAUDE_CODE_USE_VERTEX=1 is set by at-cove — implied by the vertex block
+      ANTHROPIC_VERTEX_BASE_URL: https://…            # optional pass-through
+      VERTEX_REGION_CLAUDE_HAIKU_4_5: us-central1     # optional pass-through
+      ANTHROPIC_MODEL: claude-opus-4-8                # optional pass-through
 ```
 
 Parsed and validated in `internal/kit/config.go`:
-- `vertex` is the only provider member for now; the union shape leaves room for others (e.g. bedrock) without reshaping.
-- `project-id` and `region` are required when `vertex` is present; a missing one is a hard config error.
+- `vertex` is the only provider member for now; the union shape (a named member carrying an `env` map + a required-key set + a derived domain set — §5) leaves room for `bedrock` etc. without reshaping.
+- **Required keys:** `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION` must be present; a missing one is a hard config error. at-cove **sets** `CLAUDE_CODE_USE_VERTEX=1` itself (implied by choosing `vertex`), so the kit need not state it.
+- **Hardening denylist (load-bearing).** The `env` map is **kit-authored with no host-side supply gate** — unlike a *secret*, which the kit only *demands* and the machine *supplies* (the operator is the gate). So a committed, untrusted kit could otherwise inject security-relevant env directly. The block may therefore set only non-protected keys; a **protected set is rejected at config validation** (fail loud) **and defensively dropped at injection**:
+  - the egress proxy vars (`http_proxy`/`https_proxy`/`no_proxy` and uppercase) — the per-session env-file is *sourced* in the session shell, so an unchecked value would **shadow** the sealed `/etc/environment` proxy vars the hardening layer writes last, quietly defeating egress;
+  - `CLAUDE_CONFIG_DIR` (sealed-owned);
+  - `GOOGLE_APPLICATION_CREDENTIALS` (at-cove owns it — it points at the seeded ADC file, §6);
+  - `PATH` (and any other sealed-owned var the impl enumerates).
+  This is the env-block analog of the egress rule "additive, sealed-wins": a kit can *configure* the provider but can never touch a sealed-owned or security-relevant variable.
+- **Non-secret only.** The `env` map carries wiring, never credentials — consistent with the config trust boundary. The GCP *credential* is supplied host-side and seeded as a **file** (§6); the env map only needs the at-cove-owned `GOOGLE_APPLICATION_CREDENTIALS` *pointer*, which is protected (not kit-set).
 - Absent block → first-party Anthropic (unchanged).
-- **No secret values here** — the block carries only non-secret wiring, consistent with the config trust boundary. The GCP *credential* is supplied host-side (§6).
 
 Frozen into `install.json` as resolved run-config (`internal/install`), read by `chat`/`work` like every other run-config field. Whether the block may also live per-collaborator / per-worker-class (so one kit mixes providers across classes) is an **open question** (§9) — v1 targets a kit-global block.
 
@@ -72,7 +83,7 @@ When `model-provider.vertex` is present, install injects a GCP domain set into t
 | `oauth2.googleapis.com` | in-VM ADC token refresh (authorized_user) |
 | `sts.googleapis.com`, `iamcredentials.googleapis.com` | WIF / service-account impersonation (worker path, and any WIF-based ADC) |
 
-The exact host derivation from `region` is settled during implementation (region-templated vs. a fixed superset). The sealed base list and `squid.conf` are **not** touched — this is purely the kit-root (additive) tier that already exists. The agent workload still cannot widen its own egress.
+The exact host derivation from `env.CLOUD_ML_REGION` is settled during implementation (region-templated vs. a fixed superset); if `env.ANTHROPIC_VERTEX_BASE_URL` is set, its host is derived and added too (§9). The sealed base list and `squid.conf` are **not** touched — this is purely the kit-root (additive) tier that already exists. The agent workload still cannot widen its own egress.
 
 ## 6. Credential flow — chat (built first)
 
@@ -81,7 +92,7 @@ The exact host derivation from `region` is settled during implementation (region
 1. **Resolve the GCP ADC host-side** from the human's existing identity — *assume host ADC, mint from it*. Delivered as a new `at-mint` **`vertex` provider** (`internal/mint`) referenced from `secrets.yml` via a `{ mint: <name> }` supply, or a bare host-side resolver `command:`. It reads/derives an `authorized_user` ADC from `~/.config/gcloud/application_default_credentials.json` (the artifact of `gcloud auth application-default login`). at-cove never invokes `gcloud auth login` itself.
 2. **Seed the ADC file onto the `/agent-data` volume**, mirroring the Anthropic `credentials.json` seed/save exactly: seed before launch, set `GOOGLE_APPLICATION_CREDENTIALS` to the seeded path, and save rotations back to a host copy so the shared credential stays current across sandboxes and recreates. google-auth **refreshes the file in-VM** over the newly-allowed `oauth2.googleapis.com`, so a long chat survives token expiry.
 3. **Skip the Anthropic OAuth flow entirely** — no `claude auth status` probe, no `claude auth login --claudeai`, no `credentials.json` seed — for a Vertex session.
-4. **Inject the non-secret Vertex env** (`CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, optional `ANTHROPIC_MODEL`) via the existing env-file transport, sourced from the provider config rather than the secret store.
+4. **Inject the non-secret Vertex env** via the existing env-file transport, sourced from the provider `env` map (§4) rather than the secret store: at-cove's auto-set `CLAUDE_CODE_USE_VERTEX=1`, the at-cove-owned `GOOGLE_APPLICATION_CREDENTIALS` pointer to the seeded ADC, and every non-protected key from the map. The denylist is re-checked here (defensive drop) so a protected key can never be emitted regardless of source.
 
 **Placement decision:** the ADC file lives on the persistent `/agent-data` volume (seed+save), the same posture at-cove already documents for the saved OAuth login — a refresh-token file in a user-owned location. This is chosen over a tmpfs/memory-only delivery because a long chat needs in-VM refresh persistence; a one-shot short-lived token would die mid-session.
 
@@ -100,10 +111,10 @@ The worker path is one-shot and unattended, so it takes the short-lived-credenti
 
 | Area | Change |
 |---|---|
-| `internal/kit/config.go` | `ModelProvider`/`Vertex` structs + validation; parse into config |
+| `internal/kit/config.go` | `ModelProvider`/`Vertex` structs (`env` map + required-key set); validation incl. the **hardening denylist** (reject protected keys, fail loud) |
 | `internal/install` | freeze `model-provider` into `install.json` run-config |
 | egress derivation (`internal/assemble` / install) | `providerDomains(cfg)` — inject GCP domains into kit-root allow-list when Vertex present |
-| `internal/connect` | **the main change** — provider branch in the auth flow: seed GCP ADC vs. Anthropic OAuth; inject Vertex env |
+| `internal/connect` | **the main change** — provider branch in the auth flow: seed GCP ADC vs. Anthropic OAuth; inject the provider `env` map (with defensive denylist re-check) |
 | `internal/mint` (`at-mint`) | new `vertex` provider (host ADC → authorized_user for chat; short-lived scoped ADC for worker) |
 | `cmd/at-cove/main.go` | worker fail-closed gate becomes provider-aware (phase 2) |
 | base-image managed settings | possibly wire `gcpAuthRefresh` as a refresh fallback (evaluated in impl; not required for v1 chat) |
@@ -112,7 +123,8 @@ The worker path is one-shot and unattended, so it takes the short-lived-credenti
 ## 9. Open questions (resolve during planning/impl)
 
 - **Scope of the block:** kit-global only (v1) vs. per-collaborator / per-worker-class, so one kit mixes Anthropic and Vertex classes.
-- **Region → endpoint derivation:** template the regional aiplatform host from `region`, or allow-list a fixed GCP superset.
+- **Denylist membership:** the exact protected-key set (proxy vars, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`, `PATH`, …) and whether it is provider-specific or a single sealed-owned list shared by any future `env`-bearing block — a hardening call for sign-off.
+- **Region → endpoint derivation:** template the regional aiplatform host from `env.CLOUD_ML_REGION`, or allow-list a fixed GCP superset; and whether a custom `env.ANTHROPIC_VERTEX_BASE_URL` host is folded into the derived egress set.
 - **`gcpAuthRefresh` role:** whether at-cove sets it (a re-mint command baked into the image) as a refresh fallback, given the in-VM command cannot reach the host minter — likely unused in v1 since google-auth refreshes the seeded authorized_user file itself.
 - **Worker credential concretes:** which short-lived GCP credential type (impersonated SA vs. WIF external_account) the `vertex` minter emits for the work path.
 - **Model defaults:** whether at-cove pins `ANTHROPIC_MODEL` from `model:` or leaves Claude Code's Vertex model defaults.
