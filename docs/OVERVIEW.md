@@ -637,7 +637,7 @@ login --claudeai`, no `credentials.json` seed, for a Vertex session.
 
 The ADC is supplied **host-side**, through the ordinary demand/supply model,
 under the well-known demand `GOOGLE_APPLICATION_CREDENTIALS_JSON` (see
-[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json))
+[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand--google_application_credentials_json))
 — typically the `authorized_user` ADC that `gcloud auth application-default
 login` already produced on the operator's machine. `chat` **seeds** it onto the
 persistent `/agent-data` volume before launch; unlike the Anthropic
