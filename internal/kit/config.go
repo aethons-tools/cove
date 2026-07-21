@@ -87,7 +87,7 @@ func (c Config) ResolvedWorkerDomains(class string) ([]string, error) {
 }
 
 // SourceControl names the code host + repo the kit targets — a tagged union
-// (exactly one host; github only today). It is the single source of the repo
+// (exactly one host; github or gitlab). It is the single source of the repo
 // identity and the host kind.
 type SourceControl struct {
 	GitHub *GitHubSource `yaml:"github,omitempty"`
