@@ -176,6 +176,22 @@ type Collaborator struct {
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
 
+// ModelProvider switches the sandbox's agent off first-party Anthropic and onto a
+// third-party Claude provider — a union keyed by provider name (vertex only today).
+// Its presence is the switch; absent, the Anthropic auth paths are unchanged.
+type ModelProvider struct {
+	Vertex *VertexProvider `yaml:"vertex,omitempty"`
+}
+
+// VertexProvider configures Claude on Google Vertex AI. Because Claude Code's
+// Vertex configuration is entirely environment-driven, the payload is a non-secret
+// env map: at-cove demands the required keys and passes any other (non-protected)
+// key through. The GCP *credential* is not here — it is a host-supplied file
+// (see cmd/at-cove: the GOOGLE_APPLICATION_CREDENTIALS_JSON demand).
+type VertexProvider struct {
+	Env map[string]string `yaml:"env"`
+}
+
 // ResolvedCollaborator returns the named collaborator with the collaborators
 // <common> secrets merged in (own key wins). Errors like ResolvedWorker.
 func (c Config) ResolvedCollaborator(class string) (Collaborator, error) {
@@ -276,6 +292,7 @@ type Config struct {
 	Tracker       *Tracker                `yaml:"tracker,omitempty"`
 	Dispatch      *Dispatch               `yaml:"dispatch,omitempty"`
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
+	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
@@ -426,6 +443,9 @@ func ParseConfig(data []byte) (Config, error) {
 	if defaults > 1 {
 		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
+	if err := validateModelProvider(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -436,7 +456,16 @@ var reservedSecretNames = map[string]bool{
 	"AT_TASK_GIT_TOKEN":          true,
 	"AT_DISPATCH_TRACKER_TOKEN":  true,
 	"AT_DISPATCH_WEBHOOK_SECRET": true,
+	gcpADCDemandName:             true,
 }
+
+// gcpADCDemandName is the well-known demand name a Vertex kit's GCP Application
+// Default Credentials are supplied under (mirrors cmd/at-cove's gcpADCDemand
+// const — duplicated here rather than imported, since internal/kit must not
+// depend on cmd/at-cove). It is resolved host-side (from secrets.yml, never
+// config.yml) and seeded into the VM as a file; it must never be declared as a
+// general secret, which would also inject it into the agent's session env.
+const gcpADCDemandName = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
 // rootRejectedBearers are agent-auth credentials that must NOT live at the kit
 // root: root secrets are injected into `chat` too, where an Anthropic bearer
@@ -463,9 +492,13 @@ func rejectRootBearers(got map[string]SecretConfig) error {
 // can never shadow the host-side, air-gapped subsystem credentials.
 func rejectReservedSecretNames(field string, got map[string]SecretConfig) error {
 	for k := range got {
-		if reservedSecretNames[k] {
-			return fmt.Errorf("config.yml: %s: %q is a reserved subsystem secret and must be declared under source-control/tracker, not here", field, k)
+		if !reservedSecretNames[k] {
+			continue
 		}
+		if k == gcpADCDemandName {
+			return fmt.Errorf("config.yml: %s: %q is the Vertex GCP credential — it is supplied host-side (secrets.yml) and seeded as a file, and must not be declared as a secret here (that would inject it into the agent's session env)", field, k)
+		}
+		return fmt.Errorf("config.yml: %s: %q is a reserved subsystem secret and must be declared under source-control/tracker, not here", field, k)
 	}
 	return nil
 }
@@ -524,6 +557,108 @@ func checkKitDuration(field, v string) error {
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {
 		return fmt.Errorf("config.yml: %s must be a positive Go duration (e.g. 30m), got %q", field, v)
+	}
+	return nil
+}
+
+// vertexProtectedEnvKeys are sealed-owned or security-relevant variables a kit's
+// model-provider env map must never set. Unlike a *secret* (demanded by the kit,
+// supplied by the machine — the operator is the gate), an env value is
+// kit-authored with no host gate, and the per-session env file is *sourced* in the
+// session shell, so an unchecked value would shadow the sealed /etc/environment
+// (e.g. the proxy vars) and could defeat egress. Rejected at validation and
+// dropped defensively at injection ("additive, sealed-wins" for env).
+var vertexProtectedEnvKeys = map[string]bool{
+	"http_proxy": true, "https_proxy": true, "no_proxy": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
+	"CLAUDE_CONFIG_DIR":              true,
+	"GOOGLE_APPLICATION_CREDENTIALS": true,
+	"PATH":                           true,
+}
+
+// vertexRequiredEnvKeys must be present in the provider env map.
+var vertexRequiredEnvKeys = []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}
+
+// Vertex returns the Vertex provider config and true when the kit targets Vertex.
+func (c Config) Vertex() (*VertexProvider, bool) {
+	if c.ModelProvider == nil || c.ModelProvider.Vertex == nil {
+		return nil, false
+	}
+	return c.ModelProvider.Vertex, true
+}
+
+// VertexEnv returns the effective non-secret session env for a Vertex kit:
+// CLAUDE_CODE_USE_VERTEX=1 (at-cove-owned) plus every non-protected key from the
+// kit's env map. Protected keys are dropped defensively (validation already
+// rejected them). Returns nil for a non-Vertex kit. GOOGLE_APPLICATION_CREDENTIALS
+// (the ADC file pointer) is set by connect, not here.
+func (c Config) VertexEnv() map[string]string {
+	v, ok := c.Vertex()
+	if !ok {
+		return nil
+	}
+	env := map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"}
+	for k, val := range v.Env {
+		if vertexProtectedEnvKeys[k] {
+			continue
+		}
+		env[k] = val
+	}
+	return env
+}
+
+// ProviderDomains returns the additive egress domains a model provider needs,
+// derived from the provider config, or nil when the kit targets no provider.
+// For Vertex: the aiplatform inference host (region-templated), plus the GCP
+// auth endpoints google-auth uses to refresh ADC access tokens in-VM.
+func ProviderDomains(c Config) []string {
+	v, ok := c.Vertex()
+	if !ok {
+		return nil
+	}
+	domains := []string{
+		"aiplatform.googleapis.com", // default / global inference host
+		"oauth2.googleapis.com",     // authorized_user ADC token refresh
+		"sts.googleapis.com",        // WIF / external_account
+		"iamcredentials.googleapis.com",
+	}
+	switch region := strings.TrimSpace(v.Env["CLOUD_ML_REGION"]); region {
+	case "", "global":
+		// aiplatform.googleapis.com already covers the global endpoint.
+	case "us", "eu":
+		domains = append(domains, "aiplatform."+region+".rep.googleapis.com")
+	default:
+		domains = append(domains, region+"-aiplatform.googleapis.com")
+	}
+	return domains
+}
+
+// RootDomains is the kit's effective baked egress allow-list: the kit's own
+// image.allowed-domains unioned with any provider-derived domains. Assemble bakes
+// this into allowed_domains.kit.txt.
+func RootDomains(c Config) []string {
+	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c))
+}
+
+// validateModelProvider enforces the provider union, required keys, and the
+// hardening denylist.
+func validateModelProvider(cfg Config) error {
+	if cfg.ModelProvider == nil {
+		return nil
+	}
+	v := cfg.ModelProvider.Vertex
+	if v == nil {
+		return fmt.Errorf("config.yml: model-provider: must set exactly one provider (vertex)")
+	}
+	for _, req := range vertexRequiredEnvKeys {
+		if strings.TrimSpace(v.Env[req]) == "" {
+			return fmt.Errorf("config.yml: model-provider.vertex.env.%s is required", req)
+		}
+	}
+	for k := range v.Env {
+		if vertexProtectedEnvKeys[k] {
+			return fmt.Errorf("config.yml: model-provider.vertex.env: %q is a sealed-owned/security-relevant variable and cannot be set by a kit", k)
+		}
 	}
 	return nil
 }

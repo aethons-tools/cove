@@ -1,10 +1,10 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, secrets, workers, collaborators, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, workers, collaborators, secrets, image (+ validation)"
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-07-20
+updated: 2026-07-21
 ---
 
 # at-cove `config.yml`
@@ -169,6 +169,72 @@ dispatch:
   concurrency: 1
   reaper-timeout: 45m
 ```
+
+### model-provider
+*tagged union — one provider (`vertex` only today), optional*
+
+Switches the sandbox's agent from first-party Anthropic (the default, absent this
+block) to a third-party-hosted Claude. **Kit-global** — one setting for the whole
+kit, not yet per-collaborator/per-worker-class — and **`chat`-only**: `at-cove
+work`/`dispatch` do not yet read this block (a documented follow-up; see the
+[design spec](../superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
+Absent block → today's Anthropic OAuth/bearer behavior, unchanged.
+
+#### model-provider.vertex.env*
+*map of string → string*
+
+Non-secret, kit-authored configuration for **Claude on Google Vertex AI**, passed
+through as env for the `chat` session. Two keys are **required** (a missing one is
+a hard config error):
+
+| Key | Meaning |
+|---|---|
+| `ANTHROPIC_VERTEX_PROJECT_ID` | the GCP project Vertex bills/governs through |
+| `CLOUD_ML_REGION` | a specific region, or the multi-region `us`/`eu`, or `global` |
+
+at-cove itself **sets `CLAUDE_CODE_USE_VERTEX=1`** — implied by choosing `vertex`,
+so the kit must not (and need not) set it. Any other key
+(`ANTHROPIC_VERTEX_BASE_URL`, a `VERTEX_REGION_CLAUDE_*` override, `ANTHROPIC_MODEL`,
+…) passes straight through to Claude Code with no schema change required.
+
+**Hardening denylist (load-bearing).** Unlike a *secret* — which a kit only
+*demands* by name, with the host as the supply-side gate — this `env` map is
+**kit-authored with no host-side gate**, so a committed-but-untrusted kit could
+otherwise inject security-relevant env directly. A **protected set** is therefore
+rejected at config validation (a hard parse error) and independently re-checked
+(defensive drop) at injection:
+
+- the egress proxy vars — `http_proxy`/`https_proxy`/`no_proxy` and their uppercase
+  forms — because the per-session env-file is *sourced* in the session shell, so an
+  unchecked value would **shadow** the sealed `/etc/environment` proxy vars the
+  hardening layer writes last, quietly defeating egress;
+- `CLAUDE_CONFIG_DIR` (sealed-owned);
+- `GOOGLE_APPLICATION_CREDENTIALS` (at-cove-owned — it points at the seeded GCP ADC
+  file; see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex));
+- `PATH`.
+
+This is the `env`-block analog of the egress rule "additive, sealed-wins": a kit
+can *configure* the provider but can never shadow a sealed-owned or
+security-relevant variable.
+
+**Egress is auto-derived, not hand-listed.** When `model-provider.vertex` is
+present, `install` widens the kit-root allow-list with the GCP hosts Vertex needs
+— derived from the block, not hand-maintained — see
+[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped).
+
+```yaml
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project   # required
+      CLOUD_ML_REGION: us                           # required
+      # CLAUDE_CODE_USE_VERTEX=1 is set by at-cove — implied by the vertex block
+```
+
+The credential itself (a GCP ADC) is **not** part of this block — it is supplied
+host-side and seeded as a file; see
+[Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
+[`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
 
 ### secrets
 *map of secret env name → config*
@@ -566,6 +632,10 @@ the template kit for `at-cove dispatch`.
   value is supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
+- `model-provider` sets more than one provider; `model-provider.vertex.env` is missing
+  `ANTHROPIC_VERTEX_PROJECT_ID` or `CLOUD_ML_REGION`; or it sets a protected key
+  (an egress proxy var, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`, or
+  `PATH`) — see [model-provider](#model-provider);
 - a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`
   or `default`; or more than one class sets `default: true`;
 - any `secrets` entry (at any of the five bucket locations) sets a field other than

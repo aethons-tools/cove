@@ -506,6 +506,74 @@ func TestConnectInhibitsSleepAroundLaunch(t *testing.T) {
 	}
 }
 
+func TestConnect_VertexSeedsADCAndSkipsOAuth(t *testing.T) {
+	r := &runner.Fake{}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container:     "c1",
+		IdentityFile:  "id",
+		KnownHostsDir: t.TempDir(),
+		ExtraEnv:      map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "CLOUD_ML_REGION": "us-east5"},
+		Vertex:        &VertexAuth{ADC: []byte(`{"type":"authorized_user"}`)},
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// The ADC was seeded to the VM path via stdin (never argv).
+	seeded := false
+	for _, c := range r.Calls {
+		if calledWith([]runner.Call{c}, gcpADCVMPath) && strings.Contains(c.Stdin, "authorized_user") {
+			seeded = true
+		}
+	}
+	if !seeded {
+		t.Fatalf("ADC was not seeded to %s via stdin; calls: %+v", gcpADCVMPath, r.Calls)
+	}
+	// Anthropic OAuth was skipped entirely.
+	if calledWith(r.Calls, "claude auth status") || calledWith(r.Calls, "claude auth login") {
+		t.Fatalf("vertex connect must not run claude auth; calls: %+v", r.Calls)
+	}
+	// The launch env carries the provider env plus the ADC pointer.
+	if tr.gotEnv["CLAUDE_CODE_USE_VERTEX"] != "1" || tr.gotEnv["CLOUD_ML_REGION"] != "us-east5" {
+		t.Fatalf("launch env missing provider vars: %v", tr.gotEnv)
+	}
+	if tr.gotEnv["GOOGLE_APPLICATION_CREDENTIALS"] != gcpADCVMPath {
+		t.Fatalf("GOOGLE_APPLICATION_CREDENTIALS = %q, want %q", tr.gotEnv["GOOGLE_APPLICATION_CREDENTIALS"], gcpADCVMPath)
+	}
+}
+
+// --no-auth on a Vertex session ("I manage auth myself") must be coherent: the
+// ADC file must not be seeded, and GOOGLE_APPLICATION_CREDENTIALS must not be
+// set in the launch env — a set-but-unseeded pointer would be worse than unset.
+func TestConnect_VertexSkipAuthDoesNotSeedOrSetEnv(t *testing.T) {
+	r := &runner.Fake{}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container:     "c1",
+		IdentityFile:  "id",
+		KnownHostsDir: t.TempDir(),
+		SkipAuth:      true,
+		ExtraEnv:      map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "CLOUD_ML_REGION": "us-east5"},
+		Vertex:        &VertexAuth{ADC: []byte(`{"type":"authorized_user"}`)},
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if calledWith(r.Calls, gcpADCVMPath) {
+		t.Fatalf("--no-auth must not seed the ADC file; calls: %+v", r.Calls)
+	}
+	if v, set := tr.gotEnv["GOOGLE_APPLICATION_CREDENTIALS"]; set {
+		t.Fatalf("--no-auth must not set GOOGLE_APPLICATION_CREDENTIALS in the launch env; got %q", v)
+	}
+	// The non-secret provider env is still applied — only the credential pointer
+	// is suppressed.
+	if tr.gotEnv["CLAUDE_CODE_USE_VERTEX"] != "1" || tr.gotEnv["CLOUD_ML_REGION"] != "us-east5" {
+		t.Fatalf("launch env missing provider vars: %v", tr.gotEnv)
+	}
+}
+
 func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}

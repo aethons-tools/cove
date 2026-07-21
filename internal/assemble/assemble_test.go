@@ -22,7 +22,7 @@ func read(t *testing.T, p string) string {
 // (build/create/work) never leaks its .build/.state artifacts into git.
 func TestAssembleEnsuresGitignore(t *testing.T) {
 	kitDir := t.TempDir()
-	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), kit.ImageConfig{}); err != nil {
+	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), nil); err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	gi := read(t, filepath.Join(kitDir, ".gitignore"))
@@ -34,7 +34,7 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 func TestAssembleLayersAndKey(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 
-	if err := Assemble(t.TempDir(), buildDir, []byte("ssh-ed25519 AAAA k\n"), kit.ImageConfig{}); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("ssh-ed25519 AAAA k\n"), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,7 +53,7 @@ func TestAssembleLayersAndKey(t *testing.T) {
 // the placeholders are 0-byte — hardening then keeps the base image's at-task.
 func TestAssembleStagesAtTask(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), kit.ImageConfig{}); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
@@ -77,7 +77,7 @@ func TestAssembleAllowedDomains(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	img := kit.ImageConfig{AllowedDomains: []string{".example.com", "pkg.go.dev"}}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), img); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), img.AllowedDomains); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
@@ -89,7 +89,7 @@ func TestAssembleAllowedDomains(t *testing.T) {
 func TestAssembleAllowedDomainsAlwaysWritten(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), kit.ImageConfig{}); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), nil); err != nil {
 		t.Fatal(err)
 	}
 	// File must exist even with no domains, so squid.conf never references a missing file.
@@ -140,5 +140,36 @@ func TestCollaboratorRoleFileSeeded(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "COLLABORATOR.md")); err != nil {
 		t.Fatalf("default COLLABORATOR.md missing from the hardening payload: %v", err)
+	}
+}
+
+// Assemble must bake the Vertex provider's derived GCP egress domains into the
+// kit-root allow-list, not just the kit's own image.allowed-domains, so a
+// Vertex kit can reach aiplatform + the ADC auth endpoints without a manual
+// allowed-domains entry (COV egress task 2).
+func TestAssemble_VertexDomainsBaked(t *testing.T) {
+	kitDir := t.TempDir()
+	buildDir := filepath.Join(kitDir, ".build")
+	cfg, err := kit.ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), kit.RootDomains(cfg)); err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
+	if err != nil {
+		t.Fatalf("read baked domains: %v", err)
+	}
+	if !strings.Contains(string(b), "us-east5-aiplatform.googleapis.com") ||
+		!strings.Contains(string(b), "oauth2.googleapis.com") {
+		t.Fatalf("baked kit domains missing vertex hosts:\n%s", b)
 	}
 }

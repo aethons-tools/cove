@@ -1,10 +1,10 @@
 ---
-summary: The demand/supply secret model — kits declare secrets by name only (config.yml `secrets`), the machine supplies values out of source control (~/.config/at-cove/secrets.yml + secrets.local.yml), the four supply sources, precedence, the anti-mining invariant, and the trust boundary.
-read_when: You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, or reasoning about the trust boundary of at-cove secrets.
-owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply)
+summary: The demand/supply secret model — kits declare secrets by name only (config.yml `secrets`), the machine supplies values out of source control (~/.config/at-cove/secrets.yml + secrets.local.yml), the four supply sources, precedence, the anti-mining invariant, the trust boundary, and the Vertex GCP ADC credential demand.
+read_when: You are adding a secret to a kit, supplying a value from your machine, wiring a shared/global supply, supplying the GCP ADC for a Vertex kit, or reasoning about the trust boundary of at-cove secrets.
+owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply); the `GOOGLE_APPLICATION_CREDENTIALS_JSON` Vertex credential demand
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the chat/injection data flow
 tier: leaf
-updated: 2026-07-15
+updated: 2026-07-21
 ---
 
 # at-cove secrets
@@ -233,6 +233,41 @@ host, before any VM is built, if the bearer ends up unresolved — see
 above. See also [Authentication](../OVERVIEW.md#authentication) for how this
 fits the two-layer fail-closed design (host pre-flight + no OAuth fallback
 inside the VM).
+
+## The Vertex credential demand: `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+
+A kit with a [`model-provider.vertex`](at-cove-config.md#model-provider) block
+authenticates `chat` via a GCP Application Default Credentials (ADC) file instead
+of Anthropic subscription OAuth. That credential is not part of the `env` map —
+it is resolved through the ordinary demand/supply model above, under the
+well-known demand name **`GOOGLE_APPLICATION_CREDENTIALS_JSON`**, supplied under
+`kits: <kit>:` like any other secret:
+
+```yaml
+# ~/.config/at-cove/secrets.yml
+kits:
+  claude-on-myrepo:
+    GOOGLE_APPLICATION_CREDENTIALS_JSON:
+      command: ["cat", "~/.config/gcloud/application_default_credentials.json"]
+```
+
+Resolved **host-side**, same as any `command:` supply. Unlike every other demand
+in this doc, its value is never injected into the session **env**: `chat` seeds
+it as a **file** onto the `/agent-data` volume (`/agent-data/.gcp-adc.json`) and
+points `GOOGLE_APPLICATION_CREDENTIALS` at that path. For *why* it's seeded
+rather than saved back (a static `authorized_user` ADC, refreshed in-VM), see
+[Authentication: Claude on Vertex](../OVERVIEW.md#authentication-claude-on-vertex),
+which owns that explanation.
+
+Because seeding-as-a-file (never env) is the whole point, `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+is a **reserved name**: `config.yml` rejects it in every general secrets bucket —
+root `secrets`, `workers.*.secrets`, and `collaborators.*.secrets` — the same
+enforcement as the `AT_*` subsystem names (see
+[Secret buckets](at-cove-config.md#secret-buckets)), just with a Vertex-specific
+error explaining *why*: declaring it there would inject the resolved credential
+into the agent's session env too, breaking the file-only air-gap above. It is
+only ever supplied under `secrets.yml`'s `kits: <kit>:` map, as shown above —
+never demanded in `config.yml` at all.
 
 ## Security caveats
 

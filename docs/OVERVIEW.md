@@ -412,6 +412,20 @@ by the hardening layer, so the ACL never dangles and a no-class session (`create
 simply stays root-only. See [`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains)
 for the config shape and union semantics.
 
+**Vertex kits auto-gain their GCP hosts.** A kit with a
+[`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its
+GCP endpoints folded into `allowed_domains.kit.txt` at `install` time — derived
+from the block's `CLOUD_ML_REGION`, not hand-listed. The global inference host
+`aiplatform.googleapis.com` is always included, plus one region-specific host
+depending on `CLOUD_ML_REGION`: unset/`global` adds nothing more (the global
+host already covers it); the multi-region values `us`/`eu` add the distinct
+`aiplatform.us.rep.googleapis.com` / `aiplatform.eu.rep.googleapis.com` host;
+any other value is taken as a specific region and adds
+`<region>-aiplatform.googleapis.com`. Always added alongside: the auth hosts
+`oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
+This only *widens* the kit-root tier, exactly like a hand-written
+`image.allowed-domains` entry — the sealed base and `nftables` are unchanged.
+
 **Applied at session start, privileged — not baked.** Per-class egress is *not* baked
 into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the
 class's delta from the currency-pinned `install.json` (never a live `config.yml`) and
@@ -611,6 +625,37 @@ does **not** seed the OAuth `credentials.json` on the work path: with no OAuth
 token below the bearer in the precedence chain, a worker that somehow still
 launched keyless would fail closed *inside* the VM too, instead of silently
 falling back to — and burning — a subscription.
+
+### Authentication: Claude on Vertex
+
+A kit with a [`model-provider.vertex`](usage/at-cove-config.md#model-provider)
+block branches `chat`'s auth step instead of using either path above: it
+authenticates via a **seeded GCP Application Default Credentials (ADC) file**
+(`GOOGLE_APPLICATION_CREDENTIALS` → `/agent-data/.gcp-adc.json`), and **skips
+subscription OAuth entirely** — no `claude auth status` probe, no `claude auth
+login --claudeai`, no `credentials.json` seed, for a Vertex session.
+
+The ADC is supplied **host-side**, through the ordinary demand/supply model,
+under the well-known demand `GOOGLE_APPLICATION_CREDENTIALS_JSON` (see
+[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json))
+— typically the `authorized_user` ADC that `gcloud auth application-default
+login` already produced on the operator's machine. `chat` **seeds** it onto the
+persistent `/agent-data` volume before launch; unlike the Anthropic
+`credentials.json` above, it is never **saved back**: a `gcloud`
+`authorized_user` ADC is static (a long-lived refresh token), so google-auth
+mints access tokens **in-VM, in memory**, over `oauth2.googleapis.com`, without
+rewriting the file — seeding is the whole of the flow. This is `chat`-only
+today; the dispatched-worker path is designed but not yet built (see the
+[Vertex design spec](superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
+
+`--no-auth` on a Vertex kit means the same thing it means on the Anthropic path
+above ("I manage auth myself"): the ADC file is **not** seeded and
+`GOOGLE_APPLICATION_CREDENTIALS` is **not** set in the launch env, and `chat`
+does not even resolve the credential host-side, so an unsupplied `secrets.yml`
+entry is not an error under `--no-auth`. The non-secret provider env
+(`CLAUDE_CODE_USE_VERTEX`, `CLOUD_ML_REGION`, …) is still applied regardless of
+`--no-auth` — only the credential pointer is suppressed, since a set-but-unseeded
+path would be worse than an unset one.
 
 Private-repo git uses the code-host token, not SSH:
 the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,

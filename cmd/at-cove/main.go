@@ -374,7 +374,7 @@ func assembleContext(kitDir string, r runner.Runner) error {
 		return err
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
-	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, cfg.Image)
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, kit.RootDomains(cfg))
 }
 
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
@@ -800,6 +800,30 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		return nil
 	}
 
+	// A Vertex kit's GCP ADC is resolved host-side, kept out of `specs` above (it
+	// is a file connect seeds, never the agent's session env) — mirroring how the
+	// workspace-clone git token is handled below. Deliberately after the dry-run
+	// return: like workspaceClonePlan, this can execute a resolver command, which
+	// must never happen as a side effect of a --dry-run preview.
+	//
+	// The provider (non-secret) env is set directly from the kit config regardless
+	// of --no-auth — CLAUDE_CODE_USE_VERTEX etc. must still point the agent at
+	// Vertex. But ADC *resolution* is skipped under --no-auth: the escape hatch
+	// means "I manage auth myself", and connect itself will neither seed the file
+	// nor set GOOGLE_APPLICATION_CREDENTIALS when SkipAuth is set, so resolving a
+	// credential here would just be wasted (and, for a mint: supply, needless)
+	// work.
+	var vertexAuth *connect.VertexAuth
+	var vertexEnv map[string]string
+	if _, isVertex := cfg.Vertex(); isVertex {
+		vertexEnv = cfg.VertexEnv()
+		if !noAuth {
+			if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+				return err
+			}
+		}
+	}
+
 	// First-session workspace clone (isolated mode only). The git token is
 	// resolved on the git-scoped expander (so a mint: supply gets the repo) and
 	// kept out of `specs` above — it flows to connect separately and never into
@@ -880,6 +904,8 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		CredentialsFile:    filepath.Join(configDir(), "credentials.json"),
 		CollaboratorPrompt: role.Prompt,
 		WorkspaceClone:     wsClone,
+		ExtraEnv:           vertexEnv,
+		Vertex:             vertexAuth,
 	})
 }
 
@@ -912,6 +938,31 @@ func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, 
 		Branch:  gh.MainBranch, // defaulted to "main" at parse
 		Token:   tok,
 	}, nil
+}
+
+// gcpADCDemand is the well-known demand name a Vertex kit's GCP Application Default
+// Credentials are supplied under (machine-side, in secrets.yml/secrets.local.yml).
+// It is resolved host-side and seeded into the VM as a file — it never enters the
+// agent's session env.
+const gcpADCDemand = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+
+// vertexPlan resolves a Vertex kit's GCP credential host-side (kept out of the
+// session secret env) and returns it plus the non-secret provider env. Fails
+// closed (via planRequired) when no supply is wired for the kit.
+func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, secretsPath string, r runner.Runner) (*connect.VertexAuth, map[string]string, error) {
+	spec, err := planRequired(store, expand, kitName, kitPath, gcpADCDemand, secretsPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolved, err := secret.Resolve(r, nil, []secret.Spec{spec})
+	if err != nil {
+		return nil, nil, err
+	}
+	adc := resolved[gcpADCDemand]
+	if strings.TrimSpace(adc) == "" {
+		return nil, nil, fmt.Errorf("vertex kit %q: resolved GCP credential %s is empty", kitName, gcpADCDemand)
+	}
+	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses

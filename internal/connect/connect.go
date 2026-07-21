@@ -50,6 +50,11 @@ const (
 	// process env so its own env-only askpass (worker/git.go) supplies credentials.
 	// Connect owns no askpass of its own — at-task is the single git-with-token path.
 	cloneEnvVMPath = "/dev/shm/cove-clone-env"
+	// gcpADCVMPath is where a Vertex session's Application Default Credentials file
+	// is seeded (GOOGLE_APPLICATION_CREDENTIALS points here). A gcloud
+	// authorized_user ADC is static — google-auth refreshes access tokens in-VM
+	// over oauth2.googleapis.com — so connect seeds it and never saves it back.
+	gcpADCVMPath = "/agent-data/.gcp-adc.json"
 )
 
 // Options configures a connect. Container/Secrets come from the recorded state,
@@ -75,6 +80,16 @@ type Options struct {
 	// reconnect that finds an existing checkout reuses it). nil means never clone
 	// (a shared share-repo-dir workspace, or source-control/token not configured).
 	WorkspaceClone *WorkspaceClone
+	// ExtraEnv is non-secret env merged into the launch env (e.g. a model
+	// provider's CLAUDE_CODE_USE_VERTEX / CLOUD_ML_REGION). Resolved secrets win on
+	// a key collision. Never carries credential material.
+	ExtraEnv map[string]string
+	// Vertex, when set, makes this a Claude-on-Vertex session: connect seeds the
+	// GCP ADC file and points GOOGLE_APPLICATION_CREDENTIALS at it, instead of the
+	// Anthropic subscription OAuth flow. Both only happen when SkipAuth is false —
+	// with --no-auth, neither the file nor the env var is set (the escape hatch
+	// means "I manage auth myself"; a set-but-unseeded path would be incoherent).
+	Vertex *VertexAuth
 }
 
 // WorkspaceClone describes a first-session clone of the target repo into the
@@ -86,6 +101,12 @@ type WorkspaceClone struct {
 	Token   secret.Spec // code-host token; flows into the VM via an env-only askpass
 }
 
+// VertexAuth carries the GCP Application Default Credentials seeded into a Vertex
+// session. The ADC is resolved host-side and never enters the agent's secret env.
+type VertexAuth struct {
+	ADC []byte // an ADC file (e.g. a gcloud authorized_user credential)
+}
+
 // Connect resolves secrets, verifies the VM is running, dials it, and launches
 // claude with the secrets injected. Secret resolution happens before any SSH so
 // a failure aborts cleanly (fail closed).
@@ -93,6 +114,13 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 	env, err := secret.Resolve(r, nil, o.Secrets)
 	if err != nil {
 		return err
+	}
+
+	// Provider (non-secret) env: apply without clobbering a resolved secret.
+	for k, v := range o.ExtraEnv {
+		if _, taken := env[k]; !taken {
+			env[k] = v
+		}
 	}
 
 	stderr := o.Stderr
@@ -128,8 +156,15 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 	}
 
 	if !o.SkipAuth {
-		if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
-			return err
+		if o.Vertex != nil {
+			if err := seedVertexCredentials(r, tgt, o.Vertex.ADC); err != nil {
+				return err
+			}
+			env["GOOGLE_APPLICATION_CREDENTIALS"] = gcpADCVMPath
+		} else {
+			if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -161,7 +196,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 	// A long session may have refreshed (and possibly rotated) the credentials;
 	// save the latest copy so the next sandbox seeds valid tokens. Best-effort —
 	// never let a save failure mask the session's own outcome.
-	if !o.SkipAuth {
+	if !o.SkipAuth && o.Vertex == nil {
 		if err := saveCredentials(r, tgt, o.CredentialsFile); err != nil {
 			fmt.Fprintf(stderr, "at-cove: warning: could not save credentials to %s: %v\n", o.CredentialsFile, err)
 		}
@@ -218,6 +253,18 @@ func seedCredentials(r runner.Runner, tgt sshargs.Target, credsFile string) erro
 	writeArgs := append(sshargs.Base(tgt), "umask 077; cat > "+credsVMPath)
 	if err := r.RunStdin(bytes.NewReader(data), "ssh", writeArgs...); err != nil {
 		return fmt.Errorf("seeding credentials into sandbox: %w", err)
+	}
+	return nil
+}
+
+// seedVertexCredentials writes the GCP Application Default Credentials into the VM
+// over ssh stdin (umask 077, never on argv), the same in-memory transport used for
+// the Anthropic login and secrets. Seed-only: an authorized_user ADC is static, so
+// there is no save-back — google-auth refreshes access tokens in-VM.
+func seedVertexCredentials(r runner.Runner, tgt sshargs.Target, adc []byte) error {
+	args := append(sshargs.Base(tgt), "umask 077; cat > "+gcpADCVMPath)
+	if err := r.RunStdin(bytes.NewReader(adc), "ssh", args...); err != nil {
+		return fmt.Errorf("seeding GCP credentials into sandbox: %w", err)
 	}
 	return nil
 }

@@ -207,6 +207,35 @@ func TestWorkerBucketRejectsReservedName(t *testing.T) {
 	}
 }
 
+// The Vertex ADC demand name must never be declarable as a general secret
+// (root, worker, or collaborator bucket) — that would inject the resolved GCP
+// credential into the agent's session env, breaking the air-gap invariant that
+// it is only ever seeded as a file by connect.Connect.
+func TestParseConfigRejectsGCPADCUnderRootSecrets(t *testing.T) {
+	yml := "name: k\nsecrets:\n  GOOGLE_APPLICATION_CREDENTIALS_JSON: {}\n"
+	_, err := ParseConfig([]byte(yml))
+	if err == nil {
+		t.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON under root secrets must be rejected")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
+		t.Fatalf("error should mention the name; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "session env") {
+		t.Fatalf("error should explain the air-gap risk, not the generic subsystem message; got %v", err)
+	}
+}
+
+func TestParseConfigRejectsGCPADCUnderCollaboratorSecrets(t *testing.T) {
+	yml := "name: k\ncollaborators:\n  planner:\n    prompt: p\n    secrets:\n      GOOGLE_APPLICATION_CREDENTIALS_JSON: {}\n"
+	_, err := ParseConfig([]byte(yml))
+	if err == nil {
+		t.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON under collaborators.<class>.secrets must be rejected")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
+		t.Fatalf("error should mention the name; got %v", err)
+	}
+}
+
 func TestParseConfigRejectsUnknownAngleKey(t *testing.T) {
 	src := "name: k\nworkers:\n  <bogus>:\n    timeout: 30m\n"
 	if _, err := ParseConfig([]byte(src)); err == nil {
@@ -626,5 +655,122 @@ func TestParseConfigCollaboratorDomainsParsedAndValidated(t *testing.T) {
 	bad := "name: k\ncollaborators:\n  planner:\n    allowed-domains: [\"  \"]\n"
 	if _, err := ParseConfig([]byte(bad)); err == nil || !strings.Contains(err.Error(), "allowed-domains") {
 		t.Fatalf("empty collaborator domain must be rejected mentioning allowed-domains; got %v", err)
+	}
+}
+
+func TestParseConfig_VertexValid(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+      CLOUD_ML_REGION: us-east5
+      ANTHROPIC_MODEL: claude-opus-4-8
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	v, ok := cfg.Vertex()
+	if !ok {
+		t.Fatalf("Vertex() ok = false, want true")
+	}
+	if v.Env["ANTHROPIC_VERTEX_PROJECT_ID"] != "my-proj" {
+		t.Fatalf("project id = %q", v.Env["ANTHROPIC_VERTEX_PROJECT_ID"])
+	}
+	env := cfg.VertexEnv()
+	if env["CLAUDE_CODE_USE_VERTEX"] != "1" {
+		t.Fatalf("VertexEnv missing CLAUDE_CODE_USE_VERTEX=1: %v", env)
+	}
+	if env["ANTHROPIC_MODEL"] != "claude-opus-4-8" || env["CLOUD_ML_REGION"] != "us-east5" {
+		t.Fatalf("VertexEnv passthrough wrong: %v", env)
+	}
+}
+
+func TestParseConfig_VertexMissingRequired(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+`))
+	if err == nil || !strings.Contains(err.Error(), "CLOUD_ML_REGION is required") {
+		t.Fatalf("want CLOUD_ML_REGION required error, got %v", err)
+	}
+}
+
+func TestParseConfig_VertexRejectsProtectedKey(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+name: k
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+      CLOUD_ML_REGION: us
+      https_proxy: http://evil:3128
+`))
+	if err == nil || !strings.Contains(err.Error(), "https_proxy") {
+		t.Fatalf("want protected-key rejection for https_proxy, got %v", err)
+	}
+}
+
+func TestParseConfig_ModelProviderEmptyUnionRejected(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nmodel-provider: {}\n"))
+	if err == nil || !strings.Contains(err.Error(), "must set exactly one provider") {
+		t.Fatalf("empty model-provider union must be rejected mentioning 'must set exactly one provider'; got %v", err)
+	}
+}
+
+func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.VertexEnv() != nil {
+		t.Fatalf("VertexEnv should be nil for a non-vertex kit")
+	}
+	if _, ok := cfg.Vertex(); ok {
+		t.Fatalf("Vertex() ok = true for a non-vertex kit")
+	}
+}
+
+func TestProviderDomains_Vertex(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+image:
+  allowed-domains: [example.com]
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	root := RootDomains(cfg)
+	joined := strings.Join(root, ",")
+	for _, want := range []string{
+		"example.com",                        // kit root preserved
+		"aiplatform.googleapis.com",          // base vertex host
+		"us-east5-aiplatform.googleapis.com", // regional host
+		"oauth2.googleapis.com",              // ADC refresh
+		"sts.googleapis.com",
+		"iamcredentials.googleapis.com",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("RootDomains missing %q; got %v", want, root)
+		}
+	}
+}
+
+func TestProviderDomains_NilWhenNoProvider(t *testing.T) {
+	cfg, _ := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [only.example]\n"))
+	if ProviderDomains(cfg) != nil {
+		t.Fatalf("ProviderDomains should be nil for a non-vertex kit")
+	}
+	if got := RootDomains(cfg); len(got) != 1 || got[0] != "only.example" {
+		t.Fatalf("RootDomains = %v, want [only.example]", got)
 	}
 }
