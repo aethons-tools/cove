@@ -26,7 +26,7 @@ disk, or onto any command line. See the
 
 A kit declares secrets at one of **five schema locations** (the root `secrets`,
 `workers.<class>.secrets`, `collaborators.<class>.secrets`,
-`source-control.github.secrets`, `tracker.linear.secrets`), and *which* location
+`source-control.{github,gitlab}.secrets`, `tracker.linear.secrets`), and *which* location
 a demand is declared at — not its name — determines who resolves it and which
 sandbox mode, if any, ever sees the value: the root bucket is injected into
 **both** `chat` and `work`/`dispatch`; `workers.<class>.secrets` is **work-only**
