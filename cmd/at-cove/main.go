@@ -793,7 +793,9 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		}
 		clone := ""
 		if _, ok := cfg.GitTokenName(); ok && st.WorkspaceMode == "isolated" {
-			clone = fmt.Sprintf(", cloning %s on first session start", cfg.SourceControl.GitHub.Project)
+			if src, ok := cfg.SourceControl.Repo(); ok {
+				clone = fmt.Sprintf(", cloning %s on first session start", src.Project)
+			}
 		}
 		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s%s\n",
 			len(specs), st.Container, who, launch, clone)
@@ -831,8 +833,8 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// yields nil (empty workspace, session still starts); a declared-but-unsupplied
 	// token is a hard error before any SSH.
 	repo := ""
-	if cfg.SourceControl != nil && cfg.SourceControl.GitHub != nil {
-		repo = cfg.SourceControl.GitHub.Project
+	if src, ok := cfg.SourceControl.Repo(); ok {
+		repo = src.Project
 	}
 	wsClone, err := workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
 	if err != nil {
@@ -932,10 +934,10 @@ func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, 
 	if err != nil {
 		return nil, err
 	}
-	gh := cfg.SourceControl.GitHub
+	repo, _ := cfg.SourceControl.Repo() // presence already checked by the guard above
 	return &connect.WorkspaceClone{
-		RepoURL: "https://github.com/" + gh.Project + ".git",
-		Branch:  gh.MainBranch, // defaulted to "main" at parse
+		RepoURL: repo.CloneURL(),
+		Branch:  repo.MainBranch, // defaulted to "main" at parse
 		Token:   tok,
 	}, nil
 }
@@ -1355,8 +1357,8 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// A github minter scopes its token to the kit's repo, passed to at-mint as the
 	// non-secret --repo flag.
 	repo := ""
-	if cfg.SourceControl != nil && cfg.SourceControl.GitHub != nil {
-		repo = cfg.SourceControl.GitHub.Project
+	if src, ok := cfg.SourceControl.Repo(); ok {
+		repo = src.Project
 	}
 	expand := mint.Expander(r, store.Global, repo)
 
@@ -1413,7 +1415,13 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// The code-host token stays a distinct demand (the air-gap); required, fail closed.
 	gitName, ok := cfg.GitTokenName()
 	if !ok {
-		lg.UserError(ctx, fmt.Errorf("kit %q declares no source-control.github.secrets AT_TASK_GIT_TOKEN", cfg.Name), slog.String("step", "secrets"))
+		provider := "source-control"
+		if cfg.SourceControl != nil {
+			if name, aerr := cfg.SourceControl.Active(); aerr == nil {
+				provider = "source-control." + name
+			}
+		}
+		lg.UserError(ctx, fmt.Errorf("kit %q declares no %s.secrets AT_TASK_GIT_TOKEN", cfg.Name, provider), slog.String("step", "secrets"))
 		return 1
 	}
 	gitTok, err := planRequired(store, expand, cfg.Name, kitPath, gitName, secretsPath)
