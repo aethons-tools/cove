@@ -60,7 +60,11 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resol
 	if err != nil {
 		return "", "", err
 	}
-	if err := c.r.Run("docker", dargs("build", "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)...); err != nil {
+	// --progress=plain: line-by-line build output. BuildKit's default TTY progress
+	// renderer right-aligns each step's duration and pads to a width that can
+	// overflow the terminal by a column, wrapping the trailing "s" of "0.0s" onto
+	// its own line. Plain output avoids that artifact.
+	if err := c.r.Run("docker", dargs("build", "--progress=plain", "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)...); err != nil {
 		return "", "", err
 	}
 	// Capture the built image's OWN sha256 (its image ID) so runs can pin it
