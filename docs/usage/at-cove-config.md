@@ -34,12 +34,15 @@ The base sandbox/VM name. Also keys the per-sandbox `known_hosts` and the state/
 volumes. Keep it stable — changing it points commands at a different instance.
 
 ### source-control
-*tagged union — one host (`github` only today)*
+*tagged union — `github` or `gitlab`, mutually exclusive*
 
 The remote the kit targets — the **single source of truth** for the repo identity *and* the
-code-host kind (which selects the clone URL, the PR API, and the matching secret minter).
-**Required for `at-cove work`**; interactive `chat` works without it. `at-cove work`
-fills the target repo into the worker's task from `source-control`, so nothing else names a repo.
+code-host kind (which selects the clone URL, the PR/MR API, and the matching secret
+supply). **Required for `at-cove work`**; interactive `chat` works without it. `at-cove
+work` fills the target repo into the worker's task from `source-control`, so nothing else
+names a repo. GitHub opens a **pull request**; GitLab opens a **merge request** — both
+provider arms share the same `project`/`main-branch`/`secrets.AT_TASK_GIT_TOKEN` shape
+below.
 
 #### source-control.github.project*
 *string — `owner/name`*
@@ -76,6 +79,54 @@ source-control:
       AT_TASK_GIT_TOKEN:
         description: per-task GitHub App installation token — push + PR on the repo
 ```
+
+#### source-control.gitlab.host
+*string, defaults to `gitlab.com`*
+
+The GitLab instance the project lives on — a bare hostname, no scheme or path
+(self-hosted supported, e.g. `gitlab.example.com`). A self-hosted `host`
+**auto-widens the kit-root egress allow-list** at `install` time — no manual
+[`image.allowed-domains`](#imageallowed-domains) entry needed; see
+[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped). `gitlab.com`
+is already in the sealed base, so the common case needs no egress change at all.
+
+#### source-control.gitlab.project*
+*string — `group/.../name`, at least 2 `/`-separated segments*
+
+The GitLab project the workers act on, including any nested groups — unlike GitHub's
+exactly `owner/name`, a GitLab path may have more than one leading group segment.
+
+#### source-control.gitlab.main-branch
+*string, defaults to `main`*
+
+The repo's base branch — the same role as
+[`source-control.github.main-branch`](#source-controlgithubmain-branch).
+
+#### source-control.gitlab.secrets
+*map of secret env name → config, optional in the schema*
+
+Same shape and bucket as
+[`source-control.github.secrets`](#source-controlgithubsecrets) above — the only
+allowed key is `AT_TASK_GIT_TOKEN`. For GitLab, the value is a **supplied** Personal
+Access Token or Project Access Token with `api` + `write_repository` scope: unlike
+GitHub's per-run minted App installation token, GitLab has no minting primitive yet
+(**token minting is a tracked follow-up, COV-79**) — v1 is supplied-only, resolved the
+same demand/supply way as any other kit secret. The token doubles as both the git
+askpass credential and the GitLab Merge-Request-API bearer.
+
+```yaml
+source-control:
+  gitlab:
+    host: gitlab.com                 # optional; default gitlab.com; self-hosted supported
+    project: group/subgroup/name     # >= 2 segments; nested groups allowed
+    main-branch: main
+    secrets:
+      AT_TASK_GIT_TOKEN:
+        description: GitLab PAT / Project Access Token — api + write_repository scope
+```
+
+`source-control.github` and `source-control.gitlab` are **mutually exclusive** — a kit
+declares at most one.
 
 ### tracker
 *tagged union — one provider (`linear` only today)*
@@ -519,7 +570,7 @@ reads its own bucket, not a flat merged list.
 | `secrets` (root) | host, at `chat`/`dispatch` time | injected | injected | the agent process |
 | `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually just `GITHUB_TOKEN` for `gh`/`git`; most other access rides connectors) |
 | `workers.*.secrets` | host, resolved lazily right before the agent step, `<common>`-merged | — | injected (agent step only) | the dispatched agent process |
-| `source-control.github.secrets` | host, minted fresh per git step | — | injected (git steps only) | `at-task prepare`/`complete` only |
+| `source-control.{github,gitlab}.secrets` | host, resolved fresh per git step (minted for GitHub; supplied for GitLab — see [gitlab secrets](#source-controlgitlabsecrets)) | — | injected (git steps only) | `at-task prepare`/`complete` only |
 | `tracker.linear.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
 
 Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
@@ -611,8 +662,10 @@ the template kit for `at-cove dispatch`.
 
 `config.yml` is rejected (with a `config.yml: …` error) if any of:
 - an unknown field is present, or `name` is missing;
-- `source-control` sets more than one host, or `source-control.github.project` is not `owner/name`;
-- `source-control.github.secrets` is non-empty but doesn't declare exactly
+- `source-control` sets more than one provider (`github` **and** `gitlab`);
+  `source-control.github.project` is not `owner/name`; or `source-control.gitlab.project`
+  has fewer than 2 `/`-separated segments;
+- `source-control.{github,gitlab}.secrets` is non-empty but doesn't declare exactly
   `AT_TASK_GIT_TOKEN` (demand-only — a `command` field is a parse error; the value is
   always supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a

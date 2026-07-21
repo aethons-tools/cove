@@ -15,6 +15,7 @@ type TaskIssue struct {
 }
 
 type TaskRepo struct {
+	Provider     string `json:"provider,omitempty" yaml:"provider,omitempty"` // "github" | "gitlab"; empty => github (legacy)
 	Host         string `json:"host,omitempty" yaml:"host,omitempty"`
 	Name         string `json:"name" yaml:"name"`
 	SourceBranch string `json:"source-branch" yaml:"source-branch"`

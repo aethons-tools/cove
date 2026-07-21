@@ -95,7 +95,9 @@ func TestDispatchRunsBracket(t *testing.T) {
 		}
 	}
 	if !strings.Contains(injected, `"name": "acme/myrepo"`) ||
-		!strings.Contains(injected, `"source-branch": "main"`) {
+		!strings.Contains(injected, `"source-branch": "main"`) ||
+		!strings.Contains(injected, `"provider": "github"`) ||
+		!strings.Contains(injected, `"host": "https://github.com"`) {
 		t.Fatalf("injected task missing filled repo:\n%s", injected)
 	}
 	calls := allCalls(r)
@@ -128,6 +130,55 @@ func TestDispatchRunsBracket(t *testing.T) {
 	}
 	if strings.Contains(calls, "docker build") || strings.Contains(calls, "build --build-arg") {
 		t.Fatalf("dispatch must not build on the run path:\n%s", calls)
+	}
+}
+
+// TestDispatchFillsGitLabRepo asserts the fill-repo step is provider-neutral:
+// a gitlab source-control kit fills task.Repo.Provider="gitlab" and a
+// https-prefixed self-hosted host, exercising the same end-to-end injected-task
+// path as TestDispatchRunsBracket (rather than a standalone mirrored assertion).
+func TestDispatchFillsGitLabRepo(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(context.Background(), Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name: "w",
+			SourceControl: &kit.SourceControl{GitLab: &kit.GitLabSource{
+				Host: "gitlab.example.com", Project: "g/app", MainBranch: "main",
+			}},
+			Workers: map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var injected string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+taskVMPath) {
+			injected = c.Stdin
+		}
+	}
+	if !strings.Contains(injected, `"provider": "gitlab"`) ||
+		!strings.Contains(injected, `"host": "https://gitlab.example.com"`) ||
+		!strings.Contains(injected, `"name": "g/app"`) ||
+		!strings.Contains(injected, `"source-branch": "main"`) {
+		t.Fatalf("injected task missing filled gitlab repo:\n%s", injected)
+	}
+	calls := allCalls(r)
+	for _, want := range []string{"at-task prepare", "claude -p", "at-task complete"} {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("missing bracket step %q:\n%s", want, calls)
+		}
 	}
 }
 

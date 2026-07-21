@@ -104,13 +104,15 @@ func Dispatch(ctx context.Context, o Options) error {
 		return err
 	}
 	// Fill the repo from the kit's source-control — the single source of truth.
-	if o.Cfg.SourceControl == nil || o.Cfg.SourceControl.GitHub == nil {
+	repo, ok := o.Cfg.SourceControl.Repo()
+	if !ok {
 		return fmt.Errorf("kit %q declares no source-control (required for dispatch)", o.Cfg.Name)
 	}
-	task.Repo.Name = o.Cfg.SourceControl.GitHub.Project
-	task.Repo.Host = "https://github.com"
+	task.Repo.Provider = repo.Provider
+	task.Repo.Name = repo.Project
+	task.Repo.Host = "https://" + repo.Host
 	if task.Repo.SourceBranch == "" {
-		task.Repo.SourceBranch = o.Cfg.SourceControl.GitHub.MainBranch // defaulted to "main" at parse
+		task.Repo.SourceBranch = repo.MainBranch // defaulted to "main" at parse
 	}
 	filled, err := json.MarshalIndent(&task, "", "  ")
 	if err != nil {
@@ -121,7 +123,7 @@ func Dispatch(ctx context.Context, o Options) error {
 
 	// Run parameters exposed to the secret resolvers (e.g. a per-task minter).
 	runEnv := map[string]string{
-		"COVE_RUN_REPO":    o.Cfg.SourceControl.GitHub.Project,
+		"COVE_RUN_REPO":    repo.Project,
 		"COVE_RUN_ISSUE":   task.Issue.Key,
 		"COVE_RUN_CLASS":   task.Worker.Class,
 		"COVE_RUN_TIMEOUT": o.Timeout.String(),

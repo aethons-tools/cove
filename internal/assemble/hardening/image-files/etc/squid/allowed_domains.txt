@@ -11,6 +11,10 @@ claude.ai
 .github.com
 .githubusercontent.com
 
+# GitLab (gitlab.com) — git over HTTPS + the v4 API. Self-hosted hosts are added
+# per-kit via source-control.gitlab.host (kit-root list), not here.
+gitlab.com
+
 # PyPI, if the agent installs Python packages
 .pythonhosted.org
 pypi.org

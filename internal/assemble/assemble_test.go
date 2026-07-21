@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +172,18 @@ model-provider:
 	if !strings.Contains(string(b), "us-east5-aiplatform.googleapis.com") ||
 		!strings.Contains(string(b), "oauth2.googleapis.com") {
 		t.Fatalf("baked kit domains missing vertex hosts:\n%s", b)
+	}
+}
+
+// The sealed base allow-list must reach gitlab.com out of the box, the same
+// way it already reaches github.com — self-hosted GitLab hosts are handled
+// per-kit via source-control.gitlab.host, not by this sealed base entry.
+func TestSealedBaseAllowsGitLab(t *testing.T) {
+	b, err := fs.ReadFile(HardeningFS(), "hardening/image-files/etc/squid/allowed_domains.txt")
+	if err != nil {
+		t.Fatalf("read sealed allow-list: %v", err)
+	}
+	if !strings.Contains(string(b), "gitlab.com") {
+		t.Fatalf("sealed base must allow gitlab.com:\n%s", b)
 	}
 }

@@ -774,3 +774,81 @@ func TestProviderDomains_NilWhenNoProvider(t *testing.T) {
 		t.Fatalf("RootDomains = %v, want [only.example]", got)
 	}
 }
+
+func containsStr(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func TestParseConfig_GitLabValid(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+source-control:
+  gitlab:
+    project: group/subgroup/app
+    secrets:
+      AT_TASK_GIT_TOKEN: { description: pat }
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	repo, ok := cfg.SourceControl.Repo()
+	if !ok {
+		t.Fatalf("Repo() ok=false")
+	}
+	if repo.Provider != "gitlab" || repo.Host != "gitlab.com" || repo.Project != "group/subgroup/app" || repo.MainBranch != "main" {
+		t.Fatalf("repo = %+v", repo)
+	}
+	if repo.CloneURL() != "https://gitlab.com/group/subgroup/app.git" {
+		t.Fatalf("clone url = %q", repo.CloneURL())
+	}
+	if name, ok := cfg.GitTokenName(); !ok || name != "AT_TASK_GIT_TOKEN" {
+		t.Fatalf("GitTokenName = %q,%v", name, ok)
+	}
+}
+
+func TestParseConfig_GitLabSelfHostedDomainDerived(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    host: gitlab.example.com\n    project: g/app\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := SourceControlDomains(cfg); len(got) != 1 || got[0] != "gitlab.example.com" {
+		t.Fatalf("SourceControlDomains = %v", got)
+	}
+	if root := RootDomains(cfg); !containsStr(root, "gitlab.example.com") {
+		t.Fatalf("RootDomains missing self-hosted host: %v", root)
+	}
+}
+
+func TestParseConfig_GitLabDotComNotDerived(t *testing.T) {
+	cfg, _ := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    project: g/app\n"))
+	if got := SourceControlDomains(cfg); got != nil {
+		t.Fatalf("gitlab.com must not be derived (it's in the sealed base): %v", got)
+	}
+}
+
+func TestParseConfig_GitLabProjectNeedsTwoSegments(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    project: solo\n"))
+	if err == nil || !strings.Contains(err.Error(), "≥2 segments") {
+		t.Fatalf("want ≥2-segment error, got %v", err)
+	}
+}
+
+func TestParseConfig_GitHubAndGitLabMutuallyExclusive(t *testing.T) {
+	_, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: o/r\n  gitlab:\n    project: g/app\n"))
+	if err == nil || !strings.Contains(err.Error(), "exactly one host") {
+		t.Fatalf("want mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestRepo_GitHubUnchanged(t *testing.T) {
+	cfg, _ := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: o/r\n"))
+	repo, _ := cfg.SourceControl.Repo()
+	if repo.Provider != "github" || repo.Host != "github.com" || repo.CloneURL() != "https://github.com/o/r.git" {
+		t.Fatalf("github repo = %+v", repo)
+	}
+}

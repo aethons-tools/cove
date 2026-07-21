@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/dispatch/github"
+	"github.com/aethons-tools/cove/internal/dispatch/gitlab"
 )
 
 // jsonlRecords parses the unattended (JSON) stderr into decoded slog records.
@@ -193,6 +196,21 @@ func TestCloneWorkspaceRequiresRepoBranchDir(t *testing.T) {
 		if code := run(args, &out, &errOut); code != 2 {
 			t.Fatalf("%v: exit = %d; want 2", args, code)
 		}
+	}
+}
+
+func TestCodeHostFor(t *testing.T) {
+	gh := codeHostFor("github", "tok", "https://github.com")
+	if _, ok := gh.(*github.Client); !ok {
+		t.Fatalf("github provider -> %T, want *github.Client", gh)
+	}
+	empty := codeHostFor("", "tok", "https://github.com") // legacy task: default github
+	if _, ok := empty.(*github.Client); !ok {
+		t.Fatalf("empty provider -> %T, want *github.Client", empty)
+	}
+	gl := codeHostFor("gitlab", "tok", "https://gitlab.example.com")
+	if _, ok := gl.(*gitlab.Client); !ok {
+		t.Fatalf("gitlab provider -> %T, want *gitlab.Client", gl)
 	}
 }
 

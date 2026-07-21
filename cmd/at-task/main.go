@@ -20,9 +20,11 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/github"
+	"github.com/aethons-tools/cove/internal/dispatch/gitlab"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/logging"
 )
@@ -178,7 +180,7 @@ func doComplete(args []string, g cli.Globals, stderr io.Writer) int {
 		lg.ErrorContext(ctx, "init git", slog.String("err", scrubErr(err)))
 		return writeResult(ctx, lg, ext, worker.ErrorResult("at-task could not initialize git", err.Error()))
 	}
-	ch := github.New(os.Getenv("AT_TASK_GIT_TOKEN"), nil)
+	ch := codeHostFor(task.Repo.Provider, os.Getenv("AT_TASK_GIT_TOKEN"), task.Repo.Host)
 	tr := worker.Complete(ctx, ".", task, gc, ch)
 	// The complete step itself succeeded (it ran and will write a result); the run
 	// outcome (ok/needs-input/error) is a self-owned, secret-free classification —
@@ -189,6 +191,21 @@ func doComplete(args []string, g cli.Globals, stderr io.Writer) int {
 			slog.String("issue", task.Issue.Key))
 	}
 	return writeResult(ctx, lg, ext, tr)
+}
+
+// codeHostFor selects the code-host client for the task's provider. host is the
+// task.Repo.Host URL prefix (https://<host>); empty provider defaults to github
+// (legacy tasks predating TaskRepo.Provider).
+func codeHostFor(provider, token, host string) worker.CodeHost {
+	if provider == "gitlab" {
+		bare := strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
+		bare = strings.TrimSuffix(bare, "/")
+		if bare == "" {
+			bare = "gitlab.com"
+		}
+		return gitlab.New(token, bare, nil)
+	}
+	return github.New(token, nil)
 }
 
 // writeResult writes tr to .at-task/task-result<ext>. Exit 1 ONLY if the write itself
