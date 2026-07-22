@@ -23,6 +23,7 @@ type fakeTracker struct {
 	transitions []transition
 	posts       []post
 	failClaim   bool // Transition to RoleInProgress returns an error
+	failList    bool // ListReady returns an error (drives the poll-error path)
 
 	lastRole    Role   // most recent role transitioned to (any issue)
 	lastComment string // most recent comment body posted (any issue)
@@ -33,7 +34,12 @@ func newFakeTracker() *fakeTracker {
 	return &fakeTracker{comments: map[string][]Comment{}}
 }
 
-func (f *fakeTracker) ListReady(context.Context) ([]Issue, error) { return f.ready, nil }
+func (f *fakeTracker) ListReady(context.Context) ([]Issue, error) {
+	if f.failList {
+		return nil, errFake
+	}
+	return f.ready, nil
+}
 func (f *fakeTracker) ListInProgress(context.Context) ([]InProgressIssue, error) {
 	return f.inProgress, nil
 }

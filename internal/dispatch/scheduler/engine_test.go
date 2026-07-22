@@ -139,6 +139,21 @@ func TestHandleLogsRunAndStepAttrs(t *testing.T) {
 	}
 }
 
+// A tracker list failure during a poll must carry a step="poll" attr (COV-93):
+// the scheduler's "each layer sets a step" contract means even the poll error
+// joins the step vocabulary, so an operator can grep it.
+func TestPollListErrorCarriesStep(t *testing.T) {
+	var buf bytes.Buffer
+	lg := newTestLogger(&buf)
+	tr := &fakeTracker{failList: true, comments: map[string][]Comment{}}
+	eng := New(testConfig(), "/kits/implement", tr, &fakeExecutor{}, lg)
+	eng.tick(context.Background())
+	s := buf.String()
+	if !strings.Contains(s, "list ready failed") || !strings.Contains(s, `"step":"poll"`) {
+		t.Fatalf("list-ready error must carry step=poll; got %q", s)
+	}
+}
+
 // The scheduler must pass its per-dispatch run id into the `at-cove work`
 // subprocess via COVE_RUN_ID, and it must be the SAME id it stamps on its own
 // logs — so the work process (and the VM records it merges) join this dispatch's
