@@ -126,7 +126,7 @@ the image; only `uninstall` removes the image.
 
 | Command | Behavior |
 |---|---|
-| `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
+| `at-cove install [--project-dir DIR] [--allow-unverified-base] [--assemble-only]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--assemble-only` materializes `<kit>/.build/` for inspection and stops (no docker, no manifest — the old `build`'s assemble+inspect use). `--dry-run` is a pure preview: it assembles nothing and touches no docker/keys/manifest. |
 | `at-cove create [collaborator] [--project-dir DIR]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. The selected collaborator's [`share-repo-dir`](usage/at-cove-config.md#collaborators) picks Shared (bind-mount of the kit repo dir) vs Isolated — see [Workspace and state volumes](#workspace-and-state-volumes). |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
 | `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
@@ -139,7 +139,10 @@ the image; only `uninstall` removes the image.
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
-without executing anything.
+without executing anything. It is uniformly **side-effect-free** across every
+command: no host secret resolver runs, no tracker connect, and nothing is written
+into the kit (`install --dry-run` assembles nothing — use `--assemble-only` for
+that; `chat`/`dispatch --dry-run` resolve no secrets and reach no tracker).
 Flags specific to a command (e.g. `--raw`, `--project-dir`) go *after* the
 command name; each command only accepts its own flags.
 
