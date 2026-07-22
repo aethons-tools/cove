@@ -165,14 +165,14 @@ workers:
 	if err != nil {
 		t.Fatalf("ResolvedWorker(implement): %v", err)
 	}
-	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.Concurrency != 2 {
+	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.ConcurrencyOrZero() != 2 {
 		t.Fatalf("implement merge = %+v; want prompt/40m(own)/2(common)", impl)
 	}
 	aud, err := cfg.ResolvedWorker("audit")
 	if err != nil {
 		t.Fatalf("ResolvedWorker(audit): %v", err)
 	}
-	if aud.Timeout != "30m" || aud.Concurrency != 1 {
+	if aud.Timeout != "30m" || aud.ConcurrencyOrZero() != 1 {
 		t.Fatalf("audit merge = %+v; want 30m(common)/1(own)", aud)
 	}
 	if _, err := cfg.ResolvedWorker("<common>"); err == nil {
@@ -383,6 +383,43 @@ tracker:
 `
 	if _, err := ParseConfig([]byte(src)); err == nil {
 		t.Fatal("missing AT_DISPATCH_WEBHOOK_SECRET must be rejected")
+	}
+}
+
+// TestConcurrencyExplicitZeroRejectedUnsetInherits (COV-87): an explicit
+// workers.<class>.concurrency: 0 is rejected (0 removes the per-class cap rather
+// than pausing — the opposite of the likely intent), while an unset value is
+// distinct from 0 and still inherits <common>.
+func TestConcurrencyExplicitZeroRejectedUnsetInherits(t *testing.T) {
+	// Explicit 0 in a real class is rejected with an actionable message.
+	bad := "name: k\nworkers:\n  <common>:\n    concurrency: 3\n  impl:\n    prompt: p\n    concurrency: 0\n"
+	_, err := ParseConfig([]byte(bad))
+	if err == nil {
+		t.Fatal("explicit concurrency: 0 in a class must be rejected")
+	}
+	if !strings.Contains(err.Error(), "concurrency") || !strings.Contains(err.Error(), "pause") {
+		t.Fatalf("error should name concurrency and mention pausing; got %v", err)
+	}
+
+	// Explicit 0 in <common> is rejected too.
+	if _, err := ParseConfig([]byte("name: k\nworkers:\n  <common>:\n    concurrency: 0\n  impl:\n    prompt: p\n")); err == nil {
+		t.Fatal("explicit concurrency: 0 in <common> must be rejected")
+	}
+
+	// Unset in the class (nil, distinct from 0) still inherits <common>.
+	cfg, err := ParseConfig([]byte("name: k\nworkers:\n  <common>:\n    concurrency: 5\n  impl:\n    prompt: p\n"))
+	if err != nil {
+		t.Fatalf("unset concurrency must be valid: %v", err)
+	}
+	rw, err := cfg.ResolvedWorker("impl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.Concurrency == nil {
+		t.Fatal("unset class concurrency should inherit <common>'s non-nil value")
+	}
+	if rw.ConcurrencyOrZero() != 5 {
+		t.Fatalf("unset class concurrency should inherit <common> 5; got %d", rw.ConcurrencyOrZero())
 	}
 }
 
