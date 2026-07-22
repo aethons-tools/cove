@@ -1390,7 +1390,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// rather than launch a doomed VM — but only when NEITHER name is declared
 	// and resolved. Bearer-name knowledge is confined to this gate.
 	// The bearer lives in the worker-class bucket (config validation rejects it
-	// at root — see rejectRootBearers), so the gate checks rw.Secrets/
+	// in every non-worker bucket — see validateSecretNames), so the gate checks rw.Secrets/
 	// workerUnresolved rather than cfg.Secrets/rootUnresolved.
 	agentBearerSecrets := []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"}
 	unresolvedSet := make(map[string]bool, len(workerUnresolved))
