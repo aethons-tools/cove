@@ -866,7 +866,7 @@ func TestDryRunChatRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // hermetic: no real ~/.config/at-cove/secrets.yml
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir) // chat reads run-config from install.json (COV-38)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1160,7 +1160,7 @@ func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1189,7 +1189,7 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	// The sole collaborator keys its own instance: state file steward.json,
 	// container box-steward (COV-71).
-	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir) // the collaborator is read from install.json's run-config
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer

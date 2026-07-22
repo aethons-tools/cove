@@ -19,18 +19,20 @@ import (
 )
 
 // schemaVersion 2 added the Volumes sub-object (COV-76); version 3 added
-// ImageDigest, the built image's own sha256 the run was pinned to (COV-78). Older
-// files simply omit these keys and load without error — a missing "volumes" falls
-// back to reconstructing names from the container, a missing "imageDigest" leaves
-// the run recorded under its mutable tag alone.
-const schemaVersion = 3
+// ImageDigest, the built image's own sha256 the run was pinned to (COV-78);
+// version 4 dropped Secret.Command (COV-90), a never-written resolver argv. Older
+// files simply omit (or, for v4, still carry) these keys and load without error —
+// a missing "volumes" falls back to reconstructing names from the container, a
+// missing "imageDigest" leaves the run recorded under its mutable tag alone, and
+// a stale "command" on a secret is ignored by the lenient JSON load.
+const schemaVersion = 4
 
-// Secret is a snapshot of a kit secret spec (name + resolver argv) taken at
-// create time. Secret VALUES are never stored — only the command that produces
-// them, resolved fresh at each connect.
+// Secret is a snapshot of a kit secret demand (its name) taken at create time.
+// Only the name is recorded: a kit never carries a resolver command (the
+// demand/supply trust boundary — supply lives host-side and is resolved fresh at
+// each connect), and neither values nor resolver argv are ever persisted.
 type Secret struct {
-	Name    string   `json:"name"`
-	Command []string `json:"command"`
+	Name string `json:"name"`
 }
 
 // Volumes records the named volumes the backend created for an instance, so
