@@ -753,6 +753,46 @@ A reference dispatch worker implementation lives at `kits/reference-worker/`; se
 
 ## Building, testing, running
 
+### Installing the binaries
+
+The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
+fastest way to get `at-cove` and `at-mint`: it pulls the prebuilt archive from the
+latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
+on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
+and installs both binaries. `at-task` ships **embedded** in `at-cove`, so it is not
+installed separately.
+
+The repo is **private** today, so the installer authenticates through your GitHub
+CLI login (`gh auth login`):
+
+```bash
+gh api -H "Accept: application/vnd.github.raw" \
+  /repos/aethons-tools/cove/contents/install.sh | bash
+```
+
+When the repo goes public this collapses to the classic anonymous form — the same
+script, unchanged:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
+```
+
+The installer picks the `gh` path when `gh` is installed **and** authenticated, and
+otherwise falls back to anonymous `curl` (which only succeeds once the repo is
+public). That single fork is what lets one script serve both phases with no code
+change. A checksum mismatch aborts before anything is written.
+
+Optional knobs:
+
+| Env var | Effect |
+|---------|--------|
+| `COVE_VERSION=<N>-<MMDD>` | Install a specific release instead of the latest. |
+| `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
+| `COVE_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
+
+To **build from source instead** (the contributor path), use `just install` below,
+which compiles the binaries and installs them onto your PATH.
+
 Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 

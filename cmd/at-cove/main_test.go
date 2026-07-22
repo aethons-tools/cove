@@ -1653,7 +1653,7 @@ func TestDispatchFailsFastWhenNotInstalled(t *testing.T) {
 // workerBearerKitConfig is a complete, dispatch-ready worker kit whose
 // `implement` worker class declares ANTHROPIC_AUTH_TOKEN (the agent's
 // Anthropic bearer) under workers.implement.secrets — not at the root, which
-// kit.Load now rejects (see rejectRootBearers) — alongside the required
+// kit.Load now rejects (see validateSecretNames) — alongside the required
 // source-control.github AT_TASK_GIT_TOKEN demand. It deliberately supplies no
 // secrets.yml entry for ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved.
 // AT_TASK_GIT_TOKEN, by contrast, is resolved cleanly by the test (see
