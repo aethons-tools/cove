@@ -483,6 +483,13 @@ session starts in an empty workspace (the prior behavior); if it *is* configured
 but the clone **fails**, session start is a **hard error** (fail closed). A
 `share-repo-dir` shared workspace is never cloned — the host checkout is shared live.
 
+The isolated volume mounts **agent-owned**: the hardening image ships an
+agent-owned `/home/agent/workspace` mountpoint, and the backend initializes the
+fresh named volume's ownership from it. Without that, the empty volume would come
+up root-owned and the first clone — which runs as the agent user — would fail with
+`Permission denied` (the `/agent-data` volume instead relies on the entrypoint
+chowning it at boot).
+
 A second volume, **`<instance>-agent-data`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates,
 and is seeded once (guarded by a `.seeded` marker). The suffix matches the mount
