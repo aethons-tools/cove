@@ -40,7 +40,20 @@ collaborators:
     secrets:
       GITHUB_TOKEN: {}
   planner:
-    prompt: Work with the user to intake and plan work from the Linear board.
+    prompt: |
+      Work with the user to intake and plan work from the Linear board.
+      The workspace is shared with the user.
+    share-repo-dir: true
+  reviewer:
+    prompt: |
+      Watch the Linear board COV team for "In Review" tickets labeled "class:implementor".
+      For each, review the associated PR (pull the branch local) and if acceptable,
+      merge-squash the PR and move the ticket to "Done".
+      If the PR is not acceptable, document the reason in the ticket and move the ticket to "Needs Input".
+  floater:
+    prompt: |
+      Work with the user to manage emergent tasks, which may include planning in parallel with the
+      primary planner's efforts.
 
 image:
   # This repo builds out its toolchain image in CI rather than locally.

@@ -223,6 +223,28 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 	}
 }
 
+// TestWorkspaceDirOwnedByAgent guards that the image creates /home/agent/workspace
+// owned by the agent user. An isolated workspace is a freshly-created backend
+// named volume mounted there; Docker initializes an empty volume's ownership from
+// the image directory at the mount path. Without an agent-owned dir in the image,
+// the fresh volume comes up root-owned and the first `chat` session's
+// `at-task clone-workspace` — which runs as the agent user — fails with
+// "/home/agent/workspace/.git: Permission denied" (the /agent-data volume avoids
+// this only because the entrypoint chowns it at boot).
+func TestWorkspaceDirOwnedByAgent(t *testing.T) {
+	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := string(df)
+	if !strings.Contains(d, "mkdir -p /home/agent/workspace") {
+		t.Errorf("Dockerfile must create /home/agent/workspace so the isolated volume mounts writable; got:\n%s", d)
+	}
+	if !strings.Contains(d, "chown agent:agent /home/agent/workspace") {
+		t.Errorf("Dockerfile must chown /home/agent/workspace to agent so the fresh volume is agent-owned; got:\n%s", d)
+	}
+}
+
 // TestConfigDirReachesEnvironment guards that CLAUDE_CONFIG_DIR points at the
 // persistent volume for every ssh session, so the OAuth login and the agent
 // session agree on where credentials live. It is sealed-layer-owned (the

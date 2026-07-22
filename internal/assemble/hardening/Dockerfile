@@ -47,11 +47,17 @@ COPY image-files/. /.
 # .init-agent-data), and Docker stamps the build context's root ownership onto
 # the pre-existing /home/agent — leaving the agent unable to write to its own
 # $HOME. Restore it (and .ssh, whose contents COPY also re-owned).
+# Also create an agent-owned /home/agent/workspace: an isolated workspace is a
+# freshly-created named volume mounted there, and Docker initializes an empty
+# volume's ownership from this image dir — without it the volume comes up
+# root-owned and the first `chat` clone (run as agent) fails Permission denied.
 RUN chmod +x /usr/local/bin/entrypoint.sh \
  && chown agent:agent /home/agent \
  && chown -R agent:agent /home/agent/.ssh \
  && chmod 700 /home/agent/.ssh \
- && chmod 600 /home/agent/.ssh/authorized_keys
+ && chmod 600 /home/agent/.ssh/authorized_keys \
+ && mkdir -p /home/agent/workspace \
+ && chown agent:agent /home/agent/workspace
 # && find /etc/claude-code -type d -exec chmod 0755 {} + \
 # && find /etc/claude-code -type f -exec chmod 0644 {} + \
 # && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py
