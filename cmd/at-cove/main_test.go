@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/cli"
@@ -1444,6 +1445,33 @@ func TestSaveStateSnapshot(t *testing.T) {
 	}
 	if len(st.Secrets) != 1 || st.Secrets[0].Name != "GITHUB_TOKEN" {
 		t.Fatalf("secrets not snapshotted: %+v", st.Secrets)
+	}
+}
+
+// TestEffectiveWorkTimeout (COV-88): an unset --timeout adopts the resolved
+// workers.<class>.timeout so a manual `work` matches `dispatch`; an explicit flag
+// always wins; a class with no timeout keeps the flag default.
+func TestEffectiveWorkTimeout(t *testing.T) {
+	const flagDefault = 30 * time.Minute
+	cases := []struct {
+		name         string
+		flagValue    time.Duration
+		flagSet      bool
+		classTimeout string
+		want         time.Duration
+	}{
+		{"unset flag adopts class timeout", flagDefault, false, "2h", 2 * time.Hour},
+		{"explicit flag wins over class", 45 * time.Minute, true, "2h", 45 * time.Minute},
+		{"explicit flag wins even matching default", flagDefault, true, "2h", flagDefault},
+		{"no class timeout keeps flag default", flagDefault, false, "", flagDefault},
+		{"unparseable class timeout keeps flag default", flagDefault, false, "nonsense", flagDefault},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveWorkTimeout(tc.flagValue, tc.flagSet, tc.classTimeout); got != tc.want {
+				t.Fatalf("effectiveWorkTimeout(%v, %v, %q) = %v, want %v", tc.flagValue, tc.flagSet, tc.classTimeout, got, tc.want)
+			}
+		})
 	}
 }
 

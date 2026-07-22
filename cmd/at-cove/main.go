@@ -1188,6 +1188,22 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 // then hands off to dispatchrun. With dryRun it prints the planned actions and
 // returns before touching the backend, assembling, or resolving any secret —
 // mirroring doInstall/doCreate's dry-run convention.
+// effectiveWorkTimeout resolves the hard wall-clock cap for one `at-cove work`
+// unit (COV-88): an explicit --timeout always wins; an unset flag adopts the
+// resolved workers.<class>.timeout (the same value the dispatch scheduler passes),
+// so a manual `work` matches `dispatch` for the same kit; failing that (no class
+// timeout, or an unparseable one — though config validation forbids the latter)
+// it keeps the flag's own default. classTimeout is a Go duration string.
+func effectiveWorkTimeout(flagValue time.Duration, flagSet bool, classTimeout string) time.Duration {
+	if flagSet || classTimeout == "" {
+		return flagValue
+	}
+	if d, err := time.ParseDuration(classTimeout); err == nil {
+		return d
+	}
+	return flagValue
+}
+
 func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Writer) int {
 	dryRun := g.DryRun
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
@@ -1195,13 +1211,21 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	pd := projectDirFlag(fs)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
-	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work")
+	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work (default: the resolved workers.<class>.timeout)")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
 	pos, err := cli.ParseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
+	// Whether --timeout was given explicitly: an unset flag defaults to the
+	// resolved class timeout below (COV-88), an explicit one always wins.
+	timeoutSet := false
+	fs.Visit(func(fl *flag.Flag) {
+		if fl.Name == "timeout" {
+			timeoutSet = true
+		}
+	})
 	if !noPositionals(pos, "work", stderr) {
 		return 2
 	}
@@ -1354,6 +1378,11 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 1
 	}
 
+	// COV-88: an unset --timeout adopts the resolved workers.<class>.timeout — the
+	// same cap the dispatch scheduler passes — so a manual `at-cove work` honors the
+	// kit's declared timeout instead of silently applying the 30m flag default.
+	effectiveTimeout := effectiveWorkTimeout(*timeout, timeoutSet, rw.Timeout)
+
 	// A github minter scopes its token to the kit's repo, passed to at-mint as the
 	// non-secret --repo flag.
 	repo := ""
@@ -1444,7 +1473,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		IdentityFile:    priv,
 		KnownHostsDir:   filepath.Join(configDir(), "known_hosts.d"),
 		InputPath:       *inPath, OutputPath: *outPath,
-		Timeout: *timeout, GraceWindow: *grace, Now: time.Now(),
+		Timeout: effectiveTimeout, GraceWindow: *grace, Now: time.Now(),
 	})
 	if err != nil {
 		lg.UserError(ctx, fmt.Errorf("work: %w", err), slog.String("step", "dispatch"))
