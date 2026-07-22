@@ -48,8 +48,8 @@ func TestProjectDirFlagResolves(t *testing.T) {
 func TestProjectDirFlagErrorsWithoutKit(t *testing.T) {
 	dir := t.TempDir() // no .at-cove/ here
 	var errb bytes.Buffer
-	if _, code := resolveProjectDir(dir, &errb); code != 1 {
-		t.Fatalf("code=%d, want 1 when the project root has no .at-cove/", code)
+	if _, code := resolveProjectDir(dir, &errb); code != 2 {
+		t.Fatalf("code=%d, want 2 (usage error) when the project root has no .at-cove/", code)
 	}
 	if !strings.Contains(errb.String(), "no .at-cove/ at project root") || !strings.Contains(errb.String(), dir) {
 		t.Fatalf("error should name the missing .at-cove/ and the project root; got %q", errb.String())
@@ -1989,10 +1989,10 @@ func TestDispatchRejectsIncompleteKit(t *testing.T) {
 
 // TestLogLevelEnvFallbackOnDispatchPath guards the AT_LOG_LEVEL env fallback
 // used by doDispatch (and mirrored by doWork's bearer-gate logger): the
-// --log-level global flag must default to "" so envOr(g.LogLevel,
+// --log-level global flag must default to "" so logging.EnvOr(g.LogLevel,
 // "AT_LOG_LEVEL") actually falls through to the environment. It exercises
 // the real flag-parsing path (cli.App.Run with a probe command), not
-// logLevelFrom in isolation, so it fails if the flag's zero value regresses
+// logging.LevelFrom in isolation, so it fails if the flag's zero value regresses
 // back to a non-empty "info".
 func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
 	var got cli.Globals
@@ -2015,8 +2015,8 @@ func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
 		if got.LogLevel != "" {
 			t.Fatalf("g.LogLevel = %q, want %q (flag omitted) — --log-level flag default is no longer empty, so envOr can never see AT_LOG_LEVEL", got.LogLevel, "")
 		}
-		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelDebug {
-			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (AT_LOG_LEVEL=debug ignored)", lvl, slog.LevelDebug)
+		if lvl := logging.LevelFrom(logging.EnvOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelDebug {
+			t.Fatalf("logging.LevelFrom(logging.EnvOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (AT_LOG_LEVEL=debug ignored)", lvl, slog.LevelDebug)
 		}
 	})
 
@@ -2025,61 +2025,10 @@ func TestLogLevelEnvFallbackOnDispatchPath(t *testing.T) {
 		if code := app.Run([]string{"probe"}, &out, &errOut); code != 0 {
 			t.Fatalf("code=%d stderr=%s", code, errOut.String())
 		}
-		if lvl := logLevelFrom(envOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelInfo {
-			t.Fatalf("logLevelFrom(envOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (effective default)", lvl, slog.LevelInfo)
+		if lvl := logging.LevelFrom(logging.EnvOr(got.LogLevel, "AT_LOG_LEVEL")); lvl != slog.LevelInfo {
+			t.Fatalf("logging.LevelFrom(logging.EnvOr(g.LogLevel, \"AT_LOG_LEVEL\")) = %v, want %v (effective default)", lvl, slog.LevelInfo)
 		}
 	})
-}
-
-// TestLogModeFrom covers the --log-mode/AT_LOG_MODE value mapper directly: the
-// two recognized modes map to their logging.Mode, and everything else (empty,
-// garbage) falls back to Auto (TTY-detected).
-func TestLogModeFrom(t *testing.T) {
-	cases := map[string]logging.Mode{
-		"attended":   logging.Attended,
-		"unattended": logging.Unattended,
-		"":           logging.Auto,
-		"nonsense":   logging.Auto,
-	}
-	for in, want := range cases {
-		if got := logModeFrom(in); got != want {
-			t.Errorf("logModeFrom(%q) = %v; want %v", in, got, want)
-		}
-	}
-}
-
-// TestLogLevelFrom covers the --log-level/AT_LOG_LEVEL value mapper directly:
-// the four recognized levels map through, and everything else (empty, "info",
-// garbage) falls back to Info.
-func TestLogLevelFrom(t *testing.T) {
-	cases := map[string]slog.Level{
-		"debug":    slog.LevelDebug,
-		"warn":     slog.LevelWarn,
-		"error":    slog.LevelError,
-		"info":     slog.LevelInfo,
-		"":         slog.LevelInfo,
-		"nonsense": slog.LevelInfo,
-	}
-	for in, want := range cases {
-		if got := logLevelFrom(in); got != want {
-			t.Errorf("logLevelFrom(%q) = %v; want %v", in, got, want)
-		}
-	}
-}
-
-// TestEnvOr covers the flag-else-env fallback: a non-empty flag wins verbatim
-// (env ignored), and an empty flag falls through to os.Getenv(key).
-func TestEnvOr(t *testing.T) {
-	t.Setenv("AT_TEST_ENVOR", "from-env")
-	if got := envOr("from-flag", "AT_TEST_ENVOR"); got != "from-flag" {
-		t.Errorf("envOr with non-empty flag = %q; want %q", got, "from-flag")
-	}
-	if got := envOr("", "AT_TEST_ENVOR"); got != "from-env" {
-		t.Errorf("envOr with empty flag = %q; want %q (env fallback)", got, "from-env")
-	}
-	if got := envOr("", "AT_TEST_ENVOR_UNSET"); got != "" {
-		t.Errorf("envOr with empty flag and unset env = %q; want %q", got, "")
-	}
 }
 
 // TestWorkEmitsStructuredDiagnostic proves the operational work path routes its

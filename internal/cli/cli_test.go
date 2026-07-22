@@ -116,10 +116,10 @@ func TestGlobalsParseLogFlags(t *testing.T) {
 }
 
 // TestGlobalsLogLevelDefaultsEmpty guards the AT_LOG_LEVEL env fallback on the
-// dispatch path (cmd/at-cove's envOr(g.LogLevel, "AT_LOG_LEVEL")): envOr only
+// dispatch path (cmd/at-cove's logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")): envOr only
 // consults the environment when the flag is at its zero value, so
 // --log-level's flag.String default must be "" (not "info") or the env var
-// is silently ignored. logLevelFrom("") still maps to slog.LevelInfo, so the
+// is silently ignored. logging.LevelFrom("") still maps to slog.LevelInfo, so the
 // effective default is unchanged; only the zero value matters here.
 func TestGlobalsLogLevelDefaultsEmpty(t *testing.T) {
 	var got Globals
@@ -138,7 +138,7 @@ func TestGlobalsLogLevelDefaultsEmpty(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, errOut.String())
 	}
 	if got.LogLevel != "" {
-		t.Fatalf("g.LogLevel = %q, want %q so envOr(g.LogLevel, \"AT_LOG_LEVEL\") falls through to the environment", got.LogLevel, "")
+		t.Fatalf("g.LogLevel = %q, want %q so logging.EnvOr(g.LogLevel, \"AT_LOG_LEVEL\") falls through to the environment", got.LogLevel, "")
 	}
 }
 
@@ -162,5 +162,41 @@ func TestParseInterspersed(t *testing.T) {
 	fs.SetOutput(&bytes.Buffer{})
 	if _, err := ParseInterspersed(fs, []string{"--nope"}); err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+// TestParseFlags covers the shared subcommand parse convention (COV-94): -h/--help
+// prints usage to stdout and signals exit 0; a bad flag prints to stderr and
+// signals exit 2; a clean parse returns the positionals with ok=true.
+func TestParseFlags(t *testing.T) {
+	newFS := func() *flag.FlagSet {
+		fs := flag.NewFlagSet("work", flag.ContinueOnError)
+		fs.Bool("reap", false, "scavenge orphans")
+		return fs
+	}
+
+	for _, f := range []string{"-h", "--help"} {
+		var out, errOut bytes.Buffer
+		pos, code, ok := ParseFlags(newFS(), []string{f}, &out, &errOut)
+		if ok || code != 0 {
+			t.Fatalf("%s: ok=%v code=%d, want ok=false code=0", f, ok, code)
+		}
+		if pos != nil || !strings.Contains(out.String(), "-reap") || errOut.Len() != 0 {
+			t.Fatalf("%s: usage must go to stdout, not stderr; out=%q err=%q", f, out.String(), errOut.String())
+		}
+	}
+
+	// A bad flag: usage error to stderr, exit 2.
+	var out, errOut bytes.Buffer
+	if _, code, ok := ParseFlags(newFS(), []string{"--nope"}, &out, &errOut); ok || code != 2 {
+		t.Fatalf("bad flag: ok=%v code=%d, want ok=false code=2", ok, code)
+	}
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "work:") {
+		t.Fatalf("bad flag: error must go to stderr; out=%q err=%q", out.String(), errOut.String())
+	}
+
+	// Clean parse: positionals returned, ok=true.
+	if pos, code, ok := ParseFlags(newFS(), []string{"--reap", "extra"}, &bytes.Buffer{}, &bytes.Buffer{}); !ok || code != 0 || len(pos) != 1 || pos[0] != "extra" {
+		t.Fatalf("clean parse: pos=%v code=%d ok=%v", pos, code, ok)
 	}
 }

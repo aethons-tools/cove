@@ -2,6 +2,7 @@
 package keys
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -15,7 +16,7 @@ func Ensure(r runner.Runner, dir string) (string, []byte, error) {
 		return "", nil, err
 	}
 	priv := filepath.Join(dir, "id_ed25519")
-	if _, err := os.Stat(priv); os.IsNotExist(err) {
+	if _, err := os.Stat(priv); errors.Is(err, os.ErrNotExist) {
 		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "cove", "-f", priv); err != nil {
 			return "", nil, err
 		}

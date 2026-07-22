@@ -15,9 +15,9 @@ import (
 
 // Client opens merge requests on a GitLab host (gitlab.com or self-hosted).
 type Client struct {
-	http *http.Client
-	base string // https://<host>/api/v4
-	tok  string
+	http  *http.Client
+	base  string // https://<host>/api/v4
+	token string
 }
 
 // New builds a client for host (a bare hostname, e.g. gitlab.com). token is a
@@ -26,7 +26,7 @@ func New(token, host string, httpc *http.Client) *Client {
 	if httpc == nil {
 		httpc = http.DefaultClient
 	}
-	return &Client{http: httpc, base: "https://" + host + "/api/v4", tok: token}
+	return &Client{http: httpc, base: "https://" + host + "/api/v4", token: token}
 }
 
 // OpenPR creates a Merge Request, or returns the URL of an existing open MR for
@@ -91,7 +91,7 @@ func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int,
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("PRIVATE-TOKEN", c.tok)
+	req.Header.Set("PRIVATE-TOKEN", c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {

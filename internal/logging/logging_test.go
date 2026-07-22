@@ -148,3 +148,54 @@ func TestNewWrapsFileErrors(t *testing.T) {
 		t.Fatalf("error must be wrapped with log-file context; got %v", err)
 	}
 }
+
+// TestModeFrom covers the --log-mode/AT_LOG_MODE value mapper: the two recognized
+// modes map to their Mode, and everything else (empty, garbage) falls back to
+// Auto (TTY-detected). Shared by the at-cove and at-task CLIs (COV-94).
+func TestModeFrom(t *testing.T) {
+	cases := map[string]Mode{
+		"attended":   Attended,
+		"unattended": Unattended,
+		"":           Auto,
+		"nonsense":   Auto,
+	}
+	for in, want := range cases {
+		if got := ModeFrom(in); got != want {
+			t.Errorf("ModeFrom(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
+// TestLevelFrom covers the --log-level/AT_LOG_LEVEL value mapper: the recognized
+// levels map through, and everything else (empty, "info", garbage) falls back to
+// Info.
+func TestLevelFrom(t *testing.T) {
+	cases := map[string]slog.Level{
+		"debug":    slog.LevelDebug,
+		"warn":     slog.LevelWarn,
+		"error":    slog.LevelError,
+		"info":     slog.LevelInfo,
+		"":         slog.LevelInfo,
+		"nonsense": slog.LevelInfo,
+	}
+	for in, want := range cases {
+		if got := LevelFrom(in); got != want {
+			t.Errorf("LevelFrom(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
+// TestEnvOr covers the flag-else-env fallback: a non-empty flag wins verbatim
+// (env ignored), and an empty flag falls through to os.Getenv(key).
+func TestEnvOr(t *testing.T) {
+	t.Setenv("AT_TEST_ENVOR", "from-env")
+	if got := EnvOr("from-flag", "AT_TEST_ENVOR"); got != "from-flag" {
+		t.Errorf("EnvOr with non-empty flag = %q; want %q", got, "from-flag")
+	}
+	if got := EnvOr("", "AT_TEST_ENVOR"); got != "from-env" {
+		t.Errorf("EnvOr with empty flag = %q; want %q (env fallback)", got, "from-env")
+	}
+	if got := EnvOr("", "AT_TEST_ENVOR_UNSET"); got != "" {
+		t.Errorf("EnvOr with empty flag and unset env = %q; want %q", got, "")
+	}
+}

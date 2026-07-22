@@ -109,6 +109,12 @@ at all: a stray one is a usage error (exit 2, `takes no positional arguments (us
 --project-dir)`), matching how the interactive verbs reject extra positionals
 (COV-73).
 
+**Usage errors are uniform (COV-94):** a bad argument — a stray positional, a
+too-many/unknown **collaborator**, or a `--project-dir` pointing at no kit — exits
+**2** on **stderr**; a subcommand's `-h`/`--help` prints its usage to **stdout** and
+exits **0** (matching the top-level `at-cove -h`). Runtime failures (a doomed run,
+a backend error) stay exit 1.
+
 **The install lifecycle** — `config.yml → install → install.json → run commands`.
 `config.yml` is *source*; [`at-cove install`](#how-the-build-context-is-assembled)
 compiles it once — resolve + **gate** the base, `docker build` + tag, freeze the
