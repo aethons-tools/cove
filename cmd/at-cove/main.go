@@ -1002,6 +1002,15 @@ func doDestroyInstance(kitDir string, r runner.Runner, inst state.Instance, keep
 	if err := b.Destroy(bi, keepVolumes); err != nil {
 		return err
 	}
+	// Reap this instance's per-sandbox TOFU pin (COV-100): the container's host key
+	// does not survive teardown — it is regenerated on each boot into an ephemeral
+	// /etc/ssh — so its known_hosts.d/<container> entry is now stale. Removing it
+	// keeps per-sandbox pins from accumulating unbounded across create/destroy
+	// cycles. Scoped to THIS instance's container only, and best-effort: a leftover
+	// pin is harmless (the next connect re-pins accept-new), so it never fails a
+	// teardown. TOFU strength is currently loopback-scoped — see the security model
+	// note in docs/OVERVIEW.md; this must be revisited before any routable backend.
+	_ = os.Remove(filepath.Join(configDir(), "known_hosts.d", st.Container))
 	return state.DeleteFor(kitDir, inst)
 }
 

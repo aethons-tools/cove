@@ -580,6 +580,15 @@ Backend-agnostic, in `internal/connect`:
 3. **Verify host key (TOFU)** against a per-sandbox `known_hosts.d/<name>` file with `accept-new`.
    First connection pins the key;
    later mismatches fail loudly.
+   `destroy` **reaps** that per-container pin (COV-100): a sandbox's host key is
+   regenerated on each boot into an ephemeral `/etc/ssh`, so the pin is stale
+   after teardown — removing it keeps pins from accumulating and lets the next
+   create re-pin cleanly (scoped to the destroyed instance only, best-effort).
+   **TOFU strength is currently loopback-scoped:** with a local Docker/Colima
+   backend the endpoint is a loopback port on the operator's own host, so the pin
+   guards a boundary an attacker off-host cannot reach. This must be revisited
+   before any **routable** backend (e.g. Fly/Firecracker), where a stable,
+   persisted host key and a real changed-key alarm become load-bearing.
 4. **Inject env + launch.**
    The primary transport writes `export NAME=…` lines over SSH **stdin** into a tmpfs file (`/dev/shm/cove-env-*`, mode 600);
    a second interactive `ssh -tt` sources it,
