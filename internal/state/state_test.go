@@ -36,7 +36,7 @@ func TestSaveLoadDelete(t *testing.T) {
 	want := State{
 		Name: "box", Backend: "colima", Container: "box",
 		Image: "at-cove-for-box", ImageDigest: "sha256:cafef00d", WorkspaceMode: "isolated",
-		Secrets:   []Secret{{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}}},
+		Secrets:   []Secret{{Name: "GITHUB_TOKEN"}},
 		CreatedAt: "2026-06-27T00:00:00Z",
 	}
 	if err := Save(dir, want); err != nil {
@@ -55,7 +55,7 @@ func TestSaveLoadDelete(t *testing.T) {
 	if got.Container != "box" || got.Image != "at-cove-for-box" || got.ImageDigest != "sha256:cafef00d" || got.WorkspaceMode != "isolated" {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}
-	if len(got.Secrets) != 1 || got.Secrets[0].Name != "GITHUB_TOKEN" || got.Secrets[0].Command[0] != "op" {
+	if len(got.Secrets) != 1 || got.Secrets[0].Name != "GITHUB_TOKEN" {
 		t.Errorf("secrets not round-tripped: %+v", got.Secrets)
 	}
 
@@ -67,6 +67,35 @@ func TestSaveLoadDelete(t *testing.T) {
 	}
 	if err := Delete(dir); err != nil {
 		t.Fatalf("delete should be idempotent: %v", err)
+	}
+}
+
+// TestLegacyStateWithSecretCommandStillLoads (COV-90): a state file written
+// before schemaVersion 4 still carries a "command" argv on each secret. After the
+// field was dropped, the lenient JSON load must ignore that stale key and load the
+// rest of the file — never erroring — preserving the secret's name.
+func TestLegacyStateWithSecretCommandStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(Dir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+  "schemaVersion": 3,
+  "name": "box",
+  "backend": "colima",
+  "container": "box",
+  "secrets": [{"name": "GITHUB_TOKEN", "command": ["op", "read", "x"]}],
+  "createdAt": "2026-06-27T00:00:00Z"
+}`
+	if err := os.WriteFile(PathFor(dir, Interactive), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("legacy state with a secret command must still load: %v", err)
+	}
+	if len(got.Secrets) != 1 || got.Secrets[0].Name != "GITHUB_TOKEN" {
+		t.Fatalf("secret name not loaded from legacy file: %+v", got.Secrets)
 	}
 }
 

@@ -252,9 +252,10 @@ the demanded secret **names** (never values), and the
 named **volumes** the backend created (so teardown removes exactly those rather than
 re-deriving them — see [Workspace and state volumes](#workspace-and-state-volumes)).
 Its `schemaVersion` is stamped on every write; older files load without error
-(version 2 added the `volumes` object, version 3 the `imageDigest`, and each has a
-fallback for files that predate it — reconstructing volume names from the
-container, and running the mutable tag when no digest was recorded).
+(version 2 added the `volumes` object, version 3 the `imageDigest`, and version 4
+dropped a never-written per-secret resolver `command`; each older file has a
+graceful fallback — reconstructing volume names from the container, running the
+mutable tag when no digest was recorded, and ignoring a stale `command` key).
 
 ### Per-collaborator interactive instances
 
