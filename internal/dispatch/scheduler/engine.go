@@ -249,7 +249,7 @@ func (e *Engine) tick(ctx context.Context) {
 	// the backlog — backlog means "not active" and is left untouched (COV-65).
 	ready, err := e.tracker.ListReady(ctx)
 	if err != nil {
-		e.log.Error("list ready failed", slog.Any("err", err))
+		e.log.Error("list ready failed", slog.String("step", "poll"), slog.Any("err", err))
 		return
 	}
 	for _, iss := range ready {
@@ -268,7 +268,7 @@ func (e *Engine) tick(ctx context.Context) {
 			defer e.unmarkLive(iss.ID)
 			defer func() {
 				if r := recover(); r != nil {
-					e.log.Error("panic handling issue", slog.String("issue", iss.Identifier), slog.Any("err", r))
+					e.log.Error("panic handling issue", slog.String("step", "dispatch"), slog.String("issue", iss.Identifier), slog.Any("err", r))
 					// best-effort: park the issue for a human rather than crash the loop
 					e.transition(context.Background(), iss, RoleNeedsInput, e.log)
 				}
@@ -296,7 +296,7 @@ func (e *Engine) reap(ctx context.Context) {
 	timeout, _ := time.ParseDuration(e.cfg.Dispatch.ReaperTimeout) // validated by config
 	inProgress, err := e.tracker.ListInProgress(ctx)
 	if err != nil {
-		e.log.Error("list in-progress failed", slog.Any("err", err))
+		e.log.Error("list in-progress failed", slog.String("step", "reap"), slog.Any("err", err))
 		return
 	}
 	for _, ip := range inProgress {

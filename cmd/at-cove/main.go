@@ -1340,12 +1340,12 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 
 	b, err := getBackend(defaultBackend, r)
 	if err != nil {
-		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		lg.UserError(ctx, err, slog.String("step", "setup"))
 		return 1
 	}
 	ops, ok := b.(backend.DispatchOps)
 	if !ok {
-		lg.UserError(ctx, fmt.Errorf("backend %q does not support dispatch", defaultBackend), slog.String("step", "assemble"))
+		lg.UserError(ctx, fmt.Errorf("backend %q does not support dispatch", defaultBackend), slog.String("step", "setup"))
 		return 1
 	}
 
@@ -1362,13 +1362,13 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// builds. The run-config comes from the manifest, not config.yml.
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
-		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		lg.UserError(ctx, err, slog.String("step", "setup"))
 		return 1
 	}
 	cfg := m.RunConfig
 
 	if len(cfg.Workers) == 0 {
-		lg.UserError(ctx, fmt.Errorf("kit %q declares no workers", cfg.Name), slog.String("step", "assemble"))
+		lg.UserError(ctx, fmt.Errorf("kit %q declares no workers", cfg.Name), slog.String("step", "setup"))
 		return 1
 	}
 
@@ -1376,7 +1376,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// was baked into the installed image at install time, so work never assembles.
 	priv, _, err := keys.Ensure(r, configDir())
 	if err != nil {
-		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		lg.UserError(ctx, err, slog.String("step", "setup"))
 		return 1
 	}
 
@@ -1577,13 +1577,13 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	// warm installed image — no per-unit build, no per-unit gate.
 	m, err := loadCurrentInstall(kitDir)
 	if err != nil {
-		lg.UserError(ctx, err, slog.String("step", "assemble"))
+		lg.UserError(ctx, err, slog.String("step", "setup"))
 		return 1
 	}
 	cfg := m.RunConfig
 	// dispatch requires the full scheduler surface.
 	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
-		lg.UserError(ctx, errors.New("kit must declare source-control, tracker.linear, dispatch, and at least one worker"), slog.String("step", "assemble"))
+		lg.UserError(ctx, errors.New("kit must declare source-control, tracker.linear, dispatch, and at least one worker"), slog.String("step", "setup"))
 		return 1
 	}
 
@@ -1595,7 +1595,7 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	}
 	sort.Strings(classes)
 	if len(classes) == 0 {
-		lg.UserError(ctx, errors.New("kit declares no dispatchable worker class (only <common>?)"), slog.String("step", "assemble"))
+		lg.UserError(ctx, errors.New("kit declares no dispatchable worker class (only <common>?)"), slog.String("step", "setup"))
 		return 1
 	}
 	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
