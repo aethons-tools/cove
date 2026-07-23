@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/cli"
@@ -483,10 +484,10 @@ func TestAllowUnverifiedFlagRelocatedOffRunCommands(t *testing.T) {
 	}
 }
 
-// TestDryRunInstallAssemblesNoDocker: `--dry-run install` assembles the context
-// and reports, but touches no docker and writes no manifest (the old `build`'s
-// assemble+inspect use).
-func TestDryRunInstallAssemblesNoDocker(t *testing.T) {
+// TestDryRunInstallIsSideEffectFree (COV-82): `--dry-run install` is a pure
+// preview — it assembles nothing (no .build), touches no docker/keys, and writes
+// no manifest. The assemble+inspect use now lives behind `--assemble-only`.
+func TestDryRunInstallIsSideEffectFree(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	seedConfigDir(t)
@@ -501,11 +502,37 @@ func TestDryRunInstallAssemblesNoDocker(t *testing.T) {
 	if install.Exists(kitDir) {
 		t.Fatalf("dry-run install must not write install.json")
 	}
-	if _, err := os.Stat(filepath.Join(kitDir, ".build")); err != nil {
-		t.Fatalf("dry-run install should assemble the .build context: %v", err)
+	if _, err := os.Stat(filepath.Join(kitDir, ".build")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run install must NOT assemble .build (side effect); stat err=%v", err)
 	}
-	if !strings.Contains(out.String(), "would build") {
-		t.Fatalf("dry-run install should describe the planned build: %q", out.String())
+	if !strings.Contains(out.String(), "would assemble") {
+		t.Fatalf("dry-run install should describe the planned assemble+build: %q", out.String())
+	}
+}
+
+// TestAssembleOnlyInstall (COV-82): `install --assemble-only` materializes the
+// .build context for inspection, then stops — touching no docker and writing no
+// manifest (the old `--dry-run` assemble+inspect behavior, now explicit).
+func TestAssembleOnlyInstall(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	seedConfigDir(t)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--assemble-only", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("assemble-only install exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("assemble-only install executed commands: %+v", f.Calls)
+	}
+	if install.Exists(kitDir) {
+		t.Fatalf("assemble-only install must not write install.json")
+	}
+	if _, err := os.Stat(filepath.Join(kitDir, ".build")); err != nil {
+		t.Fatalf("assemble-only install should assemble the .build context: %v", err)
+	}
+	if !strings.Contains(out.String(), "assembled") {
+		t.Fatalf("assemble-only install should report what it assembled: %q", out.String())
 	}
 }
 
@@ -866,7 +893,7 @@ func TestDryRunChatRawNoAuth(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // hermetic: no real ~/.config/at-cove/secrets.yml
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir) // chat reads run-config from install.json (COV-38)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1133,7 +1160,11 @@ func TestRecreateSkipsDestroyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestDryRunChatWarnsUnresolvedSecret(t *testing.T) {
+// TestDryRunChatCountsDemandsWithoutResolving (COV-82): `--dry-run chat` reports
+// the number of *demanded* secrets and resolves none — the secret plan/mint
+// expansion (which can run host lookups) now happens only after the dry-run
+// return, so no resolver runs and no unresolved-supply warning is emitted.
+func TestDryRunChatCountsDemandsWithoutResolving(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"}) // demanded, no command
@@ -1145,11 +1176,39 @@ func TestDryRunChatWarnsUnresolvedSecret(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
 	}
-	if !strings.Contains(errOut.String(), "GITHUB_TOKEN") || !strings.Contains(errOut.String(), "will not be set") {
-		t.Fatalf("expected unresolved warning on stderr; got %q", errOut.String())
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run chat must resolve nothing; executed commands: %+v", f.Calls)
 	}
-	if !strings.Contains(out.String(), "would resolve 0 secrets") {
-		t.Fatalf("resolvable count should be 0; got %q", out.String())
+	if strings.Contains(errOut.String(), "will not be set") {
+		t.Fatalf("dry-run must not resolve supply, so it must emit no unresolved warning; got %q", errOut.String())
+	}
+	if !strings.Contains(out.String(), "would resolve 1 secrets") {
+		t.Fatalf("demanded count should be 1; got %q", out.String())
+	}
+}
+
+// TestDryRunDispatchIsSideEffectFree (COV-82): `--dry-run dispatch` previews the
+// kit, worker classes, and poll interval, and returns before resolving the
+// tracker token, connecting to Linear, or starting the scheduler. It needs no
+// install and no secrets.yml supply.
+func TestDryRunDispatchIsSideEffectFree(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no secrets.yml at all
+	dir := writeDispatchKit(t, dispatchGoodConfig)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "dispatch", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("dry-run dispatch exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run dispatch executed commands: %+v", f.Calls)
+	}
+	s := out.String()
+	if !strings.Contains(s, "would dispatch") || !strings.Contains(s, "implement") || !strings.Contains(s, "60s") {
+		t.Fatalf("dry-run dispatch should name the plan, classes, and poll interval; got %q", s)
+	}
+	if strings.Contains(s, "kit OK") || strings.Contains(errOut.String(), "Linear") {
+		t.Fatalf("dry-run dispatch must not connect to the tracker; stdout=%q stderr=%q", s, errOut.String())
 	}
 }
 
@@ -1160,7 +1219,7 @@ func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeState(t, kitDir, "colima", "box", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir)
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1189,7 +1248,7 @@ func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	// The sole collaborator keys its own instance: state file steward.json,
 	// container box-steward (COV-71).
-	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward", state.Secret{Name: "GITHUB_TOKEN", Command: []string{"op", "x"}})
+	writeStateFor(t, kitDir, state.Instance("steward"), "box", "box-steward", state.Secret{Name: "GITHUB_TOKEN"})
 	writeInstall(t, kitDir) // the collaborator is read from install.json's run-config
 	f := &runner.Fake{}
 	var out, errOut bytes.Buffer
@@ -1447,6 +1506,33 @@ func TestSaveStateSnapshot(t *testing.T) {
 	}
 }
 
+// TestEffectiveWorkTimeout (COV-88): an unset --timeout adopts the resolved
+// workers.<class>.timeout so a manual `work` matches `dispatch`; an explicit flag
+// always wins; a class with no timeout keeps the flag default.
+func TestEffectiveWorkTimeout(t *testing.T) {
+	const flagDefault = 30 * time.Minute
+	cases := []struct {
+		name         string
+		flagValue    time.Duration
+		flagSet      bool
+		classTimeout string
+		want         time.Duration
+	}{
+		{"unset flag adopts class timeout", flagDefault, false, "2h", 2 * time.Hour},
+		{"explicit flag wins over class", 45 * time.Minute, true, "2h", 45 * time.Minute},
+		{"explicit flag wins even matching default", flagDefault, true, "2h", flagDefault},
+		{"no class timeout keeps flag default", flagDefault, false, "", flagDefault},
+		{"unparseable class timeout keeps flag default", flagDefault, false, "nonsense", flagDefault},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveWorkTimeout(tc.flagValue, tc.flagSet, tc.classTimeout); got != tc.want {
+				t.Fatalf("effectiveWorkTimeout(%v, %v, %q) = %v, want %v", tc.flagValue, tc.flagSet, tc.classTimeout, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorkRequiresInAndOut(t *testing.T) {
 	dir := t.TempDir()
 	writeKit(t, dir)
@@ -1595,7 +1681,7 @@ func TestDispatchFailsFastWhenNotInstalled(t *testing.T) {
 // workerBearerKitConfig is a complete, dispatch-ready worker kit whose
 // `implement` worker class declares ANTHROPIC_AUTH_TOKEN (the agent's
 // Anthropic bearer) under workers.implement.secrets — not at the root, which
-// kit.Load now rejects (see rejectRootBearers) — alongside the required
+// kit.Load now rejects (see validateSecretNames) — alongside the required
 // source-control.github AT_TASK_GIT_TOKEN demand. It deliberately supplies no
 // secrets.yml entry for ANTHROPIC_AUTH_TOKEN so the bearer stays unresolved.
 // AT_TASK_GIT_TOKEN, by contrast, is resolved cleanly by the test (see

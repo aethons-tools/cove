@@ -457,6 +457,54 @@ func TestRootBearerIsRejectedWithMigrationNote(t *testing.T) {
 	}
 }
 
+// COV-83: the bearer + empty-key checks that used to guard only the root
+// secrets: bucket now apply uniformly at every secrets: bucket. An Anthropic
+// agent bearer is legal only under workers.* (where it is the intended agent
+// credential); everywhere else it must be rejected with a note pointing at
+// workers.<class>.secrets. An empty secret name is rejected in every bucket.
+func TestSecretBucketValidationIsUniform(t *testing.T) {
+	const trackerStates = "states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }"
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		wantSub string // substring the error must contain when wantErr
+	}{
+		// Bearers are legitimate under the worker buckets and must still load.
+		{"bearer under worker class", "name: k\nworkers:\n  impl:\n    prompt: p\n    timeout: 30m\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", false, ""},
+		{"bearer under worker common", "name: k\nworkers:\n  <common>:\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", false, ""},
+
+		// Bearers are rejected in every non-worker bucket, pointing at workers.
+		{"bearer under collaborator", "name: k\ncollaborators:\n  triager:\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+		{"bearer under collaborator common", "name: k\ncollaborators:\n  <common>:\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", true, "workers"},
+		{"bearer under source-control.github", "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+		{"bearer under source-control.gitlab", "name: k\nsource-control:\n  gitlab:\n    project: g/app\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", true, "workers"},
+		{"bearer under tracker.linear", "name: k\ntracker:\n  linear:\n    team: COV\n    poll-interval: 60s\n    " + trackerStates + "\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+
+		// Empty secret names are rejected in every bucket.
+		{"empty name under worker class", "name: k\nworkers:\n  impl:\n    prompt: p\n    timeout: 30m\n    secrets:\n      \"\": {}\n", true, "empty"},
+		{"empty name under collaborator", "name: k\ncollaborators:\n  triager:\n    secrets:\n      \"\": {}\n", true, "empty"},
+		{"empty name under source-control.github", "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      \"\": {}\n", true, "empty"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(tc.yaml))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.wantSub != "" && !strings.Contains(err.Error(), tc.wantSub) {
+					t.Fatalf("error must mention %q; got %v", tc.wantSub, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("must load; got %v", err)
+			}
+		})
+	}
+}
+
 func TestCollaboratorPromptAndDefault(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k

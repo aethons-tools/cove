@@ -59,8 +59,9 @@ needs them — this is what keeps kits portable and safe to run from an
 untrusted checkout (see [Security caveats](#security-caveats)).
 
 An Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) is the
-one demand that may not be declared in the root `secrets` bucket shown above —
-see [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket).
+one demand that may only be declared under `workers.*.secrets`; every other
+bucket (root `secrets`, `collaborators.*`, `source-control.*`, `tracker.*`)
+rejects it — see [Migrating the worker bearer off the root bucket](#migrating-the-worker-bearer-off-the-root-bucket).
 
 ## Supplying a value — the two host files
 
@@ -191,20 +192,24 @@ A dispatched **worker** authenticates to Anthropic with a short-lived bearer —
 either `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — declared under that
 worker class's `workers.<class>.secrets`, or the shared `workers.<common>.secrets`
 base (see [at-cove-config.md § workers](at-cove-config.md#workers)). It must
-**not** be declared in the root `secrets` bucket; `config.yml` rejects either
-name there as a hard parse error.
+**not** be declared in any **non-worker** bucket — the root `secrets`,
+`collaborators.*.secrets`, `source-control.*.secrets`, or `tracker.*.secrets`;
+`config.yml` rejects either name in all of them as a hard parse error, pointing
+you back at `workers.*.secrets`.
 
-**Why.** The root bucket is injected into *both* `chat` and
-`at-cove work`/`dispatch` (see [Secret buckets](at-cove-config.md#secret-buckets)).
-Claude Code picks its credential by env-driven precedence, and an injected
-bearer always outranks a subscription OAuth login. So a bearer declared at
-root would reach an interactive `chat` session too — silently switching that
-session off the human's own subscription and onto the bearer, and **disabling
-the session's claude.ai connectors** (GitHub/Linear), which only work under
-subscription OAuth. Requiring the bearer in the worker bucket — which `chat`
-never resolves at all (see [Secret buckets](at-cove-config.md#secret-buckets))
-— removes this failure mode structurally instead of relying on kit authors to
-remember to keep worker and chat kits distinct.
+**Why.** Every non-worker bucket is injected into a `chat`/session env — the
+root bucket into *both* `chat` and `at-cove work`/`dispatch`, and
+`collaborators.*.secrets` into `chat` specifically (see
+[Secret buckets](at-cove-config.md#secret-buckets)). Claude Code picks its
+credential by env-driven precedence, and an injected bearer always outranks a
+subscription OAuth login. So a bearer declared in any of them would reach an
+interactive `chat` session — silently switching that session off the human's
+own subscription and onto the bearer, and **disabling the session's claude.ai
+connectors** (GitHub/Linear), which only work under subscription OAuth.
+Requiring the bearer in the worker bucket — which `chat` never resolves at all
+(see [Secret buckets](at-cove-config.md#secret-buckets)) — removes this failure
+mode structurally instead of relying on kit authors to remember to keep worker
+and chat kits distinct.
 
 **Migrating an existing kit** — move the entry from the root `secrets:` map
 into `workers.<common>.secrets` (shared by every class) or a specific

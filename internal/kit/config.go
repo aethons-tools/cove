@@ -366,15 +366,10 @@ func ParseConfig(data []byte) (Config, error) {
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
 	}
-	for name := range cfg.Secrets {
-		if strings.TrimSpace(name) == "" {
-			return Config{}, fmt.Errorf("config.yml: secrets: a secret name (map key) must not be empty")
-		}
-	}
-	if err := rejectReservedSecretNames("secrets", cfg.Secrets); err != nil {
+	if err := validateSecretNames("secrets", cfg.Secrets, false); err != nil {
 		return Config{}, err
 	}
-	if err := rejectRootBearers(cfg.Secrets); err != nil {
+	if err := rejectReservedSecretNames("secrets", cfg.Secrets); err != nil {
 		return Config{}, err
 	}
 	for i, d := range cfg.Image.AllowedDomains {
@@ -413,6 +408,9 @@ func ParseConfig(data []byte) (Config, error) {
 				return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency: 0 is not allowed — omit the field to inherit <common>, and to pause a class use tracker state, not concurrency 0 (which removes the per-class cap rather than pausing)", class)
 			}
 		}
+		if err := validateSecretNames(fmt.Sprintf("workers[%q].secrets", class), w.Secrets, true); err != nil {
+			return Config{}, err
+		}
 		if err := rejectReservedSecretNames(fmt.Sprintf("workers[%q].secrets", class), w.Secrets); err != nil {
 			return Config{}, err
 		}
@@ -434,6 +432,9 @@ func ParseConfig(data []byte) (Config, error) {
 				gh.MainBranch = "main"
 			}
 			if len(gh.Secrets) > 0 {
+				if err := validateSecretNames("source-control.github.secrets", gh.Secrets, false); err != nil {
+					return Config{}, err
+				}
 				if err := checkWellKnownSecrets("source-control.github.secrets", gh.Secrets, "AT_TASK_GIT_TOKEN"); err != nil {
 					return Config{}, err
 				}
@@ -459,6 +460,9 @@ func ParseConfig(data []byte) (Config, error) {
 				gl.MainBranch = "main"
 			}
 			if len(gl.Secrets) > 0 {
+				if err := validateSecretNames("source-control.gitlab.secrets", gl.Secrets, false); err != nil {
+					return Config{}, err
+				}
 				if err := checkWellKnownSecrets("source-control.gitlab.secrets", gl.Secrets, "AT_TASK_GIT_TOKEN"); err != nil {
 					return Config{}, err
 				}
@@ -489,6 +493,9 @@ func ParseConfig(data []byte) (Config, error) {
 					return Config{}, fmt.Errorf("config.yml: tracker.linear.states.%s is required", name)
 				}
 			}
+			if err := validateSecretNames("tracker.linear.secrets", lt.Secrets, false); err != nil {
+				return Config{}, err
+			}
 			if err := checkWellKnownSecrets("tracker.linear.secrets", lt.Secrets,
 				"AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"); err != nil {
 				return Config{}, err
@@ -514,6 +521,9 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	defaults := 0
 	for name, col := range cfg.Collaborators {
+		if err := validateSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets, false); err != nil {
+			return Config{}, err
+		}
 		if err := rejectReservedSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets); err != nil {
 			return Config{}, err
 		}
@@ -559,21 +569,29 @@ var reservedSecretNames = map[string]bool{
 // general secret, which would also inject it into the agent's session env.
 const gcpADCDemandName = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
-// rootRejectedBearers are agent-auth credentials that must NOT live at the kit
-// root: root secrets are injected into `chat` too, where an Anthropic bearer
-// outranks the subscription login and disables the session's connectors. They
-// belong under workers.<class>.secrets.
-var rootRejectedBearers = map[string]bool{
+// agentBearerNames are agent-auth credentials that must NOT live in any
+// non-worker secrets bucket: those are injected into `chat`/session envs, where
+// an Anthropic bearer outranks the subscription login and disables the session's
+// connectors. They belong only under workers.<class>.secrets.
+var agentBearerNames = map[string]bool{
 	"ANTHROPIC_AUTH_TOKEN": true,
 	"ANTHROPIC_API_KEY":    true,
 }
 
-// rejectRootBearers forbids an Anthropic agent bearer in the root secrets
-// bucket, pointing the author at workers.<class>.secrets instead.
-func rejectRootBearers(got map[string]SecretConfig) error {
+// validateSecretNames enforces the bucket-agnostic secret-name rules shared by
+// every secrets: bucket: a name (map key) is never empty, and — outside the
+// worker buckets, where the agent bearer is the intended credential — an
+// Anthropic agent bearer is never declared. A bearer in any other bucket is
+// injected into a `chat`/session env, where it outranks the subscription login
+// and disables that session's connectors. allowBearers is true only for
+// workers.<class>.secrets (including workers.<common>.secrets).
+func validateSecretNames(field string, got map[string]SecretConfig, allowBearers bool) error {
 	for k := range got {
-		if rootRejectedBearers[k] {
-			return fmt.Errorf("config.yml: secrets: %q must be declared under workers.<class>.secrets (or workers.<common>.secrets), not at the root — a root agent bearer is injected into `chat` sessions too, where it outranks the subscription login and disables their connectors; move it under `workers:`", k)
+		if strings.TrimSpace(k) == "" {
+			return fmt.Errorf("config.yml: %s: a secret name (map key) must not be empty", field)
+		}
+		if !allowBearers && agentBearerNames[k] {
+			return fmt.Errorf("config.yml: %s: %q is an Anthropic agent bearer and must be declared under workers.<class>.secrets (or workers.<common>.secrets), not here — a bearer in this bucket is injected into a `chat`/session env, where it outranks the subscription login and disables that session's connectors; move it under `workers:`", field, k)
 		}
 	}
 	return nil

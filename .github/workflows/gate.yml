@@ -61,6 +61,11 @@ jobs:
       - name: test
         run: go test ./...
 
+      # Mirrors `just test-install` — hermetic shell test for the root install.sh
+      # (stubs gh/uname, serves a local fixture release). No network/release.
+      - name: installer test
+        run: bash install.test.sh
+
       # Mirrors `just lint` — both call scripts/lint.sh, so CI and the local
       # loop cannot drift.
       - name: lint

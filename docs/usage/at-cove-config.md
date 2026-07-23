@@ -456,6 +456,10 @@ from the instance's state, never re-reading this field. See
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
 [Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` — see above.
+This is a **chat-only** bucket, so an Anthropic agent bearer
+(`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) is rejected here for the same reason it
+is at the root — a bearer in a `chat` session outranks the subscription login and
+disables its connectors; it belongs under `workers.*.secrets`.
 
 #### collaborators.*class*.allowed-domains
 *list of strings, optional, unioned with `<common>` (a set, not overwritten)*
@@ -583,7 +587,7 @@ mechanics (the two host files, the four sources, precedence, the anti-mining inv
 fail-closed behavior) are the same across all five buckets and documented once, in
 [at-cove-secrets.md](at-cove-secrets.md) — this table only draws the boundaries between them.
 In particular, an Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) must
-live in the `workers.*.secrets` row, not the root row — see
+live in the `workers.*.secrets` row and is rejected in **every other** row — see
 [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
 
 ## Full example
@@ -681,10 +685,14 @@ the template kit for `at-cove dispatch`.
   class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative
   or an explicit `0` (omit it to inherit `<common>`; pause a class via tracker state);
   or a `workers.*.allowed-domains[i]` / `collaborators.*.allowed-domains[i]` entry is empty;
-- the root `secrets` declares `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — an Anthropic
-  agent bearer must be declared under `workers.<class>.secrets` (or
-  `workers.<common>.secrets`) instead; see
+- any **non-worker** bucket (`secrets` root, `collaborators.*.secrets`,
+  `source-control.{github,gitlab}.secrets`, `tracker.linear.secrets`) declares
+  `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — an Anthropic agent bearer is legitimate
+  only under `workers.<class>.secrets` (or `workers.<common>.secrets`); anywhere else it
+  is injected into a `chat`/session env where it outranks the subscription login and
+  disables connectors; see
   [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket);
+- a `secrets` name (map key) is empty at **any** of the five bucket locations;
 - `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
   isn't a positive Go duration, a `states` entry is missing, or `secrets` doesn't declare
   exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (demand-only — each
