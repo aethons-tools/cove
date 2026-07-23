@@ -700,6 +700,39 @@ func TestDestroyRemovesContainerAndState(t *testing.T) {
 	}
 }
 
+// TestDestroyReapsKnownHostsPin (COV-100): destroy removes THIS instance's
+// per-container known_hosts.d/<container> TOFU pin (whose host key does not
+// survive teardown), and leaves other instances' pins untouched.
+func TestDestroyReapsKnownHostsPin(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeKit(t, dir)
+	writeState(t, kitDir, "colima", "box")
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	khDir := filepath.Join(cfgHome, "at-cove", "known_hosts.d")
+	if err := os.MkdirAll(khDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mine := filepath.Join(khDir, "box")            // this instance's pin
+	other := filepath.Join(khDir, "other-sandbox") // a different sandbox's pin
+	for _, p := range []string{mine, other} {
+		if err := os.WriteFile(p, []byte("host ssh-ed25519 AAAA...\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"destroy", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy exit=%d stderr=%s", code, errOut.String())
+	}
+	if _, err := os.Stat(mine); !os.IsNotExist(err) {
+		t.Fatalf("destroy must reap this instance's known_hosts pin; stat err=%v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("destroy must NOT touch other instances' pins; stat err=%v", err)
+	}
+}
+
 // Create records the backend's actual volume names in the state file, so a later
 // destroy removes exactly those instead of re-deriving them (COV-76).
 func TestCreateRecordsVolumesInState(t *testing.T) {
