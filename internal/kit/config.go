@@ -36,7 +36,7 @@ type Worker struct {
 	Prompt  string `yaml:"prompt,omitempty"`
 	Timeout string `yaml:"timeout,omitempty"` // Go duration
 	// Concurrency is a pointer so an unset value (nil — inherits <common>) is
-	// distinct from an explicit 0 (COV-88 footgun: 0 removes the per-class cap
+	// distinct from an explicit 0 (COV-87 footgun: 0 removes the per-class cap
 	// rather than pausing the class, so it is rejected at validation). Use
 	// ConcurrencyOrZero for the resolved cap (0 == "no per-class cap").
 	Concurrency    *int                    `yaml:"concurrency,omitempty"`
