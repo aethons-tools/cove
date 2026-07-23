@@ -165,14 +165,14 @@ workers:
 	if err != nil {
 		t.Fatalf("ResolvedWorker(implement): %v", err)
 	}
-	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.Concurrency != 2 {
+	if impl.Prompt != "do the thing" || impl.Timeout != "40m" || impl.ConcurrencyOrZero() != 2 {
 		t.Fatalf("implement merge = %+v; want prompt/40m(own)/2(common)", impl)
 	}
 	aud, err := cfg.ResolvedWorker("audit")
 	if err != nil {
 		t.Fatalf("ResolvedWorker(audit): %v", err)
 	}
-	if aud.Timeout != "30m" || aud.Concurrency != 1 {
+	if aud.Timeout != "30m" || aud.ConcurrencyOrZero() != 1 {
 		t.Fatalf("audit merge = %+v; want 30m(common)/1(own)", aud)
 	}
 	if _, err := cfg.ResolvedWorker("<common>"); err == nil {
@@ -386,6 +386,43 @@ tracker:
 	}
 }
 
+// TestConcurrencyExplicitZeroRejectedUnsetInherits (COV-87): an explicit
+// workers.<class>.concurrency: 0 is rejected (0 removes the per-class cap rather
+// than pausing — the opposite of the likely intent), while an unset value is
+// distinct from 0 and still inherits <common>.
+func TestConcurrencyExplicitZeroRejectedUnsetInherits(t *testing.T) {
+	// Explicit 0 in a real class is rejected with an actionable message.
+	bad := "name: k\nworkers:\n  <common>:\n    concurrency: 3\n  impl:\n    prompt: p\n    concurrency: 0\n"
+	_, err := ParseConfig([]byte(bad))
+	if err == nil {
+		t.Fatal("explicit concurrency: 0 in a class must be rejected")
+	}
+	if !strings.Contains(err.Error(), "concurrency") || !strings.Contains(err.Error(), "pause") {
+		t.Fatalf("error should name concurrency and mention pausing; got %v", err)
+	}
+
+	// Explicit 0 in <common> is rejected too.
+	if _, err := ParseConfig([]byte("name: k\nworkers:\n  <common>:\n    concurrency: 0\n  impl:\n    prompt: p\n")); err == nil {
+		t.Fatal("explicit concurrency: 0 in <common> must be rejected")
+	}
+
+	// Unset in the class (nil, distinct from 0) still inherits <common>.
+	cfg, err := ParseConfig([]byte("name: k\nworkers:\n  <common>:\n    concurrency: 5\n  impl:\n    prompt: p\n"))
+	if err != nil {
+		t.Fatalf("unset concurrency must be valid: %v", err)
+	}
+	rw, err := cfg.ResolvedWorker("impl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.Concurrency == nil {
+		t.Fatal("unset class concurrency should inherit <common>'s non-nil value")
+	}
+	if rw.ConcurrencyOrZero() != 5 {
+		t.Fatalf("unset class concurrency should inherit <common> 5; got %d", rw.ConcurrencyOrZero())
+	}
+}
+
 func TestParseConfigRejectsWellKnownNameInRootSecrets(t *testing.T) {
 	for _, name := range []string{"AT_TASK_GIT_TOKEN", "AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"} {
 		src := "name: k\nsecrets:\n  " + name + ": {}\n"
@@ -417,6 +454,54 @@ func TestRootBearerIsRejectedWithMigrationNote(t *testing.T) {
 	ok := "name: k\nworkers:\n  implementor:\n    prompt: p\n    timeout: 30m\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n"
 	if _, err := ParseConfig([]byte(ok)); err != nil {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN under workers must load; got %v", err)
+	}
+}
+
+// COV-83: the bearer + empty-key checks that used to guard only the root
+// secrets: bucket now apply uniformly at every secrets: bucket. An Anthropic
+// agent bearer is legal only under workers.* (where it is the intended agent
+// credential); everywhere else it must be rejected with a note pointing at
+// workers.<class>.secrets. An empty secret name is rejected in every bucket.
+func TestSecretBucketValidationIsUniform(t *testing.T) {
+	const trackerStates = "states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }"
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		wantSub string // substring the error must contain when wantErr
+	}{
+		// Bearers are legitimate under the worker buckets and must still load.
+		{"bearer under worker class", "name: k\nworkers:\n  impl:\n    prompt: p\n    timeout: 30m\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", false, ""},
+		{"bearer under worker common", "name: k\nworkers:\n  <common>:\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", false, ""},
+
+		// Bearers are rejected in every non-worker bucket, pointing at workers.
+		{"bearer under collaborator", "name: k\ncollaborators:\n  triager:\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+		{"bearer under collaborator common", "name: k\ncollaborators:\n  <common>:\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", true, "workers"},
+		{"bearer under source-control.github", "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+		{"bearer under source-control.gitlab", "name: k\nsource-control:\n  gitlab:\n    project: g/app\n    secrets:\n      ANTHROPIC_AUTH_TOKEN: {}\n", true, "workers"},
+		{"bearer under tracker.linear", "name: k\ntracker:\n  linear:\n    team: COV\n    poll-interval: 60s\n    " + trackerStates + "\n    secrets:\n      ANTHROPIC_API_KEY: {}\n", true, "workers"},
+
+		// Empty secret names are rejected in every bucket.
+		{"empty name under worker class", "name: k\nworkers:\n  impl:\n    prompt: p\n    timeout: 30m\n    secrets:\n      \"\": {}\n", true, "empty"},
+		{"empty name under collaborator", "name: k\ncollaborators:\n  triager:\n    secrets:\n      \"\": {}\n", true, "empty"},
+		{"empty name under source-control.github", "name: k\nsource-control:\n  github:\n    project: a/b\n    secrets:\n      \"\": {}\n", true, "empty"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(tc.yaml))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.wantSub != "" && !strings.Contains(err.Error(), tc.wantSub) {
+					t.Fatalf("error must mention %q; got %v", tc.wantSub, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("must load; got %v", err)
+			}
+		})
 	}
 }
 
