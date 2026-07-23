@@ -66,6 +66,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
 				allowUnverified := allowUnverifiedBaseFlag(fs)
+				assembleOnly := fs.Bool("assemble-only", false, "assemble the .build context for inspection, then stop (no docker, no manifest)")
 				pos, err := cli.ParseInterspersed(fs, args)
 				if err != nil {
 					return 2
@@ -77,7 +78,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, g.DryRun, out), errw)
+				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, *assembleOnly, g.DryRun, out), errw)
 			}},
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -380,21 +381,29 @@ func assembleContext(kitDir string, r runner.Runner) error {
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
 // context, build + gate + tag the hardened image via the backend, then freeze the
 // resolved result into install.json. It is the single build+gate path and the only
-// home of --allow-unverified-base. `--dry-run` assembles the context and reports
-// what a full install would do (the old `build`'s "assemble + inspect" use),
-// without touching docker or writing the manifest.
-func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, dryRun bool, stdout io.Writer) error {
+// home of --allow-unverified-base. `--dry-run` is a pure preview — it assembles
+// nothing and touches no docker, keys, or manifest; use `--assemble-only` to
+// materialize the `.build` context for inspection (the old `build`'s
+// "assemble + inspect" use) without building.
+func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
-		return err
-	}
-	if err := assembleContext(kitDir, r); err != nil {
 		return err
 	}
 	buildDir := filepath.Join(kitDir, ".build")
 	img := naming.Image(cfg.Name)
 	if dryRun {
-		fmt.Fprintf(stdout, "assembled %s; would build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
+		// A --dry-run must have no resolver/key/disk side effects: describe the plan
+		// from config.yml (source) and return before assembling anything. --dry-run
+		// wins over --assemble-only.
+		fmt.Fprintf(stdout, "would assemble %s, then build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
+		return nil
+	}
+	if err := assembleContext(kitDir, r); err != nil {
+		return err
+	}
+	if assembleOnly {
+		fmt.Fprintf(stdout, "assembled %s; run `at-cove install` to build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
 		return nil
 	}
 	b, err := getBackend(defaultBackend, r)
@@ -765,20 +774,15 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 			demanded = append(demanded, name)
 		}
 	}
+	// Load the supply files up front (a read + parse, no host lookup) so a malformed
+	// secrets.yml is caught even under --dry-run. The mint expansion that turns
+	// demands into resolver specs — which CAN run host lookups — is deferred until
+	// after the dry-run return below.
 	secretsPath := filepath.Join(configDir(), "secrets.yml")
 	localPath := filepath.Join(configDir(), "secrets.local.yml")
 	store, err := usersecret.Load(secretsPath, localPath)
 	if err != nil {
 		return err
-	}
-	kitPath := canonicalKitPath(kitDir)
-	expand := mint.Expander(r, store.Global, "") // chat mints no github token into the session (connectors)
-	specs, unresolved, err := store.Plan(st.Name, kitPath, demanded, expand)
-	if err != nil {
-		return err
-	}
-	for _, name := range unresolved {
-		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
 	launch := "claude"
@@ -797,9 +801,22 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 				clone = fmt.Sprintf(", cloning %s on first session start", src.Project)
 			}
 		}
+		// The intent line reports the *demanded* count: the secret plan/mint
+		// expansion below can run host lookups (a mint: supply), which a --dry-run
+		// preview must never trigger, so it happens only after this return.
 		fmt.Fprintf(stdout, "would resolve %d secrets and connect to %s as %s, launching %s%s\n",
-			len(specs), st.Container, who, launch, clone)
+			len(demanded), st.Container, who, launch, clone)
 		return nil
+	}
+
+	kitPath := canonicalKitPath(kitDir)
+	expand := mint.Expander(r, store.Global, "") // chat mints no github token into the session (connectors)
+	specs, unresolved, err := store.Plan(st.Name, kitPath, demanded, expand)
+	if err != nil {
+		return err
+	}
+	for _, name := range unresolved {
+		fmt.Fprintf(stderr, "at-cove: warning: secret %q is demanded but has no supply for kit %q in %s (or secrets.local.yml); it will not be set\n", name, st.Name, secretsPath)
 	}
 
 	// A Vertex kit's GCP ADC is resolved host-side, kept out of `specs` above (it
@@ -1390,7 +1407,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// rather than launch a doomed VM — but only when NEITHER name is declared
 	// and resolved. Bearer-name knowledge is confined to this gate.
 	// The bearer lives in the worker-class bucket (config validation rejects it
-	// at root — see rejectRootBearers), so the gate checks rw.Secrets/
+	// in every non-worker bucket — see validateSecretNames), so the gate checks rw.Secrets/
 	// workerUnresolved rather than cfg.Secrets/rootUnresolved.
 	agentBearerSecrets := []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"}
 	unresolvedSet := make(map[string]bool, len(workerUnresolved))
@@ -1471,6 +1488,32 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	kitDir, code := resolveProjectDir(*pd, stderr)
 	if code != 0 {
 		return code
+	}
+
+	if g.DryRun {
+		// Dry-run previews the plan from config.yml (source) and returns before any
+		// logger/file, secret resolution, or tracker connect — a --dry-run must have
+		// no resolver/tracker/disk side effects, and (like doWork) it consumes
+		// nothing, so it needs no install.
+		cfg, err := kit.Load(kitDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: %v\n", err)
+			return 1
+		}
+		if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
+			fmt.Fprintln(stderr, "at-cove: kit must declare source-control, tracker.linear, dispatch, and at least one worker")
+			return 1
+		}
+		classes := make([]string, 0, len(cfg.Workers))
+		for name := range cfg.Workers {
+			if _, err := cfg.ResolvedWorker(name); err == nil {
+				classes = append(classes, name)
+			}
+		}
+		sort.Strings(classes)
+		fmt.Fprintf(stdout, "would dispatch %s (kit %s): resolve the tracker token, connect to Linear, and poll every %s for %d worker class(es): %s\n",
+			cfg.Name, kitDir, cfg.Tracker.Linear.PollInterval, len(classes), strings.Join(classes, ", "))
+		return 0
 	}
 
 	// Build the dispatch logger up front (spec §7/§8) so every startup diagnostic
