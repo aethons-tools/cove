@@ -33,11 +33,24 @@ const commonKey = "<common>"
 // agent (own-only, required) plus scheduling attrs that may be inherited from the
 // workers <common> base.
 type Worker struct {
-	Prompt         string                  `yaml:"prompt,omitempty"`
-	Timeout        string                  `yaml:"timeout,omitempty"` // Go duration
-	Concurrency    int                     `yaml:"concurrency,omitempty"`
+	Prompt  string `yaml:"prompt,omitempty"`
+	Timeout string `yaml:"timeout,omitempty"` // Go duration
+	// Concurrency is a pointer so an unset value (nil — inherits <common>) is
+	// distinct from an explicit 0 (COV-87 footgun: 0 removes the per-class cap
+	// rather than pausing the class, so it is rejected at validation). Use
+	// ConcurrencyOrZero for the resolved cap (0 == "no per-class cap").
+	Concurrency    *int                    `yaml:"concurrency,omitempty"`
 	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the workers <common> list)
+}
+
+// ConcurrencyOrZero is the resolved per-class concurrency cap: the set value, or
+// 0 when unset (which the scheduler reads as "no per-class cap").
+func (w Worker) ConcurrencyOrZero() int {
+	if w.Concurrency == nil {
+		return 0
+	}
+	return *w.Concurrency
 }
 
 // ResolvedWorker returns the named worker with the workers <common> base merged
@@ -55,7 +68,7 @@ func (c Config) ResolvedWorker(class string) (Worker, error) {
 	if own.Timeout == "" {
 		own.Timeout = base.Timeout
 	}
-	if own.Concurrency == 0 {
+	if own.Concurrency == nil {
 		own.Concurrency = base.Concurrency
 	}
 	merged := map[string]SecretConfig{}
@@ -384,8 +397,16 @@ func ParseConfig(data []byte) (Config, error) {
 				return Config{}, err
 			}
 		}
-		if w.Concurrency < 0 {
-			return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency must be >= 0", class)
+		if w.Concurrency != nil {
+			if *w.Concurrency < 0 {
+				return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency must be >= 0", class)
+			}
+			if *w.Concurrency == 0 {
+				// An explicit 0 is a footgun: unset already inherits <common>, and 0
+				// removes the per-class cap (unbounded up to the global cap) rather than
+				// pausing the class — the opposite of the likely intent.
+				return Config{}, fmt.Errorf("config.yml: workers[%q].concurrency: 0 is not allowed — omit the field to inherit <common>, and to pause a class use tracker state, not concurrency 0 (which removes the per-class cap rather than pausing)", class)
+			}
 		}
 		if err := validateSecretNames(fmt.Sprintf("workers[%q].secrets", class), w.Secrets, true); err != nil {
 			return Config{}, err

@@ -336,9 +336,14 @@ The prompt to send to the worker.
 Per-run timeout for the worker's agent step.
 
 #### workers.*class*.concurrency
-*int >= 0, optional, inherited from `<common>` if unset*
+*int > 0, optional, inherited from `<common>` if unset*
 
-Max concurrent runs of this class.
+Max concurrent runs of this class. **Unset** (the field omitted) inherits
+`<common>`; an omitted value everywhere means no per-class cap (the class is
+bounded only by `dispatch.concurrency`). An **explicit `0` is rejected** — it is
+indistinguishable from unset only by intent, and would *remove* the per-class cap
+rather than pause the class (the opposite of the likely goal); to pause a class,
+manage it through tracker state, not `concurrency: 0` (COV-87).
 
 #### workers.*class*.secrets
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
@@ -677,7 +682,8 @@ the template kit for `at-cove dispatch`.
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
   contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
-  class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative;
+  class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative
+  or an explicit `0` (omit it to inherit `<common>`; pause a class via tracker state);
   or a `workers.*.allowed-domains[i]` / `collaborators.*.allowed-domains[i]` entry is empty;
 - any **non-worker** bucket (`secrets` root, `collaborators.*.secrets`,
   `source-control.{github,gitlab}.secrets`, `tracker.linear.secrets`) declares
