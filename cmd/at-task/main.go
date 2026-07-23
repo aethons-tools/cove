@@ -57,9 +57,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 // carries the step attr so every record self-identifies its layer (spec §7).
 func stepLogger(g cli.Globals, stderr io.Writer, step string) (*logging.Logger, context.Context) {
 	lg, err := logging.New(logging.Options{
-		Mode:   logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Mode:   logging.ModeFrom(logging.EnvOr(g.LogMode, "AT_LOG_MODE")),
 		Stderr: stderr,
-		Level:  logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+		Level:  logging.LevelFrom(logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")),
 	})
 	if err != nil { // defensive: no file sink is requested, so this path is unreachable
 		lg, _ = logging.New(logging.Options{Mode: logging.Unattended, Stderr: stderr, Level: slog.LevelInfo})
@@ -216,43 +216,6 @@ func writeResult(ctx context.Context, lg *logging.Logger, ext string, tr worker.
 		return 1
 	}
 	return 0
-}
-
-// logModeFrom maps the --log-mode flag value to a logging.Mode. An empty or
-// unrecognized value falls back to logging.Auto (TTY-detected → unattended in the VM).
-func logModeFrom(s string) logging.Mode {
-	switch s {
-	case "attended":
-		return logging.Attended
-	case "unattended":
-		return logging.Unattended
-	default:
-		return logging.Auto
-	}
-}
-
-// logLevelFrom maps the --log-level flag value to a slog.Level. An unrecognized
-// value falls back to slog.LevelInfo.
-func logLevelFrom(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-// envOr returns flag when it is non-empty, else os.Getenv(key) — the env fallback
-// for global flags left at their zero value (AT_LOG_MODE, AT_LOG_LEVEL).
-func envOr(flag, key string) string {
-	if flag != "" {
-		return flag
-	}
-	return os.Getenv(key)
 }
 
 func main() {

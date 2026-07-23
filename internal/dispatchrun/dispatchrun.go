@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -32,6 +33,11 @@ import (
 
 // Label tags every ephemeral dispatch container so scavenging can find orphans.
 const Label = "at-cove.work"
+
+// DefaultWorkTimeout is the fallback wall-clock cap for one work unit, shared by
+// the `at-cove work --timeout` flag default and runStep's non-positive-timeout
+// guard so the two can never drift.
+const DefaultWorkTimeout = 30 * time.Minute
 
 const (
 	sshReadyAttempts = 10
@@ -291,7 +297,7 @@ func runStep(r runner.Runner, tgt sshargs.Target, env map[string]string, command
 	}
 	secs := int(timeout.Seconds())
 	if secs <= 0 {
-		secs = 1800
+		secs = int(DefaultWorkTimeout.Seconds())
 	}
 	remote := fmt.Sprintf("set -a; . %s; rm -f %s; cd %s; timeout %d %s",
 		envVMPath, envVMPath, shellQuote(workDir), secs, command)
@@ -339,7 +345,7 @@ func seedFile(r runner.Runner, tgt sshargs.Target, localPath, vmPath string) err
 		return nil
 	}
 	data, err := os.ReadFile(localPath)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {

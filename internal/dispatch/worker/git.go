@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,13 +68,13 @@ func (g *ShellGit) git(ctx context.Context, dir string, args ...string) (string,
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
 }
 
 func (g *ShellGit) EnsureClean(ctx context.Context, remote, dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); errors.Is(err, os.ErrNotExist) {
 		// Init in place: the orchestrator has already injected .at-task/ here, so a
 		// `git clone` (which refuses a non-empty dir) won't work. Sync() then fetches
 		// and checks out the base branch.

@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,10 +15,10 @@ import (
 type Globals struct {
 	DryRun bool
 	// LogMode selects the logging mode: "" (auto-detect), "attended", or
-	// "unattended". Mapped to logging.Mode by cmd/at-cove's logModeFrom.
+	// "unattended". Mapped to logging.Mode by logging.ModeFrom.
 	LogMode string
 	// LogLevel is the minimum level shown on stderr: "debug", "info", "warn",
-	// or "error" (default "info"). Mapped to slog.Level by logLevelFrom.
+	// or "error" (default "info"). Mapped to slog.Level by logging.LevelFrom.
 	LogLevel string
 	// NoLogFile disables the JSON debug-level log file sink.
 	NoLogFile bool
@@ -110,4 +111,34 @@ func ParseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 		positionals = append(positionals, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
+}
+
+// ParseFlags parses a subcommand's own flags (after the command name), applying
+// the shared CLI convention so every subcommand matches the top-level help/usage
+// behavior:
+//
+//   - -h/--help   → prints the flagset's usage to stdout; ok=false, code 0
+//   - parse error → prints "<cmd>: <err>" + usage to stderr; ok=false, code 2
+//   - success     → returns the positionals; ok=true, code 0
+//
+// It owns the flagset's output routing, so callers need not call fs.SetOutput.
+// The pattern at each site is: `pos, code, ok := cli.ParseFlags(...); if !ok {
+// return code }`.
+func ParseFlags(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (pos []string, code int, ok bool) {
+	fs.SetOutput(io.Discard) // we route usage/errors ourselves, to the right stream
+	fs.Usage = func() {}
+	pos, err := ParseInterspersed(fs, args)
+	if err == nil {
+		return pos, 0, true
+	}
+	if errors.Is(err, flag.ErrHelp) { // -h / --help: usage to stdout, exit 0
+		fmt.Fprintf(stdout, "Usage of %s:\n", fs.Name())
+		fs.SetOutput(stdout)
+		fs.PrintDefaults()
+		return nil, 0, false
+	}
+	fmt.Fprintf(stderr, "%s: %v\n", fs.Name(), err) // bad flag/value: usage to stderr, exit 2
+	fs.SetOutput(stderr)
+	fs.PrintDefaults()
+	return nil, 2, false
 }

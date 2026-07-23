@@ -63,13 +63,12 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 		Commands: []cli.Command{
 			{Name: "install", Brief: "compile the kit: build + gate the image and write install.json", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("install", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
 				allowUnverified := allowUnverifiedBaseFlag(fs)
 				assembleOnly := fs.Bool("assemble-only", false, "assemble the .build context for inspection, then stop (no docker, no manifest)")
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				if !noPositionals(pos, "install", errw) {
 					return 2
@@ -82,11 +81,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "create", errw)
 				if code != 0 {
@@ -96,14 +94,13 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "chat", Brief: "open an interactive collaborator session in the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("chat", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
 				raw := fs.Bool("raw", false, "open a raw shell instead of the agent")
 				noAuth := fs.Bool("no-auth", false, "skip the interactive login step")
 				fresh := fs.Bool("fresh", false, "start a fresh agent session")
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "chat", errw)
 				if code != 0 {
@@ -113,11 +110,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "recreate", errw)
 				if code != 0 {
@@ -127,12 +123,11 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "destroy", Brief: "destroy the sandbox and its volumes", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("destroy", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
 				all := fs.Bool("all", false, "destroy every instance of the kit")
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				if *all {
 					if len(pos) > 0 {
@@ -154,11 +149,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "uninstall", Brief: "remove the compiled kit image + install.json (inverse of install)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				if !noPositionals(pos, "uninstall", errw) {
 					return 2
@@ -171,11 +165,10 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 			}},
 			{Name: "status", Brief: "print sandbox status", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("status", flag.ContinueOnError)
-				fs.SetOutput(errw)
 				pd := projectDirFlag(fs)
-				pos, err := cli.ParseInterspersed(fs, args)
-				if err != nil {
-					return 2
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
 				}
 				// No positional lists every instance of the kit; an explicit
 				// collaborator shows just that one (multi-VM ergonomics, COV-71).
@@ -204,44 +197,6 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 	return app.Run(argv, stdout, stderr)
 }
 
-// logModeFrom maps the --log-mode flag value to a logging.Mode. An empty or
-// unrecognized value falls back to logging.Auto (TTY-detected).
-func logModeFrom(s string) logging.Mode {
-	switch s {
-	case "attended":
-		return logging.Attended
-	case "unattended":
-		return logging.Unattended
-	default:
-		return logging.Auto
-	}
-}
-
-// logLevelFrom maps the --log-level flag value to a slog.Level. An
-// unrecognized value falls back to slog.LevelInfo.
-func logLevelFrom(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-// envOr returns flag when it is non-empty, else os.Getenv(key) — the env
-// fallback for global flags left at their zero value (AT_LOG_MODE,
-// AT_LOG_LEVEL).
-func envOr(flag, key string) string {
-	if flag != "" {
-		return flag
-	}
-	return os.Getenv(key)
-}
-
 // allowUnverifiedBaseFlag registers the --allow-unverified-base escape hatch: it
 // downgrades the provenance gate's rejection of a base that descends from no
 // blessed cove-base-image to a loud warning, then proceeds. It lives only on
@@ -264,8 +219,10 @@ func projectDirFlag(fs *flag.FlagSet) *string {
 func resolveProjectDir(flagVal string, stderr io.Writer) (string, int) {
 	kitDir, err := resolveKit(flagVal)
 	if err != nil {
+		// A --project-dir pointing at no kit is an argument (usage) error: exit 2,
+		// matching the stray-positional / too-many-collaborator paths (COV-94).
 		fmt.Fprintln(stderr, "at-cove:", err)
-		return "", 1
+		return "", 2
 	}
 	return kitDir, 0
 }
@@ -297,13 +254,23 @@ func resolveCollaborator(flagVal string, pos []string, cmd string, stderr io.Wri
 	}
 	kitDir, err := resolveKit(flagVal)
 	if err != nil {
+		// Bad --project-dir is a usage error: exit 2, matching the paths above.
 		fmt.Fprintln(stderr, "at-cove:", err)
-		return "", "", 1
+		return "", "", 2
 	}
 	return collaborator, kitDir, 0
 }
 
-// exitCode maps a doX error to a process exit code (unwrapping ExitError).
+// usageErr marks an error as a CLI usage error (a bad argument, e.g. an unknown
+// collaborator class), so exitCode maps it to exit 2 — matching the
+// stray-positional / bad-`--project-dir` paths that return 2 directly (COV-94).
+type usageErr struct{ err error }
+
+func (e usageErr) Error() string { return e.err.Error() }
+func (e usageErr) Unwrap() error { return e.err }
+
+// exitCode maps a doX error to a process exit code (unwrapping ExitError and the
+// usageErr usage-error marker).
 func exitCode(name string, err error, stderr io.Writer) int {
 	if err == nil {
 		return 0
@@ -313,6 +280,10 @@ func exitCode(name string, err error, stderr io.Writer) int {
 		return xe.ExitCode()
 	}
 	fmt.Fprintln(stderr, name+":", err)
+	var ue usageErr
+	if errors.As(err, &ue) {
+		return 2
+	}
 	return 1
 }
 
@@ -337,6 +308,17 @@ func configDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-cove")
+}
+
+// secretsStore loads the user's secret supply from the standard host files —
+// secrets.yml + secrets.local.yml under configDir() — shared by chat/work/
+// dispatch. It also returns the primary secrets.yml path, which callers name in
+// their unresolved-supply diagnostics.
+func secretsStore() (usersecret.Store, string, error) {
+	secretsPath := filepath.Join(configDir(), "secrets.yml")
+	localPath := filepath.Join(configDir(), "secrets.local.yml")
+	store, err := usersecret.Load(secretsPath, localPath)
+	return store, secretsPath, err
 }
 
 // canonicalKitPath returns the symlink-resolved absolute path of a kit dir — the
@@ -553,7 +535,8 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 func instanceFor(cfg kit.Config, collaborator string) (class string, hasCollab bool, instKey state.Instance, name string, err error) {
 	class, hasCollab, err = cfg.SelectCollaborator(collaborator)
 	if err != nil {
-		return "", false, state.Interactive, "", err
+		// An unknown/invalid collaborator class is a usage error (exit 2).
+		return "", false, state.Interactive, "", usageErr{err}
 	}
 	if !hasCollab {
 		return "", false, state.Interactive, naming.Container(cfg.Name, ""), nil
@@ -778,9 +761,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// secrets.yml is caught even under --dry-run. The mint expansion that turns
 	// demands into resolver specs — which CAN run host lookups — is deferred until
 	// after the dry-run return below.
-	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	localPath := filepath.Join(configDir(), "secrets.local.yml")
-	store, err := usersecret.Load(secretsPath, localPath)
+	store, secretsPath, err := secretsStore()
 	if err != nil {
 		return err
 	}
@@ -1233,16 +1214,15 @@ func effectiveWorkTimeout(flagValue time.Duration, flagSet bool, classTimeout st
 func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Writer) int {
 	dryRun := g.DryRun
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	pd := projectDirFlag(fs)
 	inPath := fs.String("in", "", "path to the local task file to inject (e.g. task.json)")
 	outPath := fs.String("out", "", "path to write the extracted result (e.g. task-result.json)")
-	timeout := fs.Duration("timeout", 30*time.Minute, "hard wall-clock cap for the work (default: the resolved workers.<class>.timeout)")
+	timeout := fs.Duration("timeout", dispatchrun.DefaultWorkTimeout, "hard wall-clock cap for the work (default: the resolved workers.<class>.timeout)")
 	grace := fs.Duration("grace", 60*time.Minute, "age past which a labeled orphan is scavenged")
 	reap := fs.Bool("reap", false, "scavenge dispatch orphans and exit")
-	pos, err := cli.ParseInterspersed(fs, args)
-	if err != nil {
-		return 2
+	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
+	if !ok {
+		return code
 	}
 	// Whether --timeout was given explicitly: an unset flag defaults to the
 	// resolved class timeout below (COV-88), an explicit one always wins.
@@ -1328,10 +1308,10 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-work-"+slug+".jsonl")
 	}
 	lg, err := logging.New(logging.Options{
-		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Mode:     logging.ModeFrom(logging.EnvOr(g.LogMode, "AT_LOG_MODE")),
 		Stderr:   stderr,
 		FilePath: logFile,
-		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+		Level:    logging.LevelFrom(logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")),
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
@@ -1340,7 +1320,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	defer lg.Close()
 	if !*reap {
 		lg = lg.With(
-			slog.String("run", envOr("", "COVE_RUN_ID")),
+			slog.String("run", logging.EnvOr("", "COVE_RUN_ID")),
 			slog.String("issue", task.Issue.Key),
 			slog.String("class", task.Worker.Class),
 		)
@@ -1389,9 +1369,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 1
 	}
 
-	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	localPath := filepath.Join(configDir(), "secrets.local.yml")
-	store, err := usersecret.Load(secretsPath, localPath)
+	store, secretsPath, err := secretsStore()
 	if err != nil {
 		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1
@@ -1514,11 +1492,10 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 // dispatched as a fresh `at-cove work` run (see internal/dispatch/scheduler).
 func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	pd := projectDirFlag(fs)
-	pos, err := cli.ParseInterspersed(fs, args)
-	if err != nil {
-		return 2
+	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
+	if !ok {
+		return code
 	}
 	if !noPositionals(pos, "dispatch", stderr) {
 		return 2
@@ -1566,10 +1543,10 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 		logFile = filepath.Join(state.Dir(kitDir), "logs", "at-cove-dispatch.jsonl")
 	}
 	lg, err := logging.New(logging.Options{
-		Mode:     logModeFrom(envOr(g.LogMode, "AT_LOG_MODE")),
+		Mode:     logging.ModeFrom(logging.EnvOr(g.LogMode, "AT_LOG_MODE")),
 		Stderr:   stderr,
 		FilePath: logFile,
-		Level:    logLevelFrom(envOr(g.LogLevel, "AT_LOG_LEVEL")),
+		Level:    logging.LevelFrom(logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")),
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "at-cove: %v\n", err)
@@ -1609,9 +1586,7 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "at-cove dispatch: kit OK — %d worker class(es): %s\n", len(classes), strings.Join(classes, ", "))
 
-	secretsPath := filepath.Join(configDir(), "secrets.yml")
-	localPath := filepath.Join(configDir(), "secrets.local.yml")
-	store, err := usersecret.Load(secretsPath, localPath)
+	store, secretsPath, err := secretsStore()
 	if err != nil {
 		lg.UserError(ctx, err, slog.String("step", "secrets"))
 		return 1

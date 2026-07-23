@@ -20,6 +20,43 @@ const (
 	Unattended
 )
 
+// ModeFrom maps a --log-mode flag value to a Mode. An unrecognized value falls
+// back to Auto (TTY auto-detect). Shared by the at-cove and at-task CLIs.
+func ModeFrom(s string) Mode {
+	switch s {
+	case "attended":
+		return Attended
+	case "unattended":
+		return Unattended
+	default:
+		return Auto
+	}
+}
+
+// LevelFrom maps a --log-level flag value to a slog.Level. An unrecognized value
+// falls back to slog.LevelInfo. Shared by the at-cove and at-task CLIs.
+func LevelFrom(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// EnvOr returns flag when it is non-empty, else os.Getenv(key) — the env fallback
+// for a global logging flag left at its zero value (AT_LOG_MODE, AT_LOG_LEVEL).
+func EnvOr(flag, key string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv(key)
+}
+
 type Options struct {
 	Mode     Mode
 	Stderr   io.Writer
