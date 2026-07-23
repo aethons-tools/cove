@@ -60,9 +60,12 @@ per-run file. Retention/rotation is left to the operator.
 
 Every dispatch mints a **`run` id** (`run_<issue>_<short-random>`) and seeds its
 logger with `run`, `issue`, and `class`. Each layer sets a **`step`** as it proceeds
-— e.g. `assemble`, `secrets`, `prepare`, `agent`, `complete`, `broker` — so a record
-names the layer that produced it. To pull one dispatch out of interleaved concurrent
-output, grep on its `run` id (or filter by `issue`).
+— `setup` (pre-dispatch: backend lookup, install-currency, key-ensure — it never
+assembles; assembly is `install`'s job), `secrets`, `prepare`, `agent`, `complete`,
+`broker`; the scheduler adds `claim`, `brief`, `dispatch`, `poll` (listing ready
+work), and `reap` (the stale-claim reaper) — so a record names the layer that
+produced it. To pull one dispatch out of interleaved concurrent output, grep on its
+`run` id (or filter by `issue`).
 
 The scheduler passes the run id into the `work` subprocess via the **`COVE_RUN_ID`**
 env var, and `work` re-binds it, so a dispatched worker's own records — and the VM

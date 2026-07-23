@@ -53,6 +53,10 @@ gen-blessed:
 test:
     go test ./...
 
+# hermetic test for the root install.sh installer (stubs gh/uname; no network)
+test-install:
+    bash install.test.sh
+
 # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 integration:
     go test -tags integration ./internal/connect/ -v
