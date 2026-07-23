@@ -1193,18 +1193,6 @@ func planRequired(store usersecret.Store, expand usersecret.MintExpander, kitNam
 	return specs[0], nil
 }
 
-// doWork runs `at-cove work --project-dir <dir> --in <f> --out <f> [--timeout]
-// [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
-// command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
-// crashed dispatch orphans). It registers the --project-dir flag itself (rather
-// than through the shared project-dir resolution in run(), which does not
-// know about these flags), assembles the build context, reads the dispatched
-// task's worker class from --in to resolve that class's worker secret bucket
-// (Config.ResolvedWorker), and plans both the root (shared, all steps) and
-// worker (agent-step only) secret sets — as create/chat do for the root set —
-// then hands off to dispatchrun. With dryRun it prints the planned actions and
-// returns before touching the backend, assembling, or resolving any secret —
-// mirroring doInstall/doCreate's dry-run convention.
 // effectiveWorkTimeout resolves the hard wall-clock cap for one `at-cove work`
 // unit (COV-88): an explicit --timeout always wins; an unset flag adopts the
 // resolved workers.<class>.timeout (the same value the dispatch scheduler passes),
@@ -1221,6 +1209,18 @@ func effectiveWorkTimeout(flagValue time.Duration, flagSet bool, classTimeout st
 	return flagValue
 }
 
+// doWork runs `at-cove work --project-dir <dir> --in <f> --out <f> [--timeout]
+// [--grace] [--reap]`: a synchronous, one-shot run of the kit's dispatch
+// command in a fresh ephemeral hardened VM (or, with --reap, just a scavenge of
+// crashed dispatch orphans). It registers the --project-dir flag itself (rather
+// than through the shared project-dir resolution in run(), which does not
+// know about these flags), assembles the build context, reads the dispatched
+// task's worker class from --in to resolve that class's worker secret bucket
+// (Config.ResolvedWorker), and plans both the root (shared, all steps) and
+// worker (agent-step only) secret sets — as create/chat do for the root set —
+// then hands off to dispatchrun. With dryRun it prints the planned actions and
+// returns before touching the backend, assembling, or resolving any secret —
+// mirroring doInstall/doCreate's dry-run convention.
 func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Writer) int {
 	dryRun := g.DryRun
 	fs := flag.NewFlagSet("work", flag.ContinueOnError)
