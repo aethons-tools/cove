@@ -126,7 +126,7 @@ the image; only `uninstall` removes the image.
 
 | Command | Behavior |
 |---|---|
-| `at-cove install [--project-dir DIR] [--allow-unverified-base]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--dry-run` assembles + reports without touching docker (the old `build`'s assemble+inspect use). |
+| `at-cove install [--project-dir DIR] [--allow-unverified-base] [--assemble-only]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--assemble-only` materializes `<kit>/.build/` for inspection and stops (no docker, no manifest — the old `build`'s assemble+inspect use). `--dry-run` is a pure preview: it assembles nothing and touches no docker/keys/manifest. |
 | `at-cove create [collaborator] [--project-dir DIR]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. The selected collaborator's [`share-repo-dir`](usage/at-cove-config.md#collaborators) picks Shared (bind-mount of the kit repo dir) vs Isolated — see [Workspace and state volumes](#workspace-and-state-volumes). |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
 | `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
@@ -139,7 +139,10 @@ the image; only `uninstall` removes the image.
 
 Global `--dry-run` (before the subcommand) prints the planned actions —
 exact backend/SSH argv included —
-without executing anything.
+without executing anything. It is uniformly **side-effect-free** across every
+command: no host secret resolver runs, no tracker connect, and nothing is written
+into the kit (`install --dry-run` assembles nothing — use `--assemble-only` for
+that; `chat`/`dispatch --dry-run` resolve no secrets and reach no tracker).
 Flags specific to a command (e.g. `--raw`, `--project-dir`) go *after* the
 command name; each command only accepts its own flags.
 
@@ -249,9 +252,10 @@ the demanded secret **names** (never values), and the
 named **volumes** the backend created (so teardown removes exactly those rather than
 re-deriving them — see [Workspace and state volumes](#workspace-and-state-volumes)).
 Its `schemaVersion` is stamped on every write; older files load without error
-(version 2 added the `volumes` object, version 3 the `imageDigest`, and each has a
-fallback for files that predate it — reconstructing volume names from the
-container, and running the mutable tag when no digest was recorded).
+(version 2 added the `volumes` object, version 3 the `imageDigest`, and version 4
+dropped a never-written per-secret resolver `command`; each older file has a
+graceful fallback — reconstructing volume names from the container, running the
+mutable tag when no digest was recorded, and ignoring a stale `command` key).
 
 ### Per-collaborator interactive instances
 
@@ -749,6 +753,46 @@ internals. See the [orchestration design](orchestration/INDEX.md).
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
 ## Building, testing, running
+
+### Installing the binaries
+
+The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
+fastest way to get `at-cove` and `at-mint`: it pulls the prebuilt archive from the
+latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
+on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
+and installs both binaries. `at-task` ships **embedded** in `at-cove`, so it is not
+installed separately.
+
+The repo is **private** today, so the installer authenticates through your GitHub
+CLI login (`gh auth login`):
+
+```bash
+gh api -H "Accept: application/vnd.github.raw" \
+  /repos/aethons-tools/cove/contents/install.sh | bash
+```
+
+When the repo goes public this collapses to the classic anonymous form — the same
+script, unchanged:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
+```
+
+The installer picks the `gh` path when `gh` is installed **and** authenticated, and
+otherwise falls back to anonymous `curl` (which only succeeds once the repo is
+public). That single fork is what lets one script serve both phases with no code
+change. A checksum mismatch aborts before anything is written.
+
+Optional knobs:
+
+| Env var | Effect |
+|---------|--------|
+| `COVE_VERSION=<N>-<MMDD>` | Install a specific release instead of the latest. |
+| `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
+| `COVE_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
+
+To **build from source instead** (the contributor path), use `just install` below,
+which compiles the binaries and installs them onto your PATH.
 
 Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
