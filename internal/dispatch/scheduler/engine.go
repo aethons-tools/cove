@@ -55,8 +55,8 @@ func New(cfg kit.Config, kitDir string, t Tracker, e Executor, lg *logging.Logge
 		if err != nil {
 			continue
 		}
-		if rw.Concurrency > 0 {
-			csem[name] = make(chan struct{}, rw.Concurrency)
+		if n := rw.ConcurrencyOrZero(); n > 0 {
+			csem[name] = make(chan struct{}, n)
 		}
 	}
 	return &Engine{

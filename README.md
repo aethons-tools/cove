@@ -20,10 +20,28 @@ and launches `claude` interactively.
 
 ## Quickstart
 
-```bash
-just install                 # build and put `at-cove` on your PATH
+Install `at-cove` (and its sibling `at-mint`) with the one-command installer. The
+repo is private today, so it uses your GitHub CLI login (`gh auth login`) to pull
+the latest release, verify its checksum, and drop the binaries on your PATH:
 
-# In a repo you want to sandbox:
+```bash
+gh api -H "Accept: application/vnd.github.raw" \
+  /repos/aethons-tools/cove/contents/install.sh | bash
+```
+
+Once the repo is public this collapses to the classic anonymous form — same script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
+```
+
+Prefer to build from source? Use `just install`. Version pinning and the
+`BINDIR` / `COVE_SYSTEM` overrides are in
+[the overview](docs/OVERVIEW.md#installing-the-binaries).
+
+Then, in a repo you want to sandbox:
+
+```bash
 mkdir -p .at-cove
 $EDITOR .at-cove/config.yml  # name + backend + secrets (see below)
 

@@ -10,12 +10,14 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
+func ptr[T any](v T) *T { return &v }
+
 func sampleConfig() kit.Config {
 	return kit.Config{
 		Name:    "box",
 		Secrets: map[string]kit.SecretConfig{"FOO": {Description: "a foo"}},
 		Image:   kit.ImageConfig{Base: "ghcr.io/x/y:1", AllowedDomains: []string{"example.com"}},
-		Workers: map[string]kit.Worker{"implementor": {Prompt: "do it", Concurrency: 2}},
+		Workers: map[string]kit.Worker{"implementor": {Prompt: "do it", Concurrency: ptr(2)}},
 		Dispatch: &kit.Dispatch{
 			Concurrency:      3,
 			ReaperTimeout:    "30m",
@@ -123,7 +125,7 @@ func TestSaveLoadExists(t *testing.T) {
 	if got.Image != want.Image || got.ImageDigest != want.ImageDigest || got.BaseDigest != want.BaseDigest || got.CurrencyHash != want.CurrencyHash {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}
-	if got.RunConfig.Workers["implementor"].Concurrency != 2 ||
+	if got.RunConfig.Workers["implementor"].ConcurrencyOrZero() != 2 ||
 		got.RunConfig.Secrets["FOO"].Description != "a foo" ||
 		got.RunConfig.Dispatch == nil || got.RunConfig.Dispatch.Concurrency != 3 {
 		t.Errorf("run-config not round-tripped: %+v", got.RunConfig)
