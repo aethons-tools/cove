@@ -30,6 +30,18 @@ func dargs(args ...string) []string {
 	return append([]string{"--context", dockerContext}, args...)
 }
 
+// dnsArgs renders the docker run --dns flags for the container's resolvers, one
+// pair per IP. Empty dns yields no flags, so the container inherits Docker's
+// default resolver — on colima that chains to the VM/host resolver, so a
+// split-DNS VPN (e.g. GlobalProtect) resolves a self-hosted host correctly.
+func dnsArgs(dns []string) []string {
+	var a []string
+	for _, ns := range dns {
+		a = append(a, "--dns", ns)
+	}
+	return a
+}
+
 // preflight fails fast with an actionable message when the colima docker context
 // is not reachable (colima stopped or never set up), rather than letting docker
 // fall through to another daemon or emit a cryptic error. `docker info` exits
@@ -122,16 +134,19 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		vols.Workspace = naming.WorkspaceVolume(ctx.Name)
 		ws = vols.Workspace + ":/home/agent/workspace"
 	}
-	if err := c.r.Run("docker", dargs("run", "-d",
+	runArgs := []string{"run", "-d",
 		"--name", ctx.Name,
 		"--init",
 		"--cap-add=NET_ADMIN",
-		"--dns", "1.1.1.1",
+	}
+	runArgs = append(runArgs, dnsArgs(ctx.DNS)...)
+	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
 		"-v", vols.State+":/agent-data",
 		"-v", ws,
 		img,
-	)...); err != nil {
+	)
+	if err := c.r.Run("docker", dargs(runArgs...)...); err != nil {
 		return backend.Instance{}, err
 	}
 	return backend.Instance{

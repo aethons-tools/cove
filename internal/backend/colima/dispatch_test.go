@@ -12,7 +12,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
-	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work")
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -28,6 +28,27 @@ func TestRunEphemeralArgs(t *testing.T) {
 	if strings.Contains(got, "-v ") {
 		t.Errorf("ephemeral run must not mount a volume:\n%s", got)
 	}
+	// No image.dns configured (nil): no --dns flag, so the container inherits
+	// Docker's default resolver (COV-106).
+	if strings.Contains(got, "--dns") {
+		t.Errorf("ephemeral run with no image.dns must not pin a resolver:\n%s", got)
+	}
+}
+
+// TestRunEphemeralDNS: a configured image.dns pins the container's resolvers,
+// one --dns pair per IP, on the ephemeral dispatch run (COV-106).
+func TestRunEphemeralDNS(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", []string{"10.0.0.53", "10.0.0.54"}); err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
+	for _, want := range []string{"--dns 10.0.0.53", "--dns 10.0.0.54"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("run args missing %q:\n%s", want, got)
+		}
+	}
 }
 
 // TestRunEphemeralPinsDigest: like the persistent create path, the ephemeral
@@ -36,7 +57,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work")
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work", nil)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}

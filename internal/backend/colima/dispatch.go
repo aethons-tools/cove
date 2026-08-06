@@ -12,22 +12,25 @@ var _ backend.DispatchOps = (*Colima)(nil)
 
 // RunEphemeral starts a fresh, labeled, volume-less container with --rm and a
 // published sshd, so a force-remove (or --rm on stop) reclaims everything.
-func (c *Colima) RunEphemeral(image, digest, name, label string) (backend.Instance, error) {
+func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
 	// Pin the built-image digest when install captured one (COV-78), falling back
 	// to the mutable tag for a legacy manifest; the tag is kept on the Instance.
-	if err := c.r.Run("docker", dargs("run", "-d",
+	runArgs := []string{"run", "-d",
 		"--name", name,
 		"--rm",
 		"--label", label,
 		"--init",
 		"--cap-add=NET_ADMIN",
-		"--dns", "1.1.1.1",
+	}
+	runArgs = append(runArgs, dnsArgs(dns)...)
+	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
 		runImage(image, digest),
-	)...); err != nil {
+	)
+	if err := c.r.Run("docker", dargs(runArgs...)...); err != nil {
 		return backend.Instance{}, err
 	}
 	return backend.Instance{Backend: "colima", Container: name, Image: image, ImageDigest: digest}, nil
