@@ -164,7 +164,7 @@ func Dispatch(ctx context.Context, o Options) error {
 	// (COV-38). doWork verified the install is current before calling here, so we
 	// simply run the pre-built image — no per-unit build, no per-unit gate, so
 	// concurrent dispatch units never race on a shared .build dir.
-	if _, err := o.Ops.RunEphemeral(o.Image, o.ImageDigest, o.Name, Label); err != nil {
+	if _, err := o.Ops.RunEphemeral(o.Image, o.ImageDigest, o.Name, Label, o.Cfg.Image.DNS); err != nil {
 		return err
 	}
 	defer o.Ops.RemoveContainer(o.Name)

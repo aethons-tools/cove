@@ -89,6 +89,33 @@ func TestParseConfigImage(t *testing.T) {
 	}
 }
 
+// COV-106: image.dns pins the container's resolver IPs; a valid IP list parses,
+// and an empty or non-IP entry is rejected with a clear image.dns[i] message.
+func TestParseConfigImageDNS(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nimage:\n  dns:\n    - 10.0.0.53\n    - 1.1.1.1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Image.DNS) != 2 || cfg.Image.DNS[0] != "10.0.0.53" || cfg.Image.DNS[1] != "1.1.1.1" {
+		t.Fatalf("DNS = %v", cfg.Image.DNS)
+	}
+
+	for _, tc := range []struct{ name, yaml, wantSub string }{
+		{"empty entry", "name: k\nimage:\n  dns:\n    - \"\"\n", "must not be empty"},
+		{"hostname not IP", "name: k\nimage:\n  dns:\n    - dns.corp.example\n", "not a valid IP"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(tc.yaml))
+			if err == nil {
+				t.Fatalf("expected error for %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), "image.dns[") || !strings.Contains(err.Error(), tc.wantSub) {
+				t.Fatalf("error must cite image.dns[i] and %q; got %v", tc.wantSub, err)
+			}
+		})
+	}
+}
+
 func TestParseConfigImageAbsent(t *testing.T) {
 	cfg, err := ParseConfig([]byte("name: k\n"))
 	if err != nil {

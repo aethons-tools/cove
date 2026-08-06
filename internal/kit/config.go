@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,12 @@ type SecretConfig struct {
 type ImageConfig struct {
 	Base           string   `yaml:"base"`            // image ref to harden; mutually exclusive with an image/Dockerfile
 	AllowedDomains []string `yaml:"allowed-domains"` // added to the squid egress allow-list
+	// DNS pins the container's resolver IPs (docker run --dns). Empty (the default)
+	// emits no --dns flag, so the container inherits Docker's default resolver —
+	// which on colima chains to the VM/host resolver and so honors a split-DNS VPN
+	// (e.g. a corporate GitLab reachable only via GlobalProtect). Set it to an
+	// internal resolver IP when the default resolver can't see a self-hosted host.
+	DNS []string `yaml:"dns,omitempty"`
 }
 
 const commonKey = "<common>"
@@ -375,6 +382,14 @@ func ParseConfig(data []byte) (Config, error) {
 	for i, d := range cfg.Image.AllowedDomains {
 		if strings.TrimSpace(d) == "" {
 			return Config{}, fmt.Errorf("config.yml: image.allowed-domains[%d]: must not be empty", i)
+		}
+	}
+	for i, ns := range cfg.Image.DNS {
+		if strings.TrimSpace(ns) == "" {
+			return Config{}, fmt.Errorf("config.yml: image.dns[%d]: must not be empty", i)
+		}
+		if net.ParseIP(strings.TrimSpace(ns)) == nil {
+			return Config{}, fmt.Errorf("config.yml: image.dns[%d]: %q is not a valid IP address (docker --dns requires an IP, not a hostname)", i, ns)
 		}
 	}
 	for class, w := range cfg.Workers {

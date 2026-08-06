@@ -23,8 +23,9 @@ import (
 type fakeOps struct {
 	scavenged bool
 	ran       bool
-	ranImage  string // the image RunEphemeral was asked to run
-	ranDigest string // the built-image digest RunEphemeral was asked to pin
+	ranImage  string   // the image RunEphemeral was asked to run
+	ranDigest string   // the built-image digest RunEphemeral was asked to pin
+	ranDNS    []string // the container resolver IPs RunEphemeral was asked to pin
 	removed   bool
 
 	r *runner.Fake // when set, ApplySessionEgress inspects its call log for ordering
@@ -36,10 +37,11 @@ type fakeOps struct {
 	agentRanBeforeEg  bool     // the agent step ("claude -p") had run when egress was applied
 }
 
-func (f *fakeOps) RunEphemeral(image, digest, name, _ string) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, digest, name, _ string, dns []string) (backend.Instance, error) {
 	f.ran = true
 	f.ranImage = image
 	f.ranDigest = digest
+	f.ranDNS = dns
 	return backend.Instance{Container: name, Image: image, ImageDigest: digest}, nil
 }
 func (f *fakeOps) Dial(string) (backend.Endpoint, func(), error) {

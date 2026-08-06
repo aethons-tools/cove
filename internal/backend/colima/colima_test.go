@@ -129,6 +129,46 @@ func TestCreateIsolated(t *testing.T) {
 	}
 }
 
+// TestCreateDNS: a configured image.dns pins the container's resolvers on the
+// persistent create path, one --dns pair per IP; an empty image.dns emits no
+// --dns flag so the container inherits Docker's default resolver (COV-106).
+func TestCreateDNS(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+		DNS:       []string{"10.0.0.53"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run := dockerCall(f.Calls, "run")
+	if got := strings.Join(run, " "); !strings.Contains(got, "--dns 10.0.0.53") {
+		t.Fatalf("create run must pin the configured resolver:\n%s", got)
+	}
+
+	f2 := &runner.Fake{}
+	if _, err := New(f2).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if contains(dockerCall(f2.Calls, "run"), "--dns") {
+		t.Fatalf("create run with no image.dns must not pin a resolver: %+v", f2.Calls)
+	}
+}
+
+// TestDNSArgs pins the pure arg-builder: one --dns pair per IP, nothing for empty.
+func TestDNSArgs(t *testing.T) {
+	if a := dnsArgs(nil); a != nil {
+		t.Errorf("empty dns must yield no flags; got %v", a)
+	}
+	got := strings.Join(dnsArgs([]string{"1.1.1.1", "8.8.8.8"}), " ")
+	if got != "--dns 1.1.1.1 --dns 8.8.8.8" {
+		t.Errorf("dnsArgs = %q", got)
+	}
+}
+
 func TestCreateShared(t *testing.T) {
 	f := &runner.Fake{}
 	if _, err := New(f).Create(backend.CreateContext{

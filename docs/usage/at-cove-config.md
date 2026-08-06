@@ -512,8 +512,8 @@ collaborators:
 
 ### image
 The image at-cove hardens, plus the kit's additive egress. Build-time customization
-lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries only `base`
-and `allowed-domains`.
+lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries `base`,
+`allowed-domains`, and `dns`.
 
 A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`),
 which is the Docker **build context** for an `image/Dockerfile` — it is **not** overlaid
@@ -564,6 +564,31 @@ image:
   allowed-domains:
     - proxy.golang.org
     - sum.golang.org
+```
+
+#### image.dns
+*list of strings (IP addresses), optional*
+
+Pins the sandbox container's DNS **resolver IPs** (`docker run --dns`, one per entry).
+Each entry must be a valid IP address — a hostname is rejected, since `docker --dns`
+takes IPs only. **Empty (the default) emits no `--dns` flag**, so the container inherits
+Docker's default resolver — which on the colima backend chains to the Lima VM / host
+resolver.
+
+Leave it unset unless the sandbox must resolve a name the host's resolver can't reach.
+The one case that needs it: a resolver that only answers on a **split-DNS VPN** *and*
+whose queries Docker would otherwise send to a public resolver. Concretely, a
+**self-hosted `source-control.gitlab.host`** reachable only through a corporate VPN
+(e.g. GlobalProtect): allow-listing the host lets squid *try* it, but the container
+still can't **resolve** it unless it asks the internal resolver. If a non-shared
+(isolated-workspace) `chat` fails to clone with a 502/503 from within the proxy CONNECT
+while the same clone works from your own shell, set `image.dns` to the internal resolver
+IP (or leave it unset if the VM resolver already answers — the default inherits it):
+
+```yaml
+image:
+  dns:
+    - 10.0.0.53   # internal resolver that answers for the self-hosted GitLab host
 ```
 
 ## Secret buckets
@@ -679,6 +704,8 @@ the template kit for `at-cove dispatch`.
   always supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
 - an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
   path contains a newline);
+- an `image.dns[i]` is empty or is not a valid IP address (`docker --dns` requires an IP,
+  not a hostname);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
   contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real

@@ -63,6 +63,10 @@ type CreateContext struct {
 	// the mutable tag; empty for a legacy manifest, where Create falls back to Image.
 	Digest    string
 	Workspace WorkspaceMount
+	// DNS pins the container's resolver IPs (docker run --dns), from the kit's
+	// image.dns. Empty emits no --dns flag, so the container inherits Docker's
+	// default resolver (the VM/host resolver, honoring split-DNS VPNs).
+	DNS []string
 }
 
 // InstallContext is everything Backend.Install needs to build + gate + tag a
@@ -136,7 +140,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string) (Instance, error) // fresh labeled --rm no-volume container; sshd published; pins digest when set (COV-78)
+	RunEphemeral(image, digest, name, label string, dns []string) (Instance, error) // fresh labeled --rm no-volume container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
