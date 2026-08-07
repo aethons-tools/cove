@@ -223,6 +223,49 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 	}
 }
 
+// TestEntrypointRefreshesReferenceSet guards the every-boot refresh (COV-113): a
+// rebuilt image's updated skills/reference docs/CLAUDE tree must reach an existing
+// (already-seeded) sandbox, while runtime-owned seed files stay untouched. The
+// first-boot full seed is unconditional-once; the refresh re-mirrors only the
+// image-owned reference set on every boot.
+func TestEntrypointRefreshesReferenceSet(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
+	if err != nil {
+		t.Fatalf("entrypoint.sh not embedded: %v", err)
+	}
+	s := string(b)
+
+	// (a) mirrors skills and reference (prune semantics: rm -rf + cp) and overwrites
+	// the three doc files, every boot.
+	if !strings.Contains(s, "for d in skills reference; do") {
+		t.Errorf("entrypoint must re-mirror the skills and reference subtrees every boot; got:\n%s", s)
+	}
+	if !strings.Contains(s, `rm -rf "/agent-data/$d"`) {
+		t.Errorf("entrypoint must prune (rm -rf) the reference subtrees so removed/renamed entries don't linger; got:\n%s", s)
+	}
+	if !strings.Contains(s, "for f in CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md; do") {
+		t.Errorf("entrypoint must overwrite the three CLAUDE doc files by name every boot; got:\n%s", s)
+	}
+
+	// (b) does NOT refresh the runtime-owned seed files. The refresh block names the
+	// reference set explicitly and must never operate on a runtime-owned entry — so
+	// inspect only the executable lines (a comment may legitimately name them to
+	// document what is deliberately skipped).
+	refresh := s[strings.Index(s, "Every boot:"):]
+	var code strings.Builder
+	for _, line := range strings.Split(refresh, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code.WriteString(line)
+			code.WriteString("\n")
+		}
+	}
+	for _, forbidden := range []string{".claude.json", "settings.json", "plugins", "COLLABORATOR.md"} {
+		if strings.Contains(code.String(), forbidden) {
+			t.Errorf("every-boot refresh must NOT touch runtime-owned %q; got:\n%s", forbidden, code.String())
+		}
+	}
+}
+
 // TestWorkspaceDirOwnedByAgent guards that the image creates /home/agent/workspace
 // owned by the agent user. An isolated workspace is a freshly-created backend
 // named volume mounted there; Docker initializes an empty volume's ownership from

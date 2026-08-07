@@ -5,11 +5,21 @@ set -euxo pipefail
 # Guarded by a marker so a restart — or a recreate against an existing volume —
 # never clobbers saved state, including the OAuth credentials that
 # `claude auth login` writes to /agent-data/.credentials.json.
+SEED=/home/agent/.init-agent-data
 if [ ! -e /agent-data/.seeded ]; then
   mkdir -p /agent-data
-  cp -a /home/agent/.init-agent-data/. /agent-data/
+  cp -a "$SEED/." /agent-data/
   touch /agent-data/.seeded
 fi
+# Every boot: re-mirror the image-owned reference set so a rebuilt image's updates
+# reach existing sandboxes. These subtrees hold no user state; runtime-owned seed
+# files (.claude.json, settings.json, plugins/, COLLABORATOR.md) are NOT touched.
+for d in skills reference; do
+  [ -d "$SEED/$d" ] && rm -rf "/agent-data/$d" && cp -a "$SEED/$d" "/agent-data/$d"
+done
+for f in CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md; do
+  cp -a "$SEED/$f" "/agent-data/$f"
+done
 chown -R agent:agent /agent-data
 
 # Raise the egress allow-list BEFORE anything can touch the network.
