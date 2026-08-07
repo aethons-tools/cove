@@ -382,6 +382,134 @@ func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
 	}
 }
 
+// githubTrackerKit is a minimal, valid tracker.github kit: repo inherited from
+// source-control.github, only the five non-terminal states declared (done is
+// ignored), and the single AT_DISPATCH_TRACKER_TOKEN demand.
+const githubTrackerKit = `
+name: k
+source-control:
+  github:
+    project: acme/myrepo
+tracker:
+  github:
+    poll-interval: 60s
+    states:
+      ready: Todo
+      in-progress: In Progress
+      in-review: In Review
+      needs-input: Needs Input
+      blocked: Backlog
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN: {}
+dispatch:
+  concurrency: 1
+  reaper-timeout: 45m
+`
+
+func TestParseConfigTrackerGitHub(t *testing.T) {
+	cfg, err := ParseConfig([]byte(githubTrackerKit))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Tracker == nil || cfg.Tracker.GitHub == nil {
+		t.Fatalf("tracker.github not parsed: %+v", cfg.Tracker)
+	}
+	if provider, err := cfg.Tracker.Active(); err != nil || provider != "github" {
+		t.Fatalf("Active() = %q,%v; want github,nil", provider, err)
+	}
+	gt := cfg.Tracker.GitHub
+	if gt.Repo != "" { // inherited, not overridden
+		t.Fatalf("repo should be empty (inherited); got %q", gt.Repo)
+	}
+	if gt.ClassLabelPrefix != "class:" { // default
+		t.Fatalf("class-label-prefix default = %q; want class:", gt.ClassLabelPrefix)
+	}
+	if gt.PollInterval != "60s" {
+		t.Fatalf("poll-interval = %q; want 60s", gt.PollInterval)
+	}
+	// Done is not a role for GitHub (Done == a closed issue): leaving it unset is fine.
+	if gt.States.Done != "" {
+		t.Fatalf("done should be unused/empty; got %q", gt.States.Done)
+	}
+	if pi := cfg.Tracker.PollInterval(); pi != "60s" {
+		t.Fatalf("Tracker.PollInterval() = %q; want 60s", pi)
+	}
+}
+
+func TestParseConfigTrackerGitHubExplicitRepoOverride(t *testing.T) {
+	// An explicit repo overrides source-control.github.project, and is accepted
+	// even with no source-control block at all.
+	src := strings.Replace(githubTrackerKit,
+		"  github:\n    poll-interval: 60s",
+		"  github:\n    repo: other/repo\n    poll-interval: 60s", 1)
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.Tracker.GitHub.Repo != "other/repo" {
+		t.Fatalf("repo = %q; want other/repo", cfg.Tracker.GitHub.Repo)
+	}
+
+	// No source-control, explicit repo -> valid.
+	noSrc := "name: k\ntracker:\n  github:\n    repo: solo/repo\n    poll-interval: 60s\n    states: { ready: Todo, in-progress: In Progress, in-review: In Review, needs-input: Needs Input, blocked: Backlog }\n    secrets:\n      AT_DISPATCH_TRACKER_TOKEN: {}\n"
+	if _, err := ParseConfig([]byte(noSrc)); err != nil {
+		t.Fatalf("explicit repo without source-control must load; got %v", err)
+	}
+}
+
+func TestParseConfigTrackerGitHubRepoUnresolvable(t *testing.T) {
+	// No repo override and no source-control.github -> unresolvable.
+	src := "name: k\ntracker:\n  github:\n    poll-interval: 60s\n    states: { ready: Todo, in-progress: In Progress, in-review: In Review, needs-input: Needs Input, blocked: Backlog }\n    secrets:\n      AT_DISPATCH_TRACKER_TOKEN: {}\n"
+	_, err := ParseConfig([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "tracker.github.repo") {
+		t.Fatalf("want unresolvable-repo error mentioning tracker.github.repo; got %v", err)
+	}
+
+	// A malformed explicit repo (not owner/name) is rejected too.
+	bad := strings.Replace(githubTrackerKit, "  github:\n    poll-interval: 60s", "  github:\n    repo: nope\n    poll-interval: 60s", 1)
+	if _, err := ParseConfig([]byte(bad)); err == nil || !strings.Contains(err.Error(), "owner/name") {
+		t.Fatalf("malformed repo must be rejected mentioning owner/name; got %v", err)
+	}
+}
+
+func TestParseConfigTrackerUnionExclusive(t *testing.T) {
+	// Both linear and github set -> rejected (the union rejects zero OR two).
+	src := "name: k\ntracker:\n  linear:\n    team: COV\n    poll-interval: 60s\n    states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }\n    secrets: { AT_DISPATCH_TRACKER_TOKEN: {}, AT_DISPATCH_WEBHOOK_SECRET: {} }\n  github:\n    repo: o/r\n    poll-interval: 60s\n    states: { ready: Todo, in-progress: In Progress, in-review: In Review, needs-input: Needs Input, blocked: Backlog }\n    secrets: { AT_DISPATCH_TRACKER_TOKEN: {} }\n"
+	_, err := ParseConfig([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "exactly one provider") {
+		t.Fatalf("want union-exclusivity error mentioning 'exactly one provider'; got %v", err)
+	}
+}
+
+func TestParseConfigTrackerGitHubMissingState(t *testing.T) {
+	// Each of the five non-terminal states must be non-empty.
+	src := strings.Replace(githubTrackerKit, "      blocked: Backlog\n", "", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil || !strings.Contains(err.Error(), "tracker.github.states.blocked") {
+		t.Fatalf("missing github state must be rejected citing the role; got %v", err)
+	}
+}
+
+func TestParseConfigTrackerGitHubSecretDemand(t *testing.T) {
+	// AT_DISPATCH_TRACKER_TOKEN is demanded; anything else (or its absence) fails.
+	missing := strings.Replace(githubTrackerKit, "    secrets:\n      AT_DISPATCH_TRACKER_TOKEN: {}\n", "    secrets: {}\n", 1)
+	if _, err := ParseConfig([]byte(missing)); err == nil || !strings.Contains(err.Error(), "AT_DISPATCH_TRACKER_TOKEN") {
+		t.Fatalf("missing AT_DISPATCH_TRACKER_TOKEN must be rejected; got %v", err)
+	}
+	// The Linear-only webhook secret is not a valid GitHub tracker demand.
+	extra := strings.Replace(githubTrackerKit, "      AT_DISPATCH_TRACKER_TOKEN: {}\n", "      AT_DISPATCH_TRACKER_TOKEN: {}\n      AT_DISPATCH_WEBHOOK_SECRET: {}\n", 1)
+	if _, err := ParseConfig([]byte(extra)); err == nil || !strings.Contains(err.Error(), "unknown secret") {
+		t.Fatalf("an unknown github tracker secret must be rejected; got %v", err)
+	}
+}
+
+func TestParseConfigTrackerGitHubEmptyClassLabelPrefix(t *testing.T) {
+	// A whitespace-only class-label-prefix (provided but empty) is rejected.
+	src := strings.Replace(githubTrackerKit, "    poll-interval: 60s\n", "    poll-interval: 60s\n    class-label-prefix: \"  \"\n", 1)
+	if _, err := ParseConfig([]byte(src)); err == nil || !strings.Contains(err.Error(), "class-label-prefix") {
+		t.Fatalf("whitespace class-label-prefix must be rejected; got %v", err)
+	}
+}
+
 func TestParseConfigRejectsUnknownTrackerSecret(t *testing.T) {
 	src := strings.Replace(trackerKit, "AT_DISPATCH_TRACKER_TOKEN", "BOGUS_TOKEN", 1)
 	if _, err := ParseConfig([]byte(src)); err == nil {
