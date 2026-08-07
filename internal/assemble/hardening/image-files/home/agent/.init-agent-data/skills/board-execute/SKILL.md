@@ -5,7 +5,7 @@ description: The implementation procedure for a single board issue — used by a
 
 # board-execute
 
-Implement one issue. Two entry points share this procedure:
+Implement one issue. Three entry points share this procedure:
 
 - **Dispatched worker** (autonomous, headless): at-cove has already run
   `at-task prepare` (cloned the repo, cut a fresh branch) and will run
@@ -16,6 +16,12 @@ Implement one issue. Two entry points share this procedure:
   make a small fix in place and open/update the PR yourself via the GitHub
   connector. Do this **only** for review/troubleshoot fixes — greenfield and
   feature work go through board-intake → board-plan → dispatch, not here.
+- **Attended loop** (interactive, driven by **board-attend**): you work a
+  `class:attended` ticket with the user present. Because the work is *supervised*,
+  feature/greenfield work is legitimate here — the review/troubleshoot-only limit
+  above is for *unsupervised* collaborator fixes. board-attend owns the surrounding
+  claim → start-from-`main` → PR → `in-review` flow; this skill is just the "make
+  the change and verify" core.
 
 ## Procedure
 
