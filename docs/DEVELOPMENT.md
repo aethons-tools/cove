@@ -170,7 +170,10 @@ differ — each reflects when it was last built. at-cove references the base by
 
 [`scripts/build.sh`](../scripts/build.sh) builds the host binaries locally (no
 publish) for iteration; `scripts/build-images.sh` does the same for the image
-tree.
+tree. A dev `at-cove` run straight from `dist/<os>-<arch>/at-cove` invokes its
+**sibling** `dist/<os>-<arch>/at-mint` (version-matched, built by the same
+`build.sh`) rather than a PATH `at-mint`, falling back to the bare name on PATH
+when no sibling is present.
 
 ## Verified `claude` CLI facts
 

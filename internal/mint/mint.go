@@ -5,12 +5,39 @@ package mint
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
+
+// execPath is a seam over os.Executable so tests can point sibling resolution at
+// a temp dir (os.Executable is process-global). See atMintBinary.
+var execPath = os.Executable
+
+// atMintBinary resolves argv[0] for the minter invocation. at-cove and at-mint
+// are built and version-stamped together (scripts/build.sh emits both into the
+// same dist/<os>-<arch>/ dir), so a running at-cove prefers its OWN sibling
+// at-mint over whatever a bare-name PATH lookup would find. It returns the path
+// to an executable at-mint sitting beside the current executable, and falls back
+// to the bare name "at-mint" (PATH lookup, the prior behavior) when the sibling
+// can't be determined or doesn't exist — e.g. a released install where both
+// binaries are on PATH degrades gracefully.
+func atMintBinary() string {
+	self, err := execPath()
+	if err != nil {
+		return "at-mint"
+	}
+	sibling := filepath.Join(filepath.Dir(self), "at-mint")
+	// linux/darwin only (per build.sh) — no .exe handling needed.
+	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		return sibling
+	}
+	return "at-mint"
+}
 
 // Expander returns a MintExpander bound to a host runner (for resolving a
 // profile's command/global-sourced secret fields), the store's global library,
@@ -31,7 +58,7 @@ func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string
 }
 
 func githubSpec(r runner.Runner, globals map[string]usersecret.Source, name string, g *usersecret.GitHubMinter, repo string) (secret.Spec, error) {
-	argv := []string{"at-mint", "github", "--app-id", g.AppID, "--install-id", g.InstallID}
+	argv := []string{atMintBinary(), "github", "--app-id", g.AppID, "--install-id", g.InstallID}
 	if repo != "" {
 		argv = append(argv, "--repo", repo) // the token's scope (non-secret)
 	}
@@ -60,7 +87,7 @@ func anthropicSpec(r runner.Runner, globals map[string]usersecret.Source, name s
 		return secret.Spec{}, fmt.Errorf("anthropic minter: only the auth0 IdP is supported")
 	}
 	argv := []string{
-		"at-mint", "anthropic",
+		atMintBinary(), "anthropic",
 		"--auth0-tenant", z.Tenant,
 		"--auth0-client-id", z.ClientID,
 		"--auth0-audience", z.Audience,
