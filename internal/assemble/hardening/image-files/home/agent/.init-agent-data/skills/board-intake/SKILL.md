@@ -48,8 +48,10 @@ contract and does exactly what it says.
    board-plan's job.
 2. **Fast path** (only if the request is already a single worker-sized unit — one
    PR's worth, no decomposition): you may apply the `class:<handler>` label and
-   move it to the `ready` state yourself. Otherwise, hand off — tell the user it's
-   ready for **board-plan**.
+   move it to the `ready` state yourself. Pick the lane as board-plan describes — a
+   worker class (e.g. `class:implementor`) for autonomous dispatch, or
+   `class:attended` for supervised work the **board-attend** loop runs. Otherwise,
+   hand off — tell the user it's ready for **board-plan**.
 3. Post the issue URL back.
 
 You implement nothing here. If the idea is large or fuzzy, file the shaped issue

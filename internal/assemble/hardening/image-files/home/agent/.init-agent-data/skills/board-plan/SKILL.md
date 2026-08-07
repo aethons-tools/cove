@@ -37,11 +37,24 @@ default branch). So each dispatchable issue must be:
   intake shape, each labeled `class:<worker-class>` and moved to `ready`. Add
   blocking relations for real ordering.
 
-Match the `class:` label to the intended handler: an implementation unit → the
-implement worker class; a spec/review step → the matching interactive class (those
-are driven by a human in `chat`, not the autonomous scheduler — so don't expect the
-scheduler to run them). Keep separation of duties: the class that implements an
-issue should not be the one that reviews its PR.
+Match the `class:` label to the **lane** that will work the unit:
+
+- **Autonomous** — a self-contained unit a headless worker finishes alone → a
+  worker class (e.g. the implement class). `at-cove dispatch` picks these up from
+  `ready` and runs the bracket. Use this whenever the issue's contract is complete
+  enough to execute with **no human in the loop**.
+- **Attended** — a unit that wants a human in the loop (UX/design choices,
+  exploratory or judgment-heavy work, or anything you'd want to supervise) →
+  `class:attended`. The **board-attend** loop works these from `ready` in an
+  interactive session. Unlike an arbitrary interactive-class label (which nothing
+  pulls), a `class:attended` unit in `ready` *does* get worked — so route
+  supervised work here rather than leaving it inert.
+
+Keep separation of duties: the class that implements an issue should not be the one
+that reviews its PR. (In the attended lane the human present is the reviewer — the
+board-attend loop stops at `in-review` and never merges.) A pure spec/review step
+handled by a specific collaborator class is still human-driven in `chat` and not
+run by the autonomous scheduler.
 
 ## Hand off to dispatch
 
