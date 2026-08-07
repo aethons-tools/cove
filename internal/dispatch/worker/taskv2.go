@@ -12,6 +12,11 @@ type Task struct {
 type TaskIssue struct {
 	Key   string `json:"key" yaml:"key"`
 	Title string `json:"title" yaml:"title"`
+	// Closes is an optional code-host auto-close reference (e.g. "#42") appended
+	// to the PR body by `at-task complete` so merging the PR closes the tracker
+	// issue. at-task is tracker-agnostic: it only honors a value set upstream by
+	// the scheduler (for a same-repo GitHub-tracker dispatch); it never computes it.
+	Closes string `json:"closes,omitempty" yaml:"closes,omitempty"`
 }
 
 type TaskRepo struct {

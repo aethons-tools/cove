@@ -34,6 +34,42 @@ func TestCompleteOKOpensPR(t *testing.T) {
 	}
 }
 
+// When task.Issue.Closes is set, at-task appends exactly one `Closes <ref>` line
+// to the PR body (so merging the PR auto-closes the tracker issue). at-task is
+// tracker-agnostic: it only honors the field, computed upstream by the scheduler.
+func TestCompleteOKAppendsClosesLine(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkerResult(t, dir,
+		`{"status":{"ok":{"pull-request":{"title":"T","message":"body"}}}}`)
+	ch := &fakeCodeHost{url: "https://x/pull/1"}
+	task := implementTask()
+	task.Issue.Closes = "#42"
+	Complete(context.Background(), dir, task, &fakeGit{changes: true, differs: true, sha: "abc"}, ch)
+	want := "body\n\nCloses #42"
+	if ch.body != want {
+		t.Fatalf("PR body = %q; want %q", ch.body, want)
+	}
+	if strings.Count(ch.body, "Closes #42") != 1 {
+		t.Fatalf("PR body must carry exactly one Closes line; got %q", ch.body)
+	}
+}
+
+// With no Closes set, nothing is appended — the worker's body is passed verbatim
+// (no behavior change for Linear or a cross-repo github issue).
+func TestCompleteOKNoClosesLineWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	writeWorkerResult(t, dir,
+		`{"status":{"ok":{"pull-request":{"title":"T","message":"body"}}}}`)
+	ch := &fakeCodeHost{url: "https://x/pull/1"}
+	Complete(context.Background(), dir, implementTask(), &fakeGit{changes: true, differs: true, sha: "abc"}, ch)
+	if ch.body != "body" {
+		t.Fatalf("PR body = %q; want the worker's body verbatim %q", ch.body, "body")
+	}
+	if strings.Contains(ch.body, "Closes") {
+		t.Fatalf("no Closes line must be appended when Issue.Closes is empty; got %q", ch.body)
+	}
+}
+
 // ok WITHOUT a proposed PR → branch pushed, no PR, ok without pr-url
 func TestCompleteOKNoPR(t *testing.T) {
 	dir := t.TempDir()
