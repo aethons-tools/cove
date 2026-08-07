@@ -70,6 +70,54 @@ func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
 	}
 }
 
+// githubConfig builds a github-tracker config whose issue repo (tracker.github.repo,
+// defaulting to source-control when empty) and PR-target repo (source-control) are
+// both trackerRepo/srcRepo — the same-repo condition for a `Closes #N` annotation.
+func githubConfig(trackerRepo, srcRepo string) kit.Config {
+	return kit.Config{
+		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: srcRepo, MainBranch: "main"}},
+		Tracker:       &kit.Tracker{GitHub: &kit.GitHubTracker{Repo: trackerRepo, PollInterval: "1m"}},
+		Dispatch:      &kit.Dispatch{Concurrency: 4, DispatchOverhead: "15m"},
+		Workers:       map[string]kit.Worker{"implement": {Prompt: "impl", Timeout: "30m"}},
+	}
+}
+
+// On a github tracker where the issue's repo equals the PR's target repo, the
+// scheduler stamps issue.closes with the GitHub close reference (the issue's
+// "#N" identifier), so merging the worker's PR auto-closes the issue (= Done).
+func TestHandleSetsClosesForSameRepoGitHub(t *testing.T) {
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := newEngine(githubConfig("o/r", "o/r"), tr, ex)
+	eng.handle(context.Background(), Issue{ID: "42", Identifier: "#42", Title: "X", Class: "implement"})
+	if !strings.Contains(ex.GotInput, `"closes": "#42"`) {
+		t.Fatalf("same-repo github dispatch must stamp issue.closes; task.json:\n%s", ex.GotInput)
+	}
+}
+
+// A cross-repo github issue (tracker repo ≠ PR-target repo) gets no closes — a
+// `Closes #N` in the PR body would not reach the issue's repo.
+func TestHandleNoClosesForCrossRepoGitHub(t *testing.T) {
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := newEngine(githubConfig("other/tracker", "o/r"), tr, ex)
+	eng.handle(context.Background(), Issue{ID: "42", Identifier: "#42", Title: "X", Class: "implement"})
+	if strings.Contains(ex.GotInput, `"closes"`) {
+		t.Fatalf("cross-repo github dispatch must not stamp issue.closes; task.json:\n%s", ex.GotInput)
+	}
+}
+
+// A Linear tracker never gets a closes annotation, whatever the issue key.
+func TestHandleNoClosesForLinear(t *testing.T) {
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := newTestEngine(t, tr, ex) // testConfig() is a Linear tracker
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+	if strings.Contains(ex.GotInput, `"closes"`) {
+		t.Fatalf("Linear dispatch must not stamp issue.closes; task.json:\n%s", ex.GotInput)
+	}
+}
+
 func TestHandleNeedsInput(t *testing.T) {
 	tr := newFakeTracker()
 	ex := &fakeExecutor{OutJSON: `{"status":{"needs-input":{"message":"WIP pushed","commit":"abc123"}},` +

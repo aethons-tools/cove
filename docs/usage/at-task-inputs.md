@@ -4,7 +4,7 @@ read_when: You are building the task.json for a worker run, or writing a worker 
 owns: the JSON Schemas for at-task's task.json (the work spec) and worker-result.json (the worker's self-report)
 prereqs: at-task.md — the at-task CLI, the .at-task/ handoff, and the file-format/unknown-field rules
 tier: leaf
-updated: 2026-07-10
+updated: 2026-08-07
 ---
 
 # at-task inputs
@@ -32,7 +32,8 @@ The caller writes this before `at-task prepare`; it must stay in place through t
       "required": ["key", "title"],
       "properties": {
         "key":           { "type": "string", "description": "issue identifier, e.g. AET-33" },
-        "title":         { "type": "string", "description": "issue title" }
+        "title":         { "type": "string", "description": "issue title" },
+        "closes":        { "type": "string", "description": "optional code-host auto-close reference (e.g. \"#42\"); when set, at-task complete appends one `Closes <ref>` line to the PR body so merging closes the tracker issue. at-task is tracker-agnostic — it only forwards this field; the scheduler computes it (github tracker, same-repo only). See ../orchestration/at-cove-work-interface.md" }
       }
     },
     "repo": {
