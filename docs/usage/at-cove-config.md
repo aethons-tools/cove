@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-07-21
+updated: 2026-08-07
 ---
 
 # at-cove `config.yml`
@@ -216,6 +216,12 @@ Must be non-empty if provided.
 Unlike Linear, `done` is **not** a role and is ignored: on GitHub, *Done means the
 issue is closed*, so there is no state label for it. These bind the design's
 lifecycle roles to whatever labels the repo actually uses.
+
+When the scheduler transitions an issue it swaps status labels so an issue never
+carries two at once — the target role's label is added and the sibling `status:*`
+labels are removed — and for *done* it **closes** the issue instead. Both are
+idempotent (closing a closed issue, or re-adding a label already present, is a
+no-op), so a redundant transition is harmless.
 
 #### tracker.github.secrets
 *map of secret env name → config*

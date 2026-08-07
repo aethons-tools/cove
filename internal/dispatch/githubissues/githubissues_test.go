@@ -275,6 +275,129 @@ func TestListInProgressSkipsWhenNoLabelEvent(t *testing.T) {
 	}
 }
 
+// recordedReq is one HTTP call the recorder saw.
+type recordedReq struct {
+	method string
+	path   string
+	body   string
+}
+
+// recorder captures every request and returns a canned status per (method,path),
+// defaulting to 200 — enough to assert the write methods' REST shape hermetically.
+type recorder struct {
+	reqs   []recordedReq
+	status func(method, path string) int
+}
+
+func (rec *recorder) RoundTrip(r *http.Request) (*http.Response, error) {
+	body := ""
+	if r.Body != nil {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+	}
+	rec.reqs = append(rec.reqs, recordedReq{r.Method, r.URL.Path, body})
+	code := 200
+	if rec.status != nil {
+		code = rec.status(r.Method, r.URL.Path)
+	}
+	return jsonResp(code, `{}`), nil
+}
+
+func TestTransitionDoneClosesIssue(t *testing.T) {
+	rec := &recorder{}
+	c := newTestClient(t, rec)
+	if err := c.Transition(context.Background(), "42", scheduler.RoleDone); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if len(rec.reqs) != 1 {
+		t.Fatalf("Done should issue one call; got %+v", rec.reqs)
+	}
+	got := rec.reqs[0]
+	if got.method != http.MethodPatch || got.path != "/repos/acme/board/issues/42" {
+		t.Fatalf("Done call = %s %s; want PATCH /repos/acme/board/issues/42", got.method, got.path)
+	}
+	if !strings.Contains(got.body, `"state":"closed"`) {
+		t.Fatalf("Done body = %q; want state=closed", got.body)
+	}
+}
+
+func TestTransitionNonDoneSetsLabelRemovesSiblings(t *testing.T) {
+	rec := &recorder{}
+	c := newTestClient(t, rec)
+	if err := c.Transition(context.Background(), "42", scheduler.RoleInProgress); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	var added []string
+	removed := map[string]bool{}
+	for _, r := range rec.reqs {
+		switch r.method {
+		case http.MethodPost:
+			if r.path != "/repos/acme/board/issues/42/labels" {
+				t.Fatalf("add label call to wrong path: %s", r.path)
+			}
+			if strings.Contains(r.body, "status:in-progress") {
+				added = append(added, "status:in-progress")
+			}
+		case http.MethodDelete:
+			const p = "/repos/acme/board/issues/42/labels/"
+			if !strings.HasPrefix(r.path, p) {
+				t.Fatalf("remove label call to wrong path: %s", r.path)
+			}
+			removed[strings.TrimPrefix(r.path, p)] = true
+		default:
+			t.Fatalf("unexpected %s to %s", r.method, r.path)
+		}
+	}
+	if len(added) != 1 {
+		t.Fatalf("want status:in-progress added exactly once; got %v", added)
+	}
+	// Every other status label must be removed, and the target never removed.
+	for _, sib := range []string{"status:ready", "status:in-review", "status:needs-input", "status:blocked"} {
+		if !removed[sib] {
+			t.Fatalf("sibling %q not removed; removed=%v", sib, removed)
+		}
+	}
+	if removed["status:in-progress"] {
+		t.Fatalf("target label status:in-progress must not be removed")
+	}
+}
+
+func TestTransitionIsIdempotent(t *testing.T) {
+	// Closing an already-closed issue still returns 200; removing an absent sibling
+	// label returns 404. Both must be tolerated as no-ops.
+	rec := &recorder{status: func(method, path string) int {
+		if method == http.MethodDelete {
+			return http.StatusNotFound
+		}
+		return http.StatusOK
+	}}
+	c := newTestClient(t, rec)
+	if err := c.Transition(context.Background(), "42", scheduler.RoleDone); err != nil {
+		t.Fatalf("Transition Done (already closed): %v", err)
+	}
+	if err := c.Transition(context.Background(), "42", scheduler.RoleInReview); err != nil {
+		t.Fatalf("Transition InReview (siblings absent): %v", err)
+	}
+}
+
+func TestPostCommentCreatesComment(t *testing.T) {
+	rec := &recorder{status: func(method, path string) int { return http.StatusCreated }}
+	c := newTestClient(t, rec)
+	if err := c.PostComment(context.Background(), "42", "hello there"); err != nil {
+		t.Fatalf("PostComment: %v", err)
+	}
+	if len(rec.reqs) != 1 {
+		t.Fatalf("PostComment should issue one call; got %+v", rec.reqs)
+	}
+	got := rec.reqs[0]
+	if got.method != http.MethodPost || got.path != "/repos/acme/board/issues/42/comments" {
+		t.Fatalf("PostComment call = %s %s; want POST .../issues/42/comments", got.method, got.path)
+	}
+	if !strings.Contains(got.body, `"body":"hello there"`) {
+		t.Fatalf("PostComment body = %q; want the comment body", got.body)
+	}
+}
+
 func TestCommentsMapsAuthorAndBody(t *testing.T) {
 	rt := router{
 		"/repos/acme/board/issues/8/comments": `[

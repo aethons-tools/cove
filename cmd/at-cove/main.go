@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,6 +28,7 @@ import (
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/connect"
 	dexec "github.com/aethons-tools/cove/internal/dispatch/exec"
+	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
@@ -1515,8 +1517,13 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "at-cove: %v\n", err)
 			return 1
 		}
-		if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
-			fmt.Fprintln(stderr, "at-cove: kit must declare source-control, tracker.linear, dispatch, and at least one worker")
+		if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
+			fmt.Fprintln(stderr, "at-cove: kit must declare source-control, tracker, dispatch, and at least one worker")
+			return 1
+		}
+		provider, err := cfg.Tracker.Active()
+		if err != nil {
+			fmt.Fprintf(stderr, "at-cove: tracker: %v\n", err)
 			return 1
 		}
 		classes := make([]string, 0, len(cfg.Workers))
@@ -1526,8 +1533,8 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 			}
 		}
 		sort.Strings(classes)
-		fmt.Fprintf(stdout, "would dispatch %s (kit %s): resolve the tracker token, connect to Linear, and poll every %s for %d worker class(es): %s\n",
-			cfg.Name, kitDir, cfg.Tracker.Linear.PollInterval, len(classes), strings.Join(classes, ", "))
+		fmt.Fprintf(stdout, "would dispatch %s (kit %s): resolve the tracker token, connect to %s, and poll every %s for %d worker class(es): %s\n",
+			cfg.Name, kitDir, provider, cfg.Tracker.PollInterval(), len(classes), strings.Join(classes, ", "))
 		return 0
 	}
 
@@ -1568,8 +1575,12 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	}
 	cfg := m.RunConfig
 	// dispatch requires the full scheduler surface.
-	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Tracker.Linear == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
-		lg.UserError(ctx, errors.New("kit must declare source-control, tracker.linear, dispatch, and at least one worker"), slog.String("step", "setup"))
+	if cfg.SourceControl == nil || cfg.Tracker == nil || cfg.Dispatch == nil || len(cfg.Workers) == 0 {
+		lg.UserError(ctx, errors.New("kit must declare source-control, tracker, dispatch, and at least one worker"), slog.String("step", "setup"))
+		return 1
+	}
+	if _, err := cfg.Tracker.Active(); err != nil {
+		lg.UserError(ctx, fmt.Errorf("tracker: %w", err), slog.String("step", "setup"))
 		return 1
 	}
 
@@ -1606,17 +1617,36 @@ func doDispatch(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	}
 	token := resolved["AT_DISPATCH_TRACKER_TOKEN"]
 
-	tracker, err := linear.New(cfg, token, nil)
+	tracker, err := newTracker(cfg, token, nil)
 	if err != nil {
-		lg.UserError(ctx, fmt.Errorf("connect to Linear: %w", err), slog.String("step", "broker"))
+		lg.UserError(ctx, fmt.Errorf("connect to tracker: %w", err), slog.String("step", "broker"))
 		return 1
 	}
 
 	engine := scheduler.New(cfg, kitDir, tracker, dexec.New(), lg)
-	lg.Info(schedulerStartMsg, slog.String("poll", cfg.Tracker.Linear.PollInterval))
+	lg.Info(schedulerStartMsg, slog.String("poll", cfg.Tracker.PollInterval()))
 	_ = engine.Run(ctx) // returns ctx.Err() on signal — a clean shutdown
 	lg.Info("scheduler stopped")
 	return 0
+}
+
+// newTracker builds the scheduler.Tracker for the kit's configured provider — the
+// dispatch composition root. cfg.Tracker.Active() has already been validated to
+// name exactly one provider by the setup guard; the switch maps that name to its
+// client constructor.
+func newTracker(cfg kit.Config, token string, httpc *http.Client) (scheduler.Tracker, error) {
+	provider, err := cfg.Tracker.Active()
+	if err != nil {
+		return nil, err
+	}
+	switch provider {
+	case "linear":
+		return linear.New(cfg, token, httpc)
+	case "github":
+		return githubissues.New(cfg, token, httpc)
+	default:
+		return nil, fmt.Errorf("unsupported tracker provider %q", provider)
+	}
 }
 
 // schedulerStartMsg is the dispatch scheduler's start line. It keeps the

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
+	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -2103,6 +2106,54 @@ func TestDispatchRejectsIncompleteKit(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "must declare") {
 		t.Fatalf("stderr = %q; want the missing-surface error", errOut.String())
+	}
+}
+
+// rtFunc adapts a func to an http.RoundTripper so newTracker's constructors can be
+// driven hermetically (linear.New fetches its state map at construction).
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestNewTrackerSelectsProvider is the composition-root test: newTracker maps
+// cfg.Tracker.Active() to the matching client. A linear kit yields *linear.Client
+// (unaffected by the github addition) and a github kit yields *githubissues.Client.
+func TestNewTrackerSelectsProvider(t *testing.T) {
+	states := kit.StateMap{
+		Ready: "Todo", InProgress: "In Progress", InReview: "In Review",
+		Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog",
+	}
+
+	// Linear: New fetches its workflow-state map at construction; canned response.
+	const statesResp = `{"data":{"workflowStates":{"nodes":[
+	 {"id":"s-todo","name":"Todo"},{"id":"s-prog","name":"In Progress"},
+	 {"id":"s-rev","name":"In Review"},{"id":"s-done","name":"Done"},
+	 {"id":"s-ni","name":"Needs Input"},{"id":"s-block","name":"Backlog"}]}}}`
+	linearHTTP := &http.Client{Transport: rtFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(statesResp)), Header: make(http.Header)}, nil
+	})}
+	linearCfg := kit.Config{Tracker: &kit.Tracker{Linear: &kit.LinearTracker{Team: "AET", States: states}}}
+	tr, err := newTracker(linearCfg, "tok", linearHTTP)
+	if err != nil {
+		t.Fatalf("newTracker(linear): %v", err)
+	}
+	if _, ok := tr.(*linear.Client); !ok {
+		t.Fatalf("linear kit selected %T; want *linear.Client", tr)
+	}
+
+	// GitHub: New makes no construction-time network call.
+	githubCfg := kit.Config{Tracker: &kit.Tracker{GitHub: &kit.GitHubTracker{Repo: "acme/board", States: states}}}
+	tr2, err := newTracker(githubCfg, "tok", &http.Client{})
+	if err != nil {
+		t.Fatalf("newTracker(github): %v", err)
+	}
+	if _, ok := tr2.(*githubissues.Client); !ok {
+		t.Fatalf("github kit selected %T; want *githubissues.Client", tr2)
+	}
+
+	// No provider set → the ambiguity error, no client.
+	if _, err := newTracker(kit.Config{Tracker: &kit.Tracker{}}, "tok", nil); err == nil {
+		t.Fatal("newTracker with no provider: want error, got nil")
 	}
 }
 

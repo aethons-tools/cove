@@ -3,10 +3,10 @@
 // labels (status:ready, status:in-progress, …) and Done is an issue being closed;
 // blocker gating is a body convention (Depends on #N / Blocked by #N, same-repo).
 //
-// This part (COV-109) implements the read half of the interface — New, ListReady,
-// ListInProgress, Comments. Transition/PostComment and the composition-root wiring
-// land in part 3, so the type does not yet satisfy the full scheduler.Tracker
-// interface. Live calls are exercised by the integration-tagged test.
+// The read half (New, ListReady, ListInProgress, Comments) landed in COV-109; the
+// write half (Transition, PostComment) in COV-110 completes the type so it fully
+// satisfies scheduler.Tracker. Live calls are exercised by the integration-tagged
+// test.
 package githubissues
 
 import (
@@ -309,6 +309,102 @@ func (c *Client) enteredAt(ctx context.Context, number int, label string) (time.
 	return latest, found, nil
 }
 
+// Transition realizes a role change on an issue. For scheduler.RoleDone the issue
+// is closed (a closed issue IS done); for every other role its status label is set
+// — the role's label is added and the sibling status:* labels are removed, so an
+// issue never carries two. Both paths are idempotent: closing an already-closed
+// issue and adding a present label are no-ops, and removing an absent label is
+// tolerated. issueID is the numeric issue number (as set on Issue.ID).
+func (c *Client) Transition(ctx context.Context, issueID string, role scheduler.Role) error {
+	if role == scheduler.RoleDone {
+		return c.setState(ctx, issueID, "closed")
+	}
+	label := c.labels[role]
+	if label == "" {
+		return fmt.Errorf("githubissues: no status label for role %d", role)
+	}
+	if err := c.addLabel(ctx, issueID, label); err != nil {
+		return err
+	}
+	for r, sib := range c.labels {
+		if r == role || sib == "" || sib == label {
+			continue
+		}
+		if err := c.removeLabel(ctx, issueID, sib); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setState PATCHes an issue's state (e.g. "closed"). GitHub returns 200 whether or
+// not the state actually changed, so closing a closed issue is a no-op.
+func (c *Client) setState(ctx context.Context, issueID, state string) error {
+	payload, err := json.Marshal(map[string]string{"state": state})
+	if err != nil {
+		return err
+	}
+	u := api + "/repos/" + c.repo + "/issues/" + issueID
+	code, raw, err := c.do(ctx, http.MethodPatch, u, payload)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("githubissues: PATCH %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+// addLabel adds one label to an issue. GitHub merges into the existing set, so
+// adding a label the issue already carries is a no-op (still 200).
+func (c *Client) addLabel(ctx context.Context, issueID, label string) error {
+	payload, err := json.Marshal(map[string][]string{"labels": {label}})
+	if err != nil {
+		return err
+	}
+	u := api + "/repos/" + c.repo + "/issues/" + issueID + "/labels"
+	code, raw, err := c.do(ctx, http.MethodPost, u, payload)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+// removeLabel removes one label from an issue. Removing a label the issue does not
+// carry returns 404 — a no-op for the "never two status labels" invariant, so it
+// is treated as success.
+func (c *Client) removeLabel(ctx context.Context, issueID, label string) error {
+	u := api + "/repos/" + c.repo + "/issues/" + issueID + "/labels/" + url.PathEscape(label)
+	code, raw, err := c.do(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	if code == http.StatusOK || code == http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("githubissues: DELETE %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+}
+
+// PostComment creates an issue comment. issueID is the numeric issue number.
+func (c *Client) PostComment(ctx context.Context, issueID, body string) error {
+	payload, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return err
+	}
+	u := api + "/repos/" + c.repo + "/issues/" + issueID + "/comments"
+	code, raw, err := c.do(ctx, http.MethodPost, u, payload)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated && code != http.StatusOK {
+		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
 // Comments lists an issue's comments as scheduler.Comment{Author, Body}. issueID
 // is the numeric issue number (as set on Issue.ID).
 func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error) {
@@ -328,3 +424,6 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 	}
 	return cs, nil
 }
+
+// Compile-time proof the client satisfies the full tracker interface.
+var _ scheduler.Tracker = (*Client)(nil)
