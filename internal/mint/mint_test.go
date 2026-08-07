@@ -1,6 +1,9 @@
 package mint
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +12,53 @@ import (
 )
 
 func strptr(s string) *string { return &s }
+
+// withExecPath points the execPath seam at a fake for the duration of a test,
+// restoring the real os.Executable afterwards.
+func withExecPath(t *testing.T, fn func() (string, error)) {
+	t.Helper()
+	prev := execPath
+	execPath = fn
+	t.Cleanup(func() { execPath = prev })
+}
+
+func TestAtMintBinaryPrefersSibling(t *testing.T) {
+	dir := t.TempDir()
+	sibling := filepath.Join(dir, "at-mint")
+	if err := os.WriteFile(sibling, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
+	if got := atMintBinary(); got != sibling {
+		t.Fatalf("atMintBinary() = %q, want sibling %q", got, sibling)
+	}
+}
+
+func TestAtMintBinaryFallsBackWhenSiblingAbsent(t *testing.T) {
+	dir := t.TempDir() // no at-mint written beside the executable
+	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
+	if got := atMintBinary(); got != "at-mint" {
+		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
+	}
+}
+
+func TestAtMintBinaryFallsBackOnNonExecutableSibling(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "at-mint"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
+	if got := atMintBinary(); got != "at-mint" {
+		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
+	}
+}
+
+func TestAtMintBinaryFallsBackOnLookupError(t *testing.T) {
+	withExecPath(t, func() (string, error) { return "", errors.New("boom") })
+	if got := atMintBinary(); got != "at-mint" {
+		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
+	}
+}
 
 func TestGithubProfilePathKeyIsFlagNotEnv(t *testing.T) {
 	m := usersecret.Minter{GitHub: &usersecret.GitHubMinter{
