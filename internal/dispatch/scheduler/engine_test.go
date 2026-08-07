@@ -45,7 +45,42 @@ func newTestEngine(t *testing.T, tr Tracker, ex Executor) *Engine {
 	return newEngine(testConfig(), tr, ex)
 }
 
+// withExecPath points the execPath seam at a fake for the duration of a test,
+// restoring it on cleanup (execPath / os.Executable is process-global).
+func withExecPath(t *testing.T, fn func() (string, error)) {
+	t.Helper()
+	prev := execPath
+	execPath = fn
+	t.Cleanup(func() { execPath = prev })
+}
+
+// A dispatched work unit must run the SAME at-cove binary that scheduled it — its
+// own executable path — not a bare-name PATH lookup. Otherwise a work unit
+// resolving to a different at-cove (e.g. a dev build run off-PATH via `just run`,
+// while a released at-cove sits on PATH) recomputes a different install-currency
+// identity and fails with a spurious "install is stale".
+func TestHandleExecsRunningBinary(t *testing.T) {
+	withExecPath(t, func() (string, error) { return "/opt/atcove/at-cove", nil })
+	tr := newFakeTracker()
+	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}
+	eng := newTestEngine(t, tr, ex)
+	eng.handle(context.Background(), Issue{ID: "id1", Identifier: "AET-9", Title: "X", Class: "implement"})
+	if len(ex.GotArgv) == 0 || ex.GotArgv[0] != "/opt/atcove/at-cove" {
+		t.Fatalf("argv[0] must be the running at-cove's own path; got %v", ex.GotArgv)
+	}
+}
+
+// When the executable path can't be determined, fall back to the bare name so a
+// PATH lookup still works (the prior behavior).
+func TestAtCoveBinaryFallsBackWhenUndeterminable(t *testing.T) {
+	withExecPath(t, func() (string, error) { return "", errors.New("nope") })
+	if got := atCoveBinary(); got != "at-cove" {
+		t.Fatalf("atCoveBinary() = %q, want bare fallback %q", got, "at-cove")
+	}
+}
+
 func TestHandleOKOpensReviewAndBuildsInput(t *testing.T) {
+	withExecPath(t, func() (string, error) { return "at-cove", nil }) // pin argv[0] for the literal assertion below
 	tr := newFakeTracker()
 	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{"pr-url":"https://x/pull/1","message":"opened PR"}},` +
 		`"worker-result":{"status":{"ok":{"pull-request":{"title":"T","message":"did the thing"}}}}}`}
@@ -153,6 +188,7 @@ func TestHandleMissingOutputIsError(t *testing.T) {
 // The scheduler must log the exact `at-cove work` argv it execs, so a failed
 // invocation is diagnosable from the scheduler's own output.
 func TestHandleLogsExecArgv(t *testing.T) {
+	withExecPath(t, func() (string, error) { return "at-cove", nil }) // pin argv[0] for the literal assertion below
 	var logs bytes.Buffer
 	tr := newFakeTracker()
 	ex := &fakeExecutor{OutJSON: `{"status":{"ok":{}}}`}

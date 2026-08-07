@@ -18,6 +18,28 @@ import (
 	"github.com/aethons-tools/cove/internal/logging"
 )
 
+// execPath is a seam over os.Executable so tests can control self-path resolution
+// (os.Executable is process-global). See atCoveBinary.
+var execPath = os.Executable
+
+// atCoveBinary resolves argv[0] for the `at-cove work` subprocess to the RUNNING
+// at-cove's own path, so a dispatched work unit runs the SAME binary that
+// scheduled it. The work unit's install-currency check hashes at-cove's embedded
+// build identity (the sealed hardening tree + at-task binaries); if the unit were
+// a DIFFERENT at-cove than the one that ran `install` — which a bare-name PATH
+// lookup invites whenever the running at-cove isn't the one on PATH (e.g. a dev
+// build run off-PATH via `just run`) — the recomputed currency hash would
+// mismatch and the unit would fail with a spurious "install is stale". Falls back
+// to the bare name "at-cove" (PATH lookup, the prior behavior) only when the
+// executable path can't be determined.
+func atCoveBinary() string {
+	self, err := execPath()
+	if err != nil {
+		return "at-cove"
+	}
+	return self
+}
+
 // Engine polls a Tracker and dispatches ready autonomous work.
 type Engine struct {
 	cfg     kit.Config
@@ -147,7 +169,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	rctx, cancel := context.WithTimeout(ctx, work+over)
 	defer cancel()
 	// e.kitDir is the .at-cove dir; --project-dir names its parent (the project root).
-	argv := []string{"at-cove", "work", "--project-dir", filepath.Dir(e.kitDir), "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
+	argv := []string{atCoveBinary(), "work", "--project-dir", filepath.Dir(e.kitDir), "--in", inPath, "--out", outPath, "--timeout", rw.Timeout}
 	dl.Info("dispatching work", slog.String("step", "dispatch"), slog.String("argv", strings.Join(argv, " ")))
 	// Pass the run id into the work subprocess (spec §7) so its own records — and
 	// the VM records it merges — join this dispatch's trace under the same `run`.
