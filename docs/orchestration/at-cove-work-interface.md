@@ -32,6 +32,8 @@ A **worker is therefore a container from the kit's installed image**, and **disp
 
 Dispatch is **synchronous and one-shot** (shipped). The scheduler runs one blocking `at-cove work` per issue in a bounded goroutine; there is **no** run-id registry, detach, or lifecycle-verb set (`status`/`result`/`logs`/`ls`/`kill`) — an earlier design considered them and they were dropped as unnecessary under the synchronous model.
 
+The scheduler launches `at-cove work` via its **own executable path** (`os.Executable`), not a bare-name PATH lookup, so a dispatched unit runs the **same** at-cove binary that scheduled it. This is load-bearing: `at-cove work` re-verifies install currency, which hashes at-cove's embedded build identity (sealed hardening tree + at-task binaries); a work unit resolving to a *different* at-cove — as a bare `at-cove` on `PATH` would when the running binary is off-`PATH` (e.g. a dev build via `just run`) — would recompute a mismatched hash and fail the unit with a spurious "install is stale".
+
 ```
 at-cove work [--project-dir <dir>] --in <task.json> --out <task-result.json> [--timeout <dur>] [--grace <dur>] [--reap]
 ```
