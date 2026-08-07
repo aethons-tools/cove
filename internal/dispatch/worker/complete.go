@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // CodeHost opens (or finds) a pull request.
@@ -61,7 +62,11 @@ func completeOK(ctx context.Context, dir string, task Task, git Git, ch CodeHost
 			return taskErr(raw, "diff", err.Error())
 		}
 		if differs {
-			url, err := ch.OpenPR(ctx, task.Repo.Name, task.Repo.SourceBranch, task.Repo.WorkBranch, pr.Title, pr.Message)
+			// Honor an upstream-set auto-close reference by appending a `Closes <ref>`
+			// trailer to the PR body — tracker-agnostic: at-task only forwards the
+			// field, it does not know which tracker (if any) computed it.
+			body := withCloses(pr.Message, task.Issue.Closes)
+			url, err := ch.OpenPR(ctx, task.Repo.Name, task.Repo.SourceBranch, task.Repo.WorkBranch, pr.Title, body)
 			if err != nil {
 				return taskErr(raw, "open PR", err.Error())
 			}
@@ -72,6 +77,20 @@ func completeOK(ctx context.Context, dir string, task Task, git Git, ch CodeHost
 		}
 	}
 	return TaskResult{Status: TaskStatus{OK: okStatus}, WorkerResult: raw}
+}
+
+// withCloses appends a single `Closes <ref>` trailer to a PR body, separated from
+// the body by a blank line. An empty ref returns the body unchanged (no annotation
+// for Linear or a cross-repo GitHub issue), and an empty body yields just the line.
+func withCloses(body, ref string) string {
+	if ref == "" {
+		return body
+	}
+	body = strings.TrimRight(body, "\n")
+	if body == "" {
+		return "Closes " + ref
+	}
+	return body + "\n\nCloses " + ref
 }
 
 func completeNeedsInput(ctx context.Context, dir string, task Task, git Git, raw any) TaskResult {

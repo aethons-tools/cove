@@ -122,7 +122,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	outPath := filepath.Join(dir, "task-result.json")
 
 	task := worker.Task{
-		Issue: worker.TaskIssue{Key: iss.Identifier, Title: iss.Title},
+		Issue: worker.TaskIssue{Key: iss.Identifier, Title: iss.Title, Closes: e.closesRef(iss)},
 		Repo: worker.TaskRepo{
 			WorkBranch: iss.Class + "/" + iss.Identifier,
 		},
@@ -154,6 +154,37 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	runErr := e.exec.Run(rctx, argv, []string{"COVE_RUN_ID=" + rid})
 
 	e.broker(ctx, iss, readResult(outPath), runErr, dl)
+}
+
+// closesRef returns the GitHub auto-close reference for iss (its "#N" identifier),
+// or "" when no annotation should be made. It is non-empty only when the active
+// tracker is github AND the issue's repo (tracker.github.repo, defaulting to
+// source-control when unset) equals the PR's target repo (source-control) — the
+// same-repo condition under which a `Closes #N` trailer in the merged PR reaches
+// the issue. For a Linear tracker or a cross-repo GitHub issue it stays empty, so
+// merging never auto-closes and Done is reached only by the scheduler/reviewer.
+// This keeps at-task tracker-agnostic: the scheduler computes the ref, at-task
+// merely forwards it. It is orthogonal to the single-writer model — auto-close and
+// a reviewer-driven RoleDone are both idempotent (closing a closed issue is a no-op).
+func (e *Engine) closesRef(iss Issue) string {
+	if e.cfg.Tracker == nil {
+		return ""
+	}
+	if name, err := e.cfg.Tracker.Active(); err != nil || name != "github" {
+		return ""
+	}
+	src, ok := e.cfg.SourceControl.Repo()
+	if !ok {
+		return ""
+	}
+	issueRepo := strings.TrimSpace(e.cfg.Tracker.GitHub.Repo)
+	if issueRepo == "" {
+		issueRepo = src.Project // tracker.github.repo defaults to source-control (githubissues.New)
+	}
+	if issueRepo != src.Project {
+		return "" // cross-repo: a Closes #N would target the PR's repo, not the issue's
+	}
+	return iss.Identifier // the github tracker's identifier is already "#N"
 }
 
 // broker performs the tracker writes for one dispatch result. Single writer.
