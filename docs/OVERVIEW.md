@@ -739,6 +739,7 @@ internal/dispatchrun/         `at-cove work` orchestration (scavenge → run →
 internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
 internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
 internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
+internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — status labels + closed=Done, body-convention blocker gating (read methods live; writes/wiring in progress)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
