@@ -192,21 +192,55 @@ func (s *SourceControl) Repo() (Repo, bool) {
 }
 
 // Tracker names the issue tracker the kit's scheduler drives — a tagged union
-// (exactly one provider; linear only today). Consumed by `at-cove dispatch`.
+// (exactly one provider; linear or github). Consumed by `at-cove dispatch`.
 type Tracker struct {
 	Linear *LinearTracker `yaml:"linear,omitempty"`
+	GitHub *GitHubTracker `yaml:"github,omitempty"`
 }
 
+// Active returns the set provider, or an error if not exactly one.
 func (t *Tracker) Active() (string, error) {
+	n, name := 0, ""
 	if t.Linear != nil {
-		return "linear", nil
+		n, name = n+1, "linear"
 	}
-	return "", errors.New("must set exactly one provider (linear)")
+	if t.GitHub != nil {
+		n, name = n+1, "github"
+	}
+	if n != 1 {
+		return "", errors.New("must set exactly one provider (linear or github)")
+	}
+	return name, nil
+}
+
+// PollInterval returns the active provider's poll-interval (validated by
+// ParseConfig), or "" when no provider is set — a provider-neutral accessor so
+// the scheduler engine never reaches into a specific tracker variant.
+func (t *Tracker) PollInterval() string {
+	switch {
+	case t.Linear != nil:
+		return t.Linear.PollInterval
+	case t.GitHub != nil:
+		return t.GitHub.PollInterval
+	}
+	return ""
 }
 
 // LinearTracker wires the scheduler to one Linear team.
 type LinearTracker struct {
 	Team             string                  `yaml:"team"`
+	PollInterval     string                  `yaml:"poll-interval"`
+	ClassLabelPrefix string                  `yaml:"class-label-prefix"`
+	States           StateMap                `yaml:"states"`
+	Secrets          map[string]SecretConfig `yaml:"secrets"`
+}
+
+// GitHubTracker wires the scheduler to one GitHub repo's Issues. Unlike Linear,
+// Done is not a lifecycle role — a closed issue IS done — so States reuses
+// StateMap but only the five non-terminal roles (ready, in-progress, in-review,
+// needs-input, blocked) are required; States.Done is ignored.
+type GitHubTracker struct {
+	Repo             string                  `yaml:"repo,omitempty"` // "owner/name"; defaults to source-control.github.project when empty
 	PollInterval     string                  `yaml:"poll-interval"`
 	ClassLabelPrefix string                  `yaml:"class-label-prefix"`
 	States           StateMap                `yaml:"states"`
@@ -513,6 +547,43 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 			if err := checkWellKnownSecrets("tracker.linear.secrets", lt.Secrets,
 				"AT_DISPATCH_TRACKER_TOKEN", "AT_DISPATCH_WEBHOOK_SECRET"); err != nil {
+				return Config{}, err
+			}
+		}
+		if gt := cfg.Tracker.GitHub; gt != nil {
+			// Repo is resolvable when overridden here or inherited from
+			// source-control.github; a provided override must be "owner/name".
+			if strings.TrimSpace(gt.Repo) == "" {
+				if cfg.SourceControl == nil || cfg.SourceControl.GitHub == nil {
+					return Config{}, fmt.Errorf("config.yml: tracker.github.repo is required unless source-control.github is set")
+				}
+			} else if parts := strings.Split(gt.Repo, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return Config{}, fmt.Errorf("config.yml: tracker.github.repo must be \"owner/name\", got %q", gt.Repo)
+			}
+			if err := checkKitDuration("tracker.github.poll-interval", gt.PollInterval); err != nil {
+				return Config{}, err
+			}
+			if gt.ClassLabelPrefix == "" {
+				gt.ClassLabelPrefix = "class:"
+			} else if strings.TrimSpace(gt.ClassLabelPrefix) == "" {
+				return Config{}, fmt.Errorf("config.yml: tracker.github.class-label-prefix must not be empty")
+			}
+			// Done = a closed issue, so only the five non-terminal roles are required.
+			states := map[string]string{
+				"ready": gt.States.Ready, "in-progress": gt.States.InProgress,
+				"in-review": gt.States.InReview, "needs-input": gt.States.NeedsInput,
+				"blocked": gt.States.Blocked,
+			}
+			for name, v := range states {
+				if strings.TrimSpace(v) == "" {
+					return Config{}, fmt.Errorf("config.yml: tracker.github.states.%s is required", name)
+				}
+			}
+			if err := validateSecretNames("tracker.github.secrets", gt.Secrets, false); err != nil {
+				return Config{}, err
+			}
+			if err := checkWellKnownSecrets("tracker.github.secrets", gt.Secrets,
+				"AT_DISPATCH_TRACKER_TOKEN"); err != nil {
 				return Config{}, err
 			}
 		}

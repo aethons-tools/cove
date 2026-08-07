@@ -129,7 +129,7 @@ source-control:
 declares at most one.
 
 ### tracker
-*tagged union — one provider (`linear` only today)*
+*tagged union — one provider (`linear` or `github`)*
 
 Names the issue tracker the kit's scheduler drives. Parsed, validated, and read
 directly by `at-cove dispatch --project-dir <dir>` — the scheduler consumes the kit's
@@ -187,6 +187,61 @@ tracker:
     secrets:
       AT_DISPATCH_TRACKER_TOKEN:  { description: "Linear API token for the scheduler" }
       AT_DISPATCH_WEBHOOK_SECRET: { description: "Linear webhook signing secret" }
+```
+
+#### tracker.github.repo
+*string (`owner/name`), defaults to `source-control.github.project`*
+
+The GitHub repo whose Issues the scheduler drives. Omit it to inherit
+`source-control.github.project`; set it only to point the tracker at a different
+repo than the one the kit targets for code. Required (as an override) when the kit
+declares no `source-control.github`.
+
+#### tracker.github.poll-interval*
+*string (Go duration)*
+
+How often the scheduler polls GitHub for issue state changes. As with Linear, keep
+it low-frequency (e.g. `60s`).
+
+#### tracker.github.class-label-prefix
+*string, defaults to `class:`*
+
+The label prefix that maps a GitHub issue to a worker class (e.g. `class:implement`).
+Must be non-empty if provided.
+
+#### tracker.github.states*
+*map of the scheduler's five **non-terminal** lifecycle roles → that repo's real label names*
+
+`ready`, `in-progress`, `in-review`, `needs-input`, `blocked` — all five required.
+Unlike Linear, `done` is **not** a role and is ignored: on GitHub, *Done means the
+issue is closed*, so there is no state label for it. These bind the design's
+lifecycle roles to whatever labels the repo actually uses.
+
+#### tracker.github.secrets
+*map of secret env name → config*
+
+Host-side, scheduler-only — never injected into a sandbox VM (see
+[Secret buckets](#secret-buckets)). Demands exactly `AT_DISPATCH_TRACKER_TOKEN`,
+demand-only (no `command`) — the value is supplied from the user's
+`~/.config/at-cove/secrets.yml`/`secrets.local.yml` (see
+[at-cove-secrets.md](at-cove-secrets.md)). Any other key (including Linear's
+`AT_DISPATCH_WEBHOOK_SECRET`) is rejected.
+
+```yaml
+source-control:
+  github:
+    project: acme/myrepo   # tracker.github.repo inherits this
+tracker:
+  github:
+    poll-interval: 60s
+    states:
+      ready: Todo
+      in-progress: In Progress
+      in-review: In Review
+      needs-input: Needs Input
+      blocked: Blocked
+    secrets:
+      AT_DISPATCH_TRACKER_TOKEN: { description: "GitHub API token for the scheduler" }
 ```
 
 ### dispatch
@@ -605,7 +660,7 @@ reads its own bucket, not a flat merged list.
 | `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually just `GITHUB_TOKEN` for `gh`/`git`; most other access rides connectors) |
 | `workers.*.secrets` | host, resolved lazily right before the agent step, `<common>`-merged | — | injected (agent step only) | the dispatched agent process |
 | `source-control.{github,gitlab}.secrets` | host, resolved fresh per git step (minted for GitHub; supplied for GitLab — see [gitlab secrets](#source-controlgitlabsecrets)) | — | injected (git steps only) | `at-task prepare`/`complete` only |
-| `tracker.linear.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
+| `tracker.{linear,github}.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
 
 Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
 mechanics (the two host files, the four sources, precedence, the anti-mining invariant,
@@ -720,10 +775,16 @@ the template kit for `at-cove dispatch`.
   disables connectors; see
   [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket);
 - a `secrets` name (map key) is empty at **any** of the five bucket locations;
-- `tracker` sets more than one provider; `tracker.linear.team` is missing, `poll-interval`
-  isn't a positive Go duration, a `states` entry is missing, or `secrets` doesn't declare
-  exactly `AT_DISPATCH_TRACKER_TOKEN` / `AT_DISPATCH_WEBHOOK_SECRET` (demand-only — each
-  value is supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
+- `tracker` sets zero or more than one provider (exactly one of `linear` / `github`);
+- `tracker.linear.team` is missing, `poll-interval` isn't a positive Go duration, a `states`
+  entry is missing, or `secrets` doesn't declare exactly `AT_DISPATCH_TRACKER_TOKEN` /
+  `AT_DISPATCH_WEBHOOK_SECRET` (demand-only — each value is supplied from
+  `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
+- `tracker.github.repo` is neither set nor inherited from `source-control.github` (or is set
+  but not `owner/name`), `poll-interval` isn't a positive Go duration, a `class-label-prefix`
+  is provided but empty, one of the five non-terminal `states` (`ready`, `in-progress`,
+  `in-review`, `needs-input`, `blocked` — `done` is ignored) is missing, or `secrets` doesn't
+  declare exactly `AT_DISPATCH_TRACKER_TOKEN` (demand-only);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
 - `model-provider` sets more than one provider; `model-provider.vertex.env` is missing

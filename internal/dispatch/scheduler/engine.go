@@ -226,7 +226,7 @@ func needsInputComment(tr worker.TaskResult) string {
 
 // Run polls every poll-interval until ctx is done, draining in-flight work on exit.
 func (e *Engine) Run(ctx context.Context) error {
-	d, _ := time.ParseDuration(e.cfg.Tracker.Linear.PollInterval) // validated by config
+	d, _ := time.ParseDuration(e.cfg.Tracker.PollInterval()) // validated by config
 	t := time.NewTicker(d)
 	defer t.Stop()
 	e.tick(ctx) // immediate first pass
