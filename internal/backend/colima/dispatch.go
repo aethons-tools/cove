@@ -5,16 +5,26 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/naming"
 )
 
 // Compile-time proof colima satisfies the dispatch surface.
 var _ backend.DispatchOps = (*Colima)(nil)
 
-// RunEphemeral starts a fresh, labeled, volume-less container with --rm and a
-// published sshd, so a force-remove (or --rm on stop) reclaims everything.
-func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string) (backend.Instance, error) {
+// RunEphemeral starts a fresh, labeled container with --rm and a published sshd,
+// so a force-remove (or --rm on stop) reclaims everything. A docker:true dispatch
+// additionally runs it under Sysbox with a -docker cache volume named after the
+// worker container (COV-117); docker:false is volume-less, exactly as before.
+func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string, docker bool) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
+	}
+	// docker:true needs the Sysbox runtime in the VM; detect + guide before we run
+	// (at-cove does not install it) — COV-117.
+	if docker {
+		if err := c.requireSysboxRuntime(); err != nil {
+			return backend.Instance{}, err
+		}
 	}
 	// Pin the built-image digest when install captured one (COV-78), falling back
 	// to the mutable tag for a legacy manifest; the tag is kept on the Instance.
@@ -26,6 +36,7 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string) (
 		"--cap-add=NET_ADMIN",
 	}
 	runArgs = append(runArgs, dnsArgs(dns)...)
+	runArgs = append(runArgs, dockerArgs(docker, naming.DockerVolume(name))...)
 	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
 		runImage(image, digest),

@@ -2,6 +2,7 @@
 package colima
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -40,6 +41,46 @@ func dnsArgs(dns []string) []string {
 		a = append(a, "--dns", ns)
 	}
 	return a
+}
+
+// dockerArgs renders the docker run flags that activate docker-in-sandbox via the
+// Sysbox runtime when the kit opts in with docker:true (COV-117): the sandbox
+// container runs under --runtime=sysbox-runc (so a rootful dockerd can run inside
+// the unprivileged container), COVE_DOCKER=1 signals the entrypoint, and a
+// persistent named volume backs the inner /var/lib/docker cache. When docker is
+// false it yields no flags, so the run argv is byte-for-byte unchanged. It never
+// emits --privileged, a socket mount, --device, or --security-opt — that is the
+// whole point of Sysbox (see the design §C/§G).
+func dockerArgs(docker bool, volume string) []string {
+	if !docker {
+		return nil
+	}
+	return []string{
+		"--runtime=sysbox-runc",
+		"-e", "COVE_DOCKER=1",
+		"-v", volume + ":/var/lib/docker",
+	}
+}
+
+// requireSysboxRuntime fails fast with an actionable message when the colima VM's
+// docker daemon does not register the sysbox-runc runtime, which a docker:true
+// instance needs (COV-117). at-cove detects but never installs Sysbox — the
+// message points at the VM-side prerequisite. It parses `docker info -f '{{json
+// .Runtimes}}'`, a map of runtime name → config, and checks for the sysbox-runc
+// key. Preflight has already confirmed the daemon is reachable.
+func (c *Colima) requireSysboxRuntime() error {
+	out, err := c.r.Output("docker", dargs("info", "-f", "{{json .Runtimes}}")...)
+	if err != nil {
+		return fmt.Errorf("colima: cannot query docker runtimes for the docker:true preflight (docker: %v)", err)
+	}
+	var runtimes map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &runtimes); err != nil {
+		return fmt.Errorf("colima: cannot parse docker runtimes %q: %w", strings.TrimSpace(out), err)
+	}
+	if _, ok := runtimes["sysbox-runc"]; !ok {
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. at-cove detects but does not install it — install Sysbox CE in the colima Lima VM and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md §H.")
+	}
+	return nil
 }
 
 // preflight fails fast with an actionable message when the colima docker context
@@ -119,6 +160,13 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
+	// docker:true needs the Sysbox runtime in the VM; detect + guide before we run
+	// (at-cove does not install it) — COV-117.
+	if ctx.Docker {
+		if err := c.requireSysboxRuntime(); err != nil {
+			return backend.Instance{}, err
+		}
+	}
 	// Pin the run to the built-image digest install captured (COV-78); a legacy
 	// manifest without one falls back to the mutable tag. The tag is still recorded
 	// on the Instance (below) for display/diagnostics.
@@ -134,12 +182,18 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		vols.Workspace = naming.WorkspaceVolume(ctx.Name)
 		ws = vols.Workspace + ":/home/agent/workspace"
 	}
+	// docker:true records a persistent /var/lib/docker cache volume, so Destroy
+	// removes exactly it (COV-117) — named once here via the naming helper.
+	if ctx.Docker {
+		vols.Docker = naming.DockerVolume(ctx.Name)
+	}
 	runArgs := []string{"run", "-d",
 		"--name", ctx.Name,
 		"--init",
 		"--cap-add=NET_ADMIN",
 	}
 	runArgs = append(runArgs, dnsArgs(ctx.DNS)...)
+	runArgs = append(runArgs, dockerArgs(ctx.Docker, vols.Docker)...)
 	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
 		"-v", vols.State+":/agent-data",
@@ -211,7 +265,7 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	// old -state volume. Best-effort: a missing volume (e.g. a shared workspace
 	// records no workspace volume) must not fail the teardown.
 	if !keepVolumes {
-		vols := []string{inst.Volumes.State, inst.Volumes.Workspace}
+		vols := []string{inst.Volumes.State, inst.Volumes.Workspace, inst.Volumes.Docker}
 		if inst.Volumes.State == "" {
 			vols = []string{inst.Container + "-state", inst.Container + "-workspace"}
 		}

@@ -158,6 +158,114 @@ func TestCreateDNS(t *testing.T) {
 	}
 }
 
+// sysboxRuntimesOutput is a `docker info -f '{{json .Runtimes}}'` payload that
+// registers the sysbox-runc runtime, so a docker:true preflight passes.
+const sysboxRuntimesOutput = `{"runc":{"path":"runc"},"sysbox-runc":{"path":"/usr/bin/sysbox-runc"}}`
+
+// TestCreateDocker: a docker:true kit runs the sandbox container under Sysbox —
+// --runtime=sysbox-runc, -e COVE_DOCKER=1, and a persistent -docker cache volume
+// mounted at the inner /var/lib/docker — recorded on the instance so destroy
+// removes it (COV-117). No --privileged/socket/--device/--security-opt, ever.
+func TestCreateDocker(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
+	inst, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box", Docker: true,
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := dockerCall(f.Calls, "run")
+	got := strings.Join(run, " ")
+	for _, want := range []string{"--runtime=sysbox-runc", "-e COVE_DOCKER=1", "-v box-docker:/var/lib/docker"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("docker:true create must emit %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"--privileged", "docker.sock", "--device", "--security-opt"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("docker:true create must never emit %q:\n%s", banned, got)
+		}
+	}
+	if inst.Volumes.Docker != "box-docker" {
+		t.Fatalf("docker:true create must record the -docker volume; got %+v", inst.Volumes)
+	}
+}
+
+// TestCreateNoDockerByteForByte: with docker unset the run argv is byte-for-byte
+// what it was before COV-117 — no --runtime, no COVE_DOCKER, no -docker volume,
+// and no docker-info runtimes probe.
+func TestCreateNoDockerByteForByte(t *testing.T) {
+	f := &runner.Fake{}
+	inst, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(dockerCall(f.Calls, "run"), " ")
+	for _, banned := range []string{"--runtime", "COVE_DOCKER", "-docker"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("a non-docker create must not emit %q:\n%s", banned, got)
+		}
+	}
+	if inst.Volumes.Docker != "" {
+		t.Fatalf("a non-docker create must record no -docker volume; got %+v", inst.Volumes)
+	}
+	// The Runtimes probe (an Output-consuming `docker info -f …`) only runs for
+	// docker:true; a non-docker create consumes no queued Output.
+	if f.Outputs != nil {
+		t.Fatalf("test setup: this case queues no Outputs")
+	}
+}
+
+// TestCreateDockerPreflightRequiresSysbox: docker:true fails fast with an
+// actionable message when the colima VM's docker daemon does not register the
+// sysbox-runc runtime — at-cove detects but does not install (COV-117).
+func TestCreateDockerPreflightRequiresSysbox(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
+	_, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box", Docker: true,
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") || !strings.Contains(err.Error(), "Sysbox") {
+		t.Fatalf("docker:true must fail actionably when sysbox-runc is absent; err=%v", err)
+	}
+	if dockerCall(f.Calls, "run") != nil {
+		t.Fatalf("preflight must fail before running the container: %+v", f.Calls)
+	}
+}
+
+// TestDestroyPurgesDockerVolume: a real destroy removes the recorded -docker
+// volume alongside -agent-data/-workspace (COV-117).
+func TestDestroyPurgesDockerVolume(t *testing.T) {
+	f := &runner.Fake{}
+	err := New(f).Destroy(backend.Instance{
+		Container: "box",
+		Volumes:   backend.VolumeSet{State: "box-agent-data", Workspace: "box-workspace", Docker: "box-docker"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vol := dockerCall(f.Calls, "volume")
+	if vol == nil || !contains(vol, "box-docker") {
+		t.Fatalf("destroy must remove the recorded -docker volume: %+v", f.Calls)
+	}
+}
+
+// TestDockerArgs pins the pure arg-builder: the three Sysbox flags when on,
+// nothing at all when off (so the run argv stays byte-for-byte unchanged).
+func TestDockerArgs(t *testing.T) {
+	if a := dockerArgs(false, "box-docker"); a != nil {
+		t.Errorf("docker off must yield no flags; got %v", a)
+	}
+	got := strings.Join(dockerArgs(true, "box-docker"), " ")
+	if got != "--runtime=sysbox-runc -e COVE_DOCKER=1 -v box-docker:/var/lib/docker" {
+		t.Errorf("dockerArgs = %q", got)
+	}
+}
+
 // TestDNSArgs pins the pure arg-builder: one --dns pair per IP, nothing for empty.
 func TestDNSArgs(t *testing.T) {
 	if a := dnsArgs(nil); a != nil {

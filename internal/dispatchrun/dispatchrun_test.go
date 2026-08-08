@@ -26,6 +26,7 @@ type fakeOps struct {
 	ranImage  string   // the image RunEphemeral was asked to run
 	ranDigest string   // the built-image digest RunEphemeral was asked to pin
 	ranDNS    []string // the container resolver IPs RunEphemeral was asked to pin
+	ranDocker bool     // whether RunEphemeral was asked to enable docker-in-sandbox
 	removed   bool
 
 	r *runner.Fake // when set, ApplySessionEgress inspects its call log for ordering
@@ -37,11 +38,12 @@ type fakeOps struct {
 	agentRanBeforeEg  bool     // the agent step ("claude -p") had run when egress was applied
 }
 
-func (f *fakeOps) RunEphemeral(image, digest, name, _ string, dns []string) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, digest, name, _ string, dns []string, docker bool) (backend.Instance, error) {
 	f.ran = true
 	f.ranImage = image
 	f.ranDigest = digest
 	f.ranDNS = dns
+	f.ranDocker = docker
 	return backend.Instance{Container: name, Image: image, ImageDigest: digest}, nil
 }
 func (f *fakeOps) Dial(string) (backend.Endpoint, func(), error) {
@@ -132,6 +134,38 @@ func TestDispatchRunsBracket(t *testing.T) {
 	}
 	if strings.Contains(calls, "docker build") || strings.Contains(calls, "build --build-arg") {
 		t.Fatalf("dispatch must not build on the run path:\n%s", calls)
+	}
+}
+
+// TestDispatchThreadsDockerFlag asserts the kit's top-level docker flag reaches
+// the ephemeral run path (o.Cfg.Docker → RunEphemeral), mirroring how DNS is
+// threaded (COV-117).
+func TestDispatchThreadsDockerFlag(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(context.Background(), Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			Docker:        true,
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Image: "at-cove-for-w", ImageDigest: "sha256:cafe", Name: "disp-1",
+		InputPath: in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if !ops.ranDocker {
+		t.Fatalf("Cfg.Docker=true must thread through to RunEphemeral; ranDocker=%v", ops.ranDocker)
 	}
 }
 

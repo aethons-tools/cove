@@ -1,10 +1,10 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, image (+ validation)"
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-08-07
+updated: 2026-08-08
 ---
 
 # at-cove `config.yml`
@@ -571,6 +571,31 @@ collaborators:
 - omitted, with **no** classes defined — `chat` launches a plain session with no
   role injected (today's behavior, unchanged).
 
+### docker
+*bool, defaults to `false`*
+
+Opts the kit into **docker-in-sandbox** — a working Docker *inside* the sandbox for
+testing workloads (`docker build` / `docker compose up` / **testcontainers**) —
+via the **Sysbox** runtime, without weakening the sandbox's hardening (COV-117).
+When `true`, the colima backend runs the sandbox container itself under
+`--runtime=sysbox-runc`, sets `COVE_DOCKER=1`, and mounts a persistent
+`/var/lib/docker` cache volume (`atcove-{kit}[-{class}]-docker`, removed on
+`destroy`). It never adds `--privileged`, a host docker-socket mount, `--device`,
+or `--security-opt` — Sysbox provides the isolation host-side, so a normal rootful
+`dockerd` runs inside an **unprivileged** container. Default `false` leaves the run
+argv **byte-for-byte unchanged** (no runtime, no env, no volume).
+
+**Prerequisite (detect-only, at-cove does not install):** the colima VM's docker
+daemon must register the `sysbox-runc` runtime. When `docker: true` and it is
+absent, `at-cove` fails fast with an actionable message — install Sysbox CE in the
+colima Lima VM and make it persist across `colima stop/start` (a colima provision
+hook). See the [Sysbox docker-in-sandbox design](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md)
+§C/§H for the mechanism and the install steps.
+
+```yaml
+docker: true   # this kit's sandboxes get a Sysbox-backed Docker for testing
+```
+
 ### image
 The image at-cove hardens, plus the kit's additive egress. Build-time customization
 lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries `base`,
@@ -767,6 +792,7 @@ the template kit for `at-cove dispatch`.
   path contains a newline);
 - an `image.dns[i]` is empty or is not a valid IP address (`docker --dns` requires an IP,
   not a hostname);
+- `docker` is set to a non-bool value (it is a plain boolean, default `false`);
 - an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
   contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real

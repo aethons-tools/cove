@@ -642,7 +642,7 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, diges
 		return err
 	}
 	bi, err := b.Create(backend.CreateContext{
-		Name: name, Image: image, Digest: digest, Workspace: ws, DNS: cfg.Image.DNS,
+		Name: name, Image: image, Digest: digest, Workspace: ws, DNS: cfg.Image.DNS, Docker: cfg.Docker,
 	})
 	if err != nil {
 		return err

@@ -43,6 +43,12 @@ func WorkspaceVolume(container string) string { return container + "-workspace" 
 // mount), not the historical -state.
 func AgentDataVolume(container string) string { return container + "-agent-data" }
 
+// DockerVolume names the persistent /var/lib/docker cache volume for a
+// docker:true instance (COV-117), given that instance's container (base) name.
+// The suffix is -docker, so it sorts with the instance's other volumes and is
+// removed on destroy alongside them.
+func DockerVolume(container string) string { return container + "-docker" }
+
 // WorkerContainer names an ephemeral `at-cove work` container. It carries the
 // atcove- prefix like every other resource, plus a pid+nanotime suffix so
 // concurrent dispatches of one kit (even from separate processes) never collide.

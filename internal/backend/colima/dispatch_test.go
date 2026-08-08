@@ -12,7 +12,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
-	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil)
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 func TestRunEphemeralDNS(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", []string{"10.0.0.53", "10.0.0.54"}); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", []string{"10.0.0.53", "10.0.0.54"}, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -57,7 +57,7 @@ func TestRunEphemeralDNS(t *testing.T) {
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work", nil)
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work", nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -67,6 +67,43 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
 	if !strings.Contains(got, "sha256:cafe") || strings.Contains(got, "img:tag") {
 		t.Errorf("ephemeral run must pin the digest, not the tag:\n%s", got)
+	}
+}
+
+// TestRunEphemeralDocker: a docker:true dispatch runs the ephemeral worker under
+// Sysbox too — --runtime=sysbox-runc, -e COVE_DOCKER=1, and a -docker cache volume
+// named after the worker container — after asserting the runtime is present
+// (COV-117). docker:false is byte-for-byte the pre-COV-117 argv (asserted above).
+func TestRunEphemeralDocker(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
+	c := New(f).(*Colima)
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, true); err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
+	for _, want := range []string{"--runtime=sysbox-runc", "-e COVE_DOCKER=1", "-v disp-1-docker:/var/lib/docker"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("docker:true ephemeral run missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"--privileged", "docker.sock", "--device", "--security-opt"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("docker:true ephemeral run must never emit %q:\n%s", banned, got)
+		}
+	}
+}
+
+// TestRunEphemeralDockerRequiresSysbox: docker:true dispatch fails fast with the
+// actionable message when the VM daemon lacks the sysbox-runc runtime (COV-117).
+func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
+	c := New(f).(*Colima)
+	_, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, true)
+	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") {
+		t.Fatalf("docker:true dispatch must fail actionably without sysbox-runc; err=%v", err)
+	}
+	if dockerCall(f.Calls, "run") != nil {
+		t.Fatalf("preflight must fail before running the container: %+v", f.Calls)
 	}
 }
 

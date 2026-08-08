@@ -67,6 +67,11 @@ type CreateContext struct {
 	// image.dns. Empty emits no --dns flag, so the container inherits Docker's
 	// default resolver (the VM/host resolver, honoring split-DNS VPNs).
 	DNS []string
+	// Docker opts the instance into docker-in-sandbox via Sysbox, from the kit's
+	// top-level docker flag (COV-117). When true the backend runs the container
+	// under --runtime=sysbox-runc with COVE_DOCKER=1 and a persistent
+	// /var/lib/docker cache volume; when false the run argv is unchanged.
+	Docker bool
 }
 
 // InstallContext is everything Backend.Install needs to build + gate + tag a
@@ -95,6 +100,7 @@ type InstalledImage struct {
 type VolumeSet struct {
 	State     string // the /agent-data volume name
 	Workspace string // the workspace volume name; empty for a shared workspace
+	Docker    string // the /var/lib/docker cache volume name; empty unless docker:true (COV-117)
 }
 
 // Instance identifies a provisioned VM. Create returns it; the CLI records it in
@@ -140,7 +146,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string, dns []string) (Instance, error) // fresh labeled --rm no-volume container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default)
+	RunEphemeral(image, digest, name, label string, dns []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); docker runs it under Sysbox with a -docker cache volume (COV-117)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
