@@ -62,6 +62,19 @@ func dockerArgs(docker bool, volume string) []string {
 	}
 }
 
+// initArgs renders the tini flag (--init). A non-docker sandbox uses tini as PID 1
+// (reaps zombies for the sshd process tree). A docker:true sandbox instead boots
+// systemd as PID 1 — the entrypoint execs /sbin/init under Sysbox (COV-118), and
+// systemd *must* be PID 1; running it under tini would make it a child process and
+// break it. So --init is omitted exactly for docker:true, and kept otherwise, so
+// the non-docker argv is byte-for-byte unchanged.
+func initArgs(docker bool) []string {
+	if docker {
+		return nil
+	}
+	return []string{"--init"}
+}
+
 // requireSysboxRuntime fails fast with an actionable message when the colima VM's
 // docker daemon does not register the sysbox-runc runtime, which a docker:true
 // instance needs (COV-117). at-cove detects but never installs Sysbox — the
@@ -189,9 +202,9 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	}
 	runArgs := []string{"run", "-d",
 		"--name", ctx.Name,
-		"--init",
-		"--cap-add=NET_ADMIN",
 	}
+	runArgs = append(runArgs, initArgs(ctx.Docker)...)
+	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
 	runArgs = append(runArgs, dnsArgs(ctx.DNS)...)
 	runArgs = append(runArgs, dockerArgs(ctx.Docker, vols.Docker)...)
 	runArgs = append(runArgs,

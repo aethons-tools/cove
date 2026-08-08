@@ -313,7 +313,7 @@ is **just the sealed layer** plus a few generated files — there is no kit over
 anymore:
 
 1. **Non-overridable hardening** (embedded) —
-   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, and the version-locked `at-task` binary.
+   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
 2. **Generated** — the kit's **root** egress allow-list (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: three additive allow-lists](#egress-three-additive-allow-lists-session-scoped)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**

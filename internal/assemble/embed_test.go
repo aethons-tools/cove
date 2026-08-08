@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -78,6 +79,98 @@ func TestNftablesForwardChainContainsNestedEgress(t *testing.T) {
 	}
 	if !strings.Contains(body, "ct state established,related accept") {
 		t.Errorf("forward chain must accept established,related return traffic; got:\n%s", body)
+	}
+}
+
+// TestEntrypointExecsSystemdForDocker guards the COV-118 PID-1 branch: a docker:true
+// sandbox (COVE_DOCKER=1) hands off to systemd (exec /sbin/init), which raises the
+// egress lock and starts sshd + the inner rootful dockerd as ordered units; a
+// non-docker sandbox keeps the script path (exec sshd), unchanged. The handoff must
+// precede the non-docker tail so the docker path never runs the script bring-up.
+func TestEntrypointExecsSystemdForDocker(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
+	if err != nil {
+		t.Fatalf("entrypoint.sh not embedded: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
+		t.Errorf("entrypoint must branch on COVE_DOCKER; got:\n%s", s)
+	}
+	initIdx := strings.Index(s, "exec /sbin/init")
+	sshdIdx := strings.Index(s, "exec /usr/sbin/sshd -D")
+	if initIdx < 0 {
+		t.Errorf("entrypoint must exec systemd (/sbin/init) on the docker path; got:\n%s", s)
+	}
+	if sshdIdx < 0 {
+		t.Errorf("entrypoint must still exec sshd on the non-docker path; got:\n%s", s)
+	}
+	if initIdx >= 0 && sshdIdx >= 0 && initIdx > sshdIdx {
+		t.Errorf("the systemd branch must precede the non-docker sshd exec; got:\n%s", s)
+	}
+}
+
+// TestCoveEgressUnitAndOrdering guards the systemd egress-first invariant (COV-118):
+// cove-egress raises nft + squid, runs early (DefaultDependencies=no) and before the
+// network-capable services, and docker.service Requires+After it so the inner dockerd
+// cannot start before the lock. It must be enabled at build (go:embed can't ship the
+// wants symlink), so systemd runs it at boot regardless of socket activation.
+func TestCoveEgressUnitAndOrdering(t *testing.T) {
+	u, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/cove-egress.service")
+	if err != nil {
+		t.Fatalf("cove-egress.service not embedded: %v", err)
+	}
+	us := string(u)
+	for _, want := range []string{"DefaultDependencies=no", "nft -f /etc/nftables.conf", "squid -f /etc/squid/squid.conf"} {
+		if !strings.Contains(us, want) {
+			t.Errorf("cove-egress.service must contain %q; got:\n%s", want, us)
+		}
+	}
+	if !strings.Contains(us, "Before=") || !strings.Contains(us, "docker.service") {
+		t.Errorf("cove-egress.service must be ordered Before docker.service; got:\n%s", us)
+	}
+
+	d, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/docker.service.d/cove-egress.conf")
+	if err != nil {
+		t.Fatalf("docker.service drop-in not embedded: %v", err)
+	}
+	ds := string(d)
+	if !strings.Contains(ds, "After=cove-egress.service") || !strings.Contains(ds, "Requires=cove-egress.service") {
+		t.Errorf("docker.service drop-in must After+Requires cove-egress.service; got:\n%s", ds)
+	}
+
+	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(df), "systemctl enable cove-egress.service") {
+		t.Errorf("hardening Dockerfile must enable cove-egress.service so it runs at boot; got:\n%s", df)
+	}
+}
+
+// TestInnerDockerDaemonJSON guards the sealed inner-dockerd config (COV-118): it is
+// valid JSON, routes the daemon (containerd pulls + buildkit) through squid, caps the
+// build cache, and carries no key dockerd's strict parser would reject.
+func TestInnerDockerDaemonJSON(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/docker/daemon.json")
+	if err != nil {
+		t.Fatalf("daemon.json not embedded: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatalf("daemon.json must be valid JSON: %v", err)
+	}
+	// dockerd's parser rejects unknown top-level keys — guard the tempting "comment".
+	if _, bad := cfg["comment"]; bad {
+		t.Errorf("daemon.json must not carry a 'comment' key (dockerd rejects unknown keys)")
+	}
+	if _, ok := cfg["proxies"]; !ok {
+		t.Errorf("daemon.json must set proxies so pulls route through squid; got:\n%s", b)
+	}
+	if _, ok := cfg["builder"]; !ok {
+		t.Errorf("daemon.json must set a builder gc cap; got:\n%s", b)
+	}
+	if !strings.Contains(string(b), "127.0.0.1:3128") {
+		t.Errorf("daemon.json must point the daemon proxy at squid (127.0.0.1:3128); got:\n%s", b)
 	}
 }
 
