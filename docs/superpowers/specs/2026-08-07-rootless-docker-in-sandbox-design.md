@@ -310,6 +310,13 @@ path — is worth doing as part of any reconsideration.)
 
 ### Recommended path: Sysbox
 
+> **Update (2026-08-08, COV-120):** a follow-up attended spike **proved this out** —
+> inner Docker (build/run/compose + testcontainers) runs in the hardened sandbox under
+> `--runtime=sysbox-runc` with no `--privileged`/cap grants and the egress lock intact.
+> The proven recipe lives in
+> [`2026-08-08-sysbox-docker-in-sandbox-spike.md`](2026-08-08-sysbox-docker-in-sandbox-spike.md);
+> the COV-114 re-scope builds to that.
+
 Re-scope COV-114 around **Sysbox** (`docker+sysbox-runc`): a host-installed OCI
 runtime that gives a container the *illusion* of the privileges nested Docker needs
 (userns, `uid_map`, etc.) via syscall interception, **without** exposing
