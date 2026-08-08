@@ -195,6 +195,15 @@ relaxation of the core hardening (§G). This matches upstream reality: the offic
 COV-114 around the Sysbox fallback** (see below). Parts 2–5 (the `docker:true`
 implementation) are **blocked** — do not build to the current design.
 
+> Strictly, the airtight claim is "no *usable* rootless docker without
+> `CAP_SYS_ADMIN`." One narrow variant — **single-uid (self-mapped) rootless mode**,
+> which sidesteps `newuidmap` entirely — was *not* tested; it is expected to yield a
+> docker too crippled to meet the goal (images that drop to a non-root uid inside,
+> e.g. postgres/most testcontainers, break because no subordinate uids exist). See
+> [One untested variant](#one-untested-variant--single-uid-rootless) below. This
+> section's mechanism and verdict were **independently reviewed** (adversarial kernel
+> review, 2026-08-08) — confirmed, with the refinements folded in below.
+
 ### What was established (evidence chain)
 
 Baseline sandbox run-flags are `--init --cap-add=NET_ADMIN --dns 1.1.1.1` (from
@@ -235,6 +244,70 @@ iterating:
    `CAP_SYS_ADMIN` is therefore the *minimum* that makes nested rootless docker work
    here — and it is not an acceptable grant for the sandbox.
 
+### Mechanism (why — confirmed by independent kernel review)
+
+The gate is in `kernel/user_namespace.c` `map_write()`, which runs on **every**
+uid_map write (single-identity *or* range), *before* `new_idmap_permitted()`:
+`if (cap_valid(cap_setid) && !file_ns_capable(file, ns, CAP_SYS_ADMIN)) -EPERM`. It
+asks whether the process that *opened* `/proc/<child>/uid_map` (i.e. `newuidmap`,
+setuid-root, euid 0) holds **`CAP_SYS_ADMIN` in the child userns `ns`**. Because the
+child userns was created by `agent` (`ns->owner == 1001`), `cap_capable()`'s
+owner-shortcut (`ns->parent == cred->user_ns && ns->owner == cred->euid`) is
+`1001 == 0` → false, so the check falls through to `init_user_ns`, where the
+container's capability set applies. Docker's default bounding set **drops
+`CAP_SYS_ADMIN`** (observed `CapBnd=0x…a80435fb`), so setuid `newuidmap` can hold
+`CAP_SETUID` but never `CAP_SYS_ADMIN` there → `EPERM`. This one fact explains the
+whole chain:
+
+- the *single-identity* `newuidmap 0 1001 1` also `EPERM`s (the `CAP_SYS_ADMIN` gate
+  precedes the single-identity fast path — so "fewer extents" and "a narrower cap than
+  SYS_ADMIN" are both dead ends, by construction);
+- `unshare -Ur` **succeeds** because there the writer is *inside* its own new userns
+  (`ns == cred->user_ns`), where a fresh creator holds all caps — a different path;
+- **bare-host** rootless docker works on the identical kernel because a bare host's
+  setuid `newuidmap` inherits the *full* bounding set (incl. `CAP_SYS_ADMIN`). **It is
+  the container's dropped `CAP_SYS_ADMIN`, not the kernel version, that is the wall** —
+  so a different Lima/colima kernel or `--vm-type` would *not* change this. (The
+  noble `apparmor_restrict_unprivileged_userns` restriction gates userns *creation*,
+  not this write, consistent with §5 above.)
+
+### One untested variant — single-uid rootless
+
+RootlessKit can fall back to mapping *only the caller's own uid from inside the new
+userns* (the `unshare -Ur` path that already works — no cross-process `newuidmap`, so
+the `CAP_SYS_ADMIN` gate is never hit; still needs the seccomp allowance for userns
+creation). This was **not tested**. Expected outcome: `hello-world`/`alpine` run (as
+uid 0 ≡ agent), but any image that `setuid`s to a non-root uid inside
+(postgres/redis/nginx, most DB testcontainers) fails for lack of subordinate uids —
+i.e. *technically feasible but fails the goal*. The one confirmatory test that could
+refute the literal verdict (run on the colima host, sandbox started with baseline
+`--cap-add=NET_ADMIN --device /dev/fuse` + a userns-creation seccomp allowance):
+
+```
+sudo sh -c ': >/etc/subuid; : >/etc/subgid'   # force single-uid fallback
+dockerd-rootless.sh --data-root "$HOME/.local/share/docker" &
+docker run --rm alpine id          # expect: only uid 0 exists
+docker run --rm postgres:16 true   # expect: FAILS (needs non-root subuids)
+```
+
+### Threat-model note (why `CAP_SYS_ADMIN` is still off the table)
+
+The primary control — **egress** — survives *even with* `CAP_SYS_ADMIN`: the nftables
+`meta skuid "proxy"` rule lives in the container's init net namespace (owned by
+`init_user_ns`); altering it needs `CAP_NET_ADMIN` *effective in `init_user_ns`*, which
+the unprivileged `agent` never has, and a nested container only owns its own netns. So
+the escalation is about **container escape / host integrity**, not exfiltration. It is
+still unacceptable here because the sandbox runs in the **initial userns (no
+userns-remap)** — the worst case for `CAP_SYS_ADMIN`, where a mount-based escape yields
+*host* root — and the hardening treats the agent as prompt-injectable/untrusted. Trading
+the categorical "no `--privileged`/no `CAP_SYS_ADMIN`" invariant for a fragile
+allowance (one that breaks the moment any setuid-root binary, `sudo` rule, or
+rootless-docker CVE appears) on the very kit that runs arbitrary nested containers is a
+bad trade when Sysbox provides the same capability with real isolation. (A quick
+`find / -xdev -perm -4000 -type f` in the sandbox image — to confirm
+`newuidmap`/`newgidmap` are the only setuid-root binaries and there is no agent `sudo`
+path — is worth doing as part of any reconsideration.)
+
 ### Recommended path: Sysbox
 
 Re-scope COV-114 around **Sysbox** (`docker+sysbox-runc`): a host-installed OCI
@@ -243,7 +316,25 @@ runtime that gives a container the *illusion* of the privileges nested Docker ne
 `CAP_SYS_ADMIN`/`--privileged` to the workload. This is a **colima-backend/runtime**
 change (install Sysbox in the Lima VM; run the sandbox container with
 `--runtime=sysbox-runc`), not an in-container flag — materially different from §§A–G
-and requiring its own design + threat-model pass.
+and requiring its own design + threat-model pass. With Sysbox the inner docker can be
+**rootful** (simpler than rootless), and the outer container stays unprivileged with
+real isolation, dissolving exactly the `map_write`/`newuidmap` gate above.
+
+Gate these before COV-114 commits to Sysbox (ordered by risk):
+
+1. **arm64 / Apple Silicon support — make-or-break, verify first.** Sysbox CE's arm64
+   packaging has historically lagged. Confirm a current Sysbox CE release ships an
+   installable arm64 artifact **before** any design work — if not, the re-scope is
+   blocked on the same platform this spike ran on.
+2. **VM install survives `colima start/stop`.** Sysbox (`sysbox-runc`/`-fs`/`-mgr`)
+   must be installed in the Lima VM and registered in `/etc/docker/daemon.json`
+   `runtimes` via a colima **provision hook**, so it re-applies across restarts (not an
+   ephemeral in-VM change). Kernel 6.8 already satisfies the idmapped-mount prereq.
+3. **Re-verify the hardening chain under `sysbox-runc`.** Confirm the sandbox's own
+   `entrypoint.sh` → `nft -f` → `squid` → `sshd` still works inside a Sysbox container
+   (Sysbox emulates `procfs`/`sysfs` and gives NET_ADMIN within the container userns —
+   nft *should* load, but this is a fresh integration test, not assumable).
+4. **License:** Sysbox CE is Apache-2.0 (sufficient); EE is commercial (not needed).
 
 ### Not reached (untested — gated by the wall above)
 
