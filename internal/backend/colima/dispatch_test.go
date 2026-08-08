@@ -20,7 +20,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 		t.Fatalf("instance = %+v", inst)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.work", "-p 127.0.0.1::2222", "img:tag"} {
+	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.work", "--init", "-p 127.0.0.1::2222", "img:tag"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -90,6 +90,10 @@ func TestRunEphemeralDocker(t *testing.T) {
 		if strings.Contains(got, banned) {
 			t.Errorf("docker:true ephemeral run must never emit %q:\n%s", banned, got)
 		}
+	}
+	// docker:true boots systemd as PID 1, so tini (--init) is omitted (COV-118).
+	if strings.Contains(got, "--init") {
+		t.Errorf("docker:true ephemeral run must omit --init (systemd is PID 1):\n%s", got)
 	}
 }
 

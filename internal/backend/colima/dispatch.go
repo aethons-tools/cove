@@ -32,9 +32,9 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string, d
 		"--name", name,
 		"--rm",
 		"--label", label,
-		"--init",
-		"--cap-add=NET_ADMIN",
 	}
+	runArgs = append(runArgs, initArgs(docker)...)
+	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
 	runArgs = append(runArgs, dnsArgs(dns)...)
 	runArgs = append(runArgs, dockerArgs(docker, naming.DockerVolume(name))...)
 	runArgs = append(runArgs,

@@ -1,0 +1,13 @@
+{
+  "proxies": {
+    "http-proxy": "http://127.0.0.1:3128",
+    "https-proxy": "http://127.0.0.1:3128",
+    "no-proxy": "localhost,127.0.0.1,::1"
+  },
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "defaultKeepStorage": "2GB"
+    }
+  }
+}

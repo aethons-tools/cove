@@ -187,6 +187,12 @@ func TestCreateDocker(t *testing.T) {
 			t.Fatalf("docker:true create must never emit %q:\n%s", banned, got)
 		}
 	}
+	// docker:true boots systemd as PID 1 (the entrypoint execs /sbin/init under
+	// Sysbox — COV-118), so tini (--init) must be omitted; running systemd under
+	// tini would make it a non-PID-1 child and break it.
+	if strings.Contains(got, "--init") {
+		t.Fatalf("docker:true create must omit --init (systemd is PID 1):\n%s", got)
+	}
 	if inst.Volumes.Docker != "box-docker" {
 		t.Fatalf("docker:true create must record the -docker volume; got %+v", inst.Volumes)
 	}
@@ -209,6 +215,10 @@ func TestCreateNoDockerByteForByte(t *testing.T) {
 		if strings.Contains(got, banned) {
 			t.Fatalf("a non-docker create must not emit %q:\n%s", banned, got)
 		}
+	}
+	// A non-docker sandbox keeps tini as PID 1 (only docker:true swaps to systemd).
+	if !strings.Contains(got, "--init") {
+		t.Fatalf("a non-docker create must keep --init (tini as PID 1):\n%s", got)
 	}
 	if inst.Volumes.Docker != "" {
 		t.Fatalf("a non-docker create must record no -docker volume; got %+v", inst.Volumes)

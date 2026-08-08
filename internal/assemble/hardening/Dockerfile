@@ -62,6 +62,15 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 # && find /etc/claude-code -type f -exec chmod 0644 {} + \
 # && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py
 
+# docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed egress
+# unit so systemd raises the nftables+squid lock at boot — before sshd and the
+# inner dockerd — independent of any socket activation. `systemctl enable` runs
+# offline during the build (creating the WantedBy symlink), which is why the unit
+# is enabled here rather than shipped as a symlink (go:embed can't carry symlinks).
+# Inert for non-docker sandboxes: they never boot systemd (the entrypoint execs
+# sshd directly), so the enabled unit simply never runs.
+RUN systemctl enable cove-egress.service
+
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
 # time, migration flags, …) UNDER our startup-experience overrides, so that the
 # valuable per-install data survives once CLAUDE_CONFIG_DIR redirects claude to
