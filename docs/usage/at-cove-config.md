@@ -589,8 +589,10 @@ argv **byte-for-byte unchanged** (no runtime, no env, no volume).
 daemon must register the `sysbox-runc` runtime. When `docker: true` and it is
 absent, `at-cove` fails fast with an actionable message — install Sysbox CE in the
 colima Lima VM and make it persist across `colima stop/start` (a colima provision
-hook). See the [Sysbox docker-in-sandbox design](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md)
-§C/§H for the mechanism and the install steps.
+hook). See [docker-in-sandbox.md](docker-in-sandbox.md) for the copy-paste install
+steps, registry allow-list recipes, and nested-container egress; the
+[Sysbox docker-in-sandbox design](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md)
+§C/§H covers the mechanism.
 
 ```yaml
 docker: true   # this kit's sandboxes get a Sysbox-backed Docker for testing

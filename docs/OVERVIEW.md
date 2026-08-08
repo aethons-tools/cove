@@ -447,7 +447,7 @@ only *widens* the kit-root tier; the sealed base and `nftables` are unchanged.
 **Nested-container egress is contained too.** The `nftables` `output` chain locks the
 agent's *direct* egress (only the `proxy` user reaches the network); a `forward` chain
 extends the same lock to *forwarded* traffic. This matters for the opt-in
-[`docker`](usage/at-cove-config.md) capability (nested containers run via Sysbox): a
+[`docker`](usage/docker-in-sandbox.md) capability (nested containers run via Sysbox): a
 nested container's traffic is masqueraded and forwarded out the uplink, so without the
 `forward` drop it would sidestep the `output`-chain lock. The chain default-drops
 forwarded packets and accepts only established/related, so a nested container reaches
