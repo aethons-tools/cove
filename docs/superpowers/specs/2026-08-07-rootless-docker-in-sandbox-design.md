@@ -1,7 +1,10 @@
 # Rootless Docker inside the sandbox (opt-in)
 
-**Status:** design approved (brainstorm), pending feasibility spike + implementation
-**Date:** 2026-08-07
+**Status:** feasibility spike **failed → escalate** (COV-115, 2026-08-08). Rootless
+`dockerd` is **not viable** in the non-privileged hardened container on colima;
+the productionized approach below (parts 2–5) is **blocked** pending a re-scope to
+the Sysbox runtime. See [Spike findings (COV-115)](#spike-findings-cov-115--verdict-escalate).
+**Date:** 2026-08-07 (spike appended 2026-08-08)
 **Related:** the hardening layer (`internal/assemble/hardening/`), the colima backend
 (`internal/backend/colima/`), the egress model (`docs/OVERVIEW.md#egress-three-additive-allow-lists-session-scoped`),
 the base/toolchain images (`docs/superpowers/specs/2026-07-16-shared-base-image-design.md`).
@@ -168,3 +171,90 @@ unacceptably, escalate before proceeding.
 
 Order: 1 → {2, 3} → 4 → 5. The spike (1) must complete and confirm feasibility before
 2–4 begin.
+
+## Spike findings (COV-115) — verdict: **ESCALATE**
+
+**Date:** 2026-08-08 · **Attended** (a human iterated `docker run` flags against a
+live colima VM). **Environment:** colima (Lima) on Apple Silicon, macOS
+Virtualization.framework; VM kernel `6.8.0-117-generic` (Ubuntu 24.04 *noble*);
+Docker `29.5.2`. **Spike image:** the `cove-image` floor (already ships
+`uidmap`/`fuse-overlayfs`/`slirp4netns` + `agent` `subuid/subgid`) + Docker CE engine
+& `docker-ce-rootless-extras` baked in, plus faithful copies of the hardening egress
+layer (`nftables.conf`/`squid.conf`/allow-list) and an entrypoint that raises
+nft+squid then idles. Throwaway assets (Dockerfile, `run.sh`, `daemon.sh`, `tests.sh`)
+were **not committed** (exploratory, per the ticket).
+
+### Verdict
+
+**Rootless `dockerd` is not viable inside the non-privileged hardened container on
+colima.** The nested unprivileged user namespace's subuid/gid **`uid_map` range write
+is refused** unless the outer container is given `--cap-add=SYS_ADMIN` or
+`--privileged` — both ~root-equivalent for container escape and an **unacceptable**
+relaxation of the core hardening (§G). This matches upstream reality: the official
+`docker:dind-rootless` image itself requires `--privileged`. **Recommend re-scoping
+COV-114 around the Sysbox fallback** (see below). Parts 2–5 (the `docker:true`
+implementation) are **blocked** — do not build to the current design.
+
+### What was established (evidence chain)
+
+Baseline sandbox run-flags are `--init --cap-add=NET_ADMIN --dns 1.1.1.1` (from
+`internal/backend/colima/colima.go` `Create`). Adding docker's expected delta and
+iterating:
+
+1. **`--device /dev/fuse` alone → dockerd fails at once.** rootlesskit cannot create
+   the nested userns: `[rootlesskit:parent] error: failed to start the child:
+   fork/exec /proc/self/exe: operation not permitted`.
+2. **Cause = the default Docker seccomp profile blocks `unshare(CLONE_NEWUSER)`.**
+   Isolated with `unshare -Ur`: fails under default seccomp *and* under
+   `--security-opt apparmor=unconfined`; succeeds **only** with
+   `--security-opt seccomp=unconfined`. So a seccomp allowance is *required* just to
+   create the userns.
+3. **Then it dies at uid mapping:** `failed to setup UID/GID map: newuidmap …
+   [0 1001 1 1 165536 65536] failed: newuidmap: write to uid_map failed: Operation
+   not permitted`. The helpers are correct — `newuidmap`/`newgidmap` are setuid-root
+   (`-rwsr-xr-x`, no stray file-caps) and `/etc/subuid`/`/etc/subgid` carry
+   `agent:165536:65536`, matching the requested map.
+4. **The `uid_map` *range* write is refused for any `ruid≠0` writer, even with
+   `CAP_SETUID`.** Proven with setuid-root probes: a setuid binary run by `agent`
+   *does* gain `euid=0` and `CapEff` including `CAP_SETUID` (so setuid elevation and
+   the legacy cap-grant work; `securebits=0`, `NoNewPrivs=0`, rootfs not `nosuid`).
+   Yet an identical `/proc/<pid>/uid_map` range write returns `EPERM` when `ruid=1001`,
+   while a real-root (`ruid=0`) writer succeeds. `unshare -Ur` (a process self-mapping
+   its *own* uid — no cross-process privilege) does succeed once the sysctl is lifted,
+   but rootless docker needs `newuidmap` to write a *range* into another process, which
+   is the refused operation.
+5. **Every AppArmor / userns lever was exhausted with no effect on the range write:**
+   `kernel.apparmor_restrict_unprivileged_userns=0`, `…_unconfined=0`,
+   `unprivileged_userns_apparmor_policy=0`, `…_userns_force=0`, container
+   `--security-opt apparmor=unconfined`, **and** unloading all AppArmor profiles
+   VM-wide. Re-tested in a **freshly created** container (born after the sysctls were
+   flipped) to rule out a creation-time confound — still `EPERM`. So the block is
+   **not** AppArmor.
+6. **Boundary pinned:** with `--cap-add=SYS_ADMIN` (no `--privileged`) the `newuidmap`
+   range write **succeeds** (`0 1001 1` / `1 165536 65536`); `--privileged` likewise.
+   `CAP_SYS_ADMIN` is therefore the *minimum* that makes nested rootless docker work
+   here — and it is not an acceptable grant for the sandbox.
+
+### Recommended path: Sysbox
+
+Re-scope COV-114 around **Sysbox** (`docker+sysbox-runc`): a host-installed OCI
+runtime that gives a container the *illusion* of the privileges nested Docker needs
+(userns, `uid_map`, etc.) via syscall interception, **without** exposing
+`CAP_SYS_ADMIN`/`--privileged` to the workload. This is a **colima-backend/runtime**
+change (install Sysbox in the Lima VM; run the sandbox container with
+`--runtime=sysbox-runc`), not an in-container flag — materially different from §§A–G
+and requiring its own design + threat-model pass.
+
+### Not reached (untested — gated by the wall above)
+
+Because `dockerd` never started, these design points were **not** verified and must be
+re-run against whatever runtime the re-scope adopts:
+
+- **Registry pulls through squid.** Note: rootlesskit launched slirp4netns with
+  `--disable-host-loopback`, so a rootless daemon reaching squid at `127.0.0.1:3128`
+  would need the slirp host-gateway (e.g. `DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=false`)
+  — untested.
+- **Un-proxied nested-container egress being dropped** by the sandbox nftables.
+- **Storage driver** `fuse-overlayfs` vs native rootless `overlay2` (`/dev/fuse` *is*
+  present in the VM, world-rw, so the device passthrough itself is fine).
+- **BuildKit GC size cap** bounding the cache volume.
