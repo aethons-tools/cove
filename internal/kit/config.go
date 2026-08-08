@@ -810,6 +810,39 @@ func (c Config) VertexEnv() map[string]string {
 	return env
 }
 
+// SessionEnv returns the effective non-secret env staged into the interactive
+// in-VM agent session (connect's ExtraEnv). It layers at-cove-derived defaults
+// first, then the kit's own authored env on top, so an explicit kit-authored
+// value always wins on a key collision and a derived default never clobbers it.
+//
+// Contributed defaults:
+//   - GITLAB_HOST=<resolved gitlab host> when source-control.gitlab is the active
+//     backend, so an in-VM `glab` targets the kit's GitLab instance (gitlab.com or
+//     a self-hosted host) without the operator setting it by hand. Nothing is set
+//     for a GitHub kit — glab is not this repo's concern there.
+//
+// Authored env, layered last so it wins: the Vertex model-provider env (see
+// VertexEnv, which passes any non-protected key through). Returns an empty,
+// non-nil map when nothing applies. GITLAB_HOST is a plain non-secret value — it
+// never touches the secret/log paths.
+func (c Config) SessionEnv() map[string]string {
+	env := map[string]string{}
+	if c.SourceControl != nil {
+		if repo, ok := c.SourceControl.Repo(); ok && repo.Provider == "gitlab" {
+			host := strings.TrimSpace(repo.Host)
+			if host == "" {
+				host = "gitlab.com" // matches glab's own default (and the parse-time default)
+			}
+			env["GITLAB_HOST"] = host
+		}
+	}
+	// Kit-authored env wins on a key collision — never overwrite an explicit value.
+	for k, v := range c.VertexEnv() {
+		env[k] = v
+	}
+	return env
+}
+
 // ProviderDomains returns the additive egress domains a model provider needs,
 // derived from the provider config, or nil when the kit targets no provider.
 // For Vertex: the aiplatform inference host (region-templated), plus the GCP
