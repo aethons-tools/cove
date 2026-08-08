@@ -1000,6 +1000,61 @@ func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
 	}
 }
 
+func TestSessionEnv_GitLabDefaultHost(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    project: grp/sub/name\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := cfg.SessionEnv()["GITLAB_HOST"]; got != "gitlab.com" {
+		t.Fatalf("GITLAB_HOST = %q; want gitlab.com (the default host)", got)
+	}
+}
+
+func TestSessionEnv_GitLabSelfHostedHost(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    host: gitlab.example.com\n    project: grp/sub/name\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := cfg.SessionEnv()["GITLAB_HOST"]; got != "gitlab.example.com" {
+		t.Fatalf("GITLAB_HOST = %q; want gitlab.example.com (the resolved self-hosted host)", got)
+	}
+}
+
+func TestSessionEnv_GitHubDoesNotSetGitLabHost(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  github:\n    project: acme/repo\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got, ok := cfg.SessionEnv()["GITLAB_HOST"]; ok {
+		t.Fatalf("GITLAB_HOST set to %q for a github kit; want unset", got)
+	}
+}
+
+// A GITLAB_HOST the kit sets explicitly in its own authored session env (here via
+// the model-provider env map, which passes non-protected keys through) must win
+// over the source-control-derived default — never overwrite an explicit value.
+func TestSessionEnv_UserEnvWinsOverGitLabHostDefault(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+source-control:
+  gitlab:
+    host: gitlab.example.com
+    project: grp/sub/name
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
+      CLOUD_ML_REGION: us-east5
+      GITLAB_HOST: gitlab.override.example
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := cfg.SessionEnv()["GITLAB_HOST"]; got != "gitlab.override.example" {
+		t.Fatalf("GITLAB_HOST = %q; want gitlab.override.example (an explicit kit value must win)", got)
+	}
+}
+
 func TestProviderDomains_Vertex(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k

@@ -808,21 +808,18 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// return: like workspaceClonePlan, this can execute a resolver command, which
 	// must never happen as a side effect of a --dry-run preview.
 	//
-	// The provider (non-secret) env is set directly from the kit config regardless
-	// of --no-auth — CLAUDE_CODE_USE_VERTEX etc. must still point the agent at
-	// Vertex. But ADC *resolution* is skipped under --no-auth: the escape hatch
-	// means "I manage auth myself", and connect itself will neither seed the file
-	// nor set GOOGLE_APPLICATION_CREDENTIALS when SkipAuth is set, so resolving a
-	// credential here would just be wasted (and, for a mint: supply, needless)
+	// The non-secret session env (cfg.SessionEnv, wired into ExtraEnv below) is set
+	// directly from the kit config regardless of --no-auth — CLAUDE_CODE_USE_VERTEX
+	// etc. must still point the agent at Vertex, and GITLAB_HOST must still default
+	// for a GitLab kit. Only ADC *resolution* is skipped under --no-auth: the escape
+	// hatch means "I manage auth myself", and connect itself will neither seed the
+	// file nor set GOOGLE_APPLICATION_CREDENTIALS when SkipAuth is set, so resolving
+	// a credential here would just be wasted (and, for a mint: supply, needless)
 	// work.
 	var vertexAuth *connect.VertexAuth
-	var vertexEnv map[string]string
-	if _, isVertex := cfg.Vertex(); isVertex {
-		vertexEnv = cfg.VertexEnv()
-		if !noAuth {
-			if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
-				return err
-			}
+	if _, isVertex := cfg.Vertex(); isVertex && !noAuth {
+		if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+			return err
 		}
 	}
 
@@ -906,7 +903,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		CredentialsFile:    filepath.Join(configDir(), "credentials.json"),
 		CollaboratorPrompt: role.Prompt,
 		WorkspaceClone:     wsClone,
-		ExtraEnv:           vertexEnv,
+		ExtraEnv:           cfg.SessionEnv(),
 		Vertex:             vertexAuth,
 	})
 }

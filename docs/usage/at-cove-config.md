@@ -90,6 +90,14 @@ The GitLab instance the project lives on — a bare hostname, no scheme or path
 [Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped). `gitlab.com`
 is already in the sealed base, so the common case needs no egress change at all.
 
+The resolved `host` is also defaulted into the interactive in-VM agent session as
+**`GITLAB_HOST`** (the variable the GitLab CLI `glab` reads to pick its target
+instance), so an agent running `glab` against a self-hosted GitLab needs no manual
+setup — the value is set even when it is `gitlab.com` (matching `glab`'s own
+default). It is a plain non-secret env value; a `GITLAB_HOST` you set explicitly in
+the kit's own session env always wins and is never overwritten. This defaults the
+env only — `glab` itself is not installed by at-cove. A GitHub kit sets nothing.
+
 #### source-control.gitlab.project*
 *string — `group/.../name`, at least 2 `/`-separated segments*
 
