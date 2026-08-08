@@ -116,6 +116,31 @@ func TestParseConfigImageDNS(t *testing.T) {
 	}
 }
 
+// COV-117: the top-level docker flag opts a kit into docker-in-sandbox (Sysbox).
+// docker:true parses to Docker==true, an omitted flag defaults to false, and a
+// non-bool value is rejected (plain bool, strict decode).
+func TestParseConfigDocker(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\ndocker: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Docker {
+		t.Fatalf("docker:true must parse to Docker==true; got %+v", cfg.Docker)
+	}
+
+	cfg, err = ParseConfig([]byte("name: k\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Docker {
+		t.Fatalf("an omitted docker flag must default to false; got %+v", cfg.Docker)
+	}
+
+	if _, err := ParseConfig([]byte("name: k\ndocker: yes-please\n")); err == nil {
+		t.Fatalf("a non-bool docker value must be rejected")
+	}
+}
+
 func TestParseConfigImageAbsent(t *testing.T) {
 	cfg, err := ParseConfig([]byte("name: k\n"))
 	if err != nil {

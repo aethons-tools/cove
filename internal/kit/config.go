@@ -393,6 +393,13 @@ type Config struct {
 	Dispatch      *Dispatch               `yaml:"dispatch,omitempty"`
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
 	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
+	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
+	// When true, the colima backend runs the sandbox container under
+	// --runtime=sysbox-runc with a persistent /var/lib/docker cache volume, so a
+	// rootful dockerd can run inside the unprivileged container. Default false — a
+	// non-docker kit's runtime behavior is byte-for-byte unchanged. Being a plain
+	// bool, a non-bool value is rejected by the strict decoder.
+	Docker bool `yaml:"docker,omitempty"`
 }
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are

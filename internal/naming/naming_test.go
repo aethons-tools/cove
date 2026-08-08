@@ -42,6 +42,17 @@ func TestVolumes(t *testing.T) {
 	}
 }
 
+// DockerVolume backs the inner /var/lib/docker cache for a docker:true instance;
+// it hangs off the container base like the other volumes, with a -docker suffix.
+func TestDockerVolume(t *testing.T) {
+	if got := DockerVolume(Container("box", "")); got != "atcove-box-docker" {
+		t.Fatalf("DockerVolume(plain) = %q, want atcove-box-docker", got)
+	}
+	if got := DockerVolume(Container("box", "steward")); got != "atcove-box-steward-docker" {
+		t.Fatalf("DockerVolume(collab) = %q, want atcove-box-steward-docker", got)
+	}
+}
+
 // WorkerContainer carries the atcove- prefix like every other resource, plus the
 // pid+nanotime suffix that keeps concurrent dispatches of one kit from colliding.
 func TestWorkerContainer(t *testing.T) {
