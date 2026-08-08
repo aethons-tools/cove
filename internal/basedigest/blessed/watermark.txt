@@ -12,5 +12,5 @@
 # one deliberate commit. The watermark MUST still exist in the registry or the
 # build fails loudly.
 #
-# Current watermark: cove-base-image:2026.07.18-9528dd2 (post-at-task-shed, COV-46).
-sha256:7ba377681641d4828af92e05ad97a42a6246347337908414aa4687feed73e6bb
+# Current watermark: cove-base-image:527-0808 (Docker+systemd base, drop podman — COV-116, breaking).
+sha256:b675a81c589e96fac6423ed759e727b523b8f850c6ac5c0fa139aceeb7b91726
