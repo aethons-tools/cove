@@ -444,6 +444,17 @@ folded into `allowed_domains.kit.txt` at `install` time — derived from the con
 hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above. This
 only *widens* the kit-root tier; the sealed base and `nftables` are unchanged.
 
+**Nested-container egress is contained too.** The `nftables` `output` chain locks the
+agent's *direct* egress (only the `proxy` user reaches the network); a `forward` chain
+extends the same lock to *forwarded* traffic. This matters for the opt-in
+[`docker`](usage/at-cove-config.md) capability (nested containers run via Sysbox): a
+nested container's traffic is masqueraded and forwarded out the uplink, so without the
+`forward` drop it would sidestep the `output`-chain lock. The chain default-drops
+forwarded packets and accepts only established/related, so a nested container reaches
+the outside only through squid — same allow-list, no bypass. It is **always-on** and
+harmless to non-docker sandboxes (no forwarded traffic) and to same-network
+container-to-container (L2-bridged, never traverses the `forward` hook).
+
 **Applied at session start, privileged — not baked.** Per-class egress is *not* baked
 into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the
 class's delta from the currency-pinned `install.json` (never a live `config.yml`) and

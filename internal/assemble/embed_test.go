@@ -40,6 +40,47 @@ func baseInitAgentData(name string) string {
 	return filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data", name)
 }
 
+// TestNftablesForwardChainContainsNestedEgress guards the always-on forward drop
+// (COV-121). A nested container's traffic is masqueraded and *forwarded*, so it
+// never traverses the output chain's skuid rule — without a forward-chain drop it
+// escapes the egress lock (confirmed in the COV-120 spike). A forward chain with
+// `policy drop` that only accepts established/related return traffic contains
+// nested-container egress behind the same lock, while leaving same-network
+// (L2-bridged) container-to-container and the daemon's proxied pulls
+// (loopback/output) unaffected. The output chain must remain unchanged.
+func TestNftablesForwardChainContainsNestedEgress(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/nftables.conf")
+	if err != nil {
+		t.Fatalf("nftables.conf not embedded: %v", err)
+	}
+	s := string(b)
+
+	// The agent direct-egress lock (output chain) must be preserved unchanged.
+	if !strings.Contains(s, "hook output") ||
+		!strings.Contains(s, `meta skuid "proxy" tcp dport { 80, 443 } accept`) {
+		t.Errorf("nftables.conf must keep the output-chain skuid-proxy egress lock; got:\n%s", s)
+	}
+
+	// The forward chain must default-drop and allow only established/related.
+	i := strings.Index(s, "chain forward {")
+	if i < 0 {
+		t.Fatalf("nftables.conf must define a forward chain to contain nested-container egress; got:\n%s", s)
+	}
+	body := s[i:]
+	if j := strings.Index(body, "}"); j >= 0 {
+		body = body[:j]
+	}
+	if !strings.Contains(body, "hook forward") {
+		t.Errorf("forward chain must hook forward; got:\n%s", body)
+	}
+	if !strings.Contains(body, "policy drop") {
+		t.Errorf("forward chain must default-drop forwarded traffic; got:\n%s", body)
+	}
+	if !strings.Contains(body, "ct state established,related accept") {
+		t.Errorf("forward chain must accept established,related return traffic; got:\n%s", body)
+	}
+}
+
 // TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
 // force a login method: auth is env-driven, so interactive `connect` selects
 // subscription OAuth explicitly (`claude auth login --claudeai`) while a
