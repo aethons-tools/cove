@@ -15,7 +15,7 @@ This design makes **one published, pinned, multi-arch image tree the single sour
 
 - **Host the image definitions in *this* repo** (monorepo), not in separate image repos. This is the pivotal choice. It lets CI compile `at-task` from source and bake it into `cove-base-image`, so the hardening layer stops shipping `at-task` at all. A separate image repo could not do this without inverting the dependency (the base would depend on cove). The cost is a CI **bootstrap** cycle borne only by this repo (§5).
 - **Two images, layered:**
-  - **`cove-base-image`** — the universal lean floor any org repo can build on. OS + `git`, `gh`, `sshd`, the egress stack (`nftables`, `squid`, `podman` + rootless plumbing), core utilities, and **`at-task`** (the generic dispatched-worker harness, built from this repo). Deliberately **excludes** `chrome` and `java`.
+  - **`cove-base-image`** — the universal lean floor any org repo can build on. OS + `git`, `gh`, `sshd`, the egress stack (`nftables`, `squid`), the Docker engine + `systemd` (for the opt-in docker-in-sandbox capability, present-but-inert; COV-114), core utilities, and **`at-task`** (the generic dispatched-worker harness, built from this repo). Deliberately **excludes** `chrome` and `java`.
   - **`cove-image`** — `FROM cove-base-image` + the full build/test/run toolchain: `go`, `just`, `shellcheck`, `hadolint`, `node`, `chrome`, `java`, and anything else CI or an agent needs. It is the base for **both** cove's CI job containers **and** the agent sandboxes, so an agent can build/test/run anything CI does.
 - **Publish to GHCR**, private: `ghcr.io/aethons-tools/cove-base-image` and `ghcr.io/aethons-tools/cove-image`. Auth via `GITHUB_TOKEN`; no new registry account or secret.
 - **Reproducible by construction.** Every input is pinned: `FROM …@sha256:<digest>`, apt packages as `pkg=version`, tool versions as build args. Each build publishes an **immutable** tag (date + short SHA) and consumers pin by **`@sha256` digest**; `latest` may also move for convenience but is never what a consumer pins.
@@ -26,7 +26,7 @@ This design makes **one published, pinned, multi-arch image tree the single sour
 
 ```
 cove-base-image        ← universal lean floor for ALL org repos
-  • OS + git, gh, sshd, egress stack (nftables/squid/podman + rootless), core utils
+  • OS + git, gh, sshd, egress stack (nftables/squid) + Docker engine/systemd, core utils
   • at-task            (built from THIS repo's source, baked in)
   • NO chrome, NO java
         │

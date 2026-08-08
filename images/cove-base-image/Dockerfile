@@ -1,17 +1,20 @@
 # cove-base-image — the universal lean floor every org repo can build on.
 #
-# OS + git/gh/sshd + the egress stack + core utilities. It deliberately EXCLUDES
-# language toolchains, chrome, and java — those live in cove-image, which builds
-# FROM this. It also carries no at-task: at-cove injects the exact version-locked
-# at-task into its sealed hardening layer (COV-42/COV-44), so the base is pure
-# tools with no Go build dependency.
-# See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
+# OS + git/gh/sshd + the egress stack + the Docker engine (for the opt-in
+# docker-in-sandbox capability — present but INERT here) + core utilities. It
+# deliberately EXCLUDES language toolchains, chrome, and java — those live in
+# cove-image, which builds FROM this. It also carries no at-task: at-cove injects
+# the exact version-locked at-task into its sealed hardening layer (COV-42/COV-44),
+# so the base is pure tools with no Go build dependency.
+# See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
+# Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
 FROM ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
-LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack (pure tools)"
+LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
-# Base tooling: sshd, git, the GitHub CLI, curl, the egress stack (nftables,
-# squid, podman + rootless plumbing), and core utilities. No language toolchains.
+# Base tooling from the Ubuntu archive: sshd, git, the GitHub CLI, curl, the
+# egress stack (nftables, squid), systemd (PID-1 init for docker-enabled kits;
+# inert otherwise), and core utilities. No language toolchains.
 # Versions are pinned for reproducibility (Renovate keeps them current — see
 # renovate.json). They are identical across amd64/arm64. A pin that ages out of
 # the Ubuntu archive fails the build loudly; bump it via the Renovate PR.
@@ -25,11 +28,8 @@ RUN apt-get update \
       nftables=1.0.9-1ubuntu0.1 \
       squid=6.14-0ubuntu0.24.04.4 \
       sudo=1.9.15p5-3ubuntu5.24.04.2 \
-      podman=4.9.3+ds1-1ubuntu0.2 \
-      podman-docker=4.9.3+ds1-1ubuntu0.2 \
-      uidmap=1:4.13+dfsg1-4ubuntu3.2 \
-      fuse-overlayfs=1.13-1 \
-      slirp4netns=1.2.1-1build2 \
+      systemd=255.4-1ubuntu8.16 \
+      systemd-sysv=255.4-1ubuntu8.16 \
       jq=1.7.1-3ubuntu0.24.04.2 \
       gnupg=2.4.4-2ubuntu17.4 \
       xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
@@ -39,6 +39,27 @@ RUN apt-get update \
       just=1.21.0-1 \
  && rm -rf /var/lib/apt/lists/*
 
+# Docker engine, from Docker's official apt repo, for the opt-in docker-in-sandbox
+# capability. Present but INERT here: no daemon is started and no run-flags or
+# systemd units are wired (those live in the config/backend/entrypoint layers — a
+# kit opts in with `docker: true`, which runs the sandbox under the Sysbox runtime).
+# See docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md §B.
+# Pinned for reproducibility (Renovate; the docker.list repo). Docker publishes the
+# same version string for amd64/arm64.
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+      > /etc/apt/sources.list.d/docker.list \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      docker-ce=5:29.7.2-1~ubuntu.24.04~noble \
+      docker-ce-cli=5:29.7.2-1~ubuntu.24.04~noble \
+      containerd.io=2.3.3-1~ubuntu.24.04~noble \
+      docker-buildx-plugin=0.36.1-1~ubuntu.24.04~noble \
+      docker-compose-plugin=5.4.0-1~ubuntu.24.04~noble \
+ && rm -rf /var/lib/apt/lists/*
+
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
 RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                                   /etc/ssh/sshd_config \
@@ -46,15 +67,11 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'               /etc/ssh/sshd_config
 
 # Non-root user the agent runs as (so --dangerously-skip-permissions is allowed).
-RUN useradd -m -s /bin/bash agent
-
-# Rootless-podman ergonomics for the Colima-backed e2e tests (podman + plumbing
-# already ship in the base): silence the podman-docker banner and give the agent
-# subuid/subgid ranges if the base image did not (useradd may not add them).
-RUN touch /etc/containers/nodocker \
- && if ! grep -q '^agent:' /etc/subuid; then \
-      usermod --add-subuids 100000-165535 --add-subgids 100000-165535 agent; \
-    fi
+# It joins the `docker` group (created by the docker-ce install above) so it can
+# reach the root-owned /var/run/docker.sock when a docker-enabled kit starts the
+# inner daemon. Inert for non-docker kits (no daemon, so no socket).
+RUN useradd -m -s /bin/bash agent \
+ && usermod -aG docker agent
 
 COPY image-files/. /.
 
