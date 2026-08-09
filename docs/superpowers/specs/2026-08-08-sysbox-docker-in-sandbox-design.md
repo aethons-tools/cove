@@ -1,6 +1,12 @@
 # Docker inside the sandbox via Sysbox (opt-in) — design
 
-**Status:** design approved (brainstorm 2026-08-08), pending implementation.
+**Status:** implemented (COV-116–121) and **verified end-to-end on 2026-08-09** — a
+`docker: true` kit boots under colima+Sysbox and runs `docker build` / `compose` /
+**testcontainers** inside the hardened sandbox on a real host. Three fixes/tests
+followed from that live run: **COV-124** (Sysbox setup docs — durable `docker:`
+runtime registration, ≥0.7.1 version floor, `.deb` URL), **COV-125** (squid supervised
+as a foreground unit so `/run/squid.pid` persists for per-session `reconfigure`), and
+**COV-122** (the repeatable integration e2e). Original brainstorm 2026-08-08.
 Re-scopes [`2026-08-07-rootless-docker-in-sandbox-design.md`](2026-08-07-rootless-docker-in-sandbox-design.md)
 (rootless approach — **escalated**, not viable) onto the **Sysbox** runtime, which the
 feasibility spike [`2026-08-08-sysbox-docker-in-sandbox-spike.md`](2026-08-08-sysbox-docker-in-sandbox-spike.md)
