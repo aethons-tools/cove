@@ -17,6 +17,8 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/squid/squid.conf",
 		"hardening/image-files/etc/squid/allowed_domains.session.txt",
 		"hardening/image-files/usr/local/lib/cove/apply-session-domains.sh",
+		"hardening/image-files/etc/systemd/system/cove-egress.service",
+		"hardening/image-files/etc/systemd/system/cove-squid.service",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
 		"hardening/image-files/etc/claude-code/managed-settings.json",
 		// Agent-instruction docs are hardening-owned (moved from overridable in
@@ -109,24 +111,49 @@ func TestEntrypointExecsSystemdForDocker(t *testing.T) {
 	}
 }
 
-// TestCoveEgressUnitAndOrdering guards the systemd egress-first invariant (COV-118):
-// cove-egress raises nft + squid, runs early (DefaultDependencies=no) and before the
-// network-capable services, and docker.service Requires+After it so the inner dockerd
-// cannot start before the lock. It must be enabled at build (go:embed can't ship the
-// wants symlink), so systemd runs it at boot regardless of socket activation.
+// TestCoveEgressUnitAndOrdering guards the systemd egress-first invariant (COV-118)
+// and the squid-supervision fix (COV-125): cove-egress raises the nftables drop-all
+// (oneshot), cove-squid runs squid in the FOREGROUND so /run/squid.pid persists for
+// per-session `squid -k reconfigure` (COV-39) — the oneshot daemon left no pid file.
+// Both run early (DefaultDependencies=no) and before the network-capable services,
+// and docker.service Requires+After BOTH so the inner dockerd cannot start before the
+// lock is fully up. Both are enabled at build (go:embed can't ship the wants symlink).
 func TestCoveEgressUnitAndOrdering(t *testing.T) {
 	u, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/cove-egress.service")
 	if err != nil {
 		t.Fatalf("cove-egress.service not embedded: %v", err)
 	}
 	us := string(u)
-	for _, want := range []string{"DefaultDependencies=no", "nft -f /etc/nftables.conf", "squid -f /etc/squid/squid.conf"} {
+	for _, want := range []string{"DefaultDependencies=no", "nft -f /etc/nftables.conf"} {
 		if !strings.Contains(us, want) {
 			t.Errorf("cove-egress.service must contain %q; got:\n%s", want, us)
 		}
 	}
+	if strings.Contains(us, "ExecStart=/usr/sbin/squid") {
+		t.Errorf("cove-egress.service must not start squid (moved to cove-squid.service for a persistent pid file); got:\n%s", us)
+	}
 	if !strings.Contains(us, "Before=") || !strings.Contains(us, "docker.service") {
 		t.Errorf("cove-egress.service must be ordered Before docker.service; got:\n%s", us)
+	}
+
+	sq, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/cove-squid.service")
+	if err != nil {
+		t.Fatalf("cove-squid.service not embedded: %v", err)
+	}
+	sqs := string(sq)
+	for _, want := range []string{
+		"DefaultDependencies=no",
+		"squid --foreground -f /etc/squid/squid.conf",
+		"/run/squid.pid", // pid file re-established so `squid -k reconfigure` works
+		"Requires=cove-egress.service",
+		"After=cove-egress.service",
+	} {
+		if !strings.Contains(sqs, want) {
+			t.Errorf("cove-squid.service must contain %q; got:\n%s", want, sqs)
+		}
+	}
+	if !strings.Contains(sqs, "Before=") || !strings.Contains(sqs, "docker.service") {
+		t.Errorf("cove-squid.service must be ordered Before docker.service; got:\n%s", sqs)
 	}
 
 	d, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/docker.service.d/cove-egress.conf")
@@ -134,16 +161,23 @@ func TestCoveEgressUnitAndOrdering(t *testing.T) {
 		t.Fatalf("docker.service drop-in not embedded: %v", err)
 	}
 	ds := string(d)
-	if !strings.Contains(ds, "After=cove-egress.service") || !strings.Contains(ds, "Requires=cove-egress.service") {
-		t.Errorf("docker.service drop-in must After+Requires cove-egress.service; got:\n%s", ds)
+	if !strings.Contains(ds, "After=") || !strings.Contains(ds, "Requires=") {
+		t.Errorf("docker.service drop-in must After+Requires the egress units; got:\n%s", ds)
+	}
+	for _, want := range []string{"cove-egress.service", "cove-squid.service"} {
+		if !strings.Contains(ds, want) {
+			t.Errorf("docker.service drop-in must depend on %q (squid up before dockerd); got:\n%s", want, ds)
+		}
 	}
 
 	df, err := fs.ReadFile(hardeningFS, "hardening/Dockerfile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(df), "systemctl enable cove-egress.service") {
-		t.Errorf("hardening Dockerfile must enable cove-egress.service so it runs at boot; got:\n%s", df)
+	for _, want := range []string{"systemctl enable cove-egress.service", "cove-squid.service"} {
+		if !strings.Contains(string(df), want) {
+			t.Errorf("hardening Dockerfile must enable %q so it runs at boot; got:\n%s", want, df)
+		}
 	}
 }
 

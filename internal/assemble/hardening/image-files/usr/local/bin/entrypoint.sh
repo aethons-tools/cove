@@ -24,9 +24,10 @@ chown -R agent:agent /agent-data
 
 # docker:true sandboxes boot systemd as PID 1 (Sysbox gives the unprivileged
 # container a real init environment), and systemd raises the egress lock via
-# cove-egress.service BEFORE it starts sshd or the inner rootful dockerd — see the
-# sealed units under /etc/systemd/system. The backend runs these sandboxes WITHOUT
-# --init, so this exec makes systemd PID 1 (COV-118). The seed/refresh above ran
+# cove-egress.service (nftables drop) + cove-squid.service (squid) BEFORE it starts
+# sshd or the inner rootful dockerd — see the sealed units under /etc/systemd/system.
+# The backend runs these sandboxes WITHOUT --init, so this exec makes systemd PID 1
+# (COV-118, COV-125). The seed/refresh above ran
 # for both paths (it touches no network); everything below is the non-docker path,
 # byte-for-byte unchanged.
 if [ "${COVE_DOCKER:-}" = "1" ]; then

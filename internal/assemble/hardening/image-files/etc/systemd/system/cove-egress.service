@@ -1,25 +1,22 @@
 [Unit]
-# The egress lock, as a systemd unit for docker:true sandboxes (COV-118). It is
-# the systemd equivalent of the first steps of entrypoint.sh: raise the nftables
-# drop-all output rule, then start squid. It MUST complete before anything that
-# can touch the network — sshd (defence-in-depth; ssh is inbound) and, critically,
-# the inner dockerd and any container it runs. Ordering here is the load-bearing
-# security invariant; docker.service / ssh.service also declare Requires+After on
-# this unit (see their drop-ins) so they cannot start until the lock is up.
-Description=cove egress lock (nftables drop-all + squid) — raised before any network-capable service
+# The egress lock's nftables half, as a systemd unit for docker:true sandboxes
+# (COV-118). It raises the drop-all output rule and MUST complete before anything
+# that can touch the network. squid — the only permitted egress — is a separate
+# long-running unit (cove-squid.service, COV-125) kept supervised with a live
+# /run/squid.pid; this unit is ordered Before it. Ordering here is the load-bearing
+# security invariant; docker.service / ssh.service declare Requires+After on BOTH
+# units (see their drop-ins) so they cannot start until the lock is fully up.
+Description=cove egress lock — nftables drop-all (raised before any network-capable service)
 DefaultDependencies=no
 After=local-fs.target
-Before=network-pre.target sshd.service ssh.service ssh.socket docker.service docker.socket
+Before=network-pre.target sshd.service ssh.service ssh.socket docker.service docker.socket cove-squid.service
 Wants=network-pre.target
 Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# 1) drop-all egress except the proxy uid; 2) squid (the only permitted egress).
 ExecStart=/usr/sbin/nft -f /etc/nftables.conf
-ExecStart=/bin/sh -c 'mkdir -p /var/log/squid && chown proxy:proxy /var/log/squid'
-ExecStart=/usr/sbin/squid -f /etc/squid/squid.conf
 
 [Install]
 WantedBy=multi-user.target
