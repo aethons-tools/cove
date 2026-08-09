@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// CoveImageRepo is the toolchain-image repository image.base names.
+// CoveImageRepo is the toolchain-image repository that image.base names.
 const CoveImageRepo = "ghcr.io/aethons-tools/cove-image"
 
 const defaultReason = "breaking base change"
@@ -40,7 +40,8 @@ func RewriteImageBase(configYAML, digest string) (string, error) {
 	matches := 0
 	for i, ln := range lines {
 		trimmed := strings.TrimSpace(ln)
-		if !strings.HasPrefix(trimmed, "base:") || !strings.Contains(trimmed, CoveImageRepo) {
+		if !strings.HasPrefix(trimmed, "base:") ||
+			(!strings.Contains(trimmed, CoveImageRepo+"@") && !strings.Contains(trimmed, CoveImageRepo+":")) {
 			continue
 		}
 		lines[i] = leadingWhitespace(ln) + "base: " + CoveImageRepo + "@" + digest

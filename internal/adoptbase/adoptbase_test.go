@@ -90,3 +90,21 @@ func TestRewriteWatermarkErrors(t *testing.T) {
 		t.Fatal("expected error for a malformed digest")
 	}
 }
+
+func TestRewriteWatermarkIdempotent(t *testing.T) {
+	once, err := RewriteWatermark(sampleWatermark, "527-0808", baseDigest, "Docker+systemd, drop podman — COV-116")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	twice, err := RewriteWatermark(once, "527-0808", baseDigest, "Docker+systemd, drop podman — COV-116")
+	if err != nil || twice != once {
+		t.Fatalf("not idempotent: err=%v", err)
+	}
+}
+
+func TestRewriteImageBaseIgnoresSiblingRepo(t *testing.T) {
+	cfg := "image:\n  base: ghcr.io/aethons-tools/cove-image-arm64:1.0\n"
+	if _, err := RewriteImageBase(cfg, goodDigest); err == nil {
+		t.Fatal("expected error: cove-image-arm64 must not match the cove-image base line")
+	}
+}

@@ -57,12 +57,23 @@ func run(tag string, breaking, pr bool, reason string) error {
 	defer cancel()
 	httpc := &http.Client{Timeout: 30 * time.Second}
 
-	// 1. image.base — always.
+	// Resolve every digest BEFORE writing any file, so a resolution failure
+	// (bad/absent tag, auth, transient error) never leaves a partial edit.
 	imgDigest, err := blessgen.GHCR{HTTP: httpc, Token: token, Owner: owner, Package: coveImagePkg}.
 		DigestForTag(ctx, tag)
 	if err != nil {
 		return fmt.Errorf("resolve %s:%s: %w", coveImagePkg, tag, err)
 	}
+	var baseDigest string
+	if breaking {
+		baseDigest, err = blessgen.GHCR{HTTP: httpc, Token: token, Owner: owner, Package: coveBasePkg}.
+			DigestForTag(ctx, tag)
+		if err != nil {
+			return fmt.Errorf("resolve %s:%s: %w", coveBasePkg, tag, err)
+		}
+	}
+
+	// All digests resolved; now write.
 	if err := rewriteFile(configPath, func(s string) (string, error) {
 		return adoptbase.RewriteImageBase(s, imgDigest)
 	}); err != nil {
@@ -70,13 +81,7 @@ func run(tag string, breaking, pr bool, reason string) error {
 	}
 	fmt.Printf("image.base -> %s@%s\n", adoptbase.CoveImageRepo, imgDigest)
 
-	// 2. watermark — breaking only.
 	if breaking {
-		baseDigest, err := blessgen.GHCR{HTTP: httpc, Token: token, Owner: owner, Package: coveBasePkg}.
-			DigestForTag(ctx, tag)
-		if err != nil {
-			return fmt.Errorf("resolve %s:%s: %w", coveBasePkg, tag, err)
-		}
 		if err := rewriteFile(watermarkPath, func(s string) (string, error) {
 			return adoptbase.RewriteWatermark(s, tag, baseDigest, reason)
 		}); err != nil {
@@ -85,7 +90,6 @@ func run(tag string, breaking, pr bool, reason string) error {
 		fmt.Printf("watermark -> cove-base-image@%s (blessed floor raised; run `just gen-blessed` to preview the set)\n", baseDigest)
 	}
 
-	// 3. --pr, else print next steps.
 	if pr {
 		return openPR(tag, breaking)
 	}
