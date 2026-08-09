@@ -1,0 +1,21 @@
+name: dockere2e
+
+# A minimal docker:true kit used only by the integration e2e (COV-122). No
+# image.base, so at-cove hardens the default blessed base — which must be a
+# systemd-capable cove-base-image (>= COV-116). source-control is present only to
+# satisfy config validation; this test never clones or connects.
+source-control:
+  github:
+    project: aethons-tools/cove
+
+docker: true
+
+image:
+  # Registries the inner docker pulls from during the e2e (hello-world / a tiny
+  # build + compose). Both the daemon and BuildKit route through squid, so their
+  # blob CDNs must be allow-listed too, else pulls fail mid-layer.
+  allowed-domains:
+    - registry-1.docker.io
+    - auth.docker.io
+    - index.docker.io
+    - .cloudfront.docker.com

@@ -72,6 +72,11 @@ integration:
 e2e:
     E2E_REPO=${E2E_REPO:?set E2E_REPO=<org>/<scratch-repo>} go test -tags integration ./internal/dispatchrun/ -run TestE2EReferenceWorker -v
 
+# docker-in-sandbox e2e: install+boot a docker:true kit under Sysbox and assert the
+# booted sandbox (needs a colima VM with Sysbox; see internal/dockere2e/RUNBOOK.md).
+integration-docker:
+    COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
+
 # go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent; STRICT=1 to require them)
 lint:
     ./scripts/lint.sh
