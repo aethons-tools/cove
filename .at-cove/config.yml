@@ -64,3 +64,7 @@ image:
     # Go toolchain download (GOTOOLCHAIN auto-fetch; agent Go (re)install)
     - go.dev
     - dl.google.com
+    # GHCR registry API: resolve cove-image / cove-base-image tag->digest for
+    # base adoption (see cmd/adopt-base) and ad-hoc manifest inspection. Manifest
+    # lookups only; a full image pull would also need the blob CDN host + Docker.
+    - ghcr.io

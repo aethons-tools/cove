@@ -49,6 +49,13 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
+# adopt a published base image: resolve <tag> to its @sha256 index digest and pin
+# it in .at-cove/config.yml (image.base). Add --breaking to also raise the blessed
+# watermark, and --pr to branch+commit+open a PR. Needs GITHUB_TOKEN (read:packages).
+# e.g. `just adopt-base 527-0808 --breaking --pr`
+adopt-base *ARGS:
+    go run ./cmd/adopt-base {{ARGS}}
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...

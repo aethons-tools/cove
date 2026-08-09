@@ -164,6 +164,54 @@ const ghAPI = "https://api.github.com"
 // Digests implements Lister: it fetches every version page and returns the
 // tagged manifest digests newest-first.
 func (g GHCR) Digests(ctx context.Context) ([]string, error) {
+	vs, err := g.versions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return digestsNewestFirst(vs), nil
+}
+
+// DigestForTag returns the sha256 digest of the released index manifest carrying
+// tag (e.g. "527-0808" or "latest"). It errors if tag names no version or names
+// only a per-arch child manifest — a kit must never pin those.
+func (g GHCR) DigestForTag(ctx context.Context, tag string) (string, error) {
+	vs, err := g.versions(ctx)
+	if err != nil {
+		return "", err
+	}
+	return digestForTag(vs, tag)
+}
+
+// digestForTag is the pure resolver behind DigestForTag.
+func digestForTag(vs []version, tag string) (string, error) {
+	if tag == "" {
+		return "", fmt.Errorf("blessgen: empty tag")
+	}
+	var matches []version
+	for _, v := range vs {
+		for _, t := range v.Tags {
+			if t == tag {
+				matches = append(matches, v)
+				break
+			}
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("blessgen: tag %q not found among %d published version(s)", tag, len(vs))
+	case 1:
+		if !hasReleaseTag(matches[0].Tags) {
+			return "", fmt.Errorf("blessgen: tag %q resolves to a per-arch child manifest; pin a release tag (a version like 527-0808, or latest)", tag)
+		}
+		return matches[0].Name, nil
+	default:
+		return "", fmt.Errorf("blessgen: tag %q is ambiguous — matched %d versions", tag, len(matches))
+	}
+}
+
+// versions fetches every page of the container package's versions from the GitHub
+// packages REST API.
+func (g GHCR) versions(ctx context.Context) ([]version, error) {
 	httpc := g.HTTP
 	if httpc == nil {
 		httpc = http.DefaultClient
@@ -200,5 +248,5 @@ func (g GHCR) Digests(ctx context.Context) ([]string, error) {
 		}
 		all = append(all, pageVs...)
 	}
-	return digestsNewestFirst(all), nil
+	return all, nil
 }

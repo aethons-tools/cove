@@ -107,3 +107,28 @@ func TestDigestsNewestFirstFiltersAndSorts(t *testing.T) {
 		t.Fatalf("digestsNewestFirst = %v, want %v (index manifests only, newest-first)", got, want)
 	}
 }
+
+// digestForTag maps a release tag to its index-manifest digest, and refuses tags
+// that are absent or name only a per-arch child manifest.
+func TestDigestForTag(t *testing.T) {
+	vs := []version{
+		{Name: "sha256:idx", CreatedAt: "2026-08-08T00:00:00Z", Tags: []string{"527-0808", "latest"}},
+		{Name: "sha256:amd", CreatedAt: "2026-08-08T00:00:00Z", Tags: []string{"sha-abc123-amd64"}},
+		{Name: "sha256:old", CreatedAt: "2026-07-18T00:00:00Z", Tags: []string{"400-0718"}},
+	}
+	if got, err := digestForTag(vs, "527-0808"); err != nil || got != "sha256:idx" {
+		t.Fatalf("digestForTag(527-0808) = %q, %v; want sha256:idx", got, err)
+	}
+	if got, err := digestForTag(vs, "latest"); err != nil || got != "sha256:idx" {
+		t.Fatalf("digestForTag(latest) = %q, %v; want sha256:idx", got, err)
+	}
+	if _, err := digestForTag(vs, "999-0101"); err == nil {
+		t.Fatal("expected error for an absent tag")
+	}
+	if _, err := digestForTag(vs, "sha-abc123-amd64"); err == nil {
+		t.Fatal("expected error for a per-arch intermediate tag")
+	}
+	if _, err := digestForTag(vs, ""); err == nil {
+		t.Fatal("expected error for an empty tag")
+	}
+}
