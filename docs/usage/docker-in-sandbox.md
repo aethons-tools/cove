@@ -1,10 +1,10 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
 read_when: You are enabling Docker inside a sandbox (a kit that runs `docker build` / `docker compose up` / testcontainers) — flipping the flag, installing Sysbox in the colima VM, allow-listing a registry, or debugging a nested container that can't reach the network.
-owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install + colima provision hook), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations
+owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations
 prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#docker for the flag's schema
 tier: leaf
-updated: 2026-08-08
+updated: 2026-08-09
 ---
 
 # Docker inside the sandbox
@@ -44,13 +44,16 @@ cache volume, no systemd.
 
 ## Prerequisite: install Sysbox in the colima VM (one-time)
 
-Sysbox is a **VM-level runtime** — at-cove *detects* it but never installs it. The
-colima Lima VM's Docker daemon must register the `sysbox-runc` runtime, and the
-install must **survive `colima stop/start`**. Do that with a **colima provision
-hook** (a system-mode script re-run on every VM boot), so it is durable rather
-than an ephemeral in-VM tweak.
+Sysbox is a **VM-level runtime** — at-cove *detects* it but never installs it. Two
+things must hold, and both must **survive `colima stop/start`**: Sysbox must be
+installed in the colima VM, and Docker must have the `sysbox-runc` runtime
+**registered**. Configure them separately, because **colima owns
+`/etc/docker/daemon.json` and regenerates it on every start** — a runtime entry
+written by the Sysbox `.deb` postinstall (or by hand) is wiped on the next boot, so
+register the runtime through colima's own config instead.
 
-Open the colima config and add a `provision:` entry:
+**1. Install Sysbox** with a colima **provision hook** (a system-mode script re-run on
+every VM boot). Open the colima config and add a `provision:` entry:
 
 ```console
 $ colima start --edit
@@ -65,16 +68,28 @@ provision:
       set -euo pipefail
       command -v sysbox-runc >/dev/null 2>&1 && exit 0   # idempotent: already installed
       arch="$(dpkg --print-architecture)"                 # amd64 | arm64
-      ver="0.6.4"   # check https://github.com/nestybox/sysbox/releases for the latest
+      ver="0.7.1"   # minimum proven (older 0.6.x lacks time-namespace support — see below);
+                    # check https://github.com/nestybox/sysbox/releases for newer
       apt-get update && apt-get install -y jq
       curl -fsSL -o /tmp/sysbox.deb \
-        "https://github.com/nestybox/sysbox/releases/download/v${ver}/sysbox-ce_${ver}-0.linux_${arch}.deb"
-      apt-get install -y /tmp/sysbox.deb                   # registers sysbox-runc; starts sysbox{,-mgr,-fs}
+        "https://github.com/nestybox/sysbox/releases/download/v${ver}/sysbox-ce_${ver}.linux_${arch}.deb"
+      apt-get install -y /tmp/sysbox.deb                   # installs sysbox-runc; starts sysbox{,-mgr,-fs}
 ```
 
-Saving triggers the VM restart that runs the hook. The `.deb` registers the
-`sysbox-runc` runtime and starts the `sysbox`, `sysbox-mgr`, and `sysbox-fs`
-services; on a kernel ≥6.3 it uses idmapped mounts (no shiftfs). Confirm with:
+**2. Register the runtime** via colima's `docker:` config passthrough — colima merges
+this into `daemon.json` on every start, which is the durable seam that survives the
+regeneration above. Add a top-level `docker:` block to the same config:
+
+```yaml
+# in the colima config:
+docker:
+  runtimes:
+    sysbox-runc:
+      path: /usr/bin/sysbox-runc
+```
+
+Saving triggers the VM restart that runs the hook. On a kernel ≥6.3 Sysbox uses
+idmapped mounts (no shiftfs). Confirm the runtime is registered:
 
 ```console
 $ colima ssh -- docker info -f '{{json .Runtimes}}' | jq 'has("sysbox-runc")'
@@ -84,8 +99,16 @@ true
 If `docker: true` and the runtime is absent, `at-cove` **fails the preflight** with
 an actionable message pointing back here — it will not silently fall back.
 
-> A one-off `colima ssh` install works for the current session but is lost on the
-> next `colima stop/start`. Use the provision hook so it persists.
+**Version floor.** Use Sysbox **≥ 0.7.1**. Older 0.6.x predates `time`-namespace
+support, so a `docker: true` sandbox fails at container create with
+`OCI runtime create failed: namespace {"time" ""} does not exist`. The release asset
+filename also dropped its `-0` suffix in 0.7.x (`sysbox-ce_<ver>.linux_<arch>.deb`) —
+the URL above already matches the 0.7.x naming.
+
+> The provision hook is idempotent on the binary, so it **won't upgrade** a VM that
+> already has an older `sysbox-runc` — upgrade it once by hand (`apt-get install` the
+> newer `.deb`); the hook value then governs from-scratch VMs. A one-off `colima ssh`
+> install (without the hook) is likewise lost on the next `colima stop/start`.
 
 ## Allow-listing registries
 
