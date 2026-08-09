@@ -176,6 +176,28 @@ tree. A dev `at-cove` run straight from `dist/<os>-<arch>/at-cove` invokes its
 `build.sh`) rather than a PATH `at-mint`, falling back to the bare name on PATH
 when no sibling is present.
 
+### Adopting a new base
+
+Publishing is automatic (above), but **adopting** a published image — pointing
+`.at-cove/config.yml`'s `image.base` at it — is a deliberate manual step, and a
+**breaking** base change (one that shifts the OCI layer-diff-id prefix) also needs
+the blessed watermark raised so older bases stop being trusted. `just adopt-base`
+does both:
+
+```
+just adopt-base <tag>              # routine: pin image.base to <tag>'s @sha256 digest
+just adopt-base <tag> --breaking   # also raise internal/basedigest/blessed/watermark.txt
+just adopt-base <tag> --pr         # after editing, branch + commit + open a PR
+```
+
+It resolves `<tag>` (e.g. `527-0808`, or `latest`) to the multi-arch **index**
+digest via the GitHub packages API and pins by digest (never a moving tag). It
+needs `GITHUB_TOKEN` with `read:packages` (like `gen-blessed`) and cannot run
+offline. `--breaking` prints the new blessed floor; preview the resulting set with
+`just gen-blessed`. Only raise the watermark for a genuinely breaking base — doing
+it on a routine bump wrongly evicts still-valid older bases. Design:
+[adopt-base-recipe](superpowers/specs/2026-08-09-adopt-base-recipe-design.md).
+
 ## Verified `claude` CLI facts
 
 Checked against the `claude` CLI present in this sandbox (v2.1.x):
