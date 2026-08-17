@@ -62,14 +62,16 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 # && find /etc/claude-code -type f -exec chmod 0644 {} + \
 # && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py
 
-# docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed egress
-# units so systemd raises the nftables drop (cove-egress) and squid (cove-squid,
-# COV-125) at boot — before sshd and the inner dockerd — independent of any socket
-# activation. `systemctl enable` runs offline during the build (creating the WantedBy
-# symlinks), which is why the units are enabled here rather than shipped as symlinks
-# (go:embed can't carry symlinks). Inert for non-docker sandboxes: they never boot
-# systemd (the entrypoint execs sshd directly), so the enabled units simply never run.
-RUN systemctl enable cove-egress.service cove-squid.service
+# docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed nftables
+# drop (cove-egress) and the base image's distro squid.service (the egress proxy) at
+# boot — before sshd and the inner dockerd — independent of any socket activation. The
+# sealed squid.service.d/cove-egress.conf drop-in orders squid After the nft drop.
+# `systemctl enable` runs offline during the build (creating the WantedBy symlinks),
+# which is why the units are enabled here rather than shipped as symlinks (go:embed
+# can't carry symlinks); squid.service is already preset-enabled, enabled again
+# idempotently. Inert for non-docker sandboxes: they never boot systemd (the
+# entrypoint execs sshd directly), so the enabled units simply never run.
+RUN systemctl enable cove-egress.service squid.service
 
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
 # time, migration flags, …) UNDER our startup-experience overrides, so that the
