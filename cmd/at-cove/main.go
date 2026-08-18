@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	cove "github.com/aethons-tools/cove"
 	"github.com/aethons-tools/cove/internal/assemble"
 	"github.com/aethons-tools/cove/internal/awake"
 	"github.com/aethons-tools/cove/internal/backend"
@@ -42,6 +43,7 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/state"
+	"github.com/aethons-tools/cove/internal/update"
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
 
@@ -164,6 +166,18 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return code
 				}
 				return exitCode("at-cove", doUninstall(kitDir, r, g.DryRun, out), errw)
+			}},
+			{Name: "update", Brief: "update the at-cove installation to the latest release", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("update", flag.ContinueOnError)
+				ver := fs.String("version", "", "pin a release tag to install (default: the latest; equivalently COVE_VERSION)")
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
+				}
+				if !noPositionals(pos, "update", errw) {
+					return 2
+				}
+				return exitCode("at-cove", doUpdate(r, lookup, version, *ver, g.DryRun, out), errw)
 			}},
 			{Name: "status", Brief: "print sandbox status", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("status", flag.ContinueOnError)
@@ -470,6 +484,71 @@ func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) 
 		return err
 	}
 	fmt.Fprintf(stdout, "uninstalled %q: removed image %s and deleted %s\n", m.Name, m.Image, install.Path(kitDir))
+	return nil
+}
+
+// doUpdate updates the on-PATH at-cove binaries to a GitHub release (COV-128) by
+// driving the *embedded* install.sh — the same resolve → download → verify
+// (checksums.txt) → replace flow the one-command installer runs — rather than
+// reimplementing that logic (or its checksum verification, a security boundary)
+// in Go. Embedding the script means update is self-contained: it works for a
+// `curl | bash`-installed user with no repo checkout, and never fetches the
+// script over the network at update time.
+//
+// The target release is the --version flag, else the COVE_VERSION env knob, else
+// the latest (resolved via install.sh's own resolve_version, sourced in lib
+// mode). install.sh's other knobs — BINDIR, COVE_SYSTEM, COVE_REPO — flow
+// through the inherited process env untouched. When the running version already
+// matches the target it no-ops (no download, no replace). --dry-run prints the
+// intent and resolves/replaces nothing (no network side effects), mirroring the
+// other commands' dry-run convention.
+func doUpdate(r runner.Runner, lookup func(string) (string, bool), currentVersion, versionPin string, dryRun bool, stdout io.Writer) error {
+	coveEnv, _ := lookup("COVE_VERSION")
+	target := update.Target(versionPin, coveEnv)
+
+	// A pinned target we already run is a no-op we can decide without touching the
+	// network. (The unpinned "latest" no-op is decided after resolving, below.)
+	if update.UpToDate(currentVersion, target) {
+		fmt.Fprintf(stdout, "at-cove is already up to date (%s)\n", currentVersion)
+		return nil
+	}
+
+	if dryRun {
+		// A pure preview: resolve nothing (no network) and replace nothing.
+		want := target
+		if want == "" {
+			want = "the latest release"
+		}
+		fmt.Fprintf(stdout, "would update at-cove from %s to %s by running the embedded install.sh (fetch → verify checksums.txt → replace)\n", currentVersion, want)
+		return nil
+	}
+
+	// Materialize the embedded installer to a temp file and drive it through the
+	// Runner — self-contained, no repo checkout, no network fetch of the script.
+	scriptPath, cleanup, err := update.WriteScript(cove.InstallScript)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	// Unpinned: resolve the latest tag via install.sh's own resolve_version
+	// (reuse, not reimplement) so we can no-op when already current.
+	if target == "" {
+		latest, err := update.ResolveLatest(r, scriptPath)
+		if err != nil {
+			return fmt.Errorf("resolve latest release: %w", err)
+		}
+		if update.UpToDate(currentVersion, latest) {
+			fmt.Fprintf(stdout, "at-cove is already up to date (%s)\n", currentVersion)
+			return nil
+		}
+		target = latest
+	}
+
+	fmt.Fprintf(stdout, "updating at-cove from %s to %s\n", currentVersion, target)
+	if err := update.Run(r, scriptPath, update.Env(target)); err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
 	return nil
 }
 
