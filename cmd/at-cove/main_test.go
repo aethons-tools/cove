@@ -82,7 +82,7 @@ func TestNoPositionalsAllowsNone(t *testing.T) {
 // install/uninstall/work/dispatch take the project root only from --project-dir; a
 // stray positional is a usage error (exit 2), matching the interactive verbs.
 func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
-	for _, cmd := range []string{"install", "uninstall", "work", "dispatch"} {
+	for _, cmd := range []string{"install", "uninstall", "update", "work", "dispatch"} {
 		t.Run(cmd, func(t *testing.T) {
 			var out, errOut bytes.Buffer
 			code := run([]string{cmd, "somekit"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
@@ -963,6 +963,108 @@ func TestVersionFlag(t *testing.T) {
 	code := run([]string{"--version"}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code != 0 || !strings.Contains(out.String(), "at-cove "+version) {
 		t.Fatalf("--version: code=%d out=%q", code, out.String())
+	}
+}
+
+// TestUpdateRunsEmbeddedInstallScript (COV-128): a pinned `update --version`
+// against a different running version drives the embedded install.sh via the
+// Runner — `bash <temp install.sh>` with COVE_VERSION pinning the target — and
+// never reimplements the fetch/verify/replace in Go.
+func TestUpdateRunsEmbeddedInstallScript(t *testing.T) {
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	// version (the package global) is "dev"; a pinned newer tag is not current.
+	code := run([]string{"update", "--version", "9-0909"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("update exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("update must drive install.sh once; calls=%+v", f.Calls)
+	}
+	c := f.Calls[0]
+	if c.Name != "bash" || len(c.Args) != 1 {
+		t.Fatalf("update must run `bash <script>`; got %s %v", c.Name, c.Args)
+	}
+	if !strings.HasSuffix(c.Args[0], ".sh") || !strings.Contains(c.Args[0], "at-cove-install") {
+		t.Fatalf("update must run the embedded install.sh from a temp file; got %q", c.Args[0])
+	}
+	gotPin := false
+	for _, e := range c.Env {
+		if e == "COVE_VERSION=9-0909" {
+			gotPin = true
+		}
+	}
+	if !gotPin {
+		t.Fatalf("update must pin COVE_VERSION for the target release; env=%v", c.Env)
+	}
+	if !strings.Contains(out.String(), "updating at-cove") {
+		t.Fatalf("update should report what it is doing; stdout=%q", out.String())
+	}
+}
+
+// TestUpdateNoOpWhenAlreadyLatest (COV-128): when the running version already
+// matches the requested version, update no-ops — no download, no replace — and
+// says so, driving nothing through the Runner.
+func TestUpdateNoOpWhenAlreadyLatest(t *testing.T) {
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	// Pin the running version (the "dev" default) → already up to date.
+	code := run([]string{"update", "--version", version}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("update exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("an already-latest update must run nothing; calls=%+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "already up to date") {
+		t.Fatalf("already-latest update should say so; stdout=%q", out.String())
+	}
+}
+
+// TestUpdateResolvesLatestViaInstallScript (COV-128): with no pin, update
+// resolves the latest tag by reusing install.sh's resolve_version (sourced in
+// lib mode) and then drives the installer pinned to the resolved tag.
+func TestUpdateResolvesLatestViaInstallScript(t *testing.T) {
+	// First Output feeds the lib-mode resolve_version; the second call is the run.
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "9-1231\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"update"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("update exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 2 {
+		t.Fatalf("unpinned update must resolve then run; calls=%+v", f.Calls)
+	}
+	resolve := f.Calls[0]
+	if !strings.Contains(strings.Join(resolve.Args, " "), "resolve_version") {
+		t.Fatalf("first call must resolve the latest via resolve_version; args=%v", resolve.Args)
+	}
+	installCall := f.Calls[1]
+	gotPin := false
+	for _, e := range installCall.Env {
+		if e == "COVE_VERSION=9-1231" {
+			gotPin = true
+		}
+	}
+	if !gotPin {
+		t.Fatalf("update must install the resolved latest tag; env=%v", installCall.Env)
+	}
+}
+
+// TestUpdateDryRunPrintsIntentOnly (COV-128): --dry-run resolves nothing and
+// replaces nothing (no Runner calls), printing the intent to stdout.
+func TestUpdateDryRunPrintsIntentOnly(t *testing.T) {
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--dry-run", "update", "--version", "9-0909"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("update dry-run exit=%d stderr=%s", code, errOut.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("dry-run update must touch nothing; calls=%+v", f.Calls)
+	}
+	if !strings.Contains(out.String(), "would update") || !strings.Contains(out.String(), "9-0909") {
+		t.Fatalf("dry-run update should describe the planned update; stdout=%q", out.String())
 	}
 }
 
