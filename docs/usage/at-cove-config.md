@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-08-08
+updated: 2026-08-18
 ---
 
 # at-cove `config.yml`
@@ -614,7 +614,11 @@ lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries `base`,
 A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`),
 which is the Docker **build context** for an `image/Dockerfile` — it is **not** overlaid
 onto the sandbox. To customize the build (install a toolchain, seed files), write an
-`image/Dockerfile`. To add session env for every SSH session, just set it with **`ENV`**
+`image/Dockerfile`. Start it with `ARG COVE_BASE_IMAGE=…` + `FROM ${COVE_BASE_IMAGE}`:
+at-cove injects the blessed base via `--build-arg COVE_BASE_IMAGE=<blessed
+cove-base-image>` when it builds the Dockerfile, so a kit's own base always descends
+from the blessed base rather than a floating tag (the `ARG` default is used only for a
+bare manual `docker build` of the kit outside at-cove). To add session env for every SSH session, just set it with **`ENV`**
 and name it in **`COVE_SSHENV`** (colon-separated): the sealed hardening layer copies
 `PATH` (intrinsic) plus every `COVE_SSHENV`-named variable's live value into
 `/etc/environment`. So one `ENV` satisfies both `docker run`/CI and SSH sessions — e.g.

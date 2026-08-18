@@ -51,7 +51,7 @@ This design makes the base **kit-selectable** — name an image to harden, or dr
 **Resolution (in `at-cove build`, before the hardening build):**
 
 1. If `image/Dockerfile` **and** `image.base` are both set → error.
-2. If `image/Dockerfile` exists → `docker build` it with context `image/`; capture the resulting image digest.
+2. If `image/Dockerfile` exists → `docker build` it with context `image/`; capture the resulting image digest. at-cove passes `--build-arg COVE_BASE_IMAGE=<blessed cove-base-image>` (from `basedigest.DefaultRef()`) so the kit Dockerfile's `FROM ${COVE_BASE_IMAGE}` builds on the blessed base (the Dockerfile's `ARG COVE_BASE_IMAGE` default is only for a bare manual `docker build`). Since this path and `image.base` are mutually exclusive, the blessed default is the only base to inject (COV-126).
 3. Else if `image.base` is set → resolve that ref to a digest.
 4. Else → `cove-base-image@<blessed-digest>`.
 
