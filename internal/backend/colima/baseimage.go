@@ -12,11 +12,20 @@ import (
 
 // dockerImg adapts colima's context-pinned docker to baseimage.Docker so the
 // resolver's selection + provenance logic stays backend-agnostic and unit-tested.
-type dockerImg struct{ c *Colima }
+// baseArg is the blessed base injected into a kit image/Dockerfile's
+// COVE_BASE_IMAGE build arg (see Build).
+type dockerImg struct {
+	c       *Colima
+	baseArg string
+}
 
 func (d dockerImg) Build(contextDir string) (string, error) {
+	// Inject the blessed base as the kit Dockerfile's COVE_BASE_IMAGE build arg so
+	// a kit's own image/Dockerfile always builds on the blessed base (its ARG
+	// default is only for a bare manual `docker build`). The DockerfileDir path and
+	// image.base are mutually exclusive, so DefaultRef is the only base to honor.
 	// -q: emit only the built image ID (a bare `sha256:<hex>`).
-	out, err := d.c.r.Output("docker", dargs("build", "-q", contextDir)...)
+	out, err := d.c.r.Output("docker", dargs("build", "-q", "--build-arg", "COVE_BASE_IMAGE="+d.baseArg, contextDir)...)
 	if err != nil {
 		return "", err
 	}
@@ -68,5 +77,5 @@ func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 			s.DockerfileDir = imageDir
 		}
 	}
-	return baseimage.Resolve(dockerImg{c}, s, basedigest.BlessedRefs(), os.Stderr)
+	return baseimage.Resolve(dockerImg{c: c, baseArg: s.DefaultRef}, s, basedigest.BlessedRefs(), os.Stderr)
 }

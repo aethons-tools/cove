@@ -9,7 +9,13 @@
 # at-task (the git/PR worker) is INJECTED by at-cove's sealed layer — do NOT
 # install it here. The image just needs the project's build/test toolchain and
 # `claude` on PATH.
-FROM ghcr.io/aethons-tools/cove-image:latest
+#
+# at-cove injects the blessed cove base image via `--build-arg COVE_BASE_IMAGE=…`
+# when it builds this Dockerfile, so this always builds on the blessed base rather
+# than a floating tag. The default below is used only for a bare manual
+# `docker build` of this kit outside at-cove.
+ARG COVE_BASE_IMAGE=ghcr.io/aethons-tools/cove-image:latest
+FROM ${COVE_BASE_IMAGE}
 
 # Example — install your target project's toolchain (build-time egress is open):
 # RUN apt-get update \
