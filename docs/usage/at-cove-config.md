@@ -781,8 +781,8 @@ collaborators:
       exception: during review or troubleshooting you MAY make direct fixes.
 
 image:
-  setup-scripts:
-    - .install-files/install.sh
+  # build-time customization (toolchain, seeded files, session ENV) lives in the
+  # kit's image/Dockerfile — config.yml carries only base/allowed-domains/dns.
   allowed-domains:
     - api.anthropic.com   # the agent (claude)
     - api.github.com      # at-task PR API
@@ -802,13 +802,10 @@ the template kit for `at-cove dispatch`.
 - `source-control.{github,gitlab}.secrets` is non-empty but doesn't declare exactly
   `AT_TASK_GIT_TOKEN` (demand-only — a `command` field is a parse error; the value is
   always supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
-- an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
-  path contains a newline);
+- an `image.allowed-domains[i]` is empty;
 - an `image.dns[i]` is empty or is not a valid IP address (`docker --dns` requires an IP,
   not a hostname);
 - `docker` is set to a non-bool value (it is a plain boolean, default `false`);
-- an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
-  contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
   class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative
   or an explicit `0` (omit it to inherit `<common>`; pause a class via tracker state);
