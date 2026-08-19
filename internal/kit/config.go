@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/naming"
 	"gopkg.in/yaml.v3"
 )
 
@@ -272,6 +274,7 @@ type Collaborator struct {
 	Prompt         string                  `yaml:"prompt,omitempty"`
 	Default        bool                    `yaml:"default,omitempty"`
 	ShareRepoDir   bool                    `yaml:"share-repo-dir,omitempty"` // opt this class's VM into a Shared bind-mount of the kit's repo dir (per-class only; rejected on <common>)
+	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"`    // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-130)
 	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
@@ -626,10 +629,13 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 		}
 		if name == commonKey {
-			if col.Prompt != "" || col.Default || col.ShareRepoDir {
-				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt, default, or share-repo-dir", commonKey)
+			if col.Prompt != "" || col.Default || col.ShareRepoDir || len(col.ShadowDirs) > 0 {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt, default, share-repo-dir, or shadow-dirs", commonKey)
 			}
 			continue
+		}
+		if err := validateShadowDirs(name, col.ShareRepoDir, col.ShadowDirs); err != nil {
+			return Config{}, err
 		}
 		if col.Default {
 			defaults++
@@ -686,6 +692,42 @@ func validateSecretNames(field string, got map[string]SecretConfig, allowBearers
 		if !allowBearers && agentBearerNames[k] {
 			return fmt.Errorf("config.yml: %s: %q is an Anthropic agent bearer and must be declared under workers.<class>.secrets (or workers.<common>.secrets), not here — a bearer in this bucket is injected into a `chat`/session env, where it outranks the subscription login and disables that session's connectors; move it under `workers:`", field, k)
 		}
+	}
+	return nil
+}
+
+// validateShadowDirs enforces the shadow-dirs contract (COV-130): the list is
+// meaningful only with a shared bind-mount, and each entry must be a clean
+// relative path inside the workspace that maps to a unique volume name.
+func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
+	if len(dirs) == 0 {
+		return nil
+	}
+	if !shareRepoDir {
+		return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: only valid when share-repo-dir: true", class)
+	}
+	seenPath := map[string]bool{}
+	seenVol := map[string]bool{}
+	for i, d := range dirs {
+		if strings.TrimSpace(d) == "" {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not be empty", class, i)
+		}
+		if path.IsAbs(d) {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a relative path, got %q", class, i, d)
+		}
+		clean := path.Clean(d)
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must stay within the workspace, got %q", class, i, d)
+		}
+		if seenPath[clean] {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: duplicate entry %q", class, clean)
+		}
+		seenPath[clean] = true
+		vol := naming.SanitizeShadowDir(clean)
+		if seenVol[vol] {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: %q collides with another entry after sanitizing to a volume name", class, d)
+		}
+		seenVol[vol] = true
 	}
 	return nil
 }

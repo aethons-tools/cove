@@ -1172,3 +1172,53 @@ func TestRepo_GitHubUnchanged(t *testing.T) {
 		t.Fatalf("github repo = %+v", repo)
 	}
 }
+
+func TestParseConfigRejectsShadowDirsOnCommon(t *testing.T) {
+	src := "name: k\ncollaborators:\n  <common>:\n    shadow-dirs: [.venv]\n  human:\n    share-repo-dir: true\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("shadow-dirs on <common> must be rejected")
+	}
+}
+
+func TestParseConfigRejectsShadowDirsWithoutShareRepoDir(t *testing.T) {
+	src := "name: k\ncollaborators:\n  human:\n    shadow-dirs: [.venv]\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("shadow-dirs without share-repo-dir:true must be rejected")
+	}
+}
+
+func TestParseConfigRejectsBadShadowDirEntries(t *testing.T) {
+	for _, entry := range []string{"/abs", "..", "../escape", ".", ""} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigRejectsDuplicateAndCollidingShadowDirs(t *testing.T) {
+	dup := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, .venv]\n"
+	if _, err := ParseConfig([]byte(dup)); err == nil {
+		t.Error("duplicate shadow-dirs must be rejected")
+	}
+	// ".venv" and "venv" both sanitize to the same volume token.
+	collide := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, venv]\n"
+	if _, err := ParseConfig([]byte(collide)); err == nil {
+		t.Error("shadow-dirs colliding on sanitized name must be rejected")
+	}
+}
+
+func TestResolvedCollaboratorKeepsShadowDirs(t *testing.T) {
+	src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, node_modules]\n"
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	col, err := cfg.ResolvedCollaborator("human")
+	if err != nil {
+		t.Fatalf("ResolvedCollaborator: %v", err)
+	}
+	if len(col.ShadowDirs) != 2 || col.ShadowDirs[0] != ".venv" || col.ShadowDirs[1] != "node_modules" {
+		t.Fatalf("shadow-dirs not preserved: %+v", col.ShadowDirs)
+	}
+}
