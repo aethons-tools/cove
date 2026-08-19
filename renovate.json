@@ -17,20 +17,29 @@
       "allowedVersions": "<23"
     },
     {
-      "description": "Stay on Ubuntu 24.04 LTS: refresh the pinned base digest, but don't jump the distro version (Renovate offered 26.04). Digest updates keep the 24.04 tag and stay enabled; a version bump is deliberate.",
+      "description": "Stay on Ubuntu 24.04 LTS: never jump the distro version (Renovate offered 26.04) — a major/minor bump is a deliberate manual change.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ubuntu"],
       "matchUpdateTypes": ["major", "minor"],
       "enabled": false
     },
     {
-      "description": "Ubuntu 24.04 (noble) archive suites for the apt `deb` datasource — base + updates + security, main and universe. Requires Dependency-Dashboard approval for now: a first check that the datasource resolves the pins before it may open PRs. Drop dependencyDashboardApproval once confirmed working.",
+      "description": "Couple the ubuntu:24.04 base *digest* with the pinned apt package versions it must build against — the `deb` rule below shares this groupName. A digest-only bump fails the base rebuild the moment a pinned apt version has aged out of the archive (see images/cove-base-image/Dockerfile: 'a pin that ages out ... fails the build loudly'), so the digest and the noble pins have to land in one PR. Approval-gated to match those pins, so the coupled update flows through a single reviewed Dependency-Dashboard entry instead of an auto-opened digest-only PR that is doomed to fail.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ubuntu"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "ubuntu noble base",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Ubuntu 24.04 (noble) archive suites for the apt `deb` datasource — base + updates + security, main and universe. Grouped with the ubuntu base digest (groupName `ubuntu noble base`) so the digest and its coupled apt pins move together in one PR. Requires Dependency-Dashboard approval for now: a first check that the datasource resolves the pins before it may open PRs. Drop dependencyDashboardApproval (here and on the digest rule above) once confirmed working.",
       "matchDatasources": ["deb"],
       "registryUrls": [
         "https://archive.ubuntu.com/ubuntu?suite=noble&components=main,universe&binaryArch=amd64",
         "https://archive.ubuntu.com/ubuntu?suite=noble-updates&components=main,universe&binaryArch=amd64",
         "https://security.ubuntu.com/ubuntu?suite=noble-security&components=main,universe&binaryArch=amd64"
       ],
+      "groupName": "ubuntu noble base",
       "dependencyDashboardApproval": true
     },
     {
