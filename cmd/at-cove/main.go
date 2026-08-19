@@ -620,7 +620,7 @@ func sharedWorkspaceMount(cfg kit.Config, kitDir, class string, hasCollab bool) 
 	if err != nil {
 		return backend.WorkspaceMount{}, err
 	}
-	return backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs}, nil
+	return backend.WorkspaceMount{Mode: backend.Shared, HostPath: abs, ShadowDirs: role.ShadowDirs}, nil
 }
 
 // createInstance runs the installed image for one resolved instance with the given
@@ -676,10 +676,11 @@ func buildState(cfg kit.Config, inst backend.Instance) state.State {
 	if inst.Workspace.Mode == backend.Shared {
 		st.WorkspaceMode = "shared"
 		st.WorkspaceHostPath = inst.Workspace.HostPath
+		st.ShadowDirs = inst.Workspace.ShadowDirs
 	}
 	// Record the volume names the backend actually used, so destroy removes
 	// exactly those rather than re-deriving them from Container (COV-76).
-	st.Volumes = &state.Volumes{State: inst.Volumes.State, Workspace: inst.Volumes.Workspace}
+	st.Volumes = &state.Volumes{State: inst.Volumes.State, Workspace: inst.Volumes.Workspace, Shadow: inst.Volumes.Shadow}
 	for name := range cfg.Secrets {
 		st.Secrets = append(st.Secrets, state.Secret{Name: name})
 	}
@@ -695,14 +696,14 @@ func saveState(kitDir string, instKey state.Instance, cfg kit.Config, inst backe
 func instanceFromState(st state.State) backend.Instance {
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if st.WorkspaceMode == "shared" {
-		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
+		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath, ShadowDirs: st.ShadowDirs}
 	}
 	inst := backend.Instance{Backend: st.Backend, Container: st.Container, Image: st.Image, ImageDigest: st.ImageDigest, Workspace: ws}
 	// A legacy state file (schemaVersion 1) has no recorded volumes; leave
 	// Instance.Volumes zero so Destroy falls back to the container-derived names
 	// (COV-76).
 	if st.Volumes != nil {
-		inst.Volumes = backend.VolumeSet{State: st.Volumes.State, Workspace: st.Volumes.Workspace}
+		inst.Volumes = backend.VolumeSet{State: st.Volumes.State, Workspace: st.Volumes.Workspace, Shadow: st.Volumes.Shadow}
 	}
 	return inst
 }
@@ -1067,7 +1068,7 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdou
 	// isolated volume. This must happen before the destroy, which deletes the state.
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
-		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
+		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath, ShadowDirs: st.ShadowDirs}
 	}
 	if dryRun {
 		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", name)

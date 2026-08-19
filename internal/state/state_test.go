@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,6 +22,32 @@ func TestSaveEnsuresGitignore(t *testing.T) {
 	}
 	if !strings.Contains(string(b), ".state/") {
 		t.Fatalf(".gitignore missing .state/:\n%s", string(b))
+	}
+}
+
+// The shared-workspace shadow-dirs and their volume names round-trip through the
+// state file, so recreate re-emits the mounts and destroy removes them (COV-130).
+func TestStateRoundTripsShadowDirs(t *testing.T) {
+	in := State{
+		SchemaVersion: 2, Name: "k", Container: "atcove-k-human",
+		WorkspaceMode: "shared", WorkspaceHostPath: "/host/repo",
+		ShadowDirs: []string{".venv", "node_modules"},
+		Volumes: &Volumes{State: "atcove-k-human-agent-data",
+			Shadow: []string{"atcove-k-human-shadow-venv", "atcove-k-human-shadow-node_modules"}},
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out State
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.ShadowDirs) != 2 || out.ShadowDirs[1] != "node_modules" {
+		t.Fatalf("ShadowDirs lost: %+v", out.ShadowDirs)
+	}
+	if out.Volumes == nil || len(out.Volumes.Shadow) != 2 || out.Volumes.Shadow[0] != "atcove-k-human-shadow-venv" {
+		t.Fatalf("Volumes.Shadow lost: %+v", out.Volumes)
 	}
 }
 
