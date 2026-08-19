@@ -1196,6 +1196,15 @@ func TestParseConfigRejectsBadShadowDirEntries(t *testing.T) {
 	}
 }
 
+func TestParseConfigRejectsNonCanonicalShadowDirs(t *testing.T) {
+	for _, entry := range []string{"foo/", "foo/../bar", "./foo", ".venv ", "a b"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("non-canonical/whitespace shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
 func TestParseConfigRejectsDuplicateAndCollidingShadowDirs(t *testing.T) {
 	dup := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, .venv]\n"
 	if _, err := ParseConfig([]byte(dup)); err == nil {

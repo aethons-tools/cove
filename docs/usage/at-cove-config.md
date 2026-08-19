@@ -535,7 +535,8 @@ entries that collide once sanitized to the same volume name. The overmount
 volumes are **per-sandbox and persistent** — they survive `recreate` and are
 removed only by `destroy`, same lifecycle as the other instance volumes. A
 forthcoming `at-cove doctor` (COV-131) will recommend a kit's `shadow-dirs` list
-from the repo's own ignore rules.
+from the repo's `.gitignore` and build manifests (e.g. `pyproject.toml`,
+`package.json`, `Cargo.toml`).
 
 ```yaml
 collaborators:

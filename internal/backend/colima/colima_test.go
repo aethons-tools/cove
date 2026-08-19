@@ -305,6 +305,30 @@ func TestCreateShared(t *testing.T) {
 // created, so teardown removes exactly those rather than re-deriving them from
 // the container name (COV-76). An isolated workspace records both -agent-data and
 // -workspace; a shared (bind-mount) workspace records only -agent-data.
+func TestCreateRecordsVolumeNames(t *testing.T) {
+	inst, err := New(&runner.Fake{}).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "box-workspace" {
+		t.Fatalf("isolated create must record both volume names; got %+v", inst.Volumes)
+	}
+
+	inst, err = New(&runner.Fake{}).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "" {
+		t.Fatalf("shared create records only the -agent-data volume (no workspace volume); got %+v", inst.Volumes)
+	}
+}
+
 // A shared workspace with shadow-dirs overmounts each dir with its own volume and
 // signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-130).
 func TestCreateSharedShadowDirs(t *testing.T) {
@@ -361,30 +385,6 @@ func TestDestroyRemovesShadowVolumes(t *testing.T) {
 	rm := dockerCall(f.Calls, "volume")
 	if !contains(rm, "box-shadow-venv") {
 		t.Fatalf("destroy must rm shadow volume: %+v", rm)
-	}
-}
-
-func TestCreateRecordsVolumeNames(t *testing.T) {
-	inst, err := New(&runner.Fake{}).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "box-workspace" {
-		t.Fatalf("isolated create must record both volume names; got %+v", inst.Volumes)
-	}
-
-	inst, err = New(&runner.Fake{}).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "" {
-		t.Fatalf("shared create records only the -agent-data volume (no workspace volume); got %+v", inst.Volumes)
 	}
 }
 

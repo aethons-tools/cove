@@ -712,6 +712,9 @@ func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
 		if strings.TrimSpace(d) == "" {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not be empty", class, i)
 		}
+		if strings.ContainsAny(d, " \t\n\r") {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not contain whitespace, got %q", class, i, d)
+		}
 		if path.IsAbs(d) {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a relative path, got %q", class, i, d)
 		}
@@ -719,13 +722,16 @@ func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
 		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must stay within the workspace, got %q", class, i, d)
 		}
+		if d != clean {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a clean relative path (no trailing slash, '.' or '..' segments), got %q", class, i, d)
+		}
 		if seenPath[clean] {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: duplicate entry %q", class, clean)
 		}
 		seenPath[clean] = true
 		vol := naming.SanitizeShadowDir(clean)
 		if seenVol[vol] {
-			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: %q collides with another entry after sanitizing to a volume name", class, d)
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: %q collides with another entry after sanitizing to a volume name", class, clean)
 		}
 		seenVol[vol] = true
 	}
