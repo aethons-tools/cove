@@ -305,6 +305,65 @@ func TestCreateShared(t *testing.T) {
 // created, so teardown removes exactly those rather than re-deriving them from
 // the container name (COV-76). An isolated workspace records both -agent-data and
 // -workspace; a shared (bind-mount) workspace records only -agent-data.
+// A shared workspace with shadow-dirs overmounts each dir with its own volume and
+// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-130).
+func TestCreateSharedShadowDirs(t *testing.T) {
+	f := &runner.Fake{}
+	inst, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{
+			Mode: backend.Shared, HostPath: "/host/repo",
+			ShadowDirs: []string{".venv", "node_modules"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := dockerCall(f.Calls, "run")
+	for _, want := range []string{
+		"box-shadow-venv:/home/agent/workspace/.venv",
+		"box-shadow-node_modules:/home/agent/workspace/node_modules",
+		"COVE_SHADOW_DIRS=.venv node_modules",
+	} {
+		if !contains(run, want) {
+			t.Errorf("run argv missing %q: %+v", want, run)
+		}
+	}
+	if len(inst.Volumes.Shadow) != 2 || inst.Volumes.Shadow[0] != "box-shadow-venv" {
+		t.Fatalf("shadow volume names not recorded: %+v", inst.Volumes.Shadow)
+	}
+}
+
+// A shared workspace with no shadow-dirs emits no shadow flags (unchanged path).
+func TestCreateSharedNoShadowDirs(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if contains(dockerCall(f.Calls, "run"), "COVE_SHADOW_DIRS=") {
+		t.Fatal("no shadow-dirs must emit no COVE_SHADOW_DIRS")
+	}
+}
+
+// Destroy removes the recorded shadow volumes alongside the others (COV-130).
+func TestDestroyRemovesShadowVolumes(t *testing.T) {
+	f := &runner.Fake{}
+	err := New(f).Destroy(backend.Instance{
+		Backend: "colima", Container: "box",
+		Volumes: backend.VolumeSet{State: "box-agent-data", Shadow: []string{"box-shadow-venv"}},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm := dockerCall(f.Calls, "volume")
+	if !contains(rm, "box-shadow-venv") {
+		t.Fatalf("destroy must rm shadow volume: %+v", rm)
+	}
+}
+
 func TestCreateRecordsVolumeNames(t *testing.T) {
 	inst, err := New(&runner.Fake{}).Create(backend.CreateContext{
 		Name: "box", Image: "atcove-box",
