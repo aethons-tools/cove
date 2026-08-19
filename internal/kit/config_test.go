@@ -1205,6 +1205,40 @@ func TestParseConfigRejectsNonCanonicalShadowDirs(t *testing.T) {
 	}
 }
 
+func TestParseConfigRejectsUnsafeShadowDirChars(t *testing.T) {
+	// A shadow-dir becomes a docker `-v` spec and is iterated in an unquoted shell
+	// loop in the entrypoint, so the character set is restricted to portable path
+	// chars: ':' would corrupt the mount spec and glob metachars (*?[]) would
+	// misfire the boot-time chown; non-ASCII yields docker-invalid volume names.
+	for _, entry := range []string{"a:b", "a*b", "a?b", "build[x]", "café", "a;b", "a$b"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("unsafe shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigRejectsReservedShadowDirs(t *testing.T) {
+	// Shadowing .git with a fresh empty per-sandbox volume would silently defeat
+	// share-repo-dir — the VM would lose the shared live .git — so reject any entry
+	// whose path shadows a .git directory (COV-132).
+	for _, entry := range []string{".git", ".git/objects", "sub/.git"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("reserved shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigAcceptsNestedShadowDir(t *testing.T) {
+	// The character-set check must not reject the '/' separator or normal nested
+	// build dirs.
+	src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [target/debug, .venv, node_modules]\n"
+	if _, err := ParseConfig([]byte(src)); err != nil {
+		t.Fatalf("valid nested shadow-dirs must parse: %v", err)
+	}
+}
+
 func TestParseConfigRejectsDuplicateAndCollidingShadowDirs(t *testing.T) {
 	dup := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, .venv]\n"
 	if _, err := ParseConfig([]byte(dup)); err == nil {

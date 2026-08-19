@@ -534,7 +534,10 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	for _, want := range []string{
 		"${COVE_SHADOW_DIRS:-}",
 		`case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac`,
-		`if [ -e "$p" ]; then chown agent:agent "$p"; fi`,
+		"set -f", // no globbing: an entry must never be pathname-expanded (COV-132 #2)
+		// chown only a real mountpoint (the fresh volume), never host content
+		// showing through the shared bind (COV-132 #3).
+		`if mountpoint -q "$p"; then chown agent:agent "$p"; fi`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("entrypoint must chown shadow-dirs; missing %q:\n%s", want, s)

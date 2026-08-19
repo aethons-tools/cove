@@ -725,6 +725,21 @@ func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
 		if d != clean {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a clean relative path (no trailing slash, '.' or '..' segments), got %q", class, i, d)
 		}
+		// A shadow-dir becomes a docker `-v <vol>:/home/agent/workspace/<d>` spec and
+		// is iterated in an unquoted shell loop in the sealed entrypoint, so restrict
+		// each segment to portable path chars: a ':' would split the mount spec (COV-132
+		// #1), a glob metachar would misfire the boot-time chown (#2), and non-ASCII
+		// yields docker-invalid volume names. Reject shadowing a .git directory, which
+		// would replace the shared repo's live .git with an empty per-sandbox volume and
+		// silently defeat share-repo-dir (#5).
+		for _, seg := range strings.Split(clean, "/") {
+			if seg == ".git" {
+				return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not shadow a .git directory (it would hide the shared repo's live .git), got %q", class, i, d)
+			}
+			if !shadowDirSegmentOK(seg) {
+				return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: may only contain ASCII letters, digits, '.', '_', '-' (no ':', glob or whitespace characters), got %q", class, i, d)
+			}
+		}
 		if seenPath[clean] {
 			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: duplicate entry %q", class, clean)
 		}
@@ -736,6 +751,25 @@ func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
 		seenVol[vol] = true
 	}
 	return nil
+}
+
+// shadowDirSegmentOK reports whether s is a safe single path segment for a
+// shadow-dir: a non-empty run of ASCII letters, digits, and the punctuation
+// '.', '_', '-'. Everything else — ':' (splits the docker -v spec), glob
+// metachars, whitespace, and any non-ASCII rune — is rejected (COV-132).
+func shadowDirSegmentOK(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // rejectReservedSecretNames forbids the subsystem well-known secret names in a

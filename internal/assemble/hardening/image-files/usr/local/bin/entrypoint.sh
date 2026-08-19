@@ -26,14 +26,20 @@ chown -R agent:agent /agent-data
 # fresh per-sandbox volumes (COV-132). Each mounts empty and root:root, so chown
 # the mountpoint to agent (non-recursive: first boot is empty; later boots' content
 # is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
-# Defense-in-depth for this sealed file: skip anything that escapes the workspace
-# (config already rejects '..'/absolute at parse time). Guard on existence so a dir
-# that is somehow not mounted cannot abort boot under `set -e`.
+# Defense-in-depth for this sealed file (config restricts the entries at parse
+# time, but this env value is trusted last): `set -f` so an entry is never
+# pathname-expanded against the entrypoint's cwd — a glob metachar would otherwise
+# chown the wrong path — while still being word-split on spaces; skip anything that
+# escapes the workspace; and chown ONLY a path that is actually a mountpoint here
+# (the fresh per-sandbox volume), never host content showing through the shared
+# bind, since chowning that would rewrite the user's real files to agent.
+set -f
 for d in ${COVE_SHADOW_DIRS:-}; do
   case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac
   p="/home/agent/workspace/$d"
-  if [ -e "$p" ]; then chown agent:agent "$p"; fi
+  if mountpoint -q "$p"; then chown agent:agent "$p"; fi
 done
+set +f
 
 # docker:true sandboxes boot systemd as PID 1 (Sysbox gives the unprivileged
 # container a real init environment), and systemd raises the egress lock via
