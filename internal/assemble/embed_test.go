@@ -267,6 +267,9 @@ func TestGitCredentialHelperWired(t *testing.T) {
 	if !strings.Contains(string(helper), "GITHUB_TOKEN") {
 		t.Errorf("credential helper must read GITHUB_TOKEN; got:\n%s", helper)
 	}
+	if !strings.Contains(string(helper), "GITLAB_TOKEN") {
+		t.Errorf("credential helper must read GITLAB_TOKEN for GitLab kits; got:\n%s", helper)
+	}
 	cfg, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/gitconfig")
 	if err != nil {
 		t.Fatal(err)
@@ -334,6 +337,47 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 	}
 	if got := fill(""); strings.Contains(got, "password=") {
 		t.Fatalf("helper must withhold credentials when GITHUB_TOKEN is unset:\n%s", got)
+	}
+}
+
+// TestGitCredentialHelperYieldsGitLabToken drives the shipped helper directly with
+// a GitLab credential request (git passes the host on stdin) to prove it supplies
+// GITLAB_TOKEN as oauth2 for the kit's GitLab host, and withholds it when the token
+// is unset or the host is not the kit's GITLAB_HOST. Skips if bash is unavailable.
+func TestGitCredentialHelperYieldsGitLabToken(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	dir := t.TempDir()
+	src, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperPath := filepath.Join(dir, "cove-git-credential.sh")
+	if err := os.WriteFile(helperPath, src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// get runs the helper with the given host on stdin and the given extra env,
+	// returning its stdout (the credential answer, empty when withheld).
+	get := func(host string, env ...string) string {
+		cmd := exec.Command("bash", helperPath, "get")
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+		cmd.Stdin = strings.NewReader("protocol=https\nhost=" + host + "\n\n")
+		out, _ := cmd.Output()
+		return string(out)
+	}
+
+	host := "gitlab.example.com"
+	if got := get(host, "GITLAB_HOST="+host, "GITLAB_TOKEN=glpat-XYZ"); !strings.Contains(got, "password=glpat-XYZ") ||
+		!strings.Contains(got, "username=oauth2") {
+		t.Fatalf("helper did not supply the GitLab token for %s:\n%s", host, got)
+	}
+	if got := get(host, "GITLAB_HOST="+host); strings.Contains(got, "password=") {
+		t.Fatalf("helper must withhold when GITLAB_TOKEN is unset:\n%s", got)
+	}
+	if got := get("gitlab.other.example", "GITLAB_HOST="+host, "GITLAB_TOKEN=glpat-XYZ"); strings.Contains(got, "password=") {
+		t.Fatalf("helper must not offer the token to a host that is not GITLAB_HOST:\n%s", got)
 	}
 }
 

@@ -121,9 +121,11 @@ manifest digest, each apt package `pkg=version`, and the toolchain args
 (`GO_VERSION`, `JDK_RELEASE`, `NODE_VERSION`, `HADOLINT_VERSION`). Versions are
 identical across amd64/arm64, so one pin serves both. A pin that ages out of the
 archive fails the build loudly. [`renovate.json`](../renovate.json) keeps them
-current — Renovate opens a bump PR per newer version instead of a silent float.
-(The one input not yet pinned is chromium, which rides whatever `playwright`
-resolves.)
+current instead of letting them silently float — mostly a bump PR per newer
+version, except the base `ubuntu:24.04` digest and its apt pins, which Renovate
+**couples into one grouped PR** (a digest bump alone would fail the rebuild the
+moment a pin ages out). (The one input not yet pinned is chromium, which rides
+whatever `playwright` resolves.)
 
 **Build & publish** — the images are built and published by the monolithic
 pipeline (below); consumers **pin by `@sha256` digest**, never a moving tag

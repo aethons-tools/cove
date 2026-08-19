@@ -41,17 +41,22 @@ have() {
 
 go vet ./...
 
-# gofmt walks the filesystem it is given, so `gofmt -l .` also descends into
-# dot-directories — including .gopath/, the local GOPATH this repo's sandbox
-# sets (see docs/DEVELOPMENT.md), whose vendored third-party sources are not
-# ours to format. Go's own package patterns skip dot-directories, so ask the
-# toolchain for the module's package dirs and check exactly those.
-pkg_dirs=()
-while IFS= read -r dir; do
-  pkg_dirs+=("$dir")
-done < <(go list -f '{{.Dir}}' ./...)
+# gofmt recurses into any directory it is given, so handing it package *dirs*
+# descends into whatever else lives under them. Once the module root is itself a
+# package (a root-level .go file exists), that dir is `.`, and gofmt walks the
+# sandbox's in-workspace .gopath/ GOPATH (see docs/DEVELOPMENT.md), whose vendored
+# third-party sources are not ours to format. So ask the toolchain for the exact
+# .go files of the module's packages and check only those — no directory argument
+# means no recursion can ever reach .gopath/.
+gofiles=()
+# The go list -f template below is Go text/template ($d, {{...}}) — deliberately
+# single-quoted so the shell keeps it literal, not a shell expansion.
+# shellcheck disable=SC2016
+while IFS= read -r f; do
+  gofiles+=("$f")
+done < <(go list -f '{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}' ./...)
 
-unformatted="$(gofmt -l "${pkg_dirs[@]}")"
+unformatted="$(gofmt -l "${gofiles[@]}")"
 if [ -n "$unformatted" ]; then
   echo "gofmt -w needed for:" >&2
   echo "$unformatted" >&2

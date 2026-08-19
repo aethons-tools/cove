@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-08-08
+updated: 2026-08-18
 ---
 
 # at-cove `config.yml`
@@ -97,6 +97,11 @@ setup — the value is set even when it is `gitlab.com` (matching `glab`'s own
 default). It is a plain non-secret env value; a `GITLAB_HOST` you set explicitly in
 the kit's own session env always wins and is never overwritten. This defaults the
 env only — `glab` itself is not installed by at-cove. A GitHub kit sets nothing.
+Interactive `git` over HTTPS to that host authenticates through the same credential
+helper GitHub uses, reading a `GITLAB_TOKEN`
+[collaborator secret](#collaboratorsclasssecrets); at-cove bakes the host's
+`insteadOf` rewrites and helper scoping per kit (see
+[Authentication](../OVERVIEW.md#authentication)).
 
 #### source-control.gitlab.project*
 *string — `group/.../name`, at least 2 `/`-separated segments*
@@ -483,11 +488,11 @@ during an interactive session, not a minted token, so collaborators declare few
 secrets. The exception is the **`gh` and `git` CLIs**: they are separate
 processes that read a token from the session env, not connector tools, so no
 connector can serve them — the hardening layer's credential helper feeds
-`github.com` from `GITHUB_TOKEN` (see
+`github.com` from `GITHUB_TOKEN`, and a GitLab kit's host from `GITLAB_TOKEN` (see
 [Authentication](../OVERVIEW.md#authentication)). A kit whose collaborators run
-`gh` or push over HTTPS declares `GITHUB_TOKEN` under `<common>`, merging it
-into every class; `secrets` (below) also covers the occasional extra scoped
-token.
+`gh`/`glab` or push over HTTPS declares the matching token (`GITHUB_TOKEN` or
+`GITLAB_TOKEN`) under `<common>`, merging it into every class; `secrets` (below)
+also covers the occasional extra scoped token.
 
 #### collaborators.*class*.prompt
 *string, optional, own-only (not inherited); `<common>` must not set it*
@@ -549,7 +554,8 @@ collaborators:
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
-[Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` — see above.
+[Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` (or `GITLAB_TOKEN`
+for a GitLab kit) — see above.
 This is a **chat-only** bucket, so an Anthropic agent bearer
 (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) is rejected here for the same reason it
 is at the root — a bearer in a `chat` session outranks the subscription login and
@@ -639,7 +645,11 @@ lives in the kit's **`image/Dockerfile`** (COV-34); `config.yml` carries `base`,
 A kit's build-time files live in a sibling **`image/`** directory (`.at-cove/image/`),
 which is the Docker **build context** for an `image/Dockerfile` — it is **not** overlaid
 onto the sandbox. To customize the build (install a toolchain, seed files), write an
-`image/Dockerfile`. To add session env for every SSH session, just set it with **`ENV`**
+`image/Dockerfile`. Start it with `ARG COVE_BASE_IMAGE=…` + `FROM ${COVE_BASE_IMAGE}`:
+at-cove injects the blessed base via `--build-arg COVE_BASE_IMAGE=<blessed
+cove-base-image>` when it builds the Dockerfile, so a kit's own base always descends
+from the blessed base rather than a floating tag (the `ARG` default is used only for a
+bare manual `docker build` of the kit outside at-cove). To add session env for every SSH session, just set it with **`ENV`**
 and name it in **`COVE_SSHENV`** (colon-separated): the sealed hardening layer copies
 `PATH` (intrinsic) plus every `COVE_SSHENV`-named variable's live value into
 `/etc/environment`. So one `ENV` satisfies both `docker run`/CI and SSH sessions — e.g.
@@ -802,8 +812,8 @@ collaborators:
       exception: during review or troubleshooting you MAY make direct fixes.
 
 image:
-  setup-scripts:
-    - .install-files/install.sh
+  # build-time customization (toolchain, seeded files, session ENV) lives in the
+  # kit's image/Dockerfile — config.yml carries only base/allowed-domains/dns.
   allowed-domains:
     - api.anthropic.com   # the agent (claude)
     - api.github.com      # at-task PR API
@@ -823,13 +833,10 @@ the template kit for `at-cove dispatch`.
 - `source-control.{github,gitlab}.secrets` is non-empty but doesn't declare exactly
   `AT_TASK_GIT_TOKEN` (demand-only — a `command` field is a parse error; the value is
   always supplied from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`);
-- an `image.setup-scripts[i]` / `image.paths[i]` / `image.allowed-domains[i]` is empty (or a
-  path contains a newline);
+- an `image.allowed-domains[i]` is empty;
 - an `image.dns[i]` is empty or is not a valid IP address (`docker --dns` requires an IP,
   not a hostname);
 - `docker` is set to a non-bool value (it is a plain boolean, default `false`);
-- an `image.env` key is empty, contains `=`/newline, or is a **base-owned** key; or a value
-  contains a newline;
 - a `workers` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`; a real
   class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative
   or an explicit `0` (omit it to inherit `<common>`; pause a class via tracker state);

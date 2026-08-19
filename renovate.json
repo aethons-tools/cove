@@ -17,21 +17,29 @@
       "allowedVersions": "<23"
     },
     {
-      "description": "Stay on Ubuntu 24.04 LTS: refresh the pinned base digest, but don't jump the distro version (Renovate offered 26.04). Digest updates keep the 24.04 tag and stay enabled; a version bump is deliberate.",
+      "description": "Stay on Ubuntu 24.04 LTS: never jump the distro version (Renovate offered 26.04) — a major/minor bump is a deliberate manual change.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ubuntu"],
       "matchUpdateTypes": ["major", "minor"],
       "enabled": false
     },
     {
-      "description": "Ubuntu 24.04 (noble) archive suites for the apt `deb` datasource — base + updates + security, main and universe. Requires Dependency-Dashboard approval for now: a first check that the datasource resolves the pins before it may open PRs. Drop dependencyDashboardApproval once confirmed working.",
+      "description": "Couple the ubuntu:24.04 base *digest* with the pinned apt package versions it must build against — the `deb` rule below shares this groupName. A digest-only bump fails the base rebuild the moment a pinned apt version has aged out of the archive (see images/cove-base-image/Dockerfile: 'a pin that ages out ... fails the build loudly'), so the digest and the noble pins land together in one grouped PR instead of a digest-only PR that is doomed to fail.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ubuntu"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "ubuntu noble base"
+    },
+    {
+      "description": "Ubuntu 24.04 (noble) archive pins for the apt `deb` datasource — base + updates + security, main and universe — EXCEPT the Docker-engine packages, which the rule below resolves against Docker's own repo. The exclusion is load-bearing: this rule has no package filter, so without it the groupName + unattended enablement below would also apply to the docker packages, pulling them into this group and dragging the whole group behind that rule's approval gate. Grouped with the ubuntu base digest (groupName `ubuntu noble base`) so the digest and its coupled archive pins move together in one PR. Enabled unattended: the datasource is confirmed resolving the pins (the Dependency Dashboard surfaced concrete noble updates, e.g. systemd 255.4-1ubuntu8.16 -> 8.17), so the earlier dependencyDashboardApproval first-check is no longer needed.",
       "matchDatasources": ["deb"],
+      "matchPackageNames": ["!docker-ce", "!docker-ce-cli", "!containerd.io", "!docker-buildx-plugin", "!docker-compose-plugin"],
       "registryUrls": [
         "https://archive.ubuntu.com/ubuntu?suite=noble&components=main,universe&binaryArch=amd64",
         "https://archive.ubuntu.com/ubuntu?suite=noble-updates&components=main,universe&binaryArch=amd64",
         "https://security.ubuntu.com/ubuntu?suite=noble-security&components=main,universe&binaryArch=amd64"
       ],
-      "dependencyDashboardApproval": true
+      "groupName": "ubuntu noble base"
     },
     {
       "description": "Docker engine apt pins (docker-ce, containerd.io, the plugins) come from Docker's own repo (download.docker.com noble/stable), not the Ubuntu archive — the generic apt customManager would otherwise resolve them against the archive and fail. This rule (later, so it wins) points the deb datasource at the docker suite for just these package names. Version strings are arch-independent (amd64 lookup suffices for the multi-arch build).",

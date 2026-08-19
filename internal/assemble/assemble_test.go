@@ -23,7 +23,7 @@ func read(t *testing.T, p string) string {
 // (build/create/work) never leaks its .build/.state artifacts into git.
 func TestAssembleEnsuresGitignore(t *testing.T) {
 	kitDir := t.TempDir()
-	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), nil); err != nil {
+	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), nil, ""); err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	gi := read(t, filepath.Join(kitDir, ".gitignore"))
@@ -35,7 +35,7 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 func TestAssembleLayersAndKey(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 
-	if err := Assemble(t.TempDir(), buildDir, []byte("ssh-ed25519 AAAA k\n"), nil); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("ssh-ed25519 AAAA k\n"), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,7 +54,7 @@ func TestAssembleLayersAndKey(t *testing.T) {
 // the placeholders are 0-byte — hardening then keeps the base image's at-task.
 func TestAssembleStagesAtTask(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
@@ -78,7 +78,7 @@ func TestAssembleAllowedDomains(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	img := kit.ImageConfig{AllowedDomains: []string{".example.com", "pkg.go.dev"}}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), img.AllowedDomains); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), img.AllowedDomains, ""); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
@@ -90,7 +90,7 @@ func TestAssembleAllowedDomains(t *testing.T) {
 func TestAssembleAllowedDomainsAlwaysWritten(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), nil); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	// File must exist even with no domains, so squid.conf never references a missing file.
@@ -162,7 +162,7 @@ model-provider:
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), kit.RootDomains(cfg)); err != nil {
+	if err := Assemble(kitDir, buildDir, []byte("k\n"), kit.RootDomains(cfg), ""); err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
@@ -172,6 +172,52 @@ model-provider:
 	if !strings.Contains(string(b), "us-east5-aiplatform.googleapis.com") ||
 		!strings.Contains(string(b), "oauth2.googleapis.com") {
 		t.Fatalf("baked kit domains missing vertex hosts:\n%s", b)
+	}
+}
+
+// A GitLab kit must get a generated gitconfig include baking the host's ssh/git→
+// https insteadOf rewrites and scoping the credential helper to that host, so an
+// interactive collaborator git over HTTPS authenticates with GITLAB_TOKEN — the
+// GitHub-only static gitconfig cannot do this for a (possibly self-hosted) host.
+func TestAssembleGeneratesGitLabGitConfig(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil, "gitlab.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc"))
+	for _, want := range []string{
+		`[url "https://gitlab.example.com/"]`,
+		"insteadOf = git@gitlab.example.com:",
+		"insteadOf = ssh://git@gitlab.example.com/",
+		`[credential "https://gitlab.example.com"]`,
+		"helper = /usr/local/bin/cove-git-credential.sh",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated GitLab gitconfig missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+// For a non-GitLab kit the include must still exist (the sealed /etc/gitconfig
+// includes it unconditionally) but carry no host config — only the header — so it
+// is a well-formed no-op rather than a dangling include.
+func TestAssembleGitLabGitConfigHeaderOnlyForGitHub(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc"))
+	if strings.Contains(got, "[url ") || strings.Contains(got, "[credential ") {
+		t.Fatalf("non-GitLab include must be header-only; got:\n%s", got)
+	}
+}
+
+// The sealed /etc/gitconfig must include the per-kit GitLab drop-in that assemble
+// generates, or the baked host config would never load.
+func TestGitConfigIncludesGitLabDropin(t *testing.T) {
+	got := read(t, "hardening/image-files/etc/gitconfig")
+	if !strings.Contains(got, "path = /etc/gitconfig-gitlab.inc") {
+		t.Fatalf("gitconfig must include the generated GitLab drop-in; got:\n%s", got)
 	}
 }
 
