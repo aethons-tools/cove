@@ -810,6 +810,26 @@ func (c Config) VertexEnv() map[string]string {
 	return env
 }
 
+// GitLabHost reports the kit's active GitLab source-control host and whether GitLab
+// is the source-control backend at all. The host is defaulted to gitlab.com when
+// unset — matching the parse-time default and glab's own default — so callers that
+// bake or inject the host (assemble's gitconfig include, SessionEnv's GITLAB_HOST)
+// share one resolution. Returns ("", false) for a GitHub kit or no source-control.
+func (c Config) GitLabHost() (string, bool) {
+	if c.SourceControl == nil {
+		return "", false
+	}
+	repo, ok := c.SourceControl.Repo()
+	if !ok || repo.Provider != "gitlab" {
+		return "", false
+	}
+	host := strings.TrimSpace(repo.Host)
+	if host == "" {
+		host = "gitlab.com"
+	}
+	return host, true
+}
+
 // SessionEnv returns the effective non-secret env staged into the interactive
 // in-VM agent session (connect's ExtraEnv). It layers at-cove-derived defaults
 // first, then the kit's own authored env on top, so an explicit kit-authored
@@ -827,14 +847,8 @@ func (c Config) VertexEnv() map[string]string {
 // never touches the secret/log paths.
 func (c Config) SessionEnv() map[string]string {
 	env := map[string]string{}
-	if c.SourceControl != nil {
-		if repo, ok := c.SourceControl.Repo(); ok && repo.Provider == "gitlab" {
-			host := strings.TrimSpace(repo.Host)
-			if host == "" {
-				host = "gitlab.com" // matches glab's own default (and the parse-time default)
-			}
-			env["GITLAB_HOST"] = host
-		}
+	if host, ok := c.GitLabHost(); ok {
+		env["GITLAB_HOST"] = host
 	}
 	// Kit-authored env wins on a key collision — never overwrite an explicit value.
 	for k, v := range c.VertexEnv() {
