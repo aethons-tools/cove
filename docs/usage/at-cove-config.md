@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # at-cove `config.yml`
@@ -525,6 +525,35 @@ former `--workspace`/`--ws` flag is gone). `recreate` recovers the recorded moun
 from the instance's state, never re-reading this field. See
 [Workspace and state volumes](../OVERVIEW.md#workspace-and-state-volumes).
 
+#### collaborators.*class*.shadow-dirs
+*list of strings, optional, own-only (not inherited); `<common>` must not set it;
+requires `share-repo-dir: true`*
+
+Workspace-relative directories to overmount with a persistent **per-sandbox**
+volume, so transient or platform-specific content (`.venv`, `node_modules`,
+`target`) doesn't collide across the [shared](#collaboratorsclassshare-repo-dir)
+host↔VM bind. **Per-class only** — rejected on `<common>` — and meaningful only
+when `share-repo-dir: true`; declaring it without a Shared workspace is a hard
+config error. Each entry must be a clean relative path inside the workspace, built
+from portable path characters only — ASCII letters, digits, `.`, `_`, `-`.
+Rejected: an absolute or `..`-escaping path; a `:`, glob metacharacter, whitespace,
+or non-ASCII character (they would corrupt the docker mount spec or the boot-time
+chown); a path that shadows a `.git` directory (it would hide the shared repo's
+live `.git`); a duplicate; or two entries that collide once sanitized to the same
+volume name. The overmount
+volumes are **per-sandbox and persistent** — they survive `recreate` and are
+removed only by `destroy`, same lifecycle as the other instance volumes. A
+forthcoming `at-cove doctor` (COV-131) will recommend a kit's `shadow-dirs` list
+from the repo's `.gitignore` and build manifests (e.g. `pyproject.toml`,
+`package.json`, `Cargo.toml`).
+
+```yaml
+collaborators:
+  human:
+    share-repo-dir: true
+    shadow-dirs: [.venv, node_modules]
+```
+
 #### collaborators.*class*.secrets
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
 
@@ -840,8 +869,13 @@ the template kit for `at-cove dispatch`.
   `ANTHROPIC_VERTEX_PROJECT_ID` or `CLOUD_ML_REGION`; or it sets a protected key
   (an egress proxy var, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`, or
   `PATH`) — see [model-provider](#model-provider);
-- a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`
-  or `default`; or more than one class sets `default: true`;
+- a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`,
+  `default`, `share-repo-dir`, or `shadow-dirs`; or more than one class sets `default: true`;
+- a `collaborators.*.shadow-dirs` entry is set without that class's `share-repo-dir: true`, is
+  empty, absolute, escapes the workspace via `..`, contains a `:`/glob/whitespace/non-ASCII
+  character, or shadows a `.git` directory; or two entries duplicate or collide once sanitized
+  to the same volume name (see
+  [collaborators.*class*.shadow-dirs](#collaboratorsclassshadow-dirs));
 - any `secrets` entry (at any of the five bucket locations) sets a field other than
   `description` — most notably, a `command` under a kit secret is a hard parse error (see
   [at-cove-secrets.md](at-cove-secrets.md)).

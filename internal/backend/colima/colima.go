@@ -62,6 +62,24 @@ func dockerArgs(docker bool, volume string) []string {
 	}
 }
 
+// shadowArgs emits, for a shared workspace's declared shadow-dirs, one -v
+// overmount per dir (a per-sandbox volume named via naming.ShadowVolume) plus a
+// single -e COVE_SHADOW_DIRS the entrypoint reads to chown the fresh mountpoints.
+// It returns the volume names used so Create can record them for teardown. Empty
+// for a non-shared mount or when no shadow-dirs are declared (COV-132).
+func shadowArgs(container string, ws backend.WorkspaceMount) (args, names []string) {
+	if ws.Mode != backend.Shared || len(ws.ShadowDirs) == 0 {
+		return nil, nil
+	}
+	for _, d := range ws.ShadowDirs {
+		name := naming.ShadowVolume(container, d)
+		args = append(args, "-v", name+":/home/agent/workspace/"+d)
+		names = append(names, name)
+	}
+	args = append(args, "-e", "COVE_SHADOW_DIRS="+strings.Join(ws.ShadowDirs, " "))
+	return args, names
+}
+
 // initArgs renders the tini flag (--init). A non-docker sandbox uses tini as PID 1
 // (reaps zombies for the sshd process tree). A docker:true sandbox instead boots
 // systemd as PID 1 — the entrypoint execs /sbin/init under Sysbox (COV-118), and
@@ -200,6 +218,8 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	if ctx.Docker {
 		vols.Docker = naming.DockerVolume(ctx.Name)
 	}
+	shadowRun, shadowVols := shadowArgs(ctx.Name, ctx.Workspace)
+	vols.Shadow = shadowVols
 	runArgs := []string{"run", "-d",
 		"--name", ctx.Name,
 	}
@@ -211,8 +231,9 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 		"-p", "127.0.0.1::2222",
 		"-v", vols.State+":/agent-data",
 		"-v", ws,
-		img,
 	)
+	runArgs = append(runArgs, shadowRun...)
+	runArgs = append(runArgs, img)
 	if err := c.r.Run("docker", dargs(runArgs...)...); err != nil {
 		return backend.Instance{}, err
 	}
@@ -278,7 +299,7 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	// old -state volume. Best-effort: a missing volume (e.g. a shared workspace
 	// records no workspace volume) must not fail the teardown.
 	if !keepVolumes {
-		vols := []string{inst.Volumes.State, inst.Volumes.Workspace, inst.Volumes.Docker}
+		vols := append([]string{inst.Volumes.State, inst.Volumes.Workspace, inst.Volumes.Docker}, inst.Volumes.Shadow...)
 		if inst.Volumes.State == "" {
 			vols = []string{inst.Container + "-state", inst.Container + "-workspace"}
 		}

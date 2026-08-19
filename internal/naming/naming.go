@@ -10,7 +10,10 @@
 // name) or the interactive session label — those are not docker resources.
 package naming
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // prefix is the product marker on every runtime resource name, so an at-cove
 // object is never confused with (or colliding with) an unrelated docker object.
@@ -48,6 +51,24 @@ func AgentDataVolume(container string) string { return container + "-agent-data"
 // The suffix is -docker, so it sorts with the instance's other volumes and is
 // removed on destroy alongside them.
 func DockerVolume(container string) string { return container + "-docker" }
+
+// SanitizeShadowDir turns a validated relative shadow-dir path into the suffix
+// token used in its volume name: path separators become '-' and a single leading
+// '.' is dropped (so ".venv" and "node_modules" yield clean, sortable tokens). It
+// is the single source of the sanitize rule, shared with config validation's
+// collision check (COV-132).
+func SanitizeShadowDir(dir string) string {
+	return strings.TrimPrefix(strings.ReplaceAll(dir, "/", "-"), ".")
+}
+
+// ShadowVolume names the per-sandbox volume that overmounts a shared workspace's
+// transient dir (e.g. .venv) so it stays VM-local instead of colliding with the
+// host's copy (COV-132). It hangs off the instance's container (base) name with a
+// -shadow-<dir> suffix, so it sorts with the instance's other volumes and is
+// removed on destroy alongside them.
+func ShadowVolume(container, dir string) string {
+	return container + "-shadow-" + SanitizeShadowDir(dir)
+}
 
 // WorkerContainer names an ephemeral `at-cove work` container. It carries the
 // atcove- prefix like every other resource, plus a pid+nanotime suffix so

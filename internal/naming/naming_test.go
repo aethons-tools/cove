@@ -60,3 +60,32 @@ func TestWorkerContainer(t *testing.T) {
 		t.Fatalf("WorkerContainer(box, 42, 1234567890) = %q, want atcove-work-box-42-1234567890", got)
 	}
 }
+
+// ShadowVolume hangs a per-dir volume off the instance's container base, with a
+// -shadow- token whose sanitized suffix drops path separators and a leading dot,
+// so it sorts with the instance's other volumes and never collides (COV-132).
+func TestShadowVolume(t *testing.T) {
+	collab := Container("box", "human") // atcove-box-human
+	cases := map[string]string{
+		".venv":         "atcove-box-human-shadow-venv",
+		"node_modules":  "atcove-box-human-shadow-node_modules",
+		"foo/bar":       "atcove-box-human-shadow-foo-bar",
+		".pytest_cache": "atcove-box-human-shadow-pytest_cache",
+	}
+	for dir, want := range cases {
+		if got := ShadowVolume(collab, dir); got != want {
+			t.Errorf("ShadowVolume(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
+// SanitizeShadowDir is the single source of the sanitize rule shared by
+// ShadowVolume and config validation, so a collision check matches the real name.
+func TestSanitizeShadowDir(t *testing.T) {
+	if got := SanitizeShadowDir(".venv"); got != "venv" {
+		t.Fatalf("SanitizeShadowDir(.venv) = %q, want venv", got)
+	}
+	if got := SanitizeShadowDir("a/b/c"); got != "a-b-c" {
+		t.Fatalf("SanitizeShadowDir(a/b/c) = %q, want a-b-c", got)
+	}
+}

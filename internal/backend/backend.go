@@ -31,6 +31,10 @@ const (
 type WorkspaceMount struct {
 	Mode     WorkspaceMode
 	HostPath string
+	// ShadowDirs are subpaths of a Shared workspace overmounted with a per-sandbox
+	// volume so their VM-local content never collides with the host's (COV-132).
+	// Empty unless Mode == Shared.
+	ShadowDirs []string
 }
 
 // Endpoint is a reachable sshd address.
@@ -98,9 +102,10 @@ type InstalledImage struct {
 // (COV-76). State (/agent-data) is always present; Workspace is empty for a
 // shared (bind-mount) workspace, which has no volume to remove.
 type VolumeSet struct {
-	State     string // the /agent-data volume name
-	Workspace string // the workspace volume name; empty for a shared workspace
-	Docker    string // the /var/lib/docker cache volume name; empty unless docker:true (COV-117)
+	State     string   // the /agent-data volume name
+	Workspace string   // the workspace volume name; empty for a shared workspace
+	Docker    string   // the /var/lib/docker cache volume name; empty unless docker:true (COV-117)
+	Shadow    []string // per-shadow-dir overmount volume names (COV-132); empty unless a shared workspace declared shadow-dirs
 }
 
 // Instance identifies a provisioned VM. Create returns it; the CLI records it in

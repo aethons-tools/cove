@@ -520,3 +520,31 @@ func TestConfigDirReachesEnvironment(t *testing.T) {
 		t.Errorf("Dockerfile must run apply-sshenv.sh to populate /etc/environment; got:\n%s", df)
 	}
 }
+
+// A shared workspace's shadow-dir volumes mount empty and root-owned; the
+// entrypoint chowns each declared mountpoint to agent so uv/npm can write it on
+// first boot, in the common prologue so both the systemd and sshd paths get it
+// (COV-132).
+func TestEntrypointChownsShadowDirs(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
+	if err != nil {
+		t.Fatalf("entrypoint.sh not embedded: %v", err)
+	}
+	s := string(b)
+	for _, want := range []string{
+		"${COVE_SHADOW_DIRS:-}",
+		`case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac`,
+		"set -f", // no globbing: an entry must never be pathname-expanded (COV-132 #2)
+		// chown only a real mountpoint (the fresh volume), never host content
+		// showing through the shared bind (COV-132 #3).
+		`if mountpoint -q "$p"; then chown agent:agent "$p"; fi`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("entrypoint must chown shadow-dirs; missing %q:\n%s", want, s)
+		}
+	}
+	// The chown must precede the docker/systemd handoff so both paths run it.
+	if strings.Index(s, "COVE_SHADOW_DIRS") > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
+		t.Error("shadow-dir chown must run before the COVE_DOCKER branch")
+	}
+}

@@ -1172,3 +1172,96 @@ func TestRepo_GitHubUnchanged(t *testing.T) {
 		t.Fatalf("github repo = %+v", repo)
 	}
 }
+
+func TestParseConfigRejectsShadowDirsOnCommon(t *testing.T) {
+	src := "name: k\ncollaborators:\n  <common>:\n    shadow-dirs: [.venv]\n  human:\n    share-repo-dir: true\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("shadow-dirs on <common> must be rejected")
+	}
+}
+
+func TestParseConfigRejectsShadowDirsWithoutShareRepoDir(t *testing.T) {
+	src := "name: k\ncollaborators:\n  human:\n    shadow-dirs: [.venv]\n"
+	if _, err := ParseConfig([]byte(src)); err == nil {
+		t.Fatal("shadow-dirs without share-repo-dir:true must be rejected")
+	}
+}
+
+func TestParseConfigRejectsBadShadowDirEntries(t *testing.T) {
+	for _, entry := range []string{"/abs", "..", "../escape", ".", ""} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigRejectsNonCanonicalShadowDirs(t *testing.T) {
+	for _, entry := range []string{"foo/", "foo/../bar", "./foo", ".venv ", "a b"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("non-canonical/whitespace shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigRejectsUnsafeShadowDirChars(t *testing.T) {
+	// A shadow-dir becomes a docker `-v` spec and is iterated in an unquoted shell
+	// loop in the entrypoint, so the character set is restricted to portable path
+	// chars: ':' would corrupt the mount spec and glob metachars (*?[]) would
+	// misfire the boot-time chown; non-ASCII yields docker-invalid volume names.
+	for _, entry := range []string{"a:b", "a*b", "a?b", "build[x]", "café", "a;b", "a$b"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("unsafe shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigRejectsReservedShadowDirs(t *testing.T) {
+	// Shadowing .git with a fresh empty per-sandbox volume would silently defeat
+	// share-repo-dir — the VM would lose the shared live .git — so reject any entry
+	// whose path shadows a .git directory (COV-132).
+	for _, entry := range []string{".git", ".git/objects", "sub/.git"} {
+		src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [\"" + entry + "\"]\n"
+		if _, err := ParseConfig([]byte(src)); err == nil {
+			t.Errorf("reserved shadow-dir entry %q must be rejected", entry)
+		}
+	}
+}
+
+func TestParseConfigAcceptsNestedShadowDir(t *testing.T) {
+	// The character-set check must not reject the '/' separator or normal nested
+	// build dirs.
+	src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [target/debug, .venv, node_modules]\n"
+	if _, err := ParseConfig([]byte(src)); err != nil {
+		t.Fatalf("valid nested shadow-dirs must parse: %v", err)
+	}
+}
+
+func TestParseConfigRejectsDuplicateAndCollidingShadowDirs(t *testing.T) {
+	dup := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, .venv]\n"
+	if _, err := ParseConfig([]byte(dup)); err == nil {
+		t.Error("duplicate shadow-dirs must be rejected")
+	}
+	// ".venv" and "venv" both sanitize to the same volume token.
+	collide := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, venv]\n"
+	if _, err := ParseConfig([]byte(collide)); err == nil {
+		t.Error("shadow-dirs colliding on sanitized name must be rejected")
+	}
+}
+
+func TestResolvedCollaboratorKeepsShadowDirs(t *testing.T) {
+	src := "name: k\ncollaborators:\n  human:\n    share-repo-dir: true\n    shadow-dirs: [.venv, node_modules]\n"
+	cfg, err := ParseConfig([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	col, err := cfg.ResolvedCollaborator("human")
+	if err != nil {
+		t.Fatalf("ResolvedCollaborator: %v", err)
+	}
+	if len(col.ShadowDirs) != 2 || col.ShadowDirs[0] != ".venv" || col.ShadowDirs[1] != "node_modules" {
+		t.Fatalf("shadow-dirs not preserved: %+v", col.ShadowDirs)
+	}
+}

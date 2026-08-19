@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/naming"
 	"gopkg.in/yaml.v3"
 )
 
@@ -272,6 +274,7 @@ type Collaborator struct {
 	Prompt         string                  `yaml:"prompt,omitempty"`
 	Default        bool                    `yaml:"default,omitempty"`
 	ShareRepoDir   bool                    `yaml:"share-repo-dir,omitempty"` // opt this class's VM into a Shared bind-mount of the kit's repo dir (per-class only; rejected on <common>)
+	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"`    // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-132)
 	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
@@ -626,10 +629,13 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 		}
 		if name == commonKey {
-			if col.Prompt != "" || col.Default || col.ShareRepoDir {
-				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt, default, or share-repo-dir", commonKey)
+			if col.Prompt != "" || col.Default || col.ShareRepoDir || len(col.ShadowDirs) > 0 {
+				return Config{}, fmt.Errorf("config.yml: collaborators[%q]: the base must not set a prompt, default, share-repo-dir, or shadow-dirs", commonKey)
 			}
 			continue
+		}
+		if err := validateShadowDirs(name, col.ShareRepoDir, col.ShadowDirs); err != nil {
+			return Config{}, err
 		}
 		if col.Default {
 			defaults++
@@ -688,6 +694,82 @@ func validateSecretNames(field string, got map[string]SecretConfig, allowBearers
 		}
 	}
 	return nil
+}
+
+// validateShadowDirs enforces the shadow-dirs contract (COV-132): the list is
+// meaningful only with a shared bind-mount, and each entry must be a clean
+// relative path inside the workspace that maps to a unique volume name.
+func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
+	if len(dirs) == 0 {
+		return nil
+	}
+	if !shareRepoDir {
+		return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: only valid when share-repo-dir: true", class)
+	}
+	seenPath := map[string]bool{}
+	seenVol := map[string]bool{}
+	for i, d := range dirs {
+		if strings.TrimSpace(d) == "" {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not be empty", class, i)
+		}
+		if strings.ContainsAny(d, " \t\n\r") {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not contain whitespace, got %q", class, i, d)
+		}
+		if path.IsAbs(d) {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a relative path, got %q", class, i, d)
+		}
+		clean := path.Clean(d)
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must stay within the workspace, got %q", class, i, d)
+		}
+		if d != clean {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must be a clean relative path (no trailing slash, '.' or '..' segments), got %q", class, i, d)
+		}
+		// A shadow-dir becomes a docker `-v <vol>:/home/agent/workspace/<d>` spec and
+		// is iterated in an unquoted shell loop in the sealed entrypoint, so restrict
+		// each segment to portable path chars: a ':' would split the mount spec (COV-132
+		// #1), a glob metachar would misfire the boot-time chown (#2), and non-ASCII
+		// yields docker-invalid volume names. Reject shadowing a .git directory, which
+		// would replace the shared repo's live .git with an empty per-sandbox volume and
+		// silently defeat share-repo-dir (#5).
+		for _, seg := range strings.Split(clean, "/") {
+			if seg == ".git" {
+				return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: must not shadow a .git directory (it would hide the shared repo's live .git), got %q", class, i, d)
+			}
+			if !shadowDirSegmentOK(seg) {
+				return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs[%d]: may only contain ASCII letters, digits, '.', '_', '-' (no ':', glob or whitespace characters), got %q", class, i, d)
+			}
+		}
+		if seenPath[clean] {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: duplicate entry %q", class, clean)
+		}
+		seenPath[clean] = true
+		vol := naming.SanitizeShadowDir(clean)
+		if seenVol[vol] {
+			return fmt.Errorf("config.yml: collaborators[%q].shadow-dirs: %q collides with another entry after sanitizing to a volume name", class, clean)
+		}
+		seenVol[vol] = true
+	}
+	return nil
+}
+
+// shadowDirSegmentOK reports whether s is a safe single path segment for a
+// shadow-dir: a non-empty run of ASCII letters, digits, and the punctuation
+// '.', '_', '-'. Everything else — ':' (splits the docker -v spec), glob
+// metachars, whitespace, and any non-ASCII rune — is rejected (COV-132).
+func shadowDirSegmentOK(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // rejectReservedSecretNames forbids the subsystem well-known secret names in a

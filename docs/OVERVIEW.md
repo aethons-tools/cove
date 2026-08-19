@@ -484,7 +484,10 @@ The working directory is realized one of two ways, chosen per collaborator at
 - **Shared (`share-repo-dir: true`)** —
   a bind-mount of the **kit's repo dir** (the directory that contains `.at-cove/`),
   so host and VM share the live `.git`. Only that dir is shareable — arbitrary host
-  paths are not mountable (the old `--workspace`/`--ws` flag is gone).
+  paths are not mountable (the old `--workspace`/`--ws` flag is gone). Transient or
+  platform-specific subdirs that would otherwise collide across that shared bind
+  (`.venv`, `node_modules`) can be made VM-local with
+  [`shadow-dirs`](usage/at-cove-config.md#collaboratorsclassshadow-dirs).
 
 **Clone-on-first-session (isolated only).** An isolated `create` leaves the
 workspace volume empty, so the first `chat` populates it: it clones the target
