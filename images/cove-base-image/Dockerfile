@@ -57,7 +57,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
       docker-ce-cli=5:29.7.2-1~ubuntu.24.04~noble \
       containerd.io=2.3.3-1~ubuntu.24.04~noble \
       docker-buildx-plugin=0.36.1-1~ubuntu.24.04~noble \
-      docker-compose-plugin=5.4.0-1~ubuntu.24.04~noble \
+      docker-compose-plugin=5.5.0-1~ubuntu.24.04~noble \
  && rm -rf /var/lib/apt/lists/*
 
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
