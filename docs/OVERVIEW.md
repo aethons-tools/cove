@@ -709,10 +709,15 @@ entry is not an error under `--no-auth`. The non-secret provider env
 path would be worse than an unset one.
 
 Private-repo git uses the code-host token, not SSH:
-the egress lock blocks port 22, `/etc/gitconfig` rewrites GitHub remotes to HTTPS,
-and a credential helper feeds the token from the session env (memory-only).
-For dispatched work that token is `source-control.github.secrets.AT_TASK_GIT_TOKEN`,
-minted per git step and withheld from the agent.
+the egress lock blocks port 22, `/etc/gitconfig` rewrites the source-control host's
+remotes to HTTPS, and a credential helper feeds the token from the session env
+(memory-only). The helper is provider-aware — `github.com` reads `GITHUB_TOKEN`; the
+kit's GitLab host (baked per kit at assemble time, since a self-hosted host is not
+fixed like `github.com`) reads `GITLAB_TOKEN` — so an **interactive collaborator**
+authenticates git to whichever host the kit targets. For **dispatched work** the
+token is instead `source-control.<provider>.secrets.AT_TASK_GIT_TOKEN`, minted per
+git step, supplied via `GIT_ASKPASS`, and withheld from the agent — it never enters
+the session env, so the credential helper is not the path there.
 
 ## Backends
 

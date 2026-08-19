@@ -97,6 +97,11 @@ setup — the value is set even when it is `gitlab.com` (matching `glab`'s own
 default). It is a plain non-secret env value; a `GITLAB_HOST` you set explicitly in
 the kit's own session env always wins and is never overwritten. This defaults the
 env only — `glab` itself is not installed by at-cove. A GitHub kit sets nothing.
+Interactive `git` over HTTPS to that host authenticates through the same credential
+helper GitHub uses, reading a `GITLAB_TOKEN`
+[collaborator secret](#collaboratorsclasssecrets); at-cove bakes the host's
+`insteadOf` rewrites and helper scoping per kit (see
+[Authentication](../OVERVIEW.md#authentication)).
 
 #### source-control.gitlab.project*
 *string — `group/.../name`, at least 2 `/`-separated segments*
@@ -483,11 +488,11 @@ during an interactive session, not a minted token, so collaborators declare few
 secrets. The exception is the **`gh` and `git` CLIs**: they are separate
 processes that read a token from the session env, not connector tools, so no
 connector can serve them — the hardening layer's credential helper feeds
-`github.com` from `GITHUB_TOKEN` (see
+`github.com` from `GITHUB_TOKEN`, and a GitLab kit's host from `GITLAB_TOKEN` (see
 [Authentication](../OVERVIEW.md#authentication)). A kit whose collaborators run
-`gh` or push over HTTPS declares `GITHUB_TOKEN` under `<common>`, merging it
-into every class; `secrets` (below) also covers the occasional extra scoped
-token.
+`gh`/`glab` or push over HTTPS declares the matching token (`GITHUB_TOKEN` or
+`GITLAB_TOKEN`) under `<common>`, merging it into every class; `secrets` (below)
+also covers the occasional extra scoped token.
 
 #### collaborators.*class*.prompt
 *string, optional, own-only (not inherited); `<common>` must not set it*
@@ -524,7 +529,8 @@ from the instance's state, never re-reading this field. See
 *map of secret env name → config, optional, inherited from `<common>` (own key wins)*
 
 Same declaration shape as the root `secrets`, but a distinct bucket (see
-[Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` — see above.
+[Secret buckets](#secret-buckets)). Typically just `GITHUB_TOKEN` (or `GITLAB_TOKEN`
+for a GitLab kit) — see above.
 This is a **chat-only** bucket, so an Anthropic agent bearer
 (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) is rejected here for the same reason it
 is at the root — a bearer in a `chat` session outranks the subscription login and

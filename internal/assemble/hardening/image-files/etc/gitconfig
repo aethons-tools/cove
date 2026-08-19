@@ -18,3 +18,10 @@
 [credential "https://github.com"]
 	helper = ""
 	helper = /usr/local/bin/cove-git-credential.sh
+
+# GitLab source-control kits need the same insteadOf rewrites and credential-helper
+# scoping for their host (gitlab.com or a self-hosted host), which is not fixed like
+# github.com. at-cove assemble generates that per-kit config into the include below —
+# comment-only for a GitHub kit, so this include is always a well-formed no-op there.
+[include]
+	path = /etc/gitconfig-gitlab.inc
