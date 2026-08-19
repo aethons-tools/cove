@@ -22,6 +22,17 @@ for f in CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md; do
 done
 chown -R agent:agent /agent-data
 
+# A share-repo-dir class may overmount transient dirs (.venv, node_modules) with
+# fresh per-sandbox volumes (COV-130). Each mounts empty and root:root, so chown
+# the mountpoint to agent (non-recursive: first boot is empty; later boots' content
+# is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
+# Defense-in-depth for this sealed file: skip anything that escapes the workspace
+# (config already rejects '..'/absolute at parse time).
+for d in ${COVE_SHADOW_DIRS:-}; do
+  case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac
+  chown agent:agent "/home/agent/workspace/$d"
+done
+
 # docker:true sandboxes boot systemd as PID 1 (Sysbox gives the unprivileged
 # container a real init environment), and systemd raises the egress lock via
 # cove-egress.service (nftables drop) + the distro squid.service BEFORE it starts
