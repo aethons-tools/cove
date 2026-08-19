@@ -480,7 +480,7 @@ func TestConfigDirReachesEnvironment(t *testing.T) {
 // A shared workspace's shadow-dir volumes mount empty and root-owned; the
 // entrypoint chowns each declared mountpoint to agent so uv/npm can write it on
 // first boot, in the common prologue so both the systemd and sshd paths get it
-// (COV-130).
+// (COV-132).
 func TestEntrypointChownsShadowDirs(t *testing.T) {
 	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
 	if err != nil {

@@ -66,7 +66,7 @@ func dockerArgs(docker bool, volume string) []string {
 // overmount per dir (a per-sandbox volume named via naming.ShadowVolume) plus a
 // single -e COVE_SHADOW_DIRS the entrypoint reads to chown the fresh mountpoints.
 // It returns the volume names used so Create can record them for teardown. Empty
-// for a non-shared mount or when no shadow-dirs are declared (COV-130).
+// for a non-shared mount or when no shadow-dirs are declared (COV-132).
 func shadowArgs(container string, ws backend.WorkspaceMount) (args, names []string) {
 	if ws.Mode != backend.Shared || len(ws.ShadowDirs) == 0 {
 		return nil, nil

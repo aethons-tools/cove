@@ -330,7 +330,7 @@ func TestCreateRecordsVolumeNames(t *testing.T) {
 }
 
 // A shared workspace with shadow-dirs overmounts each dir with its own volume and
-// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-130).
+// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-132).
 func TestCreateSharedShadowDirs(t *testing.T) {
 	f := &runner.Fake{}
 	inst, err := New(f).Create(backend.CreateContext{
@@ -372,7 +372,7 @@ func TestCreateSharedNoShadowDirs(t *testing.T) {
 	}
 }
 
-// Destroy removes the recorded shadow volumes alongside the others (COV-130).
+// Destroy removes the recorded shadow volumes alongside the others (COV-132).
 func TestDestroyRemovesShadowVolumes(t *testing.T) {
 	f := &runner.Fake{}
 	err := New(f).Destroy(backend.Instance{

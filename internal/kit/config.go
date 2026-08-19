@@ -274,7 +274,7 @@ type Collaborator struct {
 	Prompt         string                  `yaml:"prompt,omitempty"`
 	Default        bool                    `yaml:"default,omitempty"`
 	ShareRepoDir   bool                    `yaml:"share-repo-dir,omitempty"` // opt this class's VM into a Shared bind-mount of the kit's repo dir (per-class only; rejected on <common>)
-	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"`    // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-130)
+	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"`    // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-132)
 	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
@@ -696,7 +696,7 @@ func validateSecretNames(field string, got map[string]SecretConfig, allowBearers
 	return nil
 }
 
-// validateShadowDirs enforces the shadow-dirs contract (COV-130): the list is
+// validateShadowDirs enforces the shadow-dirs contract (COV-132): the list is
 // meaningful only with a shared bind-mount, and each entry must be a clean
 // relative path inside the workspace that maps to a unique volume name.
 func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {

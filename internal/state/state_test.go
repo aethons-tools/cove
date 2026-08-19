@@ -26,7 +26,7 @@ func TestSaveEnsuresGitignore(t *testing.T) {
 }
 
 // The shared-workspace shadow-dirs and their volume names round-trip through the
-// state file, so recreate re-emits the mounts and destroy removes them (COV-130).
+// state file, so recreate re-emits the mounts and destroy removes them (COV-132).
 func TestStateRoundTripsShadowDirs(t *testing.T) {
 	in := State{
 		SchemaVersion: 2, Name: "k", Container: "atcove-k-human",

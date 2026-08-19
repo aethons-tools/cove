@@ -23,7 +23,7 @@ done
 chown -R agent:agent /agent-data
 
 # A share-repo-dir class may overmount transient dirs (.venv, node_modules) with
-# fresh per-sandbox volumes (COV-130). Each mounts empty and root:root, so chown
+# fresh per-sandbox volumes (COV-132). Each mounts empty and root:root, so chown
 # the mountpoint to agent (non-recursive: first boot is empty; later boots' content
 # is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
 # Defense-in-depth for this sealed file: skip anything that escapes the workspace

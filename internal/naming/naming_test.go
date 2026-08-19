@@ -63,7 +63,7 @@ func TestWorkerContainer(t *testing.T) {
 
 // ShadowVolume hangs a per-dir volume off the instance's container base, with a
 // -shadow- token whose sanitized suffix drops path separators and a leading dot,
-// so it sorts with the instance's other volumes and never collides (COV-130).
+// so it sorts with the instance's other volumes and never collides (COV-132).
 func TestShadowVolume(t *testing.T) {
 	collab := Container("box", "human") // atcove-box-human
 	cases := map[string]string{

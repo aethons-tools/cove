@@ -18,7 +18,7 @@
 - **Persistence:** shadow volumes are named, survive `recreate` (which keeps volumes), and are purged only by a real `destroy`.
 - **The hardening entrypoint is a security boundary** (`internal/assemble/hardening/`): the change adds no capability, touches no nftables/squid/sshd, and only chowns validated workspace subpaths.
 - **Docs in the same change** — route to the doc that owns the subject; keep `docs/INDEX` in sync (per AGENTS.md).
-- **Commit after each task.** Conventional-commit style; reference COV-130.
+- **Commit after each task.** Conventional-commit style; reference COV-132.
 
 ---
 
@@ -38,7 +38,7 @@ Add to `internal/naming/naming_test.go`:
 ```go
 // ShadowVolume hangs a per-dir volume off the instance's container base, with a
 // -shadow- token whose sanitized suffix drops path separators and a leading dot,
-// so it sorts with the instance's other volumes and never collides (COV-130).
+// so it sorts with the instance's other volumes and never collides (COV-132).
 func TestShadowVolume(t *testing.T) {
 	collab := Container("box", "human") // atcove-box-human
 	cases := map[string]string{
@@ -89,14 +89,14 @@ Add after `DockerVolume`:
 // token used in its volume name: path separators become '-' and a single leading
 // '.' is dropped (so ".venv" and "node_modules" yield clean, sortable tokens). It
 // is the single source of the sanitize rule, shared with config validation's
-// collision check (COV-130).
+// collision check (COV-132).
 func SanitizeShadowDir(dir string) string {
 	return strings.TrimPrefix(strings.ReplaceAll(dir, "/", "-"), ".")
 }
 
 // ShadowVolume names the per-sandbox volume that overmounts a shared workspace's
 // transient dir (e.g. .venv) so it stays VM-local instead of colliding with the
-// host's copy (COV-130). It hangs off the instance's container (base) name with a
+// host's copy (COV-132). It hangs off the instance's container (base) name with a
 // -shadow-<dir> suffix, so it sorts with the instance's other volumes and is
 // removed on destroy alongside them.
 func ShadowVolume(container, dir string) string {
@@ -113,7 +113,7 @@ Expected: PASS.
 
 ```bash
 git add internal/naming/naming.go internal/naming/naming_test.go
-git commit -m "feat(naming): ShadowVolume + SanitizeShadowDir for shadow-dirs (COV-130)"
+git commit -m "feat(naming): ShadowVolume + SanitizeShadowDir for shadow-dirs (COV-132)"
 ```
 
 ---
@@ -194,7 +194,7 @@ Expected: FAIL — the `shadow-dirs` YAML key is unknown (strict decoding), so p
 In `internal/kit/config.go`, in the `Collaborator` struct, add below `ShareRepoDir` (line 274):
 
 ```go
-	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"` // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-130)
+	ShadowDirs     []string                `yaml:"shadow-dirs,omitempty"` // subpaths of the shared workspace to overmount with a VM-local volume (.venv, node_modules, …); requires share-repo-dir: true; per-class only (COV-132)
 ```
 
 - [ ] **Step 4: Add the `path` import**
@@ -239,7 +239,7 @@ to:
 Add near the other validation helpers in `internal/kit/config.go` (and add `"github.com/aethons-tools/cove/internal/naming"` to the import block — `naming` is pure, so no import cycle):
 
 ```go
-// validateShadowDirs enforces the shadow-dirs contract (COV-130): the list is
+// validateShadowDirs enforces the shadow-dirs contract (COV-132): the list is
 // meaningful only with a shared bind-mount, and each entry must be a clean
 // relative path inside the workspace that maps to a unique volume name.
 func validateShadowDirs(class string, shareRepoDir bool, dirs []string) error {
@@ -285,7 +285,7 @@ Expected: PASS.
 
 ```bash
 git add internal/kit/config.go internal/kit/config_test.go
-git commit -m "feat(kit): shadow-dirs config field + validation (COV-130)"
+git commit -m "feat(kit): shadow-dirs config field + validation (COV-132)"
 ```
 
 ---
@@ -310,7 +310,7 @@ type WorkspaceMount struct {
 	Mode     WorkspaceMode
 	HostPath string
 	// ShadowDirs are subpaths of a Shared workspace overmounted with a per-sandbox
-	// volume so their VM-local content never collides with the host's (COV-130).
+	// volume so their VM-local content never collides with the host's (COV-132).
 	// Empty unless Mode == Shared.
 	ShadowDirs []string
 }
@@ -319,7 +319,7 @@ type WorkspaceMount struct {
 In `VolumeSet` (after `Docker`):
 
 ```go
-	Shadow    []string // per-shadow-dir overmount volume names (COV-130); empty unless a shared workspace declared shadow-dirs
+	Shadow    []string // per-shadow-dir overmount volume names (COV-132); empty unless a shared workspace declared shadow-dirs
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -328,7 +328,7 @@ Add to `internal/backend/colima/colima_test.go`:
 
 ```go
 // A shared workspace with shadow-dirs overmounts each dir with its own volume and
-// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-130).
+// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-132).
 func TestCreateSharedShadowDirs(t *testing.T) {
 	f := &runner.Fake{}
 	inst, err := New(f).Create(backend.CreateContext{
@@ -370,7 +370,7 @@ func TestCreateSharedNoShadowDirs(t *testing.T) {
 	}
 }
 
-// Destroy removes the recorded shadow volumes alongside the others (COV-130).
+// Destroy removes the recorded shadow volumes alongside the others (COV-132).
 func TestDestroyRemovesShadowVolumes(t *testing.T) {
 	f := &runner.Fake{}
 	err := New(f).Destroy(backend.Instance{
@@ -401,7 +401,7 @@ In `internal/backend/colima/colima.go` (ensure `"strings"` is imported), add nea
 // overmount per dir (a per-sandbox volume named via naming.ShadowVolume) plus a
 // single -e COVE_SHADOW_DIRS the entrypoint reads to chown the fresh mountpoints.
 // It returns the volume names used so Create can record them for teardown. Empty
-// for a non-shared mount or when no shadow-dirs are declared (COV-130).
+// for a non-shared mount or when no shadow-dirs are declared (COV-132).
 func shadowArgs(container string, ws backend.WorkspaceMount) (args, names []string) {
 	if ws.Mode != backend.Shared || len(ws.ShadowDirs) == 0 {
 		return nil, nil
@@ -473,7 +473,7 @@ Expected: PASS.
 
 ```bash
 git add internal/backend/backend.go internal/backend/colima/colima.go internal/backend/colima/colima_test.go
-git commit -m "feat(backend): overmount shadow-dirs on shared workspace; remove on destroy (COV-130)"
+git commit -m "feat(backend): overmount shadow-dirs on shared workspace; remove on destroy (COV-132)"
 ```
 
 ---
@@ -495,7 +495,7 @@ Add to `internal/state/state_test.go`:
 
 ```go
 // The shared-workspace shadow-dirs and their volume names round-trip through the
-// state file, so recreate re-emits the mounts and destroy removes them (COV-130).
+// state file, so recreate re-emits the mounts and destroy removes them (COV-132).
 func TestStateRoundTripsShadowDirs(t *testing.T) {
 	in := State{
 		SchemaVersion: 2, Name: "k", Container: "atcove-k-human",
@@ -536,14 +536,14 @@ In `internal/state/state.go`, `Volumes` becomes:
 type Volumes struct {
 	State     string   `json:"state"`
 	Workspace string   `json:"workspace,omitempty"`
-	Shadow    []string `json:"shadow,omitempty"` // per-shadow-dir overmount volume names (COV-130)
+	Shadow    []string `json:"shadow,omitempty"` // per-shadow-dir overmount volume names (COV-132)
 }
 ```
 
 In `State`, add after `WorkspaceHostPath` (line 59):
 
 ```go
-	ShadowDirs        []string `json:"shadowDirs,omitempty"`        // shared-workspace subpaths overmounted VM-local (COV-130); empty otherwise
+	ShadowDirs        []string `json:"shadowDirs,omitempty"`        // shared-workspace subpaths overmounted VM-local (COV-132); empty otherwise
 ```
 
 (Both are additive and `omitempty`, so legacy files decode unchanged — no schema bump needed.)
@@ -610,7 +610,7 @@ Expected: PASS (build succeeds; new state/naming/kit/colima tests green).
 
 ```bash
 git add internal/state/state.go internal/state/state_test.go cmd/at-cove/main.go
-git commit -m "feat(cmd,state): persist + restore shadow-dirs across create/recreate/destroy (COV-130)"
+git commit -m "feat(cmd,state): persist + restore shadow-dirs across create/recreate/destroy (COV-132)"
 ```
 
 ---
@@ -635,7 +635,7 @@ Add to `internal/assemble/embed_test.go`:
 // A shared workspace's shadow-dir volumes mount empty and root-owned; the
 // entrypoint chowns each declared mountpoint to agent so uv/npm can write it on
 // first boot, in the common prologue so both the systemd and sshd paths get it
-// (COV-130).
+// (COV-132).
 func TestEntrypointChownsShadowDirs(t *testing.T) {
 	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
 	if err != nil {
@@ -665,7 +665,7 @@ In `entrypoint.sh`, immediately after the `chown -R agent:agent /agent-data` lin
 
 ```bash
 # A share-repo-dir class may overmount transient dirs (.venv, node_modules) with
-# fresh per-sandbox volumes (COV-130). Each mounts empty and root:root, so chown
+# fresh per-sandbox volumes (COV-132). Each mounts empty and root:root, so chown
 # the mountpoint to agent (non-recursive: first boot is empty; later boots' content
 # is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
 # Defense-in-depth for this sealed file: skip anything that escapes the workspace
@@ -685,7 +685,7 @@ Expected: PASS.
 
 ```bash
 git add internal/assemble/hardening/image-files/usr/local/bin/entrypoint.sh internal/assemble/embed_test.go
-git commit -m "feat(hardening): chown fresh shadow-dir volumes to agent at boot (COV-130)"
+git commit -m "feat(hardening): chown fresh shadow-dir volumes to agent at boot (COV-132)"
 ```
 
 ---
@@ -725,7 +725,7 @@ Expected: clean.
 
 ```bash
 git add docs/usage/at-cove-config.md docs/OVERVIEW.md
-git commit -m "docs(usage): document collaborators shadow-dirs (COV-130)"
+git commit -m "docs(usage): document collaborators shadow-dirs (COV-132)"
 ```
 
 ---
@@ -744,7 +744,7 @@ Expected: clean.
 
 - [ ] **Step 3: Open the PR against `main`**
 
-One PR bundling Tasks 1-6, referencing COV-130 and the spec. Confirm the branch is off `main` and `just test`/`just lint` are green in the PR description.
+One PR bundling Tasks 1-6, referencing COV-132 and the spec. Confirm the branch is off `main` and `just test`/`just lint` are green in the PR description.
 
 ---
 

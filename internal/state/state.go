@@ -45,7 +45,7 @@ type Secret struct {
 type Volumes struct {
 	State     string   `json:"state"`
 	Workspace string   `json:"workspace,omitempty"`
-	Shadow    []string `json:"shadow,omitempty"` // per-shadow-dir overmount volume names (COV-130)
+	Shadow    []string `json:"shadow,omitempty"` // per-shadow-dir overmount volume names (COV-132)
 }
 
 // State describes one created cove instance.
@@ -58,7 +58,7 @@ type State struct {
 	ImageDigest       string   `json:"imageDigest,omitempty"`       // built image's own sha256 the run pinned (COV-78); empty in legacy files
 	WorkspaceMode     string   `json:"workspaceMode"`               // "isolated" | "shared"
 	WorkspaceHostPath string   `json:"workspaceHostPath,omitempty"` // set iff shared
-	ShadowDirs        []string `json:"shadowDirs,omitempty"`        // shared-workspace subpaths overmounted VM-local (COV-130); empty otherwise
+	ShadowDirs        []string `json:"shadowDirs,omitempty"`        // shared-workspace subpaths overmounted VM-local (COV-132); empty otherwise
 	Volumes           *Volumes `json:"volumes,omitempty"`           // named volumes created (COV-76); nil in legacy files
 	Secrets           []Secret `json:"secrets,omitempty"`
 	CreatedAt         string   `json:"createdAt"`
