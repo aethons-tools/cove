@@ -27,10 +27,12 @@ chown -R agent:agent /agent-data
 # the mountpoint to agent (non-recursive: first boot is empty; later boots' content
 # is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
 # Defense-in-depth for this sealed file: skip anything that escapes the workspace
-# (config already rejects '..'/absolute at parse time).
+# (config already rejects '..'/absolute at parse time). Guard on existence so a dir
+# that is somehow not mounted cannot abort boot under `set -e`.
 for d in ${COVE_SHADOW_DIRS:-}; do
   case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac
-  chown agent:agent "/home/agent/workspace/$d"
+  p="/home/agent/workspace/$d"
+  if [ -e "$p" ]; then chown agent:agent "$p"; fi
 done
 
 # docker:true sandboxes boot systemd as PID 1 (Sysbox gives the unprivileged

@@ -487,7 +487,11 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 		t.Fatalf("entrypoint.sh not embedded: %v", err)
 	}
 	s := string(b)
-	for _, want := range []string{"${COVE_SHADOW_DIRS:-}", `chown agent:agent "/home/agent/workspace/$d"`} {
+	for _, want := range []string{
+		"${COVE_SHADOW_DIRS:-}",
+		`case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac`,
+		`if [ -e "$p" ]; then chown agent:agent "$p"; fi`,
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("entrypoint must chown shadow-dirs; missing %q:\n%s", want, s)
 		}
