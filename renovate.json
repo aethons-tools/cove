@@ -31,8 +31,9 @@
       "groupName": "ubuntu noble base"
     },
     {
-      "description": "Ubuntu 24.04 (noble) archive suites for the apt `deb` datasource — base + updates + security, main and universe. Grouped with the ubuntu base digest (groupName `ubuntu noble base`) so the digest and its coupled apt pins move together in one PR. Enabled unattended: the datasource is confirmed resolving the pins (the Dependency Dashboard surfaced concrete noble updates, e.g. systemd 255.4-1ubuntu8.16 -> 8.17), so the earlier dependencyDashboardApproval first-check is no longer needed.",
+      "description": "Ubuntu 24.04 (noble) archive pins for the apt `deb` datasource — base + updates + security, main and universe — EXCEPT the Docker-engine packages, which the rule below resolves against Docker's own repo. The exclusion is load-bearing: this rule has no package filter, so without it the groupName + unattended enablement below would also apply to the docker packages, pulling them into this group and dragging the whole group behind that rule's approval gate. Grouped with the ubuntu base digest (groupName `ubuntu noble base`) so the digest and its coupled archive pins move together in one PR. Enabled unattended: the datasource is confirmed resolving the pins (the Dependency Dashboard surfaced concrete noble updates, e.g. systemd 255.4-1ubuntu8.16 -> 8.17), so the earlier dependencyDashboardApproval first-check is no longer needed.",
       "matchDatasources": ["deb"],
+      "matchPackageNames": ["!docker-ce", "!docker-ce-cli", "!containerd.io", "!docker-buildx-plugin", "!docker-compose-plugin"],
       "registryUrls": [
         "https://archive.ubuntu.com/ubuntu?suite=noble&components=main,universe&binaryArch=amd64",
         "https://archive.ubuntu.com/ubuntu?suite=noble-updates&components=main,universe&binaryArch=amd64",
