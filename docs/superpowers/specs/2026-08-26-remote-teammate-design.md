@@ -54,63 +54,72 @@ rewrite the sealed layer, and still reaches only allow-listed hosts. This design
 |---|---|---|
 | Discord egress (`discord.com`, `gateway.discord.gg`*) | squid allow-list, additive | One consciously-opened, hostname-filtered hole; no TLS interception |
 | Bot token | worker/collaborator secret bucket, in-memory tmpfs, never logged; **held by the conductor, never in the agent's session env** | In-sandbox by explicit choice; scope it to one guild/channel, least privilege |
-| Read-only workspace viewer | process bound to `127.0.0.1:<port>` **inside** the VM | Reached only through an authenticated `ssh -L` tunnel; no published port, no egress, no write path |
-| Break-glass edit | existing `at-cove chat --raw` shell / VS Code Remote-SSH | Reuses the current SSH endpoint; nothing new |
+| Workspace visibility (VS Code Remote-SSH + git) | the operator's editor/git, over the **existing** SSH endpoint | No new component, no published port; the VS Code Server is pushed over SFTP (`localServerDownload: always`), so **no egress is added** |
+| Break-glass edit | same Remote-SSH connection / `at-cove chat --raw` shell | Reuses the current SSH endpoint; nothing new |
 
 \* `gateway.discord.gg` is only needed if a future variant uses the websocket gateway; the
 polling design (§A) reaches only `discord.com`.
 
-**No sealed-file edits.** The viewer tunnel forwards to VM-loopback, already permitted by
-the nftables loopback-accept rule (the `forward`-chain drop governs docker-in-sandbox
-traffic, not sshd's own `-L` tunnels). Discord is a plain additive allow-list entry. This
-is a lighter security-review footprint than shadow-dirs, which had to edit a sealed
-entrypoint and touch volume ownership.
+**No sealed-file edits.** Workspace visibility rides the existing SSH endpoint with no image
+change and no allow-list change (see §B "Two facts"). Discord is a plain additive allow-list
+entry. This is a lighter security-review footprint than shadow-dirs, which had to edit a
+sealed entrypoint and touch volume ownership.
 
-## Component B — workspace viewer
+## Component B — workspace visibility (VS Code Remote-SSH + git)
 
 **One job:** make an isolated-volume workspace observable — browse the tree, read files,
-and see live *uncommitted* git state — read-only, over SSH.
+see live *uncommitted* git state, and occasionally edit — by connecting an editor and git
+to the sandbox over the existing SSH endpoint, with **no new component in the image.**
+
+### Resolved decision
+
+Of the three candidates carried out of brainstorming (purpose-built Go viewer / vendored
+`filebrowser` / no-bespoke-viewer), the **no-bespoke-viewer** path is chosen: lean on **VS
+Code Remote-SSH** (tree browse, file view, built-in uncommitted diff, search, and the
+occasional edit) plus **git-over-SSH** (committed history). No image service, no new egress,
+no read-only server to maintain. "Read-only" becomes a discipline rather than an enforced
+property — an accepted trade for zero new build and an already-familiar tool.
+
+### Two facts that make it work through the boundary
+
+1. **No egress needed.** VS Code Remote-SSH normally bootstraps a node-based VS Code Server
+   *on the remote host*, which would require allow-listing `update.code.visualstudio.com`,
+   `*.vscode-cdn.net`, etc. Instead the operator sets the **client-side** setting
+   `remote.SSH.localServerDownload: "always"`, so the server is downloaded on the operator's
+   machine and pushed into the sandbox over SFTP. The squid allow-list is **untouched** — the
+   boundary stays exactly as audited. (The sandbox already has glibc/Ubuntu 24.04 and an
+   sshd with stock SFTP + TCP-forwarding + arbitrary-exec, so the pushed server runs.)
+
+2. **A stable alias despite a rotating port.** The container publishes ssh on an *ephemeral*
+   host port (`-p 127.0.0.1::2222`, discovered at connect time via `docker port`), and the
+   host key regenerates every boot — so a hard-coded `Host` block would break on every
+   `recreate`. The fix is a **`ProxyCommand`**: the generated OpenSSH `Host` block routes
+   through `at-cove ssh-proxy <collaborator>`, a small subcommand that resolves the current
+   port via the backend `Dial` and relays the byte stream. The alias (`cove-<container>`)
+   therefore stays valid permanently; VS Code Remote-SSH and git-over-SSH both ride it. The
+   rotating host key is handled by pointing the block at the *same* per-sandbox
+   `known_hosts.d/<container>` file at-cove already uses, with `StrictHostKeyChecking
+   accept-new`; `recreate` reaps that pin (`doDestroyInstance`), so reconnection re-pins the
+   new key without a MITM prompt.
 
 ### Shape
 
-- A viewer service in the VM, bound to `127.0.0.1:<vmport>`, running as the `agent` user
-  (read access to `/home/agent/workspace`). **No write endpoints exist** — read-only by
-  construction, not configuration.
-- A new host command, `at-cove view <container>`, opens
-  `ssh -L <localport>:127.0.0.1:<vmport>` (extending `internal/sshargs` with a local-forward
-  builder) and prints/opens the local URL. Because the sandbox publishes only `:2222`, the
-  viewer is never exposed except through the operator's authenticated tunnel.
-- **Git surfacing, two tiers:**
-  - The viewer renders `git status` / `git diff` (uncommitted) / `git log` for the glance
-    case (work-in-progress you cannot get from a remote).
-  - `at-cove view --git-remote` prints a ready `ssh://…` remote URL so the operator can
-    `git fetch` the sandbox workspace and diff with their own tools (committed history).
-- **Break-glass edit:** documented, not built — `at-cove chat --raw` for a shell, or a
-  VS Code Remote-SSH host entry pointing at the same SSH endpoint. "Occasional edit" needs
-  no new write path.
-- **Lifecycle:** the viewer is a service in the image, safe to leave always-on (read-only +
-  loopback-bound); `at-cove view` ensures it is up and tunnels in.
-
-### Open decision (resolve at B's plan)
-
-How the viewer is realized. Three candidates carried into writing-plans:
-
-1. **Purpose-built tiny Go read-only server** (provisional lean): a small service in this
-   repo (like `at-task`) serving tree + file contents + git status/diff/log. Zero new
-   runtime deps, no runtime egress, fits the sealed-image + hermetic-test model. More code
-   to write and maintain; plainer UI.
-2. **Vendored `filebrowser`-style binary** installed in the image, read-only mode. Richer UI
-   immediately, less code; an external dependency to pin/update, larger image, no native git
-   (add git separately).
-3. **No bespoke viewer — lean on VS Code Remote-SSH + `git` over the existing SSH endpoint.**
-   No new component at all: Remote-SSH gives tree browse, file view, built-in uncommitted
-   diff, and search; git-over-SSH covers history. Cost: no always-on "glanceable web tab,"
-   and it is read-write (read-only is a discipline, not enforced).
+- `at-cove view <collaborator>` prints an OpenSSH `Host` block (ProxyCommand-based) plus a
+  ready `git remote add sandbox cove-<container>:/home/agent/workspace` line. `--write`
+  upserts the block into `~/.ssh/config` as an idempotent, per-alias managed block so it is
+  re-runnable and VS Code sees it.
+- `at-cove ssh-proxy <collaborator>` is the ProxyCommand target: resolve → `Dial` → TCP
+  relay. Diagnostics on stderr only; stdout is the raw ssh channel.
+- **Break-glass edit** is the same connection — Remote-SSH edits in place, or `at-cove chat
+  --raw` for a shell.
 
 ### Testing
 
-Read-only HTTP handlers + git-command wrappers tested against a temporary repo, hermetic;
-the `-L` argv addition unit-tested in `sshargs`; any real-ssh path behind the `integration`
+Pure functions carry the logic and are hermetically tested: the `Host`-block renderer and
+the `~/.ssh/config` managed-block upsert (golden output; insert / replace / idempotent), and
+the relay copy loop (in-process localhost socket, no Docker/VM). Command resolution reuses
+the existing `loadCurrentInstall`/`instanceFor`/`state.LoadFor` chain, tested via the `run()`
+harness with a `runner.Fake`. Any real Remote-SSH round-trip stays behind the `integration`
 build tag.
 
 ## Component A — Discord teammate loop
