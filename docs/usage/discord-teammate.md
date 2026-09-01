@@ -105,19 +105,33 @@ the sandbox simply goes quiet in Discord. There is no `at-cove teammate status`;
 to recover:
 
 ```console
-$ at-cove chat <class-or-a-collaborator> --raw   # or: at-cove view <class>
-$ tail -f /agent-data/switchboard.log            # see why it stopped
-$ at-cove teammate <class>                       # just re-run it to restart
+$ at-cove view <class>                # print an ssh config; connect with it, or plain ssh — read-only, no egress change
+$ tail -f /agent-data/switchboard.log # see why it stopped
+$ at-cove teammate <class>            # just re-run it to restart
 ```
 
 `/agent-data/switchboard.log` lives on the persistent `-agent-data` volume, so it
 survives the SSH channel closing and a `recreate`.
 
+**Do not inspect a running teammate with `at-cove chat`/`at-cove work` against
+the same container.** Both apply *session* egress on start and — via a deferred
+`ApplySessionEgress(container, nil)` — **clear it on exit**. A teammate's
+container has only one active egress scope at a time, so a `chat`/`work` session
+against it silently revokes the running conductor's `discord.com` egress the
+moment that session ends, and the conductor goes quiet in Discord with no error
+of its own. If you must run one anyway (e.g. to debug from inside), **re-run
+`at-cove teammate <class>` immediately after it exits** to reapply Discord
+egress. Prefer `at-cove view <class>` (above) or a direct SSH session, neither
+of which touches egress. This is tracked as **COV-137** ("one egress scope per
+shared container") — largely resolved once **COV-136** gives each teammate its
+own container.
+
 **Discord egress persists.** Unlike a `chat` session's per-class egress (applied
 on start, cleared on exit), the teammate's Discord egress delta is applied and
 **never cleared** by `at-cove teammate` — it must remain open for as long as the
 detached conductor keeps running in the background, well after the launching
-command has exited.
+command has exited. See the warning above for why a *later* `chat`/`work`
+session on the same container undoes this.
 
 ## Create prerequisite: the teammate-only gap (COV-136)
 
