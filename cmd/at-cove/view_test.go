@@ -161,3 +161,40 @@ func TestView_PrintsHostBlockAndGitRemote(t *testing.T) {
 		}
 	}
 }
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain word",
+			input:    "agent",
+			expected: "'agent'",
+		},
+		{
+			name:     "path with space",
+			input:    "/home/u/my project",
+			expected: "'/home/u/my project'",
+		},
+		{
+			name:     "literal single quote",
+			input:    "foo's bar",
+			expected: "'foo'\\''s bar'",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "''",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shellQuote(tt.input)
+			if got != tt.expected {
+				t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
