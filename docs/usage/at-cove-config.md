@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-08-19
+updated: 2026-09-01
 ---
 
 # at-cove `config.yml`
@@ -542,7 +542,11 @@ chown); a path that shadows a `.git` directory (it would hide the shared repo's
 live `.git`); a duplicate; or two entries that collide once sanitized to the same
 volume name. The overmount
 volumes are **per-sandbox and persistent** — they survive `recreate` and are
-removed only by `destroy`, same lifecycle as the other instance volumes. A
+removed only by `destroy`, same lifecycle as the other instance volumes. Editing
+the list itself takes effect on the next `create` **or `recreate`**: both resolve
+the overmount set from the current (re-`install`ed) config, so an added dir starts
+shadowing and a removed dir shows the host copy through again — the persistent
+volumes above are reused when a name still matches. A
 forthcoming `at-cove doctor` (COV-131) will recommend a kit's `shadow-dirs` list
 from the repo's `.gitignore` and build manifests (e.g. `pyproject.toml`,
 `package.json`, `Cargo.toml`).

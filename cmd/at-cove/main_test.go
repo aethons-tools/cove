@@ -1181,6 +1181,42 @@ func TestRecreatePreservesSharedWorkspaceFromState(t *testing.T) {
 	}
 }
 
+// shadow-dirs added to a share-repo-dir class AFTER the sandbox was first created
+// must take effect on the next `recreate` (COV-132): recreate resolves the shadow
+// list from the currency-fresh install config, not the pre-shadow-dirs state file.
+// Regression test — recovering shadow-dirs from state left the dir shared with the
+// host, so the sandbox overwrote the host copy.
+func TestRecreateAppliesShadowDirsAddedAfterCreate(t *testing.T) {
+	dir := t.TempDir()
+	// The kit config now carries shadow-dirs, and its install snapshot is current.
+	kitDir := writeShareRepoShadowKit(t, dir, "steward", ".venv")
+	writeInstall(t, kitDir)
+	// The existing instance predates shadow-dirs: shared, but no ShadowDirs recorded.
+	container := "atcove-box-steward"
+	if err := state.SaveFor(kitDir, state.Instance("steward"), state.State{
+		Name: "box", Backend: "colima", Container: container,
+		Image: naming.Image("box"), WorkspaceMode: "shared", WorkspaceHostPath: dir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"recreate", "steward", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("recreate exit=%d stderr=%s", code, errOut.String())
+	}
+	wantMount := naming.ShadowVolume(container, ".venv") + ":/home/agent/workspace/.venv"
+	if !dockerRunHasArg(t, f.Calls, wantMount) {
+		t.Fatalf("recreate must apply shadow-dirs from config; want overmount %q in run args %+v", wantMount, f.Calls)
+	}
+	st, err := state.LoadFor(kitDir, state.Instance("steward"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.ShadowDirs) != 1 || st.ShadowDirs[0] != ".venv" {
+		t.Fatalf("recreate must persist the applied shadow-dirs; state=%+v", st)
+	}
+}
+
 // The arbitrary-host-path bind-mount flag is gone (COV-72): --ws/--workspace are
 // no longer accepted by create or recreate (a flag-parse error → exit 2), and
 // touch no docker. Only a share-repo-dir collaborator can now share the kit repo.
@@ -2406,6 +2442,23 @@ func writeShareRepoKit(t *testing.T, dir, class string) string {
 		t.Fatal(err)
 	}
 	yml := "name: box\ncollaborators:\n  " + class + ":\n    prompt: \"be " + class + "\"\n    share-repo-dir: true\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cove
+}
+
+// writeShareRepoShadowKit is writeShareRepoKit plus a shadow-dirs list on the
+// class — the config an author lands after adding overmounts to a share-repo-dir
+// collaborator (COV-132).
+func writeShareRepoShadowKit(t *testing.T, dir, class string, shadowDirs ...string) string {
+	t.Helper()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\ncollaborators:\n  " + class + ":\n    prompt: \"be " + class + "\"\n    share-repo-dir: true\n" +
+		"    shadow-dirs: [" + strings.Join(shadowDirs, ", ") + "]\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}

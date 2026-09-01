@@ -1137,18 +1137,34 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdou
 		return err
 	}
 	cfg := m.RunConfig
-	_, _, instKey, name, err := instanceFor(cfg, collaborator)
+	class, hasCollab, instKey, name, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
 	// Recreate keeps volumes, but a shared workspace is a host bind-mount, not a
-	// volume — it must be re-specified at `docker run`. Recover the previously
-	// recorded mount from this instance's state (never re-read config, COV-72) so
-	// recreate preserves what create chose instead of silently reverting to an
-	// isolated volume. This must happen before the destroy, which deletes the state.
+	// volume — it must be re-specified at `docker run`. Recover the shared mode and
+	// its host path from this instance's state (never re-derive the bind path from
+	// config, COV-72) so recreate preserves what create chose instead of silently
+	// reverting to an isolated volume. This must happen before the destroy, which
+	// deletes the state.
+	//
+	// The shadow-dirs list, however, is resolved from the currency-fresh install
+	// config, NOT from state (COV-132): overmounts added or removed after the first
+	// create must take effect on the next recreate, per the shadow-dirs spec.
+	// loadCurrentInstall above already hard-errors if the kit changed since install,
+	// so cfg is the author's current shadow set; reading it from the pre-shadow-dirs
+	// state file instead would leave the dir shared and let the sandbox overwrite the
+	// host copy.
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
-		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath, ShadowDirs: st.ShadowDirs}
+		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
+		if hasCollab {
+			role, err := cfg.ResolvedCollaborator(class)
+			if err != nil {
+				return err
+			}
+			ws.ShadowDirs = role.ShadowDirs
+		}
 	}
 	if dryRun {
 		fmt.Fprintf(stdout, "would destroy any existing %s (keeping volumes) then recreate\n", name)
