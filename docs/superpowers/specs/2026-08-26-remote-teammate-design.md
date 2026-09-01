@@ -129,9 +129,11 @@ the operator and teammates in Discord.
 
 ### The conductor (supervisor model)
 
-A new Go daemon — the **conductor** (`cmd/at-teammate`, `internal/teammate`) — runs in the
-sandbox. It is a thin supervisor: it owns Discord I/O and the loop control, and hands the
-*decision* of what to do next to the agent.
+A new Go daemon — the **conductor**, shipped as the `at-switchboard` binary
+(`cmd/at-switchboard`, `internal/switchboard`) embedded in the image alongside `at-task` —
+runs in the sandbox. It is a thin supervisor: it owns Discord I/O and the loop control, and
+hands the *decision* of what to do next to the agent. (`at-task` stays the git/PR broker,
+unchanged.)
 
 ```
 loop:
@@ -196,8 +198,14 @@ teammates open them.
 
 - New kit config on a teammate-class collaborator: `discord: { channel-id,
   bot-token-secret }` plus `allowed-domains: [discord.com]`.
-- The conductor is started at sandbox boot for that class; break-glass SSH `chat` still
-  jumps in directly.
+- **Launch:** a new host command `at-cove teammate <collaborator>` ensures the sandbox and
+  starts `at-switchboard` over SSH with the bot token injected in-session (the existing
+  resolver → tmpfs path), run **detached** (e.g. `setsid`) so the conductor survives the SSH
+  session closing. The token therefore lives only in the conductor process's memory, never on
+  disk and never at boot — this is *why* the launch is over SSH rather than a systemd unit
+  (there is no boot-time secret path, and adding one would weaken the in-memory-only model).
+  The command is reconnectable (re-running re-attaches / reports status); break-glass SSH
+  `chat` still jumps in directly.
 
 ### Error handling
 
