@@ -16,29 +16,60 @@ import (
 	"github.com/aethons-tools/cove/internal/switchboard"
 )
 
-// run parses env-sourced config and drives the switchboard loop until it exits
-// or errors. getenv is injected (rather than reading os.Getenv directly) so the
-// test can exercise the missing-token usage-error path hermetically.
-func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+// usageError is returned by buildConfig for problems that should be reported
+// as a CLI usage error (exit 2) — required env vars missing or malformed.
+// It carries no secret values, only the offending var name / description.
+type usageError struct{ msg string }
+
+func (e *usageError) Error() string { return e.msg }
+
+// buildConfig reads env-sourced config and constructs the switchboard.Config,
+// the target channel list, and the Discord bot token. It is factored out of
+// run so config-building — including the ErrorChannel default and Log wiring
+// — is unit-testable without launching the loop. getenv is injected (rather
+// than reading os.Getenv directly) so tests can exercise it hermetically.
+func buildConfig(getenv func(string) string) (switchboard.Config, []string, string, error) {
 	token := getenv("DISCORD_BOT_TOKEN")
 	channels := splitNonEmpty(getenv("SWITCHBOARD_CHANNELS"))
 	if token == "" {
-		fmt.Fprintln(stderr, "at-switchboard: DISCORD_BOT_TOKEN is required")
-		return 2
+		return switchboard.Config{}, nil, "", &usageError{"DISCORD_BOT_TOKEN is required"}
 	}
 	if len(channels) == 0 {
-		fmt.Fprintln(stderr, "at-switchboard: SWITCHBOARD_CHANNELS is required (comma-separated channel ids)")
-		return 2
+		return switchboard.Config{}, nil, "", &usageError{"SWITCHBOARD_CHANNELS is required (comma-separated channel ids)"}
 	}
 	interval := 3 * time.Second
 	if v := getenv("SWITCHBOARD_POLL_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			fmt.Fprintf(stderr, "at-switchboard: bad SWITCHBOARD_POLL_INTERVAL %q: %v\n", v, err)
-			return 2
+			return switchboard.Config{}, nil, "", &usageError{fmt.Sprintf("bad SWITCHBOARD_POLL_INTERVAL %q: %v", v, err)}
 		}
 		interval = d
 	}
+
+	// ErrorChannel: explicit env var, else default to the first channel so
+	// fail-soft recovered errors always have somewhere to post.
+	errCh := getenv("SWITCHBOARD_ERROR_CHANNEL")
+	if errCh == "" && len(channels) > 0 {
+		errCh = channels[0]
+	}
+
+	cfg := switchboard.Config{
+		PollInterval: interval,
+		ErrorChannel: errCh,
+		Log:          func(s string) { fmt.Fprintln(os.Stderr, "at-switchboard:", s) },
+	}
+	return cfg, channels, token, nil
+}
+
+// run parses env-sourced config and drives the switchboard loop until it exits
+// or errors.
+func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	cfg, channels, token, err := buildConfig(getenv)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-switchboard:", err)
+		return 2
+	}
+
 	workDir := getenv("SWITCHBOARD_WORKDIR")
 	if workDir == "" {
 		workDir = "/home/agent/workspace"
@@ -46,7 +77,6 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 	d := switchboard.NewRESTClient(token, channels)
 	a := switchboard.NewClaudeAgent(runner.OS{}, workDir)
-	cfg := switchboard.Config{PollInterval: interval}
 	if err := switchboard.Run(context.Background(), cfg, d, a); err != nil {
 		fmt.Fprintln(stderr, "at-switchboard:", err)
 		return 1
