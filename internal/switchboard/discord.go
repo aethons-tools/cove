@@ -88,6 +88,38 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 	return out, nc, nil
 }
 
+// Seed returns per-channel cursors at the newest existing message id, without
+// returning the messages — so Run starts from an empty inbox. A channel with no
+// messages gets no cursor entry.
+func (c *RESTClient) Seed(ctx context.Context) (map[string]string, error) {
+	cursors := map[string]string{}
+	for _, ch := range c.channels {
+		u := fmt.Sprintf("%s/channels/%s/messages?limit=1", c.baseURL, ch)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bot "+c.token)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("switchboard: seed %s: %w", ch, err)
+		}
+		var page []discordMessage
+		derr := json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("switchboard: seed %s: status %d", ch, resp.StatusCode)
+		}
+		if derr != nil {
+			return nil, fmt.Errorf("switchboard: seed %s decode: %w", ch, derr)
+		}
+		if len(page) > 0 {
+			cursors[ch] = page[0].ID // newest-first, so [0] is the latest
+		}
+	}
+	return cursors, nil
+}
+
 func (c *RESTClient) Post(ctx context.Context, channel, content string) error {
 	body, err := json.Marshal(map[string]string{"content": content})
 	if err != nil {

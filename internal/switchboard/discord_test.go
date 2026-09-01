@@ -44,6 +44,55 @@ func TestRESTClient_PollReversesAndAdvancesCursor(t *testing.T) {
 	}
 }
 
+func TestRESTClient_SeedReturnsNewestIDWithoutDeliveringMessages(t *testing.T) {
+	var gotAuth, gotLimit string
+	var afterVals []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotLimit = r.URL.Query().Get("limit")
+		afterVals = r.URL.Query()["after"]
+		// Discord returns newest-first; limit=1 means only one entry.
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "99", "content": "latest", "author": map[string]any{"username": "u", "global_name": "Sam"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewRESTClient("secrettoken", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	cursors, err := c.Seed(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bot secrettoken" {
+		t.Fatalf("auth header = %q", gotAuth)
+	}
+	if gotLimit != "1" {
+		t.Fatalf("limit param = %q, want 1", gotLimit)
+	}
+	if len(afterVals) != 0 {
+		t.Fatalf("seed must not send an after param; got %q", afterVals)
+	}
+	if cursors["chan1"] != "99" {
+		t.Fatalf("cursor = %q, want 99 (newest id)", cursors["chan1"])
+	}
+}
+
+func TestRESTClient_SeedEmptyChannelGetsNoCursor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{}) // no messages yet
+	}))
+	defer srv.Close()
+
+	c := NewRESTClient("secrettoken", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	cursors, err := c.Seed(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cursors["chan1"]; ok {
+		t.Fatalf("empty channel should get no cursor entry; got %+v", cursors)
+	}
+}
+
 func TestRESTClient_Post(t *testing.T) {
 	var body map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

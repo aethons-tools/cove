@@ -13,6 +13,10 @@ type Discord interface {
 	Poll(ctx context.Context, cursors map[string]string) (msgs []Message, newCursors map[string]string, err error)
 	// Post sends content to a channel.
 	Post(ctx context.Context, channel, content string) error
+	// Seed positions per-channel cursors at the newest existing message WITHOUT
+	// returning those messages, so a fresh conductor doesn't replay channel history
+	// on its first turn.
+	Seed(ctx context.Context) (cursors map[string]string, err error)
 }
 
 // Agent runs exactly one turn: given the rendered inbox, returns the agent's result.
@@ -46,14 +50,17 @@ func (c Config) sleep(ctx context.Context) error {
 
 // Run drives the supervisor loop until the agent returns ActionExit, ctx is
 // cancelled, or an adapter errors. The batch for each turn is produced by the
-// PREVIOUS action: the first turn polls once; `get` polls once (empty ok);
-// `wait` blocks until a poll returns something.
+// PREVIOUS action: the first turn seeds cursors and starts with an empty
+// batch (no channel history replay); `get` polls once (empty ok); `wait`
+// blocks until a poll returns something.
 func Run(ctx context.Context, cfg Config, d Discord, a Agent) error {
-	cursors := map[string]string{}
-	batch, cursors, err := d.Poll(ctx, cursors)
+	// Cold start: seed cursors at "now" so the first turn sees an empty inbox
+	// rather than replaying up to 100 lines of channel history as "new".
+	cursors, err := d.Seed(ctx)
 	if err != nil {
-		return fmt.Errorf("switchboard: initial poll: %w", err)
+		return fmt.Errorf("switchboard: seed: %w", err)
 	}
+	var batch []Message
 	for {
 		if err := ctx.Err(); err != nil {
 			return err

@@ -32,7 +32,7 @@
 
 **Design notes:** `Seed` returns per-channel cursors positioned at the newest existing message id (via `GET .../messages?limit=1`) WITHOUT returning those messages. `Run` calls `Seed` first and starts with an **empty** batch, so the first turn's inbox is "There are no messages." — no history flood. A channel with zero messages simply gets no cursor entry (a later poll with no `after` returns its ≤100 messages, which for an empty channel is none). Existing loop tests that fed a message on the "first-turn poll" must be updated: the first turn is now empty, so those messages arrive on a subsequent `get`/`wait` poll instead.
 
-- [ ] **Step 1: Write the failing test** (add to `loop_test.go`)
+- [x] **Step 1: Write the failing test** (add to `loop_test.go`)
 
 ```go
 func TestRun_SeedsCursorsAndDoesNotDeliverHistory(t *testing.T) {
@@ -62,12 +62,12 @@ func TestRun_SeedsCursorsAndDoesNotDeliverHistory(t *testing.T) {
 
 > Extend the existing `fakeDiscord` (in `loop_test.go`) with: a `seed map[string]string` field, a `seeded bool` flag, and a `Seed(ctx)` method that sets `seeded=true` and returns a copy of `seed`. If `fakeDiscord` doesn't already record the cursors it receives per `Poll` (from Task 2 of A1 it should have `seenCursors`), keep that. Then FIX the pre-existing `TestRun_*` tests that assumed the first turn polls a message: move that message into the post-seed poll sequence so the first turn is empty. Re-run all loop tests after.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/switchboard/ -run TestRun_Seeds`
 Expected: FAIL — `Seed` not in the interface / fake; and (before the Run change) the first turn isn't empty.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `loop.go`, add to the `Discord` interface (after `Post`):
 ```go
@@ -133,12 +133,12 @@ func (c *RESTClient) Seed(ctx context.Context) (map[string]string, error) {
 
 Add an httptest to `discord_test.go` asserting `Seed` issues `limit=1`, sends the auth header, and returns the newest id as the cursor without delivering messages.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/switchboard/`
 Expected: PASS (new seed tests + all updated existing tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/switchboard/loop.go internal/switchboard/discord.go internal/switchboard/loop_test.go internal/switchboard/discord_test.go
