@@ -40,3 +40,33 @@ func RenderHostBlock(p HostParams) string {
 func GitRemoteURL(alias string) string {
 	return alias + ":/home/agent/workspace"
 }
+
+const (
+	beginFmt = "# >>> at-cove managed block: %s >>>"
+	endFmt   = "# <<< at-cove managed block: %s <<<"
+)
+
+// UpsertManagedBlock inserts or replaces the at-cove managed block for `alias`
+// in an ~/.ssh/config body. The block is delimited by per-alias markers so
+// multiple sandboxes coexist and re-running is idempotent.
+func UpsertManagedBlock(cfg, alias, block string) string {
+	begin := fmt.Sprintf(beginFmt, alias)
+	end := fmt.Sprintf(endFmt, alias)
+	managed := begin + "\n" + strings.TrimRight(block, "\n") + "\n" + end + "\n"
+
+	if bi := strings.Index(cfg, begin); bi >= 0 {
+		if rel := strings.Index(cfg[bi:], end); rel >= 0 {
+			ei := bi + rel + len(end)
+			rest := strings.TrimPrefix(cfg[ei:], "\n")
+			return cfg[:bi] + managed + rest
+		}
+	}
+
+	if cfg == "" {
+		return managed
+	}
+	if !strings.HasSuffix(cfg, "\n") {
+		cfg += "\n"
+	}
+	return cfg + "\n" + managed
+}
