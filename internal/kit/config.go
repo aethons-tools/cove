@@ -279,6 +279,59 @@ type Collaborator struct {
 	AllowedDomains []string                `yaml:"allowed-domains,omitempty"` // added to the class's session egress (unioned with the collaborators <common> list)
 }
 
+// DiscordConfig configures a teammate class's Discord presence. Its presence on
+// a teammate class is required; validated when non-nil.
+type DiscordConfig struct {
+	Channels       []string `yaml:"channels"`
+	ErrorChannel   string   `yaml:"error-channel,omitempty"` // defaults to Channels[0] at launch
+	BotTokenSecret string   `yaml:"bot-token-secret"`
+}
+
+// Teammate is a standing Discord conductor class — like a Collaborator, plus a
+// Discord block. Auth is the saved /agent-data login (no bearer secret).
+type Teammate struct {
+	Prompt         string                  `yaml:"prompt,omitempty"`
+	Default        bool                    `yaml:"default,omitempty"`
+	Secrets        map[string]SecretConfig `yaml:"secrets,omitempty"`
+	AllowedDomains []string                `yaml:"allowed-domains,omitempty"`
+	Discord        *DiscordConfig          `yaml:"discord,omitempty"`
+}
+
+// ResolvedTeammate returns the named teammate with the teammates <common>
+// secrets merged in (own key wins). Errors like ResolvedCollaborator.
+func (c Config) ResolvedTeammate(class string) (Teammate, error) {
+	if class == "" || class == commonKey {
+		return Teammate{}, fmt.Errorf("kit %q: %q is not a teammate class", c.Name, class)
+	}
+	own, ok := c.Teammates[class]
+	if !ok {
+		return Teammate{}, fmt.Errorf("kit %q declares no teammate class %q", c.Name, class)
+	}
+	merged := map[string]SecretConfig{}
+	for k, v := range c.Teammates[commonKey].Secrets {
+		merged[k] = v
+	}
+	for k, v := range own.Secrets {
+		merged[k] = v
+	}
+	own.Secrets = merged
+	return own, nil
+}
+
+// ResolvedTeammateDomains returns the deduped, order-normalized union of the
+// teammates <common> allowed-domains and the named class's own list — the
+// per-session egress delta. Errors like ResolvedTeammate.
+func (c Config) ResolvedTeammateDomains(class string) ([]string, error) {
+	if class == "" || class == commonKey {
+		return nil, fmt.Errorf("kit %q: %q is not a teammate class", c.Name, class)
+	}
+	own, ok := c.Teammates[class]
+	if !ok {
+		return nil, fmt.Errorf("kit %q declares no teammate class %q", c.Name, class)
+	}
+	return unionDomains(c.Teammates[commonKey].AllowedDomains, own.AllowedDomains), nil
+}
+
 // ModelProvider switches the sandbox's agent off first-party Anthropic and onto a
 // third-party Claude provider — a union keyed by provider name (vertex only today).
 // Its presence is the switch; absent, the Anthropic auth paths are unchanged.
@@ -395,6 +448,7 @@ type Config struct {
 	Tracker       *Tracker                `yaml:"tracker,omitempty"`
 	Dispatch      *Dispatch               `yaml:"dispatch,omitempty"`
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
+	Teammates     map[string]Teammate     `yaml:"teammates,omitempty"`
 	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
 	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
 	// When true, the colima backend runs the sandbox container under
@@ -644,6 +698,44 @@ func ParseConfig(data []byte) (Config, error) {
 	if defaults > 1 {
 		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
+	if err := validateClassTree("teammates", teammateKeys(cfg.Teammates)); err != nil {
+		return Config{}, err
+	}
+	for name, tm := range cfg.Teammates {
+		bucket := fmt.Sprintf("teammates[%q].secrets", name)
+		if err := validateSecretNames(bucket, tm.Secrets, false); err != nil {
+			return Config{}, err
+		}
+		if err := rejectReservedSecretNames(bucket, tm.Secrets); err != nil {
+			return Config{}, err
+		}
+		for i, d := range tm.AllowedDomains {
+			if strings.TrimSpace(d) == "" {
+				return Config{}, fmt.Errorf("config.yml: teammates[%q].allowed-domains[%d] is empty", name, i)
+			}
+		}
+		if name == commonKey {
+			if tm.Prompt != "" || tm.Default || tm.Discord != nil {
+				return Config{}, fmt.Errorf("config.yml: teammates[%q]: the base must not set a prompt, default, or discord block", commonKey)
+			}
+			continue
+		}
+		if tm.Discord == nil {
+			return Config{}, fmt.Errorf("config.yml: teammates[%q]: a discord block is required", name)
+		}
+		if len(tm.Discord.Channels) == 0 {
+			return Config{}, fmt.Errorf("config.yml: teammates[%q].discord: at least one channel is required", name)
+		}
+		if tm.Discord.BotTokenSecret == "" {
+			return Config{}, fmt.Errorf("config.yml: teammates[%q].discord: bot-token-secret is required", name)
+		}
+		// the token secret must be declared in the class's own or <common> secrets
+		if _, ok := cfg.Teammates[commonKey].Secrets[tm.Discord.BotTokenSecret]; !ok {
+			if _, ok := tm.Secrets[tm.Discord.BotTokenSecret]; !ok {
+				return Config{}, fmt.Errorf("config.yml: teammates[%q].discord.bot-token-secret %q is not a declared secret", name, tm.Discord.BotTokenSecret)
+			}
+		}
+	}
 	if err := validateModelProvider(cfg); err != nil {
 		return Config{}, err
 	}
@@ -827,6 +919,14 @@ func collaboratorKeys(m map[string]Collaborator) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+func teammateKeys(m map[string]Teammate) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // isReservedAngleKey reports whether key is <…>-wrapped but not the one allowed
