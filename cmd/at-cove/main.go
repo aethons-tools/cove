@@ -1065,6 +1065,9 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		// how instanceFor treats an unknown collaborator class.
 		return usageErr{err}
 	}
+	// Invariant: ParseConfig rejects any non-<common> teammates entry that lacks
+	// a discord block or has zero channels (internal/kit/config.go), so tm.Discord
+	// and tm.Discord.Channels[0] below are safe to dereference unchecked.
 
 	// The teammate class keys its own instance (mirrors collaborator instance
 	// keying, COV-71): state file <class>.json, container <kit>-<class>. The

@@ -54,7 +54,6 @@ RUN arch="$(dpkg --print-architecture)" \
     fi \
  && rm -rf /tmp/switchboard
 
-
 COPY image-files/. /.
 # `COPY image-files/. /.` carries home/agent/ directory entries (for .ssh and
 # .init-agent-data), and Docker stamps the build context's root ownership onto

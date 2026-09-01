@@ -133,6 +133,16 @@ func TestKitSourceTreeErrorsWithoutConfig(t *testing.T) {
 	}
 }
 
+// TestAtCoveIdentityIncludesSwitchboard is a smoke check that AtCoveIdentity
+// computes cleanly now that it hashes atswitchboard.BinFS() as a third field
+// (COV-135) — mirrors the attask/hardening fields it already covered.
+func TestAtCoveIdentityIncludesSwitchboard(t *testing.T) {
+	id, err := AtCoveIdentity()
+	if err != nil || id == "" {
+		t.Fatalf("AtCoveIdentity: %q err=%v", id, err)
+	}
+}
+
 func TestAtCoveIdentityDeterministicAndNonEmpty(t *testing.T) {
 	id1, err := AtCoveIdentity()
 	if err != nil {
