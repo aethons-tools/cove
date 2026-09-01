@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 )
 
@@ -108,9 +109,10 @@ func KitSourceTree(kitDir string) (string, error) {
 }
 
 // AtCoveIdentity hashes at-cove's embedded build contributions (§5): the sealed
-// hardening layer and the embedded at-task binaries. An at-cove upgrade that
-// changes either flips the digest, invalidating every install. install (S2) and
-// the run commands both call this, so they agree on the identity by construction.
+// hardening layer and the embedded at-task and at-switchboard binaries. An
+// at-cove upgrade that changes any of these flips the digest, invalidating every
+// install. install (S2) and the run commands both call this, so they agree on
+// the identity by construction.
 func AtCoveIdentity() (string, error) {
 	h := sha256.New()
 
@@ -127,6 +129,13 @@ func AtCoveIdentity() (string, error) {
 	}
 	writeField(h, []byte("attask"))
 	writeField(h, []byte(at))
+
+	sb, err := HashTree(atswitchboard.BinFS())
+	if err != nil {
+		return "", err
+	}
+	writeField(h, []byte("switchboard"))
+	writeField(h, []byte(sb))
 
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
