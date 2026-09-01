@@ -126,6 +126,20 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				// stdout is the raw ssh byte channel; keep all diagnostics on stderr.
 				return exitCode("at-cove", doSSHProxy(collaborator, kitDir, r, os.Stdin, out, errw), errw)
 			}},
+			{Name: "view", Brief: "print an ssh/VS Code Remote-SSH config (and git remote) for the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("view", flag.ContinueOnError)
+				pd := projectDirFlag(fs)
+				write := fs.Bool("write", false, "upsert the block into ~/.ssh/config instead of printing")
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
+				}
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "view", errw)
+				if code != 0 {
+					return code
+				}
+				return exitCode("at-cove", doView(collaborator, kitDir, r, *write, out), errw)
+			}},
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
 				pd := projectDirFlag(fs)
