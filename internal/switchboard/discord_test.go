@@ -150,9 +150,10 @@ func TestRESTClient_PollRetriesOn429(t *testing.T) {
 	}))
 	defer srv.Close()
 	var slept int
+	var gotWait time.Duration
 	c := NewRESTClient("tok", []string{"cx"},
 		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
-		WithSleep(func(ctx context.Context, d time.Duration) error { slept++; return nil }))
+		WithSleep(func(ctx context.Context, d time.Duration) error { slept++; gotWait = d; return nil }))
 	msgs, _, err := c.Poll(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +163,13 @@ func TestRESTClient_PollRetriesOn429(t *testing.T) {
 	}
 	if len(msgs) != 1 || msgs[0].Content != "ok" {
 		t.Fatalf("did not recover after retry: %+v", msgs)
+	}
+	// Retry-After: "0" must be treated as "no override" (the secs > 0 guard),
+	// falling back to the exponential default — NOT to a zero wait. A zero
+	// wait would mean the guard was dropped and Discord could stall retries
+	// at zero cadence.
+	if gotWait <= 0 {
+		t.Fatalf("wait = %v, want > 0 (Retry-After: 0 must fall back to exponential backoff, not a zero wait)", gotWait)
 	}
 }
 
@@ -198,31 +206,46 @@ func TestRESTClient_PollRetriesOn5xx(t *testing.T) {
 	}
 }
 
-// TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly guards against the
-// old bug where doWithRetry's ctx checks only bracketed the sleep call
-// itself: a ctx cancelled WHILE the sleep seam is blocked would previously
-// wait out the full backoff duration before doWithRetry noticed. This
-// injects a WithSleep that cancels the ctx and returns ctx.Err(), simulating
-// cancellation arriving mid-backoff, and asserts Poll returns a cancellation
-// error promptly with no further HTTP attempt after the cancel.
+// TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly is a REAL timing
+// test of the production backoff path: it deliberately does NOT override
+// WithSleep, so the default ctxSleep (discord.go) is what actually runs —
+// that's the code the Important-#1 fix lives in, and a test that stubs
+// WithSleep (as an earlier version of this test did) exercises nothing about
+// ctxSleep's own interruptibility; it would pass even against the old,
+// non-interruptible `time.Sleep(d)` implementation.
+//
+// The server returns 429 with Retry-After: 2 (a real ~2s wait if honored to
+// completion). The ctx is cancelled 50ms after Poll starts. Against the
+// ctx-aware ctxSleep, Poll must return a cancellation error in well under
+// 1s; against a plain time.Sleep(d), it would block for the full ~2s. This
+// test is designed to FAIL (elapsed ~2s) if ctxSleep regresses to a
+// non-interruptible sleep — see the "Final-review fixes v2" report section
+// for the RED (plain time.Sleep) → GREEN (ctx-aware) evidence.
 func TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		w.Header().Set("Retry-After", "2")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	c := NewRESTClient("tok", []string{"cx"},
-		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
-		WithSleep(func(sctx context.Context, d time.Duration) error {
-			cancel()
-			return sctx.Err()
-		}))
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	c := NewRESTClient("tok", []string{"cx"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	// No WithSleep: the production ctxSleep runs for real.
+
+	start := time.Now()
 	_, _, err := c.Poll(ctx, nil)
+	elapsed := time.Since(start)
+
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if elapsed >= 1*time.Second {
+		t.Fatalf("elapsed = %v, want well under 1s (the ~2s Retry-After backoff must be interrupted by ctx cancellation, not waited out)", elapsed)
 	}
 	if calls != 1 {
 		t.Fatalf("HTTP attempts after cancel = %d, want 1 (no further attempt after cancel during backoff)", calls)
@@ -252,7 +275,7 @@ func TestRESTClient_PollCapsRetryAfter(t *testing.T) {
 	if _, _, err := c.Poll(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if gotWait > maxRetryAfter {
-		t.Fatalf("wait = %v, want capped at %v", gotWait, maxRetryAfter)
+	if gotWait != maxRetryAfter {
+		t.Fatalf("wait = %v, want exactly %v (a miscalculated cap must be caught, not just any value under it)", gotWait, maxRetryAfter)
 	}
 }
