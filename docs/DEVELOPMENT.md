@@ -109,9 +109,10 @@ full rationale.
 - **`images/cove-base-image/Dockerfile`** — the universal lean floor: OS +
   git/gh/sshd + the egress stack (nftables/squid) + the Docker engine & systemd
   (for the opt-in docker-in-sandbox capability, present-but-inert) + core utils.
-  **Pure tools**: no language toolchains, chrome, or java — and **no `at-task`**. at-cove
-  injects the version-locked `at-task` into its sealed hardening layer (COV-42),
-  so the base has no Go build and rebuilds only when `images/` changes (COV-44).
+  **Pure tools**: no language toolchains, chrome, or java — and **no `at-task` or
+  `at-switchboard`**. at-cove injects the version-locked `at-task` (COV-42) and
+  `at-switchboard` (COV-135) into its sealed hardening layer, so the base has no
+  Go build and rebuilds only when `images/` changes (COV-44).
 - **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
   Base for both CI and the sandboxes.
@@ -150,16 +151,21 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` → re-cut at-cove
   (blessed list recomputed from the registry head). Docs-only → nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
-  snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task + list);
-  cove-image = `FROM cove-base-image:ci`. The base publishes **before** the
-  at-cove leg so `gen-blessed` sees **D** as the registry head.
+  snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task +
+  at-switchboard + list); cove-image = `FROM cove-base-image:ci`. The base
+  publishes **before** the at-cove leg so `gen-blessed` sees **D** as the
+  registry head.
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; at-cove is built by
   `goreleaser --snapshot` (archives + checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
-- **at-task is embedded**, not shipped standalone — re-cutting at-cove re-cuts the
-  embedded at-task ([`.goreleaser.yaml`](../.goreleaser.yaml) before-hook).
+- **at-task and at-switchboard are embedded**, not shipped standalone —
+  re-cutting at-cove re-cuts both embedded binaries
+  ([`.goreleaser.yaml`](../.goreleaser.yaml) before-hook, which now also stages
+  at-switchboard via `scripts/stage-attask.sh`). Unlike at-task, at-switchboard
+  has no base-image fallback: the hardening layer's install guard simply skips
+  it when unstaged, and `at-cove teammate` errors at launch if it's absent.
 
 ### Versioning
 

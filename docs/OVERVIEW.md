@@ -786,12 +786,14 @@ internal/install/             install.json manifest: Compile + currency hash + r
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
-This module builds **three binaries**: `at-cove` (the sandbox substrate, which
+This module builds **four binaries**: `at-cove` (the sandbox substrate, which
 also hosts the `dispatch` scheduler and the one-shot `work` runner), `at-task`
-(the git/PR worker), and `at-mint` (a host-side token minter invoked either as
+(the git/PR worker), `at-mint` (a host-side token minter invoked either as
 a secret's bare `command:` or assembled by at-cove from a `minters:` profile
-via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)). The scheduler
-drives work by shelling `at-cove work` — it never imports at-cove's
+via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)), and `at-switchboard`
+(the in-sandbox Discord conductor — embedded into the hardening layer the same
+way as at-task, see [Building, testing, running](#building-testing-running)).
+The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
@@ -804,8 +806,8 @@ The one-command installer ([`install.sh`](../install.sh) at the repo root) is th
 fastest way to get `at-cove` and `at-mint`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs both binaries. `at-task` ships **embedded** in `at-cove`, so it is not
-installed separately.
+and installs both binaries. `at-task` and `at-switchboard` ship **embedded** in
+`at-cove`, so neither is installed separately.
 
 The repo is **private** today, so the installer authenticates through your GitHub
 CLI login (`gh auth login`):
