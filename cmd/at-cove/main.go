@@ -112,6 +112,20 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				}
 				return exitCode("at-cove", doChat(collaborator, kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
 			}},
+			{Name: "ssh-proxy", Brief: "ProxyCommand transport to a sandbox (used by `at-cove view` configs)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("ssh-proxy", flag.ContinueOnError)
+				pd := projectDirFlag(fs)
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
+				}
+				collaborator, kitDir, code := resolveCollaborator(*pd, pos, "ssh-proxy", errw)
+				if code != 0 {
+					return code
+				}
+				// stdout is the raw ssh byte channel; keep all diagnostics on stderr.
+				return exitCode("at-cove", doSSHProxy(collaborator, kitDir, r, os.Stdin, out, errw), errw)
+			}},
 			{Name: "recreate", Brief: "destroy and rebuild the sandbox, keeping saved state", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("recreate", flag.ContinueOnError)
 				pd := projectDirFlag(fs)
