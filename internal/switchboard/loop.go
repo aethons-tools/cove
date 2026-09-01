@@ -79,6 +79,9 @@ func Run(ctx context.Context, cfg Config, d Discord, a Agent) error {
 				return err
 			}
 		default:
+			// Defensive: ParseTurnResult (Task 1) already rejects any action other
+			// than exit/wait/get before a TurnResult reaches the loop, so this only
+			// fires against a TurnResult built by hand (e.g. a test double).
 			return fmt.Errorf("switchboard: unhandled action %q", res.Action)
 		}
 	}
