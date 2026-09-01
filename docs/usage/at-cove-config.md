@@ -1,7 +1,7 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker or collaborator class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, secrets, docker, image (+ validation)"
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
 updated: 2026-09-01
@@ -618,6 +618,76 @@ collaborators:
 - omitted, with **no** classes defined — `chat` launches a plain session with no
   role injected (today's behavior, unchanged).
 
+### teammates
+*map of classname → config*
+
+Declares standing **Discord conductor** classes: `at-cove teammate <class>` launches
+`at-switchboard` into an already-created instance of the class, so the sandbox is
+reachable as a teammate in Discord instead of only over an interactive `chat`
+session. A separate map from `collaborators` (own `<common>`-base, same merge
+shape: own key wins on a scalar; `<common>` must not set `prompt`, `default`, or
+`discord`) — see [discord-teammate.md](discord-teammate.md) for the full usage
+story, including the one-time `chat` login prerequisite and the current
+create-lifecycle gap (**COV-136**): `at-cove create <class>` resolves only against
+`collaborators`, so a teammate-only class needs a matching minimal
+`collaborators.<class>` entry to be provisionable today.
+
+#### teammates.*class*.prompt
+*string, optional, own-only (not inherited); `<common>` must not set it*
+
+The conductor's role, injected the same way a [`collaborators.*class*.prompt`](#collaboratorsclassprompt)
+is.
+
+#### teammates.*class*.discord
+*struct, required for every class except `<common>`, own-only (not inherited); `<common>` must not set it*
+
+```yaml
+discord:
+  channels: ["123456789012345678"]      # at least one Discord channel ID; required
+  error-channel: "123456789012345678"   # optional; defaults to channels[0]
+  bot-token-secret: DISCORD_BOT_TOKEN   # required; must name a secret declared
+                                         # in this class's own `secrets` or
+                                         # teammates.<common>.secrets
+```
+
+#### teammates.*class*.secrets
+*map of secret env name → config, optional, inherited from `<common>` (own key wins)*
+
+Same declaration shape as the root `secrets`, but a distinct bucket (see
+[Secret buckets](#secret-buckets)): resolved host-side at `at-cove teammate` launch
+and staged into the sandbox over SSH stdin, never disk or argv. In practice holds
+just the class's `discord.bot-token-secret` — the conductor has no other secret
+today.
+
+#### teammates.*class*.allowed-domains
+*list of strings, optional, unioned with `<common>` (a set, not overwritten)*
+
+Egress domains scoped to this teammate class, mirroring
+[`collaborators.*class*.allowed-domains`](#collaboratorsclassallowed-domains): a
+set union with the teammates `<common>` list, added to the root
+`image.allowed-domains` for this class. Unlike a collaborator's session egress
+(cleared on `chat` exit), a teammate's delta is applied by `at-cove teammate` and
+**never cleared** — it must persist for as long as the detached conductor keeps
+running. A kit wiring up Discord declares `discord.com` here.
+
+```yaml
+teammates:
+  <common>:
+    secrets:
+      DISCORD_BOT_TOKEN:
+        description: bot token for the team's Discord workspace
+  helper:
+    prompt: "You are the team's Discord-facing assistant."
+    allowed-domains: [discord.com]
+    discord:
+      channels: ["123456789012345678"]
+      bot-token-secret: DISCORD_BOT_TOKEN
+```
+
+`at-cove` resolves a class's effective secrets/domains via
+`kit.Config.ResolvedTeammate`/`ResolvedTeammateDomains`, mirroring
+`ResolvedCollaborator`/`ResolvedCollaboratorDomains`.
+
 ### docker
 *bool, defaults to `false`*
 
@@ -732,7 +802,7 @@ image:
 
 ## Secret buckets
 
-A secret's declaration lives in one of **five schema locations**, and that location — not
+A secret's declaration lives in one of **six schema locations**, and that location — not
 a naming convention — *is* its trust boundary: which process resolves it and which process
 (if any) ever sees the value inside a VM, in which command mode. This is a **structural**
 air-gap: a secret can't leak across a boundary by name collision, because each consumer
@@ -743,12 +813,13 @@ reads its own bucket, not a flat merged list.
 | `secrets` (root) | host, at `chat`/`dispatch` time | injected | injected | the agent process |
 | `collaborators.*.secrets` | host, at `chat` time, `<common>`-merged | injected | — | the collaborator session (usually just `GITHUB_TOKEN` for `gh`/`git`; most other access rides connectors) |
 | `workers.*.secrets` | host, resolved lazily right before the agent step, `<common>`-merged | — | injected (agent step only) | the dispatched agent process |
+| `teammates.*.secrets` | host, at `at-cove teammate` launch, `<common>`-merged | — | — (its own command, not `chat`/`work`/`dispatch`) | `at-switchboard`, the standing Discord conductor (usually just `DISCORD_BOT_TOKEN`) |
 | `source-control.{github,gitlab}.secrets` | host, resolved fresh per git step (minted for GitHub; supplied for GitLab — see [gitlab secrets](#source-controlgitlabsecrets)) | — | injected (git steps only) | `at-task prepare`/`complete` only |
 | `tracker.{linear,github}.secrets` | host, scheduler-only | — | — (never reaches a VM) | `at-cove dispatch` (a later plan) |
 
 Every bucket is **demand-only** in the kit — a name plus a `description`. The supply
 mechanics (the two host files, the four sources, precedence, the anti-mining invariant,
-fail-closed behavior) are the same across all five buckets and documented once, in
+fail-closed behavior) are the same across all six buckets and documented once, in
 [at-cove-secrets.md](at-cove-secrets.md) — this table only draws the boundaries between them.
 In particular, an Anthropic agent bearer (`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`) must
 live in the `workers.*.secrets` row and is rejected in **every other** row — see
@@ -849,14 +920,14 @@ the template kit for `at-cove dispatch`.
   class omits `prompt`; a `timeout` isn't a positive Go duration; a `concurrency` is negative
   or an explicit `0` (omit it to inherit `<common>`; pause a class via tracker state);
   or a `workers.*.allowed-domains[i]` / `collaborators.*.allowed-domains[i]` entry is empty;
-- any **non-worker** bucket (`secrets` root, `collaborators.*.secrets`,
+- any **non-worker** bucket (`secrets` root, `collaborators.*.secrets`, `teammates.*.secrets`,
   `source-control.{github,gitlab}.secrets`, `tracker.linear.secrets`) declares
   `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` — an Anthropic agent bearer is legitimate
   only under `workers.<class>.secrets` (or `workers.<common>.secrets`); anywhere else it
   is injected into a `chat`/session env where it outranks the subscription login and
   disables connectors; see
   [at-cove-secrets.md](at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket);
-- a `secrets` name (map key) is empty at **any** of the five bucket locations;
+- a `secrets` name (map key) is empty at **any** of the six bucket locations;
 - `tracker` sets zero or more than one provider (exactly one of `linear` / `github`);
 - `tracker.linear.team` is missing, `poll-interval` isn't a positive Go duration, a `states`
   entry is missing, or `secrets` doesn't declare exactly `AT_DISPATCH_TRACKER_TOKEN` /
@@ -880,7 +951,12 @@ the template kit for `at-cove dispatch`.
   character, or shadows a `.git` directory; or two entries duplicate or collide once sanitized
   to the same volume name (see
   [collaborators.*class*.shadow-dirs](#collaboratorsclassshadow-dirs));
-- any `secrets` entry (at any of the five bucket locations) sets a field other than
+- a `teammates` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`,
+  `default`, or `discord`; a real class omits `discord`, or its `discord.channels` is empty,
+  or its `discord.bot-token-secret` is empty or doesn't name a secret declared in that class's
+  own `secrets` or `teammates.<common>.secrets`; or a `teammates.*.allowed-domains[i]` entry
+  is empty (see [teammates](#teammates));
+- any `secrets` entry (at any of the six bucket locations) sets a field other than
   `description` — most notably, a `command` under a kit secret is a hard parse error (see
   [at-cove-secrets.md](at-cove-secrets.md)).
 
