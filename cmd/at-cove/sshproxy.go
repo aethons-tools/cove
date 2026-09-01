@@ -16,31 +16,29 @@ import (
 //
 // The in→conn direction runs in the background: when in hits EOF (the local
 // ssh client has nothing left to send), it half-closes conn's write side
-// (CloseWrite) so the remote end sees EOF too, rather than yanking the whole
-// connection out from under any reply still in flight. The conn→out direction
-// runs in the foreground and is what actually decides when relay returns: it
-// keeps copying until the remote end closes (or errors), so a client that
-// finishes sending first still gets every byte the remote sends back before
-// relay returns. Racing both halves against a single "first one home wins"
-// select would truncate that reply — losing exactly the bytes a caller like
-// ssh needs.
+// (CloseWrite, best-effort) so the remote end sees EOF too, rather than
+// yanking the whole connection out from under any reply still in flight. The
+// conn→out direction runs in the foreground and is what actually decides when
+// relay returns: it returns as soon as the remote end closes (or errors) —
+// relay does NOT wait on the background goroutine. That asymmetry is
+// deliberate, not sloppy cleanup: in is typically stdin, an idle terminal
+// that outlives the remote hanging up, so a Read on it may never return. If
+// relay waited for both directions, a remote-initiated close (e.g. the
+// sandbox sshd exiting) would deadlock forever — doSSHProxy's defers would
+// never run and the parent ssh process would hang with no way out (OpenSSH
+// has no default keepalive). Once relay returns, doSSHProxy's caller tears
+// down the process, reclaiming the background goroutine along with it; it
+// does not need to be joined.
 func relay(conn net.Conn, in io.Reader, out io.Writer) error {
-	errc := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(conn, in)
+		_, _ = io.Copy(conn, in)
 		if cw, ok := conn.(interface{ CloseWrite() error }); ok {
-			cw.CloseWrite()
+			_ = cw.CloseWrite()
 		} else {
-			conn.Close()
+			_ = conn.Close()
 		}
-		errc <- err
 	}()
 	_, err := io.Copy(out, conn)
-	if err == nil {
-		err = <-errc
-	} else {
-		<-errc
-	}
 	return err
 }
 
