@@ -3,6 +3,7 @@ package switchboard
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,6 +15,7 @@ import (
 type fakeDiscord struct {
 	polls       [][]Message // one entry consumed per Poll call
 	pollAt      int
+	pollErrs    []error // indexed per Poll call; nil (or short) entries mean no error
 	posts       []Outbound
 	postErr     error               // if set, Post returns this instead of recording
 	seenCursors []map[string]string // copy of cursors received on each Poll call, in order
@@ -22,9 +24,17 @@ type fakeDiscord struct {
 }
 
 // Seed records that it was called and returns a copy of the configured seed
-// cursors (mirrors RESTClient.Seed's cold-start behavior).
+// cursors (mirrors RESTClient.Seed's cold-start behavior). When a test wires
+// up pollErrs (to exercise poll-retry behavior), Seed reserves index 0 of
+// the shared pollErrs/polls sequence for itself, so pollErrs/polls entries
+// can be authored in call order starting with the seed step ("seed-batch
+// ok, next poll errors, then ok") without every other, pollErrs-less test
+// having to pad its polls slice with a throwaway leading entry.
 func (f *fakeDiscord) Seed(_ context.Context) (map[string]string, error) {
 	f.seeded = true
+	if len(f.pollErrs) > 0 {
+		f.pollAt++
+	}
 	seed := map[string]string{}
 	for k, v := range f.seed {
 		seed[k] = v
@@ -33,17 +43,23 @@ func (f *fakeDiscord) Seed(_ context.Context) (map[string]string, error) {
 }
 
 func (f *fakeDiscord) Poll(_ context.Context, cursors map[string]string) ([]Message, map[string]string, error) {
+	idx := f.pollAt
+	f.pollAt++
+
 	seen := map[string]string{}
 	for k, v := range cursors {
 		seen[k] = v
 	}
 	f.seenCursors = append(f.seenCursors, seen)
 
-	var out []Message
-	if f.pollAt < len(f.polls) {
-		out = f.polls[f.pollAt]
+	if idx < len(f.pollErrs) && f.pollErrs[idx] != nil {
+		return nil, nil, f.pollErrs[idx]
 	}
-	f.pollAt++
+
+	var out []Message
+	if idx < len(f.polls) {
+		out = f.polls[idx]
+	}
 	nc := map[string]string{}
 	for k, v := range cursors {
 		nc[k] = v
@@ -73,6 +89,41 @@ func (a *fakeAgent) RunTurn(_ context.Context, input string) (TurnResult, error)
 	r := a.results[a.at]
 	a.at++
 	return r, nil
+}
+
+// fakeAgentFunc is a call-indexed agent: fn is given the zero-based turn
+// number and the rendered input, and decides the result (including whether
+// to error), letting a test script a specific turn (e.g. "the first turn
+// errors, every later turn exits").
+type fakeAgentFunc struct {
+	fn     func(i int, input string) (TurnResult, error)
+	at     int
+	inputs []string
+}
+
+func (a *fakeAgentFunc) RunTurn(_ context.Context, input string) (TurnResult, error) {
+	i := a.at
+	a.at++
+	a.inputs = append(a.inputs, input)
+	return a.fn(i, input)
+}
+
+// errorString is a minimal error type for tests that need a plain,
+// comparable-by-message error without pulling in errors.New's identity
+// semantics.
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+// contains reports whether s contains substr (a thin, test-local alias for
+// strings.Contains so assertions read plainly).
+func contains(s, substr string) bool { return strings.Contains(s, substr) }
+
+// errorsIsCanceled reports whether err is (or wraps) a context cancellation
+// or deadline signal — the one non-recoverable case the fail-soft loop must
+// still surface promptly.
+func errorsIsCanceled(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func TestRun_GetThenExit_PostsAndAdvancesCursor(t *testing.T) {
@@ -152,26 +203,95 @@ func TestRun_CursorsThreadBetweenPolls(t *testing.T) {
 	}
 }
 
-// TestRun_PostErrorAborts guards against the loop silently swallowing a Post
-// failure and pressing on: a regression here would act on the agent's
-// instruction (poll again, run another turn) as if the reply had actually
-// been delivered. It asserts Run surfaces the Post error and never calls the
-// agent a second time.
-func TestRun_PostErrorAborts(t *testing.T) {
-	wantErr := errors.New("discord: 429 rate limited")
-	// No polls needed: the first turn starts empty (seeded, cold start), and the
-	// agent's Post fails before any Poll call would happen.
-	d := &fakeDiscord{postErr: wantErr}
-	a := &fakeAgent{results: []TurnResult{
-		{Messages: []Outbound{{Channel: "cx", Content: "hello"}}, Action: ActionGet}, // first turn (empty inbox) posts anyway
-		{Action: ActionExit}, // must never be reached
-	}}
-	err := Run(context.Background(), Config{Sleep: noSleep}, d, a)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("err = %v, want wrapping %v", err, wantErr)
+// TestRun_PostErrorRecovers supersedes the old (fail-fast) A1 expectation
+// that a Post error aborts the loop: fail-soft means Run must now recover
+// from a Post error instead of returning it. It still guards the property
+// the fail-fast test protected — a failed delivery must never be treated as
+// delivered — by asserting the loop does NOT act on the failed turn's
+// action (it never consumes the poll batch tied to that action) and instead
+// re-enters with an empty inbox on the next turn.
+func TestRun_PostErrorRecovers(t *testing.T) {
+	postErr := errors.New("discord: 429 rate limited")
+	d := &fakeDiscord{
+		postErr: postErr,
+		polls: [][]Message{
+			{{ID: "1", Channel: "cx", Author: "sam", Content: "hi"}}, // must NOT be consumed: acting on ActionGet would poll this
+		},
 	}
-	if len(a.inputs) != 1 {
-		t.Fatalf("agent saw %d inputs, want 1 (loop must abort on Post error before acting on the action)", len(a.inputs))
+	a := &fakeAgentFunc{fn: func(i int, _ string) (TurnResult, error) {
+		if i == 0 {
+			// First turn (empty inbox, cold start): posts a reply and asks to
+			// `get`. The post fails.
+			return TurnResult{Messages: []Outbound{{Channel: "cx", Content: "hello"}}, Action: ActionGet}, nil
+		}
+		return TurnResult{Action: ActionExit}, nil
+	}}
+	var logged []string
+	cfg := Config{Sleep: noSleep, Log: func(s string) { logged = append(logged, s) }}
+	if err := Run(context.Background(), cfg, d, a); err != nil {
+		t.Fatalf("loop should recover from a post error, not return: %v", err)
+	}
+	if len(a.inputs) != 2 {
+		t.Fatalf("agent saw %d inputs, want 2 (loop must recover and re-enter, not abort)", len(a.inputs))
+	}
+	if a.inputs[1] != "There are no messages." {
+		t.Fatalf("failed post must not be treated as delivered: turn 1 input = %q, want the empty inbox, not the get poll's message", a.inputs[1])
+	}
+	if len(logged) == 0 {
+		t.Fatal("post failure not logged")
+	}
+}
+
+func TestRun_TurnErrorPostsNoticeAndContinues(t *testing.T) {
+	d := &fakeDiscord{seed: map[string]string{}, polls: [][]Message{{}, {}}}
+	a := &fakeAgentFunc{fn: func(i int, _ string) (TurnResult, error) {
+		switch i {
+		case 0:
+			return TurnResult{}, errorString("agent blew up")
+		default:
+			return TurnResult{Action: ActionExit}, nil
+		}
+	}}
+	var logged []string
+	cfg := Config{Sleep: noSleep, ErrorChannel: "ops", Log: func(s string) { logged = append(logged, s) }}
+	if err := Run(context.Background(), cfg, d, a); err != nil {
+		t.Fatalf("loop should recover, not return: %v", err)
+	}
+	if len(d.posts) != 1 || d.posts[0].Channel != "ops" || !contains(d.posts[0].Content, "error") {
+		t.Fatalf("turn failure not announced to ErrorChannel: %+v", d.posts)
+	}
+	if len(logged) == 0 {
+		t.Fatal("turn failure not logged")
+	}
+}
+
+func TestRun_PollErrorRetriesNotDies(t *testing.T) {
+	d := &fakeDiscord{
+		seed:     map[string]string{},
+		pollErrs: []error{nil, errorString("discord 503"), nil}, // seed-batch ok, next poll errors, then ok
+		polls:    [][]Message{{}, {}, {{ID: "9", Channel: "cx", Author: "sam", Content: "hi"}}},
+	}
+	a := &fakeAgent{results: []TurnResult{
+		{Action: ActionGet}, // triggers a poll that will error once then recover
+		{Action: ActionExit},
+	}}
+	cfg := Config{Sleep: noSleep}
+	if err := Run(context.Background(), cfg, d, a); err != nil {
+		t.Fatalf("poll error should be retried, not fatal: %v", err)
+	}
+	if a.inputs[1] != "New Discord messages:\n[#cx] sam: hi\n" {
+		t.Fatalf("did not recover the message after retry: %q", a.inputs[1])
+	}
+}
+
+func TestRun_CtxCancelStillReturns(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	d := &fakeDiscord{seed: map[string]string{}, polls: [][]Message{{}}}
+	a := &fakeAgent{results: []TurnResult{{Action: ActionWait}}}
+	cfg := Config{Sleep: func(context.Context, time.Duration) error { cancel(); return ctx.Err() }}
+	err := Run(ctx, cfg, d, a)
+	if !errorsIsCanceled(err) {
+		t.Fatalf("ctx cancel should return a cancellation error, got %v", err)
 	}
 }
 
