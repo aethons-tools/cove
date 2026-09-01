@@ -3,6 +3,7 @@ package switchboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +114,27 @@ func TestRESTClient_Post(t *testing.T) {
 	}
 }
 
+// TestRESTClient_PostDoesNotRetryOn5xx guards idempotency: retrying a Post
+// after a 5xx risks Discord having already created the message, so a second
+// attempt would duplicate the reply. Post must give up after exactly one
+// attempt on 5xx (unlike Poll/Seed, which keep retrying 5xx).
+func TestRESTClient_PostDoesNotRetryOn5xx(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := NewRESTClient("tok", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	err := c.Post(context.Background(), "chan1", "hello")
+	if err == nil {
+		t.Fatal("expected an error from a 500 response")
+	}
+	if calls != 1 {
+		t.Fatalf("HTTP attempts = %d, want 1 (Post must not retry on 5xx)", calls)
+	}
+}
+
 func TestRESTClient_PollRetriesOn429(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +152,7 @@ func TestRESTClient_PollRetriesOn429(t *testing.T) {
 	var slept int
 	c := NewRESTClient("tok", []string{"cx"},
 		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
-		WithSleep(func(time.Duration) { slept++ }))
+		WithSleep(func(ctx context.Context, d time.Duration) error { slept++; return nil }))
 	msgs, _, err := c.Poll(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -140,5 +162,97 @@ func TestRESTClient_PollRetriesOn429(t *testing.T) {
 	}
 	if len(msgs) != 1 || msgs[0].Content != "ok" {
 		t.Fatalf("did not recover after retry: %+v", msgs)
+	}
+}
+
+// TestRESTClient_PollRetriesOn5xx guards that Poll (an idempotent GET) keeps
+// retrying on a 5xx response, recovering once the server starts returning
+// 200s — unlike Post, which must not retry 5xx (see
+// TestRESTClient_PostDoesNotRetryOn5xx).
+func TestRESTClient_PollRetriesOn5xx(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "7", "content": "ok", "author": map[string]any{"username": "u"}},
+		})
+	}))
+	defer srv.Close()
+	var slept int
+	c := NewRESTClient("tok", []string{"cx"},
+		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
+		WithSleep(func(ctx context.Context, d time.Duration) error { slept++; return nil }))
+	msgs, _, err := c.Poll(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || slept != 1 {
+		t.Fatalf("expected 1 retry after 500: calls=%d slept=%d", calls, slept)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "ok" {
+		t.Fatalf("did not recover after retry: %+v", msgs)
+	}
+}
+
+// TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly guards against the
+// old bug where doWithRetry's ctx checks only bracketed the sleep call
+// itself: a ctx cancelled WHILE the sleep seam is blocked would previously
+// wait out the full backoff duration before doWithRetry noticed. This
+// injects a WithSleep that cancels the ctx and returns ctx.Err(), simulating
+// cancellation arriving mid-backoff, and asserts Poll returns a cancellation
+// error promptly with no further HTTP attempt after the cancel.
+func TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c := NewRESTClient("tok", []string{"cx"},
+		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
+		WithSleep(func(sctx context.Context, d time.Duration) error {
+			cancel()
+			return sctx.Err()
+		}))
+	_, _, err := c.Poll(ctx, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if calls != 1 {
+		t.Fatalf("HTTP attempts after cancel = %d, want 1 (no further attempt after cancel during backoff)", calls)
+	}
+}
+
+// TestRESTClient_PollCapsRetryAfter guards against honoring an unbounded
+// Discord Retry-After (e.g. 3600s) uninterruptibly: doWithRetry must cap the
+// wait it hands to the sleep seam at maxRetryAfter.
+func TestRESTClient_PollCapsRetryAfter(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer srv.Close()
+
+	var gotWait time.Duration
+	c := NewRESTClient("tok", []string{"cx"},
+		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
+		WithSleep(func(ctx context.Context, d time.Duration) error { gotWait = d; return nil }))
+	if _, _, err := c.Poll(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if gotWait > maxRetryAfter {
+		t.Fatalf("wait = %v, want capped at %v", gotWait, maxRetryAfter)
 	}
 }
