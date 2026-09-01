@@ -769,6 +769,7 @@ internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls be
 internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — status labels + closed=Done, body-convention blocker gating (read methods live; writes/wiring in progress)
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
+cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
