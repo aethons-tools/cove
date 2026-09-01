@@ -30,7 +30,7 @@ at-cove view <collaborator>            # print the config + git remote to stdout
 at-cove view --write <collaborator>    # upsert the Host block into ~/.ssh/config instead
 ```
 
-Either form resolves the collaborator's running instance (same rules as
+Either form resolves the collaborator's instance (same rules as
 `chat`/`status`) and prints a `git remote add sandbox …` line for
 `/home/agent/workspace`. `--write` additionally upserts a managed
 `Host cove-<container>` block into `~/.ssh/config` (creating `~/.ssh` at `0700`
@@ -45,15 +45,17 @@ enforced).
 ## Why the alias keeps working after `recreate`
 
 The sandbox's SSH port is ephemeral and its host key regenerates each boot. The
-generated Host block doesn't hardcode either: its `ProxyCommand` invokes `at-cove
+generated Host block hardcodes neither: its `ProxyCommand` invokes `at-cove
 ssh-proxy <collaborator>`, which resolves the instance and dials the backend for
 the *current* port at connect time, then relays stdin/stdout to it — so
 `HostName` in the block is just the alias itself, not a real host. Host-key trust
-is pinned per sandbox in `known_hosts.d/<container>` (`StrictHostKeyChecking
-accept-new`), and `at-cove destroy`/`recreate` reap that file when they tear the
-container down (COV-100) — so the next boot's regenerated key re-pins cleanly
-instead of tripping a mismatch. Re-run `at-cove view --write` only if you add a
-collaborator or move the kit; a plain `recreate` needs no re-run.
+uses the same per-sandbox TOFU pinning `chat` does — see [Verify host key
+(TOFU)](../OVERVIEW.md#secret-injection-the-chat-data-flow) for that mechanism.
+What's specific to this doc: `at-cove destroy`/`recreate` reap the per-sandbox
+`known_hosts.d/<container>` pin file when they tear the container down, so the
+next boot's regenerated key re-pins cleanly on reconnect instead of tripping a
+mismatch. Re-run `at-cove view --write` only if you add a collaborator or move
+the kit; a plain `recreate` needs no re-run.
 
 ## Break-glass shell
 
