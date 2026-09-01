@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRESTClient_PollReversesAndAdvancesCursor(t *testing.T) {
@@ -109,5 +110,35 @@ func TestRESTClient_Post(t *testing.T) {
 	}
 	if body["content"] != "hello world" {
 		t.Fatalf("posted body = %+v", body)
+	}
+}
+
+func TestRESTClient_PollRetriesOn429(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "7", "content": "ok", "author": map[string]any{"username": "u"}},
+		})
+	}))
+	defer srv.Close()
+	var slept int
+	c := NewRESTClient("tok", []string{"cx"},
+		WithBaseURL(srv.URL), WithHTTPClient(srv.Client()),
+		WithSleep(func(time.Duration) { slept++ }))
+	msgs, _, err := c.Poll(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || slept != 1 {
+		t.Fatalf("expected 1 retry after 429: calls=%d slept=%d", calls, slept)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "ok" {
+		t.Fatalf("did not recover after retry: %+v", msgs)
 	}
 }
