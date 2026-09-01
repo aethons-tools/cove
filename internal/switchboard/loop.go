@@ -61,13 +61,15 @@ func (c Config) logf(format string, args ...any) {
 }
 
 // Run drives the supervisor loop until the agent returns ActionExit or ctx is
-// cancelled. The loop is fail-soft: a turn, post, or poll error is logged,
-// announced (best-effort) to Config.ErrorChannel, and recovered by backing
-// off and re-entering with an empty inbox — it never returns for those. Only
-// ActionExit and ctx cancellation end the loop. The batch for each turn is
-// produced by the PREVIOUS action: the first turn seeds cursors and starts
-// with an empty batch (no channel history replay); `get` polls once (empty
-// ok); `wait` blocks until a poll returns something.
+// cancelled. The loop is fail-soft: a turn, post, or poll error is logged and
+// recovered by backing off and re-entering with an empty inbox — it never
+// returns for those. Only a turn or post failure is additionally announced
+// (best-effort) to Config.ErrorChannel; a poll error (see pollWithRetry) is
+// only logged, not announced, since it retries silently until it succeeds or
+// ctx is cancelled. Only ActionExit and ctx cancellation end the loop. The
+// batch for each turn is produced by the PREVIOUS action: the first turn
+// seeds cursors and starts with an empty batch (no channel history replay);
+// `get` polls once (empty ok); `wait` blocks until a poll returns something.
 func Run(ctx context.Context, cfg Config, d Discord, a Agent) error {
 	// Cold start: seed cursors at "now" so the first turn sees an empty inbox
 	// rather than replaying up to 100 lines of channel history as "new".

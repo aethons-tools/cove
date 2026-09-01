@@ -18,6 +18,7 @@ type fakeDiscord struct {
 	pollErrs    []error // indexed per Poll call; nil (or short) entries mean no error
 	posts       []Outbound
 	postErr     error               // if set, Post returns this instead of recording
+	postErrChan string              // if set, postErr only applies to Posts to this channel; other channels succeed
 	seenCursors []map[string]string // copy of cursors received on each Poll call, in order
 	seed        map[string]string   // cursors returned by Seed
 	seeded      bool                // set true once Seed is called
@@ -70,7 +71,7 @@ func (f *fakeDiscord) Poll(_ context.Context, cursors map[string]string) ([]Mess
 	return out, nc, nil
 }
 func (f *fakeDiscord) Post(_ context.Context, ch, content string) error {
-	if f.postErr != nil {
+	if f.postErr != nil && (f.postErrChan == "" || f.postErrChan == ch) {
 		return f.postErr
 	}
 	f.posts = append(f.posts, Outbound{Channel: ch, Content: content})
@@ -239,6 +240,41 @@ func TestRun_PostErrorRecovers(t *testing.T) {
 	}
 	if len(logged) == 0 {
 		t.Fatal("post failure not logged")
+	}
+}
+
+// TestRun_PostErrorNoticesErrorChannel guards the post-failure branch that
+// announces to Config.ErrorChannel: a fake whose Post fails only for the
+// reply's own channel ("cx"), with Config.ErrorChannel set to a DIFFERENT
+// channel ("ops"), must see a notice posted to "ops" and must recover (not
+// abort the loop).
+func TestRun_PostErrorNoticesErrorChannel(t *testing.T) {
+	postErr := errors.New("discord: 500 internal server error")
+	d := &fakeDiscord{
+		postErr:     postErr,
+		postErrChan: "cx",
+		polls: [][]Message{
+			{{ID: "1", Channel: "cx", Author: "sam", Content: "hi"}}, // must NOT be consumed
+		},
+	}
+	a := &fakeAgentFunc{fn: func(i int, _ string) (TurnResult, error) {
+		if i == 0 {
+			return TurnResult{Messages: []Outbound{{Channel: "cx", Content: "hello"}}, Action: ActionGet}, nil
+		}
+		return TurnResult{Action: ActionExit}, nil
+	}}
+	cfg := Config{Sleep: noSleep, ErrorChannel: "ops"}
+	if err := Run(context.Background(), cfg, d, a); err != nil {
+		t.Fatalf("loop should recover from a post error, not return: %v", err)
+	}
+	if len(d.posts) != 1 || d.posts[0].Channel != "ops" {
+		t.Fatalf("post failure not announced to ErrorChannel: %+v", d.posts)
+	}
+	if !contains(d.posts[0].Content, "cx") {
+		t.Fatalf("ErrorChannel notice should name the failed channel: %+v", d.posts[0])
+	}
+	if len(a.inputs) != 2 {
+		t.Fatalf("agent saw %d inputs, want 2 (loop must recover and re-enter)", len(a.inputs))
 	}
 }
 
