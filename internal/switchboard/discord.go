@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 )
 
 // RESTClient is the real Discord REST adapter. The bot token is sent only as the
@@ -16,6 +18,7 @@ type RESTClient struct {
 	channels []string
 	baseURL  string
 	http     *http.Client
+	sleep    func(context.Context, time.Duration) error
 }
 
 // RESTOption configures a RESTClient.
@@ -27,13 +30,94 @@ func WithBaseURL(u string) RESTOption { return func(c *RESTClient) { c.baseURL =
 // WithHTTPClient overrides the HTTP client (for tests).
 func WithHTTPClient(h *http.Client) RESTOption { return func(c *RESTClient) { c.http = h } }
 
+// WithSleep overrides the backoff sleep (for tests). The seam is ctx-aware so
+// a cancellation that arrives WHILE backoff is waiting returns promptly
+// instead of waiting out the full duration.
+func WithSleep(s func(context.Context, time.Duration) error) RESTOption {
+	return func(c *RESTClient) { c.sleep = s }
+}
+
+// ctxSleep is the default backoff sleep: it waits for d, but returns early
+// with ctx.Err() if ctx is cancelled first.
+func ctxSleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // NewRESTClient builds a Discord REST adapter for the given watched channels.
 func NewRESTClient(token string, channels []string, opts ...RESTOption) *RESTClient {
-	c := &RESTClient{token: token, channels: channels, baseURL: "https://discord.com/api/v10", http: http.DefaultClient}
+	c := &RESTClient{token: token, channels: channels, baseURL: "https://discord.com/api/v10", http: http.DefaultClient, sleep: ctxSleep}
 	for _, o := range opts {
 		o(c)
 	}
 	return c
+}
+
+// maxRetryAttempts caps the number of retry attempts for a 429/5xx response
+// (in addition to the initial attempt) before giving up and returning the
+// last response to the caller for normal status-code error handling.
+const maxRetryAttempts = 4
+
+// maxRetryAfter caps how long a Discord-supplied Retry-After is honored for.
+// A large Retry-After (e.g. 3600s) would otherwise stall a retry
+// uninterruptibly; capping it keeps backoff bounded and still ctx-cancellable.
+const maxRetryAfter = 30 * time.Second
+
+// doWithRetry performs the request built by newReq (called fresh on every
+// attempt so bodies are re-readable across retries — see Post) and retries on
+// HTTP 429, and on any 5xx response when retry5xx is true: it sleeps
+// (honoring Retry-After in seconds for 429 when present, capped at
+// maxRetryAfter, otherwise exponential backoff) and tries again, up to
+// maxRetryAttempts. A non-2xx status that isn't retried (e.g. 403, or a 5xx
+// when retry5xx is false) is returned immediately without retrying. Callers
+// pass retry5xx=true for idempotent GETs (Poll, Seed); Post passes false,
+// since retrying a 5xx after Discord may have already created the message
+// risks duplicating the reply. The sleep seam is ctx-aware, so a cancellation
+// that arrives WHILE backoff is waiting is observed promptly rather than
+// after the full duration elapses. The token never leaves the Authorization
+// header set by newReq — it is not part of the URL, logs, or errors, on the
+// initial attempt or any retry.
+func (c *RESTClient) doWithRetry(ctx context.Context, retry5xx bool, newReq func() (*http.Request, error)) (*http.Response, error) {
+	var resp *http.Response
+	for attempt := 0; attempt <= maxRetryAttempts; attempt++ {
+		req, err := newReq()
+		if err != nil {
+			return nil, err
+		}
+		resp, err = c.http.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		retryable := resp.StatusCode == http.StatusTooManyRequests || (retry5xx && resp.StatusCode >= 500)
+		if !retryable {
+			return resp, nil
+		}
+		if attempt == maxRetryAttempts {
+			return resp, nil
+		}
+		wait := time.Duration(1<<attempt) * time.Second
+		if resp.StatusCode == http.StatusTooManyRequests {
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, perr := strconv.Atoi(ra); perr == nil && secs > 0 {
+					wait = time.Duration(secs) * time.Second
+				}
+			}
+		}
+		if wait > maxRetryAfter {
+			wait = maxRetryAfter
+		}
+		resp.Body.Close()
+		if err := c.sleep(ctx, wait); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
 }
 
 type discordMessage struct {
@@ -51,17 +135,22 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 		nc[k] = v
 	}
 	var out []Message
+	// Single page of up to 100 messages per channel per poll. Discord's `after`
+	// is forward pagination (oldest-after-cursor), so a >100 backlog drains 100
+	// per poll across successive polls — bounded catch-up latency, never message loss.
 	for _, ch := range c.channels {
 		u := fmt.Sprintf("%s/channels/%s/messages?limit=100", c.baseURL, ch)
 		if after := cursors[ch]; after != "" {
 			u += "&after=" + url.QueryEscape(after)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		req.Header.Set("Authorization", "Bot "+c.token)
-		resp, err := c.http.Do(req)
+		resp, err := c.doWithRetry(ctx, true, func() (*http.Request, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Authorization", "Bot "+c.token)
+			return req, nil
+		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("switchboard: poll %s: %w", ch, err)
 		}
@@ -88,19 +177,57 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 	return out, nc, nil
 }
 
+// Seed returns per-channel cursors at the newest existing message id, without
+// returning the messages — so Run starts from an empty inbox. A channel with no
+// messages gets no cursor entry.
+func (c *RESTClient) Seed(ctx context.Context) (map[string]string, error) {
+	cursors := map[string]string{}
+	for _, ch := range c.channels {
+		u := fmt.Sprintf("%s/channels/%s/messages?limit=1", c.baseURL, ch)
+		resp, err := c.doWithRetry(ctx, true, func() (*http.Request, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Authorization", "Bot "+c.token)
+			return req, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("switchboard: seed %s: %w", ch, err)
+		}
+		var page []discordMessage
+		derr := json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("switchboard: seed %s: status %d", ch, resp.StatusCode)
+		}
+		if derr != nil {
+			return nil, fmt.Errorf("switchboard: seed %s decode: %w", ch, derr)
+		}
+		if len(page) > 0 {
+			cursors[ch] = page[0].ID // newest-first, so [0] is the latest
+		}
+	}
+	return cursors, nil
+}
+
 func (c *RESTClient) Post(ctx context.Context, channel, content string) error {
 	body, err := json.Marshal(map[string]string{"content": content})
 	if err != nil {
 		return err
 	}
 	u := fmt.Sprintf("%s/channels/%s/messages", c.baseURL, channel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bot "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	// Rebuild the request from the marshalled body bytes on every attempt so
+	// the body is re-readable across retries.
+	resp, err := c.doWithRetry(ctx, false, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bot "+c.token)
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return fmt.Errorf("switchboard: post %s: %w", channel, err)
 	}
