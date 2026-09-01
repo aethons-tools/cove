@@ -124,7 +124,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 					return code
 				}
 				// stdout is the raw ssh byte channel; keep all diagnostics on stderr.
-				return exitCode("at-cove", doSSHProxy(collaborator, kitDir, r, os.Stdin, out, errw), errw)
+				return exitCode("at-cove", doSSHProxy(collaborator, kitDir, r, os.Stdin, out), errw)
 			}},
 			{Name: "view", Brief: "print an ssh/VS Code Remote-SSH config (and git remote) for the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("view", flag.ContinueOnError)

@@ -22,6 +22,47 @@ func TestUpsertManagedBlock_AppendThenIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpsertManagedBlock_MultiAliasCoexistence(t *testing.T) {
+	cfg := UpsertManagedBlock("", "cove-a", "Host cove-a\n    Port 111\n")
+	cfg = UpsertManagedBlock(cfg, "cove-b", "Host cove-b\n    Port 222\n")
+	bBlock := extractBlock(t, cfg, "cove-b")
+
+	// Re-upsert cove-a with new content; cove-b's block must be untouched.
+	cfg = UpsertManagedBlock(cfg, "cove-a", "Host cove-a\n    Port 333\n")
+
+	if strings.Contains(cfg, "Port 111") {
+		t.Fatalf("old cove-a block not replaced:\n%s", cfg)
+	}
+	if !strings.Contains(cfg, "Port 333") {
+		t.Fatalf("new cove-a block missing:\n%s", cfg)
+	}
+	if got := extractBlock(t, cfg, "cove-b"); got != bBlock {
+		t.Fatalf("cove-b block was not left byte-for-byte intact:\n--- before ---\n%s\n--- after ---\n%s", bBlock, got)
+	}
+	for _, alias := range []string{"cove-a", "cove-b"} {
+		if n := strings.Count(cfg, "at-cove managed block: "+alias+" >>>"); n != 1 {
+			t.Fatalf("expected exactly one block for %s, got %d:\n%s", alias, n, cfg)
+		}
+	}
+}
+
+// extractBlock returns the alias's managed block (markers inclusive) from cfg.
+func extractBlock(t *testing.T, cfg, alias string) string {
+	t.Helper()
+	begin := "# >>> at-cove managed block: " + alias + " >>>"
+	end := "# <<< at-cove managed block: " + alias + " <<<"
+	bi := strings.Index(cfg, begin)
+	if bi < 0 {
+		t.Fatalf("block for %s not found:\n%s", alias, cfg)
+	}
+	rel := strings.Index(cfg[bi:], end)
+	if rel < 0 {
+		t.Fatalf("block end for %s not found:\n%s", alias, cfg)
+	}
+	ei := bi + rel + len(end)
+	return cfg[bi:ei]
+}
+
 func TestUpsertManagedBlock_Replace(t *testing.T) {
 	first := UpsertManagedBlock("", "cove-demo", "Host cove-demo\n    Port 111\n")
 	second := UpsertManagedBlock(first, "cove-demo", "Host cove-demo\n    Port 222\n")

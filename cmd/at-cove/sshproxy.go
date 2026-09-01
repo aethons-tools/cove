@@ -58,7 +58,10 @@ func loadInstanceState(kitDir, collaborator string) (state.State, error) {
 
 // doSSHProxy is the ProxyCommand target: resolve the sandbox, discover its
 // current (rotating) ssh port via the backend Dial, and relay stdio to it.
-func doSSHProxy(collaborator, kitDir string, r runner.Runner, stdin io.Reader, stdout, stderr io.Writer) error {
+// stdout carries the raw ssh byte stream; there is no stderr parameter
+// because relay (see above) writes no diagnostics of its own — errors
+// propagate as the returned error, which the caller reports on its own stderr.
+func doSSHProxy(collaborator, kitDir string, r runner.Runner, stdin io.Reader, stdout io.Writer) error {
 	st, err := loadInstanceState(kitDir, collaborator)
 	if err != nil {
 		return err

@@ -33,9 +33,11 @@ at-cove view --write <collaborator>    # upsert the Host block into ~/.ssh/confi
 Either form resolves the collaborator's instance (same rules as
 `chat`/`status`) and prints a `git remote add sandbox …` line for
 `/home/agent/workspace`. `--write` additionally upserts a managed
-`Host cove-<container>` block into `~/.ssh/config` (creating `~/.ssh` at `0700`
-and the file at `0600` if absent) and confirms the path instead of printing the
-block.
+`Host cove-<container>` block into `~/.ssh/config` and confirms the path
+instead of printing the block. If `~/.ssh` or the config file doesn't exist
+yet, `--write` creates them at `0700`/`0600`; an existing file's permissions
+are left as they already were — `--write` only ever appends/replaces its own
+managed block, it does not `chmod` a file that's already there.
 
 Then in VS Code: **Remote-SSH: Connect to Host…** → `cove-<container>`. Open
 `/home/agent/workspace`. Browse, read, watch the built-in Source Control diff,
@@ -48,14 +50,19 @@ The sandbox's SSH port is ephemeral and its host key regenerates each boot. The
 generated Host block hardcodes neither: its `ProxyCommand` invokes `at-cove
 ssh-proxy <collaborator>`, which resolves the instance and dials the backend for
 the *current* port at connect time, then relays stdin/stdout to it — so
-`HostName` in the block is just the alias itself, not a real host. Host-key trust
-uses the same per-sandbox TOFU pinning `chat` does — see [Verify host key
-(TOFU)](../OVERVIEW.md#secret-injection-the-chat-data-flow) for that mechanism.
-What's specific to this doc: `at-cove destroy`/`recreate` reap the per-sandbox
-`known_hosts.d/<container>` pin file when they tear the container down, so the
-next boot's regenerated key re-pins cleanly on reconnect instead of tripping a
-mismatch. Re-run `at-cove view --write` only if you add a collaborator or move
-the kit; a plain `recreate` needs no re-run.
+`HostName` in the block is just the alias itself, not a real host. Host-key
+trust shares the same per-sandbox `known_hosts.d/<container>` *file* `chat`
+uses, and the same `accept-new` TOFU mechanism — see [Verify host key
+(TOFU)](../OVERVIEW.md#secret-injection-the-chat-data-flow). They don't share a
+pinned *entry*, though: `chat` keys its pin by `[host]:port` (the loopback
+endpoint it dials), while `view`'s pin is keyed by the alias `cove-<container>`
+(the literal `HostName` in the block above) — two different entries living in
+the same file. What's specific to this doc: `at-cove destroy`/`recreate` reap
+the whole per-sandbox `known_hosts.d/<container>` file when they tear the
+container down, so both pins go with it and the next boot's regenerated key
+re-pins cleanly on reconnect instead of tripping a mismatch. Re-run `at-cove
+view --write` only if you add a collaborator or move the kit; a plain
+`recreate` needs no re-run.
 
 ## Break-glass shell
 
