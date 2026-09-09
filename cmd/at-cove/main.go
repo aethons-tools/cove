@@ -652,26 +652,28 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	return m, nil
 }
 
-// instanceFor resolves a CLI collaborator positional against a kit config to the
-// instance identity (COV-71): the state.Instance key (Interactive for a kit that
-// defines no collaborators, else Instance(class)) and the backend name, which
-// keys the container and its -workspace/-agent-data volumes (all via naming —
-// COV-77). A plain (no-collaborator) kit uses container atcove-{kit} (volumes
-// atcove-{kit}-workspace/-agent-data); a class-keyed instance uses container
-// atcove-{kit}-{class} (volumes atcove-{kit}-{class}-workspace/-agent-data).
+// instanceFor resolves a CLI class positional (collaborator OR teammate,
+// COV-136) against a kit config to the instance identity (COV-71): the
+// state.Instance key (Interactive for a kit that defines no collaborators or
+// teammates, else Instance(class)), the resolved ClassKind (so callers can
+// treat a teammate as always-isolated without re-deriving it), and the
+// container name, which also keys the -workspace/-agent-data volumes (all via
+// naming — COV-77). A plain (no-class) kit uses container atcove-{kit}
+// (volumes atcove-{kit}-workspace/-agent-data); a class-keyed instance uses
+// container atcove-{kit}-{class} (volumes atcove-{kit}-{class}-workspace/-agent-data).
 // Resolution mirrors chat exactly: explicit class → that one; omitted → the
-// sole/default:true class (error if ambiguous); no collaborators → the plain
-// Interactive instance.
-func instanceFor(cfg kit.Config, collaborator string) (class string, hasCollab bool, instKey state.Instance, name string, err error) {
-	class, hasCollab, err = cfg.SelectCollaborator(collaborator)
+// sole/default:true class across both collaborators and teammates (error if
+// ambiguous); no collaborators or teammates → the plain Interactive instance.
+func instanceFor(cfg kit.Config, collaborator string) (name string, kind kit.ClassKind, instKey state.Instance, container string, err error) {
+	name, kind, err = cfg.SelectClass(collaborator)
 	if err != nil {
-		// An unknown/invalid collaborator class is a usage error (exit 2).
-		return "", false, state.Interactive, "", usageErr{err}
+		// An unknown/invalid class is a usage error (exit 2).
+		return "", kit.ClassNone, state.Interactive, "", usageErr{err}
 	}
-	if !hasCollab {
-		return "", false, state.Interactive, naming.Container(cfg.Name, ""), nil
+	if kind == kit.ClassNone {
+		return "", kit.ClassNone, state.Interactive, naming.Container(cfg.Name, ""), nil
 	}
-	return class, true, state.Instance(class), naming.Container(cfg.Name, class), nil
+	return name, kind, state.Instance(name), naming.Container(cfg.Name, name), nil
 }
 
 // lenientRunConfig loads a kit's frozen run-config (its collaborators tree) from
@@ -716,11 +718,11 @@ func doCreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout 
 		return err
 	}
 	cfg := m.RunConfig
-	class, hasCollab, instKey, name, err := instanceFor(cfg, collaborator)
+	class, kind, instKey, name, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
-	ws, err := sharedWorkspaceMount(cfg, kitDir, class, hasCollab)
+	ws, err := sharedWorkspaceMount(cfg, kitDir, class, kind)
 	if err != nil {
 		return err
 	}
@@ -732,9 +734,11 @@ func doCreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdout 
 // the .at-cove kit — is shareable, so a true flag yields a Shared bind-mount at
 // that (absolute) path, sharing the live .git with the host; absent/false (and any
 // no-collaborator kit) yields an Isolated volume. Arbitrary host paths are no
-// longer mountable.
-func sharedWorkspaceMount(cfg kit.Config, kitDir, class string, hasCollab bool) (backend.WorkspaceMount, error) {
-	if !hasCollab {
+// longer mountable. A teammate (COV-136) has no share-repo-dir/shadow-dirs concept
+// at all — it is always Isolated, and the collaborator resolver is never called
+// for one.
+func sharedWorkspaceMount(cfg kit.Config, kitDir, class string, kind kit.ClassKind) (backend.WorkspaceMount, error) {
+	if kind != kit.ClassCollaborator {
 		return backend.WorkspaceMount{Mode: backend.Isolated}, nil
 	}
 	role, err := cfg.ResolvedCollaborator(class)
@@ -854,10 +858,14 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		return err
 	}
 	cfg := m.RunConfig
-	class, hasCollab, instKey, _, err := instanceFor(cfg, collaborator)
+	class, kind, instKey, _, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
+	if kind == kit.ClassTeammate {
+		return usageErr{fmt.Errorf("%q is a teammate; launch it with `at-cove teammate %s` (use `at-cove view %s` or ssh to inspect)", class, class, class)}
+	}
+	hasCollab := kind == kit.ClassCollaborator
 	var role kit.Collaborator
 	if hasCollab {
 		if role, err = cfg.ResolvedCollaborator(class); err != nil {
@@ -1305,7 +1313,7 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdou
 		return err
 	}
 	cfg := m.RunConfig
-	class, hasCollab, instKey, name, err := instanceFor(cfg, collaborator)
+	class, kind, instKey, name, err := instanceFor(cfg, collaborator)
 	if err != nil {
 		return err
 	}
@@ -1326,7 +1334,7 @@ func doRecreate(collaborator, kitDir string, r runner.Runner, dryRun bool, stdou
 	ws := backend.WorkspaceMount{Mode: backend.Isolated}
 	if st, err := state.LoadFor(kitDir, instKey); err == nil && st.WorkspaceMode == "shared" {
 		ws = backend.WorkspaceMount{Mode: backend.Shared, HostPath: st.WorkspaceHostPath}
-		if hasCollab {
+		if kind == kit.ClassCollaborator {
 			role, err := cfg.ResolvedCollaborator(class)
 			if err != nil {
 				return err
