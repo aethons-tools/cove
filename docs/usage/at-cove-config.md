@@ -631,8 +631,8 @@ story, including the auth prerequisite (the first `at-cove teammate <class>` run
 signs in itself; no separate `chat` login is required).
 
 A class name must be unique across `collaborators` and `teammates`: declaring the
-same name in both is a fatal config error (`"<name>" is declared as both a
-collaborator and a teammate; class names must be unique`). `at-cove create`,
+same name in both is a fatal config error (`config.yml: "<name>" is declared as
+both a collaborator and a teammate; class names must be unique`). `at-cove create`,
 `recreate`, `destroy`, `status`, and `view` all resolve a class positional
 against both maps, so `at-cove create <class>` provisions a teammate-only class
 directly — no matching `collaborators.<class>` entry is needed or allowed.
