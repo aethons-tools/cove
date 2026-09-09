@@ -438,6 +438,82 @@ func (c Config) SelectCollaborator(explicit string) (string, bool, error) {
 	}
 }
 
+// ClassKind identifies which class map a selected instance class came from.
+type ClassKind int
+
+const (
+	ClassNone ClassKind = iota
+	ClassCollaborator
+	ClassTeammate
+)
+
+// selectableClassNames returns the sorted union of collaborator + teammate class
+// names (excluding <common>), for error messages.
+func (c Config) selectableClassNames() []string {
+	var names []string
+	for n := range c.Collaborators {
+		if n != commonKey {
+			names = append(names, n)
+		}
+	}
+	for n := range c.Teammates {
+		if n != commonKey {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// SelectClass resolves an optional class positional against both the collaborator
+// and teammate maps (kept name-disjoint by validation), returning the class name
+// and its kind. Empty explicit selects a sole/default class across the union;
+// ambiguity is an error.
+func (c Config) SelectClass(explicit string) (string, ClassKind, error) {
+	if explicit == commonKey {
+		return "", ClassNone, fmt.Errorf("%q is not a selectable class", commonKey)
+	}
+	if explicit != "" {
+		if _, ok := c.Collaborators[explicit]; ok {
+			return explicit, ClassCollaborator, nil
+		}
+		if _, ok := c.Teammates[explicit]; ok {
+			return explicit, ClassTeammate, nil
+		}
+		return "", ClassNone, fmt.Errorf("kit %q declares no collaborator or teammate %q (have: %s)", c.Name, explicit, strings.Join(c.selectableClassNames(), ", "))
+	}
+	type cand struct {
+		name string
+		kind ClassKind
+		def  bool
+	}
+	var cands []cand
+	for n, col := range c.Collaborators {
+		if n != commonKey {
+			cands = append(cands, cand{n, ClassCollaborator, col.Default})
+		}
+	}
+	for n, tm := range c.Teammates {
+		if n != commonKey {
+			cands = append(cands, cand{n, ClassTeammate, tm.Default})
+		}
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].name < cands[j].name })
+	switch len(cands) {
+	case 0:
+		return "", ClassNone, nil
+	case 1:
+		return cands[0].name, cands[0].kind, nil
+	default:
+		for _, cd := range cands {
+			if cd.def {
+				return cd.name, cd.kind, nil
+			}
+		}
+		return "", ClassNone, fmt.Errorf("kit %q has multiple classes; specify one of: %s", c.Name, strings.Join(c.selectableClassNames(), ", "))
+	}
+}
+
 // Config is the parsed contents of a kit's config.yml.
 type Config struct {
 	Name          string                  `yaml:"name"`
@@ -734,6 +810,14 @@ func ParseConfig(data []byte) (Config, error) {
 			if _, ok := tm.Secrets[tm.Discord.BotTokenSecret]; !ok {
 				return Config{}, fmt.Errorf("config.yml: teammates[%q].discord.bot-token-secret %q is not a declared secret", name, tm.Discord.BotTokenSecret)
 			}
+		}
+	}
+	for name := range cfg.Collaborators {
+		if name == commonKey {
+			continue
+		}
+		if _, dup := cfg.Teammates[name]; dup {
+			return Config{}, fmt.Errorf("config.yml: %q is declared as both a collaborator and a teammate; class names must be unique", name)
 		}
 	}
 	if err := validateModelProvider(cfg); err != nil {

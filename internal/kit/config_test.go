@@ -813,6 +813,47 @@ func TestSelectCollaborator(t *testing.T) {
 	}
 }
 
+func TestSelectClass(t *testing.T) {
+	cfg := Config{Name: "k",
+		Collaborators: map[string]Collaborator{"planner": {}},
+		Teammates:     map[string]Teammate{"helper": {Discord: &DiscordConfig{Channels: []string{"1"}, BotTokenSecret: "T"}, Secrets: map[string]SecretConfig{"T": {}}}},
+	}
+	if c, k, err := cfg.SelectClass("planner"); err != nil || c != "planner" || k != ClassCollaborator {
+		t.Fatalf("planner => %q/%v/%v", c, k, err)
+	}
+	if c, k, err := cfg.SelectClass("helper"); err != nil || c != "helper" || k != ClassTeammate {
+		t.Fatalf("helper => %q/%v/%v", c, k, err)
+	}
+	if _, _, err := cfg.SelectClass("nope"); err == nil {
+		t.Fatal("unknown class should error")
+	}
+	if _, _, err := cfg.SelectClass(""); err == nil {
+		t.Fatal("ambiguous (2 classes, no default) should error")
+	}
+	// sole teammate, no explicit => selected
+	solo := Config{Name: "k", Teammates: map[string]Teammate{"helper": {Discord: &DiscordConfig{Channels: []string{"1"}, BotTokenSecret: "T"}, Secrets: map[string]SecretConfig{"T": {}}}}}
+	if c, k, err := solo.SelectClass(""); err != nil || c != "helper" || k != ClassTeammate {
+		t.Fatalf("sole teammate => %q/%v/%v", c, k, err)
+	}
+}
+
+func TestParseConfig_RejectsCollaboratorTeammateNameCollision(t *testing.T) {
+	y := `
+name: k
+image: {}
+workers: {}
+collaborators:
+  dup: {}
+teammates:
+  dup:
+    discord: {channels: ["1"], bot-token-secret: T}
+    secrets: {T: {description: x}}
+`
+	if _, err := ParseConfig([]byte(y)); err == nil {
+		t.Fatal("a name declared as both collaborator and teammate must be rejected")
+	}
+}
+
 func TestResolvedWorkerDomainsUnion(t *testing.T) {
 	cfg := Config{Name: "k", Workers: map[string]Worker{
 		commonKey: {AllowedDomains: []string{"github.com", "pypi.org"}},
