@@ -2,12 +2,25 @@ package switchboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/runner"
+)
+
+// RunTurn failure modes, distinguishable with errors.Is so callers (notably the
+// `at-switchboard once` tracer) can diagnose accurately rather than guessing.
+var (
+	// ErrClaudeRun: the `claude` process itself failed to run to completion
+	// (e.g. not logged in, quota/auth error, crash) — no turn was produced.
+	ErrClaudeRun = errors.New("switchboard: claude did not run")
+	// ErrNoResult: claude ran but wrote no .switchboard/turn-result.json.
+	ErrNoResult = errors.New("switchboard: agent wrote no result file")
+	// ErrBadResult: the result file exists but did not parse as a TurnResult.
+	ErrBadResult = errors.New("switchboard: result file did not parse")
 )
 
 // ClaudeAgent runs one turn by shelling a headless `claude` with the turn input
@@ -42,25 +55,32 @@ func (a *ClaudeAgent) RunTurn(ctx context.Context, input string) (TurnResult, er
 	inputPath := filepath.Join(dir, "turn-input.txt")
 	resultPath := filepath.Join(dir, "turn-result.json")
 
-	if err := os.WriteFile(inputPath, []byte(turnProtocol+"\n\n"+input), 0o644); err != nil {
-		return TurnResult{}, fmt.Errorf("switchboard: write turn input: %w", err)
-	}
+	// Clear any stale result BEFORE writing input / running claude, so the file
+	// is present afterward only if THIS turn's claude wrote it — which lets
+	// callers trust its presence as a signal.
 	if err := os.Remove(resultPath); err != nil && !os.IsNotExist(err) {
 		return TurnResult{}, fmt.Errorf("switchboard: clear stale turn result: %w", err)
+	}
+	if err := os.WriteFile(inputPath, []byte(turnProtocol+"\n\n"+input), 0o644); err != nil {
+		return TurnResult{}, fmt.Errorf("switchboard: write turn input: %w", err)
 	}
 
 	// claude -p --continue "$(cat <inputPath>)" — run in workDir so --continue
 	// resumes this sandbox's rolling session.
 	cmd := fmt.Sprintf("cd %s && claude -p --continue \"$(cat %s)\"", shellQuote(a.workDir), shellQuote(inputPath))
 	if err := a.r.Run("sh", "-c", cmd); err != nil {
-		return TurnResult{}, fmt.Errorf("switchboard: claude turn: %w", err)
+		return TurnResult{}, fmt.Errorf("%w: %v", ErrClaudeRun, err)
 	}
 
 	data, err := os.ReadFile(resultPath)
 	if err != nil {
-		return TurnResult{}, fmt.Errorf("switchboard: read turn result: %w", err)
+		return TurnResult{}, fmt.Errorf("%w: %v", ErrNoResult, err)
 	}
-	return ParseTurnResult(data)
+	res, err := ParseTurnResult(data)
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("%w: %v", ErrBadResult, err)
+	}
+	return res, nil
 }
 
 // shellQuote POSIX single-quotes s for use in a /bin/sh -c command.

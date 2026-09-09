@@ -64,16 +64,20 @@ func buildConfig(getenv func(string) string) (switchboard.Config, []string, stri
 // run parses env-sourced config and drives the switchboard loop until it exits
 // or errors.
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	// `at-switchboard once ...` is a Discord-free tracer that runs a single
+	// claude turn against a canned message (see once.go). The default (no
+	// subcommand) is the standing poll loop that `at-cove teammate` launches.
+	if len(argv) > 0 && argv[0] == "once" {
+		return runOnce(argv[1:], getenv, stdout, stderr)
+	}
+
 	cfg, channels, token, err := buildConfig(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-switchboard:", err)
 		return 2
 	}
 
-	workDir := getenv("SWITCHBOARD_WORKDIR")
-	if workDir == "" {
-		workDir = "/home/agent/workspace"
-	}
+	workDir := resolveWorkDir(getenv)
 
 	d := switchboard.NewRESTClient(token, channels)
 	a := switchboard.NewClaudeAgent(runner.OS{}, workDir)
@@ -82,6 +86,16 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 1
 	}
 	return 0
+}
+
+// resolveWorkDir returns the sandbox workspace dir: $SWITCHBOARD_WORKDIR, else
+// the default. Shared by the loop (run) and the `once` tracer so they can't
+// silently diverge.
+func resolveWorkDir(getenv func(string) string) string {
+	if wd := getenv("SWITCHBOARD_WORKDIR"); wd != "" {
+		return wd
+	}
+	return "/home/agent/workspace"
 }
 
 // splitNonEmpty splits a comma-separated list, trimming whitespace and

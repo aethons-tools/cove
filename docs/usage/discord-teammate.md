@@ -166,6 +166,33 @@ on start, cleared on exit), the teammate's Discord egress delta is applied and
 detached conductor keeps running in the background, well after the launching
 command has exited.
 
+## Validating the agent side in isolation (`at-switchboard once`)
+
+Before wiring up a real bot, you can exercise the whole claude side of the
+pipeline — headless `claude -p --continue` and the `.switchboard/turn-result.json`
+contract — **without Discord or a bot token**. Inside a created, signed-in
+sandbox (`at-cove chat <class>` once to log in, then `at-cove chat --raw <class>`
+for a shell), run:
+
+```console
+$ at-switchboard once --message "say hello back"
+── turn input (as the agent sees it) ──
+New Discord messages:
+[#demo] tracer: say hello back
+── raw /home/agent/workspace/.switchboard/turn-result.json ──
+{"messages":[{"channel":"demo","content":"hello!"}],"action":"wait"}
+── verdict ──
+OK: action="wait", 1 message(s) the conductor would post:
+  → #demo: hello!
+```
+
+It feeds one canned message to a real agent turn and prints exactly what the
+conductor *would* post, plus a verdict. A `FAIL` verdict tells you which of the
+never-fully-exercised assumptions broke — the agent answering in prose instead
+of writing the result file (headless write-permission / prompt clarity), or an
+unparseable result — so you can fix the claude side in isolation before adding a
+bot. `--channel`/`--author` set the tags; `--message` reads stdin if omitted.
+
 ## See also
 
 - [at-cove-config.md](at-cove-config.md#collaborators) — the `collaborators.*`
