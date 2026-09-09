@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/kit"
 )
@@ -37,6 +38,10 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 	}
 
 	if err := writeAtTask(buildDir); err != nil {
+		return err
+	}
+
+	if err := writeSwitchboard(buildDir); err != nil {
 		return err
 	}
 
@@ -74,6 +79,30 @@ func writeAtTask(buildDir string) error {
 			b = nil // not staged → placeholder; hardening keeps the base's at-task
 		}
 		if err := os.WriteFile(filepath.Join(dir, "at-task-linux-"+arch), b, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeSwitchboard stages the embedded linux at-switchboard binaries into the
+// build context (buildDir/switchboard/at-switchboard-linux-<arch>), so the
+// sealed hardening layer can install the arch-matching one — mirrors
+// writeAtTask. Unlike at-task there is no base-image fallback binary to keep:
+// when the embed was not staged (a plain `go build` without scripts/build.sh),
+// a 0-byte placeholder is written instead, and hardening's install guard skips
+// it; `at-cove teammate` then errors clearly at launch if the binary is absent.
+func writeSwitchboard(buildDir string) error {
+	dir := filepath.Join(buildDir, "switchboard")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		b, err := atswitchboard.Binary(arch)
+		if err != nil {
+			b = nil // not staged → placeholder; caught at launch, not build
+		}
+		if err := os.WriteFile(filepath.Join(dir, "at-switchboard-linux-"+arch), b, 0o755); err != nil {
 			return err
 		}
 	}

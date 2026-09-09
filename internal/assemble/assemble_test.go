@@ -32,6 +32,19 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 	}
 }
 
+func TestWriteSwitchboard_WritesArchFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeSwitchboard(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		p := filepath.Join(dir, "switchboard", "at-switchboard-linux-"+arch)
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("missing %s: %v", p, err)
+		}
+	}
+}
+
 func TestAssembleLayersAndKey(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 

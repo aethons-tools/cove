@@ -142,6 +142,7 @@ the image; only `uninstall` removes the image.
 | `at-cove status [collaborator] [--project-dir DIR]` | With no positional, **list every instance** of the kit (class, running state, container, workspace mode). With a collaborator positional, show just that one instance's `running` / `stopped` / `absent`. Tolerates a stale/absent install. |
 | `at-cove view [collaborator] [--project-dir DIR] [--write]` | Print (or `--write` to `~/.ssh/config`) a VS Code Remote-SSH `Host` block plus a `git remote add` line for the resolved instance's workspace — connects over the same sandbox `sshd` `chat` uses, no new service or egress domain. See [workspace visibility](usage/workspace-visibility.md). |
 | `at-cove ssh-proxy [collaborator] [--project-dir DIR]` | The `ProxyCommand` transport the `view` config invokes: resolves the instance and relays stdio to its current (rotating) SSH port. Internal — not run directly. |
+| `at-cove teammate <class> [--project-dir DIR]` | Launch the standing Discord conductor (`at-switchboard`) into an already-created `teammates:` class instance: seed the saved OAuth login, stage the class's bot token + channels, apply its Discord egress (persists — no clear-on-exit), and start the conductor **detached** over a non-tty SSH. Fail-loud with no auto-restart — re-run to restart a dead conductor. See [discord-teammate.md](usage/discord-teammate.md). |
 | `at-cove version` | Print the build version. |
 | `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM. Reads `.state/install.json`, **verifies the install is current** (fails fast with `run at-cove install` if missing/stale), then runs the **pre-built installed image** — it never builds. Injects `--in` as the task, runs the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class`, extracts the result to `--out`, destroys. Scavenges crashed dispatch orphans. |
 | `at-cove dispatch [--project-dir DIR]` | Poll the tracker and dispatch ready work via `at-cove work`. Reads its tracker/source-control/dispatch/workers run-config from `.state/install.json` (fails fast with `run at-cove install` if missing/stale); dispatched `work` units consume the one warm installed image — no per-unit build. |
@@ -786,12 +787,14 @@ internal/install/             install.json manifest: Compile + currency hash + r
 internal/runner/              Runner interface (OS impl + Fake)
 ```
 
-This module builds **three binaries**: `at-cove` (the sandbox substrate, which
+This module builds **four binaries**: `at-cove` (the sandbox substrate, which
 also hosts the `dispatch` scheduler and the one-shot `work` runner), `at-task`
-(the git/PR worker), and `at-mint` (a host-side token minter invoked either as
+(the git/PR worker), `at-mint` (a host-side token minter invoked either as
 a secret's bare `command:` or assembled by at-cove from a `minters:` profile
-via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)). The scheduler
-drives work by shelling `at-cove work` — it never imports at-cove's
+via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)), and `at-switchboard`
+(the in-sandbox Discord conductor — embedded into the hardening layer the same
+way as at-task, see [Building, testing, running](#building-testing-running)).
+The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
@@ -804,8 +807,8 @@ The one-command installer ([`install.sh`](../install.sh) at the repo root) is th
 fastest way to get `at-cove` and `at-mint`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs both binaries. `at-task` ships **embedded** in `at-cove`, so it is not
-installed separately.
+and installs both binaries. `at-task` and `at-switchboard` ship **embedded** in
+`at-cove`, so neither is installed separately.
 
 The repo is **private** today, so the installer authenticates through your GitHub
 CLI login (`gh auth login`):

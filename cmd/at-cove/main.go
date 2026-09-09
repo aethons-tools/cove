@@ -112,6 +112,26 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				}
 				return exitCode("at-cove", doChat(collaborator, kitDir, r, g.DryRun, *raw, *noAuth, *fresh, out, errw), errw)
 			}},
+			{Name: "teammate", Brief: "launch a standing Discord conductor (at-switchboard) in the sandbox, detached", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
+				fs := flag.NewFlagSet("teammate", flag.ContinueOnError)
+				pd := projectDirFlag(fs)
+				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
+				if !ok {
+					return code
+				}
+				// Unlike chat's optional collaborator, the teammate class is
+				// required: there is no "sole/default" teammate to fall back to.
+				if len(pos) != 1 {
+					fmt.Fprintln(errw, "at-cove: teammate requires exactly one class (usage: at-cove teammate <class>)")
+					return 2
+				}
+				kitDir, err := resolveKit(*pd)
+				if err != nil {
+					fmt.Fprintln(errw, "at-cove:", err)
+					return 2
+				}
+				return exitCode("at-cove", doTeammate(pos[0], kitDir, r, g.DryRun, out, errw), errw)
+			}},
 			{Name: "ssh-proxy", Brief: "ProxyCommand transport to a sandbox (used by `at-cove view` configs)", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("ssh-proxy", flag.ContinueOnError)
 				pd := projectDirFlag(fs)
@@ -1015,6 +1035,126 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		ExtraEnv:           cfg.SessionEnv(),
 		Vertex:             vertexAuth,
 	})
+}
+
+// doTeammate mirrors doChat's spine (loadCurrentInstall -> resolve the class ->
+// state.LoadFor -> plan/resolve secrets -> getBackend -> apply session egress ->
+// hand off) with the teammate deltas: the class resolves against
+// cfg.Teammates (not Collaborators, and not optional — a teammate class has no
+// "sole/default" fallback, so class must be explicit), the only secret planned
+// is the class's bot token, and the launch is connect.LaunchTeammate's detached
+// setsid start rather than connect.Connect's blocking interactive session.
+//
+// Discord egress is applied but deliberately never cleared: unlike chat's
+// per-session scoping (which reverts an idle container to root-only on exit),
+// a teammate's widened egress must persist after this command returns, because
+// the conductor keeps running in the background long after the ssh command that
+// launched it has exited.
+func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stderr io.Writer) error {
+	if class == "" {
+		return usageErr{fmt.Errorf("usage: at-cove teammate <class>")}
+	}
+	m, err := loadCurrentInstall(kitDir)
+	if err != nil {
+		return err
+	}
+	cfg := m.RunConfig
+	tm, err := cfg.ResolvedTeammate(class)
+	if err != nil {
+		// An unknown/invalid teammate class is a usage error (exit 2), matching
+		// how instanceFor treats an unknown collaborator class.
+		return usageErr{err}
+	}
+	// Invariant: ParseConfig rejects any non-<common> teammates entry that lacks
+	// a discord block or has zero channels (internal/kit/config.go), so tm.Discord
+	// and tm.Discord.Channels[0] below are safe to dereference unchecked.
+
+	// The teammate class keys its own instance (mirrors collaborator instance
+	// keying, COV-71): state file <class>.json, container <kit>-<class>. The
+	// instance must already exist — `at-cove teammate` launches the conductor
+	// into an already-created sandbox, it does not create one (mirrors doChat,
+	// which likewise assumes `at-cove create` already ran).
+	instKey := state.Instance(class)
+	st, err := state.LoadFor(kitDir, instKey)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		fmt.Fprintf(stdout, "would launch at-switchboard for teammate %q on %s (channels %s)\n",
+			class, st.Container, strings.Join(tm.Discord.Channels, ","))
+		return nil
+	}
+
+	store, secretsPath, err := secretsStore()
+	if err != nil {
+		return err
+	}
+	kitPath := canonicalKitPath(kitDir)
+	expand := mint.Expander(r, store.Global, "") // teammate mints no github token into the session (connectors)
+	botTokenSpec, err := planRequired(store, expand, st.Name, kitPath, tm.Discord.BotTokenSecret, secretsPath)
+	if err != nil {
+		return err
+	}
+
+	b, err := getBackend(st.Backend, r)
+	if err != nil {
+		return err
+	}
+
+	lock, err := state.AcquireSharedFor(kitDir, instKey)
+	if err != nil {
+		if errors.Is(err, state.ErrLocked) {
+			return fmt.Errorf("sandbox %q is being destroyed; try again shortly", st.Container)
+		}
+		return err
+	}
+	defer lock.Release()
+
+	priv, _, err := keys.Ensure(r, configDir())
+	if err != nil {
+		return err
+	}
+	knownHostsDir := filepath.Join(configDir(), "known_hosts.d")
+	if err := os.MkdirAll(knownHostsDir, 0o700); err != nil {
+		return err
+	}
+
+	// Scope the container's egress to this teammate class (discord.com, plus any
+	// other <common> ∪ class domains) — same delivery op chat uses (COV-39 §5),
+	// but with NO clear-on-exit: a teammate's Discord egress must survive after
+	// this command returns, since the conductor it just launched keeps running.
+	eg, ok := b.(backend.SessionEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support session egress (required to scope the teammate's allow-list)")
+	}
+	domains, err := cfg.ResolvedTeammateDomains(class)
+	if err != nil {
+		return err
+	}
+	if err := eg.ApplySessionEgress(st.Container, domains); err != nil {
+		return fmt.Errorf("apply session egress: %w", err)
+	}
+
+	errorChannel := tm.Discord.ErrorChannel
+	if errorChannel == "" {
+		errorChannel = tm.Discord.Channels[0]
+	}
+
+	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
+		Container:       st.Container,
+		BotTokenSpec:    botTokenSpec,
+		Channels:        tm.Discord.Channels,
+		ErrorChannel:    errorChannel,
+		IdentityFile:    priv,
+		KnownHostsFile:  filepath.Join(knownHostsDir, st.Container),
+		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
+		Stderr:          stderr,
+	}); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "teammate %q launched on %s; tail /agent-data/switchboard.log there to follow it\n", class, st.Container)
+	return nil
 }
 
 // workspaceClonePlan decides whether a chat session should clone the target repo

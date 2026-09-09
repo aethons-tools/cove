@@ -923,6 +923,73 @@ func TestParseConfigCollaboratorDomainsParsedAndValidated(t *testing.T) {
 	}
 }
 
+func TestParseConfig_TeammateClass(t *testing.T) {
+	y := `
+name: k
+image: {}
+workers: {}
+teammates:
+  <common>:
+    allowed-domains: [example.com]
+  helper:
+    prompt: be helpful
+    secrets:
+      DISCORD_BOT_TOKEN: {description: bot}
+    allowed-domains: [discord.com]
+    discord:
+      channels: ["111", "222"]
+      error-channel: "999"
+      bot-token-secret: DISCORD_BOT_TOKEN
+`
+	cfg, err := ParseConfig([]byte(y))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, err := cfg.ResolvedTeammate("helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm.Discord == nil || len(tm.Discord.Channels) != 2 || tm.Discord.BotTokenSecret != "DISCORD_BOT_TOKEN" {
+		t.Fatalf("discord block wrong: %+v", tm.Discord)
+	}
+	doms, err := cfg.ResolvedTeammateDomains("helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// <common> ∪ own, deduped+sorted
+	if !containsStr(doms, "discord.com") || !containsStr(doms, "example.com") {
+		t.Fatalf("domains not unioned: %v", doms)
+	}
+}
+
+func TestParseConfig_TeammateRejectsMissingDiscord(t *testing.T) {
+	y := `
+name: k
+image: {}
+workers: {}
+teammates:
+  helper:
+    secrets: {DISCORD_BOT_TOKEN: {description: x}}
+`
+	if _, err := ParseConfig([]byte(y)); err == nil {
+		t.Fatal("expected error: teammate class needs a discord block")
+	}
+}
+
+func TestParseConfig_TeammateRejectsUndeclaredTokenSecret(t *testing.T) {
+	y := `
+name: k
+image: {}
+workers: {}
+teammates:
+  helper:
+    discord: {channels: ["1"], bot-token-secret: NOPE}
+`
+	if _, err := ParseConfig([]byte(y)); err == nil {
+		t.Fatal("expected error: bot-token-secret must be a declared secret")
+	}
+}
+
 func TestParseConfig_VertexValid(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k

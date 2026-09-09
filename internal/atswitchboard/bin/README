@@ -1,0 +1,6 @@
+at-switchboard binaries embedded into at-cove for version lockstep (COV-36).
+
+This placeholder keeps `//go:embed bin` compiling in a fresh checkout. The
+real per-arch binaries (at-switchboard-linux-amd64, at-switchboard-linux-arm64)
+are staged here by scripts/build.sh / the release workflow before at-cove is
+built, and are gitignored.
