@@ -1,10 +1,10 @@
 ---
-summary: The operator guide to `at-cove teammate` — the standing Discord conductor (`at-switchboard`), the `teammates.<class>` config block, the one-time login prerequisite, and the known create-lifecycle gap (COV-136).
+summary: The operator guide to `at-cove teammate` — the standing Discord conductor (`at-switchboard`), the `teammates.<class>` config block, and the one-time login handled by the first launch.
 read_when: You are declaring a `teammates.<class>` block, standing up a Discord-reachable teammate sandbox, or debugging why a launched conductor isn't posting/replying.
-owns: the `at-cove teammate` usage story — the `teammates:` config shape, the auth prerequisite, the detached/fail-loud launch model, Discord egress, and the create-lifecycle workaround for a teammate-only class
+owns: the `at-cove teammate` usage story — the `teammates:` config shape, the create→teammate provisioning flow, the auth prerequisite, the detached/fail-loud launch model, and Discord egress
 prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#collaborators for the collaborator class shape this mirrors; at-cove-secrets.md for the secret demand/supply model
 tier: leaf
-updated: 2026-09-01
+updated: 2026-09-09
 ---
 
 # The Discord teammate (`at-cove teammate`)
@@ -56,27 +56,57 @@ host-side and staged into the sandbox over SSH stdin (tmpfs, never disk or
 argv) — the same demand/supply model as any other secret; see
 [at-cove-secrets.md](at-cove-secrets.md).
 
-## Auth prerequisite: sign in once via `chat` first
+## Provisioning: `create` then `teammate`
+
+A `teammates.<class>` block is provisioned the same way a `collaborators.<class>`
+one is: `at-cove create <class>` resolves the class positional against **both**
+the `collaborators:` and `teammates:` maps (`instanceFor` → `Config.SelectClass`)
+and provisions the isolated sandbox directly — no matching `collaborators.<class>`
+entry is needed or allowed (config parsing rejects a name declared in both maps
+as a fatal error). Then launch the conductor into that instance:
+
+```console
+$ at-cove create helper     # provisions the sandbox for the teammate class
+$ at-cove teammate helper   # signs in (first run only) and launches the conductor
+```
+
+`recreate`, `destroy`, `status`, and `view` all resolve a teammate class the same
+way. `at-cove chat` does not: it rejects a teammate-class positional outright
+with a usage error — `"<class>" is a teammate; launch it with at-cove teammate
+<class>` — so a teammate is never launched or inspected through `chat`.
+
+## Auth prerequisite: the first `teammate` launch signs you in
 
 The conductor does **not** carry its own bearer credential — it authenticates as
 `claude` the same way an interactive session does, by reusing the **subscription
-OAuth login saved on the `/agent-data` volume**. Before the first `at-cove
-teammate <class>` launch, sign in once with an ordinary interactive session
-against the same kit:
+OAuth login saved on the `/agent-data` volume**. You do not need a separate
+`at-cove chat` session to seed it: `at-cove teammate <class>` performs the
+one-time sign-in itself.
 
-```console
-$ at-cove chat <any-collaborator-in-this-kit>
-# complete the one-time `claude auth login --claudeai` prompt
-```
+`at-cove teammate` runs the auth step (`ensureAuthenticated`,
+[`internal/connect/teammate.go`](../../internal/connect/teammate.go)) **before**
+backgrounding the conductor, over the same foreground SSH connection the CLI
+command itself is running on — not inside the detached process. Concretely, on
+each run:
 
-That login is kept in a host-side copy (`~/.config/at-cove/credentials.json`) and
-reseeded into **every** instance of the kit — including a teammate instance — before
-each launch, so one sign-in covers every collaborator and teammate class the kit
-defines; see [Authentication](../OVERVIEW.md#authentication). Do this first: a
-teammate instance is launched **detached** (see below) precisely so the launching
-`at-cove teammate` command returns as soon as the conductor is backgrounded — an
-unauthenticated first run would instead block that command on an interactive OAuth
-prompt, defeating the point of a quick, reconnectable launch.
+1. it seeds any host-saved login (`~/.config/at-cove/credentials.json`) into the
+   VM and probes `claude auth status`;
+2. if that probe reports **not logged in** (the very first launch of any
+   instance under this kit, on any collaborator or teammate class), it runs
+   `claude auth login --claudeai` over an interactive `ssh -tt` connection with
+   the real terminal's stdin/stdout attached — so the OAuth prompt appears right
+   there in the terminal where you typed `at-cove teammate <class>`, and the
+   command blocks until you complete it;
+3. a fresh login is saved back to the host copy, so it's reused by every other
+   collaborator and teammate instance in the kit without asking again; see
+   [Authentication](../OVERVIEW.md#authentication).
+
+Because step 2 needs a real terminal attached to the invoking process, run the
+first `at-cove teammate <class>` for a kit by hand, interactively — not from a
+script or a non-interactive trigger. Once any instance in the kit has signed in
+once (via `chat` or `teammate`), every subsequent `at-cove teammate` launch reuses
+the saved login silently and returns as soon as the conductor is backgrounded,
+with no prompt.
 
 ## Running it
 
@@ -86,11 +116,11 @@ teammate "<class>" launched on atcove-<kit>-<class>; tail /agent-data/switchboar
 ```
 
 This assumes the sandbox already exists — `at-cove teammate` launches the
-conductor into an **already-created** instance, it does not create one (see
-[Create prerequisite](#create-prerequisite-the-teammate-only-gap-cov-136) below
-if the class isn't provisionable by `at-cove create` yet). On each run it:
+conductor into an **already-created** instance ([Provisioning](#provisioning-create-then-teammate)
+above), it does not create one. On each run it:
 
-1. resolves and seeds the saved login (above);
+1. resolves and seeds the saved login, signing in interactively on the first
+   run for the kit (above);
 2. resolves the class's bot-token secret and stages it, plus the watched
    channels, into the sandbox's tmpfs env file over SSH stdin;
 3. applies the class's Discord egress delta to the running container;
@@ -113,67 +143,28 @@ $ at-cove teammate <class>            # just re-run it to restart
 `/agent-data/switchboard.log` lives on the persistent `-agent-data` volume, so it
 survives the SSH channel closing and a `recreate`.
 
-**Do not inspect a running teammate with `at-cove chat`/`at-cove work` against
-the same container.** Both apply *session* egress on start and — via a deferred
-`ApplySessionEgress(container, nil)` — **clear it on exit**. A teammate's
-container has only one active egress scope at a time, so a `chat`/`work` session
-against it silently revokes the running conductor's `discord.com` egress the
-moment that session ends, and the conductor goes quiet in Discord with no error
-of its own. If you must run one anyway (e.g. to debug from inside), **re-run
-`at-cove teammate <class>` immediately after it exits** to reapply Discord
-egress. Prefer `at-cove view <class>` (above) or a direct SSH session, neither
-of which touches egress. This is tracked as **COV-137** ("one egress scope per
-shared container") — largely resolved once **COV-136** gives each teammate its
-own container.
+**`at-cove chat`/`at-cove work` can't clobber a teammate's egress.** An earlier
+revision of this doc warned that inspecting a running teammate with `chat`
+against the same container would silently revoke the conductor's Discord egress
+on session exit (tracked as **COV-137**, "one egress scope per shared
+container"). That warning applied when a teammate shared its container with a
+same-named `collaborators.<class>` entry (the now-removed dual-declaration
+workaround for provisioning). Now that class names are unique across both maps
+(a name declared in both is a fatal config error), a teammate always has its
+own container, and `chat` rejects a teammate-class positional outright — so
+`chat` can never resolve to a teammate's container, and this can no longer
+happen.
+`at-cove work` is unrelated: it dispatches ephemeral, separately-labeled
+containers from the `workers:` map, never a teammate's persistent instance. The
+residual, truthful caveat: `at-cove view <class>` and a direct SSH session never
+touch egress, so they remain the safe way to inspect a live teammate from
+outside `at-cove teammate` itself.
 
 **Discord egress persists.** Unlike a `chat` session's per-class egress (applied
 on start, cleared on exit), the teammate's Discord egress delta is applied and
 **never cleared** by `at-cove teammate` — it must remain open for as long as the
 detached conductor keeps running in the background, well after the launching
-command has exited. See the warning above for why a *later* `chat`/`work`
-session on the same container undoes this.
-
-## Create prerequisite: the teammate-only gap (COV-136)
-
-`at-cove create <class>` resolves its class positional only against
-`collaborators:` (`instanceFor` → `Config.SelectCollaborator`) — it does not look
-at `teammates:` at all. So a class that exists **only** under `teammates:` cannot
-be provisioned by `at-cove create` today: `create <class>` fails with `kit "…"
-declares no collaborator "<class>"`. This is a known, tracked gap — **COV-136** —
-not yet fixed.
-
-**Verified workaround.** `at-cove create`/`chat` and `at-cove teammate` key their
-instance identically — both derive `state.Instance(class)` and container
-`atcove-<kit>-<class>` from the bare class name (`internal/naming.Container`),
-with no cross-check between the `collaborators:` and `teammates:` maps. So
-declaring a **minimal matching `collaborators.<class>` entry** alongside the
-`teammates.<class>` block provisions the exact same instance `at-cove teammate`
-later launches into:
-
-```yaml
-collaborators:
-  helper: {}          # minimal entry — just to make `create` provision the instance
-teammates:
-  helper:
-    prompt: "..."
-    secrets: { DISCORD_BOT_TOKEN: { description: "..." } }
-    allowed-domains: [discord.com]
-    discord:
-      channels: ["123456789012345678"]
-      bot-token-secret: DISCORD_BOT_TOKEN
-```
-
-```console
-$ at-cove create helper     # provisions the sandbox (via the collaborators entry)
-$ at-cove chat helper       # one-time sign-in (see Auth prerequisite above)
-$ at-cove teammate helper   # launches the conductor into that same sandbox
-```
-
-The two blocks are independent — an empty `collaborators.helper: {}` adds no
-`prompt` and no extra egress; it exists solely so `create`/`chat` can resolve and
-provision the class. Once COV-136 removes the gap, `at-cove create <class>` will
-provision a teammate-only class directly and this extra `collaborators.<class>`
-entry becomes unnecessary.
+command has exited.
 
 ## See also
 
