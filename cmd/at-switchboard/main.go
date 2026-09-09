@@ -64,6 +64,13 @@ func buildConfig(getenv func(string) string) (switchboard.Config, []string, stri
 // run parses env-sourced config and drives the switchboard loop until it exits
 // or errors.
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	// `at-switchboard once ...` is a Discord-free tracer that runs a single
+	// claude turn against a canned message (see once.go). The default (no
+	// subcommand) is the standing poll loop that `at-cove teammate` launches.
+	if len(argv) > 0 && argv[0] == "once" {
+		return runOnce(argv[1:], getenv, stdout, stderr)
+	}
+
 	cfg, channels, token, err := buildConfig(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-switchboard:", err)
