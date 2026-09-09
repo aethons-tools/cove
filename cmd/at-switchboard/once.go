@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,23 +26,29 @@ func runOnce(args []string, getenv func(string) string, out, errw io.Writer) int
 	msg := fs.String("message", "", "message content to feed the agent (reads stdin if empty)")
 	channel := fs.String("channel", "demo", "channel id/name to tag the message with")
 	author := fs.String("author", "tracer", "author name to tag the message with")
-	workdir := fs.String("workdir", getenv("SWITCHBOARD_WORKDIR"), "workspace dir (default $SWITCHBOARD_WORKDIR or /home/agent/workspace)")
+	workdir := fs.String("workdir", "", "workspace dir (default $SWITCHBOARD_WORKDIR or /home/agent/workspace)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	wd := *workdir
 	if wd == "" {
-		wd = "/home/agent/workspace"
+		wd = resolveWorkDir(getenv)
 	}
 
 	content := strings.TrimSpace(*msg)
 	if content == "" {
+		// Only read stdin when it's actually piped/redirected — on an interactive
+		// terminal io.ReadAll would block forever waiting for EOF.
+		if fi, _ := os.Stdin.Stat(); fi != nil && fi.Mode()&os.ModeCharDevice != 0 {
+			fmt.Fprintln(errw, "at-switchboard once: no message (use --message, or pipe it on stdin)")
+			return 2
+		}
 		b, _ := io.ReadAll(os.Stdin)
 		content = strings.TrimSpace(string(b))
 	}
 	if content == "" {
-		fmt.Fprintln(errw, "at-switchboard once: no message (use --message or pipe it on stdin)")
+		fmt.Fprintln(errw, "at-switchboard once: no message (use --message, or pipe it on stdin)")
 		return 2
 	}
 
@@ -72,13 +79,22 @@ func doOnce(a switchboard.Agent, input, workDir string, out io.Writer) int {
 
 	fmt.Fprintln(out, "── verdict ──")
 	if turnErr != nil {
-		if readErr != nil {
-			fmt.Fprintf(out, "FAIL: the agent did not write a result file (%v)\n", turnErr)
+		// Diagnose from the ACTUAL failure (via errors.Is), not from whether a
+		// file happens to exist — the most common failure is claude exiting
+		// non-zero, which must not be mislabeled as "answered in prose".
+		switch {
+		case errors.Is(turnErr, switchboard.ErrClaudeRun):
+			fmt.Fprintf(out, "FAIL: claude itself did not run a turn (%v)\n", turnErr)
+			fmt.Fprintln(out, "→ likely not signed in, or an auth/quota error. Run `claude auth status` in this sandbox.")
+		case errors.Is(turnErr, switchboard.ErrNoResult):
+			fmt.Fprintf(out, "FAIL: claude ran but wrote no result file (%v)\n", turnErr)
 			fmt.Fprintln(out, "→ the agent likely answered in prose instead of writing .switchboard/turn-result.json.")
 			fmt.Fprintln(out, "  Check: does headless `claude -p` have write permission here, and is the turn prompt clear enough?")
-		} else {
+		case errors.Is(turnErr, switchboard.ErrBadResult):
 			fmt.Fprintf(out, "FAIL: the agent wrote a result file but it did not parse (%v)\n", turnErr)
-			fmt.Fprintln(out, "→ tune the turn prompt so the agent emits EXACTLY {\"messages\":[...],\"action\":\"exit|wait|get\"}.")
+			fmt.Fprintln(out, "→ tune the turn prompt so the agent emits EXACTLY {\"messages\":[...],\"action\":\"exit|wait|get\"} (raw shown above).")
+		default:
+			fmt.Fprintf(out, "FAIL: %v\n", turnErr)
 		}
 		return 1
 	}

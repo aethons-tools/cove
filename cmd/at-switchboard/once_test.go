@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,17 +49,37 @@ func TestDoOnce_Success_PrintsActionAndMessages(t *testing.T) {
 	}
 }
 
+func TestDoOnce_ClaudeRunFailure_NotMisdiagnosedAsProse(t *testing.T) {
+	dir := t.TempDir()
+	// claude itself exits non-zero (e.g. not logged in) — no result file. This
+	// is the case the old file-existence heuristic mislabeled as "answered in
+	// prose"; the verdict must instead point at claude/auth.
+	fa := &fakeAgent{workDir: dir, err: fmt.Errorf("%w: exit status 1", switchboard.ErrClaudeRun)}
+	var out strings.Builder
+	code := doOnce(fa, "input", dir, &out)
+	if code == 0 {
+		t.Fatal("expected non-zero exit when claude did not run")
+	}
+	s := out.String()
+	if !strings.Contains(s, "FAIL") || !strings.Contains(s, "did not run") || !strings.Contains(s, "auth status") {
+		t.Fatalf("expected a claude-did-not-run / auth diagnosis, not a prose one:\n%s", s)
+	}
+	if strings.Contains(s, "prose") {
+		t.Fatalf("must NOT mislabel a claude-run failure as answering in prose:\n%s", s)
+	}
+}
+
 func TestDoOnce_NoResultFile_DiagnosesTheGap(t *testing.T) {
 	dir := t.TempDir()
-	fa := &fakeAgent{workDir: dir, err: errors.New("switchboard: read turn result: open .../turn-result.json: no such file or directory")}
+	fa := &fakeAgent{workDir: dir, err: fmt.Errorf("%w: open .../turn-result.json: no such file or directory", switchboard.ErrNoResult)}
 	var out strings.Builder
 	code := doOnce(fa, "input", dir, &out)
 	if code == 0 {
 		t.Fatal("expected non-zero exit when the agent wrote no result file")
 	}
 	s := out.String()
-	if !strings.Contains(s, "FAIL") || !strings.Contains(s, "did not write") {
-		t.Fatalf("expected a 'FAIL: did not write a result file' diagnosis:\n%s", s)
+	if !strings.Contains(s, "FAIL") || !strings.Contains(s, "wrote no result file") {
+		t.Fatalf("expected a 'wrote no result file' diagnosis:\n%s", s)
 	}
 }
 
@@ -68,7 +88,7 @@ func TestDoOnce_UnparseableResultFile_DistinctDiagnosis(t *testing.T) {
 	fa := &fakeAgent{
 		workDir:   dir,
 		writeFile: "sorry, I can't do that", // agent replied in prose, not JSON
-		err:       errors.New("switchboard: bad turn result: invalid character 's'"),
+		err:       fmt.Errorf("%w: invalid character 's'", switchboard.ErrBadResult),
 	}
 	var out strings.Builder
 	code := doOnce(fa, "input", dir, &out)
