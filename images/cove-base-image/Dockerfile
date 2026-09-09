@@ -8,7 +8,7 @@
 # so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
-FROM ubuntu:24.04@sha256:d78ab76437b1afc5f01e223d6bf0172763f404bb166441328845adbef44518cb
+FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
 LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
@@ -20,9 +20,9 @@ LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + 
 # the Ubuntu archive fails the build loudly; bump it via the Renovate PR.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server=1:9.6p1-3ubuntu13.18 \
+      openssh-server=1:9.6p1-3ubuntu13.19 \
       ca-certificates=20260601~24.04.1 \
-      curl=8.5.0-2ubuntu10.12 \
+      curl=8.5.0-2ubuntu10.13 \
       git=1:2.43.0-1ubuntu7.3 \
       gh=2.45.0-1ubuntu0.3 \
       nftables=1.0.9-1ubuntu0.1 \
@@ -31,7 +31,7 @@ RUN apt-get update \
       systemd=255.4-1ubuntu8.17 \
       systemd-sysv=255.4-1ubuntu8.17 \
       jq=1.7.1-3ubuntu0.24.04.2 \
-      gnupg=2.4.4-2ubuntu17.4 \
+      gnupg=2.4.4-2ubuntu17.6 \
       xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
       unzip=6.0-28ubuntu4.1 \
       python3=3.12.3-0ubuntu2.1  \
