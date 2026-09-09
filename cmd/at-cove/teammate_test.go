@@ -124,6 +124,50 @@ func TestTeammate_AppliesPersistentEgressAndLaunchesDetached(t *testing.T) {
 	}
 }
 
+// TestTeammate_CreateProvisionsIsolatedInstance is the lifecycle-side test for
+// COV-136 Task 2: a teammates-only kit's `at-cove create <class>` must provision
+// an instance exactly like a collaborator's (class-keyed container/volumes,
+// state.json written) but ALWAYS isolated (no share-repo-dir/shadow-dirs concept
+// for a teammate). `at-cove chat <class>` on that same class must reject with a
+// teammate-specific usage error instead of trying to drive a collaborator chat
+// session.
+func TestTeammate_CreateProvisionsIsolatedInstance(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeTeammateKit(t, dir)
+	writeInstall(t, kitDir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	code := run([]string{"create", "--project-dir", dir, "helper"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("create teammate: exit %d: %s", code, errOut.String())
+	}
+	// Class-keyed container/volumes, mirroring a collaborator create.
+	if !dockerRunHasArg(t, f.Calls, "atcove-box-helper-workspace:/home/agent/workspace") {
+		t.Fatalf("teammate create must use an isolated, class-keyed workspace volume; calls=%+v", f.Calls)
+	}
+	st, err := state.LoadFor(kitDir, state.Instance("helper"))
+	if err != nil {
+		t.Fatalf("class-keyed state not written: %v", err)
+	}
+	if st.Container != "atcove-box-helper" || st.Name != "box" {
+		t.Fatalf("state = %+v (want container atcove-box-helper, kit name box)", st)
+	}
+	if st.WorkspaceMode != "isolated" {
+		t.Fatalf("a teammate instance must always be isolated; state=%+v", st)
+	}
+
+	// chat must reject a teammate class with a helpful message naming the right
+	// command, not attempt to drive a collaborator-style chat session.
+	var o2, e2 bytes.Buffer
+	code = run([]string{"chat", "--project-dir", dir, "helper"}, f, os.LookupEnv, dummyLookPath, &o2, &e2)
+	if code == 0 || !strings.Contains(e2.String(), "teammate") {
+		t.Fatalf("chat should reject a teammate class; exit=%d err=%q", code, e2.String())
+	}
+	if !strings.Contains(e2.String(), "at-cove teammate helper") {
+		t.Fatalf("chat's rejection should point at `at-cove teammate helper`; err=%q", e2.String())
+	}
+}
+
 // TestTeammate_UnknownClassIsUsageError guards that an unresolvable teammate
 // class is a clear usage error (exit 2), not a panic or an opaque failure.
 func TestTeammate_UnknownClassIsUsageError(t *testing.T) {

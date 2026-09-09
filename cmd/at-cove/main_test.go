@@ -2511,7 +2511,11 @@ func TestCreateAmbiguousCollaboratorErrors(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("ambiguous create should refuse; stdout=%q", out.String())
 	}
-	if !strings.Contains(errOut.String(), "multiple collaborators") {
+	// instanceFor now resolves via SelectClass (COV-136), whose ambiguity error
+	// spans collaborators+teammates generically ("multiple classes") rather than
+	// "multiple collaborators" — the behavior (refuse, touch no docker) is
+	// unchanged.
+	if !strings.Contains(errOut.String(), "multiple classes") {
 		t.Fatalf("error must name the ambiguity; stderr=%q", errOut.String())
 	}
 	if len(f.Calls) != 0 {
