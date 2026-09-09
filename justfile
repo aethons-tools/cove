@@ -77,6 +77,13 @@ e2e:
 integration-docker:
     COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
+# switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
+# signed-in claude; run in a sandbox) and/or a real Discord round-trip
+# (SWITCHBOARD_IT_DISCORD_TOKEN + SWITCHBOARD_IT_CHANNEL). Each subtest skips if its
+# prerequisites are unset.
+integration-switchboard:
+    go test -tags integration ./internal/switchboard/ -run 'TestClaudeAgentLive|TestDiscordRoundTripLive' -v -timeout 5m
+
 # go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent; STRICT=1 to require them)
 lint:
     ./scripts/lint.sh
