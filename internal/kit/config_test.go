@@ -835,6 +835,31 @@ func TestSelectClass(t *testing.T) {
 	if c, k, err := solo.SelectClass(""); err != nil || c != "helper" || k != ClassTeammate {
 		t.Fatalf("sole teammate => %q/%v/%v", c, k, err)
 	}
+	// a single default across the union (collaborator side) is selected
+	defCollab := Config{Name: "k",
+		Collaborators: map[string]Collaborator{"planner": {Default: true}},
+		Teammates:     map[string]Teammate{"helper": {Discord: &DiscordConfig{Channels: []string{"1"}, BotTokenSecret: "T"}, Secrets: map[string]SecretConfig{"T": {}}}},
+	}
+	if c, k, err := defCollab.SelectClass(""); err != nil || c != "planner" || k != ClassCollaborator {
+		t.Fatalf("default collaborator across union => %q/%v/%v", c, k, err)
+	}
+	// a single default across the union (teammate side) is selected
+	defTeammate := Config{Name: "k",
+		Collaborators: map[string]Collaborator{"planner": {}},
+		Teammates:     map[string]Teammate{"helper": {Default: true, Discord: &DiscordConfig{Channels: []string{"1"}, BotTokenSecret: "T"}, Secrets: map[string]SecretConfig{"T": {}}}},
+	}
+	if c, k, err := defTeammate.SelectClass(""); err != nil || c != "helper" || k != ClassTeammate {
+		t.Fatalf("default teammate across union => %q/%v/%v", c, k, err)
+	}
+	// multiple defaults across the union (one collaborator, one teammate) => ambiguity error,
+	// not a silent pick of the first-sorted candidate
+	multiDef := Config{Name: "k",
+		Collaborators: map[string]Collaborator{"planner": {Default: true}},
+		Teammates:     map[string]Teammate{"helper": {Default: true, Discord: &DiscordConfig{Channels: []string{"1"}, BotTokenSecret: "T"}, Secrets: map[string]SecretConfig{"T": {}}}},
+	}
+	if _, _, err := multiDef.SelectClass(""); err == nil {
+		t.Fatal("multiple defaults across the union should error, not silently pick one")
+	}
 }
 
 func TestParseConfig_RejectsCollaboratorTeammateNameCollision(t *testing.T) {
@@ -851,6 +876,49 @@ teammates:
 `
 	if _, err := ParseConfig([]byte(y)); err == nil {
 		t.Fatal("a name declared as both collaborator and teammate must be rejected")
+	}
+}
+
+func TestParseConfig_RejectsMultipleDefaultsAcrossUnion(t *testing.T) {
+	// one default collaborator + one default teammate: neither map alone has
+	// more than one default, but the union does.
+	y := `
+name: k
+image: {}
+workers: {}
+collaborators:
+  planner:
+    default: true
+teammates:
+  helper:
+    default: true
+    discord: {channels: ["1"], bot-token-secret: T}
+    secrets: {T: {description: x}}
+`
+	if _, err := ParseConfig([]byte(y)); err == nil {
+		t.Fatal("a default collaborator and a default teammate together must be rejected")
+	}
+}
+
+func TestParseConfig_RejectsMultipleDefaultTeammates(t *testing.T) {
+	// teammates-only kit with two defaults: the pre-existing guard only ever
+	// counted collaborators, so this must be independently caught.
+	y := `
+name: k
+image: {}
+workers: {}
+teammates:
+  a:
+    default: true
+    discord: {channels: ["1"], bot-token-secret: T}
+    secrets: {T: {description: x}}
+  b:
+    default: true
+    discord: {channels: ["1"], bot-token-secret: T}
+    secrets: {T: {description: x}}
+`
+	if _, err := ParseConfig([]byte(y)); err == nil {
+		t.Fatal("two default teammates must be rejected")
 	}
 }
 

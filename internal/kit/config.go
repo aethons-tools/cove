@@ -505,12 +505,26 @@ func (c Config) SelectClass(explicit string) (string, ClassKind, error) {
 	case 1:
 		return cands[0].name, cands[0].kind, nil
 	default:
+		var defaults []cand
 		for _, cd := range cands {
 			if cd.def {
-				return cd.name, cd.kind, nil
+				defaults = append(defaults, cd)
 			}
 		}
-		return "", ClassNone, fmt.Errorf("kit %q has multiple classes; specify one of: %s", c.Name, strings.Join(c.selectableClassNames(), ", "))
+		switch len(defaults) {
+		case 0:
+			return "", ClassNone, fmt.Errorf("kit %q has multiple classes; specify one of: %s", c.Name, strings.Join(c.selectableClassNames(), ", "))
+		case 1:
+			return defaults[0].name, defaults[0].kind, nil
+		default:
+			// ParseConfig's union default-uniqueness check should prevent this;
+			// this is defense-in-depth for a Config built by hand (e.g. tests).
+			names := make([]string, len(defaults))
+			for i, cd := range defaults {
+				names[i] = cd.name
+			}
+			return "", ClassNone, fmt.Errorf("kit %q has multiple classes marked default: %s; at most one class may be default", c.Name, strings.Join(names, ", "))
+		}
 	}
 }
 
@@ -745,7 +759,7 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateClassTree("collaborators", collaboratorKeys(cfg.Collaborators)); err != nil {
 		return Config{}, err
 	}
-	defaults := 0
+	var defaultClasses []string
 	for name, col := range cfg.Collaborators {
 		if err := validateSecretNames(fmt.Sprintf("collaborators[%q].secrets", name), col.Secrets, false); err != nil {
 			return Config{}, err
@@ -768,11 +782,8 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, err
 		}
 		if col.Default {
-			defaults++
+			defaultClasses = append(defaultClasses, name)
 		}
-	}
-	if defaults > 1 {
-		return Config{}, fmt.Errorf("config.yml: collaborators: at most one may set default: true (got %d)", defaults)
 	}
 	if err := validateClassTree("teammates", teammateKeys(cfg.Teammates)); err != nil {
 		return Config{}, err
@@ -811,6 +822,13 @@ func ParseConfig(data []byte) (Config, error) {
 				return Config{}, fmt.Errorf("config.yml: teammates[%q].discord.bot-token-secret %q is not a declared secret", name, tm.Discord.BotTokenSecret)
 			}
 		}
+		if tm.Default {
+			defaultClasses = append(defaultClasses, name)
+		}
+	}
+	if len(defaultClasses) > 1 {
+		sort.Strings(defaultClasses)
+		return Config{}, fmt.Errorf("config.yml: multiple classes marked default: %s; at most one class may be default", strings.Join(defaultClasses, ", "))
 	}
 	for name := range cfg.Collaborators {
 		if name == commonKey {
