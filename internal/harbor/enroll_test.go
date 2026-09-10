@@ -25,12 +25,23 @@ func TestEnrollStoresHashedIdentity(t *testing.T) {
 func TestRenderEnrollSnippetIncludesEndpointsNotSecrets(t *testing.T) {
 	out := RenderEnrollSnippet("https://harbor.local.aethons.tools", "TOK123")
 	for _, want := range []string{
+		"export HARBOR_IDENTITY_TOKEN=TOK123",
 		"ANTHROPIC_BASE_URL=https://harbor.local.aethons.tools/anthropic",
-		"ANTHROPIC_AUTH_TOKEN=TOK123",
+		"ANTHROPIC_AUTH_TOKEN=$HARBOR_IDENTITY_TOKEN",
 		`url."https://harbor.local.aethons.tools/git/".insteadOf`,
+		// git must have a working, headless credential (username + env-only password),
+		// so `git clone` through harbor doesn't prompt.
+		`credential."https://harbor.local.aethons.tools".helper`,
+		"username=x-access-token",
+		"password=$HARBOR_IDENTITY_TOKEN",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("snippet missing %q\n---\n%s", want, out)
 		}
+	}
+	// The raw token must appear exactly once — only in HARBOR_IDENTITY_TOKEN.
+	// Everything else references the env var, so the token never lands in gitconfig.
+	if n := strings.Count(out, "TOK123"); n != 1 {
+		t.Fatalf("raw token appears %d times, want exactly 1 (env-only)\n---\n%s", n, out)
 	}
 }

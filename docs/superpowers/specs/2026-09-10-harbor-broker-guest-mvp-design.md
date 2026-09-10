@@ -159,6 +159,23 @@ Hermetic unit tests cover the rewrite/authz/enroll logic; a real-TLS + real-cove
 - ~~Git connector depth~~ → **resolved:** no bespoke git handler. The general three-question pipeline treats
   git as a configured destination (smart-HTTP passthrough with a basic-auth password swap); LFS/edge cases are
   just further policy/passthrough, not new code. Verify clone+push+LFS in the integration test.
-- **Cove-side ergonomics** — ship the askpass shim + gitconfig as an `at-harbor`-generated snippet vs a tiny
-  helper the cove installs.
+- ~~Cove-side ergonomics~~ → **resolved:** `enroll` emits a complete, **env-only** git credential — the
+  token is exported once as `HARBOR_IDENTITY_TOKEN`, and a `!`-prefixed git credential helper reads it at run
+  time, so the token never lands in gitconfig on disk and `git clone` works headlessly (no prompt).
+  `ANTHROPIC_AUTH_TOKEN` references the same env var.
 - **Multi-tenant store & concurrency** — file-backed is fine single-node; the move to a real DB is slice #2.
+
+## Post-MVP findings (from the DoD dry run)
+
+The harbor side of the DoD was rehearsed end-to-end (self-signed cert, real TLS, live `serve`/`enroll`/`revoke`,
+brokered request against a local upstream). All checks passed (credential swap, 401 on unknown, 403 on
+out-of-scope repo, 401 after revoke, no secrets in logs). Three operational items surfaced:
+
+- **No live store reload (follow-up).** `serve` loads the identity store once at startup, so `enroll`/`revoke`
+  only take effect after a `serve` restart. Acceptable for the MVP; fix by reload-on-change (fsnotify or a
+  cheap mtime re-read) — or it dissolves when the store becomes a DB (slice #2). *Tracked as a follow-up.*
+- **Cove must exclude harbor's host from its egress proxy.** A cove routes its own traffic through squid; it
+  must keep harbor's endpoint in `no_proxy` (else the cove's proxy `CONNECT`s to harbor and is denied). Document
+  in the cove-side usage.
+- **Cove→harbor DNS.** Inside a Colima/docker cove, `harbor.local.aethons.tools` must resolve to the **host**
+  (`host.docker.internal` / docker gateway), not the cove's loopback. Document alongside the `no_proxy` note.
