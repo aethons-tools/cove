@@ -77,6 +77,10 @@ e2e:
 integration-docker:
     COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
+# harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
+integration-harbor:
+    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/...
+
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip
 # (SWITCHBOARD_IT_DISCORD_TOKEN + SWITCHBOARD_IT_CHANNEL). Each subtest skips if its
