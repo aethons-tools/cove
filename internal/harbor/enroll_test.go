@@ -27,7 +27,7 @@ func TestRenderEnrollSnippetIncludesEndpointsNotSecrets(t *testing.T) {
 	for _, want := range []string{
 		"export HARBOR_IDENTITY_TOKEN=TOK123",
 		"ANTHROPIC_BASE_URL=https://harbor.local.aethons.tools/anthropic",
-		"ANTHROPIC_AUTH_TOKEN=$HARBOR_IDENTITY_TOKEN",
+		"ANTHROPIC_API_KEY=$HARBOR_IDENTITY_TOKEN",
 		`url."https://harbor.local.aethons.tools/git/".insteadOf`,
 		// git must have a working, headless credential (username + env-only password),
 		// so `git clone` through harbor doesn't prompt.

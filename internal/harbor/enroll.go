@@ -48,7 +48,10 @@ func RenderEnrollSnippet(baseURL, token string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "export HARBOR_IDENTITY_TOKEN=%s\n", token)
 	fmt.Fprintf(&b, "export ANTHROPIC_BASE_URL=%s/anthropic\n", baseURL)
-	fmt.Fprintf(&b, "export ANTHROPIC_AUTH_TOKEN=$HARBOR_IDENTITY_TOKEN\n")
+	// ANTHROPIC_API_KEY (not AUTH_TOKEN): Claude Code then sends the identity on the
+	// x-api-key header, which is how the Anthropic API authenticates keys and how
+	// harbor's anthropic destination expects the identity (identity_in: x-api-key).
+	fmt.Fprintf(&b, "export ANTHROPIC_API_KEY=$HARBOR_IDENTITY_TOKEN\n")
 	fmt.Fprintf(&b, "git config --global url.%q.insteadOf https://github.com/\n", baseURL+"/git/")
 	fmt.Fprintf(&b, "git config --global credential.%q.helper %s\n", baseURL, helper)
 	return b.String()

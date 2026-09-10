@@ -90,6 +90,10 @@ func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 		if _, pass, ok := r.BasicAuth(); ok && pass != "" {
 			return pass, true
 		}
+	case ApplyXAPIKey:
+		if k := r.Header.Get("X-Api-Key"); k != "" {
+			return k, true
+		}
 	}
 	return "", false
 }
@@ -101,5 +105,7 @@ func applyCred(r *http.Request, how ApplyMethod, cred string) {
 		r.Header.Set("Authorization", "Bearer "+cred)
 	case ApplyBasicPassword:
 		r.SetBasicAuth("x-access-token", cred) // git smart-HTTP: any username, PAT as password
+	case ApplyXAPIKey:
+		r.Header.Set("X-Api-Key", cred) // Anthropic API-key auth; Director already stripped Authorization
 	}
 }

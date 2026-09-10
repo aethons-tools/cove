@@ -55,8 +55,11 @@ This is the crux and it's clean because the identity token *doubles* as the cred
 knows how to send:
 
 - **Anthropic:** the cove sets `ANTHROPIC_BASE_URL=https://harbor.local.aethons.tools/anthropic` and
-  `ANTHROPIC_AUTH_TOKEN=<identity-token>`. Harbor reads the `Authorization: Bearer <identity-token>`,
-  authenticates the actor, **replaces** it with the real Anthropic bearer, forwards to `api.anthropic.com`.
+  `ANTHROPIC_API_KEY=<identity-token>`. Claude Code then sends the identity on the **`x-api-key`** header
+  (the Anthropic API authenticates keys on `x-api-key`, **not** `Authorization: Bearer` — Bearer is for
+  OAuth and needs a beta header). Harbor reads `x-api-key`, authenticates the actor, and **replaces** it with
+  the real Anthropic API key on `x-api-key` (the `ApplyXAPIKey` method) — the LiteLLM-style gateway shape,
+  which is why Claude Code accepts an arbitrary (non-`sk-ant-`) key without local validation.
 - **Git:** the cove's remote is `https://harbor.local.aethons.tools/git/<owner>/<repo>` (via
   `git config url.…​.insteadOf` or the remote directly), and its credential helper/askpass supplies the
   identity token as the git **password**. Harbor authenticates, **replaces** it with the real git PAT, proxies

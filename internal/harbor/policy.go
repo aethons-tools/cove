@@ -12,6 +12,7 @@ type ApplyMethod string
 const (
 	ApplyBearer        ApplyMethod = "bearer"         // Authorization: Bearer <value>
 	ApplyBasicPassword ApplyMethod = "basic-password" // HTTP basic auth, <value> as the password
+	ApplyXAPIKey       ApplyMethod = "x-api-key"       // X-Api-Key: <value> (Anthropic API keys)
 )
 
 // Destination is one configured upstream the broker will proxy to. Anthropic and
