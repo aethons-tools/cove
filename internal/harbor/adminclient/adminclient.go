@@ -18,12 +18,15 @@ import (
 // Client talks to a running harbor's admin API (e.g. http://127.0.0.1:8081).
 type Client struct {
 	base  string
+	token string
 	httpc *http.Client
 }
 
-// New returns a Client for the admin base URL (no trailing slash needed).
-func New(baseURL string) *Client {
-	return &Client{base: strings.TrimRight(baseURL, "/"), httpc: &http.Client{Timeout: 10 * time.Second}}
+// New returns a Client for the admin base URL (no trailing slash needed). token
+// (may be "") is sent as a bearer on every request — required against an
+// OIDC-gated harbor, ignored by a loopback-gated one.
+func New(baseURL, token string) *Client {
+	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, httpc: &http.Client{Timeout: 10 * time.Second}}
 }
 
 // EnrollParams are the inputs to an enrollment.
@@ -51,6 +54,9 @@ func (c *Client) do(method, path string, body any, out any) error {
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.httpc.Do(req)
 	if err != nil {

@@ -802,10 +802,16 @@ identity token for harbor's real Anthropic/git credentials, plus a loopback admi
 API; `enroll`/`revoke`/`destination` are admin-API clients that manage identities
 and destinations at runtime against one live file-backed store — no restart. The
 `harbor.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
-`store`, `credentials`); destinations and enrollments are managed via the API/CLI.
-Built by `just build` but **not** embedded in the sandbox image — see the
-[harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md)
-and the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md)).
+`store`, `credentials`, optional `operator-auth`); destinations and enrollments are
+managed via the API/CLI. The admin API's operator auth defaults to loopback-only,
+or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
+`require-scope`) is set — the CLI then supplies the token via `--token` /
+`AT_HARBOR_ADMIN_TOKEN`. (The listener stays plain-HTTP-loopback this cut, so OIDC is
+validated but off-loopback exposure awaits TLS.) Built by `just build` but **not**
+embedded in the sandbox image — see the
+[harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
+the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
+and the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md)).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 

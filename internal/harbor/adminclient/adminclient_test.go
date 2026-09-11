@@ -3,6 +3,7 @@ package adminclient
 import (
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -24,7 +25,7 @@ func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 
 func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
-	c := New(ts.URL)
+	c := New(ts.URL, "")
 
 	if err := c.AddDestination(harbor.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: harbor.ApplyBasicPassword, CredName: "git-pat", Apply: harbor.ApplyBasicPassword, RepoScoped: true}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
@@ -50,9 +51,25 @@ func TestClientRoundTrip(t *testing.T) {
 
 func TestClientAddDestinationRejected(t *testing.T) {
 	ts, _ := newServer(t)
-	c := New(ts.URL)
+	c := New(ts.URL, "")
 	err := c.AddDestination(harbor.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: harbor.ApplyBearer, CredName: "nope", Apply: harbor.ApplyBearer})
 	if err == nil {
 		t.Fatal("expected error for unresolvable cred_name")
+	}
+}
+
+func TestClientSendsBearer(t *testing.T) {
+	var gotAuth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+		w.Write([]byte("[]"))
+	}))
+	defer ts.Close()
+	if _, err := New(ts.URL, "tok-123").ListDestinations(); err != nil {
+		t.Fatalf("ListDestinations: %v", err)
+	}
+	if gotAuth != "Bearer tok-123" {
+		t.Fatalf("Authorization = %q, want Bearer tok-123", gotAuth)
 	}
 }

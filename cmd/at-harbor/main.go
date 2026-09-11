@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -41,6 +42,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
@@ -56,7 +58,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
 		return 2
 	}
-	res, err := adminclient.New(*adminURL).Enroll(adminclient.EnrollParams{
+	res, err := adminclient.New(*adminURL, *token).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
 		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
 	})
@@ -71,6 +73,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
 	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id to remove")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
@@ -80,7 +83,7 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor revoke: --id is required")
 		return 2
 	}
-	if err := adminclient.New(*adminURL).Revoke(*id); err != nil {
+	if err := adminclient.New(*adminURL, *token).Revoke(*id); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -96,6 +99,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
 	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	// add flags
 	var d harbor.Destination
 	fs.StringVar(&d.Name, "name", "", "destination name")
@@ -110,7 +114,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	if !ok {
 		return code
 	}
-	c := adminclient.New(*adminURL)
+	c := adminclient.New(*adminURL, *token)
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)
@@ -200,8 +204,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {
+		var auth harbor.OperatorAuthenticator = harbor.LoopbackAuthenticator{}
+		if o := cfg.OperatorAuth.OIDC; o != nil {
+			oidcAuth, err := harbor.NewOIDCAuthenticator(context.Background(), o.Issuer, o.Audience, o.RequireScope)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: operator OIDC:", err)
+				return 1
+			}
+			auth = oidcAuth
+			log.Info("harbor admin auth: OIDC", "issuer", o.Issuer, "audience", o.Audience)
+		} else {
+			log.Info("harbor admin auth: loopback")
+		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, harbor.LoopbackAuthenticator{}, credExists, log)
+		admin := harbor.NewAdminHandler(st, auth, credExists, log)
 		go func() {
 			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
 			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {

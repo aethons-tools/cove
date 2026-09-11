@@ -20,8 +20,15 @@ type serveConfig struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"tls"`
-	Store       string              `yaml:"store"`
-	Credentials map[string]credSpec `yaml:"credentials"`
+	Store        string              `yaml:"store"`
+	Credentials  map[string]credSpec `yaml:"credentials"`
+	OperatorAuth struct {
+		OIDC *struct {
+			Issuer       string `yaml:"issuer"`
+			Audience     string `yaml:"audience"`
+			RequireScope string `yaml:"require-scope"`
+		} `yaml:"oidc"`
+	} `yaml:"operator-auth"`
 }
 
 // parseServeConfig parses the serve config YAML.

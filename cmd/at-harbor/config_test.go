@@ -2,6 +2,26 @@ package main
 
 import "testing"
 
+func TestParseServeConfigOIDC(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+listen: ":8443"
+admin-listen: "127.0.0.1:8081"
+store: /s.json
+operator-auth:
+  oidc:
+    issuer: https://acme.us.auth0.com/
+    audience: https://harbor.acme/api
+    require-scope: harbor:admin
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.OperatorAuth.OIDC == nil || cfg.OperatorAuth.OIDC.Issuer != "https://acme.us.auth0.com/" ||
+		cfg.OperatorAuth.OIDC.Audience != "https://harbor.acme/api" || cfg.OperatorAuth.OIDC.RequireScope != "harbor:admin" {
+		t.Fatalf("oidc = %+v", cfg.OperatorAuth.OIDC)
+	}
+}
+
 func TestParseServeConfig(t *testing.T) {
 	yml := `
 listen: ":8443"
