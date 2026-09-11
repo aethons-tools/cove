@@ -332,6 +332,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if err := cfg.validateAdminExposure(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
 	st, err := harbor.NewFileStore(cfg.Store)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
@@ -359,6 +363,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
 		admin := harbor.NewAdminHandler(st, auth, credExists, cfg.operatorLoginConfig(), log)
 		go func() {
+			if cfg.adminUsesTLS() {
+				cert, key, _ := cfg.adminTLS()
+				log.Info("harbor admin API listening (TLS)", "addr", cfg.AdminListen)
+				if err := (&http.Server{Addr: cfg.AdminListen, Handler: admin}).ListenAndServeTLS(cert, key); err != nil {
+					log.Error("admin API stopped", "err", err.Error())
+				}
+				return
+			}
 			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
 			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
 				log.Error("admin API stopped", "err", err.Error())
