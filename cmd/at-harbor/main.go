@@ -122,7 +122,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	creds := harbor.NewSecretResolver(runner.OS{}, cfg.credSpecs())
-	broker := harbor.NewBroker(st, cfg.Broker, creds, log)
+	broker := harbor.NewBroker(st, creds, log)
 	srv := &http.Server{Addr: cfg.Listen, Handler: broker}
 	log.Info("harbor listening", "addr", cfg.Listen)
 	if err := srv.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key); err != nil {
