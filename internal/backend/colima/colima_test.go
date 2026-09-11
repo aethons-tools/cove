@@ -158,6 +158,43 @@ func TestCreateDNS(t *testing.T) {
 	}
 }
 
+// COV-138: ExtraHosts render as --add-host <h>:host-gateway so the container can
+// reach a host-run harbor by name; empty adds nothing.
+func TestCreateExtraHosts(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace:  backend.WorkspaceMount{Mode: backend.Isolated},
+		ExtraHosts: []string{"harbor.local.aethons.tools"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
+		t.Fatalf("create run must map the harbor host to the gateway:\n%s", got)
+	}
+
+	f2 := &runner.Fake{}
+	if _, err := New(f2).Create(backend.CreateContext{
+		Name: "box", Image: "atcove-box",
+		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if contains(dockerCall(f2.Calls, "run"), "--add-host") {
+		t.Fatalf("create run with no ExtraHosts must not add --add-host: %+v", f2.Calls)
+	}
+}
+
+func TestAddHostArgs(t *testing.T) {
+	if a := addHostArgs(nil); a != nil {
+		t.Fatalf("addHostArgs(nil) = %v, want nil", a)
+	}
+	got := strings.Join(addHostArgs([]string{"h.one", "h.two"}), " ")
+	if got != "--add-host h.one:host-gateway --add-host h.two:host-gateway" {
+		t.Fatalf("addHostArgs = %q", got)
+	}
+}
+
 // sysboxRuntimesOutput is a `docker info -f '{{json .Runtimes}}'` payload that
 // registers the sysbox-runc runtime, so a docker:true preflight passes.
 const sysboxRuntimesOutput = `{"runc":{"path":"runc"},"sysbox-runc":{"path":"/usr/bin/sysbox-runc"}}`

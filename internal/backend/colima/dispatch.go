@@ -15,7 +15,7 @@ var _ backend.DispatchOps = (*Colima)(nil)
 // so a force-remove (or --rm on stop) reclaims everything. A docker:true dispatch
 // additionally runs it under Sysbox with a -docker cache volume named after the
 // worker container (COV-117); docker:false is volume-less, exactly as before.
-func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string, docker bool) (backend.Instance, error) {
+func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
@@ -36,6 +36,7 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns []string, d
 	runArgs = append(runArgs, initArgs(docker)...)
 	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
 	runArgs = append(runArgs, dnsArgs(dns)...)
+	runArgs = append(runArgs, addHostArgs(addHosts)...)
 	runArgs = append(runArgs, dockerArgs(docker, naming.DockerVolume(name))...)
 	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
