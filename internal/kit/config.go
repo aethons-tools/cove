@@ -36,6 +36,24 @@ type ImageConfig struct {
 	DNS []string `yaml:"dns,omitempty"`
 }
 
+// HarborConfig routes a hardened cove's Anthropic + git through a harbor broker
+// (COV-138). When set, at-cove folds Host into the egress allow-list, adds a
+// --add-host <host>:host-gateway routability mapping (unless disabled), and
+// sources the harbor connector snippet into the session — superseding the
+// operator's OAuth/Vertex auth. Host is a bare hostname; the broker is reached
+// over TLS on :443 so no sealed egress changes are needed.
+type HarborConfig struct {
+	Host           string `yaml:"host"`             // bare hostname of the :443 TLS broker
+	Identity       string `yaml:"identity"`         // host-supplied secret name for the identity token
+	ViaHostGateway *bool  `yaml:"via-host-gateway"` // nil → true; add --add-host host:host-gateway
+}
+
+// HostGateway reports whether to add the --add-host <host>:host-gateway mapping
+// (default true — the common host-run-harbor-on-loopback case).
+func (h *HarborConfig) HostGateway() bool {
+	return h.ViaHostGateway == nil || *h.ViaHostGateway
+}
+
 const commonKey = "<common>"
 
 // Worker declares an autonomous handler class: the role prompt at-cove sends the
@@ -503,6 +521,7 @@ type Config struct {
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
 	Teammates     map[string]Teammate     `yaml:"teammates,omitempty"`
 	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
+	Harbor        *HarborConfig           `yaml:"harbor,omitempty"`
 	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
 	// When true, the colima backend runs the sandbox container under
 	// --runtime=sysbox-runc with a persistent /var/lib/docker cache volume, so a
@@ -804,7 +823,30 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateModelProvider(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateHarbor(cfg.Harbor); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// validateHarbor checks the harbor: block: a non-empty bare-hostname Host (no
+// scheme, port, or path — the broker is reached over TLS on :443) and a non-empty
+// Identity (a host-supplied secret name).
+func validateHarbor(h *HarborConfig) error {
+	if h == nil {
+		return nil
+	}
+	host := strings.TrimSpace(h.Host)
+	if host == "" {
+		return fmt.Errorf("config.yml: harbor.host is required")
+	}
+	if strings.Contains(host, "://") || strings.ContainsAny(host, ":/") {
+		return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (no scheme, port, or path — TLS :443 is implied)", h.Host)
+	}
+	if strings.TrimSpace(h.Identity) == "" {
+		return fmt.Errorf("config.yml: harbor.identity is required (a host-supplied secret name)")
+	}
+	return nil
 }
 
 // reservedSecretNames are the subsystem well-known secret names, which must be
@@ -1148,7 +1190,11 @@ func SourceControlDomains(c Config) []string {
 // image.allowed-domains unioned with any provider-derived domains. Assemble bakes
 // this into allowed_domains.kit.txt.
 func RootDomains(c Config) []string {
-	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c))
+	var harbor []string
+	if c.Harbor != nil && c.Harbor.Host != "" {
+		harbor = []string{c.Harbor.Host}
+	}
+	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c), harbor)
 }
 
 // validateModelProvider enforces the provider union, required keys, and the

@@ -59,6 +59,70 @@ func TestParseConfigRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestHarborConfig(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+harbor:
+  host: harbor.local.aethons.tools
+  identity: harbor-id
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Harbor == nil || cfg.Harbor.Host != "harbor.local.aethons.tools" || cfg.Harbor.Identity != "harbor-id" {
+		t.Fatalf("harbor = %+v", cfg.Harbor)
+	}
+	if !cfg.Harbor.HostGateway() {
+		t.Fatal("via-host-gateway must default to true")
+	}
+	// host is folded into the baked allow-list
+	if !contains(RootDomains(cfg), "harbor.local.aethons.tools") {
+		t.Fatalf("RootDomains missing harbor host: %v", RootDomains(cfg))
+	}
+
+	// via-host-gateway: false is honored
+	off, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n  identity: i\n  via-host-gateway: false\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.Harbor.HostGateway() {
+		t.Fatal("via-host-gateway: false must disable host-gateway")
+	}
+
+	// no harbor block → no harbor host in RootDomains
+	none, _ := ParseConfig([]byte("name: k\n"))
+	if none.Harbor != nil {
+		t.Fatal("Harbor should be nil when absent")
+	}
+	if contains(RootDomains(none), "harbor.local.aethons.tools") {
+		t.Fatal("RootDomains should not contain a harbor host when absent")
+	}
+}
+
+func TestHarborConfigValidation(t *testing.T) {
+	bad := map[string]string{
+		"empty host":     "name: k\nharbor:\n  identity: i\n",
+		"empty identity": "name: k\nharbor:\n  host: h.example\n",
+		"host w/ scheme": "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
+		"host w/ port":   "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
+		"host w/ path":   "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",
+	}
+	for label, data := range bad {
+		if _, err := ParseConfig([]byte(data)); err == nil {
+			t.Errorf("%s: expected validation error, got nil", label)
+		}
+	}
+}
+
+func contains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
 // Regression guard: literal secret values must NOT be declarable in the kit;
 // they belong only in the user's ~/.config/at-cove/secrets.yml. KnownFields(true)
 // rejects the unknown `value:` key, so this passes from the start.
