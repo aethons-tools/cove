@@ -31,9 +31,12 @@ the symmetric change for the admin plane.
   - **Non-loopback** (a routable IP, or empty host / `0.0.0.0` / `::` = all
     interfaces) → **error, refuse to start** unless **both** admin TLS resolves
     **and** `operator-auth.oidc` is configured.
-- **TLS serving.** When admin TLS resolves, serve the admin API with
-  `(&http.Server{…}).ListenAndServeTLS(cert, key)`; otherwise plain
-  `http.ListenAndServe` (only reachable once the guard has proved loopback).
+- **TLS serving.** Serve the admin API over TLS when it is **off-loopback** (the
+  guard guarantees a cert resolves) **or** an explicit `admin-tls` block is set
+  (opt-in TLS on loopback). A loopback listener with no `admin-tls` stays **plain
+  HTTP** — reusing the broker's `tls:` does **not** silently upgrade it, so the
+  existing loopback setup (`http://127.0.0.1:8081`) is unchanged. When serving TLS,
+  use the resolved cert (`admin-tls` else top-level `tls`).
 - **Client.** No code change — `adminclient` uses `http.Client`, which does HTTPS
   against the system trust store. Operators set `admin-url: https://…` (via
   `settings.yml` or `login --admin-url`).
@@ -49,6 +52,11 @@ the symmetric change for the admin plane.
 // adminTLS resolves the admin listener's cert/key: admin-tls if set, else the
 // top-level tls. ok is false when neither is configured.
 func (c serveConfig) adminTLS() (cert, key string, ok bool)
+
+// adminUsesTLS reports whether to serve the admin API over TLS: off-loopback
+// (required) or an explicit admin-tls block (opt-in on loopback). Reusing the
+// broker's tls: does not upgrade a loopback listener.
+func (c serveConfig) adminUsesTLS() bool
 
 // validateAdminExposure returns an error when admin-listen is bound off-loopback
 // without both TLS and OIDC. Loopback bindings always pass.
@@ -89,9 +97,11 @@ parse config
 validateAdminExposure()            // FAIL FAST here on an unsafe off-loopback bind
 build broker + admin handler (auth selected as today)
 if admin-listen != "":
-    cert,key,ok := adminTLS()
-    if ok: go admin.ListenAndServeTLS(cert,key)   // TLS
-    else:  go admin.ListenAndServe()              // plain — guard proved loopback
+    if adminUsesTLS():                            // off-loopback, or explicit admin-tls
+        cert,key,_ := adminTLS()
+        go admin.ListenAndServeTLS(cert,key)      // TLS
+    else:
+        go admin.ListenAndServe()                 // plain — loopback default, unchanged
 broker.ListenAndServeTLS(tls.cert, tls.key)       // unchanged
 ```
 
@@ -111,6 +121,8 @@ Hermetic, table-driven over the pure helpers:
   `:8081`✗, `0.0.0.0:8081`✗, `10.0.0.5:8081`✗.
 - `adminTLS`: admin-tls set → returns it; only top-level tls → returns that;
   neither → ok=false.
+- `adminUsesTLS`: loopback + no admin-tls → false (plain, unchanged); loopback +
+  explicit admin-tls → true; off-loopback → true.
 - `validateAdminExposure`: loopback+plain ✓; loopback+OIDC+plain ✓ (today's setup —
   no regression); non-loopback+TLS+OIDC ✓; non-loopback missing TLS ✗;
   non-loopback missing OIDC ✗.
