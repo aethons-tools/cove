@@ -805,13 +805,18 @@ and destinations at runtime against one live file-backed store — no restart. T
 `store`, `credentials`, optional `operator-auth`); destinations and enrollments are
 managed via the API/CLI. The admin API's operator auth defaults to loopback-only,
 or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
-`require-scope`) is set — the CLI then supplies the token via `--token` /
-`AT_HARBOR_ADMIN_TOKEN`. (The listener stays plain-HTTP-loopback this cut, so OIDC is
-validated but off-loopback exposure awaits TLS.) Built by `just build` but **not**
-embedded in the sandbox image — see the
+`require-scope`) is set. Operators sign in with `at-harbor login` — an OIDC device
+flow that self-configures from harbor's auth-exempt `GET /admin/login-config` (fed by
+`operator-auth.oidc.device-client-id`) and caches the token at `~/.config/at-harbor/token.json`
+(0600); `logout`/`whoami` manage it and every verb falls back to it, so `--token` /
+`AT_HARBOR_ADMIN_TOKEN` become optional. Client endpoint defaults (`admin-url`/`base-url`)
+live in `~/.config/at-harbor/settings.yml`. (The listener stays plain-HTTP-loopback this
+cut, so OIDC is validated but off-loopback exposure awaits TLS.) Built by `just build` but
+**not** embedded in the sandbox image — see the
 [harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
 the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
-and the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md)).
+the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
+and the [harbor operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md)).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
