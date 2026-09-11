@@ -506,6 +506,52 @@ func TestConnectInhibitsSleepAroundLaunch(t *testing.T) {
 	}
 }
 
+func TestConnect_HarborSupersedesAndInjects(t *testing.T) {
+	r := &runner.Fake{}
+	b := &fakeBackend{state: backend.StateRunning}
+	tr := &fakeTransport{}
+	err := Connect(b, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container:     "c1",
+		IdentityFile:  "id",
+		KnownHostsDir: t.TempDir(),
+		Harbor:        &HarborAuth{Host: "harbor.test", Token: "s3cr3t-xyz"},
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// git was routed through harbor (token-free config over ssh stdin).
+	routed := false
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, `url."https://harbor.test/git/".insteadOf https://github.com/`) {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatalf("harbor git routing not configured; calls: %+v", r.Calls)
+	}
+	// OAuth + Vertex were superseded.
+	if calledWith(r.Calls, "claude auth status") || calledWith(r.Calls, "claude auth login") {
+		t.Fatalf("harbor connect must not run claude auth; calls: %+v", r.Calls)
+	}
+	if calledWith(r.Calls, gcpADCVMPath) {
+		t.Fatalf("harbor connect must not seed Vertex ADC; calls: %+v", r.Calls)
+	}
+	// The launch env carries the harbor connector vars.
+	if tr.gotEnv["ANTHROPIC_BASE_URL"] != "https://harbor.test/anthropic" ||
+		tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["AT_HARBOR_IDENTITY_TOKEN"] != "s3cr3t-xyz" {
+		t.Fatalf("launch env missing harbor connector vars: %v", tr.gotEnv)
+	}
+	// The token stays env-only — never on argv or ssh stdin.
+	if calledWith(r.Calls, "s3cr3t-xyz") {
+		t.Fatalf("identity token leaked into a command; calls: %+v", r.Calls)
+	}
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, "s3cr3t-xyz") {
+			t.Fatalf("identity token leaked into ssh stdin: %+v", c)
+		}
+	}
+}
+
 func TestConnect_VertexSeedsADCAndSkipsOAuth(t *testing.T) {
 	r := &runner.Fake{}
 	b := &fakeBackend{state: backend.StateRunning}
