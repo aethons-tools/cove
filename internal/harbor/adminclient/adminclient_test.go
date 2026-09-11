@@ -58,6 +58,25 @@ func TestClientAddDestinationRejected(t *testing.T) {
 	}
 }
 
+func TestClientLoginConfig(t *testing.T) {
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	got, err := New(ts.URL, "").LoginConfig()
+	if err != nil {
+		t.Fatalf("LoginConfig: %v", err)
+	}
+	if got != *lc {
+		t.Fatalf("LoginConfig = %+v, want %+v", got, *lc)
+	}
+}
+
 func TestClientSendsBearer(t *testing.T) {
 	var gotAuth string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

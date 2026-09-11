@@ -99,3 +99,12 @@ func (c *Client) ListDestinations() ([]harbor.Destination, error) {
 func (c *Client) RemoveDestination(name string) error {
 	return c.do("DELETE", "/admin/destinations/"+name, nil, nil)
 }
+
+// LoginConfig fetches harbor's public device-flow client parameters from
+// GET /admin/login-config. It needs no token (the endpoint is auth-exempt); a
+// 404 means the harbor is not OIDC-gated.
+func (c *Client) LoginConfig() (harbor.OperatorLoginConfig, error) {
+	var lc harbor.OperatorLoginConfig
+	err := c.do("GET", "/admin/login-config", nil, &lc)
+	return lc, err
+}
