@@ -14,19 +14,18 @@ import (
 // request with it, and proxy to the upstream. Implements http.Handler.
 type Broker struct {
 	store Store
-	cfg   Config
 	creds CredResolver
 	now   func() time.Time
 	log   *slog.Logger
 }
 
-// NewBroker constructs a Broker.
-func NewBroker(store Store, cfg Config, creds CredResolver, log *slog.Logger) *Broker {
-	return &Broker{store: store, cfg: cfg, creds: creds, now: time.Now, log: log}
+// NewBroker constructs a Broker that matches destinations from the live store.
+func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
+	return &Broker{store: store, creds: creds, now: time.Now, log: log}
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	dest, ok := b.cfg.Match(r.URL.Path)
+	dest, ok := b.store.Match(r.URL.Path)
 	if !ok {
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return

@@ -29,13 +29,17 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 	}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Destinations: []Destination{
+	for _, d := range []Destination{
 		{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
 		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword, RepoScoped: true},
-	}}
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return NewBroker(store, cfg, fakeCreds{"anthropic-bearer": "REAL-ANTHROPIC", "git-pat": "REAL-PAT"}, log), &logbuf, tok
+	return NewBroker(store, fakeCreds{"anthropic-bearer": "REAL-ANTHROPIC", "git-pat": "REAL-PAT"}, log), &logbuf, tok
 }
 
 func TestBrokerSwapsAnthropicBearer(t *testing.T) {
@@ -145,10 +149,10 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 	if err := store.Add(Identity{ID: "spider-18", TokenHash: HashToken(tok), Destinations: []string{"anthropic"}}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Destinations: []Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: "anthropic-key", Apply: ApplyXAPIKey},
-	}}
-	b := NewBroker(store, cfg, fakeCreds{"anthropic-key": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: "anthropic-key", Apply: ApplyXAPIKey}); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBroker(store, fakeCreds{"anthropic-key": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	req := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader("{}"))
 	req.Header.Set("X-Api-Key", tok)

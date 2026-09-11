@@ -771,8 +771,8 @@ internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — stat
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
-cmd/at-harbor/                at-harbor entry: the standalone credential-broker host service — `serve`/`enroll`/`revoke` (config + TLS server over internal/harbor)
-internal/harbor/              harbor broker: identity store + hashed tokens, destination policy + three-question decision, credential resolver, credential-injecting reverse-proxy handler, enrollment (host service — not embedded in the sandbox image)
+cmd/at-harbor/                at-harbor entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination` are admin-API clients (config + servers over internal/harbor)
+internal/harbor/              harbor broker + control plane: identity store + destination table (file-backed, live), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
@@ -796,11 +796,16 @@ a secret's bare `command:` or assembled by at-cove from a `minters:` profile
 via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)), `at-switchboard`
 (the in-sandbox Discord conductor — embedded into the hardening layer the same
 way as at-task, see [Building, testing, running](#building-testing-running)),
-and `at-harbor` (a standalone **host** credential-broker service — `serve` runs a
-client-addressed-TLS reverse proxy that swaps an enrolled cove's identity token
-for harbor's real Anthropic/git credentials, `enroll`/`revoke` manage identities;
-built by `just build` but **not** embedded in the sandbox image — see the
-[harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md)).
+and `at-harbor` (a standalone **host** credential-broker + control-plane service —
+`serve` runs a client-addressed-TLS reverse proxy that swaps an enrolled cove's
+identity token for harbor's real Anthropic/git credentials, plus a loopback admin
+API; `enroll`/`revoke`/`destination` are admin-API clients that manage identities
+and destinations at runtime against one live file-backed store — no restart. The
+`harbor.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
+`store`, `credentials`); destinations and enrollments are managed via the API/CLI.
+Built by `just build` but **not** embedded in the sandbox image — see the
+[harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md)
+and the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md)).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
@@ -15,13 +14,13 @@ type credSpec struct {
 
 // serveConfig is the on-disk config for `at-harbor serve`.
 type serveConfig struct {
-	Listen string `yaml:"listen"`
-	TLS    struct {
+	Listen      string `yaml:"listen"`
+	AdminListen string `yaml:"admin-listen"`
+	TLS         struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"tls"`
 	Store       string              `yaml:"store"`
-	Broker      harbor.Config       `yaml:",inline"`
 	Credentials map[string]credSpec `yaml:"credentials"`
 }
 

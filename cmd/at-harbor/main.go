@@ -1,6 +1,7 @@
-// Command at-harbor is the central credential broker. `serve` runs the
-// credential-injecting reverse proxy; `enroll`/`revoke` manage identities.
-// See docs/superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md.
+// Command at-harbor is the central credential broker + control plane. `serve`
+// runs the credential-injecting reverse proxy and a loopback admin API;
+// `enroll`/`revoke`/`destination` are admin-API clients. See the harbor specs
+// under docs/superpowers/specs/.
 package main
 
 import (
@@ -11,23 +12,27 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/harbor/adminclient"
 	"github.com/aethons-tools/cove/internal/runner"
+	"gopkg.in/yaml.v3"
 )
 
 var version = "dev"
+
+const defaultAdminURL = "http://127.0.0.1:8081"
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
 		Name:    "at-harbor",
 		Version: version,
 		Commands: []cli.Command{
-			{Name: "serve", Brief: "run the credential broker", Run: cmdServe},
-			{Name: "enroll", Brief: "mint an identity and print its Guest snippet", Run: cmdEnroll},
-			{Name: "revoke", Brief: "remove an identity", Run: cmdRevoke},
+			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
+			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
+			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
+			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
@@ -35,62 +40,130 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
-	store := fs.String("store", "", "path to the identity store")
+	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
-	baseURL := fs.String("base-url", "", "harbor base URL for the printed snippet")
+	baseURL := fs.String("base-url", "", "harbor broker base URL for the printed snippet")
 	ttl := fs.Duration("ttl", 0, "identity lifetime (0 = no expiry)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) > 0 {
-		fmt.Fprintln(stderr, "at-harbor enroll: takes no positional arguments")
+	if len(pos) > 0 || *id == "" || *baseURL == "" {
+		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
 		return 2
 	}
-	if *store == "" || *id == "" || *baseURL == "" {
-		fmt.Fprintln(stderr, "at-harbor enroll: --store, --id and --base-url are required")
-		return 2
-	}
-	st, err := harbor.NewFileStore(*store)
+	res, err := adminclient.New(*adminURL).Enroll(adminclient.EnrollParams{
+		ID: *id, Project: *project, Role: *role,
+		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
-	tok, err := harbor.Enroll(st, *id, *project, *role, splitCSV(*dests), splitCSV(*repos), *ttl, time.Now())
-	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
-		return 1
-	}
-	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(*baseURL, tok))
+	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(*baseURL, res.Token))
 	return 0
 }
 
 func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
-	store := fs.String("store", "", "path to the identity store")
+	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
 	id := fs.String("id", "", "identity id to remove")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) > 0 || *store == "" || *id == "" {
-		fmt.Fprintln(stderr, "at-harbor revoke: --store and --id are required")
+	if len(pos) > 0 || *id == "" {
+		fmt.Fprintln(stderr, "at-harbor revoke: --id is required")
 		return 2
 	}
-	st, err := harbor.NewFileStore(*store)
-	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
-		return 1
-	}
-	if err := st.Remove(*id); err != nil {
+	if err := adminclient.New(*adminURL).Revoke(*id); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, "revoked", *id)
+	return 0
+}
+
+func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor destination: expected add|list|rm|import")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
+	adminURL := fs.String("admin-url", defaultAdminURL, "harbor admin API URL")
+	// add flags
+	var d harbor.Destination
+	fs.StringVar(&d.Name, "name", "", "destination name")
+	fs.StringVar(&d.Route, "route", "", "inbound path prefix, e.g. /git/")
+	fs.StringVar(&d.Upstream, "upstream", "", "upstream base URL")
+	var identityIn, apply string
+	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key")
+	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
+	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
+	fs.BoolVar(&d.RepoScoped, "repo-scoped", false, "path is <route>/<owner>/<repo>/…")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	c := adminclient.New(*adminURL)
+	switch sub {
+	case "add":
+		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)
+		if err := c.AddDestination(d); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "added destination", d.Name)
+	case "list":
+		ds, err := c.ListDestinations()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, dd := range ds {
+			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply)
+		}
+	case "rm":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor destination rm: expected one destination name")
+			return 2
+		}
+		if err := c.RemoveDestination(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed destination", pos[0])
+	case "import":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor destination import: expected one YAML file path")
+			return 2
+		}
+		data, err := os.ReadFile(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		var conf harbor.Config
+		if err := yaml.Unmarshal(data, &conf); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, dd := range conf.Destinations {
+			if err := c.AddDestination(dd); err != nil {
+				fmt.Fprintln(stderr, "at-harbor:", err)
+				return 1
+			}
+			fmt.Fprintln(stdout, "imported destination", dd.Name)
+		}
+	default:
+		fmt.Fprintln(stderr, "at-harbor destination: unknown subcommand", sub)
+		return 2
+	}
 	return 0
 }
 
@@ -121,10 +194,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	creds := harbor.NewSecretResolver(runner.OS{}, cfg.credSpecs())
-	broker := harbor.NewBroker(st, cfg.Broker, creds, log)
+	specs := cfg.credSpecs()
+	creds := harbor.NewSecretResolver(runner.OS{}, specs)
+	broker := harbor.NewBroker(st, creds, log)
+
+	// Admin API on the loopback listener (operator surface).
+	if cfg.AdminListen != "" {
+		credExists := func(n string) bool { _, ok := specs[n]; return ok }
+		admin := harbor.NewAdminHandler(st, harbor.LoopbackAuthenticator{}, credExists, log)
+		go func() {
+			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
+			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
+				log.Error("admin API stopped", "err", err.Error())
+			}
+		}()
+	}
+
 	srv := &http.Server{Addr: cfg.Listen, Handler: broker}
-	log.Info("harbor listening", "addr", cfg.Listen)
+	log.Info("harbor broker listening", "addr", cfg.Listen)
 	if err := srv.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
