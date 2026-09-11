@@ -31,31 +31,31 @@ func timeNow() time.Time { return time.Now() }
 func TestServeBrokersOverTLS(t *testing.T) {
 	var gotAuth string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
+		gotAuth = r.Header.Get("X-Api-Key")
 		io.WriteString(w, "ok")
 	}))
 	defer up.Close()
 
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: harbor.ApplyXAPIKey, CredName: "anthropic-key", Apply: harbor.ApplyXAPIKey}); err != nil {
+		t.Fatal(err)
+	}
 	tok, _ := harbor.Enroll(store, "spider-18", "ACME", "guest", []string{"anthropic"}, nil, 0, timeNow())
-	cfg := harbor.Config{Destinations: []harbor.Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: harbor.ApplyBearer, CredName: "anthropic-bearer", Apply: harbor.ApplyBearer},
-	}}
-	broker := harbor.NewBroker(store, cfg, fakeResolver{}, discardLogger())
+	broker := harbor.NewBroker(store, fakeResolver{}, discardLogger())
 
 	ts := httptest.NewTLSServer(broker)
 	defer ts.Close()
 	client := ts.Client() // trusts the test server's self-signed cert
 
 	req, _ := http.NewRequest("POST", ts.URL+"/anthropic/v1/messages", strings.NewReader("{}"))
-	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("x-api-key", tok)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	defer resp.Body.Close()
-	if gotAuth != "Bearer REAL-ANTHROPIC" {
-		t.Fatalf("upstream Authorization = %q", gotAuth)
+	if gotAuth != "REAL-ANTHROPIC" {
+		t.Fatalf("upstream X-Api-Key = %q", gotAuth)
 	}
 	_ = tls.VersionTLS12
 }

@@ -2,16 +2,25 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/harbor"
 )
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
-	store := filepath.Join(t.TempDir(), "ids.json")
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
 	var out, errb bytes.Buffer
 	code := run([]string{
-		"enroll", "--store", store, "--id", "spider-18", "--project", "ACME",
+		"enroll", "--admin-url", ts.URL, "--id", "spider-18", "--project", "ACME",
 		"--role", "guest", "--destinations", "anthropic,git", "--repos", "acme/*",
 		"--base-url", "https://harbor.local.aethons.tools",
 	}, func(string) string { return "" }, &out, &errb)
@@ -23,6 +32,9 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "HARBOR_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
+	}
+	if len(store.ListIdentities()) != 1 {
+		t.Fatal("identity was not created via the admin API")
 	}
 }
 
