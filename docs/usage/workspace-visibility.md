@@ -30,8 +30,11 @@ at-cove view <collaborator>            # print the config + git remote to stdout
 at-cove view --write <collaborator>    # upsert the Host block into ~/.ssh/config instead
 ```
 
-Either form resolves the collaborator's instance (same rules as
-`chat`/`status`) and prints a `git remote add sandbox …` line for
+Either form resolves the named instance (same rules as `status`) — a
+`collaborators.<class>` **or** a `teammates.<class>`, since `view`/`ssh-proxy`
+resolve a class against both maps. This makes `at-cove view <teammate>` (and a
+plain `ssh`) the read-only way to peer into a running Discord teammate's
+workspace without disturbing its egress. It prints a `git remote add sandbox …` line for
 `/home/agent/workspace`. `--write` additionally upserts a managed
 `Host cove-<container>` block into `~/.ssh/config` and confirms the path
 instead of printing the block. If `~/.ssh` or the config file doesn't exist

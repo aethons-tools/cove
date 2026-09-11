@@ -401,43 +401,6 @@ func unionDomains(lists ...[]string) []string {
 	return out
 }
 
-// SelectCollaborator resolves the CLI's optional collaborator positional to a
-// class. explicit=="" means "choose the default": the sole class, or the one
-// marked default:true, or an error if ambiguous. No collaborators defined ->
-// ("", false, nil): a plain session. <common> is never selectable.
-func (c Config) SelectCollaborator(explicit string) (string, bool, error) {
-	names := make([]string, 0, len(c.Collaborators))
-	for name := range c.Collaborators {
-		if name != commonKey {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-
-	if explicit != "" {
-		if explicit == commonKey {
-			return "", false, fmt.Errorf("%q is not a selectable collaborator", commonKey)
-		}
-		if _, ok := c.Collaborators[explicit]; !ok {
-			return "", false, fmt.Errorf("kit %q declares no collaborator %q (have: %s)", c.Name, explicit, strings.Join(names, ", "))
-		}
-		return explicit, true, nil
-	}
-	switch len(names) {
-	case 0:
-		return "", false, nil
-	case 1:
-		return names[0], true, nil
-	default:
-		for _, name := range names {
-			if c.Collaborators[name].Default {
-				return name, true, nil
-			}
-		}
-		return "", false, fmt.Errorf("kit %q has multiple collaborators; specify one of: %s", c.Name, strings.Join(names, ", "))
-	}
-}
-
 // ClassKind identifies which class map a selected instance class came from.
 type ClassKind int
 
