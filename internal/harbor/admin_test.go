@@ -3,6 +3,7 @@ package harbor
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,7 +20,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, LoopbackAuthenticator{}, credExists, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return h, store
 }
 
@@ -107,7 +108,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, fixedOperator{id: "auth0|alice"}, credExists, log)
+	h := NewAdminHandler(store, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
 
 	// add destination + enroll + revoke — each is a mutation and must be attributed.
 	h.ServeHTTP(httptest.NewRecorder(), adminReq("POST", "/admin/destinations",
@@ -137,6 +138,52 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	// the raw token must never appear in logs.
 	if strings.Contains(logs, "token=") && !strings.Contains(logs, "operator=") {
 		t.Error("unexpected token in logs")
+	}
+}
+
+// denyAll rejects every request — proves /admin/login-config bypasses operator auth.
+type denyAll struct{}
+
+func (denyAll) Authenticate(*http.Request) (Operator, error) {
+	return Operator{}, errDeny
+}
+
+var errDeny = fmt.Errorf("denied")
+
+func TestLoginConfigServedAndAuthExempt(t *testing.T) {
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	h := NewAdminHandler(store, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// login-config is reachable with NO token even though the authenticator denies all.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/login-config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login-config status = %d, want 200 (auth-exempt)", rec.Code)
+	}
+	var got OperatorLoginConfig
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if got != *lc {
+		t.Fatalf("login-config = %+v, want %+v", got, *lc)
+	}
+	// a normal route is still gated.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/destinations", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("destinations status = %d, want 403", rec.Code)
+	}
+}
+
+func TestLoginConfig404WhenNotConfigured(t *testing.T) {
+	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := NewAdminHandler(store, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("login-config status = %d, want 404 when not OIDC-gated", rec.Code)
 	}
 }
 
