@@ -62,14 +62,16 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("admin destination added", "name", d.Name, "route", d.Route, "upstream", d.Upstream)
+		log.Info("admin destination added", "operator", operatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("DELETE /admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.RemoveDestination(r.PathValue("name")); err != nil {
+		name := r.PathValue("name")
+		if err := store.RemoveDestination(name); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		log.Info("admin destination removed", "operator", operatorID(r), "name", name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -94,14 +96,16 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin enrolled", "id", b.ID, "project", b.Project, "role", b.Role)
+		log.Info("admin enrolled", "operator", operatorID(r), "id", b.ID, "project", b.Project, "role", b.Role)
 		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok})
 	})
 	mux.HandleFunc("DELETE /admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.Remove(r.PathValue("id")); err != nil {
+		id := r.PathValue("id")
+		if err := store.Remove(id); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		log.Info("admin revoked", "operator", operatorID(r), "id", id)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -111,12 +115,13 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 
 func authMiddleware(auth OperatorAuthenticator, log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := auth.Authenticate(r); err != nil {
+		op, err := auth.Authenticate(r)
+		if err != nil {
 			log.Warn("admin request rejected", "reason", err.Error(), "remote", r.RemoteAddr)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, withOperator(r, op))
 	})
 }
 
