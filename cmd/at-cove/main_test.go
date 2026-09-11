@@ -1407,7 +1407,7 @@ func TestDryRunChatNoCollaboratorFresh(t *testing.T) {
 	}
 }
 
-// A kit declaring a single collaborator class auto-selects it (SelectCollaborator's
+// A kit declaring a single collaborator class auto-selects it (SelectClass's
 // "sole class" default), and the dry-run message names it.
 func TestDryRunChatResolvesDefaultCollaborator(t *testing.T) {
 	dir := t.TempDir()
@@ -2412,7 +2412,7 @@ func TestDispatchStartHintMentionsCtrlC(t *testing.T) {
 
 // writeCollabKit writes a kit whose config.yml declares the given collaborator
 // classes (a bare "prompt" each). The first entry is marked default:true when
-// more than one is given, so SelectCollaborator has an unambiguous default.
+// more than one is given, so SelectClass has an unambiguous default.
 func writeCollabKit(t *testing.T, dir string, classes ...string) string {
 	t.Helper()
 	cove := filepath.Join(dir, ".at-cove")
