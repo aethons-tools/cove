@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -117,6 +118,34 @@ func TestPollTokenRespectsContext(t *testing.T) {
 	cancel()
 	if _, err := PollToken(ctx, http.DefaultClient, func(time.Duration) {}, f.url+"/oauth/token", "cid", "DEV-123", 1); err == nil {
 		t.Fatal("expected error when the context is done")
+	}
+}
+
+func TestRequestDeviceCodeSurfacesProviderError(t *testing.T) {
+	mux := http.NewServeMux()
+	var base string
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"issuer": base, "device_authorization_endpoint": base + "/dev", "token_endpoint": base + "/tok",
+		})
+	})
+	mux.HandleFunc("/dev", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error":             "unauthorized_client",
+			"error_description": "Grant type 'urn:ietf:params:oauth:grant-type:device_code' not allowed for the client.",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	_, err := RequestDeviceCode(context.Background(), http.DefaultClient, Config{Issuer: base, ClientID: "cid", Scope: "openid"})
+	if err == nil {
+		t.Fatal("expected error on 403")
+	}
+	if !strings.Contains(err.Error(), "not allowed for the client") || !strings.Contains(err.Error(), "unauthorized_client") {
+		t.Fatalf("error should surface the provider's description + code, got: %v", err)
 	}
 }
 

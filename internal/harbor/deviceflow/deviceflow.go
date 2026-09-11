@@ -91,11 +91,13 @@ func RequestDeviceCode(ctx context.Context, doer HTTPDoer, cfg Config) (DeviceCo
 		VerificationURIComplete string `json:"verification_uri_complete"`
 		Interval                int    `json:"interval"`
 		ExpiresIn               int    `json:"expires_in"`
+		Error                   string `json:"error"`
+		ErrorDescription        string `json:"error_description"`
 	}
 	if status, err := postForm(ctx, doer, d.DeviceAuthorizationEndpoint, form, &out); err != nil {
 		return DeviceCode{}, fmt.Errorf("device authorization: %w", err)
 	} else if status != http.StatusOK {
-		return DeviceCode{}, fmt.Errorf("device authorization: status %d", status)
+		return DeviceCode{}, fmt.Errorf("device authorization: %s", oauthError(status, out.Error, out.ErrorDescription))
 	}
 	interval := out.Interval
 	if interval <= 0 {
@@ -124,9 +126,10 @@ func PollToken(ctx context.Context, doer HTTPDoer, sleep func(time.Duration), to
 			return Token{}, err
 		}
 		var out struct {
-			AccessToken string `json:"access_token"`
-			ExpiresIn   int    `json:"expires_in"`
-			Error       string `json:"error"`
+			AccessToken      string `json:"access_token"`
+			ExpiresIn        int    `json:"expires_in"`
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
 		}
 		status, err := postForm(ctx, doer, tokenEndpoint, form, &out)
 		if err != nil {
@@ -144,9 +147,25 @@ func PollToken(ctx context.Context, doer HTTPDoer, sleep func(time.Duration), to
 		case out.Error == "expired_token":
 			return Token{}, fmt.Errorf("login timed out")
 		default:
-			return Token{}, fmt.Errorf("device token poll failed: %q (status %d)", out.Error, status)
+			return Token{}, fmt.Errorf("device token poll failed: %s", oauthError(status, out.Error, out.ErrorDescription))
 		}
 		sleep(time.Duration(interval) * time.Second)
+	}
+}
+
+// oauthError renders an actionable message from an OAuth error response,
+// preferring the provider's error_description (e.g. Auth0's "Grant type
+// 'device_code' not allowed for the client") over a bare HTTP status.
+func oauthError(status int, code, desc string) string {
+	switch {
+	case desc != "" && code != "":
+		return fmt.Sprintf("%s (%s)", desc, code)
+	case desc != "":
+		return desc
+	case code != "":
+		return fmt.Sprintf("%s (status %d)", code, status)
+	default:
+		return fmt.Sprintf("status %d", status)
 	}
 }
 
