@@ -51,14 +51,24 @@ injection — all additive.
 - **Harbor auth mode.** A new `connect.Options.Harbor` (mirroring `Options.Vertex`).
   When set, at-cove **supersedes** the subscription-OAuth/Vertex seeding and instead
   sources the harbor connector setup into the session's tmpfs env-script: the
-  enroll-snippet's `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` exports **and** the git
-  `insteadOf` + credential-helper lines. Both connectors; all session entry points
-  that call `connect.Connect` (chat/work/teammate).
+  enroll-snippet's `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` env **and** the git
+  `insteadOf` + credential-helper config. Both connectors, on the interactive/managed
+  **chat** path (`connect.Connect`) this cut. Routability (`--add-host`) is applied at
+  container **create**, so every session type of the kit is reachable; the
+  connector *injection* for **teammate** (`LaunchTeammate`) and **dispatch workers**
+  uses distinct launch paths and is deferred (see Out). (Implementation note: the env
+  vars ride the existing launch `env` map; the token-free git config runs once over
+  ssh via `snippet.GitConfig`, so both transports work unchanged.)
 - **Token delivery.** The `identity` source is resolved **host-side** and injected
   **env-only** via the sourced tmpfs script — never in gitconfig-on-disk, argv, logs,
   or the kit secret store (same treatment as the Vertex ADC / workspace-clone token).
 
 **Out (deferred):**
+- **Teammate + dispatch-worker connector injection.** These sessions use distinct
+  launch paths (`LaunchTeammate`, the work path) that don't yet thread
+  `Options.Harbor`; only the interactive/managed chat path injects the connector
+  this cut. Their containers still get harbor routability + the allow-list (applied
+  at create), so wiring the injection is a contained follow-up.
 - **Auto-enrollment** via harbor's admin API (mint/revoke a per-cove identity at
   session start) — the fast-follow; MVP takes a pre-supplied token.
 - **Non-443 harbor ports** (would require widening the sealed nftables/squid — the
