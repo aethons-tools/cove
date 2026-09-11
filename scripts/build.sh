@@ -28,7 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-cove at-task at-mint at-switchboard)
+BINARIES=(at-cove at-task at-mint at-switchboard at-harbor)
 
 # Stage the linux at-task and at-switchboard binaries at-cove embeds, before
 # at-cove is built — shared with the goreleaser before-hook, see

@@ -4,7 +4,7 @@ read_when: You are running one of the cove binaries directly (not developing it)
 owns: the map of the per-binary usage docs
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: section
-updated: 2026-09-01
+updated: 2026-09-10
 ---
 
 # Usage reference
@@ -26,3 +26,4 @@ environment, and the concrete input/output contracts (with JSON Schemas). This i
 | [observability.md](observability.md) | The observability model — the attended/unattended output modes and their flags, where log files land, the `run`/`issue`/`class`/`step` correlation contract, and the secrets-never-in-logs invariant. | You are reading, capturing, or shipping `dispatch`/`work`/`at-task` logs — choosing a mode, finding a log file, grepping one run, or confirming secrets stay out of logs. |
 | [workspace-visibility.md](workspace-visibility.md) | Browsing/editing an isolated collaborator sandbox's workspace from your own machine via VS Code Remote-SSH and git-over-SSH — `at-cove view`/`ssh-proxy`, client setup, and why the alias survives `recreate`. | You want to see into or edit a collaborator sandbox's workspace from your editor, or wire up git against it. |
 | [discord-teammate.md](discord-teammate.md) | The `at-cove teammate` Discord conductor — the `teammates.<class>` config block, the `create`→`teammate` provisioning flow, the auth prerequisite (first launch signs in), the detached/fail-loud launch model, and Discord egress. | You are declaring a `teammates.<class>` block, standing up a Discord-reachable teammate sandbox, or debugging a conductor that stopped posting/replying. |
+| [harbor broker + enrollment (Guest MVP)](../superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md) | The `at-harbor` credential-broker host service — `serve` (a client-addressed-TLS reverse proxy that swaps an enrolled identity token for harbor's real Anthropic/git credentials), `enroll`/`revoke`, the serve-config YAML, and the Guest enrollment snippet. Slice #1 MVP; command usage lives in the design spec until a dedicated leaf is warranted. | You are running `at-harbor` — standing up the broker, enrolling or revoking a cove identity, or writing its serve config. |
