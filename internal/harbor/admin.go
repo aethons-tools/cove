@@ -33,13 +33,32 @@ type IdentitySummary struct {
 	Expiry       time.Time `json:"expiry"`
 }
 
+// OperatorLoginConfig is the public device-flow client config harbor advertises
+// at GET /admin/login-config so `at-harbor login` can self-configure. Every field
+// is a public OAuth parameter — never a secret.
+type OperatorLoginConfig struct {
+	Issuer   string `json:"issuer"`
+	Audience string `json:"audience"`
+	ClientID string `json:"client_id"`
+	Scope    string `json:"scope"`
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
-// destination's cred_name resolves before the destination is accepted.
-func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(string) bool, log *slog.Logger) http.Handler {
+// destination's cred_name resolves before the destination is accepted. login (may
+// be nil) is the public device-flow config advertised at /admin/login-config.
+func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
+	})
+
+	mux.HandleFunc("GET /admin/login-config", func(w http.ResponseWriter, r *http.Request) {
+		if login == nil {
+			http.Error(w, "harbor is not OIDC-gated; no login required", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, login)
 	})
 
 	mux.HandleFunc("GET /admin/destinations", func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +134,12 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 
 func authMiddleware(auth OperatorAuthenticator, log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// login-config is the pre-auth bootstrap (you call it to obtain a token) and
+		// carries only public OAuth params — exempt it from operator auth.
+		if r.Method == http.MethodGet && r.URL.Path == "/admin/login-config" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		op, err := auth.Authenticate(r)
 		if err != nil {
 			log.Warn("admin request rejected", "reason", err.Error(), "remote", r.RemoteAddr)

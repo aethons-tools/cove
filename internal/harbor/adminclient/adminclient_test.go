@@ -17,7 +17,7 @@ func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -55,6 +55,25 @@ func TestClientAddDestinationRejected(t *testing.T) {
 	err := c.AddDestination(harbor.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: harbor.ApplyBearer, CredName: "nope", Apply: harbor.ApplyBearer})
 	if err == nil {
 		t.Fatal("expected error for unresolvable cred_name")
+	}
+}
+
+func TestClientLoginConfig(t *testing.T) {
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	got, err := New(ts.URL, "").LoginConfig()
+	if err != nil {
+		t.Fatalf("LoginConfig: %v", err)
+	}
+	if got != *lc {
+		t.Fatalf("LoginConfig = %+v, want %+v", got, *lc)
 	}
 }
 

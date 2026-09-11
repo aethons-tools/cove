@@ -14,7 +14,7 @@ import (
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
@@ -24,11 +25,28 @@ type serveConfig struct {
 	Credentials  map[string]credSpec `yaml:"credentials"`
 	OperatorAuth struct {
 		OIDC *struct {
-			Issuer       string `yaml:"issuer"`
-			Audience     string `yaml:"audience"`
-			RequireScope string `yaml:"require-scope"`
+			Issuer         string `yaml:"issuer"`
+			Audience       string `yaml:"audience"`
+			RequireScope   string `yaml:"require-scope"`
+			DeviceClientID string `yaml:"device-client-id"`
+			DeviceScope    string `yaml:"device-scope"`
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
+}
+
+// operatorLoginConfig builds the public device-flow client config harbor
+// advertises at /admin/login-config, or nil when device login isn't configured
+// (no device-client-id). Scope defaults to "openid".
+func (c serveConfig) operatorLoginConfig() *harbor.OperatorLoginConfig {
+	o := c.OperatorAuth.OIDC
+	if o == nil || o.DeviceClientID == "" {
+		return nil
+	}
+	scope := o.DeviceScope
+	if scope == "" {
+		scope = "openid"
+	}
+	return &harbor.OperatorLoginConfig{Issuer: o.Issuer, Audience: o.Audience, ClientID: o.DeviceClientID, Scope: scope}
 }
 
 // parseServeConfig parses the serve config YAML.
