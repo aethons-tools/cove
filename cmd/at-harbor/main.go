@@ -46,9 +46,9 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 }
 
 func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	settings := loadSettings()
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	adminURL := fs.String("admin-url", firstNonEmpty(settings.AdminURL, defaultAdminURL), "harbor admin API URL")
+	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-harbor/settings.yml)")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL; persisted to the app's settings when given")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -57,7 +57,23 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor login: unexpected arguments")
 		return 2
 	}
-	lc, err := adminclient.New(*adminURL, "").LoginConfig()
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor login:", err)
+		return 2
+	}
+	settings := loadSettings(*app)
+	adminURL := firstNonEmpty(*adminURLFlag, settings.AdminURL, defaultAdminURL)
+	// Persist an explicitly-given --admin-url into the app's settings so future
+	// commands for this app don't need the flag.
+	if *adminURLFlag != "" && *adminURLFlag != settings.AdminURL {
+		s := settings
+		s.AdminURL = *adminURLFlag
+		if err := saveSettings(*app, s); err != nil {
+			fmt.Fprintln(stderr, "at-harbor login: could not save settings:", err)
+			return 1
+		}
+	}
+	lc, err := adminclient.New(adminURL, "").LoginConfig()
 	if err != nil {
 		if errors.Is(err, adminclient.ErrNotFound) {
 			fmt.Fprintln(stdout, "this harbor is not OIDC-gated; no login needed")
@@ -95,7 +111,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if exp.IsZero() && tok.ExpiresIn > 0 {
 		exp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
-	if err := saveToken(cachedToken{AccessToken: tok.AccessToken, Sub: sub, Expiry: exp, AdminURL: *adminURL}); err != nil {
+	if err := saveToken(*app, cachedToken{AccessToken: tok.AccessToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
 		fmt.Fprintln(stderr, "at-harbor login:", err)
 		return 1
 	}
@@ -104,7 +120,16 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if err := clearToken(); err != nil {
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor logout:", err)
+		return 2
+	}
+	if err := clearToken(*app); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -113,11 +138,20 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if t, ok := loadToken(); ok {
+	fs := flag.NewFlagSet("whoami", flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor whoami:", err)
+		return 2
+	}
+	if t, ok := loadToken(*app); ok {
 		fmt.Fprintf(stdout, "%s @ %s (expires %s)\n", t.Sub, t.AdminURL, t.Expiry.Format(time.RFC3339))
 		return 0
 	}
-	if _, err := os.Stat(tokenPath()); err == nil {
+	if _, err := os.Stat(tokenPath(*app)); err == nil {
 		fmt.Fprintln(stdout, "session expired; run `at-harbor login`")
 	} else {
 		fmt.Fprintln(stdout, "not logged in")
@@ -125,40 +159,34 @@ func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// resolveToken applies the operator-token precedence: an explicit flag/env value
-// wins, else the cached login token — but only when it was minted against this
-// same adminURL, so a token is never replayed to a different harbor.
-func resolveToken(flagVal, adminURL string) string {
-	if flagVal != "" {
-		return flagVal
-	}
-	if ct, ok := loadToken(); ok && ct.AdminURL == adminURL {
-		return ct.AccessToken
-	}
-	return ""
-}
-
 func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	settings := loadSettings()
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
-	adminURL := fs.String("admin-url", firstNonEmpty(settings.AdminURL, defaultAdminURL), "harbor admin API URL")
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
-	baseURL := fs.String("base-url", settings.BaseURL, "harbor broker base URL for the printed snippet")
+	baseURLFlag := fs.String("base-url", "", "harbor broker base URL for the printed snippet (overrides the app's settings)")
 	ttl := fs.Duration("ttl", 0, "identity lifetime (0 = no expiry)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) > 0 || *id == "" || *baseURL == "" {
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor enroll:", err)
+		return 2
+	}
+	settings := loadSettings(*app)
+	adminURL := firstNonEmpty(*adminURLFlag, settings.AdminURL, defaultAdminURL)
+	baseURL := firstNonEmpty(*baseURLFlag, settings.BaseURL)
+	if len(pos) > 0 || *id == "" || baseURL == "" {
 		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
 		return 2
 	}
-	res, err := adminclient.New(*adminURL, resolveToken(*token, *adminURL)).Enroll(adminclient.EnrollParams{
+	res, err := adminclient.New(adminURL, resolveToken(*app, *token)).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
 		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
 	})
@@ -166,25 +194,30 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
-	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(*baseURL, res.Token))
+	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(baseURL, res.Token))
 	return 0
 }
 
 func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	settings := loadSettings()
 	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
-	adminURL := fs.String("admin-url", firstNonEmpty(settings.AdminURL, defaultAdminURL), "harbor admin API URL")
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id to remove")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor revoke:", err)
+		return 2
+	}
 	if len(pos) > 0 || *id == "" {
 		fmt.Fprintln(stderr, "at-harbor revoke: --id is required")
 		return 2
 	}
-	if err := adminclient.New(*adminURL, resolveToken(*token, *adminURL)).Revoke(*id); err != nil {
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	if err := adminclient.New(adminURL, resolveToken(*app, *token)).Revoke(*id); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -198,9 +231,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	settings := loadSettings()
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
-	adminURL := fs.String("admin-url", firstNonEmpty(settings.AdminURL, defaultAdminURL), "harbor admin API URL")
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	// add flags
 	var d harbor.Destination
@@ -216,7 +249,12 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	if !ok {
 		return code
 	}
-	c := adminclient.New(*adminURL, resolveToken(*token, *adminURL))
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor destination:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token))
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)

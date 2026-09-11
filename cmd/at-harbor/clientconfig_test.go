@@ -10,50 +10,73 @@ import (
 )
 
 func TestSettingsAndTokenCache(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	// settings.yml
-	if err := os.MkdirAll(configDir(), 0o700); err != nil {
+	// settings.yml is app-keyed; saveSettings upserts one app, preserving others.
+	if err := saveSettings("default", clientSettings{AdminURL: "http://127.0.0.1:8081", BaseURL: "https://h.local"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir(), "settings.yml"),
-		[]byte("admin-url: http://harbor.local:8081\nbase-url: https://harbor.local\n"), 0o644); err != nil {
+	if err := saveSettings("dev", clientSettings{AdminURL: "http://localhost:9091"}); err != nil {
 		t.Fatal(err)
 	}
-	s := loadSettings()
-	if s.AdminURL != "http://harbor.local:8081" || s.BaseURL != "https://harbor.local" {
-		t.Fatalf("settings = %+v", s)
+	if s := loadSettings("default"); s.AdminURL != "http://127.0.0.1:8081" || s.BaseURL != "https://h.local" {
+		t.Fatalf("default settings = %+v", s)
+	}
+	if s := loadSettings("dev"); s.AdminURL != "http://localhost:9091" {
+		t.Fatalf("dev settings = %+v", s)
+	}
+	// upserting dev must not clobber default's block
+	if s := loadSettings("default"); s.AdminURL == "" {
+		t.Fatal("saveSettings clobbered another app's block")
 	}
 
-	// token round-trip + 0600
-	tok := cachedToken{AccessToken: "AT", Sub: "auth0|op", Expiry: time.Now().Add(time.Hour)}
-	if err := saveToken(tok); err != nil {
+	// per-app token files, mode 0600, named {app}-admin-token.json
+	tok := cachedToken{AccessToken: "AT", Sub: "auth0|op", Expiry: time.Now().Add(time.Hour), AdminURL: "http://127.0.0.1:8081"}
+	if err := saveToken("default", tok); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(tokenPath())
+	if base := filepath.Base(tokenPath("default")); base != "default-admin-token.json" {
+		t.Fatalf("token filename = %s", base)
+	}
+	info, err := os.Stat(tokenPath("default"))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("token file mode = %v, err=%v (want 0600)", info.Mode().Perm(), err)
 	}
-	got, ok := loadToken()
-	if !ok || got.AccessToken != "AT" || got.Sub != "auth0|op" {
-		t.Fatalf("loadToken = %+v ok=%v", got, ok)
+	if got, ok := loadToken("default"); !ok || got.AccessToken != "AT" || got.Sub != "auth0|op" {
+		t.Fatalf("loadToken(default) = %+v ok=%v", got, ok)
+	}
+	// a different app has no token
+	if _, ok := loadToken("dev"); ok {
+		t.Fatal("dev app must not see default's token")
 	}
 
 	// expired cache loads as absent
-	if err := saveToken(cachedToken{AccessToken: "OLD", Expiry: time.Now().Add(-time.Minute)}); err != nil {
+	if err := saveToken("default", cachedToken{AccessToken: "OLD", Expiry: time.Now().Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := loadToken(); ok {
+	if _, ok := loadToken("default"); ok {
 		t.Fatal("expired token must load as absent")
 	}
 
 	// clear
-	if err := clearToken(); err != nil {
+	if err := clearToken("default"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(tokenPath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(tokenPath("default")); !os.IsNotExist(err) {
 		t.Fatal("token file should be gone after clearToken")
+	}
+}
+
+func TestValidateApp(t *testing.T) {
+	for _, ok := range []string{"default", "dev", "dev-app", "prod.1", "a_b"} {
+		if err := validateApp(ok); err != nil {
+			t.Errorf("validateApp(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "a/b", "../etc", "a b", "a\\b"} {
+		if err := validateApp(bad); err == nil {
+			t.Errorf("validateApp(%q) = nil, want error", bad)
+		}
 	}
 }
 

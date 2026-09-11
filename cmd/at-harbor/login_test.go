@@ -72,7 +72,7 @@ func TestLoginCachesToken(t *testing.T) {
 	if !strings.Contains(out.String(), "USER-CODE-1") {
 		t.Fatalf("login output missing user code:\n%s", out.String())
 	}
-	got, ok := loadToken()
+	got, ok := loadToken("default")
 	if !ok || got.Sub != "auth0|alice" {
 		t.Fatalf("cached token = %+v ok=%v", got, ok)
 	}
@@ -90,8 +90,30 @@ func TestLoginCachesToken(t *testing.T) {
 	if code := run([]string{"logout"}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("logout exit = %d", code)
 	}
-	if _, ok := loadToken(); ok {
+	if _, ok := loadToken("default"); ok {
 		t.Fatal("token still cached after logout")
+	}
+}
+
+func TestLoginPersistsAdminURLAndScopesByApp(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	idp := fakeAuth0(t, "auth0|bob")
+	hb := harborWithLogin(t, idp.URL)
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"login", "--app", "prod", "--admin-url", hb.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("login exit = %d, stderr=%s", code, errb.String())
+	}
+	// --admin-url is persisted into the prod app's settings
+	if s := loadSettings("prod"); s.AdminURL != hb.URL {
+		t.Fatalf("login did not persist admin-url: %+v", s)
+	}
+	// token is cached under the prod app, not default
+	if _, ok := loadToken("prod"); !ok {
+		t.Fatal("prod token not cached")
+	}
+	if _, ok := loadToken("default"); ok {
+		t.Fatal("default app should have no token")
 	}
 }
 
@@ -104,8 +126,8 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	// token minted against THIS admin-url is used …
-	if err := saveToken(cachedToken{AccessToken: "CACHED-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour), AdminURL: ts.URL}); err != nil {
+	// the default app's cached token is used for default-app commands …
+	if err := saveToken("default", cachedToken{AccessToken: "CACHED-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour), AdminURL: ts.URL}); err != nil {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
@@ -117,16 +139,14 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 		t.Fatalf("Authorization = %q, want Bearer CACHED-JWT", gotAuth)
 	}
 
-	// … but a token minted against a DIFFERENT harbor is NOT replayed here.
-	if err := saveToken(cachedToken{AccessToken: "OTHER-HARBOR-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour), AdminURL: "http://elsewhere:9999"}); err != nil {
-		t.Fatal(err)
-	}
+	// … but a DIFFERENT app (no token cached for it) sends nothing — per-app token
+	// files are the scoping boundary, so one harbor's token never leaks to another.
 	gotAuth = "sentinel"
-	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
+	if code := run([]string{"destination", "list", "--app", "other", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("destination list exit = %d, stderr=%s", code, errb.String())
 	}
 	if gotAuth != "" {
-		t.Fatalf("Authorization = %q, want empty (cached token for another harbor must not be sent)", gotAuth)
+		t.Fatalf("Authorization = %q, want empty (the 'other' app has no cached token)", gotAuth)
 	}
 }
 

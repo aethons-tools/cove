@@ -807,10 +807,12 @@ managed via the API/CLI. The admin API's operator auth defaults to loopback-only
 or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
 `require-scope`) is set. Operators sign in with `at-harbor login` — an OIDC device
 flow that self-configures from harbor's auth-exempt `GET /admin/login-config` (fed by
-`operator-auth.oidc.device-client-id`) and caches the token at `~/.config/at-harbor/token.json`
-(0600); `logout`/`whoami` manage it and every verb falls back to it, so `--token` /
-`AT_HARBOR_ADMIN_TOKEN` become optional. Client endpoint defaults (`admin-url`/`base-url`)
-live in `~/.config/at-harbor/settings.yml`. (The listener stays plain-HTTP-loopback this
+`operator-auth.oidc.device-client-id`) and caches the token per app profile at
+`~/.config/at-harbor/{app}-admin-token.json` (0600); `logout`/`whoami` manage it and
+every verb falls back to it, so `--token` / `AT_HARBOR_ADMIN_TOKEN` become optional.
+Client endpoint defaults live in `~/.config/at-harbor/settings.yml` as named **app
+profiles** (`{admin-url, base-url}` per app); every verb takes `--app` (default
+`default`), and `login --admin-url` persists the url into that profile. (The listener stays plain-HTTP-loopback this
 cut, so OIDC is validated but off-loopback exposure awaits TLS.) Built by `just build` but
 **not** embedded in the sandbox image — see the
 [harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),

@@ -35,19 +35,24 @@ every `at-harbor` verb — a harbor-aware, zero-config-for-the-operator sign-in.
   discovery → `RequestDeviceCode` → `PollToken`, honoring `authorization_pending` /
   `slow_down` / `expired_token`, with an injected clock for hermetic tests.
 - **Client settings — `~/.config/at-harbor/settings.yml`** (operator-authored,
-  non-secret, XDG-aware): client **endpoint** defaults `admin-url` and `base-url`.
-  Loaded by every client verb; **flag → settings.yml → built-in default**.
-- **Token cache — `~/.config/at-harbor/token.json`** (mode **0600**, login-owned):
-  `{access_token, sub, expiry, admin_url}`; `sub`/`exp` parsed from the JWT payload
-  *unverified* (display only). `login` writes it, `logout` clears it. The cache
-  records the `admin_url` it was minted against so the bearer is **never replayed to
-  a different harbor**.
-- **Commands:** `login` (device flow → cache → `logged in as <sub>, expires <t>`),
-  `logout` (clear the cache), `whoami` (print cached `sub` + expiry, or "not logged
-  in" / "session expired").
+  non-secret, XDG-aware): a **map of app profile → endpoint defaults**
+  (`{admin-url, base-url}`), e.g. `default:` and `dev-app:`. Every verb takes
+  **`--app <name>`** (default `default`) to select the profile; resolution is
+  **flag → the app's `settings.yml` block → built-in default**.
+- **Token cache — per app, `~/.config/at-harbor/{app}-admin-token.json`** (mode
+  **0600**, login-owned): `{access_token, sub, expiry, admin_url}`; `sub`/`exp`
+  parsed from the JWT payload *unverified* (display only). `login` writes it,
+  `logout` clears it. **The per-app token file is the scoping boundary** — a token
+  is only ever used under its own `--app`, so one harbor's token never reaches
+  another. `--app` names are validated (`[A-Za-z0-9._-]+`) so they stay a single
+  filename component.
+- **Commands:** all take `--app`. `login` (device flow → cache → `logged in as
+  <sub>, expires <t>`; if `--admin-url` is given it is **persisted** into the app's
+  `settings.yml`), `logout` (clear the app's token), `whoami` (print the app's
+  cached `sub` + `admin_url` + expiry, or "not logged in" / "session expired").
 - **Token precedence** for `enroll`/`revoke`/`destination`: `--token` → env
-  `AT_HARBOR_ADMIN_TOKEN` → **cached token** (when unexpired **and** minted against
-  the target `admin-url`). Loopback harbors ignore all three, unchanged.
+  `AT_HARBOR_ADMIN_TOKEN` → the **selected app's cached token** (when unexpired).
+  Loopback harbors ignore all three, unchanged.
 
 **Out (still deferred):**
 - **Refresh tokens / silent refresh** — v1 re-logs in on expiry; no `offline_access`,
@@ -126,14 +131,18 @@ func PollToken(ctx context.Context, doer HTTPDoer, sleep func(time.Duration),
 
 Mirrors at-cove's `configDir()` (`$XDG_CONFIG_HOME/at-harbor` else `~/.config/at-harbor`):
 
-- `settings.yml` → `{ admin-url, base-url }` (both optional). `loadSettings()`; flags win.
-- `token.json` → `{ access_token, sub, expiry }` at 0600. `saveToken`/`loadToken`/`clearToken`.
+- `settings.yml` → `map[app]{ admin-url, base-url }` (all optional). `loadSettings(app)`
+  reads one profile; `saveSettings(app, s)` upserts it (preserving other profiles);
+  flags win. `validateApp(app)` guards the name.
+- `{app}-admin-token.json` → `{ access_token, sub, expiry, admin_url }` at 0600.
+  `saveToken(app, …)`/`loadToken(app)`/`clearToken(app)`; `resolveToken(app, flag)`.
 
 ## Data flow — `at-harbor login`
 
 ```
-at-harbor login [--admin-url URL]
-  admin-url := flag | settings.yml.admin-url | http://127.0.0.1:8081
+at-harbor login [--app NAME] [--admin-url URL]
+  admin-url := flag | settings.yml[app].admin-url | http://127.0.0.1:8081
+  if --admin-url given → persist it into settings.yml[app]
   → GET  {admin-url}/admin/login-config
         404 → "harbor is not OIDC-gated; no login needed." (exit 0)
         200 → {issuer, audience, client_id, scope}
@@ -145,7 +154,7 @@ at-harbor login [--admin-url URL]
         access_denied           → "login was denied." (exit 1)
   → 200 → access_token
   → parse sub + exp from the JWT payload (unverified, display only)
-  → saveToken(access_token, sub, exp)  // ~/.config/at-harbor/token.json, 0600
+  → saveToken(app, access_token, sub, exp)  // ~/.config/at-harbor/{app}-admin-token.json, 0600
   → print: "logged in as <sub>; token expires <t>."
 ```
 
@@ -204,4 +213,6 @@ real people.
 4. `at-harbor destination list` (no `--token`, no env) succeeds using the cached token.
 5. `at-harbor whoami` prints the `sub` + expiry; `at-harbor logout` clears it and a
    subsequent command reports the missing/expired session.
-6. A `settings.yml` with `admin-url` lets every verb run without `--admin-url`.
+6. `login --admin-url <url>` persists that url into the app's `settings.yml` block,
+   so every subsequent verb (same `--app`) runs without `--admin-url`; a second
+   `--app` keeps its own settings + token file.
