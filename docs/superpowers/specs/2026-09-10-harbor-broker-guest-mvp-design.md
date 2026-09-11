@@ -167,7 +167,7 @@ Hermetic unit tests cover the rewrite/authz/enroll logic; a real-TLS + real-cove
   fail with "Authentication failed" before the token is ever sent. Verified end-to-end (real `git clone`
   through harbor against a local git-over-HTTP server).
 - ~~Cove-side ergonomics~~ → **resolved:** `enroll` emits a complete, **env-only** git credential — the
-  token is exported once as `HARBOR_IDENTITY_TOKEN`, and a `!`-prefixed git credential helper reads it at run
+  token is exported once as `AT_HARBOR_IDENTITY_TOKEN`, and a `!`-prefixed git credential helper reads it at run
   time, so the token never lands in gitconfig on disk and `git clone` works headlessly (no prompt).
   `ANTHROPIC_AUTH_TOKEN` references the same env var.
 - **Multi-tenant store & concurrency** — file-backed is fine single-node; the move to a real DB is slice #2.

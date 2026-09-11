@@ -30,7 +30,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=https://harbor.local.aethons.tools/anthropic") {
 		t.Fatalf("stdout missing snippet:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "HARBOR_IDENTITY_TOKEN=") {
+	if !strings.Contains(out.String(), "AT_HARBOR_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
 	}
 	if len(store.ListIdentities()) != 1 {
