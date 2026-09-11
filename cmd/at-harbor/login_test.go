@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -147,6 +148,33 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 	}
 	if gotAuth != "" {
 		t.Fatalf("Authorization = %q, want empty (the 'other' app has no cached token)", gotAuth)
+	}
+}
+
+func TestEnvTokenShadowWarning(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AT_HARBOR_ADMIN_TOKEN", "ENV-TOK")
+	if err := saveToken("default", cachedToken{AccessToken: "CACHED", Expiry: time.Now().Add(time.Hour), AdminURL: "http://x"}); err != nil {
+		t.Fatal(err)
+	}
+	var gotAuth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Write([]byte("[]"))
+	}))
+	defer ts.Close()
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, os.Getenv, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
+	}
+	// env wins over cache (documented precedence) …
+	if gotAuth != "Bearer ENV-TOK" {
+		t.Fatalf("Authorization = %q, want Bearer ENV-TOK (env overrides cache)", gotAuth)
+	}
+	// … but the shadowing is called out, so a stale env var isn't a silent footgun.
+	if !strings.Contains(errb.String(), "AT_HARBOR_ADMIN_TOKEN is set") {
+		t.Fatalf("expected a shadow warning on stderr, got: %q", errb.String())
 	}
 }
 

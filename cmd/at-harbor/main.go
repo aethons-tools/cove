@@ -186,7 +186,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
 		return 2
 	}
-	res, err := adminclient.New(adminURL, resolveToken(*app, *token)).Enroll(adminclient.EnrollParams{
+	res, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
 		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
 	})
@@ -217,7 +217,7 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
-	if err := adminclient.New(adminURL, resolveToken(*app, *token)).Revoke(*id); err != nil {
+	if err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Revoke(*id); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -254,7 +254,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
-	c := adminclient.New(adminURL, resolveToken(*app, *token))
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)

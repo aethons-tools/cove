@@ -52,7 +52,9 @@ every `at-harbor` verb — a harbor-aware, zero-config-for-the-operator sign-in.
   cached `sub` + `admin_url` + expiry, or "not logged in" / "session expired").
 - **Token precedence** for `enroll`/`revoke`/`destination`: `--token` → env
   `AT_HARBOR_ADMIN_TOKEN` → the **selected app's cached token** (when unexpired).
-  Loopback harbors ignore all three, unchanged.
+  Loopback harbors ignore all three, unchanged. When `AT_HARBOR_ADMIN_TOKEN` is set
+  and shadows a logged-in session for the app, the verb **warns to stderr** (a stale
+  env var otherwise silently overrides a fresh `login`).
 
 **Out (still deferred):**
 - **Refresh tokens / silent refresh** — v1 re-logs in on expiry; no `offline_access`,

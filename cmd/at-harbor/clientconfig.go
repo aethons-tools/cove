@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,8 +130,17 @@ func clearToken(app string) error {
 // flag/env value wins, else the app's cached login token (present and unexpired).
 // Per-app token files are the scoping boundary — a token is never used under a
 // different app than it was minted for.
-func resolveToken(app, flagVal string) string {
+//
+// If the value came from AT_HARBOR_ADMIN_TOKEN (not an explicit --token) while a
+// logged-in session also exists for this app, it warns to stderr — a stale env
+// var silently shadowing `at-harbor login` is otherwise a baffling footgun.
+func resolveToken(app, flagVal string, warn io.Writer) string {
 	if flagVal != "" {
+		if flagVal == os.Getenv("AT_HARBOR_ADMIN_TOKEN") {
+			if _, ok := loadToken(app); ok {
+				fmt.Fprintf(warn, "at-harbor: note: AT_HARBOR_ADMIN_TOKEN is set and overrides your `at-harbor login` session for --app %s; run `unset AT_HARBOR_ADMIN_TOKEN` to use the cached token\n", app)
+			}
+		}
 		return flagVal
 	}
 	if ct, ok := loadToken(app); ok {
