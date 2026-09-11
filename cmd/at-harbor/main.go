@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -200,8 +201,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {
+		var auth harbor.OperatorAuthenticator = harbor.LoopbackAuthenticator{}
+		if o := cfg.OperatorAuth.OIDC; o != nil {
+			oidcAuth, err := harbor.NewOIDCAuthenticator(context.Background(), o.Issuer, o.Audience, o.RequireScope)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: operator OIDC:", err)
+				return 1
+			}
+			auth = oidcAuth
+			log.Info("harbor admin auth: OIDC", "issuer", o.Issuer, "audience", o.Audience)
+		} else {
+			log.Info("harbor admin auth: loopback")
+		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, harbor.LoopbackAuthenticator{}, credExists, log)
+		admin := harbor.NewAdminHandler(st, auth, credExists, log)
 		go func() {
 			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
 			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
