@@ -217,7 +217,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, auth, credExists, nil, log)
+		admin := harbor.NewAdminHandler(st, auth, credExists, cfg.operatorLoginConfig(), log)
 		go func() {
 			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
 			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
