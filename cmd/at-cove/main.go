@@ -773,9 +773,15 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, diges
 	if err != nil {
 		return err
 	}
-	bi, err := b.Create(backend.CreateContext{
+	cc := backend.CreateContext{
 		Name: name, Image: image, Digest: digest, Workspace: ws, DNS: cfg.Image.DNS, Docker: cfg.Docker,
-	})
+	}
+	// Map a host-run harbor to the gateway so the hardened container can reach it
+	// by name (COV-138).
+	if cfg.Harbor != nil && cfg.Harbor.HostGateway() {
+		cc.ExtraHosts = []string{cfg.Harbor.Host}
+	}
+	bi, err := b.Create(cc)
 	if err != nil {
 		return err
 	}
@@ -960,6 +966,15 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		}
 	}
 
+	// Harbor routes Anthropic + git through the broker, superseding OAuth/Vertex
+	// (COV-138). Resolve the identity token host-side; connect delivers it env-only.
+	var harborAuth *connect.HarborAuth
+	if cfg.Harbor != nil && !noAuth {
+		if harborAuth, err = harborPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+			return err
+		}
+	}
+
 	// First-session workspace clone (isolated mode only). The git token is
 	// resolved on the git-scoped expander (so a mint: supply gets the repo) and
 	// kept out of `specs` above — it flows to connect separately and never into
@@ -970,7 +985,14 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if src, ok := cfg.SourceControl.Repo(); ok {
 		repo = src.Project
 	}
-	wsClone, err := workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
+	// A harbor cove must never resolve or carry the real code-host PAT: harbor's
+	// git insteadOf rewrites github.com → the harbor connector, so an at-task
+	// bootstrap clone would send the real token to harbor (and break). Skip the
+	// auto-clone under harbor — the agent clones through harbor on demand (COV-138).
+	var wsClone *connect.WorkspaceClone
+	if cfg.Harbor == nil {
+		wsClone, err = workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
+	}
 	if err != nil {
 		return err
 	}
@@ -1042,6 +1064,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		WorkspaceClone:     wsClone,
 		ExtraEnv:           cfg.SessionEnv(),
 		Vertex:             vertexAuth,
+		Harbor:             harborAuth,
 	})
 }
 
@@ -1219,6 +1242,29 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 		return nil, nil, fmt.Errorf("vertex kit %q: resolved GCP credential %s is empty", kitName, gcpADCDemand)
 	}
 	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
+}
+
+// harborPlan resolves a harbor kit's identity token host-side (COV-138) and
+// returns the connector config; nil when the kit has no harbor: block. The token
+// is kept out of the agent's kit-secret env — connect delivers it env-only as the
+// harbor identity.
+func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, error) {
+	if cfg.Harbor == nil {
+		return nil, nil
+	}
+	spec, err := planRequired(store, expand, kitName, kitPath, cfg.Harbor.Identity, secretsPath)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := secret.Resolve(r, nil, []secret.Spec{spec})
+	if err != nil {
+		return nil, err
+	}
+	tok := resolved[cfg.Harbor.Identity]
+	if strings.TrimSpace(tok) == "" {
+		return nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Harbor.Identity)
+	}
+	return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: tok}, nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses

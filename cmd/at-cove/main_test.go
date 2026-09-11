@@ -96,6 +96,29 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 	}
 }
 
+func TestHarborPlan(t *testing.T) {
+	// nil harbor block → no auth.
+	if ha, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "/kp", "/s.yml", &runner.Fake{}); ha != nil || err != nil {
+		t.Fatalf("no harbor block → nil,nil; got %+v, %v", ha, err)
+	}
+	// resolves the identity token host-side into a HarborAuth.
+	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local", Identity: "HARBOR_ID"}}
+	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
+		"k": {"HARBOR_ID": {Value: ptr("tok-abc")}},
+	}}
+	ha, err := harborPlan(cfg, store, nil, "k", "/kp", "/s.yml", &runner.Fake{})
+	if err != nil {
+		t.Fatalf("harborPlan: %v", err)
+	}
+	if ha == nil || ha.Host != "harbor.local" || ha.Token != "tok-abc" {
+		t.Fatalf("harborAuth = %+v", ha)
+	}
+	// declared-but-unsupplied identity → hard error (fail closed).
+	if _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "/kp", "/s.yml", &runner.Fake{}); err == nil {
+		t.Fatal("unsupplied identity must fail closed")
+	}
+}
+
 func TestPlanRequired(t *testing.T) {
 	// resolved from the store, keyed by kit name.
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
@@ -738,6 +761,33 @@ func TestDestroyReapsKnownHostsPin(t *testing.T) {
 
 // Create records the backend's actual volume names in the state file, so a later
 // destroy removes exactly those instead of re-deriving them (COV-76).
+// COV-138: a kit with a harbor: block maps the broker host to the gateway at
+// create, so the hardened container can reach a host-run harbor by name.
+func TestCreateHarborAddsHost(t *testing.T) {
+	dir := t.TempDir()
+	cove := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(cove, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nharbor:\n  host: harbor.local.aethons.tools\n  identity: harbor-id\n"
+	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeInstall(t, cove)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"create", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("create exit=%d stderr=%s", code, errOut.String())
+	}
+	idx := dockerArg0Index(f.Calls, "run")
+	if idx == -1 {
+		t.Fatalf("no docker run call; calls=%+v", f.Calls)
+	}
+	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
+		t.Fatalf("create must map the harbor host to the gateway:\n%s", got)
+	}
+}
+
 func TestCreateRecordsVolumesInState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)

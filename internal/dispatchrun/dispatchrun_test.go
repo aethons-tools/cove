@@ -38,7 +38,7 @@ type fakeOps struct {
 	agentRanBeforeEg  bool     // the agent step ("claude -p") had run when egress was applied
 }
 
-func (f *fakeOps) RunEphemeral(image, digest, name, _ string, dns []string, docker bool) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, digest, name, _ string, dns, addHosts []string, docker bool) (backend.Instance, error) {
 	f.ran = true
 	f.ranImage = image
 	f.ranDigest = digest

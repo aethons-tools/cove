@@ -76,6 +76,10 @@ type CreateContext struct {
 	// under --runtime=sysbox-runc with COVE_DOCKER=1 and a persistent
 	// /var/lib/docker cache volume; when false the run argv is unchanged.
 	Docker bool
+	// ExtraHosts maps hostnames to the host gateway via docker run
+	// --add-host <h>:host-gateway, so the container can reach a host-run service
+	// (e.g. a loopback-bound harbor broker) by name — COV-138. Empty adds nothing.
+	ExtraHosts []string
 }
 
 // InstallContext is everything Backend.Install needs to build + gate + tag a
@@ -151,7 +155,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string, dns []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); docker runs it under Sysbox with a -docker cache volume (COV-117)
+	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)

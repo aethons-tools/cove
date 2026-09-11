@@ -1,7 +1,7 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, harbor, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
 read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, workers, collaborators, teammates, secrets, docker, image (+ validation)"
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, harbor, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
 updated: 2026-09-01
@@ -360,6 +360,42 @@ The credential itself (a GCP ADC) is **not** part of this block — it is suppli
 host-side and seeded as a file; see
 [Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
 [`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
+
+### harbor
+*optional; routes the cove's Anthropic + git through a harbor broker (COV-138)*
+
+Setting `harbor:` makes a hardened cove reach a [harbor](../superpowers/specs/2026-09-11-harbor-cove-networking-design.md)
+broker from **inside** the sandbox, so the agent's `claude` and `git` use harbor's
+credential connectors while the cove holds only its identity token. Enabling it does
+three things automatically: folds `host` into the egress allow-list, adds a
+`--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
+the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
+helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `host` | yes | Bare hostname of the broker. It is reached over **TLS on :443** (no scheme/port/path), so no sealed-egress changes are needed. |
+| `identity` | yes | Name of a **host-supplied** secret (via `~/.config/at-cove/secrets.yml` / a `minters` profile) holding the cove's harbor identity token. Never a literal here; resolved host-side and delivered env-only. |
+| `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) harbor is reachable. Set `false` when `host` already resolves to a routable address. |
+
+```yaml
+harbor:
+  host: harbor.local.aethons.tools
+  identity: harbor-identity        # supplied host-side (e.g. an at-harbor enroll mint)
+  # via-host-gateway: false        # only if harbor is at a routable DNS address
+```
+
+Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
+next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
+require widening the sealed egress). Applies to the interactive/managed session this
+cut; teammate + dispatch-worker connector injection is a follow-up (their containers
+still get routability). The `git` connector rewrites `github.com` only.
+
+`harbor:` is **mutually exclusive with `model-provider`** (harbor supersedes the
+agent's Anthropic auth). With `harbor:` set, the first-session **auto-clone is
+disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove (that
+PAT would be misrouted to harbor's git connector); the agent clones through harbor
+on demand instead.
 
 ### secrets
 *map of secret env name → config*

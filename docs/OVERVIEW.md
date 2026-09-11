@@ -822,6 +822,10 @@ the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-
 the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
 the [harbor operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md),
 and the [harbor admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-design.md)).
+A hardened cove can route its **own** Anthropic + git through a harbor broker (over TLS
+on :443, through squid) by setting a [`harbor:` block](usage/at-cove-config.md#harbor) in
+its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the
+[cove→harbor networking spec](superpowers/specs/2026-09-11-harbor-cove-networking-design.md).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 

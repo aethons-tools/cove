@@ -43,6 +43,17 @@ func dnsArgs(dns []string) []string {
 	return a
 }
 
+// addHostArgs renders docker run --add-host <h>:host-gateway for each host, so
+// the container can reach a host-run service (e.g. a loopback-bound harbor
+// broker) by name — COV-138. Empty yields no flags.
+func addHostArgs(hosts []string) []string {
+	var a []string
+	for _, h := range hosts {
+		a = append(a, "--add-host", h+":host-gateway")
+	}
+	return a
+}
+
 // dockerArgs renders the docker run flags that activate docker-in-sandbox via the
 // Sysbox runtime when the kit opts in with docker:true (COV-117): the sandbox
 // container runs under --runtime=sysbox-runc (so a rootful dockerd can run inside
@@ -226,6 +237,7 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	runArgs = append(runArgs, initArgs(ctx.Docker)...)
 	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
 	runArgs = append(runArgs, dnsArgs(ctx.DNS)...)
+	runArgs = append(runArgs, addHostArgs(ctx.ExtraHosts)...)
 	runArgs = append(runArgs, dockerArgs(ctx.Docker, vols.Docker)...)
 	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
