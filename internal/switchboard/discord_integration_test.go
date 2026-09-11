@@ -19,8 +19,8 @@ import (
 // Requires a bot token with access to the channel (View Channel, Send Messages,
 // Read Message History, Message Content intent) and the channel id.
 //
-//	Run: SWITCHBOARD_IT_DISCORD_TOKEN=… SWITCHBOARD_IT_CHANNEL=… \
-//	       go test -tags integration ./internal/switchboard/ -run TestDiscordRoundTripLive -v
+// Run: SWITCHBOARD_IT_DISCORD_TOKEN=… SWITCHBOARD_IT_CHANNEL=… \
+//        go test -tags integration ./internal/switchboard/ -run TestDiscordRoundTripLive -v
 func TestDiscordRoundTripLive(t *testing.T) {
 	token := os.Getenv("SWITCHBOARD_IT_DISCORD_TOKEN")
 	channel := os.Getenv("SWITCHBOARD_IT_CHANNEL")
