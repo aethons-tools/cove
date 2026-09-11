@@ -332,6 +332,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if unknown := unknownServeKeys(data); len(unknown) > 0 {
+		fmt.Fprintf(stderr, "at-harbor: warning: ignoring unknown harbor.yml key(s): %s\n", strings.Join(unknown, ", "))
+		for _, k := range unknown {
+			if k == "destinations" {
+				fmt.Fprintln(stderr, "at-harbor: note: destinations are managed via the admin API — run `at-harbor destination import`")
+			}
+		}
+	}
 	if err := cfg.validateAdminExposure(); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1

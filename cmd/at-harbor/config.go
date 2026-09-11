@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"net"
+	"reflect"
+	"sort"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -108,6 +111,39 @@ func isLoopbackAddr(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// serveConfigKeys is the set of recognized top-level YAML keys, derived from
+// serveConfig's yaml tags so it can't drift as fields are added.
+func serveConfigKeys() map[string]bool {
+	keys := map[string]bool{}
+	t := reflect.TypeOf(serveConfig{})
+	for i := 0; i < t.NumField(); i++ {
+		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); name != "" && name != "-" {
+			keys[name] = true
+		}
+	}
+	return keys
+}
+
+// unknownServeKeys returns the top-level keys in the harbor.yml that serveConfig
+// does not recognize, sorted. The bootstrap config is parsed leniently (unknown
+// keys are silently dropped), so a stray `destinations:` block — natural to write
+// but now managed via the admin API — would otherwise vanish without a word.
+func unknownServeKeys(data []byte) []string {
+	var m map[string]any
+	if yaml.Unmarshal(data, &m) != nil {
+		return nil // a genuine parse error surfaces from parseServeConfig instead
+	}
+	known := serveConfigKeys()
+	var out []string
+	for k := range m {
+		if !known[k] {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // parseServeConfig parses the serve config YAML.

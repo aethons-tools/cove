@@ -802,8 +802,10 @@ identity token for harbor's real Anthropic/git credentials, plus a loopback admi
 API; `enroll`/`revoke`/`destination` are admin-API clients that manage identities
 and destinations at runtime against one live file-backed store — no restart. The
 `harbor.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
-`store`, `credentials`, optional `operator-auth`); destinations and enrollments are
-managed via the API/CLI. The admin API's operator auth defaults to loopback-only,
+`admin-tls`, `store`, `credentials`, optional `operator-auth`); destinations and
+enrollments are managed via the API/CLI. `serve` **warns** on any unrecognized
+top-level key (e.g. a stray `destinations:` block, which it points at `at-harbor
+destination import`) so a silently-ignored key isn't a debugging trap. The admin API's operator auth defaults to loopback-only,
 or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
 `require-scope`) is set. Operators sign in with `at-harbor login` — an OIDC device
 flow that self-configures from harbor's auth-exempt `GET /admin/login-config` (fed by
