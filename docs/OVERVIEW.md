@@ -812,13 +812,16 @@ flow that self-configures from harbor's auth-exempt `GET /admin/login-config` (f
 every verb falls back to it, so `--token` / `AT_HARBOR_ADMIN_TOKEN` become optional.
 Client endpoint defaults live in `~/.config/at-harbor/settings.yml` as named **app
 profiles** (`{admin-url, base-url}` per app); every verb takes `--app` (default
-`default`), and `login --admin-url` persists the url into that profile. (The listener stays plain-HTTP-loopback this
-cut, so OIDC is validated but off-loopback exposure awaits TLS.) Built by `just build` but
-**not** embedded in the sandbox image — see the
+`default`), and `login --admin-url` persists the url into that profile. The admin API
+serves **TLS** (cert from an optional `admin-tls`, else the broker's `tls:`) and
+**refuses to bind off-loopback** unless both TLS and `operator-auth.oidc` are set — a
+loopback listener stays plain HTTP, so remote/multi-operator use is safe by construction.
+Built by `just build` but **not** embedded in the sandbox image — see the
 [harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
 the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
 the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
-and the [harbor operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md)).
+the [harbor operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md),
+and the [harbor admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-design.md)).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
