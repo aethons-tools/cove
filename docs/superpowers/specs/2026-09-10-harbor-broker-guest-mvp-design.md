@@ -161,7 +161,11 @@ Hermetic unit tests cover the rewrite/authz/enroll logic; a real-TLS + real-cove
   `at-mint` directly?
 - ~~Git connector depth~~ → **resolved:** no bespoke git handler. The general three-question pipeline treats
   git as a configured destination (smart-HTTP passthrough with a basic-auth password swap); LFS/edge cases are
-  just further policy/passthrough, not new code. Verify clone+push+LFS in the integration test.
+  just further policy/passthrough, not new code. One protocol requirement surfaced in the DoD dry run: a
+  basic-auth destination **must answer the unauthenticated first request with `WWW-Authenticate: Basic`** —
+  git (like any Basic client) only presents its credential *after* a challenge, so a bare 401 makes `git clone`
+  fail with "Authentication failed" before the token is ever sent. Verified end-to-end (real `git clone`
+  through harbor against a local git-over-HTTP server).
 - ~~Cove-side ergonomics~~ → **resolved:** `enroll` emits a complete, **env-only** git credential — the
   token is exported once as `HARBOR_IDENTITY_TOKEN`, and a `!`-prefixed git credential helper reads it at run
   time, so the token never lands in gitconfig on disk and `git clone` works headlessly (no prompt).

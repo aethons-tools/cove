@@ -111,6 +111,23 @@ func TestBrokerRejectsUnknownIdentity(t *testing.T) {
 	}
 }
 
+// Git sends its credential only after a WWW-Authenticate: Basic challenge, so a
+// basic-password destination must challenge on the unauthenticated first request —
+// otherwise git reports "Authentication failed" without ever presenting the token.
+func TestBrokerChallengesBasicAuth(t *testing.T) {
+	b, _, _ := newTestBroker(t, "http://unused", "http://unused")
+	req := httptest.NewRequest("GET", "/git/acme/api.git/info/refs?service=git-upload-pack", nil)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, "Basic") {
+		t.Fatalf("WWW-Authenticate = %q, want a Basic challenge (git won't send credentials without it)", got)
+	}
+}
+
 // The Anthropic API authenticates API keys on the x-api-key header, not Bearer —
 // so the anthropic destination reads the identity from x-api-key and swaps the
 // real API key onto x-api-key too (LiteLLM-style gateway shape).
