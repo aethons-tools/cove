@@ -101,11 +101,15 @@ harbor:
 
 func TestHarborConfigValidation(t *testing.T) {
 	bad := map[string]string{
-		"empty host":     "name: k\nharbor:\n  identity: i\n",
-		"empty identity": "name: k\nharbor:\n  host: h.example\n",
-		"host w/ scheme": "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
-		"host w/ port":   "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
-		"host w/ path":   "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",
+		"empty host":       "name: k\nharbor:\n  identity: i\n",
+		"empty identity":   "name: k\nharbor:\n  host: h.example\n",
+		"host w/ scheme":   "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
+		"host w/ port":     "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
+		"host w/ path":     "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",
+		"host w/ space":    "name: k\nharbor:\n  host: \"h.example evil\"\n  identity: i\n",
+		"host w/ cmdsubst": "name: k\nharbor:\n  host: \"x$(id)\"\n  identity: i\n",
+		"host w/ newline":  "name: k\nharbor:\n  host: \"a\\nevil.com\"\n  identity: i\n",
+		"harbor+provider":  "name: k\nharbor:\n  host: h.example\n  identity: i\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
 	}
 	for label, data := range bad {
 		if _, err := ParseConfig([]byte(data)); err == nil {

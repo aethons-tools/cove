@@ -985,7 +985,14 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if src, ok := cfg.SourceControl.Repo(); ok {
 		repo = src.Project
 	}
-	wsClone, err := workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
+	// A harbor cove must never resolve or carry the real code-host PAT: harbor's
+	// git insteadOf rewrites github.com → the harbor connector, so an at-task
+	// bootstrap clone would send the real token to harbor (and break). Skip the
+	// auto-clone under harbor — the agent clones through harbor on demand (COV-138).
+	var wsClone *connect.WorkspaceClone
+	if cfg.Harbor == nil {
+		wsClone, err = workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
+	}
 	if err != nil {
 		return err
 	}

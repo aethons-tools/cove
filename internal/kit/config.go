@@ -826,6 +826,12 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateHarbor(cfg.Harbor); err != nil {
 		return Config{}, err
 	}
+	// harbor supersedes the agent's Anthropic auth, so it is mutually exclusive with
+	// a model provider (which would set an incoherent CLAUDE_CODE_USE_VERTEX pointed
+	// at harbor's base URL with no GCP creds).
+	if cfg.Harbor != nil && cfg.ModelProvider != nil {
+		return Config{}, fmt.Errorf("config.yml: harbor and model-provider are mutually exclusive (harbor supersedes the agent's Anthropic auth)")
+	}
 	return cfg, nil
 }
 
@@ -840,8 +846,15 @@ func validateHarbor(h *HarborConfig) error {
 	if host == "" {
 		return fmt.Errorf("config.yml: harbor.host is required")
 	}
-	if strings.Contains(host, "://") || strings.ContainsAny(host, ":/") {
-		return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (no scheme, port, or path — TLS :443 is implied)", h.Host)
+	// Strict hostname charset: harbor.host flows into the squid allow-list file and
+	// an sh-interpreted `git config` script, so reject anything that could inject a
+	// second ACL line or a shell command substitution (newline, space, quotes, $,
+	// `, ;, /, :, …). TLS :443 is implied — no scheme, port, or path.
+	for _, r := range host {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
+		if !ok {
+			return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
+		}
 	}
 	if strings.TrimSpace(h.Identity) == "" {
 		return fmt.Errorf("config.yml: harbor.identity is required (a host-supplied secret name)")

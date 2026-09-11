@@ -391,6 +391,12 @@ require widening the sealed egress). Applies to the interactive/managed session 
 cut; teammate + dispatch-worker connector injection is a follow-up (their containers
 still get routability). The `git` connector rewrites `github.com` only.
 
+`harbor:` is **mutually exclusive with `model-provider`** (harbor supersedes the
+agent's Anthropic auth). With `harbor:` set, the first-session **auto-clone is
+disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove (that
+PAT would be misrouted to harbor's git connector); the agent clones through harbor
+on demand instead.
+
 ### secrets
 *map of secret env name → config*
 
