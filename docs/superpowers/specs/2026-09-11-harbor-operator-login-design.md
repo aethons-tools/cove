@@ -38,14 +38,16 @@ every `at-harbor` verb — a harbor-aware, zero-config-for-the-operator sign-in.
   non-secret, XDG-aware): client **endpoint** defaults `admin-url` and `base-url`.
   Loaded by every client verb; **flag → settings.yml → built-in default**.
 - **Token cache — `~/.config/at-harbor/token.json`** (mode **0600**, login-owned):
-  `{access_token, sub, expiry}`; `sub`/`exp` parsed from the JWT payload *unverified*
-  (display only). `login` writes it, `logout` clears it.
+  `{access_token, sub, expiry, admin_url}`; `sub`/`exp` parsed from the JWT payload
+  *unverified* (display only). `login` writes it, `logout` clears it. The cache
+  records the `admin_url` it was minted against so the bearer is **never replayed to
+  a different harbor**.
 - **Commands:** `login` (device flow → cache → `logged in as <sub>, expires <t>`),
   `logout` (clear the cache), `whoami` (print cached `sub` + expiry, or "not logged
   in" / "session expired").
 - **Token precedence** for `enroll`/`revoke`/`destination`: `--token` → env
-  `AT_HARBOR_ADMIN_TOKEN` → **cached token** (when unexpired). Loopback harbors ignore
-  all three, unchanged.
+  `AT_HARBOR_ADMIN_TOKEN` → **cached token** (when unexpired **and** minted against
+  the target `admin-url`). Loopback harbors ignore all three, unchanged.
 
 **Out (still deferred):**
 - **Refresh tokens / silent refresh** — v1 re-logs in on expiry; no `offline_access`,

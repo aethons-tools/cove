@@ -109,6 +109,17 @@ func TestPollTokenSlowDownWidensInterval(t *testing.T) {
 	}
 }
 
+// A canceled/expired context must stop the poll loop — this is what bounds
+// login by the device code's lifetime instead of looping forever on pending.
+func TestPollTokenRespectsContext(t *testing.T) {
+	f := newFakeProvider(t, 1000, "never") // always authorization_pending
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := PollToken(ctx, http.DefaultClient, func(time.Duration) {}, f.url+"/oauth/token", "cid", "DEV-123", 1); err == nil {
+		t.Fatal("expected error when the context is done")
+	}
+}
+
 func TestPollTokenDenied(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {

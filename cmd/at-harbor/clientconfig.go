@@ -43,10 +43,13 @@ func loadSettings() clientSettings {
 }
 
 // cachedToken is the login-owned ~/.config/at-harbor/token.json (mode 0600).
+// AdminURL records the harbor the token was minted against, so it is never
+// replayed to a different admin-url than the operator logged in to.
 type cachedToken struct {
 	AccessToken string    `json:"access_token"`
 	Sub         string    `json:"sub"`
 	Expiry      time.Time `json:"expiry"`
+	AdminURL    string    `json:"admin_url"`
 }
 
 func tokenPath() string { return filepath.Join(configDir(), "token.json") }

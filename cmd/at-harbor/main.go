@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -58,8 +59,11 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	lc, err := adminclient.New(*adminURL, "").LoginConfig()
 	if err != nil {
+		if errors.Is(err, adminclient.ErrNotFound) {
+			fmt.Fprintln(stdout, "this harbor is not OIDC-gated; no login needed")
+			return 0
+		}
 		fmt.Fprintln(stderr, "at-harbor login:", err)
-		fmt.Fprintln(stderr, "(a loopback-only harbor needs no login)")
 		return 1
 	}
 	ctx := context.Background()
@@ -72,8 +76,18 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	target := firstNonEmpty(dc.VerificationURIComplete, dc.VerificationURI)
 	fmt.Fprintf(stdout, "To sign in, open:\n  %s\nand confirm the code: %s\n", target, dc.UserCode)
+	// Bound polling by the device code's own lifetime so a wedged/misbehaving IdP
+	// can't make login hang forever.
+	if dc.ExpiresIn > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(dc.ExpiresIn)*time.Second)
+		defer cancel()
+	}
 	tok, err := deviceflow.PollToken(ctx, http.DefaultClient, time.Sleep, dc.TokenEndpoint, lc.ClientID, dc.DeviceCode, dc.Interval)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("login timed out; run `at-harbor login` again")
+		}
 		fmt.Fprintln(stderr, "at-harbor login:", err)
 		return 1
 	}
@@ -81,7 +95,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if exp.IsZero() && tok.ExpiresIn > 0 {
 		exp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
-	if err := saveToken(cachedToken{AccessToken: tok.AccessToken, Sub: sub, Expiry: exp}); err != nil {
+	if err := saveToken(cachedToken{AccessToken: tok.AccessToken, Sub: sub, Expiry: exp, AdminURL: *adminURL}); err != nil {
 		fmt.Fprintln(stderr, "at-harbor login:", err)
 		return 1
 	}
@@ -100,7 +114,7 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if t, ok := loadToken(); ok {
-		fmt.Fprintf(stdout, "%s (expires %s)\n", t.Sub, t.Expiry.Format(time.RFC3339))
+		fmt.Fprintf(stdout, "%s @ %s (expires %s)\n", t.Sub, t.AdminURL, t.Expiry.Format(time.RFC3339))
 		return 0
 	}
 	if _, err := os.Stat(tokenPath()); err == nil {
@@ -112,12 +126,13 @@ func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // resolveToken applies the operator-token precedence: an explicit flag/env value
-// wins, else the cached login token (when present and unexpired), else "".
-func resolveToken(flagVal string) string {
+// wins, else the cached login token — but only when it was minted against this
+// same adminURL, so a token is never replayed to a different harbor.
+func resolveToken(flagVal, adminURL string) string {
 	if flagVal != "" {
 		return flagVal
 	}
-	if ct, ok := loadToken(); ok {
+	if ct, ok := loadToken(); ok && ct.AdminURL == adminURL {
 		return ct.AccessToken
 	}
 	return ""
@@ -143,7 +158,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
 		return 2
 	}
-	res, err := adminclient.New(*adminURL, resolveToken(*token)).Enroll(adminclient.EnrollParams{
+	res, err := adminclient.New(*adminURL, resolveToken(*token, *adminURL)).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
 		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
 	})
@@ -169,7 +184,7 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor revoke: --id is required")
 		return 2
 	}
-	if err := adminclient.New(*adminURL, resolveToken(*token)).Revoke(*id); err != nil {
+	if err := adminclient.New(*adminURL, resolveToken(*token, *adminURL)).Revoke(*id); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -201,7 +216,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	if !ok {
 		return code
 	}
-	c := adminclient.New(*adminURL, resolveToken(*token))
+	c := adminclient.New(*adminURL, resolveToken(*token, *adminURL))
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)

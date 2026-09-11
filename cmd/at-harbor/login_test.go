@@ -97,9 +97,6 @@ func TestLoginCachesToken(t *testing.T) {
 
 func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if err := saveToken(cachedToken{AccessToken: "CACHED-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
 	var gotAuth string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -107,13 +104,49 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	// token minted against THIS admin-url is used …
+	if err := saveToken(cachedToken{AccessToken: "CACHED-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour), AdminURL: ts.URL}); err != nil {
+		t.Fatal(err)
+	}
 	var out, errb bytes.Buffer
-	// no --token, no env → must fall back to the cached token
 	code := run([]string{"destination", "list", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb)
 	if code != 0 {
 		t.Fatalf("destination list exit = %d, stderr=%s", code, errb.String())
 	}
 	if gotAuth != "Bearer CACHED-JWT" {
 		t.Fatalf("Authorization = %q, want Bearer CACHED-JWT", gotAuth)
+	}
+
+	// … but a token minted against a DIFFERENT harbor is NOT replayed here.
+	if err := saveToken(cachedToken{AccessToken: "OTHER-HARBOR-JWT", Sub: "s", Expiry: time.Now().Add(time.Hour), AdminURL: "http://elsewhere:9999"}); err != nil {
+		t.Fatal(err)
+	}
+	gotAuth = "sentinel"
+	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("destination list exit = %d, stderr=%s", code, errb.String())
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty (cached token for another harbor must not be sent)", gotAuth)
+	}
+}
+
+func TestLoginNotOIDCGated(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// nil login config → /admin/login-config 404
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	var out, errb bytes.Buffer
+	code := run([]string{"login", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb)
+	if code != 0 {
+		t.Fatalf("login against non-OIDC harbor exit = %d, want 0; stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "not OIDC-gated") {
+		t.Fatalf("output = %q, want a 'not OIDC-gated' message", out.String())
 	}
 }

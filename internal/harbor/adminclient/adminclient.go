@@ -6,6 +6,7 @@ package adminclient
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,11 @@ import (
 
 	"github.com/aethons-tools/cove/internal/harbor"
 )
+
+// ErrNotFound wraps a 404 from the admin API, so callers can distinguish "this
+// endpoint/resource isn't there" (e.g. a non-OIDC harbor has no login-config)
+// from a transport failure or another HTTP error.
+var ErrNotFound = errors.New("not found")
 
 // Client talks to a running harbor's admin API (e.g. http://127.0.0.1:8081).
 type Client struct {
@@ -65,7 +71,11 @@ func (c *Client) do(method, path string, body any, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("admin API %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(msg)))
+		err := fmt.Errorf("admin API %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(msg)))
+		if resp.StatusCode == http.StatusNotFound {
+			err = fmt.Errorf("%w: %s", ErrNotFound, err)
+		}
+		return err
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
