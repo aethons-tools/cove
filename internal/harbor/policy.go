@@ -18,13 +18,13 @@ const (
 // Destination is one configured upstream the broker will proxy to. Anthropic and
 // git are simply two Destinations; the engine has no service-specific branches.
 type Destination struct {
-	Name       string      `yaml:"name"`        // "anthropic", "git"
-	Route      string      `yaml:"route"`       // inbound path prefix, e.g. "/anthropic/" or "/git/"
-	Upstream   string      `yaml:"upstream"`    // "https://api.anthropic.com", "https://github.com"
-	IdentityIn ApplyMethod `yaml:"identity_in"` // how the caller presents its identity token
-	CredName   string      `yaml:"cred_name"`   // harbor credential to inject; "" = no credential
-	Apply      ApplyMethod `yaml:"apply"`       // how to apply the real credential upstream
-	RepoScoped bool        `yaml:"repo_scoped"` // path is <route><owner>/<repo>/...; checked against Identity.Repos
+	Name       string      `json:"name"        yaml:"name"`
+	Route      string      `json:"route"       yaml:"route"`
+	Upstream   string      `json:"upstream"    yaml:"upstream"`
+	IdentityIn ApplyMethod `json:"identity_in" yaml:"identity_in"`
+	CredName   string      `json:"cred_name"   yaml:"cred_name"`
+	Apply      ApplyMethod `json:"apply"       yaml:"apply"`
+	RepoScoped bool        `json:"repo_scoped" yaml:"repo_scoped"`
 }
 
 // Config is the broker's destination table.
