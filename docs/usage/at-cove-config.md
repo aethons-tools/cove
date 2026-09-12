@@ -395,6 +395,12 @@ reachable to harbor's admin API **and** an operator credential (`at-harbor login
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
 
+> **Role prerequisite.** An auto-enrolling cove (no `harbor.identity`) enrolls into
+> the `guest` role of harbor's default project; the operator must create it first,
+> e.g. `at-harbor role add --name guest --destinations anthropic,git --repos
+> 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
+> into it — per-cove repo narrowing is a planned follow-up, not available yet.
+
 Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
