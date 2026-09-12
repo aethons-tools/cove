@@ -34,6 +34,9 @@ func TestClientRoundTrip(t *testing.T) {
 	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
 		t.Fatalf("ListDestinations = %+v, %v", ds, err)
 	}
+	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
 	res, err := c.Enroll(EnrollParams{ID: "spider-18", Project: "ACME", Role: "guest", Destinations: []string{"git"}, Repos: []string{"acme/*"}})
 	if err != nil || res.Token == "" {
 		t.Fatalf("Enroll = %+v, %v", res, err)

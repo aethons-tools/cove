@@ -64,8 +64,11 @@ func TestAdminRejectsUnresolvableCredName(t *testing.T) {
 
 func TestAdminEnrollThenRevoke(t *testing.T) {
 	h, store := newTestAdmin(t)
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/enrollments", `{"id":"spider-18","project":"ACME","role":"guest","destinations":["git"],"repos":["acme/*"]}`))
+	h.ServeHTTP(rec, adminReq("POST", "/admin/enrollments", `{"id":"spider-18","project":"ACME","role":"guest"}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("enroll status = %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -77,11 +80,18 @@ func TestAdminEnrollThenRevoke(t *testing.T) {
 	if _, ok := store.Lookup(HashToken(res.Token)); !ok {
 		t.Fatal("enrolled identity not in store")
 	}
-	// GET must not leak tokens or hashes.
+	// GET must not leak tokens or hashes, and must report the effective scope.
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("GET", "/admin/enrollments", ""))
+	h.ServeHTTP(rec, adminReq("GET", "/admin/roster", ""))
 	if bytes.Contains(rec.Body.Bytes(), []byte(res.Token)) || bytes.Contains(rec.Body.Bytes(), []byte(HashToken(res.Token))) {
-		t.Fatal("enrollment list leaked token or hash")
+		t.Fatal("roster leaked token or hash")
+	}
+	var roster []ActorSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &roster); err != nil {
+		t.Fatalf("roster JSON: %v", err)
+	}
+	if len(roster) != 1 || len(roster[0].Grants) != 1 || roster[0].Grants[0].Destinations[0] != "git" {
+		t.Fatalf("roster = %+v", roster)
 	}
 	// revoke
 	rec = httptest.NewRecorder()
@@ -109,6 +119,9 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
 	h := NewAdminHandler(store, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	// add destination + enroll + revoke — each is a mutation and must be attributed.
 	h.ServeHTTP(httptest.NewRecorder(), adminReq("POST", "/admin/destinations",

@@ -23,9 +23,12 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
-	if err := store.Add(Identity{
-		ID: "spider-18", TokenHash: HashToken(tok), Project: "ACME", Role: "guest",
-		Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"},
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{
+		ID: "spider-18", TokenHash: HashToken(tok),
+		Grants: []Grant{{Project: "ACME", Role: "guest"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +107,50 @@ func TestBrokerDeniesOutOfScopeRepo(t *testing.T) {
 	}
 }
 
+// A grant whose role has been deleted must stop authorizing (fail closed) — the
+// broker resolves grants to scopes live off the store, not off a snapshot taken
+// at enrollment time.
+func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := MintToken()
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: "ACME", Role: "guest"}}}); err != nil {
+		t.Fatal(err)
+	}
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }))
+	defer up.Close()
+	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer}); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBroker(store, fakeCreds{"anthropic-bearer": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// role exists: request succeeds.
+	req := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status before role removal = %d, want 200", rec.Code)
+	}
+
+	// role deleted: same actor, same request, now denied.
+	if err := store.RemoveRole("ACME", "guest"); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status after role removal = %d, want 403 (fail closed)", rec.Code)
+	}
+}
+
 func TestBrokerRejectsUnknownIdentity(t *testing.T) {
 	b, _, _ := newTestBroker(t, "http://unused", "http://unused")
 	req := httptest.NewRequest("POST", "/anthropic/v1/messages", nil)
@@ -146,7 +193,10 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
 	tok, _ := MintToken()
-	if err := store.Add(Identity{ID: "spider-18", TokenHash: HashToken(tok), Destinations: []string{"anthropic"}}); err != nil {
+	if err := store.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: "anthropic-key", Apply: ApplyXAPIKey}); err != nil {

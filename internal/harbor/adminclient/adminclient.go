@@ -87,7 +87,6 @@ func (c *Client) Enroll(p EnrollParams) (harbor.EnrollResult, error) {
 	var res harbor.EnrollResult
 	err := c.do("POST", "/admin/enrollments", harbor.EnrollBody{
 		ID: p.ID, Project: p.Project, Role: p.Role,
-		Destinations: p.Destinations, Repos: p.Repos, TTLSeconds: int64(p.TTL / time.Second),
 	}, &res)
 	return res, err
 }

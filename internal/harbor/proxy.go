@@ -40,7 +40,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing identity", http.StatusUnauthorized)
 		return
 	}
-	id, ok := b.store.Lookup(HashToken(tok))
+	actor, ok := b.store.Lookup(HashToken(tok))
 	if !ok {
 		http.Error(w, "unknown identity", http.StatusUnauthorized)
 		return
@@ -49,9 +49,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if dest.RepoScoped {
 		ownerRepo, _ = RepoFromPath(dest.Route, r.URL.Path)
 	}
-	dec, err := Decide(id, dest, ownerRepo, b.now())
+	dec, err := Decide(actor, b.resolveScopes(actor), dest, ownerRepo, b.now())
 	if err != nil {
-		b.log.Warn("broker denied", "identity", id.ID, "destination", dest.Name, "reason", err.Error())
+		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", err.Error())
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -79,8 +79,23 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			applyCred(out, dec.Apply, cred)
 		}
 	}}
-	b.log.Info("broker proxy", "identity", id.ID, "destination", dest.Name, "path", r.URL.Path)
+	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
+}
+
+// resolveScopes turns an actor's grants into their effective scopes, skipping any
+// grant whose role no longer exists (fail-closed: a deleted role stops
+// authorizing). An actor with no resolvable grant yields nil → Decide denies.
+func (b *Broker) resolveScopes(a Actor) []Scope {
+	var scopes []Scope
+	for _, g := range a.Grants {
+		r, ok := b.store.GetRole(g.Project, g.Role)
+		if !ok {
+			continue
+		}
+		scopes = append(scopes, EffectiveScope(g, r))
+	}
+	return scopes
 }
 
 // presentedToken extracts the caller's identity token from the request per how.

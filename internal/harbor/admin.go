@@ -7,14 +7,13 @@ import (
 	"time"
 )
 
-// EnrollBody is the POST /admin/enrollments request.
+// EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
+// there are no inline destination/repo/ttl fields.
 type EnrollBody struct {
-	ID           string   `json:"id"`
-	Project      string   `json:"project"`
-	Role         string   `json:"role"`
-	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
+	ID        string    `json:"id"`
+	Project   string    `json:"project"`
+	Role      string    `json:"role"`
+	Overrides *Override `json:"overrides,omitempty"`
 }
 
 // EnrollResult is the POST /admin/enrollments response — the token is returned once.
@@ -23,14 +22,20 @@ type EnrollResult struct {
 	Token string `json:"token"`
 }
 
-// IdentitySummary is a GET /admin/enrollments item: never a token or hash.
-type IdentitySummary struct {
-	ID           string    `json:"id"`
-	Project      string    `json:"project"`
-	Role         string    `json:"role"`
-	Destinations []string  `json:"destinations"`
-	Repos        []string  `json:"repos"`
-	Expiry       time.Time `json:"expiry"`
+// ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
+// carries the effective destinations/repos after overrides.
+type ActorSummary struct {
+	ID     string         `json:"id"`
+	Expiry time.Time      `json:"expiry"`
+	Grants []GrantSummary `json:"grants"`
+}
+
+// GrantSummary is one grant with its resolved effective scope.
+type GrantSummary struct {
+	Project      string   `json:"project"`
+	Role         string   `json:"role"`
+	Destinations []string `json:"destinations"`
+	Repos        []string `json:"repos"`
 }
 
 // OperatorLoginConfig is the public device-flow client config harbor advertises
@@ -94,10 +99,19 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
-		var out []IdentitySummary
-		for _, id := range store.ListIdentities() {
-			out = append(out, IdentitySummary{ID: id.ID, Project: id.Project, Role: id.Role, Destinations: id.Destinations, Repos: id.Repos, Expiry: id.Expiry})
+	mux.HandleFunc("GET /admin/roster", func(w http.ResponseWriter, r *http.Request) {
+		var out []ActorSummary
+		for _, a := range store.ListActors() {
+			sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
+			for _, g := range a.Grants {
+				gs := GrantSummary{Project: g.Project, Role: g.Role}
+				if role, ok := store.GetRole(g.Project, g.Role); ok {
+					s := EffectiveScope(g, role)
+					gs.Destinations, gs.Repos = s.Destinations, s.Repos
+				}
+				sum.Grants = append(sum.Grants, gs)
+			}
+			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -110,7 +124,11 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			http.Error(w, "id is required", http.StatusBadRequest)
 			return
 		}
-		tok, err := Enroll(store, b.ID, b.Project, b.Role, b.Destinations, b.Repos, time.Duration(b.TTLSeconds)*time.Second, time.Now())
+		if b.Role == "" {
+			http.Error(w, "role is required", http.StatusBadRequest)
+			return
+		}
+		tok, err := Enroll(store, b.ID, b.Project, b.Role, b.Overrides, time.Now())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -120,7 +138,7 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 	})
 	mux.HandleFunc("DELETE /admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if err := store.Remove(id); err != nil {
+		if err := store.RemoveActor(id); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}

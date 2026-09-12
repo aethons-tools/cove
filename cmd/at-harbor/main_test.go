@@ -15,6 +15,9 @@ import (
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
+		t.Fatal(err)
+	}
 	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -42,6 +45,9 @@ func TestEnrollCommandJSON(t *testing.T) {
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
 	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -61,7 +67,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if !strings.Contains(out.String(), "AT_HARBOR_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
 	}
-	if len(store.ListIdentities()) != 1 {
+	if len(store.ListActors()) != 1 {
 		t.Fatal("identity was not created via the admin API")
 	}
 }

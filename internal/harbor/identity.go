@@ -12,17 +12,47 @@ import (
 	"time"
 )
 
-// Identity is one enrolled actor's record. The raw token is never stored — only
-// its hash — so a leaked store yields no usable credentials.
-type Identity struct {
-	ID           string    `json:"id"`
-	TokenHash    string    `json:"token_hash"`
-	Project      string    `json:"project"`
-	Role         string    `json:"role"`
-	Destinations []string  `json:"destinations"` // allow-listed destination names, e.g. ["anthropic","git"]
-	Repos        []string  `json:"repos"`        // allowed "owner/repo" globs for git, e.g. ["aethons-tools/*"]
-	Expiry       time.Time `json:"expiry"`       // zero = no expiry
+// Scope is a Role's security envelope: which destinations an actor granted this
+// role may reach, which repos (for repo-scoped destinations), and the default
+// token lifetime applied at enrollment.
+type Scope struct {
+	Destinations []string      `json:"destinations"`
+	Repos        []string      `json:"repos"`
+	TTL          time.Duration `json:"ttl"`
 }
+
+// Role is a named, reusable security class within a project.
+type Role struct {
+	Name  string `json:"name"`
+	Scope Scope  `json:"scope"`
+}
+
+// Override lets one grant narrow/replace fields of its Role's scope. A nil field
+// inherits the Role; a set field REPLACES the Role's field (no merge).
+type Override struct {
+	Destinations []string `json:"destinations,omitempty"`
+	Repos        []string `json:"repos,omitempty"`
+}
+
+// Grant assigns a Role (within a Project) to an Actor, optionally narrowed.
+type Grant struct {
+	Project   string    `json:"project"`
+	Role      string    `json:"role"`
+	Overrides *Override `json:"overrides,omitempty"`
+}
+
+// Actor is one enrolled top-level identity. The raw token is never stored — only
+// its hash — so a leaked store yields no usable credentials. Grants are the
+// Actor's role assignments across projects (RBAC).
+type Actor struct {
+	ID        string    `json:"id"`
+	TokenHash string    `json:"token_hash"`
+	Grants    []Grant   `json:"grants"`
+	Expiry    time.Time `json:"expiry"` // zero = no expiry
+}
+
+// DefaultProject backs harbor-side default enrollment when no project is named.
+const DefaultProject = "default"
 
 // MintToken returns a new high-entropy bearer token (URL-safe, no padding).
 func MintToken() (string, error) {

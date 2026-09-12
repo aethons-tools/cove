@@ -5,10 +5,31 @@ import (
 	"time"
 )
 
-func TestDecideAllowsListedDestination(t *testing.T) {
-	id := Identity{ID: "spider-18", Destinations: []string{"anthropic"}}
+func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
+
+func TestEffectiveScopeInheritsRole(t *testing.T) {
+	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}
+	got := EffectiveScope(Grant{Project: "p", Role: "guest"}, r)
+	if len(got.Destinations) != 2 || got.Repos[0] != "acme/*" {
+		t.Fatalf("inherited scope = %+v", got)
+	}
+}
+
+func TestEffectiveScopeOverrideReplaces(t *testing.T) {
+	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}
+	g := Grant{Project: "p", Role: "guest", Overrides: &Override{Repos: []string{"beta/*"}}}
+	got := EffectiveScope(g, r)
+	if len(got.Destinations) != 2 { // destinations inherited (override nil)
+		t.Fatalf("destinations should inherit: %+v", got)
+	}
+	if len(got.Repos) != 1 || got.Repos[0] != "beta/*" { // repos replaced
+		t.Fatalf("repos should be replaced: %+v", got)
+	}
+}
+
+func TestDecideAllowsWhenAGrantAuthorizes(t *testing.T) {
 	dest := testConfig().Destinations[0] // anthropic
-	dec, err := Decide(id, dest, "", time.Now())
+	dec, err := Decide(Actor{ID: "spider-18"}, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), dest, "", time.Now())
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -17,29 +38,40 @@ func TestDecideAllowsListedDestination(t *testing.T) {
 	}
 }
 
-func TestDecideDeniesUnlistedDestination(t *testing.T) {
-	id := Identity{ID: "spider-18", Destinations: []string{"anthropic"}}
-	git := testConfig().Destinations[1]
-	if _, err := Decide(id, git, "acme/api", time.Now()); err == nil {
-		t.Fatal("expected denial for unlisted destination")
+func TestDecideAdditiveAcrossGrants(t *testing.T) {
+	git := testConfig().Destinations[1] // repo-scoped
+	// first scope lacks git; second authorizes it — additive.
+	scopes := roleScopes(t,
+		Scope{Destinations: []string{"anthropic"}},
+		Scope{Destinations: []string{"git"}, Repos: []string{"beta/*"}},
+	)
+	if _, err := Decide(Actor{ID: "x"}, scopes, git, "beta/api", time.Now()); err != nil {
+		t.Fatalf("second grant should authorize: %v", err)
 	}
 }
 
-func TestDecideEnforcesRepoScope(t *testing.T) {
-	id := Identity{ID: "spider-18", Destinations: []string{"git"}, Repos: []string{"aethons-tools/*"}}
+func TestDecideNoCrossGrantRepoBleed(t *testing.T) {
 	git := testConfig().Destinations[1]
-	if _, err := Decide(id, git, "aethons-tools/cove", time.Now()); err != nil {
-		t.Fatalf("allowed repo denied: %v", err)
+	// grant A: git but only acme/*. grant B: beta/* but NOT git. Must deny git beta/x.
+	scopes := roleScopes(t,
+		Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}},
+		Scope{Destinations: []string{"anthropic"}, Repos: []string{"beta/*"}},
+	)
+	if _, err := Decide(Actor{ID: "x"}, scopes, git, "beta/secret", time.Now()); err == nil {
+		t.Fatal("expected denial: no single grant couples git with beta/*")
 	}
-	if _, err := Decide(id, git, "someone-else/secret", time.Now()); err == nil {
-		t.Fatal("expected denial for out-of-scope repo")
+}
+
+func TestDecideDeniesWithNoScopes(t *testing.T) {
+	if _, err := Decide(Actor{ID: "x"}, nil, testConfig().Destinations[0], "", time.Now()); err == nil {
+		t.Fatal("expected denial when the actor has no resolvable grant")
 	}
 }
 
 func TestDecideRejectsExpired(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
-	id := Identity{ID: "x", Destinations: []string{"anthropic"}, Expiry: past}
-	if _, err := Decide(id, testConfig().Destinations[0], "", time.Now()); err == nil {
-		t.Fatal("expected expired identity to be rejected")
+	a := Actor{ID: "x", Expiry: past}
+	if _, err := Decide(a, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), testConfig().Destinations[0], "", time.Now()); err == nil {
+		t.Fatal("expected expired actor to be rejected")
 	}
 }
