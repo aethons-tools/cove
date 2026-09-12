@@ -375,15 +375,25 @@ helper) into the session — **superseding** the OAuth/Vertex auth for that cove
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `host` | yes | Bare hostname of the broker. It is reached over **TLS on :443** (no scheme/port/path), so no sealed-egress changes are needed. |
-| `identity` | yes | Name of a **host-supplied** secret (via `~/.config/at-cove/secrets.yml` / a `minters` profile) holding the cove's harbor identity token. Never a literal here; resolved host-side and delivered env-only. |
+| `identity` | no | Name of a **host-supplied** secret (via `~/.config/at-cove/secrets.yml` / a `minters` profile) holding a pre-enrolled identity token. **Omit it to auto-enroll** (see below). Never a literal here; resolved host-side and delivered env-only. |
 | `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) harbor is reachable. Set `false` when `host` already resolves to a routable address. |
 
 ```yaml
 harbor:
   host: harbor.local.aethons.tools
-  identity: harbor-identity        # supplied host-side (e.g. an at-harbor enroll mint)
+  # identity: harbor-identity      # OMIT to auto-enroll; set to use a pre-supplied token
   # via-host-gateway: false        # only if harbor is at a routable DNS address
 ```
+
+**Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
+at-cove auto-enrolls the cove: it shells a sibling `at-harbor enroll` at session
+start to mint a fresh per-cove identity (id = the instance name, role `guest`,
+destinations `anthropic,git`, repos = the source-control project, 24h TTL) and
+`at-harbor revoke`s it on exit. This needs the launching host to have `at-harbor`
+reachable to harbor's admin API **and** an operator credential (`at-harbor login` or
+`AT_HARBOR_ADMIN_TOKEN`). When that's not available (e.g. harbor isn't co-located),
+**set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
+token is delivered env-only.
 
 Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
