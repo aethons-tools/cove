@@ -397,9 +397,12 @@ token is delivered env-only.
 
 Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
-require widening the sealed egress). Applies to the interactive/managed session this
-cut; teammate + dispatch-worker connector injection is a follow-up (their containers
-still get routability). The `git` connector rewrites `github.com` only.
+require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
+**teammates**. A dispatched worker routes only its **Anthropic** through harbor (its
+git stays on at-task's minted code-host token — a global harbor rewrite would
+misroute `prepare`/`complete`); chat and teammates route both connectors. A
+teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
+chat/worker-only). The `git` connector rewrites `github.com` only.
 
 `harbor:` is **mutually exclusive with `model-provider`** (harbor supersedes the
 agent's Anthropic auth). With `harbor:` set, the first-session **auto-clone is
