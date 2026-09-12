@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
+	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"gopkg.in/yaml.v3"
 )
@@ -39,6 +41,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
+			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
@@ -338,6 +341,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
+	kitName := fs.String("kit", "", "bind a registered kit (name)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -354,7 +358,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
 			return 2
 		}
-		r := harbor.Role{Name: *name, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl}}
+		r := harbor.Role{Name: *name, Kit: *kitName, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl}}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -384,6 +388,123 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor kit: expected push|list|show|versions|pin|rm")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	name := fs.String("name", "", "kit name")
+	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
+	version := fs.Int("version", 0, "kit version (show; 0 = current)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor kit:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "push":
+		if *name == "" || *config == "" {
+			fmt.Fprintln(stderr, "at-harbor kit push: --name and --config are required")
+			return 2
+		}
+		data, err := readConfig(*config) // file path or "-" for stdin
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		if _, err := kit.ParseConfig(data); err != nil {
+			fmt.Fprintln(stderr, "at-harbor kit push: invalid kit config:", err)
+			return 1
+		}
+		v, err := c.PushKit(*name, string(data))
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "pushed %s v%d\n", *name, v)
+	case "list":
+		kits, err := c.ListKits()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, k := range kits {
+			fmt.Fprintf(stdout, "%s\tcurrent=v%d\tversions=%d\n", k.Name, k.Current, k.Versions)
+		}
+	case "show":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor kit show: expected one kit name")
+			return 2
+		}
+		res, err := c.GetKit(pos[0], *version)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprint(stdout, res.Config)
+	case "versions":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor kit versions: expected one kit name")
+			return 2
+		}
+		vers, err := c.KitVersions(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, v := range vers {
+			fmt.Fprintf(stdout, "v%d\n", v)
+		}
+	case "pin":
+		if len(pos) != 2 {
+			fmt.Fprintln(stderr, "at-harbor kit pin: expected <name> <version>")
+			return 2
+		}
+		v, err := strconv.Atoi(pos[1])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor kit pin: version must be an integer")
+			return 2
+		}
+		if err := c.PinKit(pos[0], v); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "pinned %s to v%d\n", pos[0], v)
+	case "rm":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor kit rm: expected one kit name")
+			return 2
+		}
+		if err := c.RemoveKit(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed kit", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor kit: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// readConfig reads a config file path, or stdin when path == "-".
+func readConfig(path string) ([]byte, error) {
+	if path == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(path)
 }
 
 func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
