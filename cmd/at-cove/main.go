@@ -366,6 +366,26 @@ func resolveKit(projectDir string) (string, error) {
 	return kitDir, nil
 }
 
+// atHarborBinary resolves an at-harbor executable sitting beside this at-cove
+// binary (so a dist/<os-arch>/at-cove finds its sibling), falling back to the
+// bare name "at-harbor" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
+// at-harbor for cove auto-enrollment (COV-141) rather than importing adminclient
+// (which pulls go-oidc).
+func atHarborBinary() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "at-harbor"
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	sibling := filepath.Join(filepath.Dir(self), "at-harbor")
+	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		return sibling
+	}
+	return "at-harbor"
+}
+
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "at-cove")

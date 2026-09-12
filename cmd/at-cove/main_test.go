@@ -96,6 +96,13 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 	}
 }
 
+func TestAtHarborBinary(t *testing.T) {
+	got := atHarborBinary()
+	if got == "" || filepath.Base(got) != "at-harbor" {
+		t.Fatalf("atHarborBinary() = %q, want a path/name ending in at-harbor", got)
+	}
+}
+
 func TestHarborPlan(t *testing.T) {
 	// nil harbor block → no auth.
 	if ha, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "/kp", "/s.yml", &runner.Fake{}); ha != nil || err != nil {
