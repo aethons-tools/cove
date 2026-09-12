@@ -771,7 +771,7 @@ internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — stat
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
-cmd/at-harbor/                at-harbor entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster` are admin-API clients (config + servers over internal/harbor)
+cmd/at-harbor/                at-harbor entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit` are admin-API clients (config + servers over internal/harbor)
 internal/harbor/              harbor broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
@@ -799,14 +799,16 @@ way as at-task, see [Building, testing, running](#building-testing-running)),
 and `at-harbor` (a standalone **host** credential-broker + control-plane service —
 `serve` runs a client-addressed-TLS reverse proxy that swaps an enrolled actor's
 identity token for harbor's real Anthropic/git credentials, plus a loopback admin
-API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster` are admin-API
-clients that manage actors, roles, grants, and destinations at runtime against one
-live file-backed store — no restart. An actor is granted roles within projects, a
-role owns the security scope (`destinations`/`repos`/`ttl`), and the broker
+API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit` are
+admin-API clients that manage actors, roles, grants, destinations, and kits at
+runtime against one live file-backed store — no restart. An actor is granted
+roles within projects, a role owns the security scope (`destinations`/`repos`/`ttl`)
+and, optionally, a named kit (resolved to that kit's current version); the broker
 authorizes each request additively across the actor's grants (per-grant
 existential — no cross-grant repo bleed); `enroll` is role-required, with scope
 coming from the role rather than inline flags. See the
-[harbor actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md).
+[harbor actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
+and the [harbor kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).
 The `harbor.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
 `admin-tls`, `store`, `credentials`, optional `operator-auth`); destinations and
 enrollments are managed via the API/CLI. `serve` **warns** on any unrecognized
