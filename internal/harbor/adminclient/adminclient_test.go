@@ -2,14 +2,105 @@ package adminclient
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 )
+
+func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
+	t.Helper()
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
+	t.Cleanup(ts.Close)
+	return ts, store
+}
+
+// TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
+// real harbor admin handler + FileStore (not just a wire-format mock), proving
+// the client's requests actually drive store side effects end to end. Scope
+// now comes entirely from the role, so the role must be put before Enroll.
+func TestClientRoundTrip(t *testing.T) {
+	ts, store := newServer(t)
+	c := New(ts.URL, "")
+
+	if err := c.AddDestination(harbor.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: harbor.ApplyBasicPassword, CredName: "git-pat", Apply: harbor.ApplyBasicPassword, RepoScoped: true}); err != nil {
+		t.Fatalf("AddDestination: %v", err)
+	}
+	ds, err := c.ListDestinations()
+	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
+		t.Fatalf("ListDestinations = %+v, %v", ds, err)
+	}
+	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	res, err := c.Enroll(EnrollParams{ID: "spider-18", Project: "ACME", Role: "guest"})
+	if err != nil || res.Token == "" {
+		t.Fatalf("Enroll = %+v, %v", res, err)
+	}
+	if _, ok := store.Lookup(harbor.HashToken(res.Token)); !ok {
+		t.Fatal("identity not stored")
+	}
+	if err := c.Revoke("spider-18"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if _, ok := store.Lookup(harbor.HashToken(res.Token)); ok {
+		t.Fatal("identity present after Revoke")
+	}
+}
+
+func TestClientAddDestinationRejected(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+	err := c.AddDestination(harbor.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: harbor.ApplyBearer, CredName: "nope", Apply: harbor.ApplyBearer})
+	if err == nil {
+		t.Fatal("expected error for unresolvable cred_name")
+	}
+}
+
+func TestClientLoginConfig(t *testing.T) {
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	got, err := New(ts.URL, "").LoginConfig()
+	if err != nil {
+		t.Fatalf("LoginConfig: %v", err)
+	}
+	if got != *lc {
+		t.Fatalf("LoginConfig = %+v, want %+v", got, *lc)
+	}
+}
+
+func TestClientSendsBearer(t *testing.T) {
+	var gotAuth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+		w.Write([]byte("[]"))
+	}))
+	defer ts.Close()
+	if _, err := New(ts.URL, "tok-123").ListDestinations(); err != nil {
+		t.Fatalf("ListDestinations: %v", err)
+	}
+	if gotAuth != "Bearer tok-123" {
+		t.Fatalf("Authorization = %q, want Bearer tok-123", gotAuth)
+	}
+}
 
 func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	var gotPath, gotMethod, gotBody string
