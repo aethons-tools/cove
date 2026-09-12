@@ -493,6 +493,64 @@ func TestWorkerSecretsInjectedOnlyAtAgentStep(t *testing.T) {
 	}
 }
 
+func TestDispatchHarborConnector(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	out := dir + "/task-result.json"
+	creds := writeFile(t, dir, "creds.json", `{"oauth":"x"}`)
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	ops := &fakeOps{}
+
+	err := Dispatch(context.Background(), Options{
+		Ops: ops, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Image: "at-cove-for-w", Name: "disp-worker",
+		CredentialsFile: creds,
+		HarborHost:      "h.test",
+		HarborToken:     "tok-xyz-9",
+		InputPath:       in, OutputPath: out,
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	var envWrites []string
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+envVMPath) {
+			envWrites = append(envWrites, c.Stdin)
+		}
+	}
+	if len(envWrites) < 2 {
+		t.Fatalf("want prepare+agent env writes; got %d", len(envWrites))
+	}
+	agent := envWrites[1]
+	// values are shell-quoted in the script (export KEY='value'); match substrings.
+	if !strings.Contains(agent, "ANTHROPIC_BASE_URL") || !strings.Contains(agent, "https://h.test/anthropic") || !strings.Contains(agent, "AT_HARBOR_IDENTITY_TOKEN") {
+		t.Fatalf("agent step missing harbor connector env:\n%s", agent)
+	}
+	// harbor supersedes OAuth: the credentials file is NOT seeded.
+	for _, c := range r.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "cat > "+credsVMPath) {
+			t.Fatalf("harbor worker must not seed the OAuth credentials file: %+v", c.Args)
+		}
+	}
+	// the token rides the env script (stdin), never argv.
+	for _, c := range r.Calls {
+		for _, a := range c.Args {
+			if strings.Contains(a, "tok-xyz-9") {
+				t.Fatalf("identity token leaked onto argv: %+v", c.Args)
+			}
+		}
+	}
+}
+
 // containsEnv reports whether env (a slice of "KEY=VALUE" strings) contains want.
 func containsEnv(env []string, want string) bool {
 	for _, v := range env {

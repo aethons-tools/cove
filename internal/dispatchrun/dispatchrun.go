@@ -24,6 +24,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
+	"github.com/aethons-tools/cove/internal/harbor/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -68,13 +69,19 @@ type Options struct {
 	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
 	GitToken        secret.Spec   // code-host token; withheld from the agent step
 	CredentialsFile string        // host-saved agent login to seed; "" = none
-	IdentityFile    string
-	KnownHostsDir   string
-	InputPath       string
-	OutputPath      string
-	Timeout         time.Duration
-	GraceWindow     time.Duration
-	Now             time.Time
+	// HarborHost/HarborToken, when set, route the AGENT step's Anthropic through a
+	// harbor broker (COV-142): the connector env is injected and the OAuth creds
+	// file is not seeded. Git is deliberately left on at-task's minted-token path
+	// (a global harbor insteadOf would misroute prepare/complete).
+	HarborHost    string
+	HarborToken   string
+	IdentityFile  string
+	KnownHostsDir string
+	InputPath     string
+	OutputPath    string
+	Timeout       time.Duration
+	GraceWindow   time.Duration
+	Now           time.Time
 }
 
 // Reap removes labeled dispatch orphans older than grace (the `--reap` path).
@@ -209,8 +216,12 @@ func Dispatch(ctx context.Context, o Options) error {
 	if err := eg.ApplySessionEgress(o.Name, domains); err != nil {
 		return fmt.Errorf("apply session egress: %w", err)
 	}
-	if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
-		return fmt.Errorf("seed agent credentials: %w", err)
+	// Harbor supersedes the OAuth login: don't seed the credentials file when the
+	// agent authenticates to Anthropic through harbor (COV-142).
+	if o.HarborHost == "" {
+		if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
+			return fmt.Errorf("seed agent credentials: %w", err)
+		}
 	}
 	if err := writeVM(o.R, tgt, filled, taskVMPath); err != nil {
 		return fmt.Errorf("inject task: %w", err)
@@ -243,17 +254,26 @@ func Dispatch(ctx context.Context, o Options) error {
 	// (the build/prepare overhead is already spent). It is merged only into the
 	// agent env; the git steps never carry it.
 	agentEnv := base
-	if len(o.WorkerSecrets) > 0 {
-		ws, err := secret.Resolve(o.R, runEnv, o.WorkerSecrets)
-		if err != nil {
-			return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("resolve worker secrets: %w", err))
-		}
-		agentEnv = make(map[string]string, len(base)+len(ws))
+	if len(o.WorkerSecrets) > 0 || o.HarborHost != "" {
+		agentEnv = make(map[string]string, len(base)+len(o.WorkerSecrets)+4)
 		for k, v := range base {
 			agentEnv[k] = v
 		}
-		for k, v := range ws {
-			agentEnv[k] = v
+		if len(o.WorkerSecrets) > 0 {
+			ws, err := secret.Resolve(o.R, runEnv, o.WorkerSecrets)
+			if err != nil {
+				return egressOr(o.R, tgt, o.OutputPath, fmt.Errorf("resolve worker secrets: %w", err))
+			}
+			for k, v := range ws {
+				agentEnv[k] = v
+			}
+		}
+		// Route the agent's Anthropic through harbor (COV-142) — env-only; git
+		// stays on at-task's minted-token path (no harbor insteadOf here).
+		if o.HarborHost != "" {
+			for k, v := range snippet.Env("https://"+o.HarborHost, o.HarborToken) {
+				agentEnv[k] = v
+			}
 		}
 	}
 	// The agent's raw output is demuxed away from the structured sink (§6.3): tee
