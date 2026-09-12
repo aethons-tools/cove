@@ -364,7 +364,7 @@ host-side and seeded as a file; see
 ### harbor
 *optional; routes the cove's Anthropic + git through a harbor broker (COV-138)*
 
-Setting `harbor:` makes a hardened cove reach a [harbor](../superpowers/specs/2026-09-11-harbor-cove-networking-design.md)
+Setting `harbor:` makes a hardened cove reach a [harbor](harbor/INDEX.md)
 broker from **inside** the sandbox, so the agent's `claude` and `git` use harbor's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the egress allow-list, adds a
@@ -401,7 +401,8 @@ token is delivered env-only.
 > 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
 > into it — per-cove repo narrowing is a planned follow-up, not available yet.
 > **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
-> that never expire.
+> that never expire. See [harbor/roster.md](harbor/roster.md) for the role/enroll
+> surface and [harbor/INDEX.md](harbor/INDEX.md) for running the harbor itself.
 
 Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
