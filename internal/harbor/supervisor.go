@@ -162,18 +162,22 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	return nil
 }
 
-// revokeActor removes the actor's identity, tolerating "already absent" (a
-// retry after a prior successful revoke) as success. A genuine store failure
-// while the actor is still present is propagated.
+// revokeActor removes the identity if present. Presence is checked BEFORE the
+// mutation: if the actor is already absent it is a no-op success (a retry after a
+// prior partial teardown); if it is present, any RemoveActor error is a real
+// failure the caller must surface (so teardown is retryable). Checking after the
+// call would be wrong — FileStore.RemoveActor deletes from memory before it
+// persists, so a save failure would look like "already absent".
 func (s *Supervisor) revokeActor(actorID string) error {
-	err := s.store.RemoveActor(actorID)
-	if err == nil {
-		return nil
-	}
+	present := false
 	for _, a := range s.store.ListActors() {
 		if a.ID == actorID {
-			return err // still present: this was a real failure
+			present = true
+			break
 		}
 	}
-	return nil // already absent: treat as success
+	if !present {
+		return nil
+	}
+	return s.store.RemoveActor(actorID)
 }
