@@ -2,8 +2,11 @@ package harbor
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -45,6 +48,7 @@ type RoleBody struct {
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
+	Kit          string   `json:"kit,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -54,6 +58,38 @@ type RoleSummary struct {
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
+	Kit          string   `json:"kit,omitempty"`
+}
+
+// KitBody is the POST /admin/kits request.
+type KitBody struct {
+	Name   string `json:"name"`
+	Config string `json:"config"`
+}
+
+// KitResult is the POST /admin/kits response.
+type KitResult struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"`
+}
+
+// KitSummary is a GET /admin/kits item.
+type KitSummary struct {
+	Name     string `json:"name"`
+	Current  int    `json:"current"`
+	Versions int    `json:"versions"` // count
+}
+
+// KitConfigResult is a GET /admin/kits/{name} item.
+type KitConfigResult struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"`
+	Config  string `json:"config"`
+}
+
+// PinBody is the POST /admin/kits/{name}/pin request.
+type PinBody struct {
+	Version int `json:"version"`
 }
 
 // GrantBody is the POST /admin/actors/{id}/grants request.
@@ -182,6 +218,7 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
 				TTLSeconds: int64(ro.Scope.TTL / time.Second),
+				Kit:        ro.Kit,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -195,9 +232,15 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			http.Error(w, "name is required", http.StatusBadRequest)
 			return
 		}
-		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, TTL: time.Duration(b.TTLSeconds) * time.Second}}
+		if b.Kit != "" {
+			if _, ok := store.GetKit(b.Kit); !ok {
+				http.Error(w, "kit does not exist", http.StatusBadRequest)
+				return
+			}
+		}
+		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, TTL: time.Duration(b.TTLSeconds) * time.Second}, Kit: b.Kit}
 		if err := store.PutRole(b.Project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		log.Info("admin role put", "operator", operatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
@@ -234,6 +277,91 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			return
 		}
 		log.Info("admin grant removed", "operator", operatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("POST /admin/kits", func(w http.ResponseWriter, r *http.Request) {
+		var b KitBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if b.Name == "" || b.Config == "" {
+			http.Error(w, "name and config are required", http.StatusBadRequest)
+			return
+		}
+		v, err := store.PushKit(b.Name, b.Config)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin kit pushed", "operator", operatorID(r), "kit", b.Name, "version", v)
+		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v})
+	})
+	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
+		var out []KitSummary
+		for _, k := range store.ListKits() {
+			out = append(out, KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.Versions)})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("GET /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		version := 0
+		if q := r.URL.Query().Get("version"); q != "" {
+			n, err := strconv.Atoi(q)
+			if err != nil {
+				http.Error(w, "version must be an integer", http.StatusBadRequest)
+				return
+			}
+			version = n
+		}
+		cfg, ok := store.KitConfig(name, version)
+		if !ok {
+			http.Error(w, "no such kit or version", http.StatusNotFound)
+			return
+		}
+		if version == 0 {
+			k, _ := store.GetKit(name)
+			version = k.Current
+		}
+		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg})
+	})
+	mux.HandleFunc("GET /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
+		k, ok := store.GetKit(r.PathValue("name"))
+		if !ok {
+			http.Error(w, "no such kit", http.StatusNotFound)
+			return
+		}
+		vers := make([]int, 0, len(k.Versions))
+		for v := range k.Versions {
+			vers = append(vers, v)
+		}
+		sort.Ints(vers)
+		writeJSON(w, http.StatusOK, vers)
+	})
+	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
+		var b PinBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.PinKit(r.PathValue("name"), b.Version); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin kit pinned", "operator", operatorID(r), "kit", r.PathValue("name"), "version", b.Version)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if project, role, ok := store.RoleReferencingKit(name); ok {
+			http.Error(w, fmt.Sprintf("kit %q is referenced by role %s/%s", name, project, role), http.StatusConflict)
+			return
+		}
+		if err := store.RemoveKit(name); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin kit removed", "operator", operatorID(r), "kit", name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 

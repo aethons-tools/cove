@@ -194,3 +194,68 @@ func TestClientEnrollBodyIsTrimmed(t *testing.T) {
 		}
 	}
 }
+
+func TestClientKitRoundTrips(t *testing.T) {
+	var gotMethod, gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.RequestURI()
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		switch {
+		case r.URL.Path == "/admin/kits" && r.Method == "POST":
+			_, _ = w.Write([]byte(`{"name":"web","version":3}`))
+		case r.URL.Path == "/admin/kits" && r.Method == "GET":
+			_, _ = w.Write([]byte(`[{"name":"web","current":3,"versions":3}]`))
+		case r.URL.Path == "/admin/kits/web/versions":
+			_, _ = w.Write([]byte(`[1,2,3]`))
+		case r.URL.Path == "/admin/kits/web":
+			_, _ = w.Write([]byte(`{"name":"web","version":2,"config":"name: web\n"}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "")
+
+	v, err := c.PushKit("web", "name: web\n")
+	if err != nil || v != 3 {
+		t.Fatalf("PushKit = %d, %v (body=%s)", v, err, gotBody)
+	}
+	if gotMethod != "POST" || gotPath != "/admin/kits" || !strings.Contains(gotBody, `"config":"name: web\n"`) {
+		t.Fatalf("push wire = %s %s %s", gotMethod, gotPath, gotBody)
+	}
+	if kits, err := c.ListKits(); err != nil || len(kits) != 1 || kits[0].Current != 3 {
+		t.Fatalf("ListKits = %+v, %v", kits, err)
+	}
+	if got, err := c.GetKit("web", 2); err != nil || got.Version != 2 {
+		t.Fatalf("GetKit = %+v, %v", got, err)
+	}
+	if gotPath != "/admin/kits/web?version=2" {
+		t.Fatalf("GetKit path = %s", gotPath)
+	}
+	if vers, err := c.KitVersions("web"); err != nil || len(vers) != 3 {
+		t.Fatalf("KitVersions = %+v, %v", vers, err)
+	}
+	if err := c.PinKit("web", 1); err != nil {
+		t.Fatalf("PinKit: %v", err)
+	}
+	if err := c.RemoveKit("web"); err != nil {
+		t.Fatalf("RemoveKit: %v", err)
+	}
+}
+
+func TestClientPutRoleCarriesKit(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, "").PutRole("acme", harbor.Role{Name: "impl", Kit: "builder"}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	if !strings.Contains(gotBody, `"kit":"builder"`) {
+		t.Fatalf("PutRole body missing kit: %s", gotBody)
+	}
+}
