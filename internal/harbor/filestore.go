@@ -33,6 +33,11 @@ type Store interface {
 	RemoveKit(name string) error
 	RoleReferencingKit(name string) (project, role string, ok bool)
 
+	PutInstance(i Instance) error
+	GetInstance(actorID string) (Instance, bool)
+	ListInstances() []Instance
+	RemoveInstance(actorID string) error
+
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
@@ -45,6 +50,7 @@ type storeFile struct {
 	Actors       map[string]Actor           `json:"actors"`       // keyed by TokenHash
 	Destinations map[string]Destination     `json:"destinations"` // keyed by Name
 	Kits         map[string]Kit             `json:"kits"`         // keyed by Kit.Name
+	Instances    map[string]Instance        `json:"instances"`    // keyed by Instance.ActorID
 }
 
 // legacyIdentity is the pre-RBAC (v1/v2) per-identity record, read only during
@@ -62,23 +68,25 @@ type legacyIdentity struct {
 // FileStore is a JSON-file-backed Store. Single-node MVP; the serve process is the
 // sole writer, so there is no cross-process contention.
 type FileStore struct {
-	path   string
-	mu     sync.Mutex
-	roles  map[string]map[string]Role
-	actors map[string]Actor
-	dests  map[string]Destination
-	kits   map[string]Kit
+	path      string
+	mu        sync.Mutex
+	roles     map[string]map[string]Role
+	actors    map[string]Actor
+	dests     map[string]Destination
+	kits      map[string]Kit
+	instances map[string]Instance
 }
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
 // map[tokenHash]Identity) or v2 (identities+destinations) file into the v4 shape.
 func NewFileStore(path string) (*FileStore, error) {
 	fs := &FileStore{
-		path:   path,
-		roles:  map[string]map[string]Role{},
-		actors: map[string]Actor{},
-		dests:  map[string]Destination{},
-		kits:   map[string]Kit{},
+		path:      path,
+		roles:     map[string]map[string]Role{},
+		actors:    map[string]Actor{},
+		dests:     map[string]Destination{},
+		kits:      map[string]Kit{},
+		instances: map[string]Instance{},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -108,6 +116,9 @@ func NewFileStore(path string) (*FileStore, error) {
 		}
 		if v3.Kits != nil {
 			fs.kits = v3.Kits
+		}
+		if v3.Instances != nil {
+			fs.instances = v3.Instances
 		}
 		return fs, nil
 	}
@@ -195,7 +206,7 @@ func sameStrings(a, b []string) bool {
 
 // save persists the v4 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
-	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits}, "", "  ")
+	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits, Instances: fs.instances}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -477,6 +488,43 @@ func (fs *FileStore) RoleReferencingKit(name string) (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+func (fs *FileStore) PutInstance(i Instance) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if i.ActorID == "" {
+		return fmt.Errorf("instance actor id is required")
+	}
+	fs.instances[i.ActorID] = i
+	return fs.save()
+}
+
+func (fs *FileStore) GetInstance(actorID string) (Instance, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	i, ok := fs.instances[actorID]
+	return i, ok // Instance has no reference fields; value copy is a full copy
+}
+
+func (fs *FileStore) ListInstances() []Instance {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	out := make([]Instance, 0, len(fs.instances))
+	for _, i := range fs.instances {
+		out = append(out, i)
+	}
+	return out
+}
+
+func (fs *FileStore) RemoveInstance(actorID string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if _, ok := fs.instances[actorID]; !ok {
+		return fmt.Errorf("instance %q not found", actorID)
+	}
+	delete(fs.instances, actorID)
+	return fs.save()
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {

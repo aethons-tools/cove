@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestFileStoreRoundTrip(t *testing.T) {
@@ -354,4 +355,58 @@ func TestFileStoreGetKitConcurrentSafe(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestInstanceRegistryRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.json")
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := Instance{ActorID: "w1", Project: "default", Role: "guest", Phase: PhaseLive,
+		Lease: Lease{Holder: "h1", Expiry: time.Unix(500, 0).UTC()}}
+	if err := fs.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	// Reload from disk — durability.
+	fs2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := fs2.GetInstance("w1")
+	if !ok || got.Role != "guest" || got.Phase != PhaseLive || got.Lease.Holder != "h1" {
+		t.Fatalf("reloaded instance wrong: %+v ok=%v", got, ok)
+	}
+	if n := len(fs2.ListInstances()); n != 1 {
+		t.Fatalf("ListInstances = %d, want 1", n)
+	}
+	if err := fs2.RemoveInstance("w1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fs2.GetInstance("w1"); ok {
+		t.Fatal("instance still present after remove")
+	}
+	if err := fs2.RemoveInstance("w1"); err == nil {
+		t.Fatal("expected error removing absent instance")
+	}
+}
+
+func TestStoreLoadsV4FileWithoutInstances(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.json")
+	// A v4 file: roles + actors + kits, NO "instances" key.
+	v4 := `{"roles":{"default":{"guest":{"name":"guest","scope":{"destinations":["a"],"repos":[],"ttl":0}}}},` +
+		`"actors":{},"destinations":{},"kits":{}}`
+	if err := os.WriteFile(path, []byte(v4), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("v4 file must load additively, got %v", err)
+	}
+	if n := len(fs.ListInstances()); n != 0 {
+		t.Fatalf("expected empty instance registry, got %d", n)
+	}
+	if _, ok := fs.GetRole("default", "guest"); !ok {
+		t.Fatal("v4 role lost on load")
+	}
 }
