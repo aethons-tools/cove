@@ -154,3 +154,69 @@ func TestTeardownIsIdempotent(t *testing.T) {
 		t.Fatalf("second teardown must be a no-op, got %v", err)
 	}
 }
+
+// revokeFailingStore wraps a real Store and forces RemoveActor to fail with a
+// real error (as opposed to "not found") while delegating everything else, so
+// tests can exercise Teardown's revoke-before-deregister failure path.
+type revokeFailingStore struct {
+	Store
+	removeActorErr error
+}
+
+func (s *revokeFailingStore) RemoveActor(id string) error {
+	if s.removeActorErr != nil {
+		return s.removeActorErr
+	}
+	return s.Store.RemoveActor(id)
+}
+
+// TestTeardownPropagatesRevokeFailure proves that a genuine identity-revoke
+// failure makes Teardown return a non-nil error and leaves the Instance in
+// place (not the Actor, which the real store still has) so a retry re-drives
+// the whole teardown, including the revoke, instead of silently leaving a
+// live token behind.
+func TestTeardownPropagatesRevokeFailure(t *testing.T) {
+	real, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := real.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	store := &revokeFailingStore{Store: real, removeActorErr: errors.New("store write failed")}
+	clk := time.Unix(1000, 0).UTC()
+	clkp := &clk
+	f := &fakeLauncher{}
+	sup := NewSupervisor(store, f, "holder-A", 60*time.Second, 30*time.Second,
+		func() time.Time { return *clkp }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.ListActors()) != 1 {
+		t.Fatalf("expected actor to be present before teardown, got %d", len(store.ListActors()))
+	}
+
+	if err := sup.Teardown(context.Background(), "w1"); err == nil {
+		t.Fatal("expected teardown to fail when identity revocation fails")
+	}
+
+	if _, ok := store.GetInstance("w1"); !ok {
+		t.Fatal("a failed revoke must leave the Instance in place so a retry re-revokes")
+	}
+	if len(store.ListActors()) != 1 {
+		t.Fatal("actor should still be present after the failed revoke")
+	}
+
+	// A retry with the revoke now working should succeed and clean everything up.
+	store.removeActorErr = nil
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatalf("retry after revoke recovers should succeed, got %v", err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("instance should be gone after the successful retry")
+	}
+	if len(store.ListActors()) != 0 {
+		t.Fatal("actor should be revoked after the successful retry")
+	}
+}

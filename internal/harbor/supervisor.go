@@ -79,7 +79,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	}
 	loc, err := s.launcher.Raise(ctx, spec)
 	if err != nil {
-		_ = s.store.RemoveActor(spec.ActorID) // rollback identity on failed launch
+		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
+			s.log.Warn("raise rollback: failed to revoke identity after launch failure", "id", spec.ActorID, "error", rmErr)
+		}
 		return Instance{}, "", fmt.Errorf("raise: %w", err)
 	}
 	now := s.now()
@@ -90,8 +92,12 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		RaisedAt: now, LastSeen: now,
 	}
 	if err := s.store.PutInstance(inst); err != nil {
-		_ = s.launcher.Teardown(ctx, inst)
-		_ = s.store.RemoveActor(spec.ActorID)
+		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
+			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
+		}
+		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
+		}
 		return Instance{}, "", err
 	}
 	if s.log != nil {
@@ -127,9 +133,11 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	return nil
 }
 
-// Teardown tears the cove down and deregisters it: Launcher.Teardown, then remove
-// the Instance and revoke the identity. Idempotent — an absent instance is a
-// no-op.
+// Teardown tears the cove down and deregisters it: Launcher.Teardown, then
+// revoke the identity, then remove the Instance. Revoke-before-deregister so a
+// failed revoke leaves the Instance in place and the whole teardown is
+// retryable — a dangling identity is never left behind silently. Idempotent —
+// an absent instance, or an already-revoked identity, is a no-op.
 func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
@@ -142,12 +150,30 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if err := s.launcher.Teardown(ctx, inst); err != nil {
 		return fmt.Errorf("teardown launcher: %w", err)
 	}
+	if err := s.revokeActor(actorID); err != nil {
+		return fmt.Errorf("teardown revoke identity: %w", err)
+	}
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
 	}
-	_ = s.store.RemoveActor(actorID) // revoke identity; ignore "not found"
 	if s.log != nil {
 		s.log.Info("cove torn down", "id", actorID)
 	}
 	return nil
+}
+
+// revokeActor removes the actor's identity, tolerating "already absent" (a
+// retry after a prior successful revoke) as success. A genuine store failure
+// while the actor is still present is propagated.
+func (s *Supervisor) revokeActor(actorID string) error {
+	err := s.store.RemoveActor(actorID)
+	if err == nil {
+		return nil
+	}
+	for _, a := range s.store.ListActors() {
+		if a.ID == actorID {
+			return err // still present: this was a real failure
+		}
+	}
+	return nil // already absent: treat as success
 }
