@@ -36,14 +36,12 @@ func New(baseURL, token string) *Client {
 	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, httpc: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// EnrollParams are the inputs to an enrollment.
+// EnrollParams are the inputs to an enrollment. Scope (destinations/repos/TTL)
+// comes from the named role, not from enrollment-time params.
 type EnrollParams struct {
-	ID           string
-	Project      string
-	Role         string
-	Destinations []string
-	Repos        []string
-	TTL          time.Duration
+	ID      string
+	Project string
+	Role    string
 }
 
 func (c *Client) do(method, path string, body any, out any) error {

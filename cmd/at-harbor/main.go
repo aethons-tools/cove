@@ -38,6 +38,10 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
+			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
+			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
+			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
+			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -168,11 +172,8 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
-	dests := fs.String("destinations", "", "comma-separated destination names")
-	repos := fs.String("repos", "", "comma-separated owner/repo globs")
 	baseURLFlag := fs.String("base-url", "", "harbor broker base URL for the printed snippet (overrides the app's settings)")
 	jsonOut := fs.Bool("json", false, `print {"id","token"} JSON instead of the shell snippet (base-url not required)`)
-	ttl := fs.Duration("ttl", 0, "identity lifetime (0 = no expiry)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -191,7 +192,6 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	res, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
-		Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
@@ -319,6 +319,146 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	default:
 		fmt.Fprintln(stderr, "at-harbor destination: unknown subcommand", sub)
 		return 2
+	}
+	return 0
+}
+
+func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor role: expected add|list|rm")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	name := fs.String("name", "", "role name")
+	dests := fs.String("destinations", "", "comma-separated destination names")
+	repos := fs.String("repos", "", "comma-separated owner/repo globs")
+	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor role:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "add":
+		if *name == "" {
+			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
+			return 2
+		}
+		r := harbor.Role{Name: *name, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl}}
+		if err := c.PutRole(*project, r); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, harbor.DefaultProject)+"/"+*name)
+	case "list":
+		roles, err := c.ListRoles(*project)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, r := range roles {
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\tttl=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), r.Scope.TTL)
+		}
+	case "rm":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor role rm: expected one role name")
+			return 2
+		}
+		if err := c.RemoveRole(firstNonEmpty(*project, harbor.DefaultProject), pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed role", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor role: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	return grantCommon(args, stdout, stderr, false)
+}
+func cmdUngrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	return grantCommon(args, stdout, stderr, true)
+}
+func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
+	verb := "grant"
+	if remove {
+		verb = "ungrant"
+	}
+	fs := flag.NewFlagSet(verb, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	id := fs.String("id", "", "actor id")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role name")
+	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor "+verb+":", err)
+		return 2
+	}
+	if len(pos) > 0 || *id == "" || *role == "" {
+		fmt.Fprintln(stderr, "at-harbor "+verb+": --id and --role are required")
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	var err error
+	if remove {
+		err = c.RemoveGrant(*id, firstNonEmpty(*project, harbor.DefaultProject), *role)
+	} else {
+		err = c.AddGrant(*id, harbor.Grant{Project: *project, Role: *role})
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, verb+"ed", *role, "to", *id)
+	return 0
+}
+
+func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("roster", flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor roster:", err)
+		return 2
+	}
+	if len(pos) > 0 {
+		fmt.Fprintln(stderr, "at-harbor roster: takes no positional arguments")
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	roster, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Roster()
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	for _, a := range roster {
+		for _, g := range a.Grants {
+			fmt.Fprintf(stdout, "%s\t%s/%s\tdests=%s\trepos=%s\n", a.ID, g.Project, g.Role, strings.Join(g.Destinations, ","), strings.Join(g.Repos, ","))
+		}
 	}
 	return 0
 }

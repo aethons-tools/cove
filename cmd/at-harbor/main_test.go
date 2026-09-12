@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
 
@@ -26,7 +27,7 @@ func TestEnrollCommandJSON(t *testing.T) {
 	// --json needs no --base-url (no snippet rendered)
 	code := run([]string{
 		"enroll", "--json", "--admin-url", ts.URL, "--id", "spider-18",
-		"--role", "guest", "--destinations", "anthropic,git",
+		"--role", "guest",
 	}, func(string) string { return "" }, &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
@@ -55,7 +56,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{
 		"enroll", "--admin-url", ts.URL, "--id", "spider-18", "--project", "ACME",
-		"--role", "guest", "--destinations", "anthropic,git", "--repos", "acme/*",
+		"--role", "guest",
 		"--base-url", "https://harbor.local.aethons.tools",
 	}, func(string) string { return "" }, &out, &errb)
 	if code != 0 {
@@ -69,6 +70,106 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	}
 	if len(store.ListActors()) != 1 {
 		t.Fatal("identity was not created via the admin API")
+	}
+}
+
+func TestEnrollRejectsScopeFlags(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := cmdEnroll([]string{"--id", "x", "--role", "guest", "--destinations", "anthropic"}, cli.Globals{}, &out, &errb)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when --destinations is passed; got 0 (err=%q)", errb.String())
+	}
+}
+
+func TestRoleGrantUngrantRosterCommands(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+	// role add
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "P",
+		"--name", "guest", "--destinations", "anthropic", "--repos", "acme/*",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// role list reflects it
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "guest") || !strings.Contains(out.String(), "dests=anthropic") || !strings.Contains(out.String(), "repos=acme/*") {
+		t.Fatalf("role list output missing expected fields:\n%s", out.String())
+	}
+
+	// enroll an actor under that role so it exists to grant onto
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"enroll", "--json", "--admin-url", ts.URL, "--id", "spider-1", "--project", "P", "--role", "guest",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("enroll: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// a second role to grant
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "admin", "--destinations", "anthropic,git",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add admin: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// grant
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"grant", "--admin-url", ts.URL, "--id", "spider-1", "--project", "P", "--role", "admin",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("grant: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// roster shows both grants
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"roster", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("roster: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "spider-1\tP/guest") || !strings.Contains(out.String(), "spider-1\tP/admin") {
+		t.Fatalf("roster output missing expected grants:\n%s", out.String())
+	}
+
+	// ungrant
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"ungrant", "--admin-url", ts.URL, "--id", "spider-1", "--project", "P", "--role", "admin",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("ungrant: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// roster no longer shows the ungranted role
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"roster", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("roster (after ungrant): exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "P/admin") {
+		t.Fatalf("roster still shows ungranted role:\n%s", out.String())
+	}
+
+	// role rm
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "rm", "--admin-url", ts.URL, "--project", "P", "guest"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role rm: exit=%d stderr=%s", code, errb.String())
 	}
 }
 
