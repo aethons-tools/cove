@@ -541,6 +541,13 @@ func TestDispatchHarborConnector(t *testing.T) {
 			t.Fatalf("harbor worker must not seed the OAuth credentials file: %+v", c.Args)
 		}
 	}
+	// A worker must NOT reroute git through harbor — at-task prepare/complete keep
+	// their minted code-host token, so no harbor insteadOf may be applied.
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, "insteadOf") || strings.Contains(strings.Join(c.Args, " "), "insteadOf") {
+			t.Fatalf("worker must not apply a harbor git insteadOf: %+v / %q", c.Args, c.Stdin)
+		}
+	}
 	// the token rides the env script (stdin), never argv.
 	for _, c := range r.Calls {
 		for _, a := range c.Args {
