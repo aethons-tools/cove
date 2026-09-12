@@ -32,6 +32,39 @@ func adminReq(method, path, body string) *http.Request {
 	return r
 }
 
+// doReq issues a loopback request against h and returns the recorded response.
+func doReq(t *testing.T, h http.Handler, method, path string, body io.Reader) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, body)
+	r.RemoteAddr = "127.0.0.1:5000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
+// doJSON marshals v as the request body and issues the request.
+func doJSON(t *testing.T, h http.Handler, method, path string, v any) *httptest.ResponseRecorder {
+	t.Helper()
+	buf, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	return doReq(t, h, method, path, bytes.NewReader(buf))
+}
+
+// getJSON issues a GET and decodes the JSON response body into out, failing the
+// test on a non-200 status or decode error.
+func getJSON(t *testing.T, h http.Handler, path string, out any) {
+	t.Helper()
+	rec := doReq(t, h, "GET", path, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, body=%s", path, rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), out); err != nil {
+		t.Fatalf("GET %s JSON: %v", path, err)
+	}
+}
+
 func TestAdminAddAndListDestination(t *testing.T) {
 	h, store := newTestAdmin(t)
 	body := `{"name":"git","route":"/git/","upstream":"https://github.com","identity_in":"basic-password","cred_name":"git-pat","apply":"basic-password","repo_scoped":true}`
@@ -64,8 +97,11 @@ func TestAdminRejectsUnresolvableCredName(t *testing.T) {
 
 func TestAdminEnrollThenRevoke(t *testing.T) {
 	h, store := newTestAdmin(t)
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/enrollments", `{"id":"spider-18","project":"ACME","role":"guest","destinations":["git"],"repos":["acme/*"]}`))
+	h.ServeHTTP(rec, adminReq("POST", "/admin/enrollments", `{"id":"spider-18","project":"ACME","role":"guest"}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("enroll status = %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -77,11 +113,18 @@ func TestAdminEnrollThenRevoke(t *testing.T) {
 	if _, ok := store.Lookup(HashToken(res.Token)); !ok {
 		t.Fatal("enrolled identity not in store")
 	}
-	// GET must not leak tokens or hashes.
+	// GET must not leak tokens or hashes, and must report the effective scope.
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("GET", "/admin/enrollments", ""))
+	h.ServeHTTP(rec, adminReq("GET", "/admin/roster", ""))
 	if bytes.Contains(rec.Body.Bytes(), []byte(res.Token)) || bytes.Contains(rec.Body.Bytes(), []byte(HashToken(res.Token))) {
-		t.Fatal("enrollment list leaked token or hash")
+		t.Fatal("roster leaked token or hash")
+	}
+	var roster []ActorSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &roster); err != nil {
+		t.Fatalf("roster JSON: %v", err)
+	}
+	if len(roster) != 1 || len(roster[0].Grants) != 1 || roster[0].Grants[0].Destinations[0] != "git" {
+		t.Fatalf("roster = %+v", roster)
 	}
 	// revoke
 	rec = httptest.NewRecorder()
@@ -109,6 +152,9 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
 	h := NewAdminHandler(store, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	// add destination + enroll + revoke — each is a mutation and must be attributed.
 	h.ServeHTTP(httptest.NewRecorder(), adminReq("POST", "/admin/destinations",
@@ -184,6 +230,67 @@ func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("login-config status = %d, want 404 when not OIDC-gated", rec.Code)
+	}
+}
+
+func TestAdminRolesCRUD(t *testing.T) {
+	h, _ := newTestAdmin(t) // existing helper: returns handler + store
+	// create
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTLSeconds: 3600})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /admin/roles = %d", rec.Code)
+	}
+	// list
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].Name != "guest" || roles[0].TTLSeconds != 3600 {
+		t.Fatalf("roles = %+v", roles)
+	}
+	// projects
+	var projs []string
+	getJSON(t, h, "/admin/projects", &projs)
+	if len(projs) == 0 {
+		t.Fatal("expected acme in projects")
+	}
+	// delete
+	rec = doReq(t, h, "DELETE", "/admin/roles/acme/guest", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE role = %d", rec.Code)
+	}
+}
+
+func TestAdminEnrollRequiresExistingRole(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	// no role yet → 400 (fail closed)
+	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "x", Role: "guest"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("enroll with missing role = %d, want 400", rec.Code)
+	}
+	// create the role, then enroll succeeds
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "guest", Destinations: []string{"anthropic"}})
+	rec = doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "x", Role: "guest"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("enroll = %d, want 201", rec.Code)
+	}
+}
+
+func TestAdminGrantAddRemove(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}})
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}, Repos: []string{"beta/*"}})
+	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "guest"})
+	rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "beta", Role: "review"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add grant = %d", rec.Code)
+	}
+	var roster []ActorSummary
+	getJSON(t, h, "/admin/roster", &roster)
+	if len(roster) != 1 || len(roster[0].Grants) != 2 {
+		t.Fatalf("roster = %+v", roster)
+	}
+	rec = doReq(t, h, "DELETE", "/admin/actors/m/grants/beta/review", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("remove grant = %d", rec.Code)
 	}
 }
 

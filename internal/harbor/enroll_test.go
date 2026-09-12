@@ -9,16 +9,29 @@ import (
 
 func TestEnrollStoresHashedIdentity(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
-	tok, err := Enroll(store, "spider-18", "ACME", "guest", []string{"anthropic", "git"}, []string{"acme/*"}, time.Hour, time.Now())
+	if err := store.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, TTL: time.Hour}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	tok, err := Enroll(store, "spider-18", "", "guest", nil, time.Now())
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 	if tok == "" {
 		t.Fatal("empty token")
 	}
-	id, ok := store.Lookup(HashToken(tok))
-	if !ok || id.ID != "spider-18" || id.TokenHash == tok {
-		t.Fatalf("stored identity = %+v, ok=%v (hash must not equal raw token)", id, ok)
+	a, ok := store.Lookup(HashToken(tok))
+	if !ok || a.ID != "spider-18" || a.TokenHash == tok {
+		t.Fatalf("stored actor = %+v, ok=%v (hash must not equal raw token)", a, ok)
+	}
+	if len(a.Grants) != 1 || a.Grants[0].Project != DefaultProject || a.Grants[0].Role != "guest" {
+		t.Fatalf("actor grants = %+v, want one (default,guest) grant", a.Grants)
+	}
+}
+
+func TestEnrollRequiresExistingRole(t *testing.T) {
+	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	if _, err := Enroll(store, "id2", "", "missing", nil, time.Now()); err == nil {
+		t.Fatal("expected denial when the role does not exist (fail closed)")
 	}
 }
 

@@ -171,9 +171,14 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 		t.Fatalf("no at-harbor enroll call: %+v", f.Calls)
 	}
 	joined := strings.Join(enroll.Args, " ")
-	for _, want := range []string{"--json", "--id cove-box-1", "--role guest", "--destinations anthropic,git", "--ttl 24h", "--repos acme/myrepo"} {
+	for _, want := range []string{"--json", "--id cove-box-1", "--role guest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("enroll args missing %q: %s", want, joined)
+		}
+	}
+	for _, absent := range []string{"--destinations", "--repos", "--ttl"} {
+		if strings.Contains(joined, absent) {
+			t.Fatalf("enroll args should no longer carry %q: %s", absent, joined)
 		}
 	}
 	// … and the token is never on argv.

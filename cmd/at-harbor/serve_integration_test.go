@@ -40,7 +40,10 @@ func TestServeBrokersOverTLS(t *testing.T) {
 	if err := store.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: harbor.ApplyXAPIKey, CredName: "anthropic-key", Apply: harbor.ApplyXAPIKey}); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ := harbor.Enroll(store, "spider-18", "ACME", "guest", []string{"anthropic"}, nil, 0, timeNow())
+	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := harbor.Enroll(store, "spider-18", "ACME", "guest", nil, timeNow())
 	broker := harbor.NewBroker(store, fakeResolver{}, discardLogger())
 
 	ts := httptest.NewTLSServer(broker)

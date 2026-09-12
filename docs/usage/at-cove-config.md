@@ -387,13 +387,21 @@ harbor:
 
 **Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
 at-cove auto-enrolls the cove: it shells a sibling `at-harbor enroll` at session
-start to mint a fresh per-cove identity (id = the instance name, role `guest`,
-destinations `anthropic,git`, repos = the source-control project, 24h TTL) and
+start to mint a fresh per-cove identity (id = the instance name, role `guest`;
+destinations, repos, and TTL all come from that role, not from this config) and
 `at-harbor revoke`s it on exit. This needs the launching host to have `at-harbor`
 reachable to harbor's admin API **and** an operator credential (`at-harbor login` or
 `AT_HARBOR_ADMIN_TOKEN`). When that's not available (e.g. harbor isn't co-located),
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
+
+> **Role prerequisite.** An auto-enrolling cove (no `harbor.identity`) enrolls into
+> the `guest` role of harbor's default project; the operator must create it first,
+> e.g. `at-harbor role add --name guest --destinations anthropic,git --repos
+> 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
+> into it — per-cove repo narrowing is a planned follow-up, not available yet.
+> **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
+> that never expire.
 
 Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would

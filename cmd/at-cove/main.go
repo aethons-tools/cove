@@ -1318,10 +1318,7 @@ func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
 	// token arrives on stdout, in memory only. The returned closure revokes it.
-	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest", "--destinations", "anthropic,git", "--ttl", "24h"}
-	if src, ok := cfg.SourceControl.Repo(); ok && src.Project != "" {
-		args = append(args, "--repos", src.Project)
-	}
+	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest"}
 	out, err := r.Output(atHarborBinary(), args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll failed (is at-harbor reachable + an operator logged in?): %w", kitName, err)

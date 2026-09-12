@@ -5,14 +5,25 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
-// Store records enrolled identities (by token hash) and the destination table.
+// Store records enrolled actors (by token hash), roles (by project+name), and the
+// destination table.
 type Store interface {
-	Add(id Identity) error
-	Lookup(tokenHash string) (Identity, bool)
-	Remove(id string) error
-	ListIdentities() []Identity
+	AddActor(a Actor) error // error if the id already exists
+	Lookup(tokenHash string) (Actor, bool)
+	RemoveActor(id string) error
+	ListActors() []Actor
+
+	AddGrant(actorID string, g Grant) error // upsert by (project,role); error if actor absent
+	RemoveGrant(actorID, project, role string) error
+
+	PutRole(project string, r Role) error // upsert; auto-creates the project namespace
+	GetRole(project, name string) (Role, bool)
+	RemoveRole(project, name string) error
+	ListRoles(project string) []Role
+	ListProjects() []string
 
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
@@ -20,25 +31,44 @@ type Store interface {
 	Match(reqPath string) (Destination, bool)
 }
 
-// storeFile is the on-disk JSON shape (format v2).
+// storeFile is the on-disk JSON shape (format v3).
 type storeFile struct {
-	Identities   map[string]Identity    `json:"identities"`   // keyed by TokenHash
-	Destinations map[string]Destination `json:"destinations"` // keyed by Name
+	Roles        map[string]map[string]Role `json:"roles"`        // project → roleName → Role
+	Actors       map[string]Actor           `json:"actors"`       // keyed by TokenHash
+	Destinations map[string]Destination     `json:"destinations"` // keyed by Name
+}
+
+// legacyIdentity is the pre-RBAC (v1/v2) per-identity record, read only during
+// migration.
+type legacyIdentity struct {
+	ID           string    `json:"id"`
+	TokenHash    string    `json:"token_hash"`
+	Project      string    `json:"project"`
+	Role         string    `json:"role"`
+	Destinations []string  `json:"destinations"`
+	Repos        []string  `json:"repos"`
+	Expiry       time.Time `json:"expiry"`
 }
 
 // FileStore is a JSON-file-backed Store. Single-node MVP; the serve process is the
 // sole writer, so there is no cross-process contention.
 type FileStore struct {
-	path  string
-	mu    sync.Mutex
-	ids   map[string]Identity
-	dests map[string]Destination
+	path   string
+	mu     sync.Mutex
+	roles  map[string]map[string]Role
+	actors map[string]Actor
+	dests  map[string]Destination
 }
 
-// NewFileStore loads (or initializes) the store at path. A legacy v1 file (a bare
-// map[tokenHash]Identity) is migrated into the identities collection.
+// NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
+// map[tokenHash]Identity) or v2 (identities+destinations) file into the v3 shape.
 func NewFileStore(path string) (*FileStore, error) {
-	fs := &FileStore{path: path, ids: map[string]Identity{}, dests: map[string]Destination{}}
+	fs := &FileStore{
+		path:   path,
+		roles:  map[string]map[string]Role{},
+		actors: map[string]Actor{},
+		dests:  map[string]Destination{},
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -49,69 +79,277 @@ func NewFileStore(path string) (*FileStore, error) {
 	if len(data) == 0 {
 		return fs, nil
 	}
-	var v2 storeFile
-	if err := json.Unmarshal(data, &v2); err != nil {
+
+	// v3?
+	var v3 storeFile
+	if err := json.Unmarshal(data, &v3); err != nil {
 		return nil, fmt.Errorf("load store %s: %w", path, err)
 	}
-	if v2.Identities == nil && v2.Destinations == nil {
-		// v1 migration: the whole file is a map[tokenHash]Identity.
-		var legacy map[string]Identity
-		if err := json.Unmarshal(data, &legacy); err != nil {
-			return nil, fmt.Errorf("load store %s (legacy): %w", path, err)
+	if v3.Actors != nil || v3.Roles != nil {
+		if v3.Roles != nil {
+			fs.roles = v3.Roles
 		}
-		fs.ids = legacy
+		if v3.Actors != nil {
+			fs.actors = v3.Actors
+		}
+		if v3.Destinations != nil {
+			fs.dests = v3.Destinations
+		}
 		return fs, nil
 	}
-	if v2.Identities != nil {
-		fs.ids = v2.Identities
+
+	// v2? (identities + destinations)
+	var v2 struct {
+		Identities   map[string]legacyIdentity `json:"identities"`
+		Destinations map[string]Destination    `json:"destinations"`
 	}
-	if v2.Destinations != nil {
-		fs.dests = v2.Destinations
+	if err := json.Unmarshal(data, &v2); err != nil {
+		return nil, fmt.Errorf("load store %s (v2): %w", path, err)
 	}
+	if v2.Identities != nil || v2.Destinations != nil {
+		if v2.Destinations != nil {
+			fs.dests = v2.Destinations
+		}
+		fs.migrateIdentities(v2.Identities)
+		return fs, nil
+	}
+
+	// v1: the whole file is a map[tokenHash]legacyIdentity.
+	var v1 map[string]legacyIdentity
+	if err := json.Unmarshal(data, &v1); err != nil {
+		return nil, fmt.Errorf("load store %s (v1): %w", path, err)
+	}
+	fs.migrateIdentities(v1)
 	return fs, nil
 }
 
-// save persists both collections (v2). Caller holds fs.mu.
+// migrateIdentities converts legacy identities into actors + synthesized roles,
+// preserving each actor's effective scope. Caller sets up fs maps. Not locked
+// (construction time, single goroutine).
+func (fs *FileStore) migrateIdentities(legacy map[string]legacyIdentity) {
+	for _, li := range legacy {
+		project := li.Project
+		if project == "" {
+			project = DefaultProject
+		}
+		role := li.Role
+		if role == "" {
+			role = "default"
+		}
+		if fs.roles[project] == nil {
+			fs.roles[project] = map[string]Role{}
+		}
+		existing, ok := fs.roles[project][role]
+		if !ok {
+			existing = Role{Name: role, Scope: Scope{Destinations: li.Destinations, Repos: li.Repos}}
+			fs.roles[project][role] = existing
+		}
+		g := Grant{Project: project, Role: role}
+		if !sameStrings(existing.Scope.Destinations, li.Destinations) || !sameStrings(existing.Scope.Repos, li.Repos) {
+			// EffectiveScope treats a nil override field as "inherit the role's
+			// value" — but a legacy identity's nil/empty field means deny-all for
+			// that field, not inherit. Coerce to a non-nil empty slice so the
+			// override REPLACES rather than inherits, preserving the identity's
+			// exact original scope regardless of map-iteration order.
+			g.Overrides = &Override{Destinations: nonNilStrings(li.Destinations), Repos: nonNilStrings(li.Repos)}
+		}
+		fs.actors[li.TokenHash] = Actor{ID: li.ID, TokenHash: li.TokenHash, Expiry: li.Expiry, Grants: []Grant{g}}
+	}
+}
+
+// nonNilStrings coerces a nil slice to a non-nil empty one, so that assigning it
+// into an Override field makes EffectiveScope REPLACE the role's value (deny-all)
+// instead of treating the nil field as "inherit the role".
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// save persists the v3 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
-	data, err := json.MarshalIndent(storeFile{Identities: fs.ids, Destinations: fs.dests}, "", "  ")
+	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests}, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(fs.path, data, 0o600)
 }
 
-func (fs *FileStore) Add(id Identity) error {
+func (fs *FileStore) AddActor(a Actor) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.ids[id.TokenHash] = id
+	for _, rec := range fs.actors {
+		if rec.ID == a.ID {
+			return fmt.Errorf("actor %q already exists", a.ID)
+		}
+	}
+	fs.actors[a.TokenHash] = a
 	return fs.save()
 }
 
-func (fs *FileStore) Lookup(tokenHash string) (Identity, bool) {
+func (fs *FileStore) Lookup(tokenHash string) (Actor, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	id, ok := fs.ids[tokenHash]
-	return id, ok
+	a, ok := fs.actors[tokenHash]
+	return a, ok
 }
 
-func (fs *FileStore) Remove(id string) error {
+func (fs *FileStore) RemoveActor(id string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for h, rec := range fs.ids {
+	for h, rec := range fs.actors {
 		if rec.ID == id {
-			delete(fs.ids, h)
+			delete(fs.actors, h)
 			return fs.save()
 		}
 	}
-	return fmt.Errorf("identity %q not found", id)
+	return fmt.Errorf("actor %q not found", id)
 }
 
-func (fs *FileStore) ListIdentities() []Identity {
+func (fs *FileStore) ListActors() []Actor {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	out := make([]Identity, 0, len(fs.ids))
-	for _, id := range fs.ids {
-		out = append(out, id)
+	out := make([]Actor, 0, len(fs.actors))
+	for _, a := range fs.actors {
+		out = append(out, a)
+	}
+	return out
+}
+
+func (fs *FileStore) AddGrant(actorID string, g Grant) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if g.Project == "" {
+		g.Project = DefaultProject
+	}
+	for h, rec := range fs.actors {
+		if rec.ID != actorID {
+			continue
+		}
+		// upsert by (project, role)
+		replaced := false
+		for i := range rec.Grants {
+			if rec.Grants[i].Project == g.Project && rec.Grants[i].Role == g.Role {
+				rec.Grants[i] = g
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			rec.Grants = append(rec.Grants, g)
+		}
+		fs.actors[h] = rec
+		return fs.save()
+	}
+	return fmt.Errorf("actor %q not found", actorID)
+}
+
+func (fs *FileStore) RemoveGrant(actorID, project, role string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if project == "" {
+		project = DefaultProject
+	}
+	for h, rec := range fs.actors {
+		if rec.ID != actorID {
+			continue
+		}
+		kept := rec.Grants[:0]
+		found := false
+		for _, g := range rec.Grants {
+			if g.Project == project && g.Role == role {
+				found = true
+				continue
+			}
+			kept = append(kept, g)
+		}
+		if !found {
+			return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
+		}
+		rec.Grants = kept
+		fs.actors[h] = rec
+		return fs.save()
+	}
+	return fmt.Errorf("actor %q not found", actorID)
+}
+
+func (fs *FileStore) PutRole(project string, r Role) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if project == "" {
+		project = DefaultProject
+	}
+	if fs.roles[project] == nil {
+		fs.roles[project] = map[string]Role{}
+	}
+	fs.roles[project][r.Name] = r
+	return fs.save()
+}
+
+func (fs *FileStore) GetRole(project, name string) (Role, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if project == "" {
+		project = DefaultProject
+	}
+	r, ok := fs.roles[project][name]
+	return r, ok
+}
+
+func (fs *FileStore) RemoveRole(project, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if project == "" {
+		project = DefaultProject
+	}
+	if _, ok := fs.roles[project][name]; !ok {
+		return fmt.Errorf("role %q not found in project %q", name, project)
+	}
+	delete(fs.roles[project], name)
+	return fs.save()
+}
+
+func (fs *FileStore) ListRoles(project string) []Role {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if project == "" {
+		project = DefaultProject
+	}
+	out := make([]Role, 0, len(fs.roles[project]))
+	for _, r := range fs.roles[project] {
+		out = append(out, r)
+	}
+	return out
+}
+
+func (fs *FileStore) ListProjects() []string {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	set := map[string]struct{}{}
+	for p := range fs.roles {
+		set[p] = struct{}{}
+	}
+	for _, a := range fs.actors {
+		for _, g := range a.Grants {
+			set[g.Project] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
 	}
 	return out
 }
@@ -143,8 +381,6 @@ func (fs *FileStore) ListDestinations() []Destination {
 	return out
 }
 
-// Match resolves the destination whose Route prefixes reqPath (longest wins),
-// reusing Config.Match over a snapshot of the current table.
 func (fs *FileStore) Match(reqPath string) (Destination, bool) {
 	return Config{Destinations: fs.ListDestinations()}.Match(reqPath)
 }
