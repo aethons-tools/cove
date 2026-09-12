@@ -856,9 +856,8 @@ func validateHarbor(h *HarborConfig) error {
 			return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
 		}
 	}
-	if strings.TrimSpace(h.Identity) == "" {
-		return fmt.Errorf("config.yml: harbor.identity is required (a host-supplied secret name)")
-	}
+	// harbor.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
+	// → at-cove auto-enrolls the cove (COV-141). So no required-check here.
 	return nil
 }
 

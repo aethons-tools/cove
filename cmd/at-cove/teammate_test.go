@@ -45,6 +45,38 @@ func writeTeammateKit(t *testing.T, dir string) string {
 // unlike chat's session egress), at-switchboard must launch detached (setsid, no
 // PTY), and the bot token must never appear on any ssh/docker argv the runner
 // received (only on stdin, staged in tmpfs).
+// A harbor teammate must have a pre-supplied harbor.identity: auto-enroll is
+// unsupported for a detached conductor (no exit hook to revoke on), so doTeammate
+// rejects a harbor teammate that omits identity (COV-142).
+func TestTeammate_HarborRequiresIdentity(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// teammate kit + a harbor block WITHOUT identity (parses; auto-enroll intent).
+	yml := teammateKitYAML + "harbor:\n  host: harbor.local.aethons.tools\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	writeStateFor(t, kitDir, state.Instance("helper"), "box", "box-helper")
+	writeInstall(t, kitDir)
+	if err := os.WriteFile(filepath.Join(configDir(), "secrets.yml"),
+		[]byte("kits:\n  box:\n    DISCORD_BOT_TOKEN: { value: \"tok\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	code := run([]string{"teammate", "--project-dir", dir, "helper"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("harbor teammate without identity must fail; stdout=%s", out.String())
+	}
+	if !strings.Contains(errOut.String(), "harbor.identity") {
+		t.Fatalf("error should name harbor.identity; got: %s", errOut.String())
+	}
+}
+
 func TestTeammate_AppliesPersistentEgressAndLaunchesDetached(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeTeammateKit(t, dir)

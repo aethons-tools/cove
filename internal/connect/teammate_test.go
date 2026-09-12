@@ -35,6 +35,51 @@ func TestDetachedLaunchCmd(t *testing.T) {
 // the bot token must never appear on any argv the runner received (only on
 // stdin, via writeVM), and the actual launch command must be a non-tty,
 // detached (setsid) ssh invocation of at-switchboard.
+func TestLaunchTeammateHarborSupersedesAuth(t *testing.T) {
+	b := &fakeBackend{state: backend.StateRunning}
+	r := &runner.Fake{} // no auth probe expected under harbor
+	err := LaunchTeammate(r, b, TeammateOptions{
+		Container:      "box-helper",
+		BotTokenSpec:   secret.Spec{Name: "DISCORD_BOT_TOKEN", Value: "botsecret", Literal: true},
+		Channels:       []string{"111"},
+		IdentityFile:   "/id",
+		KnownHostsFile: "/kh",
+		HarborHost:     "h.test",
+		HarborToken:    "harbor-tok-77",
+	})
+	if err != nil {
+		t.Fatalf("LaunchTeammate: %v", err)
+	}
+	// OAuth is superseded — no claude auth probe/login.
+	if calledWith(r.Calls, "claude auth status") || calledWith(r.Calls, "claude auth login") {
+		t.Fatalf("harbor teammate must not run claude auth: %+v", r.Calls)
+	}
+	// The connector env is staged via ssh stdin (never argv).
+	var staged, gitRouted bool
+	for _, c := range r.Calls {
+		if strings.Contains(c.Stdin, "ANTHROPIC_BASE_URL") && strings.Contains(c.Stdin, "h.test/anthropic") {
+			staged = true
+		}
+		if strings.Contains(c.Stdin, `url."https://h.test/git/".insteadOf`) {
+			gitRouted = true
+		}
+	}
+	if !staged {
+		t.Fatalf("connector env not staged: %+v", r.Calls)
+	}
+	if !gitRouted {
+		t.Fatalf("harbor git config not applied: %+v", r.Calls)
+	}
+	// token never on argv.
+	for _, c := range r.Calls {
+		for _, a := range c.Args {
+			if strings.Contains(a, "harbor-tok-77") {
+				t.Fatalf("harbor token leaked onto argv: %+v", c)
+			}
+		}
+	}
+}
+
 func TestLaunchTeammateDetachedTokenNeverOnArgv(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	// [0] the ssh auth probe (`claude auth status`) — already authed, so

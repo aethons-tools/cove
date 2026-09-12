@@ -1196,6 +1196,21 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		errorChannel = tm.Discord.Channels[0]
 	}
 
+	// Harbor: route the conductor's Anthropic + git through the broker (COV-142).
+	// A teammate is detached (no exit hook to revoke on), so auto-enroll is
+	// unsupported — the identity must be pre-supplied.
+	var harborHost, harborToken string
+	if cfg.Harbor != nil {
+		if cfg.Harbor.Identity == "" {
+			return fmt.Errorf("teammate harbor requires harbor.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
+		}
+		hauth, _, err := harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
+		if err != nil {
+			return err
+		}
+		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+	}
+
 	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
 		Container:       st.Container,
 		BotTokenSpec:    botTokenSpec,
@@ -1205,6 +1220,8 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		KnownHostsFile:  filepath.Join(knownHostsDir, st.Container),
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		Stderr:          stderr,
+		HarborHost:      harborHost,
+		HarborToken:     harborToken,
 	}); err != nil {
 		return err
 	}
@@ -1811,7 +1828,10 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 			break
 		}
 	}
-	if !bearerResolved {
+	// A harbor kit supplies the agent's Anthropic auth via the harbor connector
+	// (injected ANTHROPIC_API_KEY = the identity token), not a worker-bucket bearer,
+	// so the bearer gate doesn't apply.
+	if !bearerResolved && cfg.Harbor == nil {
 		bearerNames := strings.Join(agentBearerSecrets, " or ")
 		bearerErr := fmt.Errorf("no agent bearer (%s) is resolved for kit %q — the worker would fail closed with a 401; wire one under kits: %q in %s (or secrets.local.yml)",
 			bearerNames, cfg.Name, cfg.Name, secretsPath)
@@ -1837,11 +1857,30 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 1
 	}
 
+	// Harbor: route the agent's Anthropic through the broker (COV-142). The worker
+	// container name is the per-unit enroll id, so concurrent workers don't collide;
+	// the revoke fires when this unit ends (auto path; pre-supplied path has none).
+	workerName := workName(cfg.Name)
+	var harborHost, harborToken string
+	if cfg.Harbor != nil {
+		hauth, hrevoke, herr := harborPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
+		if herr != nil {
+			lg.UserError(ctx, herr, slog.String("step", "secrets"))
+			return 1
+		}
+		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+		if hrevoke != nil {
+			defer hrevoke()
+		}
+	}
+
 	err = dispatchrun.Dispatch(ctx, dispatchrun.Options{
-		Ops: ops, R: r, Cfg: cfg, Image: m.Image, ImageDigest: m.ImageDigest, Name: workName(cfg.Name),
+		Ops: ops, R: r, Cfg: cfg, Image: m.Image, ImageDigest: m.ImageDigest, Name: workerName,
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,
+		HarborHost:    harborHost,
+		HarborToken:   harborToken,
 		// A dispatched worker authenticates to Anthropic via an injected
 		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
 		// So we deliberately do not seed credentials.json: with no OAuth token to

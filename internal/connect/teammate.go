@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/harbor/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -37,6 +38,12 @@ type TeammateOptions struct {
 	// in connect.go). Kept nil-safe here rather than passed as a bare nil to
 	// ensureAuthenticated, which would panic on that warning path.
 	Stderr io.Writer
+	// HarborHost/HarborToken, when set, route the conductor's Anthropic + git
+	// through a harbor broker (COV-142), superseding the OAuth login: the connector
+	// env is staged and git is configured. Token pre-supplied only (teammate
+	// auto-enroll is unsupported — no exit hook to revoke on).
+	HarborHost  string
+	HarborToken string
 }
 
 // detachedLaunchCmd builds the remote shell command: source the tmpfs env,
@@ -80,7 +87,13 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
+	// Harbor supersedes the OAuth login: route git through harbor (token-free
+	// config) and skip the auth probe; the connector env is staged below.
+	if o.HarborHost != "" {
+		if err := applyHarborGit(r, tgt, &HarborAuth{Host: o.HarborHost, Token: o.HarborToken}); err != nil {
+			return err
+		}
+	} else if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
 		return fmt.Errorf("teammate auth: %w", err)
 	}
 
@@ -97,6 +110,11 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	fmt.Fprintf(&script, "export SWITCHBOARD_CHANNELS=%s\n", shellQuote(strings.Join(o.Channels, ",")))
 	if o.ErrorChannel != "" {
 		fmt.Fprintf(&script, "export SWITCHBOARD_ERROR_CHANNEL=%s\n", shellQuote(o.ErrorChannel))
+	}
+	// The harbor connector env (Anthropic base URL + x-api-key/token) is sourced
+	// with the rest — env-only, never argv.
+	if o.HarborHost != "" {
+		script.WriteString(envScript(snippet.Env("https://"+o.HarborHost, o.HarborToken)))
 	}
 	if err := writeVM(r, tgt, script.String(), teammateEnvVMPath); err != nil {
 		return err
