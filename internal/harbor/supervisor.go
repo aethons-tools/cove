@@ -162,6 +162,59 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	return nil
 }
 
+// Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
+// Instance: renew our own unexpired lease; for an expired lease, Probe the cove —
+// dead (or probe error) ⇒ declare Lost and tear down; alive ⇒ steal + renew
+// (adopt); unknown ⇒ leave for a later tick. Run once at startup (re-adopting
+// instances a crashed/old process left behind) and on every tick.
+func (s *Supervisor) Reconcile(ctx context.Context) error {
+	now := s.now()
+	for _, inst := range s.store.ListInstances() {
+		if inst.Phase == PhaseGone {
+			continue
+		}
+		if inst.Lease.Expiry.After(now) {
+			if inst.Lease.Holder == s.holder {
+				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease
+				_ = s.store.PutInstance(inst)
+			}
+			continue // someone else's live lease: not ours to touch
+		}
+		live, err := s.launcher.Probe(ctx, inst)
+		if err != nil || live == LivenessDead {
+			inst.Phase = PhaseLost
+			_ = s.store.PutInstance(inst)
+			if derr := s.Teardown(ctx, inst.ActorID); derr != nil && s.log != nil {
+				s.log.Warn("reconcile teardown failed", "id", inst.ActorID, "err", derr.Error())
+			}
+			continue
+		}
+		if live == LivenessAlive {
+			inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)} // steal + renew
+			_ = s.store.PutInstance(inst)
+		}
+		// LivenessUnknown: leave for the next tick.
+	}
+	return nil
+}
+
+// Run drives the reconciler: one startup pass (restart re-adoption) then a tick
+// every reconcile interval until ctx is cancelled. reconcile MUST be < ttl so a
+// live owner renews before its own lease expires (enforced by serve config).
+func (s *Supervisor) Run(ctx context.Context) {
+	_ = s.Reconcile(ctx)
+	t := time.NewTicker(s.reconcile)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_ = s.Reconcile(ctx)
+		}
+	}
+}
+
 // revokeActor removes the identity if present. Presence is checked BEFORE the
 // mutation: if the actor is already absent it is a no-op success (a retry after a
 // prior partial teardown); if it is present, any RemoveActor error is a real

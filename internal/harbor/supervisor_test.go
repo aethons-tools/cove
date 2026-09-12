@@ -220,3 +220,102 @@ func TestTeardownPropagatesRevokeFailure(t *testing.T) {
 		t.Fatal("actor should be revoked after the successful retry")
 	}
 }
+
+func TestReconcileReapsExpiredDead(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessDead}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	*clk = clk.Add(2 * time.Minute) // lease (60s) now expired
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("expired+dead instance must be reaped")
+	}
+	if len(store.ListActors()) != 0 {
+		t.Fatal("reaped instance must be revoked")
+	}
+	if len(f.tornDown) != 1 {
+		t.Fatalf("launcher teardown expected once, got %d", len(f.tornDown))
+	}
+}
+
+func TestReconcileAdoptsExpiredAlive(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	// Simulate another holder owning it, lease expired.
+	inst, _ := store.GetInstance("w1")
+	inst.Lease = Lease{Holder: "holder-B", Expiry: time.Unix(900, 0).UTC()}
+	store.PutInstance(inst)
+	*clk = clk.Add(1 * time.Minute) // now 1060 > 900
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance("w1")
+	if !ok {
+		t.Fatal("alive instance must be adopted, not reaped")
+	}
+	if got.Lease.Holder != "holder-A" || !got.Lease.Expiry.Equal(time.Unix(1120, 0).UTC()) {
+		t.Fatalf("lease not stolen+renewed: %+v", got.Lease)
+	}
+	if len(f.tornDown) != 0 {
+		t.Fatal("alive instance must not be torn down")
+	}
+}
+
+func TestReconcileLeavesHealthyInstance(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	*clk = clk.Add(10 * time.Second) // well within the 60s lease
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	// Ours + unexpired ⇒ renewed to now+ttl; never probed/torn down.
+	if !got.Lease.Expiry.Equal(time.Unix(1070, 0).UTC()) {
+		t.Fatalf("own lease should be renewed: %+v", got.Lease)
+	}
+	if len(f.tornDown) != 0 {
+		t.Fatal("healthy instance must not be torn down")
+	}
+}
+
+func TestRestartReadoptsLiveInstances(t *testing.T) {
+	// Seed a store with a Live instance as if a prior process had raised it, then
+	// build a FRESH supervisor over the same store (a restart) and reconcile.
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.PutInstance(Instance{ActorID: "survivor", Project: "default", Role: "guest",
+		Phase: PhaseLive, Lease: Lease{Holder: "old-holder", Expiry: time.Unix(100, 0).UTC()}})
+	f := &fakeLauncher{liveness: LivenessAlive}
+	clk := time.Unix(1000, 0).UTC()
+	sup := NewSupervisor(store, f, "holder-NEW", 60*time.Second, 30*time.Second,
+		func() time.Time { return clk }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance("survivor")
+	if !ok {
+		t.Fatal("a live instance must survive a restart (re-adopted), not be dropped")
+	}
+	if got.Lease.Holder != "holder-NEW" {
+		t.Fatalf("re-adopt should steal the lease, got holder %q", got.Lease.Holder)
+	}
+}
+
+func TestRunStartsAndStops(t *testing.T) {
+	sup, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { sup.Run(ctx); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+}
