@@ -158,6 +158,98 @@ func TestFileStoreMigratesV2Identities(t *testing.T) {
 	check("hashB", []string{"anthropic"}, []string{"acme/api"})
 }
 
+func TestFileStoreKitPushPinResolve(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.json")
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	v1, err := fs.PushKit("web", "name: web\nversion: one\n")
+	if err != nil || v1 != 1 {
+		t.Fatalf("PushKit v1 = %d, %v", v1, err)
+	}
+	v2, err := fs.PushKit("web", "name: web\nversion: two\n")
+	if err != nil || v2 != 2 {
+		t.Fatalf("PushKit v2 = %d, %v", v2, err)
+	}
+	// Current resolves to the latest push.
+	if cfg, ok := fs.KitConfig("web", 0); !ok || cfg != "name: web\nversion: two\n" {
+		t.Fatalf("Current config = %q, %v", cfg, ok)
+	}
+	// A specific version is addressable.
+	if cfg, ok := fs.KitConfig("web", 1); !ok || cfg != "name: web\nversion: one\n" {
+		t.Fatalf("v1 config = %q, %v", cfg, ok)
+	}
+	// Pin rolls Current back.
+	if err := fs.PinKit("web", 1); err != nil {
+		t.Fatalf("PinKit: %v", err)
+	}
+	if cfg, _ := fs.KitConfig("web", 0); cfg != "name: web\nversion: one\n" {
+		t.Fatalf("after pin, Current = %q", cfg)
+	}
+	// Pin to an absent version fails.
+	if err := fs.PinKit("web", 99); err == nil {
+		t.Fatal("PinKit to absent version should fail")
+	}
+	if k, ok := fs.GetKit("web"); !ok || k.Current != 1 || len(k.Versions) != 2 {
+		t.Fatalf("GetKit = %+v, %v", k, ok)
+	}
+	if err := fs.RemoveKit("nope"); err == nil {
+		t.Fatal("RemoveKit of absent kit should fail")
+	}
+}
+
+func TestPutRoleValidatesKitExists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.json")
+	fs, _ := NewFileStore(path)
+	// Binding a non-existent kit is rejected (fail closed).
+	if err := fs.PutRole("acme", Role{Name: "impl", Kit: "ghost"}); err == nil {
+		t.Fatal("PutRole with a non-existent kit should fail")
+	}
+	// After the kit exists, the binding persists and RoleReferencingKit finds it.
+	if _, err := fs.PushKit("builder", "name: builder\n"); err != nil {
+		t.Fatalf("PushKit: %v", err)
+	}
+	if err := fs.PutRole("acme", Role{Name: "impl", Kit: "builder"}); err != nil {
+		t.Fatalf("PutRole with existing kit: %v", err)
+	}
+	if r, ok := fs.GetRole("acme", "impl"); !ok || r.Kit != "builder" {
+		t.Fatalf("role.Kit = %+v, %v", r, ok)
+	}
+	proj, role, ok := fs.RoleReferencingKit("builder")
+	if !ok || proj != "acme" || role != "impl" {
+		t.Fatalf("RoleReferencingKit = %q/%q/%v", proj, role, ok)
+	}
+	// A role with no kit is always allowed.
+	if err := fs.PutRole("acme", Role{Name: "free"}); err != nil {
+		t.Fatalf("PutRole with empty kit: %v", err)
+	}
+}
+
+func TestFileStoreV3LoadsWithEmptyKitRegistry(t *testing.T) {
+	// A v3 file (roles/actors/destinations, no "kits" key) loads with an empty
+	// kit registry and roles whose Kit is "".
+	path := filepath.Join(t.TempDir(), "store.json")
+	v3 := `{
+	  "roles": {"acme": {"guest": {"name":"guest","scope":{"destinations":["anthropic"],"repos":null,"ttl":0}}}},
+	  "actors": {},
+	  "destinations": {}
+	}`
+	if err := os.WriteFile(path, []byte(v3), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if len(fs.ListKits()) != 0 {
+		t.Fatalf("expected empty kit registry, got %d", len(fs.ListKits()))
+	}
+	if r, ok := fs.GetRole("acme", "guest"); !ok || r.Kit != "" {
+		t.Fatalf("migrated role = %+v, %v", r, ok)
+	}
+}
+
 func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
 	// Two legacy identities share (acme, guest) and both name the same
 	// destinations, but one has an empty (nil/omitted) repos list — a legacy
