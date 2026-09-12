@@ -65,6 +65,14 @@ func getJSON(t *testing.T, h http.Handler, path string, out any) {
 	}
 }
 
+// decodeJSON decodes a recorder's body into out, failing the test on error.
+func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, out any) {
+	t.Helper()
+	if err := json.Unmarshal(rec.Body.Bytes(), out); err != nil {
+		t.Fatalf("decode JSON: %v (body=%s)", err, rec.Body.String())
+	}
+}
+
 func TestAdminAddAndListDestination(t *testing.T) {
 	h, store := newTestAdmin(t)
 	body := `{"name":"git","route":"/git/","upstream":"https://github.com","identity_in":"basic-password","cred_name":"git-pat","apply":"basic-password","repo_scoped":true}`
@@ -302,5 +310,86 @@ func TestAdminRejectsNonLoopback(t *testing.T) {
 	h.ServeHTTP(rec, r)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 for non-loopback", rec.Code)
+	}
+}
+
+func TestAdminKitsCRUD(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	// push v1, v2
+	var r1 KitResult
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nv: 1\n"}), &r1)
+	if r1.Version != 1 {
+		t.Fatalf("push v1 = %+v", r1)
+	}
+	var r2 KitResult
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nv: 2\n"}), &r2)
+	if r2.Version != 2 {
+		t.Fatalf("push v2 = %+v", r2)
+	}
+	// list
+	var kits []KitSummary
+	getJSON(t, h, "/admin/kits", &kits)
+	if len(kits) != 1 || kits[0].Current != 2 || kits[0].Versions != 2 {
+		t.Fatalf("list = %+v", kits)
+	}
+	// show current + specific version
+	var cur KitConfigResult
+	getJSON(t, h, "/admin/kits/web", &cur)
+	if cur.Version != 2 || cur.Config != "name: web\nv: 2\n" {
+		t.Fatalf("show current = %+v", cur)
+	}
+	var old KitConfigResult
+	getJSON(t, h, "/admin/kits/web?version=1", &old)
+	if old.Version != 1 || old.Config != "name: web\nv: 1\n" {
+		t.Fatalf("show v1 = %+v", old)
+	}
+	// versions
+	var vers []int
+	getJSON(t, h, "/admin/kits/web/versions", &vers)
+	if len(vers) != 2 || vers[0] != 1 || vers[1] != 2 {
+		t.Fatalf("versions = %+v", vers)
+	}
+	// pin back to 1
+	if rec := doJSON(t, h, "POST", "/admin/kits/web/pin", PinBody{Version: 1}); rec.Code != http.StatusNoContent {
+		t.Fatalf("pin = %d", rec.Code)
+	}
+	getJSON(t, h, "/admin/kits/web", &cur)
+	if cur.Version != 1 {
+		t.Fatalf("after pin, current = %d", cur.Version)
+	}
+	// pin to absent → 404
+	if rec := doJSON(t, h, "POST", "/admin/kits/web/pin", PinBody{Version: 9}); rec.Code != http.StatusNotFound {
+		t.Fatalf("pin absent = %d", rec.Code)
+	}
+	// rm
+	if rec := doReq(t, h, "DELETE", "/admin/kits/web", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("rm = %d", rec.Code)
+	}
+}
+
+func TestAdminKitRemoveBlockedByRole(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
+		t.Fatalf("role add = %d", rec.Code)
+	}
+	// rm while referenced → 409
+	if rec := doReq(t, h, "DELETE", "/admin/kits/builder", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("rm referenced kit = %d, want 409", rec.Code)
+	}
+}
+
+func TestAdminRoleRejectsMissingKit(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "impl", Kit: "ghost"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
+	}
+	// roster/role summary reflects a valid kit
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].Kit != "builder" {
+		t.Fatalf("role summary = %+v", roles)
 	}
 }

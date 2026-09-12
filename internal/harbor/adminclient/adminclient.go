@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +116,7 @@ func (c *Client) PutRole(project string, r harbor.Role) error {
 		Project: project, Name: r.Name,
 		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
 		TTLSeconds: int64(r.Scope.TTL / time.Second),
+		Kit:        r.Kit,
 	}, nil)
 }
 
@@ -130,7 +132,7 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 	}
 	roles := make([]harbor.Role, 0, len(out))
 	for _, rs := range out {
-		roles = append(roles, harbor.Role{Name: rs.Name, Scope: harbor.Scope{
+		roles = append(roles, harbor.Role{Name: rs.Name, Kit: rs.Kit, Scope: harbor.Scope{
 			Destinations: rs.Destinations, Repos: rs.Repos, TTL: time.Duration(rs.TTLSeconds) * time.Second,
 		}})
 	}
@@ -176,4 +178,47 @@ func (c *Client) LoginConfig() (harbor.OperatorLoginConfig, error) {
 	var lc harbor.OperatorLoginConfig
 	err := c.do("GET", "/admin/login-config", nil, &lc)
 	return lc, err
+}
+
+// PushKit pushes a new version of a kit config, returning the new version number.
+func (c *Client) PushKit(name, config string) (int, error) {
+	var res harbor.KitResult
+	err := c.do("POST", "/admin/kits", harbor.KitBody{Name: name, Config: config}, &res)
+	return res.Version, err
+}
+
+// ListKits lists every kit in the registry.
+func (c *Client) ListKits() ([]harbor.KitSummary, error) {
+	var out []harbor.KitSummary
+	err := c.do("GET", "/admin/kits", nil, &out)
+	return out, err
+}
+
+// GetKit fetches a kit's config. version == 0 fetches the current version.
+func (c *Client) GetKit(name string, version int) (harbor.KitConfigResult, error) {
+	var out harbor.KitConfigResult
+	path := "/admin/kits/" + name
+	if version > 0 {
+		path += "?version=" + strconv.Itoa(version)
+	}
+	err := c.do("GET", path, nil, &out)
+	return out, err
+}
+
+// KitVersions lists a kit's version numbers, ascending.
+func (c *Client) KitVersions(name string) ([]int, error) {
+	var out []int
+	err := c.do("GET", "/admin/kits/"+name+"/versions", nil, &out)
+	return out, err
+}
+
+// PinKit rolls a kit's current pointer to an existing version.
+func (c *Client) PinKit(name string, version int) error {
+	return c.do("POST", "/admin/kits/"+name+"/pin", harbor.PinBody{Version: version}, nil)
+}
+
+// RemoveKit deletes a kit from the registry. Fails (409 from the server) if a
+// role still references it.
+func (c *Client) RemoveKit(name string) error {
+	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }

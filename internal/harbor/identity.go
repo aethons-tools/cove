@@ -25,6 +25,17 @@ type Scope struct {
 type Role struct {
 	Name  string `json:"name"`
 	Scope Scope  `json:"scope"`
+	Kit   string `json:"kit,omitempty"` // optional kit name; "" = no kit
+}
+
+// Kit is one named registry entry: immutable, monotonically-numbered versions of
+// a kit config (config.yml text) behind a mutable Current pointer. A Role
+// references a Kit by name; the name resolves to Current. Pushing a new version
+// advances Current; pinning rolls it to an existing version.
+type Kit struct {
+	Name     string         `json:"name"`
+	Current  int            `json:"current"`
+	Versions map[int]string `json:"versions"` // version number → config.yml text (immutable)
 }
 
 // Override lets one grant narrow/replace fields of its Role's scope. A nil field

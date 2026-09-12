@@ -25,17 +25,26 @@ type Store interface {
 	ListRoles(project string) []Role
 	ListProjects() []string
 
+	PushKit(name, config string) (int, error)
+	GetKit(name string) (Kit, bool)
+	KitConfig(name string, version int) (string, bool)
+	PinKit(name string, version int) error
+	ListKits() []Kit
+	RemoveKit(name string) error
+	RoleReferencingKit(name string) (project, role string, ok bool)
+
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
 	Match(reqPath string) (Destination, bool)
 }
 
-// storeFile is the on-disk JSON shape (format v3).
+// storeFile is the on-disk JSON shape (format v4).
 type storeFile struct {
 	Roles        map[string]map[string]Role `json:"roles"`        // project → roleName → Role
 	Actors       map[string]Actor           `json:"actors"`       // keyed by TokenHash
 	Destinations map[string]Destination     `json:"destinations"` // keyed by Name
+	Kits         map[string]Kit             `json:"kits"`         // keyed by Kit.Name
 }
 
 // legacyIdentity is the pre-RBAC (v1/v2) per-identity record, read only during
@@ -58,16 +67,18 @@ type FileStore struct {
 	roles  map[string]map[string]Role
 	actors map[string]Actor
 	dests  map[string]Destination
+	kits   map[string]Kit
 }
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
-// map[tokenHash]Identity) or v2 (identities+destinations) file into the v3 shape.
+// map[tokenHash]Identity) or v2 (identities+destinations) file into the v4 shape.
 func NewFileStore(path string) (*FileStore, error) {
 	fs := &FileStore{
 		path:   path,
 		roles:  map[string]map[string]Role{},
 		actors: map[string]Actor{},
 		dests:  map[string]Destination{},
+		kits:   map[string]Kit{},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -94,6 +105,9 @@ func NewFileStore(path string) (*FileStore, error) {
 		}
 		if v3.Destinations != nil {
 			fs.dests = v3.Destinations
+		}
+		if v3.Kits != nil {
+			fs.kits = v3.Kits
 		}
 		return fs, nil
 	}
@@ -179,9 +193,9 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// save persists the v3 shape. Caller holds fs.mu.
+// save persists the v4 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
-	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests}, "", "  ")
+	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -292,6 +306,11 @@ func (fs *FileStore) PutRole(project string, r Role) error {
 	if project == "" {
 		project = DefaultProject
 	}
+	if r.Kit != "" {
+		if _, ok := fs.kits[r.Kit]; !ok {
+			return fmt.Errorf("kit %q not found", r.Kit)
+		}
+	}
 	if fs.roles[project] == nil {
 		fs.roles[project] = map[string]Role{}
 	}
@@ -352,6 +371,112 @@ func (fs *FileStore) ListProjects() []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+func (fs *FileStore) PushKit(name, config string) (int, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if name == "" || config == "" {
+		return 0, fmt.Errorf("kit name and config are required")
+	}
+	k, ok := fs.kits[name]
+	if !ok {
+		k = Kit{Name: name, Versions: map[int]string{}}
+	}
+	next := 0
+	for v := range k.Versions {
+		if v > next {
+			next = v
+		}
+	}
+	next++
+	k.Versions[next] = config
+	k.Current = next
+	fs.kits[name] = k
+	return next, fs.save()
+}
+
+func (fs *FileStore) GetKit(name string) (Kit, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	k, ok := fs.kits[name]
+	if !ok {
+		return Kit{}, false
+	}
+	// Copy the versions map so the caller can't observe (or race on) the
+	// store's live map — see ListKits, which does the same.
+	vs := make(map[int]string, len(k.Versions))
+	for v, c := range k.Versions {
+		vs[v] = c
+	}
+	return Kit{Name: k.Name, Current: k.Current, Versions: vs}, true
+}
+
+func (fs *FileStore) KitConfig(name string, version int) (string, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	k, ok := fs.kits[name]
+	if !ok {
+		return "", false
+	}
+	if version == 0 {
+		version = k.Current
+	}
+	cfg, ok := k.Versions[version]
+	return cfg, ok
+}
+
+func (fs *FileStore) PinKit(name string, version int) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	k, ok := fs.kits[name]
+	if !ok {
+		return fmt.Errorf("kit %q not found", name)
+	}
+	if _, ok := k.Versions[version]; !ok {
+		return fmt.Errorf("kit %q has no version %d", name, version)
+	}
+	k.Current = version
+	fs.kits[name] = k
+	return fs.save()
+}
+
+func (fs *FileStore) ListKits() []Kit {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	out := make([]Kit, 0, len(fs.kits))
+	for _, k := range fs.kits {
+		// copy the versions map so callers can't mutate the store
+		vs := make(map[int]string, len(k.Versions))
+		for v, c := range k.Versions {
+			vs[v] = c
+		}
+		out = append(out, Kit{Name: k.Name, Current: k.Current, Versions: vs})
+	}
+	return out
+}
+
+func (fs *FileStore) RemoveKit(name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if _, ok := fs.kits[name]; !ok {
+		return fmt.Errorf("kit %q not found", name)
+	}
+	delete(fs.kits, name)
+	return fs.save()
+}
+
+func (fs *FileStore) RoleReferencingKit(name string) (string, string, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for project, roles := range fs.roles {
+		for _, r := range roles {
+			if r.Kit == name {
+				return project, r.Name, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {

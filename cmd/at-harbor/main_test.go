@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,5 +181,137 @@ func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
+	}
+}
+
+func TestKitPushRejectsMalformedConfig(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.yml")
+	if err := os.WriteFile(bad, []byte("name: x\nnope_unknown_key: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := cmdKit([]string{"push", "--name", "x", "--config", bad}, cli.Globals{}, &out, &errb)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit for a malformed kit config; stderr=%q", errb.String())
+	}
+	// Pin down that the rejection came from config parsing (not some unrelated
+	// failure), so this test can't silently pass for the wrong reason.
+	if !strings.Contains(errb.String(), "invalid kit config") {
+		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), "invalid kit config")
+	}
+}
+
+func TestKitCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "valid.yml")
+	if err := os.WriteFile(valid, []byte("name: web\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+
+	// kit push
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit push: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "pushed web v1") {
+		t.Fatalf("kit push output missing expected text:\n%s", out.String())
+	}
+
+	// kit push again to create a second version, for pin to target
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit push (v2): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "pushed web v2") {
+		t.Fatalf("kit push (v2) output missing expected text:\n%s", out.String())
+	}
+
+	// kit list
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "web") || !strings.Contains(out.String(), "current=v2") || !strings.Contains(out.String(), "versions=2") {
+		t.Fatalf("kit list output missing expected fields:\n%s", out.String())
+	}
+
+	// kit show
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "name: web") {
+		t.Fatalf("kit show output missing expected config:\n%s", out.String())
+	}
+
+	// kit versions
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "versions", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit versions: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "v1") || !strings.Contains(out.String(), "v2") {
+		t.Fatalf("kit versions output missing expected versions:\n%s", out.String())
+	}
+
+	// kit pin
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "pin", "--admin-url", ts.URL, "web", "1"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit pin: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "pinned web to v1") {
+		t.Fatalf("kit pin output missing expected text:\n%s", out.String())
+	}
+
+	// role add --kit
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--name", "impl", "--kit", "web", "--destinations", "anthropic",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --kit: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, ok := store.GetRole(harbor.DefaultProject, "impl"); !ok || r.Kit != "web" {
+		t.Fatalf("role add --kit did not bind the kit: role=%+v ok=%v", r, ok)
+	}
+
+	// kit rm — must fail while a role still references it (409-style store error)
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "rm", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code == 0 {
+		t.Fatalf("kit rm: expected non-zero exit while role %q still references kit web; stdout=%s", "impl", out.String())
+	}
+
+	// remove the referencing role, then kit rm should succeed
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "rm", "--admin-url", ts.URL, "impl"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role rm: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "rm", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit rm: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "removed kit web") {
+		t.Fatalf("kit rm output missing expected text:\n%s", out.String())
 	}
 }
