@@ -642,7 +642,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, auth, credExists, cfg.operatorLoginConfig(), log)
+		admin := harbor.NewAdminHandler(st, nil, auth, credExists, cfg.operatorLoginConfig(), log)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

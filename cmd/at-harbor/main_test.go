@@ -20,7 +20,7 @@ func TestEnrollCommandJSON(t *testing.T) {
 	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -50,7 +50,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -87,7 +87,7 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -204,7 +204,7 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 
 func TestKitCommandsRoundTrip(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }

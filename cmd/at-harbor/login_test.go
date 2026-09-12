@@ -54,7 +54,7 @@ func harborWithLogin(t *testing.T, issuer string) *httptest.Server {
 		t.Fatal(err)
 	}
 	lc := &harbor.OperatorLoginConfig{Issuer: issuer, Audience: "https://harbor.test/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts
@@ -185,7 +185,7 @@ func TestLoginNotOIDCGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	// nil login config → /admin/login-config 404
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
