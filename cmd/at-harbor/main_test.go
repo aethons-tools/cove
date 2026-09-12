@@ -79,6 +79,9 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("expected non-zero exit when --destinations is passed; got 0 (err=%q)", errb.String())
 	}
+	if !strings.Contains(errb.String(), "flag provided but not defined: -destinations") {
+		t.Fatalf("expected the removed --destinations flag to be rejected as undefined; stderr=%q", errb.String())
+	}
 }
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
