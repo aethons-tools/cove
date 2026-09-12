@@ -991,7 +991,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	var harborAuth *connect.HarborAuth
 	if cfg.Harbor != nil && !noAuth {
 		var harborRevoke func()
-		if harborAuth, harborRevoke, err = harborPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+		if harborAuth, harborRevoke, err = harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
 			return err
 		}
 		if harborRevoke != nil {
@@ -1274,7 +1274,11 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 // returning a revoke closure the caller defers (nil for the pre-supplied path).
 // The token is kept out of the agent's kit-secret env — connect delivers it
 // env-only as the harbor identity.
-func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, func(), error) {
+// coveID is the unique per-instance identity id for auto-enroll (the container
+// name), distinct from kitName (the shared secret-bucket key used by the
+// pre-supplied path). Passing the bucket key would collide across concurrent
+// same-kit instances and revoke a sibling cove's live identity.
+func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, func(), error) {
 	if cfg.Harbor == nil {
 		return nil, nil, nil
 	}
@@ -1297,7 +1301,7 @@ func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
 	// token arrives on stdout, in memory only. The returned closure revokes it.
-	args := []string{"enroll", "--json", "--id", kitName, "--role", "guest", "--destinations", "anthropic,git", "--ttl", "24h"}
+	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest", "--destinations", "anthropic,git", "--ttl", "24h"}
 	if src, ok := cfg.SourceControl.Repo(); ok && src.Project != "" {
 		args = append(args, "--repos", src.Project)
 	}

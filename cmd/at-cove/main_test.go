@@ -117,7 +117,7 @@ func calledWith(calls []runner.Call, s string) bool {
 
 func TestHarborPlan(t *testing.T) {
 	// nil harbor block → no auth, no revoke.
-	if ha, rev, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
+	if ha, rev, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
 		t.Fatalf("no harbor block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
 	}
 	// pre-supplied identity: resolves the secret host-side; no revoke, no shell-out.
@@ -126,7 +126,7 @@ func TestHarborPlan(t *testing.T) {
 		"k": {"HARBOR_ID": {Value: ptr("tok-abc")}},
 	}}
 	f := &runner.Fake{}
-	ha, rev, err := harborPlan(cfg, store, nil, "k", "/kp", "/s.yml", f)
+	ha, rev, err := harborPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
 	if err != nil {
 		t.Fatalf("harborPlan: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestHarborPlan(t *testing.T) {
 		t.Fatalf("manual path must not shell at-harbor enroll: %+v", f.Calls)
 	}
 	// declared-but-unsupplied identity → hard error (fail closed).
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "/kp", "/s.yml", &runner.Fake{}); err == nil {
+	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
 		t.Fatal("unsupplied identity must fail closed")
 	}
 }
@@ -150,8 +150,10 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 		Harbor:        &kit.HarborConfig{Host: "harbor.local"},
 		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo"}},
 	}
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"id":"c1","token":"TKN"}` + "\n"}}}
-	ha, rev, err := harborPlan(cfg, usersecret.Store{}, nil, "c1", "/kp", "/s.yml", f)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"id":"cove-box-1","token":"TKN"}` + "\n"}}}
+	// kitName ("k") differs from coveID ("cove-box-1"): the enroll --id must use
+	// the per-instance coveID, not the shared kit/bucket name.
+	ha, rev, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
 	if err != nil {
 		t.Fatalf("auto-enroll: %v", err)
 	}
@@ -169,7 +171,7 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 		t.Fatalf("no at-harbor enroll call: %+v", f.Calls)
 	}
 	joined := strings.Join(enroll.Args, " ")
-	for _, want := range []string{"--json", "--id c1", "--role guest", "--destinations anthropic,git", "--ttl 24h", "--repos acme/myrepo"} {
+	for _, want := range []string{"--json", "--id cove-box-1", "--role guest", "--destinations anthropic,git", "--ttl 24h", "--repos acme/myrepo"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("enroll args missing %q: %s", want, joined)
 		}
@@ -189,19 +191,19 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	revoked := false
 	for _, c := range f.Calls {
 		j := strings.Join(c.Args, " ")
-		if strings.Contains(j, "revoke") && strings.Contains(j, "--id c1") {
+		if strings.Contains(j, "revoke") && strings.Contains(j, "--id cove-box-1") {
 			revoked = true
 		}
 	}
 	if !revoked {
-		t.Fatalf("revoke must target --id c1: %+v", f.Calls)
+		t.Fatalf("revoke must target --id cove-box-1: %+v", f.Calls)
 	}
 }
 
 func TestHarborPlanAutoEnrollFailsClosed(t *testing.T) {
 	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local"}}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "c1", "/kp", "/s.yml", f); err == nil {
+	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
 		t.Fatal("a failing at-harbor enroll must fail closed")
 	}
 }
