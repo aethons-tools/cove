@@ -195,6 +195,11 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("expected non-zero exit for a malformed kit config; stderr=%q", errb.String())
 	}
+	// Pin down that the rejection came from config parsing (not some unrelated
+	// failure), so this test can't silently pass for the wrong reason.
+	if !strings.Contains(errb.String(), "invalid kit config") {
+		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), "invalid kit config")
+	}
 }
 
 func TestKitCommandsRoundTrip(t *testing.T) {

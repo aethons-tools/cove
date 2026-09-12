@@ -71,7 +71,7 @@ type FileStore struct {
 }
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
-// map[tokenHash]Identity) or v2 (identities+destinations) file into the v3 shape.
+// map[tokenHash]Identity) or v2 (identities+destinations) file into the v4 shape.
 func NewFileStore(path string) (*FileStore, error) {
 	fs := &FileStore{
 		path:   path,
@@ -193,7 +193,7 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// save persists the v3 shape. Caller holds fs.mu.
+// save persists the v4 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
 	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits}, "", "  ")
 	if err != nil {
@@ -400,7 +400,16 @@ func (fs *FileStore) GetKit(name string) (Kit, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	k, ok := fs.kits[name]
-	return k, ok
+	if !ok {
+		return Kit{}, false
+	}
+	// Copy the versions map so the caller can't observe (or race on) the
+	// store's live map — see ListKits, which does the same.
+	vs := make(map[int]string, len(k.Versions))
+	for v, c := range k.Versions {
+		vs[v] = c
+	}
+	return Kit{Name: k.Name, Current: k.Current, Versions: vs}, true
 }
 
 func (fs *FileStore) KitConfig(name string, version int) (string, bool) {

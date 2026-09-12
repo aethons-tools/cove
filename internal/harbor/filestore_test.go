@@ -1,9 +1,11 @@
 package harbor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -197,6 +199,16 @@ func TestFileStoreKitPushPinResolve(t *testing.T) {
 	if err := fs.RemoveKit("nope"); err == nil {
 		t.Fatal("RemoveKit of absent kit should fail")
 	}
+	// Pushing again after pinning back to v1 must mint v3, not reuse v2 (the
+	// next version number is max(existing)+1, not Current+1) — and v2's config
+	// must still be intact.
+	v3, err := fs.PushKit("web", "name: web\nversion: three\n")
+	if err != nil || v3 != 3 {
+		t.Fatalf("PushKit after pin = %d, %v, want 3", v3, err)
+	}
+	if cfg, ok := fs.KitConfig("web", 2); !ok || cfg != "name: web\nversion: two\n" {
+		t.Fatalf("v2 config after pin+push = %q, %v, want unchanged", cfg, ok)
+	}
 }
 
 func TestPutRoleValidatesKitExists(t *testing.T) {
@@ -290,4 +302,56 @@ func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
 	if got := effectiveRepos("hashB"); len(got) != 0 {
 		t.Fatalf("hashB effective repos = %v, want empty (deny-all), not inherited from role", got)
 	}
+}
+
+// TestFileStoreGetKitConcurrentSafe is a regression test for a data race: GetKit
+// used to return the Kit with its Versions field pointing at the store's live
+// map. A caller (the /admin/kits/{name}/versions handler) ranging that map
+// outside fs.mu, concurrently with PushKit writing it under fs.mu, is a
+// concurrent map iteration/write race. GetKit must deep-copy Versions, exactly
+// as ListKits already does, so callers only ever see a private snapshot.
+//
+// Run with -race: it must fail (not just deadlock/panic on assertions) under
+// the old GetKit, and pass under the fixed one.
+func TestFileStoreGetKitConcurrentSafe(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.json")
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if _, err := fs.PushKit("k", "name: k\nversion: 0\n"); err != nil {
+		t.Fatalf("PushKit initial: %v", err)
+	}
+
+	const iterations = 50
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if _, err := fs.PushKit("k", fmt.Sprintf("name: k\nversion: %d\n", i)); err != nil {
+				t.Errorf("PushKit: %v", err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			k, ok := fs.GetKit("k")
+			if !ok {
+				t.Errorf("GetKit: kit %q not found", "k")
+				return
+			}
+			// Range the returned Versions map outside any lock, exactly as the
+			// admin /versions handler does — this is what raced against
+			// PushKit's write to the live map before GetKit deep-copied it.
+			for range k.Versions {
+			}
+		}
+	}()
+
+	wg.Wait()
 }
