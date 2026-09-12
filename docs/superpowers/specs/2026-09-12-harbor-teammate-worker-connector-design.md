@@ -22,11 +22,17 @@ per-session connector **injection** is missing.
 ## Scope
 
 **In:**
-- **Worker (`internal/dispatchrun`, ephemeral `--rm`) — full auto-enroll.**
+- **Worker (`internal/dispatchrun`, ephemeral `--rm`) — Anthropic-only via harbor.**
   - `dispatchrun.Options` gains `HarborHost, HarborToken string` (both empty ⇒ off).
     When set, `dispatchrun` injects `snippet.Env(https://Host, Token)` into the **agent
-    step's** env, runs `snippet.GitConfig` in the VM before the agent step, and
-    **skips** seeding the OAuth credentials file. Imports only `snippet` (stdlib).
+    step's** env and **skips** seeding the OAuth credentials file. Imports only
+    `snippet` (stdlib).
+  - **Git is deliberately NOT routed through harbor for a worker.** at-task
+    `prepare`/`complete` own the worker's git with a per-step minted code-host token;
+    a global harbor `insteadOf` would misroute those to harbor (which expects the
+    identity token, not the real PAT) and break clone/push. So the worker takes
+    `snippet.Env` only — **no `snippet.GitConfig`**. (The agent's own in-session git is
+    rare, and push/PR is at-task's job.)
   - `cmd/at-cove` `doWork` resolves harbor via `harborPlan` with the **worker
     container name** as the coveID, sets those fields, and **defers the revoke** around
     `dispatchrun.Run` — so an auto-enrolled worker mints per unit and revokes when the
@@ -91,9 +97,10 @@ Both consume `snippet.Env(baseURL, token) map[string]string` and
 
 Hermetic (`runner.Fake`):
 - **dispatchrun:** with `HarborHost`/`HarborToken` set, the agent-step env contains
-  `ANTHROPIC_BASE_URL=https://<host>/anthropic` + `ANTHROPIC_API_KEY`/token, a git
-  config runs in the VM, and the OAuth creds-file seed is **skipped**; unset →
-  unchanged (creds seeded, no harbor env). Token not on argv.
+  `ANTHROPIC_BASE_URL=https://<host>/anthropic` + `ANTHROPIC_API_KEY`/token, the OAuth
+  creds-file seed is **skipped**, and **no** harbor git config is applied (at-task's
+  git plumbing is untouched); unset → unchanged (creds seeded, no harbor env). Token
+  not on argv.
 - **doWork:** a harbor kit sets `Options.HarborHost/Token` (via `harborPlan`) and
   defers a revoke; a kit without harbor is unchanged.
 - **LaunchTeammate:** with harbor set, `ensureAuthenticated` is skipped and the launch
