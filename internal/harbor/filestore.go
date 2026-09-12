@@ -146,10 +146,25 @@ func (fs *FileStore) migrateIdentities(legacy map[string]legacyIdentity) {
 		}
 		g := Grant{Project: project, Role: role}
 		if !sameStrings(existing.Scope.Destinations, li.Destinations) || !sameStrings(existing.Scope.Repos, li.Repos) {
-			g.Overrides = &Override{Destinations: li.Destinations, Repos: li.Repos}
+			// EffectiveScope treats a nil override field as "inherit the role's
+			// value" — but a legacy identity's nil/empty field means deny-all for
+			// that field, not inherit. Coerce to a non-nil empty slice so the
+			// override REPLACES rather than inherits, preserving the identity's
+			// exact original scope regardless of map-iteration order.
+			g.Overrides = &Override{Destinations: nonNilStrings(li.Destinations), Repos: nonNilStrings(li.Repos)}
 		}
 		fs.actors[li.TokenHash] = Actor{ID: li.ID, TokenHash: li.TokenHash, Expiry: li.Expiry, Grants: []Grant{g}}
 	}
+}
+
+// nonNilStrings coerces a nil slice to a non-nil empty one, so that assigning it
+// into an Override field makes EffectiveScope REPLACE the role's value (deny-all)
+// instead of treating the nil field as "inherit the role".
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func sameStrings(a, b []string) bool {

@@ -157,3 +157,45 @@ func TestFileStoreMigratesV2Identities(t *testing.T) {
 	check("hashA", []string{"anthropic", "git"}, []string{"acme/*"})
 	check("hashB", []string{"anthropic"}, []string{"acme/api"})
 }
+
+func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
+	// Two legacy identities share (acme, guest) and both name the same
+	// destinations, but one has an empty (nil/omitted) repos list — a legacy
+	// deny-all-repos identity — while the other has a real repo scope. Whichever
+	// identity map-iteration picks first becomes the synthesized role; the other
+	// gets an Override. Migration must express the *exact* original scope in that
+	// override, not something EffectiveScope will treat as "inherit the role".
+	path := filepath.Join(t.TempDir(), "store.json")
+	v2 := `{
+	  "identities": {
+	    "hashA": {"id":"a","token_hash":"hashA","project":"acme","role":"guest","destinations":["git"],"repos":["acme/*"]},
+	    "hashB": {"id":"b","token_hash":"hashB","project":"acme","role":"guest","destinations":["git"]}
+	  },
+	  "destinations": {}
+	}`
+	if err := os.WriteFile(path, []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	// Look up by token hash (not by "which one defined the role") since map
+	// iteration order is nondeterministic — the assertion must hold either way.
+	effectiveRepos := func(hash string) []string {
+		a, ok := fs.Lookup(hash)
+		if !ok || len(a.Grants) != 1 {
+			t.Fatalf("actor %s = %+v, %v", hash, a, ok)
+		}
+		r, _ := fs.GetRole(a.Grants[0].Project, a.Grants[0].Role)
+		return EffectiveScope(a.Grants[0], r).Repos
+	}
+	if got := effectiveRepos("hashA"); strings.Join(got, ",") != "acme/*" {
+		t.Fatalf("hashA effective repos = %v, want [acme/*]", got)
+	}
+	// hashB's legacy repos were empty (deny-all); migration must not let it
+	// inherit hashA's ["acme/*"] via a nil override field.
+	if got := effectiveRepos("hashB"); len(got) != 0 {
+		t.Fatalf("hashB effective repos = %v, want empty (deny-all), not inherited from role", got)
+	}
+}
