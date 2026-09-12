@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -170,6 +171,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
 	baseURLFlag := fs.String("base-url", "", "harbor broker base URL for the printed snippet (overrides the app's settings)")
+	jsonOut := fs.Bool("json", false, `print {"id","token"} JSON instead of the shell snippet (base-url not required)`)
 	ttl := fs.Duration("ttl", 0, "identity lifetime (0 = no expiry)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
@@ -182,8 +184,9 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	settings := loadSettings(*app)
 	adminURL := firstNonEmpty(*adminURLFlag, settings.AdminURL, defaultAdminURL)
 	baseURL := firstNonEmpty(*baseURLFlag, settings.BaseURL)
-	if len(pos) > 0 || *id == "" || baseURL == "" {
-		fmt.Fprintln(stderr, "at-harbor enroll: --id and --base-url are required")
+	// --base-url is only needed for the printed snippet; --json omits it.
+	if len(pos) > 0 || *id == "" || (!*jsonOut && baseURL == "") {
+		fmt.Fprintln(stderr, "at-harbor enroll: --id (and --base-url unless --json) are required")
 		return 2
 	}
 	res, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Enroll(adminclient.EnrollParams{
@@ -193,6 +196,15 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
+	}
+	if *jsonOut {
+		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
+		// is on stdout only — the caller captures it in memory, never argv/logs.
+		_ = json.NewEncoder(stdout).Encode(struct {
+			ID    string `json:"id"`
+			Token string `json:"token"`
+		}{res.ID, res.Token})
+		return 0
 	}
 	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(baseURL, res.Token))
 	return 0

@@ -366,6 +366,26 @@ func resolveKit(projectDir string) (string, error) {
 	return kitDir, nil
 }
 
+// atHarborBinary resolves an at-harbor executable sitting beside this at-cove
+// binary (so a dist/<os-arch>/at-cove finds its sibling), falling back to the
+// bare name "at-harbor" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
+// at-harbor for cove auto-enrollment (COV-141) rather than importing adminclient
+// (which pulls go-oidc).
+func atHarborBinary() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "at-harbor"
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	sibling := filepath.Join(filepath.Dir(self), "at-harbor")
+	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		return sibling
+	}
+	return "at-harbor"
+}
+
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "at-cove")
@@ -970,8 +990,12 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// (COV-138). Resolve the identity token host-side; connect delivers it env-only.
 	var harborAuth *connect.HarborAuth
 	if cfg.Harbor != nil && !noAuth {
-		if harborAuth, err = harborPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
+		var harborRevoke func()
+		if harborAuth, harborRevoke, err = harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
 			return err
+		}
+		if harborRevoke != nil {
+			defer harborRevoke() // revoke the auto-minted identity when the session ends
 		}
 	}
 
@@ -1244,27 +1268,59 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
 }
 
-// harborPlan resolves a harbor kit's identity token host-side (COV-138) and
-// returns the connector config; nil when the kit has no harbor: block. The token
-// is kept out of the agent's kit-secret env — connect delivers it env-only as the
-// harbor identity.
-func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, error) {
+// harborPlan produces a harbor kit's connector config host-side; nil when the kit
+// has no harbor: block. When harbor.identity is set it resolves that supplied
+// secret (COV-138); when absent it auto-enrolls by shelling at-harbor (COV-141),
+// returning a revoke closure the caller defers (nil for the pre-supplied path).
+// The token is kept out of the agent's kit-secret env — connect delivers it
+// env-only as the harbor identity.
+// coveID is the unique per-instance identity id for auto-enroll (the container
+// name), distinct from kitName (the shared secret-bucket key used by the
+// pre-supplied path). Passing the bucket key would collide across concurrent
+// same-kit instances and revoke a sibling cove's live identity.
+func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, func(), error) {
 	if cfg.Harbor == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	spec, err := planRequired(store, expand, kitName, kitPath, cfg.Harbor.Identity, secretsPath)
+	// Pre-supplied path: harbor.identity names a host-supplied secret (COV-138).
+	if cfg.Harbor.Identity != "" {
+		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Harbor.Identity, secretsPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		resolved, err := secret.Resolve(r, nil, []secret.Spec{spec})
+		if err != nil {
+			return nil, nil, err
+		}
+		tok := resolved[cfg.Harbor.Identity]
+		if strings.TrimSpace(tok) == "" {
+			return nil, nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Harbor.Identity)
+		}
+		return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: tok}, nil, nil
+	}
+	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
+	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
+	// token arrives on stdout, in memory only. The returned closure revokes it.
+	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest", "--destinations", "anthropic,git", "--ttl", "24h"}
+	if src, ok := cfg.SourceControl.Repo(); ok && src.Project != "" {
+		args = append(args, "--repos", src.Project)
+	}
+	out, err := r.Output(atHarborBinary(), args...)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll failed (is at-harbor reachable + an operator logged in?): %w", kitName, err)
 	}
-	resolved, err := secret.Resolve(r, nil, []secret.Spec{spec})
-	if err != nil {
-		return nil, err
+	var res struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
 	}
-	tok := resolved[cfg.Harbor.Identity]
-	if strings.TrimSpace(tok) == "" {
-		return nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Harbor.Identity)
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned unparseable output: %w", kitName, err)
 	}
-	return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: tok}, nil
+	if strings.TrimSpace(res.Token) == "" {
+		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned an empty token", kitName)
+	}
+	revoke := func() { _ = r.Run(atHarborBinary(), "revoke", "--id", res.ID) }
+	return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: res.Token}, revoke, nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses

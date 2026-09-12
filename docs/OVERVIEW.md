@@ -828,6 +828,9 @@ A hardened cove can route its **own** Anthropic + git through a harbor broker (o
 on :443, through squid) by setting a [`harbor:` block](usage/at-cove-config.md#harbor) in
 its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the
 [cove→harbor networking spec](superpowers/specs/2026-09-11-harbor-cove-networking-design.md).
+With `harbor.identity` omitted, at-cove **auto-enrolls** the cove (mint on start, revoke
+on exit, via a sibling `at-harbor`) — see the
+[cove auto-enrollment spec](superpowers/specs/2026-09-12-harbor-cove-autoenroll-design.md).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).
 
