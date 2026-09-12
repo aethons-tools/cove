@@ -89,6 +89,12 @@ harbor:
 		t.Fatal("via-host-gateway: false must disable host-gateway")
 	}
 
+	// identity is optional: a harbor block without it parses (auto-enroll mode).
+	auto, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n"))
+	if err != nil || auto.Harbor == nil || auto.Harbor.Identity != "" {
+		t.Fatalf("harbor without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Harbor, err)
+	}
+
 	// no harbor block → no harbor host in RootDomains
 	none, _ := ParseConfig([]byte("name: k\n"))
 	if none.Harbor != nil {
@@ -102,7 +108,6 @@ harbor:
 func TestHarborConfigValidation(t *testing.T) {
 	bad := map[string]string{
 		"empty host":       "name: k\nharbor:\n  identity: i\n",
-		"empty identity":   "name: k\nharbor:\n  host: h.example\n",
 		"host w/ scheme":   "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
 		"host w/ port":     "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
 		"host w/ path":     "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",

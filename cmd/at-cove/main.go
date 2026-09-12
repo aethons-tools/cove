@@ -1196,6 +1196,21 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		errorChannel = tm.Discord.Channels[0]
 	}
 
+	// Harbor: route the conductor's Anthropic + git through the broker (COV-142).
+	// A teammate is detached (no exit hook to revoke on), so auto-enroll is
+	// unsupported — the identity must be pre-supplied.
+	var harborHost, harborToken string
+	if cfg.Harbor != nil {
+		if cfg.Harbor.Identity == "" {
+			return fmt.Errorf("teammate harbor requires harbor.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
+		}
+		hauth, _, err := harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
+		if err != nil {
+			return err
+		}
+		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+	}
+
 	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
 		Container:       st.Container,
 		BotTokenSpec:    botTokenSpec,
@@ -1205,6 +1220,8 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		KnownHostsFile:  filepath.Join(knownHostsDir, st.Container),
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		Stderr:          stderr,
+		HarborHost:      harborHost,
+		HarborToken:     harborToken,
 	}); err != nil {
 		return err
 	}
