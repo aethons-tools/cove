@@ -2,96 +2,104 @@ package adminclient
 
 import (
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 )
 
-func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
-	t.Helper()
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
-	t.Cleanup(ts.Close)
-	return ts, store
-}
+func TestClientRoleAndGrantRoundTrips(t *testing.T) {
+	var gotPath, gotMethod, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.RequestURI()
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		switch {
+		case r.URL.Path == "/admin/roles" && r.Method == "GET":
+			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"repos":["acme/*"],"ttl_seconds":3600}]`))
+		case r.URL.Path == "/admin/projects":
+			_, _ = w.Write([]byte(`["acme"]`))
+		case r.URL.Path == "/admin/roster":
+			_, _ = w.Write([]byte(`[{"id":"m","grants":[{"project":"acme","role":"guest","destinations":["anthropic"],"repos":["acme/*"]}]}]`))
+		default:
+			w.WriteHeader(http.StatusCreated)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "")
 
-func TestClientRoundTrip(t *testing.T) {
-	ts, store := newServer(t)
-	c := New(ts.URL, "")
-
-	if err := c.AddDestination(harbor.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: harbor.ApplyBasicPassword, CredName: "git-pat", Apply: harbor.ApplyBasicPassword, RepoScoped: true}); err != nil {
-		t.Fatalf("AddDestination: %v", err)
-	}
-	ds, err := c.ListDestinations()
-	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
-		t.Fatalf("ListDestinations = %+v, %v", ds, err)
-	}
-	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := c.PutRole("acme", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTL: time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
-	res, err := c.Enroll(EnrollParams{ID: "spider-18", Project: "ACME", Role: "guest", Destinations: []string{"git"}, Repos: []string{"acme/*"}})
-	if err != nil || res.Token == "" {
-		t.Fatalf("Enroll = %+v, %v", res, err)
+	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) {
+		t.Fatalf("PutRole wire = %s %s %s", gotMethod, gotPath, gotBody)
 	}
-	if _, ok := store.Lookup(harbor.HashToken(res.Token)); !ok {
-		t.Fatal("identity not stored")
+	roles, err := c.ListRoles("acme")
+	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour {
+		t.Fatalf("ListRoles = %+v, %v", roles, err)
 	}
-	if err := c.Revoke("spider-18"); err != nil {
-		t.Fatalf("Revoke: %v", err)
+	if gotPath != "/admin/roles?project=acme" {
+		t.Fatalf("ListRoles path = %s", gotPath)
 	}
-	if _, ok := store.Lookup(harbor.HashToken(res.Token)); ok {
-		t.Fatal("identity present after Revoke")
-	}
-}
 
-func TestClientAddDestinationRejected(t *testing.T) {
-	ts, _ := newServer(t)
-	c := New(ts.URL, "")
-	err := c.AddDestination(harbor.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: harbor.ApplyBearer, CredName: "nope", Apply: harbor.ApplyBearer})
-	if err == nil {
-		t.Fatal("expected error for unresolvable cred_name")
+	projs, err := c.ListProjects()
+	if err != nil || len(projs) != 1 || projs[0] != "acme" {
+		t.Fatalf("ListProjects = %+v, %v", projs, err)
 	}
-}
 
-func TestClientLoginConfig(t *testing.T) {
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := c.RemoveRole("acme", "guest"); err != nil {
+		t.Fatalf("RemoveRole: %v", err)
+	}
+	if gotMethod != "DELETE" || gotPath != "/admin/roles/acme/guest" {
+		t.Fatalf("RemoveRole wire = %s %s", gotMethod, gotPath)
+	}
+
+	roster, err := c.Roster()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Roster: %v", err)
 	}
-	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	ts := httptest.NewServer(h)
-	defer ts.Close()
+	if len(roster) != 1 || roster[0].ID != "m" || len(roster[0].Grants) != 1 {
+		t.Fatalf("Roster = %+v", roster)
+	}
 
-	got, err := New(ts.URL, "").LoginConfig()
-	if err != nil {
-		t.Fatalf("LoginConfig: %v", err)
+	if err := c.AddGrant("m", harbor.Grant{Project: "beta", Role: "review"}); err != nil {
+		t.Fatalf("AddGrant: %v", err)
 	}
-	if got != *lc {
-		t.Fatalf("LoginConfig = %+v, want %+v", got, *lc)
+	if gotMethod != "POST" || gotPath != "/admin/actors/m/grants" {
+		t.Fatalf("AddGrant wire = %s %s", gotMethod, gotPath)
+	}
+
+	if err := c.RemoveGrant("m", "beta", "review"); err != nil {
+		t.Fatalf("RemoveGrant: %v", err)
+	}
+	if gotMethod != "DELETE" || gotPath != "/admin/actors/m/grants/beta/review" {
+		t.Fatalf("RemoveGrant wire = %s %s", gotMethod, gotPath)
 	}
 }
 
-func TestClientSendsBearer(t *testing.T) {
-	var gotAuth string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(200)
-		w.Write([]byte("[]"))
+// TestClientEnrollBodyIsTrimmed proves Enroll's wire body carries only
+// id/project/role/overrides — no inline destinations/repos/ttl_seconds, since
+// scope now comes entirely from the role.
+func TestClientEnrollBodyIsTrimmed(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","token":"tok"}`))
 	}))
-	defer ts.Close()
-	if _, err := New(ts.URL, "tok-123").ListDestinations(); err != nil {
-		t.Fatalf("ListDestinations: %v", err)
+	defer srv.Close()
+	c := New(srv.URL, "")
+
+	if _, err := c.Enroll(EnrollParams{ID: "x", Project: "acme", Role: "guest"}); err != nil {
+		t.Fatalf("Enroll: %v", err)
 	}
-	if gotAuth != "Bearer tok-123" {
-		t.Fatalf("Authorization = %q, want Bearer tok-123", gotAuth)
+	for _, field := range []string{"destinations", "repos", "ttl_seconds"} {
+		if strings.Contains(gotBody, field) {
+			t.Fatalf("Enroll body still contains %q: %s", field, gotBody)
+		}
 	}
 }

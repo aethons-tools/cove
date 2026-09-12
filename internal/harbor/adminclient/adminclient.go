@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -107,6 +108,67 @@ func (c *Client) ListDestinations() ([]harbor.Destination, error) {
 
 func (c *Client) RemoveDestination(name string) error {
 	return c.do("DELETE", "/admin/destinations/"+name, nil, nil)
+}
+
+// PutRole creates or replaces a role within project. project == "" resolves to
+// harbor.DefaultProject server-side.
+func (c *Client) PutRole(project string, r harbor.Role) error {
+	return c.do("POST", "/admin/roles", harbor.RoleBody{
+		Project: project, Name: r.Name,
+		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
+		TTLSeconds: int64(r.Scope.TTL / time.Second),
+	}, nil)
+}
+
+// ListRoles lists the roles configured for project ("" lists DefaultProject).
+func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
+	var out []harbor.RoleSummary
+	path := "/admin/roles"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	if err := c.do("GET", path, nil, &out); err != nil {
+		return nil, err
+	}
+	roles := make([]harbor.Role, 0, len(out))
+	for _, rs := range out {
+		roles = append(roles, harbor.Role{Name: rs.Name, Scope: harbor.Scope{
+			Destinations: rs.Destinations, Repos: rs.Repos, TTL: time.Duration(rs.TTLSeconds) * time.Second,
+		}})
+	}
+	return roles, nil
+}
+
+// RemoveRole deletes a role from project.
+func (c *Client) RemoveRole(project, name string) error {
+	return c.do("DELETE", "/admin/roles/"+project+"/"+name, nil, nil)
+}
+
+// ListProjects lists every project that has at least one role or actor grant.
+func (c *Client) ListProjects() ([]string, error) {
+	var out []string
+	err := c.do("GET", "/admin/projects", nil, &out)
+	return out, err
+}
+
+// Roster lists every enrolled actor with its resolved effective grants — never
+// a token or hash.
+func (c *Client) Roster() ([]harbor.ActorSummary, error) {
+	var out []harbor.ActorSummary
+	err := c.do("GET", "/admin/roster", nil, &out)
+	return out, err
+}
+
+// AddGrant assigns g to the actor identified by actorID.
+func (c *Client) AddGrant(actorID string, g harbor.Grant) error {
+	return c.do("POST", "/admin/actors/"+actorID+"/grants", harbor.GrantBody{
+		Project: g.Project, Role: g.Role, Overrides: g.Overrides,
+	}, nil)
+}
+
+// RemoveGrant removes actorID's grant of role within project.
+func (c *Client) RemoveGrant(actorID, project, role string) error {
+	return c.do("DELETE", "/admin/actors/"+actorID+"/grants/"+project+"/"+role, nil, nil)
 }
 
 // LoginConfig fetches harbor's public device-flow client parameters from

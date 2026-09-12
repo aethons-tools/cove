@@ -38,6 +38,31 @@ type GrantSummary struct {
 	Repos        []string `json:"repos"`
 }
 
+// RoleBody is the POST /admin/roles request.
+type RoleBody struct {
+	Project      string   `json:"project"`
+	Name         string   `json:"name"`
+	Destinations []string `json:"destinations"`
+	Repos        []string `json:"repos"`
+	TTLSeconds   int64    `json:"ttl_seconds"`
+}
+
+// RoleSummary is a GET /admin/roles item.
+type RoleSummary struct {
+	Project      string   `json:"project"`
+	Name         string   `json:"name"`
+	Destinations []string `json:"destinations"`
+	Repos        []string `json:"repos"`
+	TTLSeconds   int64    `json:"ttl_seconds"`
+}
+
+// GrantBody is the POST /admin/actors/{id}/grants request.
+type GrantBody struct {
+	Project   string    `json:"project"`
+	Role      string    `json:"role"`
+	Overrides *Override `json:"overrides,omitempty"`
+}
+
 // OperatorLoginConfig is the public device-flow client config harbor advertises
 // at GET /admin/login-config so `at-harbor login` can self-configure. Every field
 // is a public OAuth parameter — never a secret.
@@ -146,8 +171,81 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	mux.HandleFunc("GET /admin/projects", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, store.ListProjects())
+	})
+	mux.HandleFunc("GET /admin/roles", func(w http.ResponseWriter, r *http.Request) {
+		project := r.URL.Query().Get("project")
+		var out []RoleSummary
+		for _, ro := range store.ListRoles(project) {
+			out = append(out, RoleSummary{
+				Project: orDefaultProject(project), Name: ro.Name,
+				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
+				TTLSeconds: int64(ro.Scope.TTL / time.Second),
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("POST /admin/roles", func(w http.ResponseWriter, r *http.Request) {
+		var b RoleBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if b.Name == "" {
+			http.Error(w, "name is required", http.StatusBadRequest)
+			return
+		}
+		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, TTL: time.Duration(b.TTLSeconds) * time.Second}}
+		if err := store.PutRole(b.Project, role); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Info("admin role put", "operator", operatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("DELETE /admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		project, name := r.PathValue("project"), r.PathValue("name")
+		if err := store.RemoveRole(project, name); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin role removed", "operator", operatorID(r), "project", project, "role", name)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /admin/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
+		var b GrantBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if b.Role == "" {
+			http.Error(w, "role is required", http.StatusBadRequest)
+			return
+		}
+		if err := store.AddGrant(r.PathValue("id"), Grant{Project: b.Project, Role: b.Role, Overrides: b.Overrides}); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin grant added", "operator", operatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(b.Project), "role", b.Role)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("DELETE /admin/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
+		if err := store.RemoveGrant(r.PathValue("id"), r.PathValue("project"), r.PathValue("role")); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin grant removed", "operator", operatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Auth gate wraps every route.
 	return authMiddleware(auth, log, mux)
+}
+
+func orDefaultProject(p string) string {
+	if p == "" {
+		return DefaultProject
+	}
+	return p
 }
 
 func authMiddleware(auth OperatorAuthenticator, log *slog.Logger, next http.Handler) http.Handler {
