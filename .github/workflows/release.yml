@@ -137,6 +137,9 @@ jobs:
             just --version
             shellcheck --version | head -n2
             hadolint --version
+            # Go agent skills (samber/cc-skills-golang) seeded into the skills set.
+            test -f /home/agent/.init-agent-data/skills/golang-how-to/SKILL.md
+            test -f /usr/share/doc/cc-skills-golang/LICENSE
           '
 
       # main only: push this arch's smoke-tested image(s) under an intermediate
