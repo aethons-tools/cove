@@ -131,6 +131,21 @@ type CoveSummary struct {
 	LastSeen    time.Time `json:"last_seen"`
 }
 
+// CoveSummaries returns the managed-cove runtime registry as scrubbed
+// summaries — never a token, hash, or launch secret. The JSON coves handler
+// and the read-only UI both render from this, so the two cannot drift.
+func CoveSummaries(store Store) []CoveSummary {
+	var out []CoveSummary
+	for _, i := range store.ListInstances() {
+		out = append(out, CoveSummary{
+			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
+			Phase: string(i.Phase), Activity: string(i.Activity),
+			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
+		})
+	}
+	return out
+}
+
 // CoveStatusBody is the POST /admin/coves/{id}/status request.
 type CoveStatusBody struct {
 	Activity string `json:"activity"`
@@ -155,10 +170,31 @@ type OperatorLoginConfig struct {
 	Scope    string `json:"scope"`
 }
 
+// RosterSummaries returns one ActorSummary per enrolled actor, each grant
+// carrying its effective destinations/repos after override resolution. It never
+// includes a token or hash. The JSON roster handler and the read-only UI both
+// render from this, so the two surfaces cannot drift.
+func RosterSummaries(store Store) []ActorSummary {
+	var out []ActorSummary
+	for _, a := range store.ListActors() {
+		sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
+		for _, g := range a.Grants {
+			gs := GrantSummary{Project: g.Project, Role: g.Role}
+			if role, ok := store.GetRole(g.Project, g.Role); ok {
+				s := EffectiveScope(g, role)
+				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+			}
+			sum.Grants = append(sum.Grants, gs)
+		}
+		out = append(out, sum)
+	}
+	return out
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
-func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger) http.Handler {
+func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -207,20 +243,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 	})
 
 	mux.HandleFunc("GET /admin/roster", func(w http.ResponseWriter, r *http.Request) {
-		var out []ActorSummary
-		for _, a := range store.ListActors() {
-			sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
-			for _, g := range a.Grants {
-				gs := GrantSummary{Project: g.Project, Role: g.Role}
-				if role, ok := store.GetRole(g.Project, g.Role); ok {
-					s := EffectiveScope(g, role)
-					gs.Destinations, gs.Repos = s.Destinations, s.Repos
-				}
-				sum.Grants = append(sum.Grants, gs)
-			}
-			out = append(out, sum)
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, RosterSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		var b EnrollBody
@@ -412,15 +435,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
-		var out []CoveSummary
-		for _, i := range store.ListInstances() {
-			out = append(out, CoveSummary{
-				ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
-				Phase: string(i.Phase), Activity: string(i.Activity),
-				LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
-			})
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, CoveSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
@@ -476,6 +491,13 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		log.Info("admin cove torn down", "operator", operatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	if ui != nil {
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+		})
+		mux.Handle("/ui/", ui)
+	}
 
 	// Auth gate wraps every route.
 	return authMiddleware(auth, log, mux)

@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>Kits</h1>
+<table>
+  <thead><tr><th>Name</th><th>Current version</th><th>Versions</th></tr></thead>
+  <tbody>
+    {{range .Kits}}
+    <tr><td>{{.Name}}</td><td>{{.Current}}</td><td>{{len .Versions}}</td></tr>
+    {{else}}
+    <tr><td colspan="3" class="empty">No kits.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

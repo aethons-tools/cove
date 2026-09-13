@@ -21,7 +21,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store
 }
 
@@ -146,6 +146,44 @@ func TestAdminEnrollThenRevoke(t *testing.T) {
 	}
 }
 
+func TestAdminHandlerMountsUI(t *testing.T) {
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("UI:" + r.URL.Path))
+	})
+	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
+
+	// Root redirects to /ui/.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq(http.MethodGet, "/", ""))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("GET / = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/ui/" {
+		t.Errorf("redirect Location = %q, want /ui/", loc)
+	}
+
+	// /ui/ reaches the mounted handler (loopback allowed).
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq(http.MethodGet, "/ui/coves", ""))
+	if rec.Code != http.StatusOK || rec.Body.String() != "UI:/ui/coves" {
+		t.Fatalf("GET /ui/coves = %d %q, want 200 UI:/ui/coves", rec.Code, rec.Body.String())
+	}
+
+	// Off-loopback is still refused by the gate the UI is mounted inside.
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
+	req.RemoteAddr = "203.0.113.7:5555"
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("off-loopback GET /ui/coves = %d, want 403", rec.Code)
+	}
+}
+
 // fixedOperator authenticates every request as a known operator — stands in for
 // the OIDC authenticator so the test can assert the sub is attributed in logs.
 type fixedOperator struct{ id string }
@@ -160,7 +198,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
+	h := NewAdminHandler(store, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +249,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -234,7 +272,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -300,6 +338,27 @@ func TestAdminGrantAddRemove(t *testing.T) {
 	rec = doReq(t, h, "DELETE", "/admin/actors/m/grants/beta/review", nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("remove grant = %d", rec.Code)
+	}
+}
+
+func TestRosterSummaries(t *testing.T) {
+	_, store := newTestAdmin(t)
+	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "spider-1", TokenHash: "deadbeef", Grants: []Grant{{Project: "default", Role: "worker"}}}); err != nil {
+		t.Fatal(err)
+	}
+	out := RosterSummaries(store)
+	if len(out) != 1 || out[0].ID != "spider-1" {
+		t.Fatalf("summaries = %+v, want one actor spider-1", out)
+	}
+	if len(out[0].Grants) != 1 || out[0].Grants[0].Role != "worker" {
+		t.Fatalf("grants = %+v, want worker", out[0].Grants)
+	}
+	g := out[0].Grants[0]
+	if len(g.Destinations) != 1 || g.Destinations[0] != "anthropic" {
+		t.Errorf("effective destinations = %v, want [anthropic]", g.Destinations)
 	}
 }
 
@@ -414,7 +473,7 @@ func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *
 	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
-	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store, sup, launcher
 }
 

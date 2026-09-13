@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+<h2>Live coves</h2>
+{{template "coves-table" .}}
+<h2>Roster</h2>
+<ul>
+  {{range .Actors}}<li>{{.ID}} — {{len .Grants}} grant(s)</li>{{else}}<li class="empty">No actors enrolled.</li>{{end}}
+</ul>
+{{end}}
