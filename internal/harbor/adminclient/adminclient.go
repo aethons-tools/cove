@@ -230,13 +230,14 @@ type CoveRaiseParams struct {
 	Project string
 	Role    string
 	Unit    string
+	Prompt  string // workload prompt for the raised cove's agent; read from a file host-side, never argv
 }
 
 // RaiseCove raises a managed cove for a role and returns its runtime result
 // (including the identity token, once).
 func (c *Client) RaiseCove(p CoveRaiseParams) (harbor.CoveRaiseResult, error) {
 	var res harbor.CoveRaiseResult
-	err := c.do("POST", "/admin/coves", harbor.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit}, &res)
+	err := c.do("POST", "/admin/coves", harbor.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt}, &res)
 	return res, err
 }
 

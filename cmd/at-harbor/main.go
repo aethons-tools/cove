@@ -528,6 +528,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
 	role := fs.String("role", "", "role to raise the cove for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
 	activity := fs.String("activity", "", "reported activity: running|waiting|blocked|done (status only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -545,7 +546,16 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor cove raise: --id and --role are required")
 			return 2
 		}
-		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit})
+		var prompt string
+		if *promptFile != "" {
+			b, err := os.ReadFile(*promptFile)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor cove raise: --prompt-file:", err)
+				return 1
+			}
+			prompt = string(b)
+		}
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1

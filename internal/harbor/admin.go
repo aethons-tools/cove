@@ -105,6 +105,7 @@ type CoveRaiseBody struct {
 	Project string `json:"project"`
 	Role    string `json:"role"`
 	Unit    string `json:"unit,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
 }
 
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
@@ -434,7 +435,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, tok, secret, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit})
+		inst, tok, secret, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
