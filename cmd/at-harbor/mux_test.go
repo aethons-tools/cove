@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
@@ -103,5 +104,20 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 	body, _ := io.ReadAll(hr.Body)
 	if string(body) != brokerBody {
 		t.Fatalf("broker body = %q, want %q", body, brokerBody)
+	}
+
+	// (c) HTTP/2 reaches the broker handler (regression guard: the mux must serve h2 to the broker).
+	h2client := &http.Client{Transport: &http2.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "localhost"}}}
+	hr2, err := h2client.Get("https://" + addr + "/")
+	if err != nil {
+		t.Fatalf("http2 broker get: %v", err)
+	}
+	defer hr2.Body.Close()
+	if hr2.ProtoMajor != 2 {
+		t.Fatalf("broker response proto = %d, want 2 (h2)", hr2.ProtoMajor)
+	}
+	b2, _ := io.ReadAll(hr2.Body)
+	if string(b2) != brokerBody {
+		t.Fatalf("h2 broker body = %q, want %q", b2, brokerBody)
 	}
 }
