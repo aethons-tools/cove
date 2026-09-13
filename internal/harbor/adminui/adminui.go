@@ -8,14 +8,25 @@ package adminui
 import (
 	"embed"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 )
 
-//go:embed templates/*.html htmx.min.js
+//go:embed templates/*.html static/htmx.min.js
 var files embed.FS
+
+// staticFS scopes the static route to the static/ subtree only — templates
+// live under templates/ and must never be reachable via /ui/static/.
+var staticFS = func() fs.FS {
+	sub, err := fs.Sub(files, "static")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}()
 
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
@@ -66,18 +77,18 @@ func mustParse(names ...string) *template.Template {
 func Handler(store harbor.Store) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(files))))
+	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(staticFS))))
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
 			"Title":  "Dashboard",
-			"Coves":  store.ListInstances(),
+			"Coves":  harbor.CoveSummaries(store),
 			"Actors": harbor.RosterSummaries(store),
 		})
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Coves", "Coves": store.ListInstances()}
+		data := map[string]any{"Title": "Coves", "Coves": harbor.CoveSummaries(store)}
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, "coves", "coves-table", data)
 			return

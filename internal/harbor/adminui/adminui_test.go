@@ -166,6 +166,14 @@ func TestDestinationsView(t *testing.T) {
 	}
 }
 
+func TestStaticRouteDoesNotServeTemplates(t *testing.T) {
+	h := adminui.Handler(newStore(t))
+	rec := get(t, h, "/ui/static/templates/layout.html")
+	if rec.Code == http.StatusOK {
+		t.Errorf("static route exposed template source (%d); templates must be unreachable", rec.Code)
+	}
+}
+
 func TestStaticHtmxServed(t *testing.T) {
 	h := adminui.Handler(newStore(t))
 	rec := get(t, h, "/ui/static/htmx.min.js")

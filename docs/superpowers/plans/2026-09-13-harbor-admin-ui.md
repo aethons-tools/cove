@@ -628,6 +628,17 @@ func renderFragment(w http.ResponseWriter, page, tmpl string, data any) {
 }
 ```
 
+> **Post-review correction:** the plan text above passes raw `store.ListInstances()`
+> (`[]harbor.Instance`) to the template and ranges over `.ActorID`/`.Lease.Holder`.
+> Final review flagged this as resting the no-secret guarantee on template
+> discipline rather than the type. The as-built code instead reuses the scrubbed
+> summary pattern from Task 3: an exported `harbor.CoveSummaries(store) []CoveSummary`
+> (extracted from the `GET /admin/coves` JSON handler, same as `RosterSummaries`) is
+> what both the JSON handler and `GET /ui/coves`/the dashboard render from. The
+> `coves-table` template ranges over `CoveSummary` fields, so `.ActorID` → `.ID` and
+> `.Lease.Holder` → `.LeaseHolder`; `.Project`, `.Role`, `.Unit`, `.Phase`,
+> `.Activity`, `.RaisedAt`, `.LastSeen` are unchanged.
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./internal/harbor/adminui/ -v`

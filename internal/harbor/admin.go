@@ -131,6 +131,21 @@ type CoveSummary struct {
 	LastSeen    time.Time `json:"last_seen"`
 }
 
+// CoveSummaries returns the managed-cove runtime registry as scrubbed
+// summaries — never a token, hash, or launch secret. The JSON coves handler
+// and the read-only UI both render from this, so the two cannot drift.
+func CoveSummaries(store Store) []CoveSummary {
+	var out []CoveSummary
+	for _, i := range store.ListInstances() {
+		out = append(out, CoveSummary{
+			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
+			Phase: string(i.Phase), Activity: string(i.Activity),
+			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
+		})
+	}
+	return out
+}
+
 // CoveStatusBody is the POST /admin/coves/{id}/status request.
 type CoveStatusBody struct {
 	Activity string `json:"activity"`
@@ -420,15 +435,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
-		var out []CoveSummary
-		for _, i := range store.ListInstances() {
-			out = append(out, CoveSummary{
-				ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
-				Phase: string(i.Phase), Activity: string(i.Activity),
-				LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
-			})
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, CoveSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
