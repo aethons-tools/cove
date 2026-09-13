@@ -20,6 +20,7 @@ var files embed.FS
 // full page is rendered via ExecuteTemplate(w, "layout", data).
 var pages = map[string]*template.Template{
 	"index": mustParse("index.html"),
+	"coves": mustParse("coves.html"),
 }
 
 func mustParse(names ...string) *template.Template {
@@ -42,6 +43,15 @@ func Handler(store harbor.Store) http.Handler {
 		render(w, "index", map[string]any{"Title": "Dashboard"})
 	})
 
+	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
+		data := map[string]any{"Title": "Coves", "Coves": store.ListInstances()}
+		if r.Header.Get("HX-Request") == "true" {
+			renderFragment(w, "coves", "coves-table", data)
+			return
+		}
+		render(w, "coves", data)
+	})
+
 	return mux
 }
 
@@ -54,6 +64,20 @@ func render(w http.ResponseWriter, page string, data any) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// renderFragment executes a single named template (e.g. an htmx-swapped table)
+// without the page chrome.
+func renderFragment(w http.ResponseWriter, page, tmpl string, data any) {
+	t, ok := pages[page]
+	if !ok {
+		http.Error(w, "unknown page", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := t.ExecuteTemplate(w, tmpl, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

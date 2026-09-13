@@ -1,0 +1,24 @@
+{{define "content"}}
+<h1>Coves</h1>
+{{template "coves-table" .}}
+{{end}}
+
+{{define "coves-table"}}
+<table id="coves" hx-get="/ui/coves" hx-trigger="every 3s" hx-swap="outerHTML">
+  <thead>
+    <tr><th>ID</th><th>Project</th><th>Role</th><th>Unit</th><th>Phase</th><th>Activity</th><th>Lease</th><th>Raised</th><th>Last seen</th></tr>
+  </thead>
+  <tbody>
+    {{range .Coves}}
+    <tr>
+      <td>{{.ActorID}}</td><td>{{.Project}}</td><td>{{.Role}}</td><td>{{.Unit}}</td>
+      <td>{{.Phase}}</td><td>{{.Activity}}</td><td>{{.Lease.Holder}}</td>
+      <td>{{.RaisedAt.Format "2006-01-02 15:04:05"}}</td>
+      <td>{{.LastSeen.Format "2006-01-02 15:04:05"}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="9" class="empty">No coves.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
