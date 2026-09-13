@@ -2,10 +2,12 @@ package covemaster
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,6 +164,39 @@ func TestClientAuthFailureIsFatal(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("auth failure did not fail fast (infinite retry?)")
+	}
+}
+
+// TestClientBacksOffWhenServerDown proves that once the workload has finished
+// (doneCh closed) but the server is unreachable so session() keeps returning
+// retry, the reconnect loop still honors the backoff instead of spinning in a
+// tight loop on the closed doneCh (COV-155 review fix).
+func TestClientBacksOffWhenServerDown(t *testing.T) {
+	var dialCount int32
+	failDial := grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		atomic.AddInt32(&dialCount, 1)
+		return nil, errors.New("refused")
+	})
+	c := New(Config{Addr: "bufnet", Token: "tok", LaunchSecret: "secret", Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), failDial}}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx, doneWorkload{}) }()
+
+	<-ctx.Done()
+	// Give Run a moment to observe cancellation and return.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+
+	if got := atomic.LoadInt32(&dialCount); got >= 10 {
+		t.Fatalf("dial count = %d, want < 10 (backoff not honored — tight reconnect loop)", got)
+	} else {
+		t.Logf("dial count over 400ms with server down: %d", got)
 	}
 }
 

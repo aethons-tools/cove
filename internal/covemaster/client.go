@@ -112,9 +112,6 @@ func (c *Client) Run(ctx context.Context, w Workload) error {
 			case <-runCtx.Done():
 				<-doneCh
 				return ctx.Err()
-			case <-doneCh:
-				// workload finished while we were disconnected — reconnect once
-				// more to report Done (next session hits the doneCh case).
 			case <-time.After(backoff):
 			}
 			backoff = min(backoff*2, maxBackoff)
