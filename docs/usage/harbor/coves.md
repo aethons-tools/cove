@@ -97,16 +97,32 @@ It reads its configuration from the environment (no SSH, no host
 orchestration):
 
 ```
-AT_HARBOR_RUNTIME_ADDR   harbor's runtime (Attach) listener, host:port
-AT_HARBOR_IDENTITY_TOKEN the cove's identity token
-AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret, minted at raise time
+AT_HARBOR_RUNTIME_ADDR    harbor's runtime (Attach) listener, host:port
+AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
+AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
+AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
+AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 ```
 
-> **This slice ships the client with a stub workload** — it reports `running`
-> and waits for teardown, to prove the wire path end-to-end. The real agent
-> wrapper, and cove-master becoming the image entrypoint under its own
-> non-root account (collapsing the SSH/systemd boot), are later slices.
+cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
+it spawns `claude -p --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
+reports `running`, and when the agent exits reads `.at-task/worker-result.json`
+(the same contract as the dispatch worker):
 
-Design rationale (the package boundary, the Workload seam, the reconnect
-model) lives in
-[`../../superpowers/specs/2026-09-13-cove-master-client.md`](../../superpowers/specs/2026-09-13-cove-master-client.md).
+- `ok` → the client reports `done` and the supervisor tears the cove down.
+- `needs-input` → a brief `waiting` is reported, then `done` (the dispatcher
+  decides whether to re-dispatch; lingering-and-waking is a later slice).
+- `error` / no result → `done` with the failure logged.
+
+A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
+`SIGKILL` after a grace period. `wake` is a no-op for a one-shot agent.
+
+> **Still deferred:** a persistent agent that lingers `waiting` and is woken with
+> *new* input (needs the comms-hub input channel), `blocked`/escalation, and
+> cove-master becoming the image entrypoint under its own non-root account
+> (collapsing the SSH/systemd boot).
+
+Design rationale (the package boundary, the Workload seam, the reconnect model,
+and the agent wrapper's lifecycle mapping) lives in
+[`../../superpowers/specs/2026-09-13-cove-master-client.md`](../../superpowers/specs/2026-09-13-cove-master-client.md)
+and [`../../superpowers/specs/2026-09-13-cove-agent-wrapper.md`](../../superpowers/specs/2026-09-13-cove-agent-wrapper.md).
