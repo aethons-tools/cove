@@ -9,6 +9,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 )
@@ -19,8 +20,36 @@ var files embed.FS
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
 var pages = map[string]*template.Template{
-	"index": mustParse("index.html"),
-	"coves": mustParse("coves.html"),
+	"index":        mustParse("index.html"),
+	"coves":        mustParse("coves.html"),
+	"roster":       mustParse("roster.html"),
+	"roles":        mustParse("roles.html"),
+	"kits":         mustParse("kits.html"),
+	"destinations": mustParse("destinations.html"),
+}
+
+// roleRow is one project/role pair flattened for the roles table.
+type roleRow struct {
+	Project      string
+	Name         string
+	Destinations []string
+	Repos        []string
+	TTL          time.Duration
+	Kit          string
+}
+
+func roleRows(store harbor.Store) []roleRow {
+	var out []roleRow
+	for _, p := range store.ListProjects() {
+		for _, r := range store.ListRoles(p) {
+			out = append(out, roleRow{
+				Project: p, Name: r.Name,
+				Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
+				TTL: r.Scope.TTL, Kit: r.Kit,
+			})
+		}
+	}
+	return out
 }
 
 func mustParse(names ...string) *template.Template {
@@ -50,6 +79,19 @@ func Handler(store harbor.Store) http.Handler {
 			return
 		}
 		render(w, "coves", data)
+	})
+
+	mux.HandleFunc("GET /ui/roster", func(w http.ResponseWriter, r *http.Request) {
+		render(w, "roster", map[string]any{"Title": "Roster", "Actors": harbor.RosterSummaries(store)})
+	})
+	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
+		render(w, "roles", map[string]any{"Title": "Roles", "Roles": roleRows(store)})
+	})
+	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
+		render(w, "kits", map[string]any{"Title": "Kits", "Kits": store.ListKits()})
+	})
+	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
+		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
 	})
 
 	return mux

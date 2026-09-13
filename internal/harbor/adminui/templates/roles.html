@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>Roles</h1>
+<table>
+  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>TTL</th><th>Kit</th></tr></thead>
+  <tbody>
+    {{range .Roles}}
+    <tr><td>{{.Project}}</td><td>{{.Name}}</td>
+      <td>{{range .Destinations}}{{.}} {{end}}</td>
+      <td>{{range .Repos}}{{.}} {{end}}</td>
+      <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td></tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">No roles.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

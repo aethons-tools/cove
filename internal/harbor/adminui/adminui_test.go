@@ -96,6 +96,69 @@ func TestCovesNoSecretLeak(t *testing.T) {
 	}
 }
 
+func TestRosterView(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Scope: harbor.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(harbor.Actor{ID: "spider-2", TokenHash: "HASH-NOPE", Grants: []harbor.Grant{{Project: "acme", Role: "worker"}}}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store), "/ui/roster").Body.String()
+	for _, want := range []string{"spider-2", "worker", "anthropic"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("roster view missing %q", want)
+		}
+	}
+}
+
+func TestRosterViewNoSecretLeak(t *testing.T) {
+	store := newStore(t)
+	if err := store.AddActor(harbor.Actor{ID: "spider-2", TokenHash: "HASH-NOPE"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(get(t, adminui.Handler(store), "/ui/roster").Body.String(), "HASH-NOPE") {
+		t.Error("roster view leaked a token hash")
+	}
+}
+
+func TestRolesView(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "review", Scope: harbor.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, TTL: time.Hour}, Kit: ""}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store), "/ui/roles").Body.String()
+	for _, want := range []string{"acme", "review", "git", "acme/*"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("roles view missing %q", want)
+		}
+	}
+}
+
+func TestKitsView(t *testing.T) {
+	store := newStore(t)
+	if _, err := store.PushKit("base", "listen: :443"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store), "/ui/kits").Body.String()
+	if !strings.Contains(body, "base") {
+		t.Errorf("kits view missing kit name; got:\n%s", body)
+	}
+}
+
+func TestDestinationsView(t *testing.T) {
+	store := newStore(t)
+	if err := store.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic-key"}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store), "/ui/destinations").Body.String()
+	for _, want := range []string{"anthropic", "/anthropic/", "https://api.anthropic.com"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("destinations view missing %q", want)
+		}
+	}
+}
+
 func TestStaticHtmxServed(t *testing.T) {
 	h := adminui.Handler(newStore(t))
 	rec := get(t, h, "/ui/static/htmx.min.js")

@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>Destinations</h1>
+<table>
+  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Repo-scoped</th></tr></thead>
+  <tbody>
+    {{range .Destinations}}
+    <tr><td>{{.Name}}</td><td>{{.Route}}</td><td>{{.Upstream}}</td><td>{{if .RepoScoped}}yes{{else}}no{{end}}</td></tr>
+    {{else}}
+    <tr><td colspan="4" class="empty">No destinations.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
