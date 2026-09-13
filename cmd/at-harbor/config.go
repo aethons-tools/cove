@@ -116,6 +116,12 @@ type dispatcherConfig struct {
 	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the dispatcher's 30s default
 	TrackerToken  credSpec           `yaml:"tracker-token"`
 	Linear        *kit.LinearTracker `yaml:"linear"`
+
+	// WakePollInterval and WaitMax configure the resident wake-on engine
+	// (internal/wakeon), which watches Waiting instances' tickets and wakes
+	// or tears them down. Both optional; empty ⇒ the engine's own defaults.
+	WakePollInterval string `yaml:"wake-poll-interval"`
+	WaitMax          string `yaml:"wait-max"`
 }
 
 // toSpec converts this credential to a named secret.Spec (literal or command).
