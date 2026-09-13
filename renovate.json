@@ -99,6 +99,14 @@
       "matchStrings": ["(?<depName>[a-z][a-z0-9.+-]*)=(?<currentValue>[0-9][^\\s\\\\]*)"],
       "datasourceTemplate": "deb",
       "versioningTemplate": "deb"
+    },
+    {
+      "customType": "regex",
+      "description": "samber/cc-skills-golang — Go agent skills pinned in the cove-image Dockerfile, cloned at build and seeded into the agent-data skills set.",
+      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "matchStrings": ["ARG CC_SKILLS_GOLANG_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "samber/cc-skills-golang"
     }
   ]
 }

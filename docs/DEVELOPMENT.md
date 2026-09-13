@@ -135,11 +135,20 @@ full rationale.
   Go build and rebuilds only when `images/` changes (COV-44).
 - **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
-  Base for both CI and the sandboxes.
+  Base for both CI and the sandboxes. It also clones the pinned
+  [`samber/cc-skills-golang`](https://github.com/samber/cc-skills-golang) release
+  and seeds its Go agent skills into `.init-agent-data/skills/` — so agents
+  working on *this* repo get Go-specific skills. This lives in `cove-image` (not
+  the shared hardening layer, which carries the generic board/docs skills global
+  to every kit), so other kits are unaffected; `entrypoint.sh` re-mirrors the
+  seed's `skills/` into `/agent-data/skills` on every boot, so a rebuilt image
+  reaches existing sandboxes on restart. The MIT notice is kept at
+  `/usr/share/doc/cc-skills-golang/LICENSE`.
 
 **Reproducible by pinning.** Every input is pinned: the `FROM ubuntu:24.04`
-manifest digest, each apt package `pkg=version`, and the toolchain args
-(`GO_VERSION`, `JDK_RELEASE`, `NODE_VERSION`, `HADOLINT_VERSION`). Versions are
+manifest digest, each apt package `pkg=version`, the toolchain args
+(`GO_VERSION`, `JDK_RELEASE`, `NODE_VERSION`, `HADOLINT_VERSION`), and the
+`CC_SKILLS_GOLANG_VERSION` release tag. Versions are
 identical across amd64/arm64, so one pin serves both. A pin that ages out of the
 archive fails the build loudly. [`renovate.json`](../renovate.json) keeps them
 current instead of letting them silently float — mostly a bump PR per newer

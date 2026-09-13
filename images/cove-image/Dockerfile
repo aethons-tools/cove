@@ -42,3 +42,21 @@ ENV GOROOT=/usr/local/go \
     GOSUMDB=off \
     GOFLAGS=-mod=mod
 ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
+
+# Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
+# its skill files into the first-boot skills set. Scoped to cove-image (this
+# repo's toolchain image + agent sandboxes), NOT the shared hardening layer, so
+# other kits are unaffected. entrypoint.sh re-mirrors $SEED/skills ->
+# /agent-data/skills on every boot, so a rebuilt image reaches existing sandboxes
+# on restart. MIT-licensed; the notice is retained under /usr/share/doc.
+# Version pinned for reproducibility; Renovate (github-releases) keeps it current.
+ARG CC_SKILLS_GOLANG_VERSION=v2.0.0
+RUN skills_seed=/home/agent/.init-agent-data/skills \
+ && tmp="$(mktemp -d)" \
+ && git clone --depth 1 --branch "${CC_SKILLS_GOLANG_VERSION}" \
+      https://github.com/samber/cc-skills-golang.git "$tmp" \
+ && mkdir -p "$skills_seed" /usr/share/doc/cc-skills-golang \
+ && cp -a "$tmp/skills/." "$skills_seed/" \
+ && cp -a "$tmp/LICENSE" /usr/share/doc/cc-skills-golang/LICENSE \
+ && chown -R agent:agent "$skills_seed" \
+ && rm -rf "$tmp"
