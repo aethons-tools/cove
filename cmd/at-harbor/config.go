@@ -44,6 +44,7 @@ type serveConfig struct {
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
+		Listen            string `yaml:"listen"`
 		LeaseTTL          string `yaml:"lease-ttl"`
 		ReconcileInterval string `yaml:"reconcile-interval"`
 	} `yaml:"runtime"`

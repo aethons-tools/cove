@@ -38,6 +38,14 @@ type Launcher interface {
 	Probe(ctx context.Context, inst Instance) (Liveness, error)
 }
 
+// ControlSink pushes lifecycle control to a connected cove (implemented by the
+// Attach server). Best-effort and non-blocking; no connected stream is a no-op.
+// nil when no stream server runs (slice-1 behavior).
+type ControlSink interface {
+	RequestTeardown(actorID string)
+	Wake(actorID string)
+}
+
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
 // the lease model, and the state machine. One supervisor per harbor process.
 type Supervisor struct {
@@ -48,6 +56,7 @@ type Supervisor struct {
 	reconcile time.Duration
 	now       func() time.Time
 	log       *slog.Logger
+	sink      ControlSink
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -65,31 +74,43 @@ func NewHolderID() string {
 	return fmt.Sprintf("%s/%d/%s", host, os.Getpid(), hex.EncodeToString(b[:]))
 }
 
-// Raise enrolls the identity, launches the cove, and records a Live Instance
-// leased to this process. Returns the Instance and the minted identity token
-// (once — the launcher consumes it to connect the cove in a later slice). A
-// failed launch rolls back the enrollment so no dangling identity is left.
-func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, string, error) {
+// SetControlSink installs the control sink after construction (resolving the
+// supervisor↔Attach-server cycle). nil-safe throughout.
+func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+
+// Raise enrolls the identity, mints a per-instance launch secret, launches the
+// cove, and records a Live Instance leased to this process. Returns the
+// Instance, the minted identity token, and the minted launch secret (each
+// returned once — the launcher/cove consume them to connect in a later slice;
+// only the launch secret's hash is persisted). A failed mint or launch rolls
+// back the enrollment so no dangling identity is left.
+func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, string, string, error) {
 	if spec.ActorID == "" {
-		return Instance{}, "", fmt.Errorf("actor id is required")
+		return Instance{}, "", "", fmt.Errorf("actor id is required")
 	}
 	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, nil, s.now())
 	if err != nil {
-		return Instance{}, "", err
+		return Instance{}, "", "", err
+	}
+	secret, err := MintToken()
+	if err != nil {
+		_ = s.store.RemoveActor(spec.ActorID)
+		return Instance{}, "", "", err
 	}
 	loc, err := s.launcher.Raise(ctx, spec)
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
 			s.log.Warn("raise rollback: failed to revoke identity after launch failure", "id", spec.ActorID, "error", rmErr)
 		}
-		return Instance{}, "", fmt.Errorf("raise: %w", err)
+		return Instance{}, "", "", fmt.Errorf("raise: %w", err)
 	}
 	now := s.now()
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
 		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
-		Lease:    Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
-		RaisedAt: now, LastSeen: now,
+		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
+		LaunchSecretHash: HashToken(secret),
+		RaisedAt:         now, LastSeen: now,
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -98,12 +119,29 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
-		return Instance{}, "", err
+		return Instance{}, "", "", err
 	}
 	if s.log != nil {
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
-	return inst, tok, nil
+	return inst, tok, secret, nil
+}
+
+// Heartbeat renews the lease + LastSeen for a connected cove WITHOUT changing
+// Activity or Phase (the stream keepalive path). Errors if the instance is
+// absent or gone.
+func (s *Supervisor) Heartbeat(actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Phase == PhaseGone {
+		return fmt.Errorf("instance %q is gone", actorID)
+	}
+	now := s.now()
+	inst.LastSeen = now
+	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
+	return s.store.PutInstance(inst)
 }
 
 // Report records a cove-reported Activity, renewing (and stealing if necessary)
@@ -142,6 +180,9 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return nil
+	}
+	if s.sink != nil {
+		s.sink.RequestTeardown(actorID) // best-effort cooperative nudge
 	}
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating

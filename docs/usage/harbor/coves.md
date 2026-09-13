@@ -68,3 +68,18 @@ Defaults are `60s` / `30s`. `reconcile-interval` must be strictly less than
 Design rationale (the identity/runtime split, the lease/steal model, the
 reconciler) lives in
 [`../../superpowers/specs/2026-09-12-harbor-cove-supervisor.md`](../../superpowers/specs/2026-09-12-harbor-cove-supervisor.md).
+
+## The Attach stream
+
+A managed cove holds one bidirectional gRPC stream to harbor — its **Attach**
+stream. It authenticates the stream with two credentials: its actor **identity
+token** (the same token the broker checks) **and** its **per-instance launch
+secret**, minted at `raise` time. Over the stream the cove sends Activity
+reports up and heartbeats to renew its lease; harbor pushes lifecycle
+**control** down — teardown or wake. Harbor binds the Attach gRPC server at
+`runtime.listen` (see [serve.md](serve.md)).
+
+> **This slice ships the harbor-side server only.** `at-harbor serve` accepts
+> Attach connections and can push control down them, but the in-cove client
+> that would dial in doesn't exist yet, and the stream isn't multiplexed onto
+> the broker's `:443` — both are later slices.

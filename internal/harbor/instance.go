@@ -40,15 +40,16 @@ type Lease struct {
 // operational half (location, status, lease). It has no slice/map fields, so a
 // value copy is a full copy.
 type Instance struct {
-	ActorID  string    `json:"actor_id"`
-	Project  string    `json:"project"`
-	Role     string    `json:"role"`
-	Unit     string    `json:"unit,omitempty"`
-	Backend  string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
-	Location string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
-	Phase    Phase     `json:"phase"`
-	Activity Activity  `json:"activity,omitempty"`
-	Lease    Lease     `json:"lease"`
-	RaisedAt time.Time `json:"raised_at"`
-	LastSeen time.Time `json:"last_seen"`
+	ActorID          string    `json:"actor_id"`
+	Project          string    `json:"project"`
+	Role             string    `json:"role"`
+	Unit             string    `json:"unit,omitempty"`
+	Backend          string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
+	Location         string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
+	Phase            Phase     `json:"phase"`
+	Activity         Activity  `json:"activity,omitempty"`
+	Lease            Lease     `json:"lease"`
+	LaunchSecretHash string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
+	RaisedAt         time.Time `json:"raised_at"`
+	LastSeen         time.Time `json:"last_seen"`
 }

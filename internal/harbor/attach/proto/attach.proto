@@ -1,0 +1,35 @@
+syntax = "proto3";
+package harbor.attach.v1;
+option go_package = "github.com/aethons-tools/cove/internal/harbor/attach/attachpb";
+
+service Runtime {
+  rpc Attach(stream StatusUp) returns (stream ControlDown);
+}
+
+message StatusUp {
+  oneof msg {
+    Activity  status    = 1;
+    Heartbeat heartbeat = 2;
+  }
+}
+enum Activity {
+  ACTIVITY_UNSPECIFIED = 0;
+  RUNNING = 1;
+  WAITING = 2;
+  BLOCKED = 3;
+  DONE    = 4;
+}
+message Heartbeat {}
+
+message ControlDown {
+  oneof msg {
+    Wake        wake     = 1;
+    Teardown    teardown = 2;
+    TierChanged tier     = 3;
+    RotateToken rotate   = 4; // reserved
+  }
+}
+message Wake {}
+message Teardown    { string reason = 1; }
+message TierChanged { int32 tier = 1; }
+message RotateToken { string token = 1; }

@@ -61,7 +61,7 @@ func supTestKit(t *testing.T, l Launcher) (*Supervisor, Store, *time.Time) {
 func TestRaiseEnrollsAndRecordsLiveInstance(t *testing.T) {
 	f := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, f)
-	inst, tok, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"})
+	inst, tok, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestRaiseEnrollsAndRecordsLiveInstance(t *testing.T) {
 func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 	f := &fakeLauncher{raiseErr: errors.New("backend down")}
 	sup, store, _ := supTestKit(t, f)
-	if _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err == nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err == nil {
 		t.Fatal("expected raise to fail")
 	}
 	if len(store.ListActors()) != 0 {
@@ -102,7 +102,7 @@ func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 
 func TestRaiseRequiresExistingRole(t *testing.T) {
 	sup, _, _ := supTestKit(t, &fakeLauncher{})
-	if _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "ghost"}); err == nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "ghost"}); err == nil {
 		t.Fatal("expected fail-closed on unknown role")
 	}
 }
@@ -190,7 +190,7 @@ func TestTeardownPropagatesRevokeFailure(t *testing.T) {
 	sup := NewSupervisor(store, f, "holder-A", 60*time.Second, 30*time.Second,
 		func() time.Time { return *clkp }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	if _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.ListActors()) != 1 {
@@ -387,5 +387,76 @@ func TestRunStartsAndStops(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after ctx cancel")
+	}
+}
+
+// fakeSink records ControlSink calls for assertions.
+type fakeSink struct {
+	teardowns []string
+	wakes     []string
+}
+
+func (f *fakeSink) RequestTeardown(id string) { f.teardowns = append(f.teardowns, id) }
+func (f *fakeSink) Wake(id string)            { f.wakes = append(f.wakes, id) }
+
+func TestRaiseMintsLaunchSecret(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	inst, tok, secret, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok == "" || secret == "" {
+		t.Fatalf("expected token AND launch secret, got tok=%q secret=%q", tok, secret)
+	}
+	// The hash is stored, never the plaintext.
+	if inst.LaunchSecretHash != HashToken(secret) {
+		t.Fatalf("launch secret hash not stored correctly")
+	}
+	if inst.LaunchSecretHash == secret {
+		t.Fatal("stored the plaintext launch secret")
+	}
+	got, _ := store.GetInstance("w1")
+	if got.LaunchSecretHash != HashToken(secret) {
+		t.Fatal("persisted instance missing launch secret hash")
+	}
+}
+
+func TestHeartbeatRenewsWithoutChangingActivity(t *testing.T) {
+	sup, store, clk := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	sup.Report(context.Background(), "w1", ActivityWaiting)
+	*clk = clk.Add(10 * time.Second) // 1010
+	if err := sup.Heartbeat("w1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Activity != ActivityWaiting {
+		t.Fatalf("heartbeat changed activity: %s", got.Activity)
+	}
+	if !got.Lease.Expiry.Equal(time.Unix(1070, 0).UTC()) { // 1010 + 60
+		t.Fatalf("heartbeat did not renew lease: %+v", got.Lease)
+	}
+	if !got.LastSeen.Equal(time.Unix(1010, 0).UTC()) {
+		t.Fatalf("heartbeat did not bump LastSeen: %v", got.LastSeen)
+	}
+}
+
+func TestHeartbeatErrorsForAbsentInstance(t *testing.T) {
+	sup, _, _ := supTestKit(t, &fakeLauncher{})
+	if err := sup.Heartbeat("ghost"); err == nil {
+		t.Fatal("expected error for absent instance")
+	}
+}
+
+func TestTeardownNudgesSink(t *testing.T) {
+	sup, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	sink := &fakeSink{}
+	sup.SetControlSink(sink)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.teardowns) != 1 || sink.teardowns[0] != "w1" {
+		t.Fatalf("teardown did not nudge the sink: %+v", sink.teardowns)
 	}
 }
