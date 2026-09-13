@@ -22,7 +22,7 @@ import (
 // and tears down without error.
 type aliveLauncher struct{}
 
-func (aliveLauncher) Raise(_ context.Context, spec harbor.RaiseSpec) (string, error) {
+func (aliveLauncher) Raise(_ context.Context, spec harbor.RaiseSpec, _ harbor.LaunchCreds) (string, error) {
 	return "fake:" + spec.ActorID, nil
 }
 func (aliveLauncher) Teardown(_ context.Context, _ harbor.Instance) error { return nil }

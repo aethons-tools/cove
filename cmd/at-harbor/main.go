@@ -676,7 +676,7 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // actual cove. The real backend+kit launcher lands in a later slice.
 type placeholderLauncher struct{}
 
-func (placeholderLauncher) Raise(_ context.Context, spec harbor.RaiseSpec) (string, error) {
+func (placeholderLauncher) Raise(_ context.Context, spec harbor.RaiseSpec, _ harbor.LaunchCreds) (string, error) {
 	return "placeholder:" + spec.ActorID, nil
 }
 func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
