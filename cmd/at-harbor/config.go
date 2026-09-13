@@ -40,9 +40,9 @@ type serveConfig struct {
 	Credentials  map[string]credSpec `yaml:"credentials"`
 	OperatorAuth struct {
 		OIDC *struct {
-			Issuer         string `yaml:"issuer"`
-			Audience       string `yaml:"audience"`
-			RequireScope   string `yaml:"require-scope"`
+			Issuer          string `yaml:"issuer"`
+			Audience        string `yaml:"audience"`
+			RequireScope    string `yaml:"require-scope"`
 			DeviceClientID  string `yaml:"device-client-id"`
 			DeviceScope     string `yaml:"device-scope"`
 			BrowserClientID string `yaml:"browser-client-id"`
