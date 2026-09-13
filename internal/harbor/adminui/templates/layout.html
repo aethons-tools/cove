@@ -1,0 +1,31 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>harbor — {{.Title}}</title>
+  <script src="/ui/static/htmx.min.js"></script>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 0; color: #1a1a1a; }
+    nav { background: #111; padding: 10px 16px; }
+    nav a { color: #ddd; margin-right: 14px; text-decoration: none; }
+    nav a:hover { color: #fff; }
+    main { padding: 16px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e4e4e4; }
+    th { background: #f6f6f6; }
+    .empty { color: #777; font-style: italic; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/ui/">Dashboard</a>
+    <a href="/ui/coves">Coves</a>
+    <a href="/ui/roster">Roster</a>
+    <a href="/ui/roles">Roles</a>
+    <a href="/ui/kits">Kits</a>
+    <a href="/ui/destinations">Destinations</a>
+  </nav>
+  <main>{{template "content" .}}</main>
+</body>
+</html>{{end}}
