@@ -14,9 +14,11 @@ Worker or standing Manager — and drives their lifecycle: raise → record → 
 status → tear down, self-healing across harbor restarts. This is the spine the
 resident dispatcher and standing teammates build on.
 
-> **This slice is the spine.** `at-harbor serve` wires a **placeholder launcher**:
-> `cove raise` records a live registry entry but does **not** start a real cove
-> yet. Raising coves on a real backend is a later slice.
+> With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
+> `cove raise` starts a **real** cove on the Colima backend (see [Raising a real
+> managed cove](#raising-a-real-managed-cove)). Without it, `at-harbor serve` uses
+> a **placeholder launcher** that records a live registry entry but starts no cove
+> — useful for exercising the registry/supervisor in dev and tests.
 
 ## The model
 
