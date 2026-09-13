@@ -147,6 +147,43 @@ func TestReportDoneTearsDown(t *testing.T) {
 	}
 }
 
+func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.SetWaitCursor("w1", "3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if inst.WaitingSince.IsZero() {
+		t.Fatal("WaitingSince not set on transition into Waiting")
+	}
+	if inst.WaitCursor != "" {
+		t.Fatalf("WaitCursor should clear on transition into Waiting, got %q", inst.WaitCursor)
+	}
+
+	// A second Report(Waiting) while already Waiting must NOT reset
+	// WaitingSince, and must NOT clear a cursor set in between.
+	first := inst.WaitingSince
+	if err := sup.SetWaitCursor("w1", "4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ = store.GetInstance("w1")
+	if !inst.WaitingSince.Equal(first) {
+		t.Fatal("WaitingSince reset while already Waiting")
+	}
+	if inst.WaitCursor != "4" {
+		t.Fatalf("WaitCursor cleared while already Waiting, got %q", inst.WaitCursor)
+	}
+}
+
 func TestTeardownIsIdempotent(t *testing.T) {
 	sup, _, _ := supTestKit(t, &fakeLauncher{})
 	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})

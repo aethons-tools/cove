@@ -4,16 +4,39 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
-// recordHandle records the activities the workload reports.
-type recordHandle struct{ got []covemaster.Activity }
+// recordHandle records the activities the workload reports. Safe for
+// concurrent use: Run reports from its own goroutine while a test may poll
+// count() from the test goroutine.
+type recordHandle struct {
+	mu  sync.Mutex
+	got []covemaster.Activity
+}
 
-func (h *recordHandle) Report(a covemaster.Activity) { h.got = append(h.got, a) }
+func (h *recordHandle) Report(a covemaster.Activity) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.got = append(h.got, a)
+}
+
+// count returns how many times Activity a has been reported so far.
+func (h *recordHandle) count(a covemaster.Activity) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, x := range h.got {
+		if x == a {
+			n++
+		}
+	}
+	return n
+}
 
 // scriptedProc runs a closure as its Wait.
 type scriptedProc struct{ wait func() error }
@@ -65,11 +88,16 @@ func TestRunOK(t *testing.T) {
 	}
 }
 
+// TestRunNeedsInput checks that a needs-input turn reports Waiting; with no
+// Wake and a short MaxWait, Run then gives up and ends the unit (nil).
+// (Resuming on Wake and blocking past MaxWait are covered by
+// TestRunResumesOnWake / TestRunMaxWaitEndsUnit.)
 func TestRunNeedsInput(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, Spawner: f}, nil)
+	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatalf("Run: want nil, got %v", err)
 	}
@@ -177,4 +205,141 @@ func TestRunSpawnFailure(t *testing.T) {
 func TestControlWakeNoop(t *testing.T) {
 	w := New(Config{WorkDir: t.TempDir(), Prompt: "x", Spawner: &fakeSpawner{}}, nil)
 	w.Control(covemaster.Control{Kind: covemaster.Wake}) // must not panic
+}
+
+// scriptedCall records one Spawn call's arguments.
+type scriptedCall struct {
+	bin, dir string
+	args     []string
+}
+
+// scriptedSpawner scripts a worker-result.json body per call: call i's Wait
+// writes results[i] (if present) into dir/.at-task/worker-result.json before
+// returning nil.
+type scriptedSpawner struct {
+	mu      sync.Mutex
+	results []string
+	dir     string
+	calls   []scriptedCall
+}
+
+func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string) (Process, error) {
+	f.mu.Lock()
+	i := len(f.calls)
+	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir})
+	f.mu.Unlock()
+	return scriptedProc{wait: func() error {
+		if i < len(f.results) {
+			atTask := filepath.Join(f.dir, ".at-task")
+			if err := os.MkdirAll(atTask, 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(atTask, "worker-result.json"), []byte(f.results[i]), 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}, nil
+}
+
+// waitFor polls cond until it returns true or fails the test after a timeout.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("waitFor: condition not met in time")
+}
+
+// hasArg reports whether want appears among args.
+func hasArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRunResumesOnWake: needs-input turn, then a Wake, then an ok turn → two
+// spawns, 2nd has --continue.
+func TestRunResumesOnWake(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{
+		results: []string{
+			`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`,
+			`{"status":{"ok":{}}}`,
+		},
+		dir: dir,
+	}
+	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Spawner: f}, nil)
+	h := &recordHandle{}
+	done := make(chan error, 1)
+	go func() { done <- w.Run(context.Background(), h) }()
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 }) // first turn reported Waiting
+	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after wake")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 2 {
+		t.Fatalf("want 2 spawns, got %d", len(f.calls))
+	}
+	if !hasArg(f.calls[1].args, "--continue") {
+		t.Fatalf("2nd turn missing --continue: %v", f.calls[1].args)
+	}
+}
+
+// TestRunMaxWaitEndsUnit: needs-input, no wake → after MaxWait, Run returns
+// nil (Done), one spawn.
+func TestRunMaxWaitEndsUnit(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{
+		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
+		dir:     dir,
+	}
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, Spawner: f}, nil)
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 1 {
+		t.Fatalf("want 1 spawn (no resume), got %d", len(f.calls))
+	}
+}
+
+// TestRunCtxCancelWhileWaiting: needs-input, cancel ctx while waiting for a
+// wake → Run returns ctx.Err().
+func TestRunCtxCancelWhileWaiting(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{
+		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
+		dir:     dir,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Spawner: f}, nil)
+	h := &recordHandle{}
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx, h) }()
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Run: want ctx error, got nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
 }

@@ -52,4 +52,6 @@ type Instance struct {
 	LaunchSecretHash string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
 	RaisedAt         time.Time `json:"raised_at"`
 	LastSeen         time.Time `json:"last_seen"`
+	WaitingSince     time.Time `json:"waiting_since,omitempty"` // set when Activity enters Waiting (B1)
+	WaitCursor       string    `json:"wait_cursor,omitempty"`   // opaque wake-on baseline set by the wake-on engine
 }

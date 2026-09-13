@@ -310,6 +310,8 @@ runtime:
     project: cove
     max-concurrent: 3
     poll-interval: 45s
+    wake-poll-interval: 15s
+    wait-max: 24h
     tracker-token:
       command: ["op", "read", "tracker-token"]
     linear:
@@ -327,7 +329,9 @@ runtime:
 	if dc.Role != "implementer" ||
 		dc.Project != "cove" ||
 		dc.MaxConcurrent != 3 ||
-		dc.PollInterval != "45s" {
+		dc.PollInterval != "45s" ||
+		dc.WakePollInterval != "15s" ||
+		dc.WaitMax != "24h" {
 		t.Fatalf("dispatcher config = %+v", dc)
 	}
 	if len(dc.TrackerToken.Command) != 3 || dc.TrackerToken.Command[0] != "op" {
