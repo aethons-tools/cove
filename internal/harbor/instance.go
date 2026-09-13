@@ -13,6 +13,7 @@ const (
 	PhaseTerminating Phase = "terminating" // teardown decided (Done or Lost); Launcher.Teardown in flight
 	PhaseGone        Phase = "gone"        // torn down + deregistered (terminal)
 	PhaseLost        Phase = "lost"        // reconciler declared dead (lease expired + Probe dead) → Terminating
+	PhaseIdled       Phase = "idled"       // paused; intentionally idle — lease-reaping suspended
 )
 
 // Activity is cove-reported and only meaningful while Phase == Live. The

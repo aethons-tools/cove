@@ -19,6 +19,9 @@ type fakeLauncher struct {
 	probeErr    error
 	raised      []string
 	tornDown    []string
+	probed      []string
+	paused      []string
+	resumed     []string
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
 }
@@ -38,11 +41,18 @@ func (f *fakeLauncher) Teardown(_ context.Context, inst Instance) error {
 	f.tornDown = append(f.tornDown, inst.ActorID)
 	return f.teardownErr
 }
-func (f *fakeLauncher) Probe(_ context.Context, _ Instance) (Liveness, error) {
+func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error) {
+	f.probed = append(f.probed, inst.ActorID)
 	return f.liveness, f.probeErr
 }
-func (f *fakeLauncher) Pause(_ context.Context, _ Instance) error   { return nil }
-func (f *fakeLauncher) Unpause(_ context.Context, _ Instance) error { return nil }
+func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
+	f.paused = append(f.paused, inst.ActorID)
+	return nil
+}
+func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
+	f.resumed = append(f.resumed, inst.ActorID)
+	return nil
+}
 
 // supTestKit builds a supervisor over a temp store with a guest role, a fixed
 // clock, and the given launcher. Returns the supervisor, store, and a pointer to
@@ -515,5 +525,81 @@ func TestTeardownNudgesSink(t *testing.T) {
 	}
 	if len(sink.teardowns) != 1 || sink.teardowns[0] != "w1" {
 		t.Fatalf("teardown did not nudge the sink: %+v", sink.teardowns)
+	}
+}
+
+func TestIdlePausesAndSetsPhaseIdled(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Idle(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.paused) != 1 || f.paused[0] != "w1" {
+		t.Fatalf("launcher Pause not called: %+v", f.paused)
+	}
+	got, ok := store.GetInstance("w1")
+	if !ok {
+		t.Fatal("expected instance to still be recorded after Idle")
+	}
+	if got.Phase != PhaseIdled {
+		t.Fatalf("phase = %s, want %s", got.Phase, PhaseIdled)
+	}
+}
+
+func TestResumeUnpausesSetsLiveAndWaitingSince(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Idle(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	*clk = clk.Add(5 * time.Minute) // now 1300
+	if err := sup.Resume(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.resumed) != 1 || f.resumed[0] != "w1" {
+		t.Fatalf("launcher Unpause not called: %+v", f.resumed)
+	}
+	got, ok := store.GetInstance("w1")
+	if !ok {
+		t.Fatal("expected instance to still be recorded after Resume")
+	}
+	if got.Phase != PhaseLive {
+		t.Fatalf("phase = %s, want %s", got.Phase, PhaseLive)
+	}
+	if !got.WaitingSince.Equal(time.Unix(1300, 0).UTC()) {
+		t.Fatalf("WaitingSince = %v, want %v", got.WaitingSince, time.Unix(1300, 0).UTC())
+	}
+}
+
+// TestReconcileSkipsIdledInstance proves that an Idled instance is never
+// probed, reaped, or adopted by Reconcile even with an expired lease — a
+// paused cove can't heartbeat, so without the skip the reconciler would
+// wrongly treat it as dead. The wake-on engine (not Reconcile) owns its
+// lifecycle via Resume/Teardown.
+func TestReconcileSkipsIdledInstance(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessDead} // would be reaped if probed
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Idle(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	*clk = clk.Add(2 * time.Minute) // lease (60s) now expired
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.probed) != 0 {
+		t.Fatalf("Idled instance must not be probed: %+v", f.probed)
+	}
+	if len(f.tornDown) != 0 {
+		t.Fatalf("Idled instance must not be torn down: %+v", f.tornDown)
+	}
+	got, ok := store.GetInstance("w1")
+	if !ok {
+		t.Fatal("Idled instance must not be reaped by Reconcile")
+	}
+	if got.Phase != PhaseIdled {
+		t.Fatalf("phase = %s, want %s (Reconcile must not adopt/change it)", got.Phase, PhaseIdled)
 	}
 }
