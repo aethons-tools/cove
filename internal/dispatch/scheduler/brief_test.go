@@ -8,7 +8,7 @@ import (
 func TestAssembleBrief(t *testing.T) {
 	iss := Issue{Identifier: "AET-42", Title: "Do the thing", Description: "Make it work.", Class: "implement"}
 	comments := []Comment{{Author: "brent", Body: "please prioritize"}, {Author: "agent", Body: "on it"}}
-	got := assembleBrief(iss, comments)
+	got := AssembleBrief(iss, comments)
 
 	for _, want := range []string{
 		"# AET-42 — Do the thing",
@@ -24,7 +24,7 @@ func TestAssembleBrief(t *testing.T) {
 }
 
 func TestAssembleBriefNoComments(t *testing.T) {
-	got := assembleBrief(Issue{Identifier: "AET-1", Title: "T", Class: "plan"}, nil)
+	got := AssembleBrief(Issue{Identifier: "AET-1", Title: "T", Class: "plan"}, nil)
 	if strings.Contains(got, "## Thread") {
 		t.Errorf("expected no Thread section when there are no comments:\n%s", got)
 	}

@@ -2,9 +2,10 @@ package scheduler
 
 import "strings"
 
-// assembleBrief renders the self-contained markdown brief that is assembled
-// into the worker's task.json (the task.brief field).
-func assembleBrief(iss Issue, comments []Comment) string {
+// AssembleBrief renders the self-contained markdown brief describing an issue —
+// used as the worker's task.json `task.brief` field (dispatch) and as the
+// managed-cove prompt (the resident dispatcher, COV-146).
+func AssembleBrief(iss Issue, comments []Comment) string {
 	var b strings.Builder
 	b.WriteString("# " + iss.Identifier + " — " + iss.Title + "\n\n")
 	b.WriteString("**Class:** " + iss.Class + "\n\n")
