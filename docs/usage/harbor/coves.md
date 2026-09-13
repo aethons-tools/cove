@@ -76,28 +76,28 @@ stream. It authenticates the stream with two credentials: its actor **identity
 token** (the same token the broker checks) **and** its **per-instance launch
 secret**, minted at `raise` time. Over the stream the cove sends Activity
 reports up and heartbeats to renew its lease; harbor pushes lifecycle
-**control** down — teardown or wake. Harbor binds the Attach gRPC server at
-`runtime.listen` (see [serve.md](serve.md)).
-
-> **This slice added the harbor-side server; the in-cove client below dials it.**
-> The stream still isn't multiplexed onto the broker's `:443` — that's a later
-> slice, and so is a real supervised workload (see below).
+**control** down — teardown or wake. Harbor serves the Attach gRPC on its
+cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
+(`application/grpc`) — so the stream fits within a hardened cove's 443-only
+egress, no separate port required (see [serve.md](serve.md)).
 
 ## cove-master (the in-cove client)
 
 `cove-master` is the cove's side of the Attach stream: the `internal/covemaster`
 client library plus the `cove-master` binary (`cmd/cove-master`). It dials
-harbor's runtime listener, authenticates the stream, reports Activity up, and
-reacts to control (teardown, wake) pushed down — reconnecting with backoff
-across transient drops. The client imports only the generated `attachpb` types
-and grpc, never `internal/harbor`, so it stays a lean, server-free dependency
-for whatever process embeds it.
+`harbor.host:443` over **TLS** — reaching it through the cove's squid `CONNECT`
+proxy (grpc-go's built-in dialer honors the cove's `https_proxy`; harbor's cert
+is validated against the system trust store) — authenticates the stream, reports
+Activity up, and reacts to control (teardown, wake) pushed down — reconnecting
+with backoff across transient drops. The client imports only the generated
+`attachpb` types and grpc, never `internal/harbor`, so it stays a lean,
+server-free dependency for whatever process embeds it.
 
 It reads its configuration from the environment (no SSH, no host
 orchestration):
 
 ```
-AT_HARBOR_RUNTIME_ADDR    harbor's runtime (Attach) listener, host:port
+AT_HARBOR_RUNTIME_ADDR    harbor's cove-facing Attach address, harbor.host:443 (TLS, via the cove's proxy)
 AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
 AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)

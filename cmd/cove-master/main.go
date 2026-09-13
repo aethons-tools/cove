@@ -4,7 +4,8 @@
 // image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
 //
-//	AT_HARBOR_RUNTIME_ADDR   harbor's runtime (Attach) listener, host:port
+//	AT_HARBOR_RUNTIME_ADDR   harbor's cove-facing :443 address (host:443), dialed
+//	                         over TLS through the cove's squid CONNECT proxy
 //	AT_HARBOR_IDENTITY_TOKEN the cove's identity token
 //	AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret
 //	AT_COVE_WORKDIR          the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
@@ -13,6 +14,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,11 +22,19 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/aethons-tools/cove/internal/agentrun"
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
+
+// clientTransportCreds dials harbor over TLS, validating against the system trust
+// store. harbor serves the Attach gRPC on its cove-facing :443 TLS listener; the
+// cove reaches it through the squid CONNECT proxy (grpc-go's built-in dialer
+// honors https_proxy). ServerName is filled from the dial target authority.
+func clientTransportCreds() credentials.TransportCredentials {
+	return credentials.NewTLS(&tls.Config{})
+}
 
 func buildConfig(getenv func(string) string) (covemaster.Config, error) {
 	addr := getenv("AT_HARBOR_RUNTIME_ADDR")
@@ -40,8 +50,7 @@ func buildConfig(getenv func(string) string) (covemaster.Config, error) {
 	}
 	return covemaster.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,
-		// Plaintext TCP this slice; :443/TLS mux is deferred.
-		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(clientTransportCreds())},
 	}, nil
 }
 

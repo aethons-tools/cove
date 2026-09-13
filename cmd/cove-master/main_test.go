@@ -33,6 +33,13 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	}
 }
 
+func TestClientTransportCredsIsTLS(t *testing.T) {
+	got := clientTransportCreds().Info().SecurityProtocol
+	if got != "tls" {
+		t.Fatalf("transport security = %q, want tls", got)
+	}
+}
+
 func TestBuildAgentConfig(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "prompt.txt")
