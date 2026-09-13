@@ -4,13 +4,13 @@ read_when: You are gating harbor's admin API behind Auth0/OIDC, signing an opera
 owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 # Operator sign-in & the admin client
 
 Every `at-harbor` admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`,
-`enroll`, `revoke`, `kit`) is a client of a running harbor's admin API. This doc
+`enroll`, `revoke`, `kit`, `cove`) is a client of a running harbor's admin API. This doc
 covers how that client authenticates and how one machine targets several harbors.
 
 By default the admin API is **loopback-only** — no login required; the verbs just
@@ -96,4 +96,5 @@ dev-app:
 So `at-harbor --app dev-app roster` lists the dev harbor's roster using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
 [roster.md](roster.md) (RBAC + enrollment) and [kits.md](kits.md) (registry);
-`destination` is in [serve.md](serve.md).
+`destination` is in [serve.md](serve.md); the managed-cove verbs are in
+[coves.md](coves.md).

@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -43,6 +43,9 @@ operator-auth:                      # see operators.md — omit for loopback-onl
     require-scope: harbor:admin
     device-client-id: "…"
     device-scope: "openid profile"
+runtime:                            # optional — supervisor lease/reconcile timing
+  lease-ttl: 60s
+  reconcile-interval: 30s           # must be < lease-ttl
 ```
 
 | Key | Required | Purpose |
@@ -54,6 +57,7 @@ operator-auth:                      # see operators.md — omit for loopback-onl
 | `store` | yes | Path to the JSON store (created on first write; migrated forward across versions). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
+| `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 
 ## The broker model
 
