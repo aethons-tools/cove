@@ -341,6 +341,27 @@ func TestAdminGrantAddRemove(t *testing.T) {
 	}
 }
 
+func TestRosterSummaries(t *testing.T) {
+	_, store := newTestAdmin(t)
+	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "spider-1", TokenHash: "deadbeef", Grants: []Grant{{Project: "default", Role: "worker"}}}); err != nil {
+		t.Fatal(err)
+	}
+	out := RosterSummaries(store)
+	if len(out) != 1 || out[0].ID != "spider-1" {
+		t.Fatalf("summaries = %+v, want one actor spider-1", out)
+	}
+	if len(out[0].Grants) != 1 || out[0].Grants[0].Role != "worker" {
+		t.Fatalf("grants = %+v, want worker", out[0].Grants)
+	}
+	g := out[0].Grants[0]
+	if len(g.Destinations) != 1 || g.Destinations[0] != "anthropic" {
+		t.Errorf("effective destinations = %v, want [anthropic]", g.Destinations)
+	}
+}
+
 func TestAdminRejectsNonLoopback(t *testing.T) {
 	h, _ := newTestAdmin(t)
 	r := httptest.NewRequest("GET", "/admin/destinations", nil)

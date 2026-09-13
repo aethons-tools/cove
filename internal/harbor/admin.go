@@ -155,6 +155,27 @@ type OperatorLoginConfig struct {
 	Scope    string `json:"scope"`
 }
 
+// RosterSummaries returns one ActorSummary per enrolled actor, each grant
+// carrying its effective destinations/repos after override resolution. It never
+// includes a token or hash. The JSON roster handler and the read-only UI both
+// render from this, so the two surfaces cannot drift.
+func RosterSummaries(store Store) []ActorSummary {
+	var out []ActorSummary
+	for _, a := range store.ListActors() {
+		sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
+		for _, g := range a.Grants {
+			gs := GrantSummary{Project: g.Project, Role: g.Role}
+			if role, ok := store.GetRole(g.Project, g.Role); ok {
+				s := EffectiveScope(g, role)
+				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+			}
+			sum.Grants = append(sum.Grants, gs)
+		}
+		out = append(out, sum)
+	}
+	return out
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
@@ -207,20 +228,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 	})
 
 	mux.HandleFunc("GET /admin/roster", func(w http.ResponseWriter, r *http.Request) {
-		var out []ActorSummary
-		for _, a := range store.ListActors() {
-			sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
-			for _, g := range a.Grants {
-				gs := GrantSummary{Project: g.Project, Role: g.Role}
-				if role, ok := store.GetRole(g.Project, g.Role); ok {
-					s := EffectiveScope(g, role)
-					gs.Destinations, gs.Repos = s.Destinations, s.Repos
-				}
-				sum.Grants = append(sum.Grants, gs)
-			}
-			out = append(out, sum)
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, RosterSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		var b EnrollBody
