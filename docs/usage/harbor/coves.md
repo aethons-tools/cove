@@ -67,6 +67,10 @@ lifecycle; automated result-handling (commit/push/PR after the agent) comes with
 dispatcher. Without a `runtime.launcher`, `raise` records a placeholder Instance only
 (no real cove).
 
+Managed coves are also raised **automatically** by the [resident
+dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
+per ready ticket — not only by this manual `cove raise` verb.
+
 All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
 

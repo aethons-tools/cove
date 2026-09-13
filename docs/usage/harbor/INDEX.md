@@ -35,6 +35,7 @@ five pillars), see the design history:
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice. |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
 | [coves.md](coves.md) | You are raising/tearing down a managed cove, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (cove-master). |
+| [dispatcher.md](dispatcher.md) | You are enabling harbor's always-on intake — polling a tracker (Linear) and raising a managed cove per ready ticket — or tuning its concurrency cap / poll interval. |
 
 ## The shape of a working harbor
 

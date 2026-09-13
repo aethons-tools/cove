@@ -24,6 +24,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
 	"github.com/aethons-tools/cove/internal/harbor/attach"
@@ -33,6 +35,7 @@ import (
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
 
@@ -734,6 +737,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if err := cfg.validateDispatcher(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
 	st, err := harbor.NewFileStore(cfg.Store)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
@@ -777,6 +784,29 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	sup := harbor.NewSupervisor(st, lch, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
+
+	if dc := cfg.Runtime.Dispatcher; dc != nil {
+		// Resolve harbor's own tracker token (never injected into a cove, never logged).
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: dispatcher tracker-token:", err)
+			return 1
+		}
+		token := tokEnv["AT_DISPATCH_TRACKER_TOKEN"]
+		// linear.New wants a full kit.Config; wrap the configured LinearTracker.
+		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
+		tracker, err := linear.New(kitShell, token, nil)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: dispatcher tracker:", err)
+			return 1
+		}
+		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
+		disp := dispatcher.New(tracker, sup, st, dispatcher.Config{
+			Role: dc.Role, Project: dc.Project, MaxConcurrent: dc.MaxConcurrent, PollInterval: poll,
+		}, log)
+		go disp.Run(context.Background())
+		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
+	}
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
 	// optionally on a plaintext dev listener (runtime.listen). One server, one
