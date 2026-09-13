@@ -41,6 +41,8 @@ func (f *fakeLauncher) Teardown(_ context.Context, inst Instance) error {
 func (f *fakeLauncher) Probe(_ context.Context, _ Instance) (Liveness, error) {
 	return f.liveness, f.probeErr
 }
+func (f *fakeLauncher) Pause(_ context.Context, _ Instance) error   { return nil }
+func (f *fakeLauncher) Unpause(_ context.Context, _ Instance) error { return nil }
 
 // supTestKit builds a supervisor over a temp store with a guest role, a fixed
 // clock, and the given launcher. Returns the supervisor, store, and a pointer to

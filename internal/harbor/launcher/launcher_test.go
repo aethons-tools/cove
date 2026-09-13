@@ -18,6 +18,8 @@ type fakeOps struct {
 	runImage   string
 	runAddHost []string
 	removed    string
+	paused     string
+	unpaused   string
 	status     backend.State
 	statusErr  error
 	runErr     error
@@ -34,8 +36,8 @@ func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
 func (f *fakeOps) RemoveContainer(name string) error { f.removed = name; return nil }
-func (f *fakeOps) Pause(name string) error           { return nil }
-func (f *fakeOps) Unpause(name string) error         { return nil }
+func (f *fakeOps) Pause(name string) error           { f.paused = name; return nil }
+func (f *fakeOps) Unpause(name string) error         { f.unpaused = name; return nil }
 func (f *fakeOps) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {
 	return 0, nil
 }
@@ -114,6 +116,23 @@ func TestTeardownRemoves(t *testing.T) {
 	}
 	if ops.removed != "atcove-cove-w1" {
 		t.Fatalf("removed = %q", ops.removed)
+	}
+}
+
+func TestPauseUnpause(t *testing.T) {
+	ops := &fakeOps{}
+	l := newLauncher(ops)
+	if err := l.Pause(context.Background(), harbor.Instance{Location: "cove-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.paused != "cove-1" {
+		t.Fatalf("paused = %q, want cove-1", ops.paused)
+	}
+	if err := l.Unpause(context.Background(), harbor.Instance{Location: "cove-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.unpaused != "cove-1" {
+		t.Fatalf("unpaused = %q, want cove-1", ops.unpaused)
 	}
 }
 

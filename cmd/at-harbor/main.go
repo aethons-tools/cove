@@ -703,6 +703,8 @@ func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { re
 func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }
+func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
+func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
 // linearCommenter adapts *linear.Client to harbor.Commenter. It exists here,
 // rather than in internal/harbor, so harbor core never imports

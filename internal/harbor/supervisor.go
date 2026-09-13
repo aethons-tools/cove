@@ -46,6 +46,8 @@ type Launcher interface {
 	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
 	Teardown(ctx context.Context, inst Instance) error
 	Probe(ctx context.Context, inst Instance) (Liveness, error)
+	Pause(ctx context.Context, inst Instance) error
+	Unpause(ctx context.Context, inst Instance) error
 }
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the

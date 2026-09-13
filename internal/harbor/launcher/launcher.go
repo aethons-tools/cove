@@ -114,6 +114,14 @@ func (l *Launcher) Probe(ctx context.Context, inst harbor.Instance) (harbor.Live
 	}
 }
 
+func (l *Launcher) Pause(ctx context.Context, inst harbor.Instance) error {
+	return l.cfg.Ops.Pause(inst.Location)
+}
+
+func (l *Launcher) Unpause(ctx context.Context, inst harbor.Instance) error {
+	return l.cfg.Ops.Unpause(inst.Location)
+}
+
 // waitForSSH polls sshd with a trivial command until it answers or attempts run out.
 func (l *Launcher) waitForSSH(tgt sshargs.Target) error {
 	const attempts = 30
