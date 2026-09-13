@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
 )
@@ -46,10 +47,11 @@ type serveConfig struct {
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
-		Listen            string          `yaml:"listen"`
-		LeaseTTL          string          `yaml:"lease-ttl"`
-		ReconcileInterval string          `yaml:"reconcile-interval"`
-		Launcher          *launcherConfig `yaml:"launcher"`
+		Listen            string            `yaml:"listen"`
+		LeaseTTL          string            `yaml:"lease-ttl"`
+		ReconcileInterval string            `yaml:"reconcile-interval"`
+		Launcher          *launcherConfig   `yaml:"launcher"`
+		Dispatcher        *dispatcherConfig `yaml:"dispatcher"`
 	} `yaml:"runtime"`
 }
 
@@ -101,6 +103,45 @@ func (c serveConfig) validateLauncher() error {
 	}
 	if lc.KnownHostsDir == "" {
 		lc.KnownHostsDir = filepath.Join(atCoveConfigDir(), "known_hosts.d")
+	}
+	return nil
+}
+
+// dispatcherConfig enables the resident dispatcher: harbor polls the tracker and
+// raises a managed cove per ready ticket, bounded by max-concurrent.
+type dispatcherConfig struct {
+	Role          string             `yaml:"role"`
+	Project       string             `yaml:"project"`
+	MaxConcurrent int                `yaml:"max-concurrent"`
+	PollInterval  string             `yaml:"poll-interval"` // optional; falls back to linear.poll-interval
+	TrackerToken  credSpec           `yaml:"tracker-token"`
+	Linear        *kit.LinearTracker `yaml:"linear"`
+}
+
+// toSpec converts this credential to a named secret.Spec (literal or command).
+func (cs credSpec) toSpec(name string) secret.Spec {
+	if cs.Value != "" {
+		return secret.Spec{Name: name, Value: cs.Value, Literal: true}
+	}
+	return secret.Spec{Name: name, Command: cs.Command}
+}
+
+// validateDispatcher checks runtime.dispatcher when present (required fields:
+// role, max-concurrent > 0, linear). A no-op when runtime.dispatcher is unset —
+// the resident dispatcher stays disabled, unchanged from before this block existed.
+func (c serveConfig) validateDispatcher() error {
+	d := c.Runtime.Dispatcher
+	if d == nil {
+		return nil
+	}
+	if d.Role == "" {
+		return fmt.Errorf("runtime.dispatcher.role is required")
+	}
+	if d.MaxConcurrent <= 0 {
+		return fmt.Errorf("runtime.dispatcher.max-concurrent must be > 0")
+	}
+	if d.Linear == nil {
+		return fmt.Errorf("runtime.dispatcher.linear is required")
 	}
 	return nil
 }

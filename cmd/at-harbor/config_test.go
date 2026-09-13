@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 func TestUnknownServeKeys(t *testing.T) {
@@ -297,5 +299,78 @@ func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
 	}
 	if c.Runtime.Launcher.IdentityFile != "/custom/id" || c.Runtime.Launcher.KnownHostsDir != "/custom/kh" {
 		t.Fatalf("explicit identity-file/known-hosts-dir must not be overridden: %+v", c.Runtime.Launcher)
+	}
+}
+
+func TestRuntimeDispatcherParsed(t *testing.T) {
+	c, err := parseServeConfig([]byte(`
+runtime:
+  dispatcher:
+    role: implementer
+    project: cove
+    max-concurrent: 3
+    poll-interval: 45s
+    tracker-token:
+      command: ["op", "read", "tracker-token"]
+    linear:
+      team: COV
+      poll-interval: 60s
+      states: { ready: Todo, in-progress: In Progress, in-review: In Review, done: Done, needs-input: Needs Input, blocked: Backlog }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc := c.Runtime.Dispatcher
+	if dc == nil {
+		t.Fatal("runtime.dispatcher did not parse")
+	}
+	if dc.Role != "implementer" ||
+		dc.Project != "cove" ||
+		dc.MaxConcurrent != 3 ||
+		dc.PollInterval != "45s" {
+		t.Fatalf("dispatcher config = %+v", dc)
+	}
+	if len(dc.TrackerToken.Command) != 3 || dc.TrackerToken.Command[0] != "op" {
+		t.Fatalf("tracker-token command = %+v", dc.TrackerToken)
+	}
+	if dc.Linear == nil || dc.Linear.Team != "COV" {
+		t.Fatalf("linear.team did not parse: %+v", dc.Linear)
+	}
+	// runtime.dispatcher is a known key (no unknown-key warning).
+	if got := unknownServeKeys([]byte("runtime:\n  dispatcher:\n    role: r\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v", got)
+	}
+}
+
+func TestValidateDispatcherRequiredFields(t *testing.T) {
+	// no dispatcher block at all → no error.
+	if err := (serveConfig{}).validateDispatcher(); err != nil {
+		t.Fatalf("nil dispatcher should not error: %v", err)
+	}
+	base := func() *dispatcherConfig {
+		return &dispatcherConfig{
+			Role:          "implementer",
+			MaxConcurrent: 1,
+			Linear:        &kit.LinearTracker{Team: "COV"},
+		}
+	}
+	// all required fields present → ok.
+	c := serveConfig{}
+	c.Runtime.Dispatcher = base()
+	if err := c.validateDispatcher(); err != nil {
+		t.Fatalf("complete dispatcher block should not error: %v", err)
+	}
+
+	for field, mutate := range map[string]func(*dispatcherConfig){
+		"role":           func(d *dispatcherConfig) { d.Role = "" },
+		"max-concurrent": func(d *dispatcherConfig) { d.MaxConcurrent = 0 },
+		"linear":         func(d *dispatcherConfig) { d.Linear = nil },
+	} {
+		bad := serveConfig{}
+		bad.Runtime.Dispatcher = base()
+		mutate(bad.Runtime.Dispatcher)
+		if err := bad.validateDispatcher(); err == nil {
+			t.Fatalf("missing/invalid %s should error", field)
+		}
 	}
 }
