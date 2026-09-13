@@ -1,7 +1,7 @@
 ---
-summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases) and the `at-harbor cove raise|list|status|teardown` verbs, plus the `runtime:` serve-config block.
-read_when: You are raising or tearing down a managed cove through harbor, inspecting the runtime registry, or tuning the supervisor's lease/reconcile timing.
-owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, and the `runtime:` serve-config block
+summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases), the `at-harbor cove raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
+read_when: You are raising or tearing down a managed cove through harbor, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or configuring/running the in-cove `cove-master` client.
+owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
 tier: leaf
 updated: 2026-09-13
@@ -79,7 +79,34 @@ reports up and heartbeats to renew its lease; harbor pushes lifecycle
 **control** down — teardown or wake. Harbor binds the Attach gRPC server at
 `runtime.listen` (see [serve.md](serve.md)).
 
-> **This slice ships the harbor-side server only.** `at-harbor serve` accepts
-> Attach connections and can push control down them, but the in-cove client
-> that would dial in doesn't exist yet, and the stream isn't multiplexed onto
-> the broker's `:443` — both are later slices.
+> **This slice added the harbor-side server; the in-cove client below dials it.**
+> The stream still isn't multiplexed onto the broker's `:443` — that's a later
+> slice, and so is a real supervised workload (see below).
+
+## cove-master (the in-cove client)
+
+`cove-master` is the cove's side of the Attach stream: the `internal/covemaster`
+client library plus the `cove-master` binary (`cmd/cove-master`). It dials
+harbor's runtime listener, authenticates the stream, reports Activity up, and
+reacts to control (teardown, wake) pushed down — reconnecting with backoff
+across transient drops. The client imports only the generated `attachpb` types
+and grpc, never `internal/harbor`, so it stays a lean, server-free dependency
+for whatever process embeds it.
+
+It reads its configuration from the environment (no SSH, no host
+orchestration):
+
+```
+AT_HARBOR_RUNTIME_ADDR   harbor's runtime (Attach) listener, host:port
+AT_HARBOR_IDENTITY_TOKEN the cove's identity token
+AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret, minted at raise time
+```
+
+> **This slice ships the client with a stub workload** — it reports `running`
+> and waits for teardown, to prove the wire path end-to-end. The real agent
+> wrapper, and cove-master becoming the image entrypoint under its own
+> non-root account (collapsing the SSH/systemd boot), are later slices.
+
+Design rationale (the package boundary, the Workload seam, the reconnect
+model) lives in
+[`../../superpowers/specs/2026-09-13-cove-master-client.md`](../../superpowers/specs/2026-09-13-cove-master-client.md).
