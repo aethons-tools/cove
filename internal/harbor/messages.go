@@ -14,12 +14,14 @@ import (
 const maxMessageBodyBytes = 16 * 1024
 
 // Comment is one message on a cove's ticket, as returned by a Commenter. ID and
-// At are best-effort: a Commenter that cannot supply them leaves the zero value.
+// At are best-effort: a Commenter that cannot supply them leaves them unset. At
+// is a pointer so an unset timestamp is omitted from the wire (json omitempty is
+// ineffective for a time.Time value, which would serialize a bogus zero time).
 type Comment struct {
-	ID     string    `json:"id,omitempty"`
-	Author string    `json:"author"`
-	Body   string    `json:"body"`
-	At     time.Time `json:"at,omitempty"`
+	ID     string     `json:"id,omitempty"`
+	Author string     `json:"author"`
+	Body   string     `json:"body"`
+	At     *time.Time `json:"at,omitempty"`
 }
 
 // Commenter is the narrow ticket-comment capability the /messages handler
