@@ -113,7 +113,7 @@ type dispatcherConfig struct {
 	Role          string             `yaml:"role"`
 	Project       string             `yaml:"project"`
 	MaxConcurrent int                `yaml:"max-concurrent"`
-	PollInterval  string             `yaml:"poll-interval"` // optional; falls back to linear.poll-interval
+	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the dispatcher's 30s default
 	TrackerToken  credSpec           `yaml:"tracker-token"`
 	Linear        *kit.LinearTracker `yaml:"linear"`
 }
