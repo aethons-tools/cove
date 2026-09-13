@@ -110,10 +110,11 @@ type CoveRaiseBody struct {
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
 // returned once (the launcher will consume it to connect the cove).
 type CoveRaiseResult struct {
-	ID       string `json:"id"`
-	Token    string `json:"token"`
-	Phase    string `json:"phase"`
-	Location string `json:"location,omitempty"`
+	ID           string `json:"id"`
+	Token        string `json:"token"`
+	LaunchSecret string `json:"launch_secret"`
+	Phase        string `json:"phase"`
+	Location     string `json:"location,omitempty"`
 }
 
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
@@ -433,13 +434,13 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, tok, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit})
+		inst, tok, secret, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		log.Info("admin cove raised", "operator", operatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, Phase: string(inst.Phase), Location: inst.Location})
+		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {

@@ -48,7 +48,8 @@ type Instance struct {
 	Location string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
 	Phase    Phase     `json:"phase"`
 	Activity Activity  `json:"activity,omitempty"`
-	Lease    Lease     `json:"lease"`
-	RaisedAt time.Time `json:"raised_at"`
+	Lease            Lease     `json:"lease"`
+	LaunchSecretHash string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
+	RaisedAt         time.Time `json:"raised_at"`
 	LastSeen time.Time `json:"last_seen"`
 }
