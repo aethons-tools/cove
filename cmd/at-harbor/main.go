@@ -28,6 +28,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
+	"github.com/aethons-tools/cove/internal/harbor/adminui"
 	"github.com/aethons-tools/cove/internal/harbor/attach"
 	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
@@ -845,7 +846,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log)
+		ui := adminui.Handler(st)
+		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, ui)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

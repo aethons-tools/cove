@@ -158,7 +158,7 @@ type OperatorLoginConfig struct {
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
-func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger) http.Handler {
+func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -476,6 +476,13 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		log.Info("admin cove torn down", "operator", operatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	if ui != nil {
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+		})
+		mux.Handle("/ui/", ui)
+	}
 
 	// Auth gate wraps every route.
 	return authMiddleware(auth, log, mux)
