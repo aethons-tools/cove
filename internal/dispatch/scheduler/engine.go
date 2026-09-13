@@ -132,7 +132,7 @@ func (e *Engine) handle(ctx context.Context, iss Issue) {
 	if err != nil {
 		dl.Warn("no comments; continuing", slog.String("step", "brief"), slog.Any("err", err))
 	}
-	brief := assembleBrief(iss, comments)
+	brief := AssembleBrief(iss, comments)
 
 	dir, err := os.MkdirTemp("", "at-cove-dispatch-")
 	if err != nil {
