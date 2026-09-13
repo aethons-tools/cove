@@ -22,12 +22,15 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
 	"github.com/aethons-tools/cove/internal/harbor/attach"
 	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
+	"github.com/aethons-tools/cove/internal/harbor/launcher"
+	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"gopkg.in/yaml.v3"
@@ -727,6 +730,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if err := cfg.validateLauncher(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
 	st, err := harbor.NewFileStore(cfg.Store)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
@@ -742,7 +749,33 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
-	sup := harbor.NewSupervisor(st, placeholderLauncher{}, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
+	var lch harbor.Launcher = placeholderLauncher{}
+	if lc := cfg.Runtime.Launcher; lc != nil {
+		var m install.Manifest
+		b, err := os.ReadFile(lc.InstallManifest)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: launcher install-manifest:", err)
+			return 1
+		}
+		if err := json.Unmarshal(b, &m); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: launcher install-manifest:", err)
+			return 1
+		}
+		be, ok := colima.New(runner.OS{}).(launcher.Backend) // colima.New returns backend.Backend; *Colima also satisfies DispatchOps+GetStatus
+		if !ok {
+			fmt.Fprintln(stderr, "at-harbor: colima backend does not satisfy launcher.Backend")
+			return 1
+		}
+		lch = launcher.New(launcher.Config{
+			Ops: be, Runner: runner.OS{},
+			Image: m.Image, ImageDigest: m.ImageDigest,
+			HarborHost: lc.HarborHost, RuntimeAddr: lc.RuntimeAddr,
+			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
+			DNS: lc.DNS, Docker: lc.Docker,
+		})
+		log.Info("harbor launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
+	}
+	sup := harbor.NewSupervisor(st, lch, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and

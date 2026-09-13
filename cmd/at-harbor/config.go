@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -44,10 +46,76 @@ type serveConfig struct {
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
-		Listen            string `yaml:"listen"`
-		LeaseTTL          string `yaml:"lease-ttl"`
-		ReconcileInterval string `yaml:"reconcile-interval"`
+		Listen            string          `yaml:"listen"`
+		LeaseTTL          string          `yaml:"lease-ttl"`
+		ReconcileInterval string          `yaml:"reconcile-interval"`
+		Launcher          *launcherConfig `yaml:"launcher"`
 	} `yaml:"runtime"`
+}
+
+// launcherConfig configures the real Colima-backed harbor.Launcher
+// (internal/harbor/launcher). Present (non-nil) opts a `serve` process into
+// raising real managed coves; absent keeps the placeholder launcher.
+type launcherConfig struct {
+	// InstallManifest is the host path to the at-cove install manifest
+	// (install.Manifest JSON) whose Image/ImageDigest the launcher raises.
+	InstallManifest string `yaml:"install-manifest"`
+	// RuntimeAddr is the harbor Attach-gRPC address a raised cove's cove-master
+	// dials (AT_HARBOR_RUNTIME_ADDR), typically "<harbor-host>:443".
+	RuntimeAddr string `yaml:"runtime-addr"`
+	// HarborHost is the broker hostname injected as the connector base and
+	// docker --add-host target, so a raised cove can reach harbor by name.
+	HarborHost string `yaml:"harbor-host"`
+	// IdentityFile/KnownHostsDir are the SSH identity harbor uses to reach a
+	// raised cove. They must be the same key `at-cove install` baked into the
+	// image's authorized_keys. Default to the at-cove config dir's
+	// id_ed25519 / known_hosts.d when empty, so a harbor host colocated with
+	// at-cove needs no explicit path.
+	IdentityFile  string   `yaml:"identity-file"`
+	KnownHostsDir string   `yaml:"known-hosts-dir"`
+	DNS           []string `yaml:"dns"`
+	Docker        bool     `yaml:"docker"`
+}
+
+// validateLauncher checks runtime.launcher when present (required fields:
+// install-manifest, runtime-addr, harbor-host) and defaults identity-file /
+// known-hosts-dir to the at-cove config dir's id_ed25519 / known_hosts.d.
+// A no-op when runtime.launcher is unset — the placeholder launcher stays in
+// effect, unchanged from before this block existed.
+func (c serveConfig) validateLauncher() error {
+	lc := c.Runtime.Launcher
+	if lc == nil {
+		return nil
+	}
+	if lc.InstallManifest == "" {
+		return fmt.Errorf("runtime.launcher.install-manifest is required")
+	}
+	if lc.RuntimeAddr == "" {
+		return fmt.Errorf("runtime.launcher.runtime-addr is required")
+	}
+	if lc.HarborHost == "" {
+		return fmt.Errorf("runtime.launcher.harbor-host is required")
+	}
+	if lc.IdentityFile == "" {
+		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")
+	}
+	if lc.KnownHostsDir == "" {
+		lc.KnownHostsDir = filepath.Join(atCoveConfigDir(), "known_hosts.d")
+	}
+	return nil
+}
+
+// atCoveConfigDir mirrors at-cove's own configDir() (cmd/at-cove/main.go):
+// $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove. Duplicated rather than
+// imported — at-cove's configDir is unexported in a different `main` package
+// — so a harbor host colocated with `at-cove install` shares its identity key
+// and known_hosts without extra config.
+func atCoveConfigDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "at-cove")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "at-cove")
 }
 
 // operatorLoginConfig builds the public device-flow client config harbor
