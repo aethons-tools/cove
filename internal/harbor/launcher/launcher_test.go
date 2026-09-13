@@ -34,6 +34,8 @@ func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
 func (f *fakeOps) RemoveContainer(name string) error { f.removed = name; return nil }
+func (f *fakeOps) Pause(name string) error           { return nil }
+func (f *fakeOps) Unpause(name string) error         { return nil }
 func (f *fakeOps) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {
 	return 0, nil
 }

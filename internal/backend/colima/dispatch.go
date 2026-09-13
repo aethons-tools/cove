@@ -55,6 +55,23 @@ func (c *Colima) RemoveContainer(name string) error {
 	return c.r.Run("docker", dargs("rm", "-f", name)...)
 }
 
+// Pause freezes a running container (docker pause; cgroup freezer) so an idle
+// cove burns ~0 CPU (COV-162).
+func (c *Colima) Pause(name string) error {
+	if err := c.preflight(); err != nil {
+		return err
+	}
+	return c.r.Run("docker", dargs("pause", name)...)
+}
+
+// Unpause thaws a paused container (docker unpause), the inverse of Pause.
+func (c *Colima) Unpause(name string) error {
+	if err := c.preflight(); err != nil {
+		return err
+	}
+	return c.r.Run("docker", dargs("unpause", name)...)
+}
+
 // ScavengeLabeled removes labeled containers older than olderThan. It never removes
 // the image (shared across dispatches) or a volume (there are none).
 func (c *Colima) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {

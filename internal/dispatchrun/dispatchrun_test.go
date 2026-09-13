@@ -50,6 +50,8 @@ func (f *fakeOps) Dial(string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
 func (f *fakeOps) RemoveContainer(string) error { f.removed = true; return nil }
+func (f *fakeOps) Pause(string) error           { return nil }
+func (f *fakeOps) Unpause(string) error         { return nil }
 func (f *fakeOps) ScavengeLabeled(string, time.Duration, time.Time) (int, error) {
 	f.scavenged = true
 	return 0, nil

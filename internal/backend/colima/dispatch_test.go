@@ -120,6 +120,26 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	}
 }
 
+// TestPauseUnpauseArgs: Pause/Unpause shell out to `docker pause`/`docker
+// unpause` on the named container, mirroring RemoveContainer's preflight +
+// dargs shape (COV-162).
+func TestPauseUnpauseArgs(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if err := c.Pause("cove-1"); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if err := c.Unpause("cove-1"); err != nil {
+		t.Fatalf("Unpause: %v", err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "pause"), " "); got != "pause cove-1" {
+		t.Errorf("Pause args = %q; want %q", got, "pause cove-1")
+	}
+	if got := strings.Join(dockerCall(f.Calls, "unpause"), " "); got != "unpause cove-1" {
+		t.Errorf("Unpause args = %q; want %q", got, "unpause cove-1")
+	}
+}
+
 func TestScavengeLabeledRemovesOldOnly(t *testing.T) {
 	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 	// runner.Fake.Outputs is a slice consumed in call order (not keyed by
