@@ -148,9 +148,14 @@ func TestRunSpawnArgs(t *testing.T) {
 	if f.bin != "claude" {
 		t.Errorf("bin: want claude, got %q", f.bin)
 	}
-	want := []string{"-p", "--dangerously-skip-permissions", "do the thing"}
-	if len(f.args) != 3 || f.args[0] != want[0] || f.args[1] != want[1] || f.args[2] != want[2] {
-		t.Errorf("args: want %v, got %v", want, f.args)
+	want := []string{"-p", "--dangerously-skip-permissions", "--mcp-config", "/etc/claude-code/mcp.json", "--strict-mcp-config", "do the thing"}
+	if len(f.args) != len(want) {
+		t.Fatalf("args: want %v, got %v", want, f.args)
+	}
+	for i := range want {
+		if f.args[i] != want[i] {
+			t.Errorf("args[%d]: want %q, got %q (full: want %v, got %v)", i, want[i], f.args[i], want, f.args)
+		}
 	}
 	if f.dir != dir {
 		t.Errorf("dir: want %q, got %q", dir, f.dir)
