@@ -46,12 +46,20 @@ operator-auth:                      # see operators.md — omit for loopback-onl
 runtime:                            # optional — supervisor lease/reconcile timing
   lease-ttl: 60s
   reconcile-interval: 30s           # must be < lease-ttl
-  listen: "127.0.0.1:9090"          # Attach gRPC server; omit to disable
+  listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
 ```
+
+The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and the
+[Attach](coves.md#the-attach-stream) gRPC stream on the one :443 TLS port: harbor
+terminates TLS once, then multiplexes the decrypted stream by `content-type`
+(`application/grpc` → the Attach server, everything else → the broker). This is
+why a hardened cove — whose sealed egress only permits `CONNECT … :443` — can
+reach the Attach stream at all. `runtime.listen` is now only an **optional
+plaintext dev listener** (no TLS, for local testing), not the production path.
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `listen` | yes | Address the broker serves on. Use `:443` in production — a sealed cove can only `CONNECT` to 443. |
+| `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed cove can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
@@ -59,7 +67,7 @@ runtime:                            # optional — supervisor lease/reconcile ti
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
-| `runtime.listen` | no | Address the [Attach](coves.md#the-attach-stream) gRPC server binds. Omit to disable. `:443` multiplexing with the broker is a later slice. |
+| `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 
 ## The broker model
 
