@@ -46,6 +46,7 @@ operator-auth:                      # see operators.md — omit for loopback-onl
 runtime:                            # optional — supervisor lease/reconcile timing
   lease-ttl: 60s
   reconcile-interval: 30s           # must be < lease-ttl
+  listen: "127.0.0.1:9090"          # Attach gRPC server; omit to disable
 ```
 
 | Key | Required | Purpose |
@@ -58,6 +59,7 @@ runtime:                            # optional — supervisor lease/reconcile ti
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
+| `runtime.listen` | no | Address the [Attach](coves.md#the-attach-stream) gRPC server binds. Omit to disable. `:443` multiplexing with the broker is a later slice. |
 
 ## The broker model
 

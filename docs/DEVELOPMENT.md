@@ -38,6 +38,26 @@ These are already exported in this environment (via `COVE_SSHENV`), and `go` is 
 GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go test ./...
 ```
 
+## Regenerating gRPC code
+
+`internal/harbor/attach/attachpb` (the harbor Attach stream's generated types
+and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
+`just buf-gen`. It installs `protoc-gen-go`, `protoc-gen-go-grpc`, and a pinned
+`buf`, then runs `buf generate`.
+
+- The real module proxy is required here — unlike the `GOPROXY=direct` used
+  elsewhere in this sandbox (see above), `buf-gen` sets
+  `GOPROXY=https://proxy.golang.org` (plus `GOTOOLCHAIN=local`, so a `go
+  install` doesn't try to fetch a different toolchain version) because `buf`
+  and the protoc-gen plugins are fetched as tagged modules, not resolved
+  directly against `github.com`.
+- That means `storage.googleapis.com` (the module proxy's blob store) must be
+  egress-allow-listed alongside `proxy.golang.org` — both already are, in the
+  `image.allowed-domains` list in [`.at-cove/config.yml`](../.at-cove/config.yml).
+- Generated `.pb.go` files **are committed**. CI never regenerates them — `just
+  buf-gen` is a manual step a developer runs after editing the `.proto`, and
+  the diff it produces is reviewed and committed like any other source change.
+
 ## Tests
 
 - `just test` (`go test ./...`) is **hermetic** —

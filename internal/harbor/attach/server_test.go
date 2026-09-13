@@ -200,6 +200,35 @@ func TestControlDownDelivery(t *testing.T) {
 	}
 }
 
+func TestWakeDelivery(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	cc := dial()
+	defer cc.Close()
+
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Send something first so the server has processed the auth and registered
+	// the stream before we request the wake.
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Heartbeat{Heartbeat: &attachpb.Heartbeat{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { return srv.connected("w1") }) {
+		t.Fatal("stream never registered")
+	}
+
+	srv.Wake("w1")
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv failed: %v", err)
+	}
+	if _, ok := msg.GetMsg().(*attachpb.ControlDown_Wake); !ok {
+		t.Fatalf("expected ControlDown_Wake, got %T", msg.GetMsg())
+	}
+}
+
 // TestReconnectReplaces verifies a reconnect supersedes the prior stream's
 // control-delivery channel: register() swaps in a fresh channel and closes the
 // old one, so a subsequent ControlDown reaches only the NEW stream. (The old
