@@ -20,7 +20,7 @@ var files embed.FS
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
 var pages = map[string]*template.Template{
-	"index":        mustParse("index.html"),
+	"dashboard":    mustParse("coves.html", "dashboard.html"),
 	"coves":        mustParse("coves.html"),
 	"roster":       mustParse("roster.html"),
 	"roles":        mustParse("roles.html"),
@@ -69,7 +69,11 @@ func Handler(store harbor.Store) http.Handler {
 	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(files))))
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "index", map[string]any{"Title": "Dashboard"})
+		render(w, "dashboard", map[string]any{
+			"Title":  "Dashboard",
+			"Coves":  store.ListInstances(),
+			"Actors": harbor.RosterSummaries(store),
+		})
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {

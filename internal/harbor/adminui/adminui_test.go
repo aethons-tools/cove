@@ -27,14 +27,21 @@ func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestIndexRenders(t *testing.T) {
-	h := adminui.Handler(newStore(t))
-	rec := get(t, h, "/ui/")
+func TestDashboard(t *testing.T) {
+	store := newStore(t)
+	seedCove(t, store)
+	if err := store.AddActor(harbor.Actor{ID: "mgr-1"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(t, adminui.Handler(store), "/ui/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "harbor") {
-		t.Errorf("index body missing title marker; got:\n%s", rec.Body.String())
+	body := rec.Body.String()
+	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, "mgr-1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
 	}
 }
 
