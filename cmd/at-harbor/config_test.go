@@ -3,6 +3,7 @@ package main
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestUnknownServeKeys(t *testing.T) {
@@ -161,5 +162,42 @@ credentials:
 	}
 	if s := cfg.credSpecs()["git-pat"]; !s.Literal || s.Value != "literal-dev-pat" {
 		t.Fatalf("git-pat spec = %+v", s)
+	}
+}
+
+func TestRuntimeDurationsDefaults(t *testing.T) {
+	c, err := parseServeConfig([]byte("listen: \":443\"\nstore: /tmp/s.json\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ttl, rec, err := c.runtimeDurations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ttl != 60*time.Second || rec != 30*time.Second {
+		t.Fatalf("defaults = %s / %s", ttl, rec)
+	}
+}
+
+func TestRuntimeDurationsParsedAndValidated(t *testing.T) {
+	c, err := parseServeConfig([]byte("runtime:\n  lease-ttl: 2m\n  reconcile-interval: 40s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ttl, rec, err := c.runtimeDurations()
+	if err != nil || ttl != 2*time.Minute || rec != 40*time.Second {
+		t.Fatalf("parsed = %s / %s err=%v", ttl, rec, err)
+	}
+
+	bad, _ := parseServeConfig([]byte("runtime:\n  lease-ttl: 30s\n  reconcile-interval: 60s\n"))
+	if _, _, err := bad.runtimeDurations(); err == nil {
+		t.Fatal("expected error when reconcile-interval >= lease-ttl")
+	}
+}
+
+func TestRuntimeIsAKnownServeKey(t *testing.T) {
+	// runtime: must not be reported as an unknown key.
+	if got := unknownServeKeys([]byte("runtime:\n  lease-ttl: 1m\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v, want none", got)
 	}
 }

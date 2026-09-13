@@ -663,6 +663,21 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// placeholderLauncher satisfies harbor.Launcher without a real backend: it
+// records a synthetic location and always probes Alive, so the supervisor spine
+// (registry, leases, reconciler, restart re-adoption) runs end-to-end against a
+// live `at-harbor serve`. `cove raise` against it creates a Live Instance with no
+// actual cove. The real backend+kit launcher lands in a later slice.
+type placeholderLauncher struct{}
+
+func (placeholderLauncher) Raise(_ context.Context, spec harbor.RaiseSpec) (string, error) {
+	return "placeholder:" + spec.ActorID, nil
+}
+func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
+func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
+	return harbor.LivenessAlive, nil
+}
+
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -706,6 +721,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	creds := harbor.NewSecretResolver(runner.OS{}, specs)
 	broker := harbor.NewBroker(st, creds, log)
 
+	ttl, reconcile, err := cfg.runtimeDurations()
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	sup := harbor.NewSupervisor(st, placeholderLauncher{}, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
+	go sup.Run(context.Background())
+
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {
 		var auth harbor.OperatorAuthenticator = harbor.LoopbackAuthenticator{}
@@ -721,7 +744,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, nil, auth, credExists, cfg.operatorLoginConfig(), log)
+		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()
