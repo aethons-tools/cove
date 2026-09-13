@@ -309,6 +309,27 @@ func (c *Client) ListInProgress(ctx context.Context) ([]scheduler.InProgressIssu
 	return issues, nil
 }
 
+// IssueByIdentifier resolves a human-readable ticket identifier (e.g. "AET-42")
+// to Linear's internal issue id, for callers (PostComment/Comments) that take
+// the internal id. The identifier is always sent as a GraphQL variable, never
+// concatenated into the query string, so it can't be used to inject into the
+// query.
+func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
+	const q = `query($id:String!){issue(id:$id){id}}`
+	var out struct {
+		Issue *struct {
+			ID string `json:"id"`
+		} `json:"issue"`
+	}
+	if err := c.do(ctx, q, map[string]any{"id": identifier}, &out); err != nil {
+		return "", err
+	}
+	if out.Issue == nil || out.Issue.ID == "" {
+		return "", fmt.Errorf("linear: no issue found for identifier %q", identifier)
+	}
+	return out.Issue.ID, nil
+}
+
 func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error) {
 	const q = `query($id:String!){issue(id:$id){comments{nodes{body user{displayName}}}}}`
 	var out struct {
