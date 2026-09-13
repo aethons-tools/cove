@@ -143,6 +143,16 @@ func TestAtCoveIdentityIncludesSwitchboard(t *testing.T) {
 	}
 }
 
+// TestAtCoveIdentityIncludesCoveMaster is a smoke check that AtCoveIdentity
+// computes cleanly now that it also hashes covemasterbin.BinFS() as a fourth
+// field (COV-158) — mirrors TestAtCoveIdentityIncludesSwitchboard above.
+func TestAtCoveIdentityIncludesCoveMaster(t *testing.T) {
+	id, err := AtCoveIdentity()
+	if err != nil || id == "" {
+		t.Fatalf("AtCoveIdentity: %q err=%v", id, err)
+	}
+}
+
 func TestAtCoveIdentityDeterministicAndNonEmpty(t *testing.T) {
 	id1, err := AtCoveIdentity()
 	if err != nil {
