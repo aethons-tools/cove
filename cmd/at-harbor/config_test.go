@@ -314,6 +314,7 @@ runtime:
     poll-interval: 45s
     wake-poll-interval: 15s
     wait-max: 24h
+    warm-timeout: 5m
     tracker-token:
       command: ["op", "read", "tracker-token"]
     linear:
@@ -333,7 +334,8 @@ runtime:
 		dc.MaxConcurrent != 3 ||
 		dc.PollInterval != "45s" ||
 		dc.WakePollInterval != "15s" ||
-		dc.WaitMax != "24h" {
+		dc.WaitMax != "24h" ||
+		dc.WarmTimeout != "5m" {
 		t.Fatalf("dispatcher config = %+v", dc)
 	}
 	if len(dc.TrackerToken.Command) != 3 || dc.TrackerToken.Command[0] != "op" {
