@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -734,20 +735,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup := harbor.NewSupervisor(st, placeholderLauncher{}, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
 
-	if cfg.Runtime.Listen != "" {
-		rsrv := attach.NewServer(st, sup, log)
-		sup.SetControlSink(rsrv)
-		gs := grpc.NewServer()
-		attachpb.RegisterRuntimeServer(gs, rsrv)
+	// Attach gRPC server: served on the cove-facing :443 mux below, and
+	// optionally on a plaintext dev listener (runtime.listen). One server, one
+	// ControlSink.
+	rsrv := attach.NewServer(st, sup, log)
+	sup.SetControlSink(rsrv)
+	gs := grpc.NewServer()
+	attachpb.RegisterRuntimeServer(gs, rsrv)
+
+	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
 		lis, err := net.Listen("tcp", cfg.Runtime.Listen)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
 		go func() {
-			log.Info("harbor runtime (Attach) listening", "addr", cfg.Runtime.Listen)
+			log.Info("harbor runtime (Attach) plaintext dev listener", "addr", cfg.Runtime.Listen)
 			if err := gs.Serve(lis); err != nil {
-				log.Error("runtime server stopped", "err", err.Error())
+				log.Error("runtime dev listener stopped", "err", err.Error())
 			}
 		}()
 	}
@@ -784,9 +789,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}()
 	}
 
-	srv := &http.Server{Addr: cfg.Listen, Handler: broker}
-	log.Info("harbor broker listening", "addr", cfg.Listen)
-	if err := srv.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key); err != nil {
+	// Cove-facing :443 listener: multiplex the broker (HTTP) and the Attach gRPC
+	// on one TLS port (content-type demux), so a hardened cove reaches both
+	// within its 443-only egress.
+	cert, err := tls.LoadX509KeyPair(cfg.TLS.Cert, cfg.TLS.Key)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	rawLis, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
+	log.Info("harbor broker+Attach listening (mux)", "addr", cfg.Listen)
+	if err := serveMux(rawLis, tlsCfg, gs, broker); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
