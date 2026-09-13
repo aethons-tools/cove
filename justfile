@@ -49,6 +49,19 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
+# regenerate the harbor Attach stream's gRPC code (internal/harbor/attach/attachpb)
+# from internal/harbor/attach/proto/attach.proto. Installs protoc-gen-go,
+# protoc-gen-go-grpc, and buf (pinned) into GOPATH/bin, then runs `buf generate`.
+# Generated files ARE committed — CI never regenerates.
+buf-gen:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export GOPROXY=https://proxy.golang.org GOSUMDB=off GOTOOLCHAIN=local
+    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+    go install github.com/bufbuild/buf/cmd/buf@v1.45.0
+    cd internal/harbor/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
+
 # adopt a published base image: resolve <tag> to its @sha256 index digest and pin
 # it in .at-cove/config.yml (image.base). Add --breaking to also raise the blessed
 # watermark, and --pr to branch+commit+open a PR. Needs GITHUB_TOKEN (read:packages).
