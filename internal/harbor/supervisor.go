@@ -166,9 +166,14 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		return fmt.Errorf("instance %q is gone", actorID)
 	}
 	now := s.now()
+	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
 	inst.Activity = a
 	inst.LastSeen = now
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
+	if enteringWaiting {
+		inst.WaitingSince = now
+		inst.WaitCursor = ""
+	}
 	if a == ActivityDone {
 		inst.Phase = PhaseTerminating
 	}
@@ -179,6 +184,18 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		return s.Teardown(ctx, actorID)
 	}
 	return nil
+}
+
+// SetWaitCursor persists an opaque wake-on baseline on the instance (used by the
+// wake-on engine to detect a new ticket comment). No-op semantics if the actor
+// is gone.
+func (s *Supervisor) SetWaitCursor(actorID, cursor string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.WaitCursor = cursor
+	return s.store.PutInstance(inst)
 }
 
 // Teardown tears the cove down and deregisters it: Launcher.Teardown, then

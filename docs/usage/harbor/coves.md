@@ -73,6 +73,9 @@ per ready ticket — not only by this manual `cove raise` verb.
 
 A raised cove's agent also gets a brokered [messaging MCP](messaging.md) — `read`/`send`
 on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
+A cove is no longer strictly one-shot: on `needs-input` it **suspends** (Activity `waiting`)
+and harbor **wakes** it to resume (`claude --continue`) when a reply lands on its ticket,
+bounded by `wait-max` — see [messaging.md](messaging.md#waiting-for-a-reply-wake-on).
 
 All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

@@ -32,8 +32,34 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 `/messages` is mounted when harbor has a tracker (Linear) configured — it reuses the same Linear client the [dispatcher](dispatcher.md) uses. With no tracker configured, the endpoint is not mounted (and a cove's `read`/`send` calls simply error).
 
+## Waiting for a reply (wake-on)
+
+A raised cove is no longer strictly one-shot. When its agent reports **`needs-input`**
+(typically after asking a question via `send`), the cove **suspends** — it reports
+Activity `waiting` and blocks instead of ending. Harbor's resident **wake-on engine**
+watches the cove's ticket and, when a **new comment** (a reply) arrives, **wakes** it
+over the Attach stream; the cove runs its next turn (`claude --continue`), `read`s the
+reply, and resumes. A **`wait-max`** bounds the wait — a cove with no reply within it is
+torn down (no zombies).
+
+Configure it under `runtime.dispatcher` (it reuses the tracker + Linear client):
+
+```yaml
+runtime:
+  dispatcher:
+    # …role / max-concurrent / linear as before…
+    wake-poll-interval: 15s   # how often harbor checks a waiting cove's ticket (default 15s)
+    wait-max: 24h             # max a cove may wait for a reply before teardown (default 30m)
+```
+
+The wake trigger this slice is **a new ticket comment** (detected as a comment-count
+increase past a baseline captured when the cove suspended — restart-safe). While waiting,
+the cove stays up (idle — claude isn't running between turns); freezing an idle cove with
+`docker pause` to reclaim CPU is the next slice.
+
 ## Not yet (later comms slices)
 
-- **B — wake-on suspend/resume:** the agent declares `exit { wake-on: messages | ticket-event | timer }`; harbor suspends the `Waiting` cove and wakes it (over the Attach stream) when a reply arrives — then `read` fetches it.
+- **B2 — container pause/unpause:** after a warm timeout, `docker pause` an idle cove (≈0 CPU) and `unpause` it to wake; an `Idled` state suspends lease-reaping.
+- **Explicit `wake-on` triggers:** `exit { wake-on: messages | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
 - **C — escalation:** Project on-call tiers (`category → ordered {actor|role|channel}` + per-tier timeout) and the comms access-graph that governs who an actor may message.
 - **Multi-channel** (Discord, generalizing the switchboard) and the symbolic `actor|role|channel` target space.

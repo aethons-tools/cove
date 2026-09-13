@@ -39,6 +39,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
 
@@ -818,6 +819,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup := harbor.NewSupervisor(st, lch, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
 
+	// Attach gRPC server: served on the cove-facing :443 mux below, and
+	// optionally on a plaintext dev listener (runtime.listen). One server, one
+	// ControlSink. Built here (ahead of the dispatcher block below) because the
+	// resident wake-on engine needs rsrv as its Waker.
+	rsrv := attach.NewServer(st, sup, log)
+	sup.SetControlSink(rsrv)
+	gs := grpc.NewServer()
+	attachpb.RegisterRuntimeServer(gs, rsrv)
+
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
 	// /messages route sharing the same *linear.Client as the resident
@@ -848,15 +858,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
 		httpHandler = messagesMux(msgH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
-	}
 
-	// Attach gRPC server: served on the cove-facing :443 mux below, and
-	// optionally on a plaintext dev listener (runtime.listen). One server, one
-	// ControlSink.
-	rsrv := attach.NewServer(st, sup, log)
-	sup.SetControlSink(rsrv)
-	gs := grpc.NewServer()
-	attachpb.RegisterRuntimeServer(gs, rsrv)
+		// Wake-on engine: watches Waiting instances' tickets (via the same
+		// tracker as the dispatcher) and Wakes them over the live Attach
+		// stream (rsrv, the ControlSink) on a new comment, or tears down
+		// past max-wait. Resident for the lifetime of the process.
+		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
+		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
+		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax}, log)
+		go eng.Run(context.Background())
+		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
+	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
 		lis, err := net.Listen("tcp", cfg.Runtime.Listen)
