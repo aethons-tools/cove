@@ -38,12 +38,18 @@ type OperatorAuthenticator interface {
 type LoopbackAuthenticator struct{}
 
 func (LoopbackAuthenticator) Authenticate(r *http.Request) (Operator, error) {
+	if !IsLoopbackRequest(r) {
+		return Operator{}, fmt.Errorf("admin request from non-loopback address %q", r.RemoteAddr)
+	}
+	return Operator{ID: "local"}, nil
+}
+
+// IsLoopbackRequest reports whether r originates from a loopback IP.
+func IsLoopbackRequest(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return Operator{}, fmt.Errorf("admin request from non-loopback address %q", r.RemoteAddr)
-	}
-	return Operator{ID: "local"}, nil
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

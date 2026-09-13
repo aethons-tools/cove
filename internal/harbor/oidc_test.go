@@ -130,3 +130,22 @@ func TestOIDCAuthenticatorRequireScope(t *testing.T) {
 		t.Fatal("token lacking required scope was accepted")
 	}
 }
+
+func TestVerifyTokenRawString(t *testing.T) {
+	f := newFakeOIDC(t)
+	auth, err := NewOIDCAuthenticator(context.Background(), f.url, testAud, "harbor:admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := f.mint(t, "RS256", f.kid, f.claims(testAud, "auth0|alice", "harbor:admin", time.Now().Add(time.Hour)), true)
+	op, err := auth.VerifyToken(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if op.ID != "auth0|alice" {
+		t.Errorf("op.ID = %q, want auth0|alice", op.ID)
+	}
+	if _, err := auth.VerifyToken(context.Background(), ""); err == nil {
+		t.Error("empty token should error")
+	}
+}
