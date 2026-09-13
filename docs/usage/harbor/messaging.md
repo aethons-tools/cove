@@ -40,7 +40,14 @@ Activity `waiting` and blocks instead of ending. Harbor's resident **wake-on eng
 watches the cove's ticket and, when a **new comment** (a reply) arrives, **wakes** it
 over the Attach stream; the cove runs its next turn (`claude --continue`), `read`s the
 reply, and resumes. A **`wait-max`** bounds the wait — a cove with no reply within it is
-torn down (no zombies).
+torn down (no zombies), paused or not.
+
+While waiting, a cove doesn't stay live-and-idle indefinitely: once it's been waiting
+past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0
+CPU) and moves it to the `idled` [phase](coves.md#the-model) — a paused, intentionally
+idle cove whose lease-reaping is suspended (see [coves.md](coves.md) for the phase
+chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
+on a subsequent tick once it's reconnected and reporting Live + `waiting` again.
 
 Configure it under `runtime.dispatcher` (it reuses the tracker + Linear client):
 
@@ -49,17 +56,15 @@ runtime:
   dispatcher:
     # …role / max-concurrent / linear as before…
     wake-poll-interval: 15s   # how often harbor checks a waiting cove's ticket (default 15s)
-    wait-max: 24h             # max a cove may wait for a reply before teardown (default 30m)
+    wait-max: 24h             # max a cove may wait for a reply before teardown, paused or not (default 30m)
+    warm-timeout: 5m          # how long a waiting cove stays live before it's paused (empty → default 60s)
 ```
 
 The wake trigger this slice is **a new ticket comment** (detected as a comment-count
-increase past a baseline captured when the cove suspended — restart-safe). While waiting,
-the cove stays up (idle — claude isn't running between turns); freezing an idle cove with
-`docker pause` to reclaim CPU is the next slice.
+increase past a baseline captured when the cove suspended — restart-safe).
 
 ## Not yet (later comms slices)
 
-- **B2 — container pause/unpause:** after a warm timeout, `docker pause` an idle cove (≈0 CPU) and `unpause` it to wake; an `Idled` state suspends lease-reaping.
 - **Explicit `wake-on` triggers:** `exit { wake-on: messages | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
 - **C — escalation:** Project on-call tiers (`category → ordered {actor|role|channel}` + per-tier timeout) and the comms access-graph that governs who an actor may message.
 - **Multi-channel** (Discord, generalizing the switchboard) and the symbolic `actor|role|channel` target space.
