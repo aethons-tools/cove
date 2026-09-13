@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -42,6 +43,10 @@ type serveConfig struct {
 			DeviceScope    string `yaml:"device-scope"`
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
+	Runtime struct {
+		LeaseTTL          string `yaml:"lease-ttl"`
+		ReconcileInterval string `yaml:"reconcile-interval"`
+	} `yaml:"runtime"`
 }
 
 // operatorLoginConfig builds the public device-flow client config harbor
@@ -144,6 +149,27 @@ func unknownServeKeys(data []byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// runtimeDurations resolves the supervisor's lease-ttl and reconcile-interval,
+// defaulting to 60s and 30s. reconcile-interval must be strictly less than
+// lease-ttl, so a live owner always renews before its own lease expires.
+func (c serveConfig) runtimeDurations() (ttl, reconcile time.Duration, err error) {
+	ttl, reconcile = 60*time.Second, 30*time.Second
+	if c.Runtime.LeaseTTL != "" {
+		if ttl, err = time.ParseDuration(c.Runtime.LeaseTTL); err != nil {
+			return 0, 0, fmt.Errorf("runtime.lease-ttl: %w", err)
+		}
+	}
+	if c.Runtime.ReconcileInterval != "" {
+		if reconcile, err = time.ParseDuration(c.Runtime.ReconcileInterval); err != nil {
+			return 0, 0, fmt.Errorf("runtime.reconcile-interval: %w", err)
+		}
+	}
+	if reconcile >= ttl {
+		return 0, 0, fmt.Errorf("runtime.reconcile-interval (%s) must be less than lease-ttl (%s)", reconcile, ttl)
+	}
+	return ttl, reconcile, nil
 }
 
 // parseServeConfig parses the serve config YAML.

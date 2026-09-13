@@ -4,7 +4,7 @@ read_when: You are running or administering a harbor service — standing it up,
 owns: the map of the at-harbor operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
 tier: section
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 # `at-harbor` — operating the central service
@@ -34,6 +34,7 @@ five pillars), see the design history:
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice. |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
+| [coves.md](coves.md) | You are raising/tearing down a managed cove, inspecting the runtime registry, or tuning the supervisor's lease/reconcile timing. |
 
 ## The shape of a working harbor
 
@@ -42,9 +43,11 @@ five pillars), see the design history:
 3. **Declare destinations + roles**, then **enroll** coves or grant roles to
    standing actors ([roster.md](roster.md)).
 4. **Register kits** a role can fulfil ([kits.md](kits.md)).
+5. **Raise managed coves** against a role and track them through the runtime
+   registry ([coves.md](coves.md)).
 
 Every admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
-`revoke`, `kit`) is a thin client of the running harbor's admin API: it takes
+`revoke`, `kit`, `cove`) is a thin client of the running harbor's admin API: it takes
 `--app`/`--admin-url` to pick the target and `--token` (or a cached login) to
 authenticate. That client story lives in [operators.md](operators.md); the
 per-verb detail lives in the three admin docs above.

@@ -45,6 +45,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
+			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -507,6 +508,84 @@ func readConfig(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor cove: expected raise|list|status|teardown")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("cove "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	id := fs.String("id", "", "cove/actor id")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role to raise the cove for")
+	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
+	activity := fs.String("activity", "", "reported activity: running|waiting|blocked|done (status only)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor cove:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "raise":
+		if *id == "" || *role == "" {
+			fmt.Fprintln(stderr, "at-harbor cove raise: --id and --role are required")
+			return 2
+		}
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "raised %s (phase=%s)\n", res.ID, res.Phase)
+	case "list":
+		coves, err := c.ListCoves()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, cv := range coves {
+			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\n",
+				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder)
+		}
+	case "status":
+		if *id == "" || *activity == "" {
+			fmt.Fprintln(stderr, "at-harbor cove status: --id and --activity are required")
+			return 2
+		}
+		if err := c.ReportCoveStatus(*id, *activity); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "reported %s activity=%s\n", *id, *activity)
+	case "teardown":
+		name := *id
+		if name == "" && len(pos) == 1 {
+			name = pos[0]
+		}
+		if name == "" {
+			fmt.Fprintln(stderr, "at-harbor cove teardown: --id (or a positional id) is required")
+			return 2
+		}
+		if err := c.TeardownCove(name); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "tore down", name)
+	default:
+		fmt.Fprintln(stderr, "at-harbor cove: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
 func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return grantCommon(args, stdout, stderr, false)
 }
@@ -584,6 +663,21 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// placeholderLauncher satisfies harbor.Launcher without a real backend: it
+// records a synthetic location and always probes Alive, so the supervisor spine
+// (registry, leases, reconciler, restart re-adoption) runs end-to-end against a
+// live `at-harbor serve`. `cove raise` against it creates a Live Instance with no
+// actual cove. The real backend+kit launcher lands in a later slice.
+type placeholderLauncher struct{}
+
+func (placeholderLauncher) Raise(_ context.Context, spec harbor.RaiseSpec) (string, error) {
+	return "placeholder:" + spec.ActorID, nil
+}
+func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
+func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
+	return harbor.LivenessAlive, nil
+}
+
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -627,6 +721,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	creds := harbor.NewSecretResolver(runner.OS{}, specs)
 	broker := harbor.NewBroker(st, creds, log)
 
+	ttl, reconcile, err := cfg.runtimeDurations()
+	if err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	sup := harbor.NewSupervisor(st, placeholderLauncher{}, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
+	go sup.Run(context.Background())
+
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {
 		var auth harbor.OperatorAuthenticator = harbor.LoopbackAuthenticator{}
@@ -642,7 +744,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		admin := harbor.NewAdminHandler(st, auth, credExists, cfg.operatorLoginConfig(), log)
+		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

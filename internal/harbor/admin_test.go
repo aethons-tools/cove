@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestAdmin(t *testing.T) (http.Handler, Store) {
@@ -20,7 +21,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return h, store
 }
 
@@ -159,7 +160,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
+	h := NewAdminHandler(store, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log)
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +211,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -233,7 +234,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := NewAdminHandler(store, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -392,4 +393,79 @@ func TestAdminRoleRejectsMissingKit(t *testing.T) {
 	if len(roles) != 1 || roles[0].Kit != "builder" {
 		t.Fatalf("role summary = %+v", roles)
 	}
+}
+
+func newTestAdminWithSupervisor(t *testing.T) (http.Handler, Store, *Supervisor) {
+	t.Helper()
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	sup := NewSupervisor(store, &fakeLauncher{liveness: LivenessAlive}, "holder-admin",
+		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	credExists := func(n string) bool { return true }
+	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return h, store, sup
+}
+
+func TestCoveRaiseListStatusTeardown(t *testing.T) {
+	h, store, _ := newTestAdminWithSupervisor(t)
+
+	// Raise.
+	rec := doJSON(t, h, "POST", "/admin/coves", CoveRaiseBody{ID: "w1", Role: "guest", Unit: "AET-9"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("raise code = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var res CoveRaiseResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Token == "" || res.Phase != string(PhaseLive) {
+		t.Fatalf("raise result = %+v", res)
+	}
+
+	// List — never leaks a token/hash.
+	var coves []CoveSummary
+	getJSON(t, h, "/admin/coves", &coves)
+	if len(coves) != 1 || coves[0].ID != "w1" || coves[0].Role != "guest" || coves[0].Unit != "AET-9" {
+		t.Fatalf("list = %+v", coves)
+	}
+	// The runtime summary must never carry identity secrets.
+	if body := string(mustJSON(t, coves)); strings.Contains(body, "token") || strings.Contains(body, "hash") {
+		t.Fatalf("cove summary leaks a secret field: %s", body)
+	}
+
+	// Status report.
+	if rc := doJSON(t, h, "POST", "/admin/coves/w1/status", CoveStatusBody{Activity: "waiting"}); rc.Code != http.StatusNoContent {
+		t.Fatalf("status code = %d body=%s", rc.Code, rc.Body.String())
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Activity != ActivityWaiting {
+		t.Fatalf("activity = %s", got.Activity)
+	}
+
+	// Bad activity → 400.
+	if rc := doJSON(t, h, "POST", "/admin/coves/w1/status", CoveStatusBody{Activity: "bogus"}); rc.Code != http.StatusBadRequest {
+		t.Fatalf("bad activity code = %d", rc.Code)
+	}
+
+	// Teardown.
+	if rc := doReq(t, h, "DELETE", "/admin/coves/w1", nil); rc.Code != http.StatusNoContent {
+		t.Fatalf("teardown code = %d", rc.Code)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("instance still present after teardown")
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -222,3 +222,37 @@ func (c *Client) PinKit(name string, version int) error {
 func (c *Client) RemoveKit(name string) error {
 	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }
+
+// CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from
+// the named role.
+type CoveRaiseParams struct {
+	ID      string
+	Project string
+	Role    string
+	Unit    string
+}
+
+// RaiseCove raises a managed cove for a role and returns its runtime result
+// (including the identity token, once).
+func (c *Client) RaiseCove(p CoveRaiseParams) (harbor.CoveRaiseResult, error) {
+	var res harbor.CoveRaiseResult
+	err := c.do("POST", "/admin/coves", harbor.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit}, &res)
+	return res, err
+}
+
+// ListCoves lists the managed-cove runtime registry (never a token or hash).
+func (c *Client) ListCoves() ([]harbor.CoveSummary, error) {
+	var out []harbor.CoveSummary
+	err := c.do("GET", "/admin/coves", nil, &out)
+	return out, err
+}
+
+// ReportCoveStatus reports a cove's activity (running|waiting|blocked|done).
+func (c *Client) ReportCoveStatus(id, activity string) error {
+	return c.do("POST", "/admin/coves/"+url.PathEscape(id)+"/status", harbor.CoveStatusBody{Activity: activity}, nil)
+}
+
+// TeardownCove tears a managed cove down and deregisters it.
+func (c *Client) TeardownCove(id string) error {
+	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
+}

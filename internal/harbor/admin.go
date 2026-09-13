@@ -99,6 +99,50 @@ type GrantBody struct {
 	Overrides *Override `json:"overrides,omitempty"`
 }
 
+// CoveRaiseBody is the POST /admin/coves request.
+type CoveRaiseBody struct {
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	Role    string `json:"role"`
+	Unit    string `json:"unit,omitempty"`
+}
+
+// CoveRaiseResult is the POST /admin/coves response — the identity token is
+// returned once (the launcher will consume it to connect the cove).
+type CoveRaiseResult struct {
+	ID       string `json:"id"`
+	Token    string `json:"token"`
+	Phase    string `json:"phase"`
+	Location string `json:"location,omitempty"`
+}
+
+// CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
+type CoveSummary struct {
+	ID          string    `json:"id"`
+	Project     string    `json:"project"`
+	Role        string    `json:"role"`
+	Unit        string    `json:"unit,omitempty"`
+	Phase       string    `json:"phase"`
+	Activity    string    `json:"activity,omitempty"`
+	LeaseHolder string    `json:"lease_holder"`
+	RaisedAt    time.Time `json:"raised_at"`
+	LastSeen    time.Time `json:"last_seen"`
+}
+
+// CoveStatusBody is the POST /admin/coves/{id}/status request.
+type CoveStatusBody struct {
+	Activity string `json:"activity"`
+}
+
+// parseActivity validates a cove-reported activity string.
+func parseActivity(s string) (Activity, bool) {
+	switch Activity(s) {
+	case ActivityRunning, ActivityWaiting, ActivityBlocked, ActivityDone:
+		return Activity(s), true
+	}
+	return "", false
+}
+
 // OperatorLoginConfig is the public device-flow client config harbor advertises
 // at GET /admin/login-config so `at-harbor login` can self-configure. Every field
 // is a public OAuth parameter — never a secret.
@@ -112,7 +156,7 @@ type OperatorLoginConfig struct {
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
-func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger) http.Handler {
+func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +406,72 @@ func NewAdminHandler(store Store, auth OperatorAuthenticator, credExists func(st
 			return
 		}
 		log.Info("admin kit removed", "operator", operatorID(r), "kit", name)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
+		var out []CoveSummary
+		for _, i := range store.ListInstances() {
+			out = append(out, CoveSummary{
+				ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
+				Phase: string(i.Phase), Activity: string(i.Activity),
+				LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("POST /admin/coves", func(w http.ResponseWriter, r *http.Request) {
+		if sup == nil {
+			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
+			return
+		}
+		var b CoveRaiseBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if b.ID == "" || b.Role == "" {
+			http.Error(w, "id and role are required", http.StatusBadRequest)
+			return
+		}
+		inst, tok, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin cove raised", "operator", operatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
+		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, Phase: string(inst.Phase), Location: inst.Location})
+	})
+	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
+		if sup == nil {
+			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
+			return
+		}
+		var b CoveStatusBody
+		if !decode(w, r, &b) {
+			return
+		}
+		act, ok := parseActivity(b.Activity)
+		if !ok {
+			http.Error(w, "activity must be one of running|waiting|blocked|done", http.StatusBadRequest)
+			return
+		}
+		if err := sup.Report(r.Context(), r.PathValue("id"), act); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin cove status", "operator", operatorID(r), "id", r.PathValue("id"), "activity", b.Activity)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /admin/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if sup == nil {
+			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if err := sup.Teardown(r.Context(), r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Info("admin cove torn down", "operator", operatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 

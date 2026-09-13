@@ -1,6 +1,7 @@
 package adminclient
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,13 +14,28 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor"
 )
 
+// aliveLauncher is a scripted harbor.Launcher for driving the cove routes in
+// this package's tests without a real backend. It always reports the instance
+// as alive and returns a synthetic location.
+type aliveLauncher struct{}
+
+func (aliveLauncher) Raise(context.Context, harbor.RaiseSpec) (string, error) { return "fake", nil }
+func (aliveLauncher) Teardown(context.Context, harbor.Instance) error         { return nil }
+func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
+	return harbor.LivenessAlive, nil
+}
+
 func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 	t.Helper()
 	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, sup, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -73,7 +89,7 @@ func TestClientLoginConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -257,5 +273,39 @@ func TestClientPutRoleCarriesKit(t *testing.T) {
 	}
 	if !strings.Contains(gotBody, `"kit":"builder"`) {
 		t.Fatalf("PutRole body missing kit: %s", gotBody)
+	}
+}
+
+func TestCoveClientRoundTrip(t *testing.T) {
+	srv, store := newServer(t) // existing helper: httptest server over a real admin handler
+	defer srv.Close()
+	// newServer must build the handler WITH a supervisor for cove routes — see note below.
+	c := New(srv.URL, "")
+
+	res, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest", Unit: "AET-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Token == "" || res.Phase != "live" {
+		t.Fatalf("raise result = %+v", res)
+	}
+	coves, err := c.ListCoves()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coves) != 1 || coves[0].ID != "w1" {
+		t.Fatalf("list = %+v", coves)
+	}
+	if err := c.ReportCoveStatus("w1", "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := store.GetInstance("w1"); inst.Activity != harbor.ActivityBlocked {
+		t.Fatalf("activity = %s", inst.Activity)
+	}
+	if err := c.TeardownCove("w1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("instance present after teardown")
 	}
 }

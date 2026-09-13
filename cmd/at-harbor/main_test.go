@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,17 +11,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
+
+// aliveLauncher is a trivial harbor.Launcher for CLI-level tests that need a
+// non-nil supervisor: it always raises successfully, reports the cove alive,
+// and tears down without error.
+type aliveLauncher struct{}
+
+func (aliveLauncher) Raise(_ context.Context, spec harbor.RaiseSpec) (string, error) {
+	return "fake:" + spec.ActorID, nil
+}
+func (aliveLauncher) Teardown(_ context.Context, _ harbor.Instance) error { return nil }
+func (aliveLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Liveness, error) {
+	return harbor.LivenessAlive, nil
+}
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -50,7 +65,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -87,7 +102,7 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -204,7 +219,7 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 
 func TestKitCommandsRoundTrip(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -313,5 +328,103 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "removed kit web") {
 		t.Fatalf("kit rm output missing expected text:\n%s", out.String())
+	}
+}
+
+// TestCoveCommandsRoundTrip exercises the `cove` verb group (raise|list|status|
+// teardown) end to end through the CLI entrypoint. Unlike the other CLI round
+// trips, cove's mutation routes need a live Supervisor (a nil sup 503s), so
+// this test wires one with a fake Launcher. It also pins down the "never
+// print the identity token" constraint on `cove raise`.
+func TestCoveCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("default", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := harbor.NewAdminHandler(store, sup, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// cove raise
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"cove", "raise", "--admin-url", ts.URL, "--id", "w1", "--role", "guest", "--unit", "AET-1",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove raise: exit=%d stderr=%s", code, errb.String())
+	}
+	// Only id+phase may be printed — proves the minted identity token never
+	// reaches stdout.
+	if out.String() != "raised w1 (phase=live)\n" {
+		t.Fatalf("cove raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
+	}
+
+	// cove list reflects the raised cove
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "w1") || !strings.Contains(out.String(), "role=guest") || !strings.Contains(out.String(), "phase=live") {
+		t.Fatalf("cove list output missing expected fields:\n%s", out.String())
+	}
+
+	// cove status
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"cove", "status", "--admin-url", ts.URL, "--id", "w1", "--activity", "waiting",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove status: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "reported w1 activity=waiting") {
+		t.Fatalf("cove status output missing expected text:\n%s", out.String())
+	}
+
+	// cove list reflects the reported activity
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove list (after status): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "activity=waiting") {
+		t.Fatalf("cove list output missing updated activity:\n%s", out.String())
+	}
+
+	// cove teardown
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "teardown", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove teardown: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "tore down w1") {
+		t.Fatalf("cove teardown output missing expected text:\n%s", out.String())
+	}
+
+	// cove list no longer shows the torn-down cove
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove list (after teardown): exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "w1") {
+		t.Fatalf("cove list still shows torn-down cove:\n%s", out.String())
+	}
+
+	// required-flag checks
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "raise", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("cove raise (no --role): exit=%d, want 2 (stderr=%s)", code, errb.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "status", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("cove status (no --activity): exit=%d, want 2 (stderr=%s)", code, errb.String())
 	}
 }
