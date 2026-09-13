@@ -1,7 +1,7 @@
 ---
-summary: The read-only harbor admin UI — a loopback-only, server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`.
-read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — without running admin CLI verbs.
-owns: the `/ui/` read-only observability surface (what it shows, how to reach it, its loopback-only exposure)
+summary: The read-only harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login.
+read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — without running admin CLI verbs, or you are configuring browser login for it.
+owns: the `/ui/` read-only observability surface (what it shows, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; INDEX.md for the service overview
 tier: leaf
 updated: 2026-09-13
@@ -25,18 +25,26 @@ It renders, all read-only:
   3 seconds** (htmx polling); no page reload.
 - **Roster / Roles / Kits / Destinations** — the control-plane objects as tables.
 
-## Exposure — loopback only (this cut)
+## Reaching the UI
 
-The UI is mounted **inside the same operator-auth gate as the admin API**, so its
-exposure is exactly the admin API's (see the fail-closed rule in
-[serve.md](serve.md#exposing-the-admin-api-fail-closed)):
+The UI has its own gate, separate from the JSON admin API's authenticator (see
+the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed)):
 
-- On a loopback `admin-listen`, the UI is reachable from the local host only. To
-  view it from your laptop against a remote harbor, SSH-tunnel the admin port.
-- Off-loopback, the gate requires an OIDC **bearer** token, which a browser does
-  not send — so the UI is **not** reachable from a remote browser yet. Browser
-  session sign-in is a later increment.
+- **Loopback** (local host, or an SSH tunnel to the admin port) — always
+  reachable, no login: the local operator is trusted. This holds whether or not
+  `operator-auth.oidc` is configured.
+- **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
+  browser is redirected through an OIDC **Authorization Code + PKCE** login
+  (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie
+  (the API access token; HttpOnly + Secure + SameSite=Lax) lets you browse until
+  it expires, then you re-login. `require-scope` is enforced on every request,
+  exactly as for the admin API. See [operators.md](operators.md).
+- **Off-loopback, without a `browser-client-id`** — the UI is refused. The
+  programmatic admin API is still reachable with a bearer token.
+
+Register `https://<your-harbor-host>/ui/auth/callback` in your IdP's Allowed
+Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
 
 The UI never renders a token, token hash, launch secret, or credential value, and
 adds **no mutation paths** — enroll/raise/teardown/edit stay on the
-[admin verbs](operators.md).
+[admin verbs](operators.md); the login routes never expose mutation.

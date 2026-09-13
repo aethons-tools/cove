@@ -28,8 +28,10 @@ operator-auth:
     issuer:   https://YOUR_TENANT.us.auth0.com/
     audience: https://harbor.example.com/admin
     require-scope: harbor:admin          # optional; matched against the token's scope/permissions
-    device-client-id: "…"                # the Native app's client id (for `login`)
+    device-client-id: "…"                # the Native app's client id (for CLI `login`)
     device-scope: "openid profile"       # optional device-flow scopes
+    browser-client-id: "…"               # optional; enables browser (Authorization Code + PKCE) login for /ui
+    browser-scope: "openid profile email" # optional; default shown, must include openid
 ```
 
 Harbor validates the bearer's signature, `iss`, `aud`, and `exp` via go-oidc, and
@@ -37,6 +39,12 @@ logs the operator `sub` on every mutation. `require-scope`, when set, is matched
 against the token's space-delimited `scope` **or** its `permissions[]` array (the
 latter needs Auth0 RBAC "Add Permissions in the Access Token" + the permission
 assigned to the user).
+
+`device-client-id` gates the CLI **device flow** (this doc). `browser-client-id`
+(a public SPA/Native client) gates **browser login for the read-only `/ui`** via
+Authorization Code + PKCE, reusing the same `issuer`/`audience`/`require-scope`;
+the browser session cookie holds the API access token and is re-verified per
+request just like a bearer. See [ui.md](ui.md#reaching-the-ui).
 
 **Auth0 app type matters:** `login` uses the OAuth 2.0 **device flow**, which
 requires a **Native** application with the **Device Code** grant enabled — *not* a
