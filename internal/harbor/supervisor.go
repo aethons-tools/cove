@@ -173,6 +173,15 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		if inst.Phase == PhaseGone {
 			continue
 		}
+		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
+			// An instance already mid-teardown (Done reported, or reconciler-
+			// declared Lost) must be finished, never renewed or adopted. Resume
+			// teardown idempotently regardless of lease state.
+			if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
+				s.log.Warn("reconcile resume-teardown failed", "id", inst.ActorID, "err", err.Error())
+			}
+			continue
+		}
 		if inst.Lease.Expiry.After(now) {
 			if inst.Lease.Holder == s.holder {
 				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease

@@ -307,6 +307,76 @@ func TestRestartReadoptsLiveInstances(t *testing.T) {
 	}
 }
 
+// TestReconcileResumesTerminating proves that an instance persisted in
+// PhaseTerminating or PhaseLost (e.g. Report(Done) or a prior Teardown that
+// marked Terminating then crashed before RemoveInstance) is always finished by
+// Reconcile — never renewed or adopted — regardless of lease state. This
+// covers the worst case (lease still unexpired, held by self) as well as the
+// expired-lease case.
+func TestReconcileResumesTerminating(t *testing.T) {
+	t.Run("unexpired lease", func(t *testing.T) {
+		f := &fakeLauncher{liveness: LivenessAlive}
+		sup, store, _ := supTestKit(t, f)
+		sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+
+		// Simulate a persisted-Terminating crash state: Done was reported (or a
+		// Teardown got partway through) but RemoveInstance never ran. The lease
+		// is left exactly as Raise set it — unexpired, held by us.
+		inst, ok := store.GetInstance("w1")
+		if !ok {
+			t.Fatal("expected instance after raise")
+		}
+		inst.Phase = PhaseTerminating
+		if err := store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := sup.Reconcile(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, ok := store.GetInstance("w1"); ok {
+			t.Fatal("Terminating instance must be torn down by Reconcile, not renewed/adopted")
+		}
+		if len(store.ListActors()) != 0 {
+			t.Fatal("resumed teardown must revoke the identity")
+		}
+		if len(f.tornDown) != 1 || f.tornDown[0] != "w1" {
+			t.Fatalf("launcher teardown not called: %+v", f.tornDown)
+		}
+	})
+
+	t.Run("expired lease", func(t *testing.T) {
+		f := &fakeLauncher{liveness: LivenessAlive}
+		sup, store, clk := supTestKit(t, f)
+		sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+
+		inst, ok := store.GetInstance("w1")
+		if !ok {
+			t.Fatal("expected instance after raise")
+		}
+		inst.Phase = PhaseLost
+		if err := store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		*clk = clk.Add(2 * time.Minute) // lease (60s) now expired
+
+		if err := sup.Reconcile(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, ok := store.GetInstance("w1"); ok {
+			t.Fatal("Lost instance must be torn down by Reconcile even with an expired lease")
+		}
+		if len(store.ListActors()) != 0 {
+			t.Fatal("resumed teardown must revoke the identity")
+		}
+		if len(f.tornDown) != 1 || f.tornDown[0] != "w1" {
+			t.Fatalf("launcher teardown not called: %+v", f.tornDown)
+		}
+	})
+}
+
 func TestRunStartsAndStops(t *testing.T) {
 	sup, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	ctx, cancel := context.WithCancel(context.Background())
