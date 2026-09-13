@@ -12,15 +12,20 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
+	"github.com/aethons-tools/cove/internal/harbor/attach"
+	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -728,6 +733,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	sup := harbor.NewSupervisor(st, placeholderLauncher{}, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
+
+	if cfg.Runtime.Listen != "" {
+		rsrv := attach.NewServer(st, sup, log)
+		sup.SetControlSink(rsrv)
+		gs := grpc.NewServer()
+		attachpb.RegisterRuntimeServer(gs, rsrv)
+		lis, err := net.Listen("tcp", cfg.Runtime.Listen)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		go func() {
+			log.Info("harbor runtime (Attach) listening", "addr", cfg.Runtime.Listen)
+			if err := gs.Serve(lis); err != nil {
+				log.Error("runtime server stopped", "err", err.Error())
+			}
+		}()
+	}
 
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {

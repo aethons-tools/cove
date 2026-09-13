@@ -201,3 +201,17 @@ func TestRuntimeIsAKnownServeKey(t *testing.T) {
 		t.Fatalf("unknown keys = %v, want none", got)
 	}
 }
+
+func TestRuntimeListenParsed(t *testing.T) {
+	c, err := parseServeConfig([]byte("runtime:\n  listen: 127.0.0.1:9090\n  lease-ttl: 1m\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Runtime.Listen != "127.0.0.1:9090" {
+		t.Fatalf("runtime.listen = %q", c.Runtime.Listen)
+	}
+	// runtime is still a known key (no unknown-key warning).
+	if got := unknownServeKeys([]byte("runtime:\n  listen: :9090\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v", got)
+	}
+}
