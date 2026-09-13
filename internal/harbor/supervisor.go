@@ -46,6 +46,8 @@ type Launcher interface {
 	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
 	Teardown(ctx context.Context, inst Instance) error
 	Probe(ctx context.Context, inst Instance) (Liveness, error)
+	Pause(ctx context.Context, inst Instance) error
+	Unpause(ctx context.Context, inst Instance) error
 }
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
@@ -198,6 +200,40 @@ func (s *Supervisor) SetWaitCursor(actorID, cursor string) error {
 	return s.store.PutInstance(inst)
 }
 
+// Idle pauses a live cove (Launcher.Pause — e.g. docker pause) and marks it
+// PhaseIdled. A paused cove can't heartbeat or be probed, so Reconcile must
+// skip Idled instances (see Reconcile) rather than treating the now-frozen
+// lease as an abandoned/dead instance. Ownership: only the supervisor (via the
+// wake-on engine calling Idle/Resume) ever pauses a cove — never the
+// Launcher/backend directly.
+func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("idle: no live instance for %q", actorID)
+	}
+	if err := s.launcher.Pause(ctx, inst); err != nil {
+		return err
+	}
+	inst.Phase = PhaseIdled
+	return s.store.PutInstance(inst)
+}
+
+// Resume unpauses a previously Idled cove (Launcher.Unpause) and marks it
+// PhaseLive again, resetting WaitingSince to now so the wake-on engine's
+// retry-wake window starts fresh.
+func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("resume: no live instance for %q", actorID)
+	}
+	if err := s.launcher.Unpause(ctx, inst); err != nil {
+		return err
+	}
+	inst.Phase = PhaseLive
+	inst.WaitingSince = s.now()
+	return s.store.PutInstance(inst)
+}
+
 // Teardown tears the cove down and deregisters it: Launcher.Teardown, then
 // revoke the identity, then remove the Instance. Revoke-before-deregister so a
 // failed revoke leaves the Instance in place and the whole teardown is
@@ -240,6 +276,9 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 	for _, inst := range s.store.ListInstances() {
 		if inst.Phase == PhaseGone {
 			continue
+		}
+		if inst.Phase == PhaseIdled {
+			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
 		}
 		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
 			// An instance already mid-teardown (Done reported, or reconciler-

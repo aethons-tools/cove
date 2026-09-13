@@ -27,7 +27,11 @@ grants) and a runtime **Instance** keyed by that actor's id. The Instance carrie
 two status fields with different owners:
 
 - **Phase** (harbor owns it): `raising → live → terminating → gone`, or
-  `→ lost → terminating` when the reconciler finds it dead.
+  `→ lost → terminating` when the reconciler finds it dead. A `live` cove
+  waiting for a reply can also go `→ idled` — paused (`docker pause`), with
+  lease-reaping suspended — and back `→ live` on reply or teardown past
+  `wait-max`; see [messaging.md](messaging.md#waiting-for-a-reply-wake-on) for
+  the wake-on/pause mechanics.
 - **Activity** (the cove reports it, only while `live`): `running | waiting |
   blocked | done`. Reporting `done` tells harbor to tear the cove down.
 

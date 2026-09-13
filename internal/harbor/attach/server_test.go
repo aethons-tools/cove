@@ -30,6 +30,8 @@ func (aliveLauncher) Teardown(context.Context, harbor.Instance) error { return n
 func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }
+func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
+func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
 // harness raises one instance and starts an in-memory Attach server. Returns the
 // store, supervisor, server, a dial func, and the raised actor's token + launch secret.

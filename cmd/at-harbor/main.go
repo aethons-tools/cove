@@ -703,6 +703,8 @@ func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { re
 func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }
+func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
+func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
 // linearCommenter adapts *linear.Client to harbor.Commenter. It exists here,
 // rather than in internal/harbor, so harbor core never imports
@@ -865,7 +867,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// past max-wait. Resident for the lifetime of the process.
 		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
 		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
-		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax}, log)
+		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
+		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, sup /*Idler*/, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
 		go eng.Run(context.Background())
 		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
 	}

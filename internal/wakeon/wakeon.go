@@ -26,35 +26,48 @@ type Commenter interface {
 	Comments(ctx context.Context, issueID string) ([]harbor.Comment, error)
 }
 
-type Config struct{ PollInterval, MaxWait time.Duration }
+// Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
+// Backed by the supervisor's Idle/Resume — never the Launcher/backend
+// directly (see internal/harbor.Supervisor.Idle/Resume).
+type Idler interface {
+	Idle(ctx context.Context, actorID string) error
+	Resume(ctx context.Context, actorID string) error
+}
+
+type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
 	defaultPollInterval = 15 * time.Second
 	defaultMaxWait      = 30 * time.Minute
+	defaultWarmTimeout  = 60 * time.Second
 )
 
 type Engine struct {
-	reg  Registry
-	cur  Cursors
-	wake Waker
-	reap Reaper
-	cmt  Commenter
-	cfg  Config
-	now  func() time.Time
-	log  *slog.Logger
+	reg   Registry
+	cur   Cursors
+	wake  Waker
+	reap  Reaper
+	idler Idler
+	cmt   Commenter
+	cfg   Config
+	now   func() time.Time
+	log   *slog.Logger
 }
 
-func New(reg Registry, cur Cursors, wake Waker, reap Reaper, cmt Commenter, cfg Config, log *slog.Logger) *Engine {
+func New(reg Registry, cur Cursors, wake Waker, reap Reaper, idler Idler, cmt Commenter, cfg Config, log *slog.Logger) *Engine {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
 	if cfg.MaxWait <= 0 {
 		cfg.MaxWait = defaultMaxWait
 	}
+	if cfg.WarmTimeout <= 0 {
+		cfg.WarmTimeout = defaultWarmTimeout
+	}
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Engine{reg, cur, wake, reap, cmt, cfg, time.Now, log}
+	return &Engine{reg, cur, wake, reap, idler, cmt, cfg, time.Now, log}
 }
 
 func (e *Engine) Run(ctx context.Context) {
@@ -100,9 +113,23 @@ func (e *Engine) tick(ctx context.Context) {
 			continue
 		}
 		base, _ := strconv.Atoi(inst.WaitCursor)
-		if n > base {
+		if n > base { // a reply arrived
+			if inst.Phase == harbor.PhaseIdled {
+				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
+					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
+				}
+				// Wake is sent on a later tick, once it's Live+Waiting and the stream has reconnected.
+				continue
+			}
 			e.log.Info("wakeon: reply detected, waking", "actor", inst.ActorID)
 			e.wake.Wake(inst.ActorID)
+			continue
+		}
+		// no reply
+		if inst.Phase != harbor.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout {
+			if err := e.idler.Idle(ctx, inst.ActorID); err != nil {
+				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
+			}
 		}
 	}
 }

@@ -29,6 +29,8 @@ func (aliveLauncher) Teardown(context.Context, harbor.Instance) error { return n
 func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }
+func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
+func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
 // serverHarness raises one instance and starts an in-memory attach server.
 // Returns the store, the attach server, a DialOption that reaches it, and the

@@ -29,6 +29,8 @@ func (aliveLauncher) Teardown(_ context.Context, _ harbor.Instance) error { retu
 func (aliveLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }
+func (aliveLauncher) Pause(_ context.Context, _ harbor.Instance) error   { return nil }
+func (aliveLauncher) Unpause(_ context.Context, _ harbor.Instance) error { return nil }
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))

@@ -158,6 +158,8 @@ type DispatchOps interface {
 	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
+	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
+	Unpause(name string) error         // docker unpause; thaw it
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
 	// exceeds olderThan. Returns the count removed.
 	ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error)
