@@ -13,6 +13,12 @@ import (
 
 const defaultGrace = 10 * time.Second
 
+// mcpConfigPath is the baked-in MCP config (internal/assemble/hardening/
+// image-files/etc/claude-code/mcp.json) that gives claude -p the harbor
+// messaging tools. --strict-mcp-config keeps claude from also picking up any
+// project/user-level MCP config.
+const mcpConfigPath = "/etc/claude-code/mcp.json"
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
@@ -49,7 +55,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 // Activity stream. Returning nil or an error both lead the client to report
 // Done; a nil error means the unit completed cleanly.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
-	args := []string{"-p", "--dangerously-skip-permissions", w.cfg.Prompt}
+	args := []string{"-p", "--dangerously-skip-permissions", "--mcp-config", mcpConfigPath, "--strict-mcp-config", w.cfg.Prompt}
 	proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir)
 	if err != nil {
 		return fmt.Errorf("agentrun: start claude: %w", err)

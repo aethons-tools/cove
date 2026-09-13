@@ -71,6 +71,9 @@ Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `cove raise` verb.
 
+A raised cove's agent also gets a brokered [messaging MCP](messaging.md) — `read`/`send`
+on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
+
 All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
 

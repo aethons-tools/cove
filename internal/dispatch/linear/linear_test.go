@@ -259,6 +259,54 @@ func TestListInProgressParsesStartedAtAndSkipsUnparseable(t *testing.T) {
 	}
 }
 
+func TestIssueByIdentifierSendsIdentifierAsVariable(t *testing.T) {
+	const resp = `{"data":{"issue":{"id":"i-internal-42"}}}`
+	var body map[string]any
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		return jsonResp(resp), nil
+	})
+	got, err := c.IssueByIdentifier(context.Background(), "AET-42")
+	if err != nil {
+		t.Fatalf("IssueByIdentifier: %v", err)
+	}
+	if got != "i-internal-42" {
+		t.Fatalf("IssueByIdentifier = %q; want i-internal-42", got)
+	}
+	q, _ := body["query"].(string)
+	vars, _ := body["variables"].(map[string]any)
+	if strings.Contains(q, "AET-42") {
+		t.Fatalf("identifier was concatenated into the query string: %s", q)
+	}
+	if vars["id"] != "AET-42" {
+		t.Fatalf("variables = %v; want id=AET-42 passed as a GraphQL variable", vars)
+	}
+}
+
+func TestIssueByIdentifierNotFound(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil
+		}
+		return jsonResp(`{"data":{"issue":null}}`), nil
+	})
+	_, err := c.IssueByIdentifier(context.Background(), "AET-999")
+	if err == nil {
+		t.Fatalf("IssueByIdentifier: want error for not-found identifier, got nil")
+	}
+	if !strings.Contains(err.Error(), "AET-999") {
+		t.Fatalf("error = %v; want it to mention the identifier AET-999", err)
+	}
+}
+
 func TestCommentsParsesThread(t *testing.T) {
 	const resp = `{"data":{"issue":{"comments":{"nodes":[
 	 {"body":"hi","user":{"displayName":"brent"}},
