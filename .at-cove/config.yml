@@ -76,6 +76,7 @@ image:
     # Go dependencies
     - gopkg.in
     - proxy.golang.org
+    - storage.googleapis.com
     # Go toolchain download (GOTOOLCHAIN auto-fetch; agent Go (re)install)
     - go.dev
     - dl.google.com
