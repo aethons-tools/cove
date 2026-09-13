@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
-
-	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
 func TestBuildConfigRequiresEnv(t *testing.T) {
@@ -35,20 +33,50 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	}
 }
 
-func TestStubWorkloadRunReturnsOnCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	w := stubWorkload{}
-	done := make(chan error, 1)
-	go func() { done <- w.Run(ctx, noopHandle{}) }()
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("stub Run did not return on ctx cancel")
+func TestBuildAgentConfig(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte("do the work"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	w.Control(covemaster.Control{Kind: covemaster.Teardown}) // must not panic
+
+	t.Run("missing prompt file env", func(t *testing.T) {
+		_, err := buildAgentConfig(func(k string) string { return "" })
+		if err == nil {
+			t.Fatal("want error when AT_COVE_AGENT_PROMPT_FILE unset")
+		}
+	})
+
+	t.Run("unreadable prompt file", func(t *testing.T) {
+		env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": filepath.Join(dir, "nope.txt")}
+		_, err := buildAgentConfig(func(k string) string { return env[k] })
+		if err == nil {
+			t.Fatal("want error when prompt file is unreadable")
+		}
+	})
+
+	t.Run("defaults workdir, reads prompt", func(t *testing.T) {
+		env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": promptPath}
+		cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+		if err != nil {
+			t.Fatalf("buildAgentConfig: %v", err)
+		}
+		if cfg.WorkDir != "/home/agent/workspace" {
+			t.Errorf("WorkDir default: got %q", cfg.WorkDir)
+		}
+		if cfg.Prompt != "do the work" {
+			t.Errorf("Prompt: got %q", cfg.Prompt)
+		}
+	})
+
+	t.Run("explicit workdir honored", func(t *testing.T) {
+		env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": promptPath, "AT_COVE_WORKDIR": "/tmp/work"}
+		cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+		if err != nil {
+			t.Fatalf("buildAgentConfig: %v", err)
+		}
+		if cfg.WorkDir != "/tmp/work" {
+			t.Errorf("WorkDir: got %q", cfg.WorkDir)
+		}
+	})
 }
-
-type noopHandle struct{}
-
-func (noopHandle) Report(covemaster.Activity) {}

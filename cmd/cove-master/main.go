@@ -1,12 +1,14 @@
 // Command cove-master is the in-cove primary process (first limb): it connects to
-// harbor's Attach stream and supervises the cove's workload. This slice ships a
-// stub workload; the real agent wrapper — and cove-master becoming the image
-// entrypoint in its own non-root account — are later slices. It reads its
+// harbor's Attach stream and supervises the cove's workload — now the real agent
+// wrapper, running claude `-p` as a headless one-shot. cove-master becoming the
+// image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
 //
 //	AT_HARBOR_RUNTIME_ADDR   harbor's runtime (Attach) listener, host:port
 //	AT_HARBOR_IDENTITY_TOKEN the cove's identity token
 //	AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret
+//	AT_COVE_WORKDIR          the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
+//	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 package main
 
 import (
@@ -20,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/aethons-tools/cove/internal/agentrun"
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
@@ -42,19 +45,20 @@ func buildConfig(getenv func(string) string) (covemaster.Config, error) {
 	}, nil
 }
 
-// stubWorkload is the placeholder supervised unit for this slice: it reports
-// Running and waits for teardown. The real agent wrapper replaces it next slice.
-type stubWorkload struct{ log *slog.Logger }
-
-func (s stubWorkload) Run(ctx context.Context, h covemaster.Handle) error {
-	h.Report(covemaster.Running)
-	<-ctx.Done()
-	return ctx.Err()
-}
-func (s stubWorkload) Control(c covemaster.Control) {
-	if s.log != nil {
-		s.log.Info("control", "kind", c.Kind)
+func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
+	workdir := getenv("AT_COVE_WORKDIR")
+	if workdir == "" {
+		workdir = "/home/agent/workspace"
 	}
+	promptFile := getenv("AT_COVE_AGENT_PROMPT_FILE")
+	if promptFile == "" {
+		return agentrun.Config{}, fmt.Errorf("AT_COVE_AGENT_PROMPT_FILE is required")
+	}
+	prompt, err := os.ReadFile(promptFile)
+	if err != nil {
+		return agentrun.Config{}, fmt.Errorf("reading AT_COVE_AGENT_PROMPT_FILE: %w", err)
+	}
+	return agentrun.Config{WorkDir: workdir, Prompt: string(prompt)}, nil
 }
 
 func run(getenv func(string) string, stderr *os.File) int {
@@ -64,9 +68,14 @@ func run(getenv func(string) string, stderr *os.File) int {
 		fmt.Fprintln(stderr, "cove-master:", err)
 		return 2
 	}
+	agentCfg, err := buildAgentConfig(getenv)
+	if err != nil {
+		fmt.Fprintln(stderr, "cove-master:", err)
+		return 2
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := covemaster.New(cfg, log).Run(ctx, stubWorkload{log: log}); err != nil {
+	if err := covemaster.New(cfg, log).Run(ctx, agentrun.New(agentCfg, log)); err != nil {
 		fmt.Fprintln(stderr, "cove-master:", err)
 		return 1
 	}
