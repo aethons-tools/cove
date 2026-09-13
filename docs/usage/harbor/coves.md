@@ -14,9 +14,11 @@ Worker or standing Manager — and drives their lifecycle: raise → record → 
 status → tear down, self-healing across harbor restarts. This is the spine the
 resident dispatcher and standing teammates build on.
 
-> **This slice is the spine.** `at-harbor serve` wires a **placeholder launcher**:
-> `cove raise` records a live registry entry but does **not** start a real cove
-> yet. Raising coves on a real backend is a later slice.
+> With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
+> `cove raise` starts a **real** cove on the Colima backend (see [Raising a real
+> managed cove](#raising-a-real-managed-cove)). Without it, `at-harbor serve` uses
+> a **placeholder launcher** that records a live registry entry but starts no cove
+> — useful for exercising the registry/supervisor in dev and tests.
 
 ## The model
 
@@ -37,7 +39,7 @@ instead of abandoning them — so in-progress work survives a restart.
 ## The `cove` verbs
 
 ```
-at-harbor cove raise    --id spider-42 --role guest [--project acme] [--unit AET-9]
+at-harbor cove raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
 at-harbor cove list     # id  role  unit  phase  activity  lease-holder
 at-harbor cove status   --id spider-42 --activity waiting
 at-harbor cove teardown --id spider-42
@@ -45,9 +47,25 @@ at-harbor cove teardown --id spider-42
 
 - `cove raise` enrolls the identity (the role must exist — fail-closed) and
   records a `live` Instance. The role supplies scope, exactly as with
-  [enroll](roster.md).
+  [enroll](roster.md). `--prompt-file` supplies the workload prompt (read
+  host-side, never on argv) — required by the real launcher; see below.
 - `cove status` reports the cove's activity; `--activity done` triggers teardown.
 - `cove teardown` tears the cove down and revokes its identity (idempotent).
+
+### Raising a real managed cove
+
+With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
+`cove raise --prompt-file <f>` runs the whole lifecycle end to end: harbor starts a
+Colima cove from the configured image, injects the agent connector (Anthropic + git
+through harbor) plus the cove-master env + your prompt over SSH, and starts
+`cove-master`, which runs `claude -p` on the prompt. The cove reports
+`running` → `done` over the [Attach stream](#the-attach-stream), and the supervisor
+tears it down when the agent finishes (or on `error`/`needs-input`, which report a
+brief `waiting` first). The **role must grant the `anthropic` and `git`
+destinations** for the agent to reach them. This validates the managed-cove
+lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
+dispatcher. Without a `runtime.launcher`, `raise` records a placeholder Instance only
+(no real cove).
 
 All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

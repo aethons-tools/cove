@@ -47,6 +47,14 @@ runtime:                            # optional — supervisor lease/reconcile ti
   lease-ttl: 60s
   reconcile-interval: 30s           # must be < lease-ttl
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
+  launcher:                         # optional — enables the real Colima cove launcher
+    install-manifest: /etc/harbor/install.json  # → the pre-built image (Image + ImageDigest)
+    runtime-addr: harbor.example.com:443        # what a raised cove dials (AT_HARBOR_RUNTIME_ADDR)
+    harbor-host: harbor.example.com             # added to the cove's /etc/hosts; connector base host
+    identity-file: /var/lib/harbor/at-cove/id_ed25519  # SSH key matching the image's baked authorized_keys
+    known-hosts-dir: /var/lib/harbor/known_hosts.d
+    dns: []
+    docker: false
 ```
 
 The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and the
@@ -68,6 +76,24 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
+| `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
+
+### The launcher (`runtime.launcher`)
+
+With a `launcher` block, `at-harbor cove raise` starts a **real** cove on the Colima
+backend from the pre-built image named by `install-manifest` (the frozen
+`install.json` an `at-cove install` produced — its `Image` + `ImageDigest`),
+injects the connector + prompt over SSH, and starts `cove-master` in it. The cove
+dials harbor's Attach stream at `runtime-addr` (`harbor.host:443`) through its own
+squid proxy; `harbor-host` is added to the cove's `/etc/hosts` so that name resolves
+to the host gateway.
+
+**Deployment constraint:** harbor must be given the **same SSH key** that
+`at-cove install` baked into the image's `authorized_keys` — point `identity-file`
+at that private key (it defaults to `~/.config/at-cove/id_ed25519`, the at-cove
+default). A key harbor generates fresh would not be authorized by the image. Harbor
+must also reach the Colima backend (run it where `docker`/Colima is available). Omit
+the whole block to keep the placeholder launcher (dev/tests).
 
 ## The broker model
 

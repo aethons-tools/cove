@@ -1,6 +1,9 @@
 package naming
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Image is kit-scoped and carries no class — every collaborator of a kit shares
 // one image.
@@ -76,6 +79,18 @@ func TestShadowVolume(t *testing.T) {
 		if got := ShadowVolume(collab, dir); got != want {
 			t.Errorf("ShadowVolume(%q) = %q, want %q", dir, got, want)
 		}
+	}
+}
+
+// CoveContainer names a managed cove's container from its actor id, sanitizing
+// any docker-unsafe characters so the name is always valid.
+func TestCoveContainer(t *testing.T) {
+	if got := CoveContainer("w1"); got != "atcove-cove-w1" {
+		t.Fatalf("CoveContainer = %q, want atcove-cove-w1", got)
+	}
+	// Unsafe chars are sanitized to a docker-safe name.
+	if got := CoveContainer("proj/worker@1"); strings.ContainsAny(got, "/@") {
+		t.Fatalf("CoveContainer left unsafe chars: %q", got)
 	}
 }
 

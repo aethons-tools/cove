@@ -19,9 +19,12 @@ type fakeLauncher struct {
 	probeErr    error
 	raised      []string
 	tornDown    []string
+	gotSpec     RaiseSpec
+	gotCreds    LaunchCreds
 }
 
-func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec) (string, error) {
+func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
+	f.gotSpec, f.gotCreds = spec, creds
 	if f.raiseErr != nil {
 		return "", f.raiseErr
 	}
@@ -375,6 +378,21 @@ func TestReconcileResumesTerminating(t *testing.T) {
 			t.Fatalf("launcher teardown not called: %+v", f.tornDown)
 		}
 	})
+}
+
+func TestRaisePassesCredsToLauncher(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, _, _ := supTestKit(t, fl)
+	_, tok, secret, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Prompt: "do it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fl.gotCreds.IdentityToken != tok || fl.gotCreds.LaunchSecret != secret {
+		t.Fatalf("launcher creds = %+v, want token=%q secret=%q", fl.gotCreds, tok, secret)
+	}
+	if fl.gotSpec.Prompt != "do it" {
+		t.Fatalf("launcher spec.Prompt = %q, want %q", fl.gotSpec.Prompt, "do it")
+	}
 }
 
 func TestRunStartsAndStops(t *testing.T) {

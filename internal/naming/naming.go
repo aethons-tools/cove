@@ -70,6 +70,20 @@ func ShadowVolume(container, dir string) string {
 	return container + "-shadow-" + SanitizeShadowDir(dir)
 }
 
+// CoveContainer names a managed cove's container from its actor id: atcove-cove-<id>,
+// with any docker-unsafe characters replaced by '-' so the name is always valid.
+func CoveContainer(actorID string) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, actorID)
+	return prefix + "-cove-" + safe
+}
+
 // WorkerContainer names an ephemeral `at-cove work` container. It carries the
 // atcove- prefix like every other resource, plus a pid+nanotime suffix so
 // concurrent dispatches of one kit (even from separate processes) never collide.

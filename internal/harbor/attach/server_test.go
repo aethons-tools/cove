@@ -23,8 +23,10 @@ import (
 // aliveLauncher is a no-backend launcher for the supervisor under test.
 type aliveLauncher struct{}
 
-func (aliveLauncher) Raise(context.Context, harbor.RaiseSpec) (string, error) { return "fake", nil }
-func (aliveLauncher) Teardown(context.Context, harbor.Instance) error         { return nil }
+func (aliveLauncher) Raise(context.Context, harbor.RaiseSpec, harbor.LaunchCreds) (string, error) {
+	return "fake", nil
+}
+func (aliveLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
 func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
 	return harbor.LivenessAlive, nil
 }

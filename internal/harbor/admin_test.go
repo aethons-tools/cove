@@ -397,6 +397,12 @@ func TestAdminRoleRejectsMissingKit(t *testing.T) {
 
 func newTestAdminWithSupervisor(t *testing.T) (http.Handler, Store, *Supervisor) {
 	t.Helper()
+	h, store, sup, _ := newTestAdminWithSupervisorAndLauncher(t)
+	return h, store, sup
+}
+
+func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *Supervisor, *fakeLauncher) {
+	t.Helper()
 	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -404,11 +410,12 @@ func newTestAdminWithSupervisor(t *testing.T) (http.Handler, Store, *Supervisor)
 	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	sup := NewSupervisor(store, &fakeLauncher{liveness: LivenessAlive}, "holder-admin",
+	launcher := &fakeLauncher{liveness: LivenessAlive}
+	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
 	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return h, store, sup
+	return h, store, sup, launcher
 }
 
 func TestCoveRaiseListStatusTeardown(t *testing.T) {
@@ -458,6 +465,18 @@ func TestCoveRaiseListStatusTeardown(t *testing.T) {
 	}
 	if _, ok := store.GetInstance("w1"); ok {
 		t.Fatal("instance still present after teardown")
+	}
+}
+
+func TestCoveRaisePassesPromptToLauncher(t *testing.T) {
+	h, _, _, launcher := newTestAdminWithSupervisorAndLauncher(t)
+
+	rec := doJSON(t, h, "POST", "/admin/coves", CoveRaiseBody{ID: "w1", Role: "guest", Prompt: "do the thing"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("raise code = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if launcher.gotSpec.Prompt != "do the thing" {
+		t.Fatalf("launcher got prompt = %q, want %q", launcher.gotSpec.Prompt, "do the thing")
 	}
 }
 

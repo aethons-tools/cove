@@ -8,6 +8,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
+	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -42,6 +43,10 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 	}
 
 	if err := writeSwitchboard(buildDir); err != nil {
+		return err
+	}
+
+	if err := writeCoveMaster(buildDir); err != nil {
 		return err
 	}
 
@@ -103,6 +108,29 @@ func writeSwitchboard(buildDir string) error {
 			b = nil // not staged → placeholder; caught at launch, not build
 		}
 		if err := os.WriteFile(filepath.Join(dir, "at-switchboard-linux-"+arch), b, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeCoveMaster stages the embedded linux cove-master binaries into the build
+// context (buildDir/covemaster/cove-master-linux-<arch>), so the sealed hardening
+// layer can install the arch-matching one — mirrors writeSwitchboard (COV-158).
+// When the embed was not staged (a plain `go build` without scripts/stage-attask.sh),
+// a 0-byte placeholder is written instead and hardening's install guard skips it;
+// a raised cove then has no cove-master and the launcher's start step fails clearly.
+func writeCoveMaster(buildDir string) error {
+	dir := filepath.Join(buildDir, "covemaster")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		b, err := covemasterbin.Binary(arch)
+		if err != nil {
+			b = nil // not staged → placeholder; caught at launch, not build
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cove-master-linux-"+arch), b, 0o755); err != nil {
 			return err
 		}
 	}

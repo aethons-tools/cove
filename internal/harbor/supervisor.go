@@ -26,6 +26,16 @@ type RaiseSpec struct {
 	Project string
 	Role    string
 	Unit    string
+	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
+}
+
+// LaunchCreds carries the per-instance credentials the supervisor mints and the
+// launcher must inject into the cove (identity token + launch secret). Passed to
+// Raise so the launcher can bootstrap cove-master without the supervisor leaking
+// them elsewhere.
+type LaunchCreds struct {
+	IdentityToken string
+	LaunchSecret  string
 }
 
 // Launcher is the seam over "actually start/stop/probe a cove on a backend". The
@@ -33,7 +43,7 @@ type RaiseSpec struct {
 // hermetic. The real backend+kit implementation is a later slice, wired from
 // cmd/at-harbor.
 type Launcher interface {
-	Raise(ctx context.Context, spec RaiseSpec) (location string, err error)
+	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
 	Teardown(ctx context.Context, inst Instance) error
 	Probe(ctx context.Context, inst Instance) (Liveness, error)
 }
@@ -97,7 +107,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		_ = s.store.RemoveActor(spec.ActorID)
 		return Instance{}, "", "", err
 	}
-	loc, err := s.launcher.Raise(ctx, spec)
+	loc, err := s.launcher.Raise(ctx, spec, LaunchCreds{IdentityToken: tok, LaunchSecret: secret})
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
 			s.log.Warn("raise rollback: failed to revoke identity after launch failure", "id", spec.ActorID, "error", rmErr)

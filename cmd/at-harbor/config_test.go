@@ -215,3 +215,87 @@ func TestRuntimeListenParsed(t *testing.T) {
 		t.Fatalf("unknown keys = %v", got)
 	}
 }
+
+func TestRuntimeLauncherParsed(t *testing.T) {
+	c, err := parseServeConfig([]byte(`
+runtime:
+  launcher:
+    install-manifest: /var/lib/harbor/install.json
+    runtime-addr: harbor.example.com:443
+    harbor-host: harbor.example.com
+    identity-file: /etc/harbor/id_ed25519
+    known-hosts-dir: /etc/harbor/known_hosts.d
+    dns: ["1.1.1.1", "8.8.8.8"]
+    docker: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := c.Runtime.Launcher
+	if lc == nil {
+		t.Fatal("runtime.launcher did not parse")
+	}
+	if lc.InstallManifest != "/var/lib/harbor/install.json" ||
+		lc.RuntimeAddr != "harbor.example.com:443" ||
+		lc.HarborHost != "harbor.example.com" ||
+		lc.IdentityFile != "/etc/harbor/id_ed25519" ||
+		lc.KnownHostsDir != "/etc/harbor/known_hosts.d" ||
+		!lc.Docker ||
+		len(lc.DNS) != 2 || lc.DNS[0] != "1.1.1.1" || lc.DNS[1] != "8.8.8.8" {
+		t.Fatalf("launcher config = %+v", lc)
+	}
+	// runtime.launcher is a known key (no unknown-key warning).
+	if got := unknownServeKeys([]byte("runtime:\n  launcher:\n    harbor-host: h\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v", got)
+	}
+}
+
+func TestValidateLauncherRequiredFields(t *testing.T) {
+	// no launcher block at all → no error.
+	if err := (serveConfig{}).validateLauncher(); err != nil {
+		t.Fatalf("nil launcher should not error: %v", err)
+	}
+	base := func() *launcherConfig {
+		return &launcherConfig{
+			InstallManifest: "/m.json",
+			RuntimeAddr:     "h:443",
+			HarborHost:      "h",
+		}
+	}
+	// all required fields present → ok, and defaults get filled in.
+	c := serveConfig{}
+	c.Runtime.Launcher = base()
+	if err := c.validateLauncher(); err != nil {
+		t.Fatalf("complete launcher block should not error: %v", err)
+	}
+	if c.Runtime.Launcher.IdentityFile == "" || c.Runtime.Launcher.KnownHostsDir == "" {
+		t.Fatalf("expected identity-file/known-hosts-dir to default, got %+v", c.Runtime.Launcher)
+	}
+
+	for field, mutate := range map[string]func(*launcherConfig){
+		"install-manifest": func(l *launcherConfig) { l.InstallManifest = "" },
+		"runtime-addr":     func(l *launcherConfig) { l.RuntimeAddr = "" },
+		"harbor-host":      func(l *launcherConfig) { l.HarborHost = "" },
+	} {
+		bad := serveConfig{}
+		bad.Runtime.Launcher = base()
+		mutate(bad.Runtime.Launcher)
+		if err := bad.validateLauncher(); err == nil {
+			t.Fatalf("missing %s should error", field)
+		}
+	}
+}
+
+func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
+	c := serveConfig{}
+	c.Runtime.Launcher = &launcherConfig{
+		InstallManifest: "/m.json", RuntimeAddr: "h:443", HarborHost: "h",
+		IdentityFile: "/custom/id", KnownHostsDir: "/custom/kh",
+	}
+	if err := c.validateLauncher(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Runtime.Launcher.IdentityFile != "/custom/id" || c.Runtime.Launcher.KnownHostsDir != "/custom/kh" {
+		t.Fatalf("explicit identity-file/known-hosts-dir must not be overridden: %+v", c.Runtime.Launcher)
+	}
+}
