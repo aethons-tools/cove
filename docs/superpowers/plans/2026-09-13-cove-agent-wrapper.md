@@ -537,7 +537,7 @@ Claude-Session: https://claude.ai/code/session_018DRQWUqrvQMzYD8o9ZeLHv"
 
 **Files:**
 - Modify: `cmd/cove-master/main.go`
-- Test: `cmd/cove-master/main_test.go` (create if absent; else add)
+- Modify: `cmd/cove-master/main_test.go` — **remove** `TestStubWorkloadRunReturnsOnCancel` and the now-unused `noopHandle` type (they test `stubWorkload`, which this task deletes), and add `TestBuildAgentConfig` below. Keep `TestBuildConfigRequiresEnv`.
 
 **Interfaces:**
 - Consumes: `agentrun.Config`, `agentrun.New` (Task 2); `covemaster.New(...).Run(ctx, w)`.
