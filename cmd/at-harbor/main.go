@@ -25,6 +25,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
@@ -701,6 +702,36 @@ func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liven
 	return harbor.LivenessAlive, nil
 }
 
+// linearCommenter adapts *linear.Client to harbor.Commenter. It exists here,
+// rather than in internal/harbor, so harbor core never imports
+// internal/dispatch/linear or internal/dispatch/scheduler (see AGENTS.md
+// boundary rules): the concrete tracker type and its scheduler.Comment shape
+// are wiring-layer concerns.
+type linearCommenter struct{ c *linear.Client }
+
+func (l linearCommenter) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
+	return l.c.IssueByIdentifier(ctx, identifier)
+}
+
+func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) error {
+	return l.c.PostComment(ctx, issueID, body)
+}
+
+func (l linearCommenter) Comments(ctx context.Context, issueID string) ([]harbor.Comment, error) {
+	var cs []scheduler.Comment
+	cs, err := l.c.Comments(ctx, issueID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]harbor.Comment, 0, len(cs))
+	for _, c := range cs {
+		// scheduler.Comment carries only Author/Body; ID/At are left zero
+		// (harbor.Comment documents them as best-effort).
+		out = append(out, harbor.Comment{Author: c.Author, Body: c.Body})
+	}
+	return out, nil
+}
+
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -786,6 +817,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup := harbor.NewSupervisor(st, lch, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
 
+	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
+	// It defaults to the broker alone; when a tracker is configured it gains a
+	// /messages route sharing the same *linear.Client as the resident
+	// dispatcher (built once, used for both).
+	var httpHandler http.Handler = broker
 	if dc := cfg.Runtime.Dispatcher; dc != nil {
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
@@ -807,6 +843,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}, log)
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
+
+		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
+		httpHandler = messagesMux(msgH, broker)
+		log.Info("harbor messages: mounted", "path", "/messages")
 	}
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
@@ -879,7 +919,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
 	log.Info("harbor broker+Attach listening (mux)", "addr", cfg.Listen)
-	if err := serveMux(rawLis, tlsCfg, gs, broker); err != nil {
+	if err := serveMux(rawLis, tlsCfg, gs, httpHandler); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}

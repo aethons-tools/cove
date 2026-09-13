@@ -91,4 +91,10 @@ func run(getenv func(string) string, stderr *os.File) int {
 	return 0
 }
 
-func main() { os.Exit(run(os.Getenv, os.Stderr)) }
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		os.Exit(runMCP(os.Getenv, os.Stderr))
+		return
+	}
+	os.Exit(run(os.Getenv, os.Stderr))
+}
