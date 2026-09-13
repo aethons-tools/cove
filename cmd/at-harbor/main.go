@@ -32,6 +32,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor/adminui"
 	"github.com/aethons-tools/cove/internal/harbor/attach"
 	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/harbor/browserauth"
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
 	"github.com/aethons-tools/cove/internal/harbor/launcher"
 	"github.com/aethons-tools/cove/internal/install"
@@ -898,8 +899,29 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("harbor admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
-		ui := adminui.Handler(st)
-		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, ui)
+
+		// Compose the /ui subtree with its own gate: loopback always reaches it;
+		// off-loopback needs a browser session when browser login is configured,
+		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
+		uiMux := http.NewServeMux()
+		gate := browserauth.Gate{LoginPath: "/ui/auth/login", Log: log}
+		if bc := cfg.browserAuthConfig(); bc != nil {
+			svc, err := browserauth.New(context.Background(), *bc, nil, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: browser login:", err)
+				return 1
+			}
+			uiMux.Handle("/ui/auth/", svc.Routes())
+			if oidcAuth, ok := auth.(*harbor.OIDCAuthenticator); ok {
+				gate.Sess = &browserauth.SessionVerifier{Auth: oidcAuth}
+			}
+			log.Info("harbor UI auth: browser OIDC login", "client-id", bc.ClientID)
+		} else {
+			log.Info("harbor UI auth: loopback-only")
+		}
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st)))
+
+		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

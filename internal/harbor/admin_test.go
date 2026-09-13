@@ -167,20 +167,23 @@ func TestAdminHandlerMountsUI(t *testing.T) {
 		t.Errorf("redirect Location = %q, want /ui/", loc)
 	}
 
-	// /ui/ reaches the mounted handler (loopback allowed).
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq(http.MethodGet, "/ui/coves", ""))
-	if rec.Code != http.StatusOK || rec.Body.String() != "UI:/ui/coves" {
-		t.Fatalf("GET /ui/coves = %d %q, want 200 UI:/ui/coves", rec.Code, rec.Body.String())
-	}
-
-	// Off-loopback is still refused by the gate the UI is mounted inside.
+	// /ui/* reaches the mounted handler WITHOUT the API auth gate applying — the
+	// ui handler owns its own auth now.
 	rec = httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
-	req.RemoteAddr = "203.0.113.7:5555"
+	req.RemoteAddr = "203.0.113.9:1000" // off-loopback: the API gate would have 403'd before
 	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "UI:/ui/coves" {
+		t.Fatalf("GET /ui/coves = %d %q, want 200 UI:/ui/coves (ui owns its own auth)", rec.Code, rec.Body.String())
+	}
+
+	// /admin/* is still guarded by the API auth.
+	rec = httptest.NewRecorder()
+	badReq := httptest.NewRequest(http.MethodGet, "/admin/roster", nil)
+	badReq.RemoteAddr = "203.0.113.9:1000"
+	h.ServeHTTP(rec, badReq)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("off-loopback GET /ui/coves = %d, want 403", rec.Code)
+		t.Fatalf("off-loopback GET /admin/roster = %d, want 403", rec.Code)
 	}
 }
 

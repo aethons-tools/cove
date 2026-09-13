@@ -34,7 +34,17 @@ func (a *OIDCAuthenticator) Authenticate(r *http.Request) (Operator, error) {
 	if !ok || raw == "" {
 		return Operator{}, fmt.Errorf("missing bearer token")
 	}
-	tok, err := a.verifier.Verify(r.Context(), raw)
+	return a.VerifyToken(r.Context(), raw)
+}
+
+// VerifyToken verifies a raw JWT (signature, iss, aud, exp via go-oidc) and, when
+// configured, the required scope. It is the single verification path shared by the
+// bearer header (Authenticate) and the browser session cookie.
+func (a *OIDCAuthenticator) VerifyToken(ctx context.Context, raw string) (Operator, error) {
+	if raw == "" {
+		return Operator{}, fmt.Errorf("missing token")
+	}
+	tok, err := a.verifier.Verify(ctx, raw)
 	if err != nil {
 		return Operator{}, fmt.Errorf("token verification failed: %w", err)
 	}

@@ -492,15 +492,19 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	if ui != nil {
-		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/ui/", http.StatusFound)
-		})
-		mux.Handle("/ui/", ui)
+	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
+	if ui == nil {
+		return guarded
 	}
-
-	// Auth gate wraps every route.
-	return authMiddleware(auth, log, mux)
+	// The UI subtree owns its own gate (loopback-or-session), so it is mounted
+	// OUTSIDE the /admin/* authenticator rather than wrapped by it.
+	parent := http.NewServeMux()
+	parent.Handle("/admin/", guarded)
+	parent.Handle("/ui/", ui)
+	parent.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
+	return parent
 }
 
 func orDefaultProject(p string) string {
