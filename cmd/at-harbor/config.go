@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/harbor/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/secret"
 	"gopkg.in/yaml.v3"
@@ -42,8 +43,10 @@ type serveConfig struct {
 			Issuer         string `yaml:"issuer"`
 			Audience       string `yaml:"audience"`
 			RequireScope   string `yaml:"require-scope"`
-			DeviceClientID string `yaml:"device-client-id"`
-			DeviceScope    string `yaml:"device-scope"`
+			DeviceClientID  string `yaml:"device-client-id"`
+			DeviceScope     string `yaml:"device-scope"`
+			BrowserClientID string `yaml:"browser-client-id"`
+			BrowserScope    string `yaml:"browser-scope"`
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
@@ -172,6 +175,22 @@ func (c serveConfig) operatorLoginConfig() *harbor.OperatorLoginConfig {
 		scope = "openid"
 	}
 	return &harbor.OperatorLoginConfig{Issuer: o.Issuer, Audience: o.Audience, ClientID: o.DeviceClientID, Scope: scope}
+}
+
+// browserAuthConfig builds the browser (Authorization Code + PKCE) login config
+// when OIDC and a browser-client-id are set; nil disables browser login (the
+// off-loopback UI is then refused, loopback still works). Scope defaults to
+// "openid profile email".
+func (c serveConfig) browserAuthConfig() *browserauth.RawConfig {
+	o := c.OperatorAuth.OIDC
+	if o == nil || o.BrowserClientID == "" {
+		return nil
+	}
+	scope := o.BrowserScope
+	if scope == "" {
+		scope = "openid profile email"
+	}
+	return &browserauth.RawConfig{Issuer: o.Issuer, ClientID: o.BrowserClientID, Scope: scope, Audience: o.Audience}
 }
 
 // adminTLS resolves the admin listener's cert/key: admin-tls if set, else the

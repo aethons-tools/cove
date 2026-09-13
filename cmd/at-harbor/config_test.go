@@ -69,11 +69,13 @@ func TestValidateAdminExposure(t *testing.T) {
 	withTLS := func(c *serveConfig) { c.TLS.Cert, c.TLS.Key = "/t.pem", "/t.key" }
 	withOIDC := func(c *serveConfig) {
 		c.OperatorAuth.OIDC = &struct {
-			Issuer         string `yaml:"issuer"`
-			Audience       string `yaml:"audience"`
-			RequireScope   string `yaml:"require-scope"`
-			DeviceClientID string `yaml:"device-client-id"`
-			DeviceScope    string `yaml:"device-scope"`
+			Issuer          string `yaml:"issuer"`
+			Audience        string `yaml:"audience"`
+			RequireScope    string `yaml:"require-scope"`
+			DeviceClientID  string `yaml:"device-client-id"`
+			DeviceScope     string `yaml:"device-scope"`
+			BrowserClientID string `yaml:"browser-client-id"`
+			BrowserScope    string `yaml:"browser-scope"`
 		}{Issuer: "i", Audience: "a"}
 	}
 	// loopback: always ok, even plain + loopback-auth (today's setup)
@@ -372,5 +374,27 @@ func TestValidateDispatcherRequiredFields(t *testing.T) {
 		if err := bad.validateDispatcher(); err == nil {
 			t.Fatalf("missing/invalid %s should error", field)
 		}
+	}
+}
+
+func TestBrowserAuthConfig(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+operator-auth:
+  oidc:
+    issuer: https://idp/
+    audience: aud
+    browser-client-id: bcid
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc := cfg.browserAuthConfig()
+	if bc == nil || bc.ClientID != "bcid" || bc.Audience != "aud" || bc.Issuer != "https://idp/" || bc.Scope != "openid profile email" {
+		t.Fatalf("browserAuthConfig = %+v, want bcid/aud/default-scope", bc)
+	}
+
+	none, _ := parseServeConfig([]byte("operator-auth:\n  oidc:\n    issuer: x\n    audience: y\n"))
+	if none.browserAuthConfig() != nil {
+		t.Error("no browser-client-id should yield nil")
 	}
 }
