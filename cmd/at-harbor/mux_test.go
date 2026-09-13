@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -21,6 +22,33 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
+
+func TestMessagesMuxRouting(t *testing.T) {
+	msgH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "messages")
+	})
+	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "broker")
+	})
+	mux := messagesMux(msgH, broker)
+
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"/messages", "messages"},
+		{"/", "broker"},
+		{"/git/some/repo", "broker"},
+		{"/messages/extra", "broker"}, // exact-match only, not a prefix route
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if got := rec.Body.String(); got != tc.want {
+			t.Errorf("path %q: body = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
 
 // selfSignedCert returns a TLS cert for "localhost"/127.0.0.1 and a pool trusting it.
 func selfSignedCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
