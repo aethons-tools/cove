@@ -276,6 +276,65 @@ func TestProjectRosterCommands(t *testing.T) {
 	}
 }
 
+// TestProjectEscalationCommands exercises `project escalation set|list|clear`
+// end-to-end through httptest.Server + FileStore, including the --tier
+// 'targets@timeout' parse and its missing-'@' error.
+func TestProjectEscalationCommands(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// project escalation set with two --tier flags
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "escalation", "set", "--admin-url", ts.URL, "p",
+		"--tier", "human:alice,human:bob@15m",
+		"--tier", "human:carol@1h",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation set: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// project escalation list shows both tiers in order
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "tier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(out.String(), "tier 1\thuman:carol\ttimeout=1h0m0s") {
+		t.Fatalf("project escalation list output missing expected fields:\n%s", out.String())
+	}
+
+	// project escalation clear empties the policy
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "clear", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation clear: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation list (after clear): exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "" {
+		t.Fatalf("project escalation list after clear should be empty:\n%s", out.String())
+	}
+
+	// --tier missing '@timeout' is a parse error
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "escalation", "set", "--admin-url", ts.URL, "p",
+		"--tier", "human:alice",
+	}, getenv, &out, &errb); code == 0 {
+		t.Fatalf("project escalation set with malformed --tier should fail, got exit=0 out=%s", out.String())
+	}
+}
+
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {

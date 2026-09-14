@@ -84,11 +84,19 @@ type Roster struct {
 	Channels []Channel `json:"channels,omitempty"`
 }
 
-// Project is the top of the config tree: it owns its Roster (and, in a later
-// slice, its escalation policy). Roles remain keyed by (project, name).
+// EscalationTier is one rung of a Project's escalation policy: the targets to
+// ping and how long to wait for an answer before advancing to the next tier.
+type EscalationTier struct {
+	Targets []string      `json:"targets"` // kind-prefixed human names, e.g. "human:alice"
+	Timeout time.Duration `json:"timeout"` // wait after pinging this tier before advancing
+}
+
+// Project is the top of the config tree: it owns its Roster and its escalation
+// policy. Roles remain keyed by (project, name).
 type Project struct {
-	Name   string `json:"name"`
-	Roster Roster `json:"roster"`
+	Name       string           `json:"name"`
+	Roster     Roster           `json:"roster"`
+	Escalation []EscalationTier `json:"escalation,omitempty"`
 }
 
 // DefaultProject backs harbor-side default enrollment when no project is named.

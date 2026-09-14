@@ -38,6 +38,9 @@ owns a **Roster** of addressable members:
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
 
+A Project's roster of humans also backs its **escalation policy** — ordered tiers
+that get `@`-mentioned while a cove is Waiting; see [escalation.md](escalation.md).
+
 Manage a roster with `at-harbor project`:
 
 ```
@@ -109,9 +112,6 @@ alongside `send`'s now-optional `to` argument; see
 
 ## Not yet (later comms slices)
 
-- **C2 — escalation:** category → ordered tiers of `{actor|role|channel}` with
-  per-tier timeout, unioned into the effective addressing set on top of this
-  slice's `Scope.Addressing`.
 - **Cross-thread reply-routing + merged inbox:** making channel-sends two-way, and
   generalizing `read` into a merged, tagged multi-source inbox.
 - **C3 — Discord / multi-channel:** a real chat `Service` so a channel target can

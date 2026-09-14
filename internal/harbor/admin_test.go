@@ -377,6 +377,23 @@ func TestAdminRosterRoutes(t *testing.T) {
 	}
 }
 
+// TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
+// asserting a round-trip through a real FileStore + admin handler.
+func TestAdminEscalationRoutes(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
+		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+	})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT escalation = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var got EscalationBody
+	getJSON(t, h, "/admin/projects/acme/escalation", &got)
+	if len(got.Tiers) != 1 || got.Tiers[0].Targets[0] != "human:alice" || got.Tiers[0].Timeout != 15*time.Minute {
+		t.Fatalf("escalation policy = %+v", got.Tiers)
+	}
+}
+
 func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	h, _ := newTestAdmin(t)
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})

@@ -573,6 +573,36 @@ func TestResumeUnpausesSetsLiveAndWaitingSince(t *testing.T) {
 	}
 }
 
+func TestSetEscalationPersists(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1000, 0)
+	if err := sup.SetEscalation("cove-1", 2, at); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.EscalationTier != 2 || !got.TierPingedAt.Equal(at) {
+		t.Fatalf("escalation state not persisted: tier=%d at=%v", got.EscalationTier, got.TierPingedAt)
+	}
+}
+
+func TestReportResetsEscalationOnEnteringWaiting(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	// a cove that was mid-escalation, currently Running
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning, EscalationTier: 3, TierPingedAt: time.Unix(500, 0)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if !got.TierPingedAt.IsZero() || got.EscalationTier != 0 {
+		t.Fatalf("entering Waiting must reset escalation: tier=%d at=%v", got.EscalationTier, got.TierPingedAt)
+	}
+}
+
 // TestReconcileSkipsIdledInstance proves that an Idled instance is never
 // probed, reaped, or adopted by Reconcile even with an expired lease — a
 // paused cove can't heartbeat, so without the skip the reconciler would

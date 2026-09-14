@@ -65,8 +65,12 @@ runtime:
 The wake trigger this slice is **a new ticket comment** (detected as a comment-count
 increase past a baseline captured when the cove suspended — restart-safe).
 
+A Project may also configure an **escalation policy** that actively pings ordered
+human tiers on their own per-tier timers while a cove waits, instead of leaving it
+to wait passively — a separate, independent clock from `wait-max` above; see
+[escalation.md](escalation.md).
+
 ## Not yet (later comms slices)
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: messages | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
-- **C2 — escalation:** Project on-call tiers (`category → ordered {actor|role|channel}` + per-tier timeout) layered on top of the `human`/`channel` addressing that shipped in C1 — see [comms-addressing.md](comms-addressing.md).
 - **C3 — multi-channel** (Discord, generalizing the switchboard) and **actor/role-to-actor addressing** (the `human`/`channel` target space shipped in C1; see [comms-addressing.md](comms-addressing.md)).

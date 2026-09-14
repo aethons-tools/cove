@@ -39,6 +39,7 @@ five pillars), see the design history:
 | [ui.md](ui.md) | You want to watch a running harbor in a browser — the live coves and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), or raise/tear down a managed cove, from the browser instead of the CLI. |
 | [messaging.md](messaging.md) | You want a raised cove's agent to read/send comments on its own ticket (the brokered messaging MCP), or you're wiring the `/messages` endpoint + its `cove-master mcp` delivery. |
 | [comms-addressing.md](comms-addressing.md) | You want a cove's agent to send to a named human or channel instead of only its own ticket — the target space, the Project roster, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |
+| [escalation.md](escalation.md) | You want a Waiting cove to actively nudge people instead of passively waiting — configuring a Project's ordered human escalation tiers + per-tier timeouts, and operating the resident escalation engine. |
 
 ## The shape of a working harbor
 
