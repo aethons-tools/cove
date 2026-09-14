@@ -24,6 +24,8 @@ at-harbor serve --config /etc/harbor/harbor.yml
 ```yaml
 listen: ":443"                 # broker listener (coves connect here; TLS in prod)
 admin-listen: "127.0.0.1:8081" # admin API listener (operator surface)
+ui-hosts:                      # optional; extra Host values the browser UI accepts on loopback
+  - harbor.local.example       # a custom name that DNS-binds to 127.0.0.1
 tls:                           # broker server cert (required for a real :443)
   cert: /etc/harbor/tls/fullchain.pem
   key:  /etc/harbor/tls/privkey.pem
@@ -69,6 +71,7 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 |-----|----------|---------|
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed cove can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
+| `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `harbor.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes | Path to the JSON store (created on first write; migrated forward across versions). |

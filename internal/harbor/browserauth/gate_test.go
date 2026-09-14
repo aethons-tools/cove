@@ -26,6 +26,7 @@ func TestGateLoopbackAlwaysAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
+	req.Host = "127.0.0.1:5000"
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("loopback = %d, want 200", rec.Code)
@@ -90,6 +91,7 @@ func TestGateAttributesOperator(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/roster", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
+	req.Host = "localhost"
 	g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotLoopback = harbor.OperatorID(r)
 		w.WriteHeader(http.StatusOK)
@@ -134,5 +136,59 @@ func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("valid session = %d, want 200", rec.Code)
+	}
+}
+
+func TestGateLoopbackRejectsForeignHost(t *testing.T) {
+	// A DNS-rebinding request: loopback connection, but Host is an attacker name
+	// not in the expected set. Must be refused even though it is loopback.
+	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	var called bool
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/ui/enrollments", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	req.Host = "evil.example"
+	g.Wrap(stub).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("loopback + foreign Host = %d, want 403", rec.Code)
+	}
+	if called {
+		t.Error("wrapped handler was called; a rebound request must not reach it")
+	}
+}
+
+func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
+	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", ExpectedHosts: []string{"harbor.local.aethons.tools"}, Log: discard()}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/ui/coves", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	req.Host = "harbor.local.aethons.tools"
+	g.Wrap(okHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("loopback + configured Host = %d, want 200", rec.Code)
+	}
+	// A different Host, not configured, is still refused.
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/ui/coves", nil)
+	req2.RemoteAddr = "127.0.0.1:5000"
+	req2.Host = "harbor.evil.example"
+	g.Wrap(okHandler()).ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("loopback + non-configured Host = %d, want 403", rec2.Code)
+	}
+}
+
+func TestGateLoopbackAllowsLoopbackLiterals(t *testing.T) {
+	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()} // no ExpectedHosts
+	for _, host := range []string{"127.0.0.1:8081", "localhost:8081", "[::1]:8081"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/ui/coves", nil)
+		req.RemoteAddr = "127.0.0.1:5000"
+		req.Host = host
+		g.Wrap(okHandler()).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("loopback + Host %q = %d, want 200", host, rec.Code)
+		}
 	}
 }

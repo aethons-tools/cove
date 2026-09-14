@@ -35,9 +35,13 @@ It renders:
 The UI has its own gate, separate from the JSON admin API's authenticator (see
 the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed)):
 
-- **Loopback** (local host, or an SSH tunnel to the admin port) — always
-  reachable, no login: the local operator is trusted. This holds whether or not
-  `operator-auth.oidc` is configured.
+- **Loopback** (local host, or an SSH tunnel to the admin port) — reachable with
+  no login: the local operator is trusted. This holds whether or not
+  `operator-auth.oidc` is configured. The request's `Host` must be a loopback
+  literal (`127.0.0.1`/`::1`/`localhost`) or a host listed in `ui-hosts` — if you
+  reach the UI over a custom name that DNS-binds to loopback (e.g.
+  `harbor.local.example`), add it to `ui-hosts` (see [serve.md](serve.md)) or the
+  UI refuses it as a possible DNS-rebinding attempt.
 - **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
   browser is redirected through an OIDC **Authorization Code + PKCE** login
   (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie

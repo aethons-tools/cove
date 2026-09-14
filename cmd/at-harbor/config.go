@@ -28,7 +28,12 @@ type credSpec struct {
 type serveConfig struct {
 	Listen      string `yaml:"listen"`
 	AdminListen string `yaml:"admin-listen"`
-	TLS         struct {
+	// UIHosts are extra Host values accepted for the browser UI on a loopback
+	// connection, beyond the loopback literals (127.0.0.1/::1/localhost). Set a
+	// custom loopback-bound hostname here (e.g. harbor.local.example); otherwise
+	// the UI refuses it, defeating DNS-rebinding attempts.
+	UIHosts []string `yaml:"ui-hosts"`
+	TLS     struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"tls"`

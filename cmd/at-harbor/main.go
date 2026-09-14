@@ -1114,7 +1114,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
 		uiMux := http.NewServeMux()
-		gate := browserauth.Gate{LoginPath: "/ui/auth/login", Log: log}
+		gate := browserauth.Gate{LoginPath: "/ui/auth/login", ExpectedHosts: cfg.UIHosts, Log: log}
 		if bc := cfg.browserAuthConfig(); bc != nil {
 			svc, err := browserauth.New(context.Background(), *bc, nil, log)
 			if err != nil {
