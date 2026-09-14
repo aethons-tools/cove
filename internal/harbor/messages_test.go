@@ -119,7 +119,9 @@ func newTestMessagesHandler() (*MessagesHandler, *fakeStore, *fakeCommenter, *by
 	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	// A configured appender, so a bare POST succeeds (204) by default; tests
+	// that specifically want the unconfigured-Log path build their own handler.
+	h := NewMessagesHandler(store, cmt, &fakeAppender{}, log)
 	return h, store, cmt, &logbuf
 }
 
@@ -170,18 +172,21 @@ func TestMessagesNoInstanceIs403(t *testing.T) {
 	}
 }
 
-// TestMessagesPostIsSelfScoped is the security-critical assertion: the ticket
-// the comment lands on is derived ONLY from the authenticated actor's own
-// Instance.Unit. The POST request itself carries no ticket/target field at all,
-// so there is no way for a cove to name another cove's ticket.
+// TestMessagesPostIsSelfScoped is the security-critical assertion: the
+// appended target is derived ONLY from the authenticated actor's own
+// Instance.Unit. The POST request itself carries no ticket/target field at
+// all, so there is no way for a cove to name another cove's ticket. Since the
+// Log cutover, handlePost never calls PostComment — it only appends; a
+// separate egress engine delivers to Linear.
 func TestMessagesPostIsSelfScoped(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 	}
 	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -191,11 +196,24 @@ func TestMessagesPostIsSelfScoped(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(cmt.posted) != 1 {
-		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	if len(cmt.posted) != 0 {
+		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
-	if got := cmt.posted[0]; got.issueID != "iss_7" || got.body != "hi" {
-		t.Fatalf("PostComment(%q, %q), want (%q, %q)", got.issueID, got.body, "iss_7", "hi")
+	if len(ap.got) != 1 {
+		t.Fatalf("append calls = %d, want 1", len(ap.got))
+	}
+	m := ap.got[0]
+	if m.From.Kind != "actor" || m.From.Ref != "cove-AET-7" {
+		t.Fatalf("From = %+v, want actor:cove-AET-7", m.From)
+	}
+	if len(m.To) != 1 || m.To[0].Kind != "channel" || m.To[0].Ref != "AET-7" {
+		t.Fatalf("To = %+v, want [channel:AET-7]", m.To)
+	}
+	if m.Body != "hi" {
+		t.Fatalf("Body = %q, want raw \"hi\"", m.Body)
+	}
+	if m.Project != "acme" {
+		t.Fatalf("Project = %q, want acme", m.Project)
 	}
 }
 
@@ -297,22 +315,24 @@ func TestMessagesNeverLogsToken(t *testing.T) {
 	}
 }
 
-// TestSendToHumanMentionsOnOwnTicket asserts a "to":"human:<name>" send is
-// authorized via DecideSend and delivered as an @-mention on the cove's OWN
-// ticket (not a separate thread) — replies keep landing where the existing
-// wake-on-reply loop watches. It also asserts the message body never reaches
-// the logs while the (non-secret) target does.
-func TestSendToHumanMentionsOnOwnTicket(t *testing.T) {
+// TestSendToHumanAppendsRawToHumanTarget asserts a "to":"human:<name>" send
+// is authorized via DecideSend and appended with To: human:<name> and the RAW
+// body — no @-mention prefix in the Log; rendering (the @-mention posted on
+// the cove's own ticket, so replies keep landing where wake-on-reply watches)
+// is the egress adapter's job, not handlePost's. It also asserts the message
+// body never reaches the logs while the (non-secret) target does.
+func TestSendToHumanAppendsRawToHumanTarget(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
 	}
 	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{}
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"ping","to":"human:alice"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -322,15 +342,18 @@ func TestSendToHumanMentionsOnOwnTicket(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(cmt.posted) != 1 {
-		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	if len(cmt.posted) != 0 {
+		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
-	got := cmt.posted[0]
-	if got.issueID != "iss_7" {
-		t.Fatalf("delivered to %q, want own ticket iss_7", got.issueID)
+	if len(ap.got) != 1 {
+		t.Fatalf("append calls = %d, want 1", len(ap.got))
 	}
-	if !strings.HasPrefix(got.body, "@alice.h ") || !strings.Contains(got.body, "ping") {
-		t.Fatalf("body = %q, want @mention prefix", got.body)
+	m := ap.got[0]
+	if len(m.To) != 1 || m.To[0].Kind != "human" || m.To[0].Ref != "alice" {
+		t.Fatalf("To = %+v, want [human:alice]", m.To)
+	}
+	if m.Body != "ping" {
+		t.Fatalf("Body = %q, want raw \"ping\" (no @-mention)", m.Body)
 	}
 	if strings.Contains(logbuf.String(), "ping") {
 		t.Fatalf("message body leaked into logs: %s", logbuf.String())
@@ -340,19 +363,21 @@ func TestSendToHumanMentionsOnOwnTicket(t *testing.T) {
 	}
 }
 
-// TestSendToChannelPostsOnChannelThread asserts a "to":"channel:<name>" send
-// is delivered verbatim (no @-mention prefix) to the channel's OWN thread —
-// resolved via IssueByIdentifier(st.Ref) — not the cove's own ticket.
-func TestSendToChannelPostsOnChannelThread(t *testing.T) {
+// TestSendToChannelAppendsToChannelTarget asserts a "to":"channel:<name>"
+// send is authorized via DecideSend and appended with To: channel:<name> —
+// the roster name, not a resolved ticket id; ticket resolution now happens at
+// egress, not in handlePost — and the raw body.
+func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7", "ACME-1": "iss_1"}}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -362,34 +387,36 @@ func TestSendToChannelPostsOnChannelThread(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(cmt.posted) != 1 {
-		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	if len(cmt.posted) != 0 {
+		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
-	got := cmt.posted[0]
-	if got.issueID != "iss_1" || got.body != "heads up" {
-		t.Fatalf("PostComment(%q, %q), want (%q, %q)", got.issueID, got.body, "iss_1", "heads up")
+	if len(ap.got) != 1 {
+		t.Fatalf("append calls = %d, want 1", len(ap.got))
+	}
+	m := ap.got[0]
+	if len(m.To) != 1 || m.To[0].Kind != "channel" || m.To[0].Ref != "eng-help" {
+		t.Fatalf("To = %+v, want [channel:eng-help]", m.To)
+	}
+	if m.Body != "heads up" {
+		t.Fatalf("Body = %q, want raw \"heads up\"", m.Body)
 	}
 }
 
-// TestSendToChannelResolveErrorIs502 asserts that when a "to":"channel:<name>"
-// send is authorized but the channel's Ref fails to resolve to an issue id
-// (IssueByIdentifier errors), the handler reports 502 and delivers nothing —
-// distinct from the 403/404 authorization-failure paths.
-func TestSendToChannelResolveErrorIs502(t *testing.T) {
+// TestMessagesPostAppendFailureIs502 asserts that once the Log is the
+// authoritative delivery path, an Append failure fails the send (502) —
+// unlike the old best-effort shadow-write, there is no live PostComment left
+// to fall back on.
+func TestMessagesPostAppendFailureIs502(t *testing.T) {
 	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 	}
-	cmt := &fakeCommenter{
-		ids:    map[string]string{"AET-7": "iss_7"},
-		errIDs: map[string]bool{"ACME-1": true},
-	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{err: errors.New("disk full")}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -398,12 +425,37 @@ func TestSendToChannelResolveErrorIs502(t *testing.T) {
 		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
 	}
 	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment must not be called when channel resolution fails")
+		t.Fatalf("PostComment must not be called after cutover")
+	}
+}
+
+// TestMessagesPostNilLogIs503 asserts a send fails with 503 (not a silent
+// swallow, and not a fall-back live PostComment — both removed by the
+// cutover) when the Log is unconfigured (nil appender).
+func TestMessagesPostNilLogIs503(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
+	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, nil, log) // nil appender
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 0 {
+		t.Fatalf("PostComment must not be called when the Log is unconfigured")
 	}
 }
 
 // TestSendToDeniedIs403 asserts a target whose form no grant's addressing
-// authorizes is denied (403) and — critically — nothing is delivered.
+// authorizes is denied (403) and — critically — nothing is appended.
 func TestSendToDeniedIs403(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
@@ -412,8 +464,9 @@ func TestSendToDeniedIs403(t *testing.T) {
 		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "secret", Ref: "X"}}}},
 	}
 	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"channel:secret"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -425,6 +478,9 @@ func TestSendToDeniedIs403(t *testing.T) {
 	}
 	if len(cmt.posted) != 0 {
 		t.Fatalf("PostComment must not be called on a denied send")
+	}
+	if len(ap.got) != 0 {
+		t.Fatalf("Append must not be called on a denied send; got %d", len(ap.got))
 	}
 }
 
@@ -439,8 +495,9 @@ func TestSendToUnresolvedIs404(t *testing.T) {
 		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}}},
 	}
 	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, cmt, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"human:bob"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -453,183 +510,8 @@ func TestSendToUnresolvedIs404(t *testing.T) {
 	if len(cmt.posted) != 0 {
 		t.Fatalf("PostComment must not be called on an unresolved send")
 	}
-}
-
-// TestSendNoTargetStillOwnTicket is the byte-for-byte regression guard: a POST
-// with no "to" field must behave exactly as before this change — no
-// DecideSend call, no @-mention prefix, body posted verbatim to the cove's
-// own ticket.
-func TestSendNoTargetStillOwnTicket(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"status"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(cmt.posted) != 1 {
-		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
-	}
-	if got := cmt.posted[0]; got.issueID != "iss_7" || got.body != "status" {
-		t.Fatalf("own-ticket path regressed: issue=%q body=%q, want (iss_7, status)", got.issueID, got.body)
-	}
-}
-
-// TestSendShadowWritesOwnTicket asserts a no-"to" send shadow-appends the
-// logical message (From: actor:<id>, To: channel:<inst.Unit>, raw body) to
-// the Log, alongside the unchanged live PostComment.
-func TestSendShadowWritesOwnTicket(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"status"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("expected 1 shadow append, got %d", len(ap.got))
-	}
-	m := ap.got[0]
-	if m.From.Kind != "actor" || m.From.Ref != "cove-AET-7" ||
-		len(m.To) != 1 || m.To[0].Kind != "channel" || m.To[0].Ref != "AET-7" ||
-		m.Body != "status" || m.Project != "acme" {
-		t.Fatalf("wrong shadow message: %+v", m)
-	}
-	// live path intact: the comment was still posted.
-	if len(cmt.posted) != 1 || cmt.posted[0].issueID != "iss_7" || cmt.posted[0].body != "status" {
-		t.Fatalf("live PostComment regressed: %+v", cmt.posted)
-	}
-}
-
-// TestSendShadowWritesHumanRawBody asserts a "to":"human:<name>" send
-// shadow-appends the RAW body (no @-mention prefix), while the live
-// PostComment still carries the @-mention — the Log stores the logical
-// message; rendering is the adapter's job at egress.
-func TestSendShadowWritesHumanRawBody(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
-	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"ping","to":"human:alice"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("expected 1 shadow append, got %d", len(ap.got))
-	}
-	m := ap.got[0]
-	if m.To[0].Kind != "human" || m.To[0].Ref != "alice" || m.Body != "ping" { // RAW body, not "@alice.h ping"
-		t.Fatalf("human shadow wrong: %+v", m)
-	}
-	// live path still posts the @-mention on the own ticket.
-	if len(cmt.posted) != 1 || cmt.posted[0].issueID != "iss_7" || !strings.HasPrefix(cmt.posted[0].body, "@alice.h ") {
-		t.Fatalf("live @mention regressed: %+v", cmt.posted)
-	}
-}
-
-// TestSendShadowWritesChannel asserts a "to":"channel:<name>" send
-// shadow-appends To: channel:<name> (the roster name, not the resolved
-// ticket ref) with the raw body.
-func TestSendShadowWritesChannel(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng", Service: "linear", Ref: "ACME-1"}}}},
-	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7", "ACME-1": "iss_1"}}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("expected 1 shadow append, got %d", len(ap.got))
-	}
-	m := ap.got[0]
-	if m.To[0].Kind != "channel" || m.To[0].Ref != "eng" || m.Body != "heads up" {
-		t.Fatalf("channel shadow wrong: %+v", m)
-	}
-}
-
-// TestSendShadowAppendErrorDoesNotFailSend asserts the dual-write is
-// best-effort: an Append error is swallowed and the send still succeeds
-// (204), with the live PostComment unaffected.
-func TestSendShadowAppendErrorDoesNotFailSend(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
-	ap := &fakeAppender{err: errors.New("disk full")}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"status"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("append error must not fail the send; status=%d", rec.Code)
-	}
-	if len(cmt.posted) != 1 || cmt.posted[0].issueID != "iss_7" {
-		t.Fatalf("live PostComment must still have happened: %+v", cmt.posted)
-	}
-}
-
-// TestSendNilAppenderNoShadow asserts a nil appender (message-log
-// unconfigured) disables the dual-write entirely, with no panic.
-func TestSendNilAppenderNoShadow(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log) // nil appender
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"status"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if len(cmt.posted) != 1 {
-		t.Fatalf("live PostComment must still have happened: %+v", cmt.posted)
+	if len(ap.got) != 0 {
+		t.Fatalf("Append must not be called on an unresolved send; got %d", len(ap.got))
 	}
 }
 
