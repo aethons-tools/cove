@@ -41,7 +41,11 @@ type serveConfig struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"admin-tls"`
-	Store        string              `yaml:"store"`
+	Store string `yaml:"store"`
+	// MessageLog is an optional path to the durable msglog JSONL file. When set,
+	// `serve` opens it and the admin UI serves the read-only Messages view
+	// (/ui/messages). Created on first open. Empty disables the view.
+	MessageLog   string              `yaml:"message-log"`
 	Credentials  map[string]credSpec `yaml:"credentials"`
 	OperatorAuth struct {
 		OIDC *struct {

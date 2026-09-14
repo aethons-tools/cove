@@ -39,6 +39,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor/launcher"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/msglog"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -1113,6 +1114,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Compose the /ui subtree with its own gate: loopback always reaches it;
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
+
+		// Read-only message-log view: open the durable Log (append handle held for
+		// the serve lifetime, unused until the deferred writer slices land) and give
+		// the admin UI a read-only reader. Unset config → nil → the view renders a
+		// "not configured" notice.
+		var msgReader adminui.MessageReader
+		if cfg.MessageLog != "" {
+			ml, err := msglog.Open(cfg.MessageLog, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: message-log:", err)
+				return 1
+			}
+			defer ml.Close()
+			msgReader = ml
+			log.Info("harbor message log", "path", cfg.MessageLog)
+		}
+
 		uiMux := http.NewServeMux()
 		gate := browserauth.Gate{LoginPath: "/ui/auth/login", ExpectedHosts: cfg.UIHosts, Log: log}
 		if bc := cfg.browserAuthConfig(); bc != nil {
@@ -1129,7 +1147,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			log.Info("harbor UI auth: loopback-only")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists)))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, msgReader)))
 
 		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {

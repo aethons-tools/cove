@@ -38,6 +38,7 @@ var pages = map[string]*template.Template{
 	"roles":        mustParse("roles.html"),
 	"kits":         mustParse("kits.html"),
 	"destinations": mustParse("destinations.html"),
+	"messages":     mustParse("messages.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -76,7 +77,7 @@ func mustParse(names ...string) *template.Template {
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
-func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor, credExists func(string) bool) http.Handler {
+func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor, credExists func(string) bool, msgs MessageReader) http.Handler {
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -110,6 +111,9 @@ func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor, credE
 	})
 	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
+	})
+	mux.HandleFunc("GET /ui/messages", func(w http.ResponseWriter, r *http.Request) {
+		handleMessages(w, r, msgs)
 	})
 
 	registerWrites(mux, store, log, sup, credExists)

@@ -1,0 +1,34 @@
+{{define "content"}}
+<h1>Messages</h1>
+{{if not .Configured}}
+  <p class="empty">Message log not configured (set <code>message-log:</code> in the serve config).</p>
+{{else}}
+<form method="get" action="/ui/messages">
+  <input name="project" value="{{.Project}}" placeholder="project">
+  <input name="participant" value="{{.Participant}}" placeholder="participant (kind:ref)">
+  <input name="q" value="{{.Q}}" placeholder="body contains">
+  <input name="since" value="{{.Since}}" type="date">
+  <input name="until" value="{{.Until}}" type="date">
+  <button type="submit">Filter</button>
+  <a href="/ui/messages">Reset</a>
+  <a href="/ui/messages{{if .RawQuery}}?{{.RawQuery}}{{end}}">Refresh</a>
+</form>
+{{if .BadDate}}<p class="empty">Ignored an unparseable date (expected YYYY-MM-DD).</p>{{end}}
+<table id="messages">
+  <thead><tr><th>Time</th><th>From</th><th>To</th><th>Project</th><th>Body</th></tr></thead>
+  <tbody>
+    {{range .Rows}}
+      <tr>
+        <td>{{.At}}</td>
+        <td>{{.From}}</td>
+        <td>{{range .To}}{{.Target}} <span class="reach">[{{if .External}}external{{else}}internal{{end}}]</span> {{end}}</td>
+        <td>{{.Project}}</td>
+        <td class="body">{{.Body}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="empty">{{if .Filtered}}No messages match.{{else}}No messages logged yet.{{end}}</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

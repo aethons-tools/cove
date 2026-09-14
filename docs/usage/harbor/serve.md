@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-14
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -75,6 +75,7 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes | Path to the JSON store (created on first write; migrated forward across versions). |
+| `message-log` | no | Filesystem path to harbor's durable message Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Messages view at `/ui/messages`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#messages](ui.md#messages). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |

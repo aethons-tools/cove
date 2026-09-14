@@ -1,6 +1,6 @@
 ---
-summary: The harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
-read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+summary: The harbor admin UI — a server-rendered web view of the live coves, the durable message Log, and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
+read_when: You want to watch a running harbor in a browser — the live cove fleet, the message log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
 owns: the `/ui/` observability + roster/kit/destination-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
@@ -26,6 +26,13 @@ It renders:
   supervisor is configured, in which case it can also raise and tear down
   coves — see [Runtime (coves)](#runtime-coves) below and
   [coves.md](coves.md).
+- **Messages** (`/ui/messages`) — a read-only, filterable, newest-first table of
+  the durable message Log (`message-log:` in the serve config). Filter by
+  project, participant (`kind:ref`, e.g. `channel:eng`), a body substring, and a
+  date window; filters live in the URL, so a filtered view is shareable. Manual
+  refresh (not a live tail); each recipient carries an internal/external reach
+  badge. Empty until the log has writers, and absent-config renders a
+  "not configured" notice. See [Messages](#messages) below.
 - **Roster / Roles / Kits / Destinations** — the control-plane objects as
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
@@ -55,8 +62,30 @@ Register `https://<your-harbor-host>/ui/auth/callback` in your IdP's Allowed
 Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
 
 The UI never renders a token hash, launch secret, or credential value; the one
-exception is the identity token shown once at enroll time (below). The login
-routes themselves never expose mutation.
+exception is the identity token shown once at enroll time (below) — and the
+Messages view, which shows comms bodies (agent/human messages), not secrets. The
+login routes themselves never expose mutation.
+
+## Messages
+
+The Messages page (`/ui/messages`) is a read-only view of harbor's durable
+message Log — enabled by setting `message-log:` in the serve config (see
+[serve.md](serve.md)). It shows a filterable, newest-first table of message
+records: filter by project, participant (`kind:ref`, e.g. `channel:eng`), a body
+substring, and a date window (the `since`/`until` bounds are interpreted as UTC
+day boundaries; a malformed date is ignored, with a notice, rather than
+silently applied). Filters live in the URL, so a filtered view is shareable via
+link.
+
+The page is a manual-refresh snapshot, not a live tail — reload to see new
+messages. Each recipient carries a badge showing whether it was reached
+internally or externally. The table is empty until the log has writers, and if
+`message-log:` is unset the page renders a "not configured" notice instead of
+an error.
+
+Unlike the roster/kit/destination pages, Messages has no mutation — the UI only
+reads the Log. Its write-ownership model lives with the `message-log` field —
+see [serve.md](serve.md#the-serve-config).
 
 ## Editing (day-job mutations)
 
