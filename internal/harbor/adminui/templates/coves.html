@@ -16,7 +16,7 @@
 {{define "coves-table"}}
 <table id="coves" hx-get="/ui/coves" hx-trigger="every 3s" hx-swap="outerHTML">
   <thead>
-    <tr><th>ID</th><th>Project</th><th>Role</th><th>Unit</th><th>Phase</th><th>Activity</th><th>Lease</th><th>Raised</th><th>Last seen</th></tr>
+    <tr><th>ID</th><th>Project</th><th>Role</th><th>Unit</th><th>Phase</th><th>Activity</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th>Actions</th>{{end}}</tr>
   </thead>
   <tbody>
     {{range .Coves}}
@@ -25,9 +25,11 @@
       <td>{{.Phase}}</td><td>{{.Activity}}</td><td>{{.LeaseHolder}}</td>
       <td>{{.RaisedAt.Format "2006-01-02 15:04:05"}}</td>
       <td>{{.LastSeen.Format "2006-01-02 15:04:05"}}</td>
+      {{if $.CanEdit}}<td><button hx-delete="/ui/coves/{{.ID}}" hx-target="#coves" hx-swap="outerHTML"
+          hx-confirm="Tear down {{.ID}}?">Teardown</button></td>{{end}}
     </tr>
     {{else}}
-    <tr><td colspan="9" class="empty">No coves.</td></tr>
+    <tr><td colspan="{{if .CanEdit}}10{{else}}9{{end}}" class="empty">No coves.</td></tr>
     {{end}}
   </tbody>
 </table>

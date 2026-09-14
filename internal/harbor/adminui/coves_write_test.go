@@ -93,6 +93,44 @@ func TestRaiseCoveNoRuntime503(t *testing.T) {
 	}
 }
 
+func TestTeardownCove(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), newSup(t, store))
+	// Raise one first.
+	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-2"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
+		t.Fatalf("setup raise = %d", rec.Code)
+	}
+	// Teardown it.
+	req := httptest.NewRequest(http.MethodDelete, "/ui/coves/cove-2", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("teardown = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	// The instance is gone or transitioning (fake Teardown → supervisor drops/marks it).
+	for _, i := range store.ListInstances() {
+		if i.ActorID == "cove-2" && i.Phase != harbor.PhaseTerminating && i.Phase != harbor.PhaseGone {
+			t.Errorf("cove-2 still %s after teardown, want terminating/gone/removed", i.Phase)
+		}
+	}
+}
+
+func TestTeardownCoveNoRuntime503(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/ui/coves/x", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("teardown with no runtime = %d, want 503", rec.Code)
+	}
+}
+
 func TestRaiseCoveCSRF(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), newSup(t, store))

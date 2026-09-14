@@ -253,4 +253,21 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, su
 		log.Info("ui cove raised", "operator", harbor.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
 		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": harbor.CoveSummaries(store), "CanEdit": true})
 	})
+
+	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if sup == nil {
+			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.PathValue("id")
+		if err := sup.Teardown(r.Context(), id); err != nil {
+			renderError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		log.Info("ui cove torn down", "operator", harbor.OperatorID(r), "id", id)
+		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": harbor.CoveSummaries(store), "CanEdit": true})
+	})
 }
