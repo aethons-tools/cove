@@ -36,6 +36,7 @@ func (f *fakeState) SetEscalation(actorID string, tier int, at time.Time) error 
 
 type fakePinger struct {
 	ids       map[string]string
+	postErr   error
 	called    bool
 	lastIssue string
 	lastBody  string
@@ -49,7 +50,7 @@ func (f *fakePinger) PostComment(_ context.Context, issueID, body string) error 
 	f.called = true
 	f.lastIssue = issueID
 	f.lastBody = body
-	return nil
+	return f.postErr
 }
 
 func TestOpensTierZeroImmediately(t *testing.T) {
@@ -205,6 +206,24 @@ func TestPingFailureDoesNotAdvance(t *testing.T) {
 
 	if st.called {
 		t.Fatal("a transient ticket/post error must not advance the tier (must retry next tick)")
+	}
+}
+
+func TestPostCommentFailureDoesNotAdvance(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}, postErr: &testError{"post comment failed"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+
+	e.tick(context.Background())
+
+	if st.called {
+		t.Fatal("a transient PostComment error must not advance the tier (must retry next tick)")
 	}
 }
 
