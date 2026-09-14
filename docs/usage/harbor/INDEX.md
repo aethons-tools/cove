@@ -4,7 +4,7 @@ read_when: You are running or administering a harbor service — standing it up,
 owns: the map of the at-harbor operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
 tier: section
-updated: 2026-09-13
+updated: 2026-09-14
 ---
 
 # `at-harbor` — operating the central service
@@ -38,6 +38,7 @@ five pillars), see the design history:
 | [dispatcher.md](dispatcher.md) | You are enabling harbor's always-on intake — polling a tracker (Linear) and raising a managed cove per ready ticket — or tuning its concurrency cap / poll interval. |
 | [ui.md](ui.md) | You want to watch a running harbor in a browser — the live coves and the roster/roles/kits/destinations — read-only, loopback-only. |
 | [messaging.md](messaging.md) | You want a raised cove's agent to read/send comments on its own ticket (the brokered messaging MCP), or you're wiring the `/messages` endpoint + its `cove-master mcp` delivery. |
+| [comms-addressing.md](comms-addressing.md) | You want a cove's agent to send to a named human or channel instead of only its own ticket — the target space, the Project roster, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |
 
 ## The shape of a working harbor
 
