@@ -22,6 +22,7 @@ import (
 type Delivery struct {
 	Service      string // "linear" | "discord" — the owning Service
 	Address      string // the surface to post onto (a Linear ticket identifier, a Discord channel id)
+	BodyPrefix   string // literal string prepended to m.Body at delivery ("" = none); Resolve sets it, Deliver renders it
 	SenderName   string // the From actor's display identity (Discord webhook username override; a "<name>:" prefix on Linear)
 	SenderAvatar string
 }

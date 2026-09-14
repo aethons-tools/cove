@@ -18,17 +18,18 @@ type fakeSurface struct {
 	next          string
 }
 type deliverCall struct {
-	MsgID   string
-	Address string
-	Target  string // resolved target of this delivery, for assertions (set by tests via Directory)
-	Sender  string
+	MsgID      string
+	Address    string
+	Target     string // resolved target of this delivery, for assertions (set by tests via Directory)
+	Sender     string
+	BodyPrefix string
 }
 
 func (f *fakeSurface) Service() string { return f.service }
 func (f *fakeSurface) Deliver(ctx context.Context, d Delivery, m msglog.Message) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, Sender: d.SenderName})
+	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, Sender: d.SenderName, BodyPrefix: d.BodyPrefix})
 	if f.deliverErrFor[d.Address] {
 		return "", context.DeadlineExceeded
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -110,12 +111,146 @@ func TestDirectoryRoute(t *testing.T) {
 	if _, _, _, ok := d.Route("linear", "acme", msgport.Event{Author: "Brent", Surface: "ACME-999"}); ok {
 		t.Fatal("unknown issue must be unrouted")
 	}
-	// Projects + Resolve stub
+	// Projects + Resolve on an empty/invalid target
 	if got := d.Projects("linear"); len(got) != 1 || got[0] != "acme" {
 		t.Fatalf("Projects = %v", got)
 	}
 	if _, ok := d.Resolve("linear", "acme", msglog.Target{}, msglog.Target{}); ok {
-		t.Fatal("Resolve must be a stub returning ok=false")
+		t.Fatal("Resolve of an empty target must be unresolved")
+	}
+}
+
+// fakeStore is a minimal instanceRoster: canned instances + rosters, so
+// Resolve/Deliver tests don't need a real *harbor.FileStore.
+type fakeStore struct {
+	insts  []harbor.Instance
+	roster map[string]harbor.Roster
+}
+
+func (f *fakeStore) ListInstances() []harbor.Instance { return f.insts }
+func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
+	r, ok := f.roster[p]
+	return r, ok
+}
+
+// newRosterStore builds a fakeStore with a single Instance and the project's
+// Roster preloaded.
+func newRosterStore(t *testing.T, project string, inst harbor.Instance, roster harbor.Roster) *fakeStore {
+	t.Helper()
+	return &fakeStore{insts: []harbor.Instance{inst}, roster: map[string]harbor.Roster{project: roster}}
+}
+
+// fakePoster is a fake commentPoster: canned identifier→id resolution and
+// recorded posts, so Deliver is testable without a live Linear client.
+type fakePoster struct {
+	posts               []struct{ issueID, body string }
+	idByID              map[string]string // identifier -> internal id
+	postErr, resolveErr error
+}
+
+func (f *fakePoster) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
+	if f.resolveErr != nil {
+		return "", f.resolveErr
+	}
+	id, ok := f.idByID[identifier]
+	if !ok {
+		return "", fmt.Errorf("no such identifier %q", identifier)
+	}
+	return id, nil
+}
+
+func (f *fakePoster) PostComment(_ context.Context, issueID, body string) error {
+	if f.postErr != nil {
+		return f.postErr
+	}
+	f.posts = append(f.posts, struct{ issueID, body string }{issueID, body})
+	return nil
+}
+
+// TestEgressGoldenParity is the byte-parity gate: the egress rendering path
+// (directory.Resolve + linearSurface.Deliver) must post exactly the same
+// (issueID, body) pairs the pre-cutover direct-post handlePost produced.
+func TestEgressGoldenParity(t *testing.T) {
+	st := newRosterStore(t, "acme",
+		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		harbor.Roster{
+			Humans:   []harbor.Human{{Name: "alice", Handle: "alice.h"}},
+			Channels: []harbor.Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
+		})
+	poster := &fakePoster{idByID: map[string]string{"ACME-7": "iss_7", "ACME-9": "iss_9"}}
+	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	surf := &linearSurface{poster: poster}
+	from := msglog.Target{Kind: "actor", Ref: "cove-1"}
+
+	cases := []struct {
+		name    string
+		to      msglog.Target
+		body    string
+		wantID  string
+		wantBod string
+	}{
+		{"own", msglog.Target{Kind: "channel", Ref: "ACME-7"}, "hi", "iss_7", "hi"},
+		{"human", msglog.Target{Kind: "human", Ref: "alice"}, "ping", "iss_7", "@alice.h ping"},
+		{"channel", msglog.Target{Kind: "channel", Ref: "eng-help"}, "heads up", "iss_9", "heads up"},
+	}
+	for _, c := range cases {
+		d, ok := dir.Resolve("linear", "acme", c.to, from)
+		if !ok {
+			t.Fatalf("%s: Resolve ok=false", c.name)
+		}
+		if _, err := surf.Deliver(context.Background(), d, msglog.Message{From: from, To: []msglog.Target{c.to}, Body: c.body, Project: "acme"}); err != nil {
+			t.Fatalf("%s: Deliver: %v", c.name, err)
+		}
+	}
+	want := []struct{ issueID, body string }{
+		{"iss_7", "hi"}, {"iss_7", "@alice.h ping"}, {"iss_9", "heads up"},
+	}
+	if len(poster.posts) != len(want) {
+		t.Fatalf("posts = %+v, want %+v", poster.posts, want)
+	}
+	for i, w := range want {
+		if poster.posts[i] != w {
+			t.Fatalf("post %d = %+v, want %+v", i, poster.posts[i], w)
+		}
+	}
+}
+
+func TestResolveUnroutableAndNonLinear(t *testing.T) {
+	st := newRosterStore(t, "acme",
+		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}})
+	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	from := msglog.Target{Kind: "actor", Ref: "cove-1"}
+	// unknown human
+	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "human", Ref: "nobody"}, from); ok {
+		t.Fatal("unknown human should be unresolved")
+	}
+	// unknown channel (not own Unit, not a roster channel)
+	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "channel", Ref: "ACME-999"}, from); ok {
+		t.Fatal("unknown channel should be unresolved")
+	}
+	// non-linear service
+	if _, ok := dir.Resolve("discord", "acme", msglog.Target{Kind: "human", Ref: "alice"}, from); ok {
+		t.Fatal("non-linear service should be unresolved")
+	}
+	// sender with no instance → human unresolved
+	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "human", Ref: "alice"}, msglog.Target{Kind: "actor", Ref: "ghost"}); ok {
+		t.Fatal("human target with no sender instance should be unresolved")
+	}
+}
+
+func TestDeliverPropagatesErrors(t *testing.T) {
+	m := msglog.Message{Body: "x"}
+	d := msgport.Delivery{Service: "linear", Address: "ACME-7"}
+	// resolve error
+	s1 := &linearSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
+	if _, err := s1.Deliver(context.Background(), d, m); err == nil {
+		t.Fatal("expected resolve error")
+	}
+	// post error
+	s2 := &linearSurface{poster: &fakePoster{idByID: map[string]string{"ACME-7": "iss_7"}, postErr: fmt.Errorf("nope")}}
+	if _, err := s2.Deliver(context.Background(), d, m); err == nil {
+		t.Fatal("expected post error")
 	}
 }
 
