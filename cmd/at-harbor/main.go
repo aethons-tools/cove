@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/msglog"
+	"github.com/aethons-tools/cove/internal/msgport"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -1055,6 +1057,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
+	// Message Log: opened once (append handle held for the serve lifetime) and
+	// shared between the /messages writer (dual-write shadow, below) and the
+	// admin UI's read-only reader (further down). Unset config → nil → the
+	// writer's dual-write is disabled and the admin view renders a "not
+	// configured" notice.
+	var messageLog *msglog.Log
+	if cfg.MessageLog != "" {
+		ml, err := msglog.Open(cfg.MessageLog, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: message-log:", err)
+			return 1
+		}
+		defer ml.Close()
+		messageLog = ml
+		log.Info("harbor message log", "path", cfg.MessageLog)
+	}
+
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
 	// /messages route sharing the same *linear.Client as the resident
@@ -1082,20 +1101,38 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
+		// Pass messageLog as the appender only when it's genuinely non-nil: a
+		// typed-nil *msglog.Log boxed into the appender interface would compare
+		// non-nil inside handlePost and panic on Append. See messageLog above.
+		var msgH *harbor.MessagesHandler
+		if messageLog != nil {
+			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, messageLog, log)
+		} else {
+			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, nil, log)
+		}
 		escH := harbor.NewEscalateHandler(st, sup, log)
 		httpHandler = messagesMux(msgH, escH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
 		log.Info("harbor escalate: mounted", "path", "/escalate")
 
-		// Wake-on engine: watches Waiting instances' tickets (via the same
-		// tracker as the dispatcher) and Wakes them over the live Attach
-		// stream (rsrv, the ControlSink) on a new comment, or tears down
+		// Wake-on engine: watches Waiting instances and Wakes them over the
+		// live Attach stream (rsrv, the ControlSink) when an external-origin
+		// reply lands in the message Log addressed to them, or tears down
 		// past max-wait. Resident for the lifetime of the process.
 		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
 		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
 		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, sup /*Idler*/, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
+		// Pass messageLog as the Inbox only when it's genuinely non-nil: a
+		// typed-nil *msglog.Log boxed into the Inbox interface would compare
+		// non-nil inside Engine.replied and panic on ReadInbox. See
+		// messageLog above (same trap as the msgH wiring).
+		var inbox wakeon.Inbox
+		if messageLog != nil {
+			inbox = messageLog
+		} else {
+			log.Warn("harbor wake-on: message-log not configured — coves will not wake on replies (teardown/pause only)")
+		}
+		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
 		go eng.Run(context.Background())
 		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
 
@@ -1109,6 +1146,30 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
 		go eeng.Run(context.Background())
 		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
+
+		// msgport linear ingress engine: polls the team-scoped comments feed
+		// and appends inbound human replies to the same messageLog opened
+		// above (Slice 1a's shadow writer). Egress stays off this slice — the
+		// old count-based wake-on/escalation above are untouched; this only
+		// makes the Log start filling from the ingress side too. Nil-guarded
+		// on messageLog: without a configured message-log there is nothing to
+		// ingest into, so no engine runs.
+		if messageLog != nil {
+			self, err := tracker.Viewer(context.Background())
+			if err != nil {
+				log.Warn("harbor msgport: viewer lookup failed; self-post filter disabled", "error", err.Error())
+			}
+			surf := &linearSurface{feed: tracker, started: time.Now()}
+			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
+			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "msgport-cursors.json"))
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
+				return 1
+			}
+			ingest := msgport.New(surf, messageLog, noopMarkers{}, cur, dir, msgport.Config{EgressEnabled: false}, log)
+			go ingest.Run(context.Background())
+			log.Info("harbor msgport (linear ingress): resident", "egress", false, "self", self != "")
+		}
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
@@ -1145,20 +1206,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
 
-		// Read-only message-log view: open the durable Log (append handle held for
-		// the serve lifetime, unused until the deferred writer slices land) and give
-		// the admin UI a read-only reader. Unset config → nil → the view renders a
-		// "not configured" notice.
+		// Read-only message-log view: shares the Log opened once above (the same
+		// handle the /messages writer dual-writes into) with the admin UI as a
+		// read-only reader. Unset config → messageLog nil → msgReader stays its
+		// zero value and the view renders a "not configured" notice.
 		var msgReader adminui.MessageReader
-		if cfg.MessageLog != "" {
-			ml, err := msglog.Open(cfg.MessageLog, log)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: message-log:", err)
-				return 1
-			}
-			defer ml.Close()
-			msgReader = ml
-			log.Info("harbor message log", "path", cfg.MessageLog)
+		if messageLog != nil {
+			msgReader = messageLog
 		}
 
 		uiMux := http.NewServeMux()

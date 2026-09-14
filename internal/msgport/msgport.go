@@ -90,4 +90,10 @@ type Directory interface {
 
 // Config tunes the Engine's two poll loops; zero values pick defaults (e.g.
 // 2s / 15s).
-type Config struct{ EgressPoll, IngressPoll time.Duration }
+type Config struct {
+	EgressPoll, IngressPoll time.Duration
+	// EgressEnabled gates whether Run starts the egress loop at all; the
+	// ingress loop always runs. Defaults to false (ingress-only) so a new
+	// Service can be wired up shadow-reading before it's trusted to deliver.
+	EgressEnabled bool
+}

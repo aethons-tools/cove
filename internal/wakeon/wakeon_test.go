@@ -6,15 +6,12 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/msglog"
 )
 
 type fakeReg struct{ insts []harbor.Instance }
 
 func (f *fakeReg) ListInstances() []harbor.Instance { return f.insts }
-
-type fakeCur struct{ set map[string]string }
-
-func (f *fakeCur) SetWaitCursor(a, c string) error { f.set[a] = c; return nil }
 
 type fakeWaker struct{ woke []string }
 
@@ -25,15 +22,6 @@ type fakeReaper struct{ down []string }
 func (f *fakeReaper) Teardown(_ context.Context, a string) error {
 	f.down = append(f.down, a)
 	return nil
-}
-
-type fakeCmt struct{ n int } // Comments returns n items
-
-func (f *fakeCmt) IssueByIdentifier(_ context.Context, id string) (string, error) {
-	return "iss-" + id, nil
-}
-func (f *fakeCmt) Comments(_ context.Context, _ string) ([]harbor.Comment, error) {
-	return make([]harbor.Comment, f.n), nil
 }
 
 type fakeIdler struct {
@@ -47,127 +35,207 @@ func (f *fakeIdler) Resume(_ context.Context, a string) error {
 	return nil
 }
 
-func newTestEngine(reg *fakeReg, cur *fakeCur, wake *fakeWaker, reap *fakeReaper, idler *fakeIdler, cmt *fakeCmt, cfg Config) *Engine {
-	return New(reg, cur, wake, reap, idler, cmt, cfg, nil)
+// fakeInbox scripts ReadInbox per actor ref, standing in for *msglog.Log.
+type fakeInbox struct {
+	byActor map[string][]msglog.Message // actor ref → its inbox
 }
 
-func TestTick_WaitingEmptyCursorSetsBaseline_NoWake(t *testing.T) {
+func (f *fakeInbox) ReadInbox(t msglog.Target) []msglog.Message { return f.byActor[t.Ref] }
+
+// extInbound is an external-origin (human) inbound message addressed to coveID.
+func extInbound(coveID string, at time.Time) msglog.Message {
+	return msglog.Message{
+		From: msglog.Target{Kind: "human", Ref: "alice"},
+		To:   []msglog.Target{{Kind: "actor", Ref: coveID}},
+		Body: "reply",
+		At:   at,
+	}
+}
+
+func contains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTick_ExternalReplyAfterWaitingSince_Wakes(t *testing.T) {
+	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Now(), WaitCursor: ""},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
 	}}
-	cur := &fakeCur{set: map[string]string{}}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+		"a1": {extInbound("a1", waitStart.Add(time.Minute))},
+	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 3}
 	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{})
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: 10 * time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
 
 	e.tick(context.Background())
 
-	if got, want := cur.set["a1"], "3"; got != want {
-		t.Errorf("SetWaitCursor(a1) = %q, want %q", got, want)
+	if !contains(wake.woke, "a1") {
+		t.Fatalf("an external reply after WaitingSince must Wake the cove, got wake=%v", wake.woke)
 	}
-	if len(wake.woke) != 0 {
-		t.Errorf("Wake called unexpectedly: %v", wake.woke)
+	if len(idler.idled) != 0 || len(idler.resumed) != 0 || len(reap.down) != 0 {
+		t.Errorf("expected only Wake, got idle=%v resume=%v teardown=%v", idler.idled, idler.resumed, reap.down)
+	}
+}
+
+func TestTick_OldInboundBeforeWaitingSince_NoWake_IdlesPastWarmTimeout(t *testing.T) {
+	waitStart := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	}}
+	// inbound BEFORE WaitingSince → not a reply
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+		"a1": {extInbound("a1", waitStart.Add(-time.Minute))},
+	}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: 30 * time.Second}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) } // > WaitingSince + WarmTimeout
+
+	e.tick(context.Background())
+
+	if contains(wake.woke, "a1") {
+		t.Fatal("old inbound (before WaitingSince) must not wake")
+	}
+	if !contains(idler.idled, "a1") {
+		t.Fatal("no reply past warm-timeout → Idle")
+	}
+}
+
+func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
+	waitStart := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	}}
+	internal := msglog.Message{
+		From: msglog.Target{Kind: "actor", Ref: "a2"},
+		To:   []msglog.Target{{Kind: "actor", Ref: "a1"}},
+		Body: "internal",
+		At:   waitStart.Add(time.Minute),
+	}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{"a1": {internal}}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+
+	e.tick(context.Background())
+
+	if contains(wake.woke, "a1") {
+		t.Fatal("internal-origin inbound must not wake")
+	}
+}
+
+func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
+	waitStart := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+		"a1": {extInbound("a1", waitStart.Add(time.Minute))},
+	}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+
+	e.tick(context.Background())
+
+	if !contains(idler.resumed, "a1") {
+		t.Fatalf("Idled + reply → Resume (not Wake), got resume=%v", idler.resumed)
+	}
+	if contains(wake.woke, "a1") {
+		t.Fatal("must not directly Wake an Idled instance")
+	}
+	if len(idler.idled) != 0 {
+		t.Errorf("Idle called unexpectedly: %v", idler.idled)
+	}
+}
+
+func TestTick_NilInbox_NoWake_StillTeardownAtMaxWait(t *testing.T) {
+	waitStart := time.Unix(0, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, nil /* nil inbox */, Config{MaxWait: time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(1_000_000, 0) } // way past max-wait
+
+	e.tick(context.Background())
+
+	if !contains(reap.down, "a1") {
+		t.Fatal("nil inbox must still teardown at max-wait")
+	}
+	if contains(wake.woke, "a1") {
+		t.Fatal("nil inbox must never wake")
+	}
+}
+
+func TestTick_NilInbox_NoReplyWaking_ButPauseStillRuns(t *testing.T) {
+	waitStart := time.Unix(0, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, nil /* nil inbox */, Config{MaxWait: time.Hour, WarmTimeout: time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) } // past WarmTimeout, within MaxWait
+
+	e.tick(context.Background())
+
+	if contains(wake.woke, "a1") {
+		t.Fatal("nil inbox must never wake")
+	}
+	if !contains(idler.idled, "a1") {
+		t.Fatal("nil inbox must still allow warm-timeout Idle (pause)")
 	}
 	if len(reap.down) != 0 {
 		t.Errorf("Teardown called unexpectedly: %v", reap.down)
 	}
 }
 
-func TestTick_CursorUnchanged_NoWake(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Now(), WaitCursor: "2"},
-	}}
-	cur := &fakeCur{set: map[string]string{}}
-	wake := &fakeWaker{}
-	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 2}
-	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{})
-
-	e.tick(context.Background())
-
-	if len(wake.woke) != 0 {
-		t.Errorf("Wake called unexpectedly: %v", wake.woke)
-	}
-	if len(cur.set) != 0 {
-		t.Errorf("SetWaitCursor called unexpectedly: %v", cur.set)
-	}
-}
-
-func TestTick_CursorIncreased_Wakes(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Now(), WaitCursor: "2"},
-	}}
-	cur := &fakeCur{set: map[string]string{}}
-	wake := &fakeWaker{}
-	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 3}
-	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{})
-
-	e.tick(context.Background())
-
-	if len(wake.woke) != 1 || wake.woke[0] != "a1" {
-		t.Errorf("Wake = %v, want [a1]", wake.woke)
-	}
-}
-
-func TestTick_PastMaxWait_TeardownNoWake(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: ""},
-	}}
-	cur := &fakeCur{set: map[string]string{}}
-	wake := &fakeWaker{}
-	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 1}
-	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute})
-	// Override the clock for determinism instead of relying on real elapsed time.
-	e.now = func() time.Time { return time.Unix(0, 0).Add(31 * time.Minute) }
-
-	e.tick(context.Background())
-
-	if len(reap.down) != 1 || reap.down[0] != "a1" {
-		t.Errorf("Teardown = %v, want [a1]", reap.down)
-	}
-	if len(wake.woke) != 0 {
-		t.Errorf("Wake called unexpectedly: %v", wake.woke)
-	}
-	if len(cur.set) != 0 {
-		t.Errorf("SetWaitCursor called unexpectedly: %v", cur.set)
-	}
-}
-
 func TestTick_NonWaitingIgnored(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: ""},
+		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	cur := &fakeCur{set: map[string]string{}}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+		"a1": {extInbound("a1", time.Unix(1, 0))},
+	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 5}
 	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{})
+	e := New(reg, wake, reap, idler, inbox, Config{}, nil)
 
 	e.tick(context.Background())
 
-	if len(wake.woke) != 0 || len(reap.down) != 0 || len(cur.set) != 0 {
-		t.Errorf("expected no side effects for non-Waiting instance, got wake=%v reap=%v cur=%v", wake.woke, reap.down, cur.set)
+	if len(wake.woke) != 0 || len(reap.down) != 0 || len(idler.idled) != 0 || len(idler.resumed) != 0 {
+		t.Errorf("expected no side effects for non-Waiting instance, got wake=%v reap=%v idle=%v resume=%v",
+			wake.woke, reap.down, idler.idled, idler.resumed)
 	}
 }
 
 func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: "2"},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	cur := &fakeCur{set: map[string]string{}}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 2} // no reply: n == base
 	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute})
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute}, nil)
 	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) } // past WarmTimeout, within MaxWait
 
 	e.tick(context.Background())
@@ -186,66 +254,15 @@ func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
 	}
 }
 
-func TestTick_IdledWaiting_Reply_Resumes_NoDirectWake(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: "2"},
-	}}
-	cur := &fakeCur{set: map[string]string{}}
-	wake := &fakeWaker{}
-	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 3} // reply: n > base
-	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute})
-	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) }
-
-	e.tick(context.Background())
-
-	if len(idler.resumed) != 1 || idler.resumed[0] != "a1" {
-		t.Errorf("Resume = %v, want [a1]", idler.resumed)
-	}
-	if len(wake.woke) != 0 {
-		t.Errorf("Wake called unexpectedly (must not directly wake an Idled instance): %v", wake.woke)
-	}
-	if len(idler.idled) != 0 {
-		t.Errorf("Idle called unexpectedly: %v", idler.idled)
-	}
-}
-
-func TestTick_LiveWaiting_Reply_Wakes_NoIdle(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: "2"},
-	}}
-	cur := &fakeCur{set: map[string]string{}}
-	wake := &fakeWaker{}
-	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 3} // reply
-	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute})
-	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) } // also past WarmTimeout
-
-	e.tick(context.Background())
-
-	if len(wake.woke) != 1 || wake.woke[0] != "a1" {
-		t.Errorf("Wake = %v, want [a1]", wake.woke)
-	}
-	if len(idler.idled) != 0 {
-		t.Errorf("Idle called unexpectedly (reply must win over pause): %v", idler.idled)
-	}
-	if len(idler.resumed) != 0 {
-		t.Errorf("Resume called unexpectedly: %v", idler.resumed)
-	}
-}
-
 func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: "2"},
+		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	cur := &fakeCur{set: map[string]string{}}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
-	cmt := &fakeCmt{n: 2} // no reply
 	idler := &fakeIdler{}
-	e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute})
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute}, nil)
 	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) } // past WarmTimeout, within MaxWait
 
 	e.tick(context.Background())
@@ -268,14 +285,16 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 	for _, phase := range []harbor.Phase{harbor.PhaseLive, harbor.PhaseIdled} {
 		t.Run(string(phase), func(t *testing.T) {
 			reg := &fakeReg{insts: []harbor.Instance{
-				{ActorID: "a1", Phase: phase, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0), WaitCursor: "2"},
+				{ActorID: "a1", Phase: phase, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 			}}
-			cur := &fakeCur{set: map[string]string{}}
+			// even with a pending reply, max-wait teardown wins
+			inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+				"a1": {extInbound("a1", time.Unix(0, 0).Add(time.Second))},
+			}}
 			wake := &fakeWaker{}
 			reap := &fakeReaper{}
-			cmt := &fakeCmt{n: 2}
 			idler := &fakeIdler{}
-			e := newTestEngine(reg, cur, wake, reap, idler, cmt, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute})
+			e := New(reg, wake, reap, idler, inbox, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute}, nil)
 			e.now = func() time.Time { return time.Unix(0, 0).Add(31 * time.Minute) }
 
 			e.tick(context.Background())

@@ -1,29 +1,29 @@
 // Package wakeon is harbor's resident wake-on engine: it watches Waiting managed
-// coves and wakes them (over the Attach ControlSink) when a reply lands on their
-// ticket, or tears them down past a max-wait. Wired from cmd/at-harbor; not
-// imported by internal/harbor core.
+// coves and wakes them (over the Attach ControlSink) when an external-origin
+// reply lands in the message Log addressed to them, or tears them down past a
+// max-wait. Wired from cmd/at-harbor; not imported by internal/harbor core.
 package wakeon
 
 import (
 	"context"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/msglog"
 )
 
 type Registry interface{ ListInstances() []harbor.Instance }
-type Cursors interface {
-	SetWaitCursor(actorID, cursor string) error
-}
 type Waker interface{ Wake(actorID string) }
 type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }
-type Commenter interface {
-	IssueByIdentifier(ctx context.Context, identifier string) (string, error)
-	Comments(ctx context.Context, issueID string) ([]harbor.Comment, error)
+
+// Inbox is the read side of the message Log the engine uses to detect
+// replies. Satisfied by *msglog.Log; may be nil (message-log unconfigured →
+// no reply-waking, teardown/pause still run).
+type Inbox interface {
+	ReadInbox(t msglog.Target) []msglog.Message
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -44,17 +44,16 @@ const (
 
 type Engine struct {
 	reg   Registry
-	cur   Cursors
 	wake  Waker
 	reap  Reaper
 	idler Idler
-	cmt   Commenter
+	inbox Inbox
 	cfg   Config
 	now   func() time.Time
 	log   *slog.Logger
 }
 
-func New(reg Registry, cur Cursors, wake Waker, reap Reaper, idler Idler, cmt Commenter, cfg Config, log *slog.Logger) *Engine {
+func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
@@ -67,7 +66,7 @@ func New(reg Registry, cur Cursors, wake Waker, reap Reaper, idler Idler, cmt Co
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Engine{reg, cur, wake, reap, idler, cmt, cfg, time.Now, log}
+	return &Engine{reg, wake, reap, idler, inbox, cfg, time.Now, log}
 }
 
 func (e *Engine) Run(ctx context.Context) {
@@ -95,25 +94,7 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			continue
 		}
-		issueID, err := e.cmt.IssueByIdentifier(ctx, inst.Unit)
-		if err != nil {
-			e.log.Warn("wakeon: resolve ticket failed", "actor", inst.ActorID, "error", err.Error())
-			continue
-		}
-		comments, err := e.cmt.Comments(ctx, issueID)
-		if err != nil {
-			e.log.Warn("wakeon: read comments failed", "actor", inst.ActorID, "error", err.Error())
-			continue
-		}
-		n := len(comments)
-		if inst.WaitCursor == "" { // baseline
-			if err := e.cur.SetWaitCursor(inst.ActorID, strconv.Itoa(n)); err != nil {
-				e.log.Warn("wakeon: set cursor failed", "actor", inst.ActorID, "error", err.Error())
-			}
-			continue
-		}
-		base, _ := strconv.Atoi(inst.WaitCursor)
-		if n > base { // a reply arrived
+		if e.replied(inst) {
 			if inst.Phase == harbor.PhaseIdled {
 				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
@@ -132,6 +113,22 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// replied reports whether an external-origin inbound message addressed to
+// the cove arrived after it started waiting. A nil inbox (message-log
+// unconfigured) always reports false — reply-waking is off, but the
+// max-wait teardown and warm-timeout Idle above still run.
+func (e *Engine) replied(inst harbor.Instance) bool {
+	if e.inbox == nil {
+		return false
+	}
+	for _, m := range e.inbox.ReadInbox(msglog.Target{Kind: "actor", Ref: inst.ActorID}) {
+		if msglog.Classify(m.From) == msglog.External && m.At.After(inst.WaitingSince) {
+			return true
+		}
+	}
+	return false
 }
 
 type discard struct{}

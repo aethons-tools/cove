@@ -35,6 +35,10 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 `/messages` is mounted when harbor has a tracker (Linear) configured — it reuses the same Linear client the [dispatcher](dispatcher.md) uses. With no tracker configured, the endpoint is not mounted (and a cove's `read`/`send` calls simply error).
 
+When `message-log:` is also configured, every `send` additionally shadow-writes the logical message (raw body, not the rendered `@handle` form) into the durable Log — visible in the read-only [admin message view](ui.md#messages) — with zero change to live delivery; this is the first writer in the msgport arc (see [ui.md](ui.md) for the Log itself).
+
+When `message-log:` and a tracker are both configured, harbor also runs a resident **msgport linear ingress engine** (egress off) that polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently — also visible in the admin message view. **Wake-on (below) now reads replies from this Log**, so `message-log:` is required for a Waiting cove to wake on a reply.
+
 ## Waiting for a reply (wake-on)
 
 A raised cove is no longer strictly one-shot. When its agent reports **`needs-input`**
@@ -63,8 +67,11 @@ runtime:
     warm-timeout: 5m          # how long a waiting cove stays live before it's paused (empty → default 60s)
 ```
 
-The wake trigger this slice is **a new ticket comment** (detected as a comment-count
-increase past a baseline captured when the cove suspended — restart-safe).
+The wake trigger is **an external-origin message addressed to the cove landing in
+the durable message Log** after it started waiting (`WaitingSince`, stamped when it
+suspended — no cursor to migrate). It's fed by the msgport ingress engine above, so
+**without a configured `message-log:`, a Waiting cove never wakes on a reply** — it's
+bounded only by `wait-max` teardown (pausing at `warm-timeout` still happens).
 
 A Project may also configure an **escalation policy** that actively pings ordered
 human tiers on their own per-tier timers while a cove waits, instead of leaving it
