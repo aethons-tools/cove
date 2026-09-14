@@ -1040,8 +1040,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
 		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
-		httpHandler = messagesMux(msgH, broker)
+		escH := harbor.NewEscalateHandler(st, sup, log)
+		httpHandler = messagesMux(msgH, escH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
+		log.Info("harbor escalate: mounted", "path", "/escalate")
 
 		// Wake-on engine: watches Waiting instances' tickets (via the same
 		// tracker as the dispatcher) and Wakes them over the live Attach
