@@ -24,7 +24,9 @@
           <td>{{.Project}}</td><td>{{.Role}}</td>
           <td>{{range .Destinations}}{{.}} {{end}}</td>
           <td>{{range .Repos}}{{.}} {{end}}</td>
-          <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+          <td><button hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?">Remove</button>
+              <button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
                   hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
         {{end}}
       {{else}}
@@ -32,6 +34,15 @@
           <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
                   hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
       {{end}}
+      <tr class="add-grant"><td colspan="7">
+        <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
+          <input name="project" placeholder="project">
+          <input name="role" placeholder="role" required>
+          <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+          <input name="repos" placeholder="repo overrides (optional, comma-separated)">
+          <button type="submit">Add grant to {{$id}}</button>
+        </form>
+      </td></tr>
     {{else}}
       <tr><td colspan="7" class="empty">No actors enrolled.</td></tr>
     {{end}}

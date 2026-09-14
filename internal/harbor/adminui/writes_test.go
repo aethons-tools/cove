@@ -151,6 +151,38 @@ func TestCreateAndDeleteRole(t *testing.T) {
 	}
 }
 
+func TestAddAndRemoveGrant(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Scope: harbor.Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(harbor.Actor{ID: "spider-3", TokenHash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger())
+
+	rec := post(t, h, "/ui/actors/spider-3/grants", url.Values{"project": {"acme"}, "role": {"worker"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add grant = %d, want 200", rec.Code)
+	}
+	a, _ := findActor(store, "spider-3")
+	if len(a.Grants) != 1 || a.Grants[0].Role != "worker" {
+		t.Fatalf("grants = %+v, want one worker grant", a.Grants)
+	}
+
+	del := httptest.NewRequest(http.MethodDelete, "/ui/actors/spider-3/grants/acme/worker", nil)
+	del.Header.Set("Origin", "http://"+del.Host)
+	drec := httptest.NewRecorder()
+	h.ServeHTTP(drec, del)
+	if drec.Code != http.StatusOK {
+		t.Fatalf("remove grant = %d, want 200", drec.Code)
+	}
+	a2, _ := findActor(store, "spider-3")
+	if len(a2.Grants) != 0 {
+		t.Errorf("grants should be empty after remove, got %+v", a2.Grants)
+	}
+}
+
 func TestEnrollValidationError(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger())

@@ -160,6 +160,41 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
 	})
 
+	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		role := strings.TrimSpace(r.FormValue("role"))
+		if role == "" {
+			renderError(w, http.StatusBadRequest, "role is required")
+			return
+		}
+		project := strings.TrimSpace(r.FormValue("project"))
+		g := harbor.Grant{Project: project, Role: role, Overrides: overridesFrom(r.FormValue("destinations"), r.FormValue("repos"))}
+		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui grant added", "operator", harbor.OperatorID(r), "id", r.PathValue("id"), "project", project, "role", role)
+		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": harbor.RosterSummaries(store)})
+	})
+
+	mux.HandleFunc("DELETE /ui/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := store.RemoveGrant(r.PathValue("id"), r.PathValue("project"), r.PathValue("role")); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui grant removed", "operator", harbor.OperatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
+		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": harbor.RosterSummaries(store)})
+	})
+
 	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
