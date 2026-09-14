@@ -16,6 +16,7 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			e.log.Warn("msgport: ingress poll failed", "service", service, "project", project, "error", err.Error())
 			continue // do NOT advance the cursor
 		}
+		failed := false
 		for _, ev := range evts {
 			id := "in:" + service + ":" + ev.ForeignID
 			if e.seen[id] {
@@ -28,9 +29,16 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			}
 			if _, err := e.lg.Append(msglog.Message{ID: id, From: from, To: to, Body: ev.Body, At: ev.At, Project: project, ReplyTo: replyTo}); err != nil {
 				e.log.Warn("msgport: ingress append failed", "service", service, "foreign", ev.ForeignID, "error", err.Error())
+				failed = true
 				continue
 			}
 			e.seen[id] = true
+		}
+		if failed {
+			// A transient append failure must not advance the cursor: leave
+			// it so the next tick re-Polls (over-reports) and retries the
+			// failed append. Idempotency (via `seen`) makes the replay safe.
+			continue
 		}
 		if err := e.cur.SetIngress(service, project, next); err != nil {
 			e.log.Warn("msgport: set ingress cursor failed", "service", service, "project", project, "error", err.Error())

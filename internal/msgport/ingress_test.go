@@ -56,6 +56,25 @@ func TestIngressUnroutedSkipped(t *testing.T) {
 	}
 }
 
+func TestIngressAppendErrorHoldsCursor(t *testing.T) {
+	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "bad1", Body: "r", At: time.Unix(5, 0)}}, next: "cur3"}
+	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{
+		// to has an invalid Target (empty Ref), so the built msglog.Message
+		// fails validate() and Append returns an error.
+		"bad1": {from: msglog.Target{Kind: "human", Ref: "alice"}, to: []msglog.Target{{Kind: "actor", Ref: ""}}},
+	}}
+	cur := &fakeCursors{}
+	lg := openLog(t)
+	e := New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil)
+	e.ingressTick(context.Background())
+	if n := len(lg.List(msglog.Filter{})); n != 0 {
+		t.Fatalf("failed append must not land in the log, got %d", n)
+	}
+	if _, ok := cur.c["linear/acme"]; ok {
+		t.Fatal("an append failure must not advance the cursor")
+	}
+}
+
 func TestIngressPollErrorSkipsProject(t *testing.T) {
 	surf := &fakeSurface{service: "linear", pollErr: context.DeadlineExceeded}
 	dir := &fakeDirectory{projects: []string{"acme"}}
