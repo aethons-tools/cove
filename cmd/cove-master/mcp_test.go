@@ -229,6 +229,35 @@ func TestMCPListTargets(t *testing.T) {
 	}
 }
 
+func TestMCPEscalateForwardsCategory(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.escalate(context.Background(), "infra"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/escalate" || !strings.Contains(gotBody, `"category":"infra"`) {
+		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+}
+
 func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 	fh := &fakeHarbor{failStatus: http.StatusInternalServerError}
 	backend := httptest.NewServer(fh.handler())

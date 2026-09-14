@@ -59,6 +59,11 @@ type readOut struct {
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
 type listTargetsIn struct{}
 
+// escalateIn is the "escalate" tool's typed input.
+type escalateIn struct {
+	Category string `json:"category" jsonschema:"the block category to route escalation by, e.g. infra / ticket-blocked / code-architecture (free-form; unknown falls back to the default tier chain)"`
+}
+
 // targetItem mirrors one entry of harbor's GET /messages/targets response.
 type targetItem struct {
 	Target string `json:"target"`
@@ -199,6 +204,20 @@ func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
 	return out, nil
 }
 
+// escalate declares the cove's current block category via harbor's
+// POST /escalate. This only categorizes the block for the escalation
+// engine's tier routing — it does not itself trigger a page.
+func (c *messagingClient) escalate(ctx context.Context, category string) error {
+	payload, err := json.Marshal(struct {
+		Category string `json:"category"`
+	}{Category: category})
+	if err != nil {
+		return fmt.Errorf("encoding escalate payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPost, "/escalate", payload)
+	return err
+}
+
 // newMessagingServer builds the "messaging" MCP server exposing read/send.
 //
 // Configuration errors (missing env vars, a malformed address) are captured
@@ -253,6 +272,19 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, targetsOut{}, err
 		}
 		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "escalate",
+		Description: "Declare the category of your current block so harbor routes the escalation to the right on-call tier. Call this before you finish a turn needing input; it categorizes, it does not itself page anyone.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in escalateIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		if err := client.escalate(ctx, in.Category); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, nil
 	})
 
 	return s
