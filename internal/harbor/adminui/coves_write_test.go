@@ -51,7 +51,7 @@ func TestRaiseCove(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred)
+	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred, nil)
 	rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-1"}, "project": {"acme"}, "role": {"worker"}, "prompt": {"do the thing"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("raise = %d, want 200; body: %s", rec.Code, rec.Body.String())
@@ -72,7 +72,7 @@ func TestRaiseCove(t *testing.T) {
 
 func TestRaiseCoveValidation(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred)
+	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred, nil)
 	rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-x"}}) // missing role
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "role is required") {
 		t.Fatalf("missing role = %d %q, want 400 + inline error", rec.Code, rec.Body.String())
@@ -81,7 +81,7 @@ func TestRaiseCoveValidation(t *testing.T) {
 
 func TestRaiseCoveNoRuntime503(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred) // no supervisor
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil) // no supervisor
 	rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-1"}, "role": {"worker"}})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("raise with no runtime = %d, want 503", rec.Code)
@@ -98,7 +98,7 @@ func TestTeardownCove(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred)
+	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred, nil)
 	// Raise one first.
 	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-2"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
 		t.Fatalf("setup raise = %d", rec.Code)
@@ -121,7 +121,7 @@ func TestTeardownCove(t *testing.T) {
 
 func TestTeardownCoveNoRuntime503(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred)
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
 	req := httptest.NewRequest(http.MethodDelete, "/ui/coves/x", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestCovesControlsRenderWithSupervisor(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred)
+	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred, nil)
 
 	// Raise form is present on the Coves page.
 	page := get(t, h, "/ui/coves").Body.String()
@@ -163,7 +163,7 @@ func TestCovesControlsRenderWithSupervisor(t *testing.T) {
 
 func TestRaiseCoveCSRF(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred)
+	h := adminui.Handler(store, testLogger(), newSup(t, store), anyCred, nil)
 	req := httptest.NewRequest(http.MethodPost, "/ui/coves", strings.NewReader("id=x&role=worker"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")

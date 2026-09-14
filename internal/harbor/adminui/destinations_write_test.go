@@ -16,7 +16,7 @@ func credOK(name string) bool { return name == "known-cred" }
 
 func destHandler(t *testing.T, store harbor.Store) http.Handler {
 	t.Helper()
-	return adminui.Handler(store, testLogger(), nil, credOK)
+	return adminui.Handler(store, testLogger(), nil, credOK, nil)
 }
 
 func TestAddDestination(t *testing.T) {
@@ -82,7 +82,7 @@ func TestDestinationWriteCSRF(t *testing.T) {
 func TestAddDestinationNoCredLeak(t *testing.T) {
 	const secretCred = "SECRET-CRED-REF"
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, func(name string) bool { return name == secretCred })
+	h := adminui.Handler(store, testLogger(), nil, func(name string) bool { return name == secretCred }, nil)
 	rec := post(t, h, "/ui/destinations", url.Values{
 		"name": {"anthropic"}, "route": {"/anthropic/"}, "upstream": {"https://api.anthropic.com"},
 		"identity-in": {"x-api-key"}, "cred-name": {secretCred}, "apply": {"x-api-key"},
