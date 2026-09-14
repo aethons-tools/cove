@@ -1,5 +1,18 @@
 {{define "content"}}
 <h1>Roster</h1>
+<form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML">
+  <input name="id" placeholder="actor id" required>
+  <input name="project" placeholder="project (default)">
+  <input name="role" placeholder="role" required>
+  <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+  <input name="repos" placeholder="repo overrides (optional, comma-separated)">
+  <button type="submit">Enroll</button>
+</form>
+<div id="roster-panel"></div>
+{{template "roster-table" .}}
+{{end}}
+
+{{define "roster-table"}}
 <table>
   <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th></tr></thead>
   <tbody>
@@ -20,4 +33,11 @@
     {{end}}
   </tbody>
 </table>
+{{end}}
+
+{{define "enroll-result"}}
+<div class="token-panel">
+  <p><strong>Enrolled {{.ID}}.</strong> Copy this identity token now — it is not shown again:</p>
+  <code>{{.Token}}</code>
+</div>
 {{end}}
