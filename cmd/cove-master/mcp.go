@@ -1,6 +1,8 @@
 // The mcp subcommand ("cove-master mcp") runs a stdio Model Context Protocol
-// server that gives the cove's claude agent two tools, "read" and "send",
-// brokered through harbor's /messages endpoint on the cove's own ticket.
+// server that gives the cove's claude agent tools — "read" and "send" brokered
+// through harbor's /messages endpoint on the cove's own ticket (or, via an
+// optional "to" target, another authorized human/channel), and "list_targets"
+// brokered through harbor's GET /messages/targets endpoint.
 //
 // Security notes (see AGENTS.md / the harbor messaging MCP plan):
 //   - The identity token is read from AT_HARBOR_IDENTITY_TOKEN only — never
@@ -43,6 +45,7 @@ type messageOut struct {
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post to the cove's ticket"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to post to this cove's own ticket"`
 }
 
 // readIn is the "read" tool's (empty) typed input.
@@ -51,6 +54,21 @@ type readIn struct{}
 // readOut is the "read" tool's typed output: the cove's inbox.
 type readOut struct {
 	Messages []messageOut `json:"messages"`
+}
+
+// listTargetsIn is the "list_targets" tool's (empty) typed input.
+type listTargetsIn struct{}
+
+// targetItem mirrors one entry of harbor's GET /messages/targets response.
+type targetItem struct {
+	Target string `json:"target"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+}
+
+// targetsOut is the "list_targets" tool's typed output.
+type targetsOut struct {
+	Targets []targetItem `json:"targets"`
 }
 
 // messagingClient forwards read/send calls to harbor's /messages endpoint.
@@ -110,16 +128,16 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 	}, nil
 }
 
-// do issues an authenticated request to harbor's /messages endpoint and
+// do issues an authenticated request to harbor at c.baseURL+pathSuffix and
 // returns the response body (capped) on a 2xx status. Any error returned is
 // generic: it never contains the bearer token, and never echoes the raw
 // response body from harbor.
-func (c *messagingClient) do(ctx context.Context, method string, body []byte) ([]byte, error) {
+func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+"/messages", reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+pathSuffix, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("building harbor messages request: %w", err)
 	}
@@ -141,27 +159,42 @@ func (c *messagingClient) do(ctx context.Context, method string, body []byte) ([
 	return respBody, nil
 }
 
-// send posts a message to the cove's own ticket via harbor.
-func (c *messagingClient) send(ctx context.Context, text string) error {
+// send posts a message to the cove's own ticket via harbor, or, when to is
+// non-empty, to the authorized human/channel target it names.
+func (c *messagingClient) send(ctx context.Context, text, to string) error {
 	payload, err := json.Marshal(struct {
 		Body string `json:"body"`
-	}{Body: text})
+		To   string `json:"to,omitempty"`
+	}{Body: text, To: to})
 	if err != nil {
 		return fmt.Errorf("encoding send payload: %w", err)
 	}
-	_, err = c.do(ctx, http.MethodPost, payload)
+	_, err = c.do(ctx, http.MethodPost, "/messages", payload)
 	return err
 }
 
 // read fetches the cove's inbox via harbor.
 func (c *messagingClient) read(ctx context.Context) (readOut, error) {
-	body, err := c.do(ctx, http.MethodGet, nil)
+	body, err := c.do(ctx, http.MethodGet, "/messages", nil)
 	if err != nil {
 		return readOut{}, err
 	}
 	var out readOut
 	if err := json.Unmarshal(body, &out); err != nil {
 		return readOut{}, fmt.Errorf("decoding harbor messages response")
+	}
+	return out, nil
+}
+
+// listTargets fetches the actor's addressable send targets via harbor.
+func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
+	body, err := c.do(ctx, http.MethodGet, "/messages/targets", nil)
+	if err != nil {
+		return targetsOut{}, err
+	}
+	var out targetsOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		return targetsOut{}, fmt.Errorf("decoding harbor targets response")
 	}
 	return out, nil
 }
@@ -183,12 +216,12 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message to this cove's own Linear ticket.",
+		Description: "Post a message. Omit 'to' for this cove's own ticket; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
 		}
-		if err := client.send(ctx, in.Text); err != nil {
+		if err := client.send(ctx, in.Text, in.To); err != nil {
 			return nil, nil, err
 		}
 		return nil, nil, nil
@@ -204,6 +237,20 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 		out, err := client.read(ctx)
 		if err != nil {
 			return nil, readOut{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_targets",
+		Description: "List the targets this cove may send to (human:<name> / channel:<name>).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTargetsIn) (*mcp.CallToolResult, targetsOut, error) {
+		if cfgErr != nil {
+			return nil, targetsOut{}, cfgErr
+		}
+		out, err := client.listTargets(ctx)
+		if err != nil {
+			return nil, targetsOut{}, err
 		}
 		return nil, out, nil
 	})

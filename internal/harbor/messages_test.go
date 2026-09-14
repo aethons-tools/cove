@@ -13,10 +13,13 @@ import (
 )
 
 // fakeStore is a minimal messagesStore: canned actor-by-token-hash and
-// instance-by-actor-id, so tests don't need a real FileStore.
+// instance-by-actor-id, so tests don't need a real FileStore. roles/rosters
+// back the widened GetRole/GetRoster used by DecideSend for a targeted send.
 type fakeStore struct {
-	actors    map[string]Actor    // tokenHash -> Actor
-	instances map[string]Instance // actorID -> Instance
+	actors    map[string]Actor           // tokenHash -> Actor
+	instances map[string]Instance        // actorID -> Instance
+	roles     map[string]map[string]Role // project -> role name -> Role
+	rosters   map[string]Roster          // project -> Roster
 }
 
 func (f *fakeStore) Lookup(tokenHash string) (Actor, bool) {
@@ -29,10 +32,25 @@ func (f *fakeStore) GetInstance(actorID string) (Instance, bool) {
 	return i, ok
 }
 
+func (f *fakeStore) GetRole(project, name string) (Role, bool) {
+	rs, ok := f.roles[project]
+	if !ok {
+		return Role{}, false
+	}
+	r, ok := rs[name]
+	return r, ok
+}
+
+func (f *fakeStore) GetRoster(project string) (Roster, bool) {
+	r, ok := f.rosters[project]
+	return r, ok
+}
+
 // fakeCommenter records PostComment calls, returns canned Comments, and maps a
 // ticket identifier (e.g. "AET-7") to an internal issue id.
 type fakeCommenter struct {
 	ids      map[string]string // identifier -> issue id
+	errIDs   map[string]bool   // identifier -> IssueByIdentifier fails for just this one
 	comments []Comment
 	posted   []postedComment
 	err      error // if set, every method fails with this error
@@ -46,6 +64,9 @@ type postedComment struct {
 func (f *fakeCommenter) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
 	if f.err != nil {
 		return "", f.err
+	}
+	if f.errIDs[identifier] {
+		return "", fmt.Errorf("fakeCommenter: resolve failed for identifier %q", identifier)
 	}
 	id, ok := f.ids[identifier]
 	if !ok {
@@ -256,6 +277,255 @@ func TestMessagesNeverLogsToken(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), tok) || strings.Contains(rec2.Body.String(), "some-other-secret-token") {
 		t.Fatalf("token leaked into an error body")
+	}
+}
+
+// TestSendToHumanMentionsOnOwnTicket asserts a "to":"human:<name>" send is
+// authorized via DecideSend and delivered as an @-mention on the cove's OWN
+// ticket (not a separate thread) — replies keep landing where the existing
+// wake-on-reply loop watches. It also asserts the message body never reaches
+// the logs while the (non-secret) target does.
+func TestSendToHumanMentionsOnOwnTicket(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
+	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	var logbuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"ping","to":"human:alice"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 1 {
+		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	}
+	got := cmt.posted[0]
+	if got.issueID != "iss_7" {
+		t.Fatalf("delivered to %q, want own ticket iss_7", got.issueID)
+	}
+	if !strings.HasPrefix(got.body, "@alice.h ") || !strings.Contains(got.body, "ping") {
+		t.Fatalf("body = %q, want @mention prefix", got.body)
+	}
+	if strings.Contains(logbuf.String(), "ping") {
+		t.Fatalf("message body leaked into logs: %s", logbuf.String())
+	}
+	if !strings.Contains(logbuf.String(), "human:alice") {
+		t.Fatalf("expected the (non-secret) target to be logged: %s", logbuf.String())
+	}
+}
+
+// TestSendToChannelPostsOnChannelThread asserts a "to":"channel:<name>" send
+// is delivered verbatim (no @-mention prefix) to the channel's OWN thread —
+// resolved via IssueByIdentifier(st.Ref) — not the cove's own ticket.
+func TestSendToChannelPostsOnChannelThread(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
+	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7", "ACME-1": "iss_1"}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 1 {
+		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	}
+	got := cmt.posted[0]
+	if got.issueID != "iss_1" || got.body != "heads up" {
+		t.Fatalf("PostComment(%q, %q), want (%q, %q)", got.issueID, got.body, "iss_1", "heads up")
+	}
+}
+
+// TestSendToChannelResolveErrorIs502 asserts that when a "to":"channel:<name>"
+// send is authorized but the channel's Ref fails to resolve to an issue id
+// (IssueByIdentifier errors), the handler reports 502 and delivers nothing —
+// distinct from the 403/404 authorization-failure paths.
+func TestSendToChannelResolveErrorIs502(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
+	}
+	cmt := &fakeCommenter{
+		ids:    map[string]string{"AET-7": "iss_7"},
+		errIDs: map[string]bool{"ACME-1": true},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 0 {
+		t.Fatalf("PostComment must not be called when channel resolution fails")
+	}
+}
+
+// TestSendToDeniedIs403 asserts a target whose form no grant's addressing
+// authorizes is denied (403) and — critically — nothing is delivered.
+func TestSendToDeniedIs403(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "secret", Ref: "X"}}}},
+	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"channel:secret"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+	if len(cmt.posted) != 0 {
+		t.Fatalf("PostComment must not be called on a denied send")
+	}
+}
+
+// TestSendToUnresolvedIs404 asserts a target authorized-in-form but absent
+// from the roster of every authorizing grant's project is a 404, distinct
+// from the 403 denial path.
+func TestSendToUnresolvedIs404(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}}},
+	}
+	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"human:bob"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if len(cmt.posted) != 0 {
+		t.Fatalf("PostComment must not be called on an unresolved send")
+	}
+}
+
+// TestSendNoTargetStillOwnTicket is the byte-for-byte regression guard: a POST
+// with no "to" field must behave exactly as before this change — no
+// DecideSend call, no @-mention prefix, body posted verbatim to the cove's
+// own ticket.
+func TestSendNoTargetStillOwnTicket(t *testing.T) {
+	h, _, cmt, _ := newTestMessagesHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"status"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 1 {
+		t.Fatalf("PostComment calls = %d, want 1", len(cmt.posted))
+	}
+	if got := cmt.posted[0]; got.issueID != "iss_7" || got.body != "status" {
+		t.Fatalf("own-ticket path regressed: issue=%q body=%q, want (iss_7, status)", got.issueID, got.body)
+	}
+}
+
+// TestTargetsListsAllowedTargets asserts GET /messages/targets returns the
+// actor's authorized-and-resolvable targets — a channel not in the role's
+// addressing must be excluded — and that it never resolves a ticket (no
+// IssueByIdentifier call) and never includes handles in the response.
+func TestTargetsListsAllowedTargets(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}},
+	}
+	// No ids configured: if the handler tried to resolve a ticket it would 502.
+	cmt := &fakeCommenter{ids: map[string]string{}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/targets", nil)
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Targets []map[string]string `json:"targets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
+	}
+	if len(out.Targets) != 1 {
+		t.Fatalf("targets = %+v, want exactly 1 (channel must be excluded — not in addressing)", out.Targets)
+	}
+	tg := out.Targets[0]
+	if tg["target"] != "human:alice" || tg["kind"] != "human" || tg["name"] != "alice" {
+		t.Fatalf("target = %+v, want human:alice", tg)
+	}
+	if _, ok := tg["handle"]; ok {
+		t.Fatalf("target must not include the handle: %+v", tg)
+	}
+}
+
+// TestTargetsGetStillReturnsInboxForBareMessagesPath is the regression guard:
+// the targets branch must only fire on the exact "/targets" suffix — GET
+// /messages must still return the caller's own-ticket inbox.
+func TestTargetsGetStillReturnsInboxForBareMessagesPath(t *testing.T) {
+	h, _, cmt, _ := newTestMessagesHandler()
+	cmt.comments = []Comment{{ID: "c1", Author: "alice", Body: "hello"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Messages []Comment `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
+	}
+	if len(out.Messages) != 1 || out.Messages[0].Author != "alice" {
+		t.Fatalf("messages = %+v, want the canned inbox (own-ticket read must be unaffected)", out.Messages)
 	}
 }
 

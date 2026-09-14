@@ -114,7 +114,7 @@ func (c *Client) RemoveDestination(name string) error {
 func (c *Client) PutRole(project string, r harbor.Role) error {
 	return c.do("POST", "/admin/roles", harbor.RoleBody{
 		Project: project, Name: r.Name,
-		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
+		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos, Addressing: r.Scope.Addressing,
 		TTLSeconds: int64(r.Scope.TTL / time.Second),
 		Kit:        r.Kit,
 	}, nil)
@@ -133,7 +133,7 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 	roles := make([]harbor.Role, 0, len(out))
 	for _, rs := range out {
 		roles = append(roles, harbor.Role{Name: rs.Name, Kit: rs.Kit, Scope: harbor.Scope{
-			Destinations: rs.Destinations, Repos: rs.Repos, TTL: time.Duration(rs.TTLSeconds) * time.Second,
+			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
 		}})
 	}
 	return roles, nil
@@ -221,6 +221,33 @@ func (c *Client) PinKit(name string, version int) error {
 // role still references it.
 func (c *Client) RemoveKit(name string) error {
 	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
+}
+
+// AddHuman upserts a roster human (by name) within project.
+func (c *Client) AddHuman(project string, h harbor.Human) error {
+	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/humans", h, nil)
+}
+
+// AddChannel upserts a roster channel (by name) within project.
+func (c *Client) AddChannel(project string, ch harbor.Channel) error {
+	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/channels", ch, nil)
+}
+
+// GetRoster fetches project's addressable roster (humans + channels).
+func (c *Client) GetRoster(project string) (harbor.Roster, error) {
+	var rr harbor.Roster
+	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/roster", nil, &rr)
+	return rr, err
+}
+
+// RemoveHuman removes a human (by name) from project's roster.
+func (c *Client) RemoveHuman(project, name string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/humans/"+url.PathEscape(name), nil, nil)
+}
+
+// RemoveChannel removes a channel (by name) from project's roster.
+func (c *Client) RemoveChannel(project, name string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/channels/"+url.PathEscape(name), nil, nil)
 }
 
 // CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from

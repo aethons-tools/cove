@@ -18,6 +18,7 @@ import (
 type Scope struct {
 	Destinations []string      `json:"destinations"`
 	Repos        []string      `json:"repos"`
+	Addressing   []string      `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
 	TTL          time.Duration `json:"ttl"`
 }
 
@@ -43,6 +44,7 @@ type Kit struct {
 type Override struct {
 	Destinations []string `json:"destinations,omitempty"`
 	Repos        []string `json:"repos,omitempty"`
+	Addressing   []string `json:"addressing,omitempty"` // REPLACES Scope.Addressing when non-nil
 }
 
 // Grant assigns a Role (within a Project) to an Actor, optionally narrowed.
@@ -60,6 +62,33 @@ type Actor struct {
 	TokenHash string    `json:"token_hash"`
 	Grants    []Grant   `json:"grants"`
 	Expiry    time.Time `json:"expiry"` // zero = no expiry
+}
+
+// Human is a roster member reachable by @-mention on a tracker thread.
+type Human struct {
+	Name   string `json:"name"`   // roster-local name, e.g. "alice"
+	Handle string `json:"handle"` // tracker @-mention handle
+}
+
+// Channel is a named conduit on a Service. C1: Service == "linear", Ref is a
+// tracker issue identifier (e.g. "ACME-1") the channel posts to.
+type Channel struct {
+	Name    string `json:"name"`
+	Service string `json:"service"`
+	Ref     string `json:"ref"`
+}
+
+// Roster is a Project's addressable membership.
+type Roster struct {
+	Humans   []Human   `json:"humans,omitempty"`
+	Channels []Channel `json:"channels,omitempty"`
+}
+
+// Project is the top of the config tree: it owns its Roster (and, in a later
+// slice, its escalation policy). Roles remain keyed by (project, name).
+type Project struct {
+	Name   string `json:"name"`
+	Roster Roster `json:"roster"`
 }
 
 // DefaultProject backs harbor-side default enrollment when no project is named.

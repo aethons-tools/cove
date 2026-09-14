@@ -410,3 +410,63 @@ func TestStoreLoadsV4FileWithoutInstances(t *testing.T) {
 		t.Fatal("v4 role lost on load")
 	}
 }
+
+func TestRosterRoundTripAndPersist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.json")
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.AddChannel("acme", Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
+		t.Fatal(err)
+	}
+	// reload from disk
+	fs2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr, ok := fs2.GetRoster("acme")
+	if !ok || len(rr.Humans) != 1 || rr.Humans[0].Handle != "alice.h" || len(rr.Channels) != 1 || rr.Channels[0].Ref != "ACME-1" {
+		t.Fatalf("roster not persisted: %+v ok=%v", rr, ok)
+	}
+	// a project with a roster shows up in ListProjects even without roles
+	found := false
+	for _, p := range fs2.ListProjects() {
+		if p == "acme" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ListProjects missing acme: %v", fs2.ListProjects())
+	}
+}
+
+func TestAddHumanUpsertsByName(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.AddHuman("p", Human{Name: "a", Handle: "old"})
+	_ = fs.AddHuman("p", Human{Name: "a", Handle: "new"})
+	rr, _ := fs.GetRoster("p")
+	if len(rr.Humans) != 1 || rr.Humans[0].Handle != "new" {
+		t.Fatalf("expected upsert to new handle, got %+v", rr.Humans)
+	}
+}
+
+func TestMigrationLeavesEmptyRoster(t *testing.T) {
+	// A pre-existing v4 store with no "projects" key loads with empty rosters.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.json")
+	if err := os.WriteFile(path, []byte(`{"roles":{},"actors":{"h":{"id":"a","token_hash":"h"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fs.GetRoster("acme"); ok {
+		t.Fatal("expected no roster for absent project")
+	}
+}

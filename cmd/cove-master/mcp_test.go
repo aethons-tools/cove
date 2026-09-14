@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -93,8 +94,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] {
-		t.Fatalf("want read+send tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] {
+		t.Fatalf("want read+send+list_targets tools, got %v", names)
 	}
 }
 
@@ -172,6 +173,59 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 	}
 	if len(out.Messages) != 1 || out.Messages[0].Body != "hello" {
 		t.Fatalf("read result = %+v", out)
+	}
+}
+
+func TestMCPSendForwardsTo(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.send(context.Background(), "hi", "human:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/messages" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
+		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+}
+
+func TestMCPListTargets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages/targets" || r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"targets":[{"target":"human:alice","kind":"human","name":"alice"}]}`))
+	}))
+	defer srv.Close()
+	c, _ := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	out, err := c.listTargets(context.Background())
+	if err != nil || len(out.Targets) != 1 || out.Targets[0].Target != "human:alice" {
+		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }
 
