@@ -94,8 +94,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] {
-		t.Fatalf("want read+send tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] {
+		t.Fatalf("want read+send+list_targets tools, got %v", names)
 	}
 }
 

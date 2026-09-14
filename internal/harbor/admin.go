@@ -39,6 +39,7 @@ type GrantSummary struct {
 	Role         string   `json:"role"`
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
+	Addressing   []string `json:"addressing,omitempty"`
 }
 
 // RoleBody is the POST /admin/roles request.
@@ -185,6 +186,7 @@ func RosterSummaries(store Store) []ActorSummary {
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
 				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+				gs.Addressing = s.Addressing
 			}
 			sum.Grants = append(sum.Grants, gs)
 		}

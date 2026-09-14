@@ -52,7 +52,7 @@ type Store interface {
 	GetRoster(project string) (Roster, bool)
 }
 
-// storeFile is the on-disk JSON shape (format v4).
+// storeFile is the on-disk JSON shape, detected by field presence rather than a persisted version number; this shape adds Projects.
 type storeFile struct {
 	Roles        map[string]map[string]Role `json:"roles"`              // project → roleName → Role
 	Actors       map[string]Actor           `json:"actors"`             // keyed by TokenHash
@@ -665,7 +665,13 @@ func (fs *FileStore) GetProject(name string) (Project, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	p, ok := fs.projects[name]
-	return p, ok
+	if !ok {
+		return Project{}, false
+	}
+	// copy so callers can't mutate the store's slices
+	p.Roster.Humans = append([]Human(nil), p.Roster.Humans...)
+	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
+	return p, true
 }
 
 func (fs *FileStore) GetRoster(project string) (Roster, bool) {
