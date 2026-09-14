@@ -84,10 +84,9 @@ func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) http.
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title":   "Dashboard",
-			"Coves":   harbor.CoveSummaries(store),
-			"Actors":  harbor.RosterSummaries(store),
-			"CanEdit": canEdit,
+			"Title":  "Dashboard",
+			"Coves":  harbor.CoveSummaries(store),
+			"Actors": harbor.RosterSummaries(store),
 		})
 	})
 

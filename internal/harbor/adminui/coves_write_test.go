@@ -131,6 +131,36 @@ func TestTeardownCoveNoRuntime503(t *testing.T) {
 	}
 }
 
+func TestCovesControlsRenderWithSupervisor(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), newSup(t, store))
+
+	// Raise form is present on the Coves page.
+	page := get(t, h, "/ui/coves").Body.String()
+	if !strings.Contains(page, `hx-post="/ui/coves"`) {
+		t.Error("Coves page with a supervisor must render the raise form")
+	}
+
+	// Seed a live cove, then check the per-row Teardown control appears.
+	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-3"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
+		t.Fatalf("setup raise = %d", rec.Code)
+	}
+	page = get(t, h, "/ui/coves").Body.String()
+	if !strings.Contains(page, `hx-delete="/ui/coves/`) {
+		t.Errorf("Coves page with a live cove must render the Teardown button; got:\n%s", page)
+	}
+
+	// The dashboard stays view-only even with a supervisor configured: no
+	// Teardown buttons on the shared coves-table there (Fix A).
+	dash := get(t, h, "/ui/").Body.String()
+	if strings.Contains(dash, `hx-delete="/ui/coves/`) {
+		t.Error("dashboard must not render Teardown buttons even when a supervisor is configured")
+	}
+}
+
 func TestRaiseCoveCSRF(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), newSup(t, store))
