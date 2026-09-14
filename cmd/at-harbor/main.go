@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/msglog"
+	"github.com/aethons-tools/cove/internal/msgport"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -1104,6 +1106,30 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
 		go eeng.Run(context.Background())
 		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
+
+		// msgport linear ingress engine: polls the team-scoped comments feed
+		// and appends inbound human replies to the same messageLog opened
+		// above (Slice 1a's shadow writer). Egress stays off this slice — the
+		// old count-based wake-on/escalation above are untouched; this only
+		// makes the Log start filling from the ingress side too. Nil-guarded
+		// on messageLog: without a configured message-log there is nothing to
+		// ingest into, so no engine runs.
+		if messageLog != nil {
+			self, err := tracker.Viewer(context.Background())
+			if err != nil {
+				log.Warn("harbor msgport: viewer lookup failed; self-post filter disabled", "error", err.Error())
+			}
+			surf := &linearSurface{feed: tracker, started: time.Now()}
+			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
+			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "msgport-cursors.json"))
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
+				return 1
+			}
+			ingest := msgport.New(surf, messageLog, noopMarkers{}, cur, dir, msgport.Config{EgressEnabled: false}, log)
+			go ingest.Run(context.Background())
+			log.Info("harbor msgport (linear ingress): resident", "egress", false, "self", self != "")
+		}
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)

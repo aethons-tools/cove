@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -304,6 +305,61 @@ func TestIssueByIdentifierNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "AET-999") {
 		t.Fatalf("error = %v; want it to mention the identifier AET-999", err)
+	}
+}
+
+func TestCommentFeedParsesAndSendsVars(t *testing.T) {
+	var gotVars map[string]any
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil // New's fetch
+		}
+		var body struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		gotVars = body.Variables
+		resp := `{"data":{"comments":{"nodes":[
+			{"id":"c1","body":"please hold","createdAt":"2026-09-14T10:00:00.000Z","user":{"displayName":"Brent"},"issue":{"identifier":"ACME-42"},"parent":null},
+			{"id":"c2","body":"why?","createdAt":"2026-09-14T11:00:00.000Z","user":{"displayName":"Brent"},"issue":{"identifier":"ACME-42"},"parent":{"id":"c1"}}
+		]}}}`
+		return jsonResp(resp), nil
+	})
+	since := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
+	got, err := c.CommentFeed(context.Background(), since, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 ||
+		got[0].ID != "c1" || got[0].Author != "Brent" || got[0].IssueIdentifier != "ACME-42" || got[0].ParentID != "" ||
+		got[1].ParentID != "c1" || got[1].Body != "why?" {
+		t.Fatalf("parse: %+v", got)
+	}
+	if got[0].CreatedAt.IsZero() {
+		t.Fatal("CreatedAt must parse")
+	}
+	// team key + since + first are sent as variables
+	if gotVars["key"] == nil || gotVars["since"] == nil || gotVars["first"] == nil {
+		t.Fatalf("missing vars: %v", gotVars)
+	}
+}
+
+func TestViewerParsesDisplayName(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResp(statesResponse), nil // New's fetch
+		}
+		return jsonResp(`{"data":{"viewer":{"displayName":"harbor-bot"}}}`), nil
+	})
+	name, err := c.Viewer(context.Background())
+	if err != nil || name != "harbor-bot" {
+		t.Fatalf("viewer=%q err=%v", name, err)
 	}
 }
 

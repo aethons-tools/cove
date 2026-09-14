@@ -58,9 +58,12 @@ func New(surf Surface, lg *msglog.Log, mk Markers, cur Cursors, dir Directory, c
 }
 
 // Run drives both loops until ctx is cancelled (egress in a goroutine,
-// ingress inline so Run blocks until ingress observes cancellation).
+// ingress inline so Run blocks until ingress observes cancellation). The
+// egress loop only starts when cfg.EgressEnabled; ingress always runs.
 func (e *Engine) Run(ctx context.Context) {
-	go e.loop(ctx, e.cfg.EgressPoll, e.egressTick)
+	if e.cfg.EgressEnabled {
+		go e.loop(ctx, e.cfg.EgressPoll, e.egressTick)
+	}
 	e.loop(ctx, e.cfg.IngressPoll, e.ingressTick)
 }
 

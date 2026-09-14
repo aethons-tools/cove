@@ -37,6 +37,8 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 When `message-log:` is also configured, every `send` additionally shadow-writes the logical message (raw body, not the rendered `@handle` form) into the durable Log — visible in the read-only [admin message view](ui.md#messages) — with zero change to live delivery; this is the first writer in the msgport arc (see [ui.md](ui.md) for the Log itself).
 
+When `message-log:` and a tracker are both configured, harbor also runs a resident **msgport linear ingress engine** (egress off) that polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently — also visible in the admin message view. This is ingestion into the Log only; the existing count-based **wake-on** (above) still detects a reply the old way, unchanged, until a later slice reads from the Log instead.
+
 ## Waiting for a reply (wake-on)
 
 A raised cove is no longer strictly one-shot. When its agent reports **`needs-input`**

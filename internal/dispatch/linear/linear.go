@@ -354,4 +354,66 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 	return cs, nil
 }
 
+// FeedComment is one comment from the team-scoped comments feed.
+type FeedComment struct {
+	ID              string
+	Body            string
+	CreatedAt       time.Time
+	Author          string
+	IssueIdentifier string
+	ParentID        string
+}
+
+// CommentFeed returns comments in the Client's team created after `since`,
+// oldest-first, capped at `limit`. Backs the msgport Linear ingress adapter.
+func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([]FeedComment, error) {
+	const q = `query($key:String!,$since:DateTimeOrDuration!,$first:Int!){comments(filter:{issue:{team:{key:{eq:$key}}},createdAt:{gt:$since}},orderBy:createdAt,first:$first){nodes{id body createdAt user{displayName} issue{identifier} parent{id}}}}`
+	var out struct {
+		Comments struct {
+			Nodes []struct {
+				ID        string `json:"id"`
+				Body      string `json:"body"`
+				CreatedAt string `json:"createdAt"`
+				User      struct {
+					DisplayName string `json:"displayName"`
+				} `json:"user"`
+				Issue struct {
+					Identifier string `json:"identifier"`
+				} `json:"issue"`
+				Parent *struct {
+					ID string `json:"id"`
+				} `json:"parent"`
+			} `json:"nodes"`
+		} `json:"comments"`
+	}
+	if err := c.do(ctx, q, map[string]any{"key": c.team, "since": since.UTC().Format(time.RFC3339Nano), "first": limit}, &out); err != nil {
+		return nil, err
+	}
+	fs := make([]FeedComment, 0, len(out.Comments.Nodes))
+	for _, n := range out.Comments.Nodes {
+		at, _ := time.Parse(time.RFC3339, n.CreatedAt) // Linear returns RFC3339; tolerate parse failure as zero
+		fc := FeedComment{ID: n.ID, Body: n.Body, CreatedAt: at, Author: n.User.DisplayName, IssueIdentifier: n.Issue.Identifier}
+		if n.Parent != nil {
+			fc.ParentID = n.Parent.ID
+		}
+		fs = append(fs, fc)
+	}
+	return fs, nil
+}
+
+// Viewer returns the display name of the identity the Client's token
+// authenticates as (harbor's own Linear user) — for the ingress self-post filter.
+func (c *Client) Viewer(ctx context.Context) (string, error) {
+	const q = `query{viewer{displayName}}`
+	var out struct {
+		Viewer struct {
+			DisplayName string `json:"displayName"`
+		} `json:"viewer"`
+	}
+	if err := c.do(ctx, q, nil, &out); err != nil {
+		return "", err
+	}
+	return out.Viewer.DisplayName, nil
+}
+
 var _ scheduler.Tracker = (*Client)(nil)
