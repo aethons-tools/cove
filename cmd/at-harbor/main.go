@@ -1115,7 +1115,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			log.Info("harbor UI auth: loopback-only")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup)))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists)))
 
 		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {

@@ -41,7 +41,7 @@ latter needs Auth0 RBAC "Add Permissions in the Access Token" + the permission
 assigned to the user).
 
 `device-client-id` gates the CLI **device flow** (this doc). `browser-client-id`
-(a public SPA/Native client) gates **browser login for the read-only `/ui`** via
+(a public SPA/Native client) gates **browser login for the `/ui`** via
 Authorization Code + PKCE, reusing the same `issuer`/`audience`/`require-scope`;
 the browser session cookie holds the API access token and is re-verified per
 request just like a bearer. See [ui.md](ui.md#reaching-the-ui).

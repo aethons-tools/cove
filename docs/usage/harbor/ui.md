@@ -1,7 +1,7 @@
 ---
-summary: The harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants) and, with a runtime supervisor configured, raise/tear down managed coves.
-read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — or do the roster day-job or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
+summary: The harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
+read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+owns: the `/ui/` observability + roster/kit/destination-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
 updated: 2026-09-14
@@ -27,8 +27,8 @@ It renders:
   coves — see [Runtime (coves)](#runtime-coves) below and
   [coves.md](coves.md).
 - **Roster / Roles / Kits / Destinations** — the control-plane objects as
-  tables. Roster and Roles are editable from here (below); Kits and
-  Destinations are read-only in the UI.
+  tables, all editable from here — see [Editing](#editing-day-job-mutations)
+  below.
 
 ## Reaching the UI
 
@@ -71,7 +71,8 @@ operator who made it. Destructive actions ask for confirmation. State-changing
 requests are refused unless they originate from the harbor UI itself (an
 Origin/Referer check), so another site can't drive them through your browser.
 
-Not editable from the UI (use the CLI): the kit registry and destinations.
+The kit registry and destinations are also editable from here — see
+[Config plane (kits & destinations)](#config-plane-kits-destinations) below.
 Raising and tearing down coves is editable from the UI when a runtime
 supervisor is configured — see [Runtime (coves)](#runtime-coves) below.
 
@@ -89,3 +90,18 @@ config — see [coves.md](coves.md)), the Coves page can also:
 Without a runtime supervisor, the Coves page is view-only. Setting a cove's
 activity is not a UI action — that is reported by the cove itself. These actions
 obey the same gate, CSRF, and audit-logging as the roster edits above.
+
+### Config plane (kits & destinations)
+
+- **Kits** — push a new version (name + config), pin the current pointer to an
+  existing version, and delete a kit. A kit still referenced by a role cannot be
+  deleted (the UI reports a conflict). See [kits.md](kits.md).
+- **Destinations** — add a brokered destination (name, route, upstream,
+  identity-in, cred-name, apply, repo-scoped) and remove one. A `cred-name` must
+  resolve to a configured credential, or the add is rejected. See
+  [serve.md#destinations](serve.md#destinations).
+
+A kit config references credentials by name only (no secret values), and a
+destination's `cred-name` is a reference, not a secret — the UI shows and logs
+neither secret values nor the credential itself. These actions obey the same
+gate, CSRF, and audit-logging as the other edits.
