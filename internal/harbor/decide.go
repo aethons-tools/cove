@@ -25,6 +25,9 @@ func EffectiveScope(g Grant, r Role) Scope {
 		if g.Overrides.Repos != nil {
 			s.Repos = g.Overrides.Repos
 		}
+		if g.Overrides.Addressing != nil {
+			s.Addressing = g.Overrides.Addressing
+		}
 	}
 	return s
 }

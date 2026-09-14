@@ -75,3 +75,16 @@ func TestDecideRejectsExpired(t *testing.T) {
 		t.Fatal("expected expired actor to be rejected")
 	}
 }
+
+func TestEffectiveScopeAddressingReplaces(t *testing.T) {
+	role := Role{Name: "r", Scope: Scope{Addressing: []string{"human:*"}}}
+	// nil override addressing inherits the role's
+	if got := EffectiveScope(Grant{Role: "r"}, role).Addressing; !sameStrings(got, []string{"human:*"}) {
+		t.Fatalf("inherit: got %v", got)
+	}
+	// set override addressing REPLACES (no merge)
+	g := Grant{Role: "r", Overrides: &Override{Addressing: []string{"channel:eng-help"}}}
+	if got := EffectiveScope(g, role).Addressing; !sameStrings(got, []string{"channel:eng-help"}) {
+		t.Fatalf("replace: got %v", got)
+	}
+}

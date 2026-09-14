@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
@@ -42,15 +43,23 @@ type Store interface {
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
 	Match(reqPath string) (Destination, bool)
+
+	AddHuman(project string, h Human) error // upsert by name
+	AddChannel(project string, c Channel) error
+	RemoveHuman(project, name string) error
+	RemoveChannel(project, name string) error
+	GetProject(name string) (Project, bool)
+	GetRoster(project string) (Roster, bool)
 }
 
 // storeFile is the on-disk JSON shape (format v4).
 type storeFile struct {
-	Roles        map[string]map[string]Role `json:"roles"`        // project → roleName → Role
-	Actors       map[string]Actor           `json:"actors"`       // keyed by TokenHash
-	Destinations map[string]Destination     `json:"destinations"` // keyed by Name
-	Kits         map[string]Kit             `json:"kits"`         // keyed by Kit.Name
-	Instances    map[string]Instance        `json:"instances"`    // keyed by Instance.ActorID
+	Roles        map[string]map[string]Role `json:"roles"`              // project → roleName → Role
+	Actors       map[string]Actor           `json:"actors"`             // keyed by TokenHash
+	Destinations map[string]Destination     `json:"destinations"`       // keyed by Name
+	Kits         map[string]Kit             `json:"kits"`               // keyed by Kit.Name
+	Instances    map[string]Instance        `json:"instances"`          // keyed by Instance.ActorID
+	Projects     map[string]Project         `json:"projects,omitempty"` // keyed by Project.Name
 }
 
 // legacyIdentity is the pre-RBAC (v1/v2) per-identity record, read only during
@@ -75,6 +84,7 @@ type FileStore struct {
 	dests     map[string]Destination
 	kits      map[string]Kit
 	instances map[string]Instance
+	projects  map[string]Project
 }
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
@@ -87,6 +97,7 @@ func NewFileStore(path string) (*FileStore, error) {
 		dests:     map[string]Destination{},
 		kits:      map[string]Kit{},
 		instances: map[string]Instance{},
+		projects:  map[string]Project{},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -119,6 +130,9 @@ func NewFileStore(path string) (*FileStore, error) {
 		}
 		if v3.Instances != nil {
 			fs.instances = v3.Instances
+		}
+		if v3.Projects != nil {
+			fs.projects = v3.Projects
 		}
 		return fs, nil
 	}
@@ -206,7 +220,7 @@ func sameStrings(a, b []string) bool {
 
 // save persists the v4 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
-	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits, Instances: fs.instances}, "", "  ")
+	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits, Instances: fs.instances, Projects: fs.projects}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -377,10 +391,14 @@ func (fs *FileStore) ListProjects() []string {
 			set[g.Project] = struct{}{}
 		}
 	}
+	for p := range fs.projects {
+		set[p] = struct{}{}
+	}
 	out := make([]string, 0, len(set))
 	for p := range set {
 		out = append(out, p)
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -556,4 +574,111 @@ func (fs *FileStore) ListDestinations() []Destination {
 
 func (fs *FileStore) Match(reqPath string) (Destination, bool) {
 	return Config{Destinations: fs.ListDestinations()}.Match(reqPath)
+}
+
+func (fs *FileStore) AddHuman(project string, h Human) error {
+	if h.Name == "" {
+		return fmt.Errorf("human name required")
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p := fs.projects[project]
+	p.Name = project
+	replaced := false
+	for i := range p.Roster.Humans {
+		if p.Roster.Humans[i].Name == h.Name {
+			p.Roster.Humans[i] = h
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		p.Roster.Humans = append(p.Roster.Humans, h)
+	}
+	fs.projects[project] = p
+	return fs.save()
+}
+
+func (fs *FileStore) AddChannel(project string, c Channel) error {
+	if c.Name == "" {
+		return fmt.Errorf("channel name required")
+	}
+	if c.Service == "" {
+		c.Service = "linear"
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p := fs.projects[project]
+	p.Name = project
+	replaced := false
+	for i := range p.Roster.Channels {
+		if p.Roster.Channels[i].Name == c.Name {
+			p.Roster.Channels[i] = c
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		p.Roster.Channels = append(p.Roster.Channels, c)
+	}
+	fs.projects[project] = p
+	return fs.save()
+}
+
+func (fs *FileStore) RemoveHuman(project, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, ok := fs.projects[project]
+	if !ok {
+		return fmt.Errorf("project %q not found", project)
+	}
+	out := p.Roster.Humans[:0]
+	for _, h := range p.Roster.Humans {
+		if h.Name != name {
+			out = append(out, h)
+		}
+	}
+	p.Roster.Humans = out
+	fs.projects[project] = p
+	return fs.save()
+}
+
+func (fs *FileStore) RemoveChannel(project, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, ok := fs.projects[project]
+	if !ok {
+		return fmt.Errorf("project %q not found", project)
+	}
+	out := p.Roster.Channels[:0]
+	for _, c := range p.Roster.Channels {
+		if c.Name != name {
+			out = append(out, c)
+		}
+	}
+	p.Roster.Channels = out
+	fs.projects[project] = p
+	return fs.save()
+}
+
+func (fs *FileStore) GetProject(name string) (Project, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, ok := fs.projects[name]
+	return p, ok
+}
+
+func (fs *FileStore) GetRoster(project string) (Roster, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, ok := fs.projects[project]
+	if !ok {
+		return Roster{}, false
+	}
+	// copy so callers can't mutate the store's slices
+	r := Roster{
+		Humans:   append([]Human(nil), p.Roster.Humans...),
+		Channels: append([]Channel(nil), p.Roster.Channels...),
+	}
+	return r, true
 }
