@@ -45,9 +45,13 @@ type serveConfig struct {
 	// MessageLog is an optional path to the durable msglog JSONL file. When set,
 	// `serve` opens it and the admin UI serves the read-only Messages view
 	// (/ui/messages). Created on first open. Empty disables the view.
-	MessageLog   string              `yaml:"message-log"`
-	Credentials  map[string]credSpec `yaml:"credentials"`
-	OperatorAuth struct {
+	MessageLog string `yaml:"message-log"`
+	// StorePostgres, when set, selects the Postgres store backend and takes
+	// precedence over the file `store`. The DB password is never inline — it is a
+	// named credential resolved on the host in memory (see password-cred).
+	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
+	Credentials   map[string]credSpec  `yaml:"credentials"`
+	OperatorAuth  struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
 			Audience        string `yaml:"audience"`
@@ -140,6 +144,37 @@ type dispatcherConfig struct {
 	WaitMax                string `yaml:"wait-max"`
 	WarmTimeout            string `yaml:"warm-timeout"`
 	EscalationPollInterval string `yaml:"escalation-poll-interval"`
+}
+
+// storePostgresConfig selects and configures the Postgres store backend. The
+// password is never inline: PasswordCred names an entry in `credentials`,
+// resolved on the host in memory when serve assembles the DSN.
+type storePostgresConfig struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	Database     string `yaml:"database"`
+	User         string `yaml:"user"`
+	SSLMode      string `yaml:"sslmode"`
+	PasswordCred string `yaml:"password-cred"`
+}
+
+// validateStorePostgres checks store-postgres when present: required fields set,
+// and password-cred names a configured credential. A no-op when unset (the file
+// backend is used).
+func (c serveConfig) validateStorePostgres() error {
+	p := c.StorePostgres
+	if p == nil {
+		return nil
+	}
+	for name, v := range map[string]string{"host": p.Host, "database": p.Database, "user": p.User, "sslmode": p.SSLMode, "password-cred": p.PasswordCred} {
+		if v == "" {
+			return fmt.Errorf("store-postgres.%s is required", name)
+		}
+	}
+	if _, ok := c.Credentials[p.PasswordCred]; !ok {
+		return fmt.Errorf("store-postgres.password-cred %q is not a configured credential", p.PasswordCred)
+	}
+	return nil
 }
 
 // toSpec converts this credential to a named secret.Spec (literal or command).
