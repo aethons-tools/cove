@@ -175,6 +175,8 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	if enteringWaiting {
 		inst.WaitingSince = now
 		inst.WaitCursor = ""
+		inst.EscalationTier = 0
+		inst.TierPingedAt = time.Time{}
 	}
 	if a == ActivityDone {
 		inst.Phase = PhaseTerminating
@@ -197,6 +199,19 @@ func (s *Supervisor) SetWaitCursor(actorID, cursor string) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.WaitCursor = cursor
+	return s.store.PutInstance(inst)
+}
+
+// SetEscalation persists the escalation engine's per-instance tier state (which
+// tier was last pinged, and when). The zero TierPingedAt means "no escalation
+// open" — see the escalation engine. No-op semantics if the actor is gone.
+func (s *Supervisor) SetEscalation(actorID string, tier int, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.EscalationTier = tier
+	inst.TierPingedAt = at
 	return s.store.PutInstance(inst)
 }
 

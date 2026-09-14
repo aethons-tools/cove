@@ -455,6 +455,44 @@ func TestAddHumanUpsertsByName(t *testing.T) {
 	}
 }
 
+func TestEscalationPolicyRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	fs, _ := NewFileStore(path)
+	tiers := []EscalationTier{
+		{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute},
+		{Targets: []string{"human:bob"}, Timeout: time.Hour},
+	}
+	if err := fs.SetEscalationPolicy("acme", tiers); err != nil {
+		t.Fatal(err)
+	}
+	fs2, _ := NewFileStore(path) // reload from disk
+	p, ok := fs2.GetProject("acme")
+	if !ok || len(p.Escalation) != 2 || p.Escalation[0].Timeout != 15*time.Minute || p.Escalation[1].Targets[0] != "human:bob" {
+		t.Fatalf("escalation not persisted: %+v ok=%v", p.Escalation, ok)
+	}
+}
+
+func TestSetEscalationPolicyReplaces(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
+	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:b"}, Timeout: 2 * time.Minute}})
+	p, _ := fs.GetProject("p")
+	if len(p.Escalation) != 1 || p.Escalation[0].Targets[0] != "human:b" {
+		t.Fatalf("expected replace, got %+v", p.Escalation)
+	}
+}
+
+func TestGetProjectCopiesEscalation(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
+	p, _ := fs.GetProject("p")
+	p.Escalation[0].Targets[0] = "mutated" // must not corrupt the store
+	p2, _ := fs.GetProject("p")
+	if p2.Escalation[0].Targets[0] != "human:a" {
+		t.Fatalf("GetProject leaked a live slice: %v", p2.Escalation[0].Targets)
+	}
+}
+
 func TestMigrationLeavesEmptyRoster(t *testing.T) {
 	// A pre-existing v4 store with no "projects" key loads with empty rosters.
 	dir := t.TempDir()
