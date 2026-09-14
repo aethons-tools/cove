@@ -86,3 +86,61 @@ func TestMessagesNavLinkPresentOnOtherPages(t *testing.T) {
 		t.Errorf("nav should link to /ui/messages; got:\n%s", body)
 	}
 }
+
+func fixtureLog(t *testing.T) *msglog.Log {
+	t0 := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	return newMsgLog(t,
+		msglog.Message{From: actor("cove-1"), To: []msglog.Target{channel("eng")}, Body: "deploy started", At: t0, Project: "acme"},
+		msglog.Message{From: human("alice"), To: []msglog.Target{actor("cove-1")}, Body: "please HOLD", At: t0.Add(24 * time.Hour), Project: "acme"},
+		msglog.Message{From: actor("cove-9"), To: []msglog.Target{human("bob")}, Body: "beta status", At: t0.Add(48 * time.Hour), Project: "beta"},
+	)
+}
+
+func TestMessagesFilterProject(t *testing.T) {
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?project=beta").Body.String()
+	if !strings.Contains(body, "beta status") || strings.Contains(body, "deploy started") {
+		t.Errorf("project=beta should show only beta rows; got:\n%s", body)
+	}
+}
+
+func TestMessagesFilterParticipant(t *testing.T) {
+	// channel:eng appears only in the first message's To.
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?participant=channel:eng").Body.String()
+	if !strings.Contains(body, "deploy started") || strings.Contains(body, "beta status") || strings.Contains(body, "please HOLD") {
+		t.Errorf("participant=channel:eng should match only the eng-channel message; got:\n%s", body)
+	}
+	// actor:cove-1 is the sender of msg1 and a recipient of msg2 → both match.
+	body = get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?participant=actor:cove-1").Body.String()
+	if !strings.Contains(body, "deploy started") || !strings.Contains(body, "please HOLD") || strings.Contains(body, "beta status") {
+		t.Errorf("participant=actor:cove-1 should match its sent + received messages; got:\n%s", body)
+	}
+}
+
+func TestMessagesFilterBodySubstringCaseInsensitive(t *testing.T) {
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?q=hold").Body.String()
+	if !strings.Contains(body, "please HOLD") || strings.Contains(body, "deploy started") {
+		t.Errorf("q=hold should case-insensitively match 'please HOLD' only; got:\n%s", body)
+	}
+}
+
+func TestMessagesFilterTimeWindow(t *testing.T) {
+	// [2026-09-11, 2026-09-11] inclusive → only the 2026-09-11 message (msg2).
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?since=2026-09-11&until=2026-09-11").Body.String()
+	if !strings.Contains(body, "please HOLD") || strings.Contains(body, "deploy started") || strings.Contains(body, "beta status") {
+		t.Errorf("since=until=2026-09-11 should show only that day; got:\n%s", body)
+	}
+}
+
+func TestMessagesFiltersIntersect(t *testing.T) {
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?project=acme&q=deploy").Body.String()
+	if !strings.Contains(body, "deploy started") || strings.Contains(body, "please HOLD") {
+		t.Errorf("project=acme&q=deploy should intersect to one row; got:\n%s", body)
+	}
+}
+
+func TestMessagesFilterNoMatch(t *testing.T) {
+	body := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?q=nothingmatchesthis").Body.String()
+	if !strings.Contains(body, "No messages match") {
+		t.Errorf("a no-match filter should say 'No messages match'; got:\n%s", body)
+	}
+}
