@@ -98,4 +98,17 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 		log.Info("ui enrolled", "operator", harbor.OperatorID(r), "id", id, "project", project, "role", role)
 		renderFragment(w, "roster", "enroll-result", map[string]any{"ID": id, "Token": token})
 	})
+
+	mux.HandleFunc("DELETE /ui/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		id := r.PathValue("id")
+		if err := store.RemoveActor(id); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui revoked", "operator", harbor.OperatorID(r), "id", id)
+		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": harbor.RosterSummaries(store)})
+	})
 }

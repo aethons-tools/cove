@@ -90,6 +90,37 @@ func TestEnrollRejectsCrossOrigin(t *testing.T) {
 	}
 }
 
+// findActor scans the store's roster for an actor by id.
+func findActor(store harbor.Store, id string) (harbor.Actor, bool) {
+	for _, a := range store.ListActors() {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return harbor.Actor{}, false
+}
+
+func TestRevokeActor(t *testing.T) {
+	store := newStore(t)
+	if err := store.AddActor(harbor.Actor{ID: "spider-2", TokenHash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger())
+	req := httptest.NewRequest(http.MethodDelete, "/ui/enrollments/spider-2", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke = %d, want 200", rec.Code)
+	}
+	if _, ok := findActor(store, "spider-2"); ok {
+		t.Error("actor should be gone after revoke")
+	}
+	if strings.Contains(rec.Body.String(), "spider-2") {
+		t.Error("returned roster fragment should not list the revoked actor")
+	}
+}
+
 func TestEnrollValidationError(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger())

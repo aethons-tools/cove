@@ -13,8 +13,8 @@
 {{end}}
 
 {{define "roster-table"}}
-<table>
-  <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th></tr></thead>
+<table id="roster">
+  <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>Actions</th></tr></thead>
   <tbody>
     {{range .Actors}}
       {{$id := .ID}}{{$exp := .Expiry}}
@@ -23,13 +23,17 @@
         <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td>
           <td>{{.Project}}</td><td>{{.Role}}</td>
           <td>{{range .Destinations}}{{.}} {{end}}</td>
-          <td>{{range .Repos}}{{.}} {{end}}</td></tr>
+          <td>{{range .Repos}}{{.}} {{end}}</td>
+          <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
         {{end}}
       {{else}}
-        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td><td colspan="4" class="empty">no grants</td></tr>
+        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td><td colspan="4" class="empty">no grants</td>
+          <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
       {{end}}
     {{else}}
-      <tr><td colspan="6" class="empty">No actors enrolled.</td></tr>
+      <tr><td colspan="7" class="empty">No actors enrolled.</td></tr>
     {{end}}
   </tbody>
 </table>
