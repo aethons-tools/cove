@@ -45,6 +45,8 @@ type Commenter interface {
 type messagesStore interface {
 	Lookup(tokenHash string) (Actor, bool)
 	GetInstance(actorID string) (Instance, bool)
+	GetRole(project, name string) (Role, bool)
+	GetRoster(project string) (Roster, bool)
 }
 
 // MessagesHandler is harbor's self-scoped brokered messaging endpoint: an
@@ -110,6 +112,7 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodyBytes)
 	var req struct {
 		Body string `json:"body"`
+		To   string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -125,12 +128,42 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 		return
 	}
 
-	if err := h.cmt.PostComment(r.Context(), issueID, req.Body); err != nil {
+	// deliverIssue defaults to the cove's own ticket; a channel target overrides
+	// it. body may be prefixed with an @-mention for a human target.
+	deliverIssue, body := issueID, req.Body
+	if req.To != "" {
+		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())
+		switch {
+		case errors.Is(err, ErrSendDenied):
+			http.Error(w, "target not authorized", http.StatusForbidden)
+			return
+		case errors.Is(err, ErrSendUnresolved):
+			http.Error(w, "target not found", http.StatusNotFound)
+			return
+		case err != nil:
+			http.Error(w, "target error", http.StatusForbidden)
+			return
+		}
+		switch st.Kind {
+		case "human":
+			body = "@" + st.Handle + " " + req.Body // reply lands on own ticket → existing wake-on
+		case "channel":
+			chID, err := h.cmt.IssueByIdentifier(r.Context(), st.Ref)
+			if err != nil {
+				h.log.Error("messages: resolve channel failed", "actor", actor.ID, "target", req.To, "error", err.Error())
+				http.Error(w, "channel unavailable", http.StatusBadGateway)
+				return
+			}
+			deliverIssue = chID
+		}
+	}
+
+	if err := h.cmt.PostComment(r.Context(), deliverIssue, body); err != nil {
 		h.log.Error("messages: post comment failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return
 	}
-	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "bytes", len(req.Body))
+	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "to", req.To, "bytes", len(req.Body))
 	w.WriteHeader(http.StatusNoContent)
 }
 
