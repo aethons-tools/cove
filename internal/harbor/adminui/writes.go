@@ -62,6 +62,15 @@ func overridesFrom(dests, repos string) *harbor.Override {
 	return &harbor.Override{Destinations: d, Repos: rp}
 }
 
+// orDefaultProject normalizes an empty project to harbor.DefaultProject for
+// audit logging, mirroring the JSON admin API's orDefaultProject.
+func orDefaultProject(p string) string {
+	if p == "" {
+		return harbor.DefaultProject
+	}
+	return p
+}
+
 // renderError renders an inline error fragment with the given status.
 func renderError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -156,7 +165,7 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 			renderError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Info("ui role put", "operator", harbor.OperatorID(r), "project", project, "role", name)
+		log.Info("ui role put", "operator", harbor.OperatorID(r), "project", orDefaultProject(project), "role", name)
 		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
 	})
 
@@ -179,7 +188,7 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 			renderError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		log.Info("ui grant added", "operator", harbor.OperatorID(r), "id", r.PathValue("id"), "project", project, "role", role)
+		log.Info("ui grant added", "operator", harbor.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
 		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": harbor.RosterSummaries(store)})
 	})
 

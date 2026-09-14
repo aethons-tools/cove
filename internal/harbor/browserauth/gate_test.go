@@ -59,6 +59,30 @@ func TestGateOffLoopbackNoSessionRedirects(t *testing.T) {
 	}
 }
 
+func TestGateOffLoopbackWriteWithoutSessionRefused(t *testing.T) {
+	idp := newFakeIdP(t)
+	auth, err := harbor.NewOIDCAuthenticator(context.Background(), idp.url, "aud", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	var called bool
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/ui/enrollments", nil)
+	req.RemoteAddr = "203.0.113.7:5555"
+	g.Wrap(stub).ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/auth/login" {
+		t.Fatalf("no-session off-loopback write = %d %q, want 302 /ui/auth/login", rec.Code, rec.Header().Get("Location"))
+	}
+	if called {
+		t.Error("wrapped handler was called; write must not reach the handler without a session")
+	}
+}
+
 func TestGateAttributesOperator(t *testing.T) {
 	// Loopback → "local".
 	var gotLoopback string
