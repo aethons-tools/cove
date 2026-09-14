@@ -250,16 +250,18 @@ func (c *Client) RemoveChannel(project, name string) error {
 	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/channels/"+url.PathEscape(name), nil, nil)
 }
 
-// SetEscalationPolicy replaces project's escalation policy wholesale.
-func (c *Client) SetEscalationPolicy(project string, tiers []harbor.EscalationTier) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/escalation", harbor.EscalationBody{Tiers: tiers}, nil)
+// SetEscalationPolicy replaces the tier chain for project's category wholesale
+// ("" targets the default/uncategorized chain).
+func (c *Client) SetEscalationPolicy(project, category string, tiers []harbor.EscalationTier) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/escalation", harbor.EscalationBody{Category: category, Tiers: tiers}, nil)
 }
 
-// GetEscalationPolicy fetches project's escalation policy.
-func (c *Client) GetEscalationPolicy(project string) ([]harbor.EscalationTier, error) {
-	var b harbor.EscalationBody
-	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/escalation", nil, &b)
-	return b.Tiers, err
+// GetEscalationPolicy fetches project's escalation policy: the default chain
+// plus any category overrides.
+func (c *Client) GetEscalationPolicy(project string) (harbor.EscalationView, error) {
+	var v harbor.EscalationView
+	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/escalation", nil, &v)
+	return v, err
 }
 
 // CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from
