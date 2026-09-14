@@ -37,6 +37,22 @@ func TestNewRebuildsSeenForItsService(t *testing.T) {
 	}
 }
 
+func TestRunEgressDisabledOnlyIngress(t *testing.T) {
+	lg := openLog(t)
+	// an outbound (internal-authored, external target) message that egress WOULD deliver if enabled
+	_, _ = lg.Append(msglog.Message{From: msglog.Target{Kind: "actor", Ref: "cove-1"}, To: []msglog.Target{{Kind: "human", Ref: "a"}}, Body: "x", Project: "acme"})
+	surf := &fakeSurface{service: "linear"}
+	dir := &fakeDirectory{resolve: map[string]Delivery{"human:a": {Service: "linear", Address: "ACME-1"}}}
+	e := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{EgressEnabled: false, EgressPoll: time.Millisecond, IngressPoll: time.Millisecond}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	go e.Run(ctx)
+	time.Sleep(30 * time.Millisecond) // a few ticks would fire if egress ran
+	cancel()
+	if surf.deliverCount() != 0 {
+		t.Fatalf("EgressEnabled=false must not deliver; got %d", surf.deliverCount())
+	}
+}
+
 func TestRunStopsOnContextCancel(t *testing.T) {
 	e := New(&fakeSurface{service: "linear"}, openLog(t), &fakeMarkers{}, &fakeCursors{}, &fakeDirectory{}, Config{EgressPoll: time.Hour, IngressPoll: time.Hour}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
