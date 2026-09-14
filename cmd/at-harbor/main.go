@@ -1085,14 +1085,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("harbor messages: mounted", "path", "/messages")
 		log.Info("harbor escalate: mounted", "path", "/escalate")
 
-		// Wake-on engine: watches Waiting instances' tickets (via the same
-		// tracker as the dispatcher) and Wakes them over the live Attach
-		// stream (rsrv, the ControlSink) on a new comment, or tears down
+		// Wake-on engine: watches Waiting instances and Wakes them over the
+		// live Attach stream (rsrv, the ControlSink) when an external-origin
+		// reply lands in the message Log addressed to them, or tears down
 		// past max-wait. Resident for the lifetime of the process.
 		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
 		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
 		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, sup /*Idler*/, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
+		// Pass messageLog as the Inbox only when it's genuinely non-nil: a
+		// typed-nil *msglog.Log boxed into the Inbox interface would compare
+		// non-nil inside Engine.replied and panic on ReadInbox. See
+		// messageLog above (same trap as the msgH wiring).
+		var inbox wakeon.Inbox
+		if messageLog != nil {
+			inbox = messageLog
+		} else {
+			log.Warn("harbor wake-on: message-log not configured — coves will not wake on replies (teardown/pause only)")
+		}
+		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
 		go eng.Run(context.Background())
 		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
 
