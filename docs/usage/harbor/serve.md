@@ -1,7 +1,7 @@
 ---
-summary: Running the harbor service — `at-harbor serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+summary: Running the harbor service — `at-harbor serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a harbor service — writing its serve config, wiring the real credentials it brokers, adding the destinations coves reach, or exposing the admin API beyond loopback.
-owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
+owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-09-14
@@ -74,7 +74,8 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `harbor.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
-| `store` | yes | Path to the JSON store (created on first write; migrated forward across versions). |
+| `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
+| `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
 | `message-log` | no | Filesystem path to harbor's durable message Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Messages view at `/ui/messages`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#messages](ui.md#messages). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
@@ -82,6 +83,40 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
 | `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
+
+### Postgres store backend (`store-postgres`)
+
+By default the control plane lives in the single-file JSON `store`. Setting
+`store-postgres` moves it to Postgres — the source of truth — while `serve`
+keeps an in-memory read cache (so the broker's hot path never round-trips the
+DB) and writes through to Postgres transactionally. This buys a real datastore
+for ops (backup/monitoring), transactional durability (no whole-file rewrite),
+and headroom to grow. `serve` applies its schema migrations automatically at
+startup and **fails closed** if it can't connect, migrate, or load.
+
+```yaml
+store-postgres:
+  host: db.internal
+  port: 5432
+  database: harbor
+  user: harbor
+  sslmode: verify-full
+  password-cred: harbor-db      # a name in `credentials:` — never an inline password
+```
+
+The DB password is **never inline**: `password-cred` names a `credentials:`
+entry, resolved on the host in memory when `serve` assembles the connection
+string — it is never written to disk, put on a command line, or logged (the
+startup log names only the host and database). `store-postgres` takes precedence
+over `store` when both are present.
+
+**No data migration (Phase 1).** Switching an existing deployment from the file
+`store` to `store-postgres` starts with an **empty control plane** — there is no
+importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
+after switching; from then on Postgres backups are the recovery path. A
+deployment that needs its current roster preserved should stay on the file
+backend until it re-enrolls. (The message log is a separate, later migration —
+it stays on its own JSONL file for now.)
 
 ### The launcher (`runtime.launcher`)
 

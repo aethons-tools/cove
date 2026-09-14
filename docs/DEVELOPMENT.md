@@ -38,6 +38,18 @@ These are already exported in this environment (via `COVE_SSHENV`), and `go` is 
 GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go test ./...
 ```
 
+Two consequences worth knowing when adding a dependency:
+
+- **`go get` works for modules hosted on an allow-listed host.** `github.com/jackc/pgx/v5`
+  (the Postgres driver) resolves through `github.com` under `GOPROXY=direct`, so it
+  needed **no** allow-list change.
+- **`go mod tidy` can fail here even when your dependency is fine.** Tidy walks the
+  *whole* module graph including transitive **test** dependencies, some of which
+  (e.g. `gonum.org/v1/gonum`, pulled by a gRPC test package) live on hosts that are
+  not allow-listed and fail with `Forbidden`. That error is about an unrelated
+  transitive test-dep, not your change; `go get <mod>` + `go build ./...` already
+  write correct `go.mod`/`go.sum` entries. Don't chase a mirror.
+
 ## Regenerating gRPC code
 
 `internal/harbor/attach/attachpb` (the harbor Attach stream's generated types
@@ -71,6 +83,13 @@ and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
 - `go test -tags integration ./internal/baseimage/` proves the provenance gate against
   **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
   `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
+- `HARBOR_TEST_POSTGRES_DSN=… go test -tags integration ./internal/harbor/...` runs the
+  **Postgres store** conformance + fail-closed suite (`PostgresStore`) against a real
+  Postgres; it **skips** when `HARBOR_TEST_POSTGRES_DSN` is unset (so the hermetic
+  `go test ./...` is unaffected). Example DSN:
+  `host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable`.
+  The sandbox has no Postgres, so run this against your own instance; CI provides one
+  (see [CI — the store integration job](#ci-the-store-integration-job)).
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
 - The remaining untested gap is a full `create`→container→`connect` against a real image,
   which needs a container runtime;
@@ -117,6 +136,16 @@ loop cannot drift.
   helpers under `internal/assemble/hardening/image-files/usr/local/{bin,lib/cove}/`
   — so a sealed helper delivered into a sandbox (e.g. `apply-session-domains.sh`)
   is gated, not just the host scripts.
+
+## CI: the store integration job
+
+[`.github/workflows/store-integration.yml`](../.github/workflows/store-integration.yml)
+runs the Postgres-backed `harbor.Store` conformance suite (the `//go:build
+integration` tests in `internal/harbor`) against a Postgres **service container**,
+with `HARBOR_TEST_POSTGRES_DSN` pointing at it. It is a **separate** workflow from
+`gate.yml` on purpose: the required check is `gate`, and this job must not touch
+it. This job only reports — promoting it to a required check is a
+branch-protection setting, not a change here.
 
 ## The image tree
 
