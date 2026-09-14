@@ -11,9 +11,13 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor/adminui"
 )
 
+// anyCred is a permissive credExists stub for tests that don't exercise
+// cred-name validation.
+func anyCred(string) bool { return true }
+
 func uiHandler(t *testing.T, store harbor.Store) http.Handler {
 	t.Helper()
-	return adminui.Handler(store, testLogger(), nil)
+	return adminui.Handler(store, testLogger(), nil, anyCred)
 }
 
 func TestPushKit(t *testing.T) {

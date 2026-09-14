@@ -1,12 +1,30 @@
 {{define "content"}}
 <h1>Destinations</h1>
-<table>
-  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Repo-scoped</th></tr></thead>
+<form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML">
+  <input name="name" placeholder="name" required>
+  <input name="route" placeholder="route (e.g. /anthropic/)" required>
+  <input name="upstream" placeholder="upstream URL" required>
+  <select name="identity-in"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select>
+  <input name="cred-name" placeholder="cred-name (optional)">
+  <select name="apply"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select>
+  <label><input type="checkbox" name="repo-scoped" value="1"> repo-scoped</label>
+  <button type="submit">Add destination</button>
+</form>
+{{template "destinations-table" .}}
+{{end}}
+
+{{define "destinations-table"}}
+<table id="destinations">
+  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Repo-scoped</th><th>Actions</th></tr></thead>
   <tbody>
     {{range .Destinations}}
-    <tr><td>{{.Name}}</td><td>{{.Route}}</td><td>{{.Upstream}}</td><td>{{if .RepoScoped}}yes{{else}}no{{end}}</td></tr>
+    <tr>
+      <td>{{.Name}}</td><td>{{.Route}}</td><td>{{.Upstream}}</td><td>{{if .RepoScoped}}yes{{else}}no{{end}}</td>
+      <td><button hx-delete="/ui/destinations/{{.Name}}" hx-target="#destinations" hx-swap="outerHTML"
+          hx-confirm="Delete destination {{.Name}}?">Delete</button></td>
+    </tr>
     {{else}}
-    <tr><td colspan="4" class="empty">No destinations.</td></tr>
+    <tr><td colspan="5" class="empty">No destinations.</td></tr>
     {{end}}
   </tbody>
 </table>

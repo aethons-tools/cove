@@ -76,7 +76,7 @@ func mustParse(names ...string) *template.Template {
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
-func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) http.Handler {
+func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor, credExists func(string) bool) http.Handler {
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -112,7 +112,7 @@ func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) http.
 		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
 	})
 
-	registerWrites(mux, store, log, sup)
+	registerWrites(mux, store, log, sup, credExists)
 
 	return mux
 }

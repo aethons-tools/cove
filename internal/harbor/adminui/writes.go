@@ -80,7 +80,7 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write([]byte(`<p class="error">` + template.HTMLEscapeString(msg) + `</p>`))
 }
 
-func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) {
+func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, sup *harbor.Supervisor, credExists func(string) bool) {
 	mux.HandleFunc("POST /ui/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
@@ -331,5 +331,50 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, su
 		}
 		log.Info("ui kit removed", "operator", harbor.OperatorID(r), "kit", name)
 		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
+	})
+
+	mux.HandleFunc("POST /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		d := harbor.Destination{
+			Name:       strings.TrimSpace(r.FormValue("name")),
+			Route:      strings.TrimSpace(r.FormValue("route")),
+			Upstream:   strings.TrimSpace(r.FormValue("upstream")),
+			IdentityIn: harbor.ApplyMethod(strings.TrimSpace(r.FormValue("identity-in"))),
+			CredName:   strings.TrimSpace(r.FormValue("cred-name")),
+			Apply:      harbor.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
+			RepoScoped: r.FormValue("repo-scoped") != "",
+		}
+		if d.Name == "" || d.Route == "" || d.Upstream == "" {
+			renderError(w, http.StatusBadRequest, "name, route and upstream are required")
+			return
+		}
+		if d.CredName != "" && !credExists(d.CredName) {
+			renderError(w, http.StatusBadRequest, "cred-name does not resolve to a configured credential")
+			return
+		}
+		if err := store.AddDestination(d); err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Info("ui destination added", "operator", harbor.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
+		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
+	})
+
+	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := store.RemoveDestination(r.PathValue("name")); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui destination removed", "operator", harbor.OperatorID(r), "name", r.PathValue("name"))
+		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
 	})
 }
