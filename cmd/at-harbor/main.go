@@ -27,6 +27,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatcher"
+	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminclient"
 	"github.com/aethons-tools/cove/internal/harbor/adminui"
@@ -964,6 +965,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		eng := wakeon.New(st, sup, rsrv /*ControlSink Waker*/, sup, sup /*Idler*/, linearCommenter{tracker}, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
 		go eng.Run(context.Background())
 		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
+
+		// Escalation engine: while a managed cove is Waiting, pings ordered
+		// human tiers of its Project escalation policy on per-tier timers by
+		// @-mentioning them on the cove's own ticket. Reply-detection, waking,
+		// and max-wait teardown stay wake-on's job (above); the two engines
+		// share only the Instance.Activity==Waiting gate. Resident for the
+		// lifetime of the process.
+		epoll, _ := time.ParseDuration(dc.EscalationPollInterval) // "" or invalid → 0 → engine default
+		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
+		go eeng.Run(context.Background())
+		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
