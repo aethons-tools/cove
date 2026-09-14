@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/msglog"
 )
 
 // maxMessageBodyBytes caps a POST body to bound abuse (~16 KiB).
@@ -49,6 +51,12 @@ type messagesStore interface {
 	GetRoster(project string) (Roster, bool)
 }
 
+// appender is the narrow write side of the message Log used for the outbound
+// dual-write shadow. Satisfied by *msglog.Log; nil disables the shadow.
+type appender interface {
+	Append(m msglog.Message) (msglog.Message, error)
+}
+
 // MessagesHandler is harbor's brokered messaging endpoint. Reads, and sends
 // with no `to`, are self-scoped by construction: the ticket identifier comes
 // solely from the caller's own Instance.Unit (server-derived, resolved after
@@ -61,12 +69,14 @@ type messagesStore interface {
 type MessagesHandler struct {
 	store messagesStore
 	cmt   Commenter
+	lg    appender
 	log   *slog.Logger
 }
 
-// NewMessagesHandler constructs a MessagesHandler.
-func NewMessagesHandler(store messagesStore, cmt Commenter, log *slog.Logger) *MessagesHandler {
-	return &MessagesHandler{store: store, cmt: cmt, log: log}
+// NewMessagesHandler constructs a MessagesHandler. lg may be nil, which
+// disables the outbound shadow-write to the message Log.
+func NewMessagesHandler(store messagesStore, cmt Commenter, lg appender, log *slog.Logger) *MessagesHandler {
+	return &MessagesHandler{store: store, cmt: cmt, lg: lg, log: log}
 }
 
 func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -140,8 +150,11 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 	}
 
 	// deliverIssue defaults to the cove's own ticket; a channel target overrides
-	// it. body may be prefixed with an @-mention for a human target.
+	// it. body may be prefixed with an @-mention for a human target. logicalTo
+	// mirrors the same default/override shape for the shadow-write below, but
+	// stays in terms of the logical target (never the resolved ticket id).
 	deliverIssue, body := issueID, req.Body
+	logicalTo := msglog.Target{Kind: "channel", Ref: inst.Unit} // no `to` → own ticket-as-channel
 	if req.To != "" {
 		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())
 		switch {
@@ -155,6 +168,7 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 			http.Error(w, "target error", http.StatusForbidden)
 			return
 		}
+		logicalTo = msglog.Target{Kind: st.Kind, Ref: st.Name}
 		switch st.Kind {
 		case "human":
 			body = "@" + st.Handle + " " + req.Body // reply lands on own ticket → existing wake-on
@@ -175,6 +189,22 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 		return
 	}
 	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "to", req.To, "bytes", len(req.Body))
+
+	// Best-effort shadow-write: the Log stores the logical, raw message (the
+	// live PostComment above is the source of truth for delivery). An append
+	// failure never fails the send — it is warn-logged (actor + error only,
+	// never the body) and swallowed.
+	if h.lg != nil {
+		if _, err := h.lg.Append(msglog.Message{
+			From:    msglog.Target{Kind: "actor", Ref: actor.ID},
+			To:      []msglog.Target{logicalTo},
+			Body:    req.Body, // raw — @handle rendering is the adapter's job at egress (Slice 3)
+			Project: inst.Project,
+		}); err != nil {
+			h.log.Warn("messages: shadow append failed", "actor", actor.ID, "error", err.Error())
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

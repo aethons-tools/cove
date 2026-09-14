@@ -1025,6 +1025,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
+	// Message Log: opened once (append handle held for the serve lifetime) and
+	// shared between the /messages writer (dual-write shadow, below) and the
+	// admin UI's read-only reader (further down). Unset config → nil → the
+	// writer's dual-write is disabled and the admin view renders a "not
+	// configured" notice.
+	var messageLog *msglog.Log
+	if cfg.MessageLog != "" {
+		ml, err := msglog.Open(cfg.MessageLog, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: message-log:", err)
+			return 1
+		}
+		defer ml.Close()
+		messageLog = ml
+		log.Info("harbor message log", "path", cfg.MessageLog)
+	}
+
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
 	// /messages route sharing the same *linear.Client as the resident
@@ -1052,7 +1069,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
+		// Pass messageLog as the appender only when it's genuinely non-nil: a
+		// typed-nil *msglog.Log boxed into the appender interface would compare
+		// non-nil inside handlePost and panic on Append. See messageLog above.
+		var msgH *harbor.MessagesHandler
+		if messageLog != nil {
+			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, messageLog, log)
+		} else {
+			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, nil, log)
+		}
 		escH := harbor.NewEscalateHandler(st, sup, log)
 		httpHandler = messagesMux(msgH, escH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
@@ -1115,20 +1140,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
 
-		// Read-only message-log view: open the durable Log (append handle held for
-		// the serve lifetime, unused until the deferred writer slices land) and give
-		// the admin UI a read-only reader. Unset config → nil → the view renders a
-		// "not configured" notice.
+		// Read-only message-log view: shares the Log opened once above (the same
+		// handle the /messages writer dual-writes into) with the admin UI as a
+		// read-only reader. Unset config → messageLog nil → msgReader stays its
+		// zero value and the view renders a "not configured" notice.
 		var msgReader adminui.MessageReader
-		if cfg.MessageLog != "" {
-			ml, err := msglog.Open(cfg.MessageLog, log)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: message-log:", err)
-				return 1
-			}
-			defer ml.Close()
-			msgReader = ml
-			log.Info("harbor message log", "path", cfg.MessageLog)
+		if messageLog != nil {
+			msgReader = messageLog
 		}
 
 		uiMux := http.NewServeMux()
