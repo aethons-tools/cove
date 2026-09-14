@@ -38,15 +38,15 @@ type Gate struct {
 func (g Gate) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if harbor.IsLoopbackRequest(r) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, harbor.WithOperator(r, harbor.Operator{ID: "local"}))
 			return
 		}
 		if g.Sess == nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if _, ok := g.Sess.verify(r); ok {
-			next.ServeHTTP(w, r)
+		if op, ok := g.Sess.verify(r); ok {
+			next.ServeHTTP(w, harbor.WithOperator(r, op))
 			return
 		}
 		http.Redirect(w, r, g.LoginPath, http.StatusFound)

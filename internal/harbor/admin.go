@@ -229,7 +229,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("admin destination added", "operator", operatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
+		log.Info("admin destination added", "operator", OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("DELETE /admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +238,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin destination removed", "operator", operatorID(r), "name", name)
+		log.Info("admin destination removed", "operator", OperatorID(r), "name", name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -263,7 +263,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin enrolled", "operator", operatorID(r), "id", b.ID, "project", b.Project, "role", b.Role)
+		log.Info("admin enrolled", "operator", OperatorID(r), "id", b.ID, "project", b.Project, "role", b.Role)
 		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok})
 	})
 	mux.HandleFunc("DELETE /admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +272,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin revoked", "operator", operatorID(r), "id", id)
+		log.Info("admin revoked", "operator", OperatorID(r), "id", id)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -312,7 +312,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin role put", "operator", operatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
+		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("DELETE /admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +321,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin role removed", "operator", operatorID(r), "project", project, "role", name)
+		log.Info("admin role removed", "operator", OperatorID(r), "project", project, "role", name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /admin/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +337,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin grant added", "operator", operatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(b.Project), "role", b.Role)
+		log.Info("admin grant added", "operator", OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(b.Project), "role", b.Role)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("DELETE /admin/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +345,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin grant removed", "operator", operatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
+		log.Info("admin grant removed", "operator", OperatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -363,7 +363,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin kit pushed", "operator", operatorID(r), "kit", b.Name, "version", v)
+		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v)
 		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v})
 	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
@@ -417,7 +417,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin kit pinned", "operator", operatorID(r), "kit", r.PathValue("name"), "version", b.Version)
+		log.Info("admin kit pinned", "operator", OperatorID(r), "kit", r.PathValue("name"), "version", b.Version)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +430,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin kit removed", "operator", operatorID(r), "kit", name)
+		log.Info("admin kit removed", "operator", OperatorID(r), "kit", name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -455,7 +455,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin cove raised", "operator", operatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
 		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
@@ -476,7 +476,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin cove status", "operator", operatorID(r), "id", r.PathValue("id"), "activity", b.Activity)
+		log.Info("admin cove status", "operator", OperatorID(r), "id", r.PathValue("id"), "activity", b.Activity)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /admin/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +488,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("admin cove torn down", "operator", operatorID(r), "id", r.PathValue("id"))
+		log.Info("admin cove torn down", "operator", OperatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -528,7 +528,7 @@ func authMiddleware(auth OperatorAuthenticator, log *slog.Logger, next http.Hand
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, withOperator(r, op))
+		next.ServeHTTP(w, WithOperator(r, op))
 	})
 }
 

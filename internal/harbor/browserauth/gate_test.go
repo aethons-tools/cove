@@ -59,6 +59,42 @@ func TestGateOffLoopbackNoSessionRedirects(t *testing.T) {
 	}
 }
 
+func TestGateAttributesOperator(t *testing.T) {
+	// Loopback → "local".
+	var gotLoopback string
+	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/ui/roster", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLoopback = harbor.OperatorID(r)
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rec, req)
+	if gotLoopback != "local" {
+		t.Errorf("loopback operator = %q, want local", gotLoopback)
+	}
+
+	// Off-loopback valid session → the token's sub.
+	idp := newFakeIdP(t)
+	auth, err := harbor.NewOIDCAuthenticator(context.Background(), idp.url, "aud", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotSession string
+	gs := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	rec = httptest.NewRecorder()
+	sreq := httptest.NewRequest("GET", "/ui/roster", nil)
+	sreq.RemoteAddr = "203.0.113.7:5555"
+	sreq.AddCookie(&http.Cookie{Name: SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
+	gs.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSession = harbor.OperatorID(r)
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rec, sreq)
+	if gotSession != "auth0|alice" {
+		t.Errorf("session operator = %q, want auth0|alice", gotSession)
+	}
+}
+
 func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 	idp := newFakeIdP(t)
 	auth, err := harbor.NewOIDCAuthenticator(context.Background(), idp.url, "aud", "")
