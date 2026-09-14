@@ -974,13 +974,43 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
-	st, err := harbor.NewFileStore(cfg.Store)
-	if err != nil {
+	if err := cfg.validateStorePostgres(); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	specs := cfg.credSpecs()
+
+	// Select the store backend. store-postgres wins when set; otherwise the file
+	// store. The DB password is resolved on the host in memory and assembled into
+	// the DSN — never written to disk/argv, never logged.
+	var st harbor.Store
+	if pc := cfg.StorePostgres; pc != nil {
+		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: store-postgres password:", err)
+			return 1
+		}
+		dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+			pc.Host, pc.Port, pc.Database, pc.User, resolved[pc.PasswordCred], pc.SSLMode)
+		ps, err := harbor.NewPostgresStore(context.Background(), dsn, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: store-postgres:", err)
+			return 1
+		}
+		defer ps.Close()
+		st = ps
+		log.Info("harbor store: postgres", "host", pc.Host, "database", pc.Database) // never the password
+	} else {
+		fs, err := harbor.NewFileStore(cfg.Store)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		st = fs
+		log.Info("harbor store: file", "path", cfg.Store)
+	}
+
 	creds := harbor.NewSecretResolver(runner.OS{}, specs)
 	broker := harbor.NewBroker(st, creds, log)
 

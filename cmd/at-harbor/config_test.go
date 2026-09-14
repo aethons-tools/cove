@@ -20,7 +20,7 @@ func TestUnknownServeKeys(t *testing.T) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)
-	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nmessage-log: m\n"
+	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nmessage-log: m\nstore-postgres: {}\n"
 	if got := unknownServeKeys([]byte(known)); len(got) != 0 {
 		t.Fatalf("all-known config flagged: %v", got)
 	}
@@ -436,5 +436,53 @@ func TestServeConfigMessageLog(t *testing.T) {
 	}
 	if empty.MessageLog != "" {
 		t.Fatalf("MessageLog default = %q, want empty", empty.MessageLog)
+	}
+}
+
+func TestServeConfigStorePostgres(t *testing.T) {
+	y := "store-postgres:\n  host: db\n  port: 5432\n  database: harbor\n  user: harbor\n  sslmode: verify-full\n  password-cred: harbor-db\n"
+	var c serveConfig
+	if err := yaml.Unmarshal([]byte(y), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.StorePostgres == nil {
+		t.Fatal("StorePostgres is nil")
+	}
+	if c.StorePostgres.Host != "db" || c.StorePostgres.Port != 5432 || c.StorePostgres.Database != "harbor" ||
+		c.StorePostgres.User != "harbor" || c.StorePostgres.SSLMode != "verify-full" || c.StorePostgres.PasswordCred != "harbor-db" {
+		t.Fatalf("StorePostgres = %+v", c.StorePostgres)
+	}
+	// Absent block => nil.
+	var empty serveConfig
+	if err := yaml.Unmarshal([]byte("store: /s.json\n"), &empty); err != nil {
+		t.Fatal(err)
+	}
+	if empty.StorePostgres != nil {
+		t.Fatalf("StorePostgres default = %+v, want nil", empty.StorePostgres)
+	}
+}
+
+func TestValidateStorePostgres(t *testing.T) {
+	// nil block is valid (file backend).
+	if err := (serveConfig{}).validateStorePostgres(); err != nil {
+		t.Fatalf("nil store-postgres should be valid: %v", err)
+	}
+	// missing required fields error.
+	c := serveConfig{StorePostgres: &storePostgresConfig{Host: "db"}}
+	if err := c.validateStorePostgres(); err == nil {
+		t.Fatal("expected error for missing required fields")
+	}
+	// password-cred must resolve to a configured credential.
+	c = serveConfig{
+		Credentials:   map[string]credSpec{},
+		StorePostgres: &storePostgresConfig{Host: "db", Database: "h", User: "u", SSLMode: "require", PasswordCred: "missing"},
+	}
+	if err := c.validateStorePostgres(); err == nil {
+		t.Fatal("expected error when password-cred is not a configured credential")
+	}
+	c.Credentials["harbor-db"] = credSpec{Command: []string{"echo", "pw"}}
+	c.StorePostgres.PasswordCred = "harbor-db"
+	if err := c.validateStorePostgres(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
 	}
 }
