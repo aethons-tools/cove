@@ -1052,7 +1052,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
+		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, nil, log) // Task 2 wires the real Log
 		escH := harbor.NewEscalateHandler(st, sup, log)
 		httpHandler = messagesMux(msgH, escH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
