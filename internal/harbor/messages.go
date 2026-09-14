@@ -114,23 +114,21 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-	issueID, err := h.cmt.IssueByIdentifier(ctx, inst.Unit)
-	if err != nil {
-		h.log.Error("messages: resolve ticket failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
-		http.Error(w, "ticket unavailable", http.StatusBadGateway)
-		return
-	}
-
 	switch r.Method {
 	case http.MethodPost:
-		h.handlePost(w, r, actor, inst, issueID)
+		h.handlePost(w, r, actor, inst)
 	case http.MethodGet:
+		issueID, err := h.cmt.IssueByIdentifier(r.Context(), inst.Unit)
+		if err != nil {
+			h.log.Error("messages: resolve ticket failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+			http.Error(w, "ticket unavailable", http.StatusBadGateway)
+			return
+		}
 		h.handleGet(w, r, actor, inst, issueID)
 	}
 }
 
-func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance, issueID string) {
+func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodyBytes)
 	var req struct {
 		Body string `json:"body"`

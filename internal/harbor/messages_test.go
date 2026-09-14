@@ -53,7 +53,6 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 // ticket identifier (e.g. "AET-7") to an internal issue id.
 type fakeCommenter struct {
 	ids      map[string]string // identifier -> issue id
-	errIDs   map[string]bool   // identifier -> IssueByIdentifier fails for just this one
 	comments []Comment
 	posted   []postedComment
 	err      error // if set, every method fails with this error
@@ -65,9 +64,9 @@ type postedComment struct {
 }
 
 // fakeAppender records every message passed to Append, for asserting the
-// outbound shadow-write. A configured err is returned to the caller (but the
-// message is still recorded) so the best-effort-swallow behavior can be
-// exercised.
+// outbound send. The Log is the authoritative send path: a configured err is
+// returned to the caller (but the message is still recorded) so the
+// fail-the-send-on-append-error behavior (502) can be exercised.
 type fakeAppender struct {
 	got []msglog.Message
 	err error
@@ -81,9 +80,6 @@ func (f *fakeAppender) Append(m msglog.Message) (msglog.Message, error) {
 func (f *fakeCommenter) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
 	if f.err != nil {
 		return "", f.err
-	}
-	if f.errIDs[identifier] {
-		return "", fmt.Errorf("fakeCommenter: resolve failed for identifier %q", identifier)
 	}
 	id, ok := f.ids[identifier]
 	if !ok {
@@ -214,6 +210,33 @@ func TestMessagesPostIsSelfScoped(t *testing.T) {
 	}
 	if m.Project != "acme" {
 		t.Fatalf("Project = %q, want acme", m.Project)
+	}
+}
+
+// TestMessagesPostDoesNotResolveTicket asserts POST /messages is fully
+// decoupled from the tracker: even when IssueByIdentifier fails (e.g. a
+// Linear outage), a send still succeeds (204) and appends, since a send only
+// writes to the Log — it never resolves or talks to the tracker directly.
+func TestMessagesPostDoesNotResolveTicket(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
+	}
+	cmt := &fakeCommenter{err: fmt.Errorf("tracker down")}
+	ap := &fakeAppender{}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, ap, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (tracker outage must not block a send); body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ap.got) != 1 {
+		t.Fatalf("append calls = %d, want 1", len(ap.got))
 	}
 }
 
