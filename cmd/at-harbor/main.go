@@ -1120,7 +1120,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				log.Warn("harbor msgport: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
 			surf := &linearSurface{feed: tracker, started: time.Now()}
-			dir := &directory{store: st, project: dc.Project, selfIdentity: self}
+			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
 			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "msgport-cursors.json"))
 			if err != nil {
 				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
