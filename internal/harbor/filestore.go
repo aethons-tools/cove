@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
-	"sync"
 	"time"
 )
 
@@ -76,30 +74,18 @@ type legacyIdentity struct {
 }
 
 // FileStore is a JSON-file-backed Store. Single-node MVP; the serve process is the
-// sole writer, so there is no cross-process contention.
+// sole writer, so there is no cross-process contention. Reads and in-memory
+// mutation live on the embedded *memState (shared with PostgresStore); FileStore
+// adds whole-file persistence via save().
 type FileStore struct {
-	path      string
-	mu        sync.Mutex
-	roles     map[string]map[string]Role
-	actors    map[string]Actor
-	dests     map[string]Destination
-	kits      map[string]Kit
-	instances map[string]Instance
-	projects  map[string]Project
+	path string
+	*memState
 }
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
 // map[tokenHash]Identity) or v2 (identities+destinations) file into the v4 shape.
 func NewFileStore(path string) (*FileStore, error) {
-	fs := &FileStore{
-		path:      path,
-		roles:     map[string]map[string]Role{},
-		actors:    map[string]Actor{},
-		dests:     map[string]Destination{},
-		kits:      map[string]Kit{},
-		instances: map[string]Instance{},
-		projects:  map[string]Project{},
-	}
+	fs := &FileStore{path: path, memState: newMemState()}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -228,73 +214,36 @@ func (fs *FileStore) save() error {
 	return os.WriteFile(fs.path, data, 0o600)
 }
 
+// ---- mutators: Lock; validate/compute via memState; apply; save() ----
+
 func (fs *FileStore) AddActor(a Actor) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for _, rec := range fs.actors {
-		if rec.ID == a.ID {
-			return fmt.Errorf("actor %q already exists", a.ID)
-		}
+	if fs.actorIDExists(a.ID) {
+		return fmt.Errorf("actor %q already exists", a.ID)
 	}
-	fs.actors[a.TokenHash] = a
+	fs.applyPutActor(a)
 	return fs.save()
-}
-
-func (fs *FileStore) Lookup(tokenHash string) (Actor, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	a, ok := fs.actors[tokenHash]
-	return a, ok
 }
 
 func (fs *FileStore) RemoveActor(id string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for h, rec := range fs.actors {
-		if rec.ID == id {
-			delete(fs.actors, h)
-			return fs.save()
-		}
+	if !fs.applyRemoveActorByID(id) {
+		return actorNotFoundErr(id)
 	}
-	return fmt.Errorf("actor %q not found", id)
-}
-
-func (fs *FileStore) ListActors() []Actor {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	out := make([]Actor, 0, len(fs.actors))
-	for _, a := range fs.actors {
-		out = append(out, a)
-	}
-	return out
+	return fs.save()
 }
 
 func (fs *FileStore) AddGrant(actorID string, g Grant) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if g.Project == "" {
-		g.Project = DefaultProject
+	_, a, ok := fs.actorByID(actorID)
+	if !ok {
+		return actorNotFoundErr(actorID)
 	}
-	for h, rec := range fs.actors {
-		if rec.ID != actorID {
-			continue
-		}
-		// upsert by (project, role)
-		replaced := false
-		for i := range rec.Grants {
-			if rec.Grants[i].Project == g.Project && rec.Grants[i].Role == g.Role {
-				rec.Grants[i] = g
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
-			rec.Grants = append(rec.Grants, g)
-		}
-		fs.actors[h] = rec
-		return fs.save()
-	}
-	return fmt.Errorf("actor %q not found", actorID)
+	fs.applyPutActor(upsertGrant(a, g))
+	return fs.save()
 }
 
 func (fs *FileStore) RemoveGrant(actorID, project, role string) error {
@@ -303,55 +252,26 @@ func (fs *FileStore) RemoveGrant(actorID, project, role string) error {
 	if project == "" {
 		project = DefaultProject
 	}
-	for h, rec := range fs.actors {
-		if rec.ID != actorID {
-			continue
-		}
-		kept := rec.Grants[:0]
-		found := false
-		for _, g := range rec.Grants {
-			if g.Project == project && g.Role == role {
-				found = true
-				continue
-			}
-			kept = append(kept, g)
-		}
-		if !found {
-			return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
-		}
-		rec.Grants = kept
-		fs.actors[h] = rec
-		return fs.save()
+	_, a, ok := fs.actorByID(actorID)
+	if !ok {
+		return actorNotFoundErr(actorID)
 	}
-	return fmt.Errorf("actor %q not found", actorID)
+	updated, found := removeGrantFrom(a, project, role)
+	if !found {
+		return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
+	}
+	fs.applyPutActor(updated)
+	return fs.save()
 }
 
 func (fs *FileStore) PutRole(project string, r Role) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
+	if r.Kit != "" && !fs.kitExists(r.Kit) {
+		return fmt.Errorf("kit %q not found", r.Kit)
 	}
-	if r.Kit != "" {
-		if _, ok := fs.kits[r.Kit]; !ok {
-			return fmt.Errorf("kit %q not found", r.Kit)
-		}
-	}
-	if fs.roles[project] == nil {
-		fs.roles[project] = map[string]Role{}
-	}
-	fs.roles[project][r.Name] = r
+	fs.applyPutRole(project, r)
 	return fs.save()
-}
-
-func (fs *FileStore) GetRole(project, name string) (Role, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
-	r, ok := fs.roles[project][name]
-	return r, ok
 }
 
 func (fs *FileStore) RemoveRole(project, name string) error {
@@ -360,47 +280,10 @@ func (fs *FileStore) RemoveRole(project, name string) error {
 	if project == "" {
 		project = DefaultProject
 	}
-	if _, ok := fs.roles[project][name]; !ok {
+	if !fs.applyRemoveRole(project, name) {
 		return fmt.Errorf("role %q not found in project %q", name, project)
 	}
-	delete(fs.roles[project], name)
 	return fs.save()
-}
-
-func (fs *FileStore) ListRoles(project string) []Role {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
-	out := make([]Role, 0, len(fs.roles[project]))
-	for _, r := range fs.roles[project] {
-		out = append(out, r)
-	}
-	return out
-}
-
-func (fs *FileStore) ListProjects() []string {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	set := map[string]struct{}{}
-	for p := range fs.roles {
-		set[p] = struct{}{}
-	}
-	for _, a := range fs.actors {
-		for _, g := range a.Grants {
-			set[g.Project] = struct{}{}
-		}
-	}
-	for p := range fs.projects {
-		set[p] = struct{}{}
-	}
-	out := make([]string, 0, len(set))
-	for p := range set {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func (fs *FileStore) PushKit(name, config string) (int, error) {
@@ -409,51 +292,8 @@ func (fs *FileStore) PushKit(name, config string) (int, error) {
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
-	k, ok := fs.kits[name]
-	if !ok {
-		k = Kit{Name: name, Versions: map[int]string{}}
-	}
-	next := 0
-	for v := range k.Versions {
-		if v > next {
-			next = v
-		}
-	}
-	next++
-	k.Versions[next] = config
-	k.Current = next
-	fs.kits[name] = k
-	return next, fs.save()
-}
-
-func (fs *FileStore) GetKit(name string) (Kit, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	k, ok := fs.kits[name]
-	if !ok {
-		return Kit{}, false
-	}
-	// Copy the versions map so the caller can't observe (or race on) the
-	// store's live map — see ListKits, which does the same.
-	vs := make(map[int]string, len(k.Versions))
-	for v, c := range k.Versions {
-		vs[v] = c
-	}
-	return Kit{Name: k.Name, Current: k.Current, Versions: vs}, true
-}
-
-func (fs *FileStore) KitConfig(name string, version int) (string, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	k, ok := fs.kits[name]
-	if !ok {
-		return "", false
-	}
-	if version == 0 {
-		version = k.Current
-	}
-	cfg, ok := k.Versions[version]
-	return cfg, ok
+	v := fs.applyPushKit(name, config)
+	return v, fs.save()
 }
 
 func (fs *FileStore) PinKit(name string, version int) error {
@@ -466,47 +306,17 @@ func (fs *FileStore) PinKit(name string, version int) error {
 	if _, ok := k.Versions[version]; !ok {
 		return fmt.Errorf("kit %q has no version %d", name, version)
 	}
-	k.Current = version
-	fs.kits[name] = k
+	fs.applyPinKit(name, version)
 	return fs.save()
-}
-
-func (fs *FileStore) ListKits() []Kit {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	out := make([]Kit, 0, len(fs.kits))
-	for _, k := range fs.kits {
-		// copy the versions map so callers can't mutate the store
-		vs := make(map[int]string, len(k.Versions))
-		for v, c := range k.Versions {
-			vs[v] = c
-		}
-		out = append(out, Kit{Name: k.Name, Current: k.Current, Versions: vs})
-	}
-	return out
 }
 
 func (fs *FileStore) RemoveKit(name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if _, ok := fs.kits[name]; !ok {
+	if !fs.applyRemoveKit(name) {
 		return fmt.Errorf("kit %q not found", name)
 	}
-	delete(fs.kits, name)
 	return fs.save()
-}
-
-func (fs *FileStore) RoleReferencingKit(name string) (string, string, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	for project, roles := range fs.roles {
-		for _, r := range roles {
-			if r.Kit == name {
-				return project, r.Name, true
-			}
-		}
-	}
-	return "", "", false
 }
 
 func (fs *FileStore) PutInstance(i Instance) error {
@@ -515,66 +325,33 @@ func (fs *FileStore) PutInstance(i Instance) error {
 	if i.ActorID == "" {
 		return fmt.Errorf("instance actor id is required")
 	}
-	fs.instances[i.ActorID] = i
+	fs.applyPutInstance(i)
 	return fs.save()
-}
-
-func (fs *FileStore) GetInstance(actorID string) (Instance, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	i, ok := fs.instances[actorID]
-	return i, ok // Instance has no reference fields; value copy is a full copy
-}
-
-func (fs *FileStore) ListInstances() []Instance {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	out := make([]Instance, 0, len(fs.instances))
-	for _, i := range fs.instances {
-		out = append(out, i)
-	}
-	return out
 }
 
 func (fs *FileStore) RemoveInstance(actorID string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if _, ok := fs.instances[actorID]; !ok {
+	if !fs.applyRemoveInstance(actorID) {
 		return fmt.Errorf("instance %q not found", actorID)
 	}
-	delete(fs.instances, actorID)
 	return fs.save()
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.dests[d.Name] = d
+	fs.applyPutDestination(d)
 	return fs.save()
 }
 
 func (fs *FileStore) RemoveDestination(name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if _, ok := fs.dests[name]; !ok {
+	if !fs.applyRemoveDestination(name) {
 		return fmt.Errorf("destination %q not found", name)
 	}
-	delete(fs.dests, name)
 	return fs.save()
-}
-
-func (fs *FileStore) ListDestinations() []Destination {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	out := make([]Destination, 0, len(fs.dests))
-	for _, d := range fs.dests {
-		out = append(out, d)
-	}
-	return out
-}
-
-func (fs *FileStore) Match(reqPath string) (Destination, bool) {
-	return Config{Destinations: fs.ListDestinations()}.Match(reqPath)
 }
 
 func (fs *FileStore) AddHuman(project string, h Human) error {
@@ -583,41 +360,7 @@ func (fs *FileStore) AddHuman(project string, h Human) error {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p := fs.projects[project]
-	p.Name = project
-	replaced := false
-	for i := range p.Roster.Humans {
-		if p.Roster.Humans[i].Name == h.Name {
-			p.Roster.Humans[i] = h
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		p.Roster.Humans = append(p.Roster.Humans, h)
-	}
-	fs.projects[project] = p
-	return fs.save()
-}
-
-// SetEscalationPolicy replaces one chain wholesale (unlike AddHuman/AddChannel's
-// upsert-by-name, tiers are ordered and unnamed, so the whole slice is the unit
-// of change). An empty category sets the project's default chain (Escalation);
-// any other category sets/replaces that entry in EscalationByCategory.
-func (fs *FileStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p := fs.projects[project]
-	p.Name = project
-	if category == "" {
-		p.Escalation = tiers
-	} else {
-		if p.EscalationByCategory == nil {
-			p.EscalationByCategory = map[string][]EscalationTier{}
-		}
-		p.EscalationByCategory[category] = tiers
-	}
-	fs.projects[project] = p
+	fs.applyPutProject(upsertHuman(fs.rawProject(project), h))
 	return fs.save()
 }
 
@@ -625,25 +368,9 @@ func (fs *FileStore) AddChannel(project string, c Channel) error {
 	if c.Name == "" {
 		return fmt.Errorf("channel name required")
 	}
-	if c.Service == "" {
-		c.Service = "linear"
-	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p := fs.projects[project]
-	p.Name = project
-	replaced := false
-	for i := range p.Roster.Channels {
-		if p.Roster.Channels[i].Name == c.Name {
-			p.Roster.Channels[i] = c
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		p.Roster.Channels = append(p.Roster.Channels, c)
-	}
-	fs.projects[project] = p
+	fs.applyPutProject(upsertChannel(fs.rawProject(project), c))
 	return fs.save()
 }
 
@@ -654,14 +381,7 @@ func (fs *FileStore) RemoveHuman(project, name string) error {
 	if !ok {
 		return fmt.Errorf("project %q not found", project)
 	}
-	out := p.Roster.Humans[:0]
-	for _, h := range p.Roster.Humans {
-		if h.Name != name {
-			out = append(out, h)
-		}
-	}
-	p.Roster.Humans = out
-	fs.projects[project] = p
+	fs.applyPutProject(removeHumanFrom(p, name))
 	return fs.save()
 }
 
@@ -672,56 +392,13 @@ func (fs *FileStore) RemoveChannel(project, name string) error {
 	if !ok {
 		return fmt.Errorf("project %q not found", project)
 	}
-	out := p.Roster.Channels[:0]
-	for _, c := range p.Roster.Channels {
-		if c.Name != name {
-			out = append(out, c)
-		}
-	}
-	p.Roster.Channels = out
-	fs.projects[project] = p
+	fs.applyPutProject(removeChannelFrom(p, name))
 	return fs.save()
 }
 
-func (fs *FileStore) GetProject(name string) (Project, bool) {
+func (fs *FileStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p, ok := fs.projects[name]
-	if !ok {
-		return Project{}, false
-	}
-	// copy so callers can't mutate the store's slices
-	p.Roster.Humans = append([]Human(nil), p.Roster.Humans...)
-	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
-	p.Escalation = append([]EscalationTier(nil), p.Escalation...)
-	for i := range p.Escalation {
-		p.Escalation[i].Targets = append([]string(nil), p.Escalation[i].Targets...)
-	}
-	if p.EscalationByCategory != nil {
-		m := make(map[string][]EscalationTier, len(p.EscalationByCategory))
-		for cat, tiers := range p.EscalationByCategory {
-			cp := append([]EscalationTier(nil), tiers...)
-			for i := range cp {
-				cp[i].Targets = append([]string(nil), cp[i].Targets...)
-			}
-			m[cat] = cp
-		}
-		p.EscalationByCategory = m
-	}
-	return p, true
-}
-
-func (fs *FileStore) GetRoster(project string) (Roster, bool) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p, ok := fs.projects[project]
-	if !ok {
-		return Roster{}, false
-	}
-	// copy so callers can't mutate the store's slices
-	r := Roster{
-		Humans:   append([]Human(nil), p.Roster.Humans...),
-		Channels: append([]Channel(nil), p.Roster.Channels...),
-	}
-	return r, true
+	fs.applyPutProject(setEscalation(fs.rawProject(project), category, tiers))
+	return fs.save()
 }
