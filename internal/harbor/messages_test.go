@@ -50,6 +50,7 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 // ticket identifier (e.g. "AET-7") to an internal issue id.
 type fakeCommenter struct {
 	ids      map[string]string // identifier -> issue id
+	errIDs   map[string]bool   // identifier -> IssueByIdentifier fails for just this one
 	comments []Comment
 	posted   []postedComment
 	err      error // if set, every method fails with this error
@@ -63,6 +64,9 @@ type postedComment struct {
 func (f *fakeCommenter) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
 	if f.err != nil {
 		return "", f.err
+	}
+	if f.errIDs[identifier] {
+		return "", fmt.Errorf("fakeCommenter: resolve failed for identifier %q", identifier)
 	}
 	id, ok := f.ids[identifier]
 	if !ok {
@@ -347,6 +351,37 @@ func TestSendToChannelPostsOnChannelThread(t *testing.T) {
 	got := cmt.posted[0]
 	if got.issueID != "iss_1" || got.body != "heads up" {
 		t.Fatalf("PostComment(%q, %q), want (%q, %q)", got.issueID, got.body, "iss_1", "heads up")
+	}
+}
+
+// TestSendToChannelResolveErrorIs502 asserts that when a "to":"channel:<name>"
+// send is authorized but the channel's Ref fails to resolve to an issue id
+// (IssueByIdentifier errors), the handler reports 502 and delivers nothing —
+// distinct from the 403/404 authorization-failure paths.
+func TestSendToChannelResolveErrorIs502(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
+	}
+	cmt := &fakeCommenter{
+		ids:    map[string]string{"AET-7": "iss_7"},
+		errIDs: map[string]bool{"ACME-1": true},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(cmt.posted) != 0 {
+		t.Fatalf("PostComment must not be called when channel resolution fails")
 	}
 }
 

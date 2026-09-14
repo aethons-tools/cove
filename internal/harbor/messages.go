@@ -49,12 +49,15 @@ type messagesStore interface {
 	GetRoster(project string) (Roster, bool)
 }
 
-// MessagesHandler is harbor's self-scoped brokered messaging endpoint: an
-// authenticated cove reads/sends comments on ONLY its own ticket. The ticket
-// identifier comes solely from the caller's own Instance.Unit (server-derived,
-// resolved after authentication) — the request carries no ticket/target
-// parameter of any kind, so a cove has no way to name another cove's ticket.
-// Implements http.Handler.
+// MessagesHandler is harbor's brokered messaging endpoint. Reads, and sends
+// with no `to`, are self-scoped by construction: the ticket identifier comes
+// solely from the caller's own Instance.Unit (server-derived, resolved after
+// authentication). A send may instead carry a `to` target; that path is
+// authorized by the comms access-graph (DecideSend) and, once authorized, may
+// deliver to a human — an @-mention posted on the cove's own ticket — or to a
+// channel — a comment on the channel's own thread (resolved from the roster's
+// Channel.Ref), i.e. a different ticket than the caller's own. Implements
+// http.Handler.
 type MessagesHandler struct {
 	store messagesStore
 	cmt   Commenter
