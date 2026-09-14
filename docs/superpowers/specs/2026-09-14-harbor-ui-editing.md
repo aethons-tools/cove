@@ -53,7 +53,7 @@ For `POST`/`DELETE`, compare the `Origin` header's host to `r.Host`; if `Origin`
 
 ### Operator attribution
 
-The UI gate resolves the operator on every allowed request (the session `sub`, or `local` for loopback). It stashes that id in the request context (an exported `browserauth` context helper), and the write handlers read it for audit logging — mirroring `admin.go`'s `withOperator`/`operatorID` for the JSON API. Read handlers are unaffected.
+The UI gate resolves the operator on every allowed request (the session `sub`, or `local` for loopback). It stashes that id in the request context via an exported `harbor` context helper (`harbor.WithOperator`/`harbor.OperatorID`), and the write handlers read it for audit logging — mirroring `admin.go`'s `withOperator`/`operatorID` for the JSON API. Read handlers are unaffected.
 
 ### UX (htmx, progressive)
 
