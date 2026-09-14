@@ -461,6 +461,74 @@ func TestSendNoTargetStillOwnTicket(t *testing.T) {
 	}
 }
 
+// TestTargetsListsAllowedTargets asserts GET /messages/targets returns the
+// actor's authorized-and-resolvable targets — a channel not in the role's
+// addressing must be excluded — and that it never resolves a ticket (no
+// IssueByIdentifier call) and never includes handles in the response.
+func TestTargetsListsAllowedTargets(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}},
+	}
+	// No ids configured: if the handler tried to resolve a ticket it would 502.
+	cmt := &fakeCommenter{ids: map[string]string{}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, cmt, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/targets", nil)
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Targets []map[string]string `json:"targets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
+	}
+	if len(out.Targets) != 1 {
+		t.Fatalf("targets = %+v, want exactly 1 (channel must be excluded — not in addressing)", out.Targets)
+	}
+	tg := out.Targets[0]
+	if tg["target"] != "human:alice" || tg["kind"] != "human" || tg["name"] != "alice" {
+		t.Fatalf("target = %+v, want human:alice", tg)
+	}
+	if _, ok := tg["handle"]; ok {
+		t.Fatalf("target must not include the handle: %+v", tg)
+	}
+}
+
+// TestTargetsGetStillReturnsInboxForBareMessagesPath is the regression guard:
+// the targets branch must only fire on the exact "/targets" suffix — GET
+// /messages must still return the caller's own-ticket inbox.
+func TestTargetsGetStillReturnsInboxForBareMessagesPath(t *testing.T) {
+	h, _, cmt, _ := newTestMessagesHandler()
+	cmt.comments = []Comment{{ID: "c1", Author: "alice", Body: "hello"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
+	req.Header.Set("Authorization", "Bearer tok-A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Messages []Comment `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
+	}
+	if len(out.Messages) != 1 || out.Messages[0].Author != "alice" {
+		t.Fatalf("messages = %+v, want the canned inbox (own-ticket read must be unaffected)", out.Messages)
+	}
+}
+
 // bytesDiscard is an io.Writer that discards everything, used where a *bytes.Buffer
 // isn't needed but slog.NewTextHandler still wants a writer.
 type bytesDiscard struct{}

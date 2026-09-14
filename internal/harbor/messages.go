@@ -95,6 +95,14 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GET /messages/targets — the actor's addressable targets. Handled before
+	// ticket resolution: targets needs no ticket, so a targets request must
+	// never resolve one (and must never fail if the ticket is unavailable).
+	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/targets") {
+		h.handleTargets(w, r, actor)
+		return
+	}
+
 	ctx := r.Context()
 	issueID, err := h.cmt.IssueByIdentifier(ctx, inst.Unit)
 	if err != nil {
@@ -168,6 +176,30 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 	}
 	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "to", req.To, "bytes", len(req.Body))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// targetOut is one entry in the GET /messages/targets response. Handles are
+// deliberately omitted: they are roster config, not something the agent needs
+// to address a target — the agent addresses by "human:<name>"/"channel:<name>".
+type targetOut struct {
+	Target string `json:"target"` // "human:alice"
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+}
+
+func (h *MessagesHandler) handleTargets(w http.ResponseWriter, r *http.Request, actor Actor) {
+	targets := ListTargets(actor, h.store.GetRole, h.store.GetRoster, time.Now())
+	out := make([]targetOut, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})
+	}
+	h.log.Info("messages", "actor", actor.ID, "op", "targets", "count", len(out))
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		Targets []targetOut `json:"targets"`
+	}{Targets: out}); err != nil {
+		h.log.Error("messages: encode targets failed", "actor", actor.ID, "error", err.Error())
+	}
 }
 
 func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance, issueID string) {
