@@ -406,3 +406,17 @@ operator-auth:
 		t.Error("no browser-client-id should yield nil")
 	}
 }
+
+func TestUIHostsParsed(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("ui-hosts:\n  - harbor.local.aethons.tools\n  - harbor.internal\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.UIHosts) != 2 || cfg.UIHosts[0] != "harbor.local.aethons.tools" || cfg.UIHosts[1] != "harbor.internal" {
+		t.Fatalf("UIHosts = %v, want the two configured hosts", cfg.UIHosts)
+	}
+	// ui-hosts is a known key (not flagged as unknown).
+	if got := unknownServeKeys([]byte("ui-hosts: [a]\n")); len(got) != 0 {
+		t.Fatalf("ui-hosts flagged as unknown: %v", got)
+	}
+}
