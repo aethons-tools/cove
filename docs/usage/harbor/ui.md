@@ -1,8 +1,8 @@
 ---
-summary: The harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants).
-read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — or do the roster day-job from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster-editing surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
-prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; INDEX.md for the service overview
+summary: The harbor admin UI — a server-rendered web view of the live coves and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants) and, with a runtime supervisor configured, raise/tear down managed coves.
+read_when: You want to watch a running harbor in a browser — the live cove fleet and the roster/roles/kits/destinations — or do the roster day-job or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+owns: the `/ui/` observability + roster-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
+prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
 updated: 2026-09-14
 ---
@@ -22,8 +22,10 @@ It renders:
 - **Dashboard** (`/ui/`) — the live cove fleet + a roster summary.
 - **Coves** (`/ui/coves`) — every managed cove's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
-  3 seconds** (htmx polling); no page reload. Read-only — see
-  [coves.md](coves.md) to raise or tear one down.
+  3 seconds** (htmx polling); no page reload. View-only unless a runtime
+  supervisor is configured, in which case it can also raise and tear down
+  coves — see [Runtime (coves)](#runtime-coves) below and
+  [coves.md](coves.md).
 - **Roster / Roles / Kits / Destinations** — the control-plane objects as
   tables. Roster and Roles are editable from here (below); Kits and
   Destinations are read-only in the UI.
@@ -69,5 +71,21 @@ operator who made it. Destructive actions ask for confirmation. State-changing
 requests are refused unless they originate from the harbor UI itself (an
 Origin/Referer check), so another site can't drive them through your browser.
 
-Not editable from the UI (use the CLI): raising/tearing down coves, the kit
-registry, and destinations.
+Not editable from the UI (use the CLI): the kit registry and destinations.
+Raising and tearing down coves is editable from the UI when a runtime
+supervisor is configured — see [Runtime (coves)](#runtime-coves) below.
+
+### Runtime (coves)
+
+When harbor is configured with a runtime supervisor (`runtime:` in the serve
+config — see [coves.md](coves.md)), the Coves page can also:
+
+- **Raise a managed cove** — id, role, optional project/unit and a workload
+  prompt. Harbor handles the cove's identity token and launch secret internally;
+  they are never shown in the browser (use the CLI `at-harbor cove raise` for
+  manual wiring).
+- **Tear down a cove** (confirmed).
+
+Without a runtime supervisor, the Coves page is view-only. Setting a cove's
+activity is not a UI action — that is reported by the cove itself. These actions
+obey the same gate, CSRF, and audit-logging as the roster edits above.

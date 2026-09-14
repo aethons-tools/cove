@@ -37,7 +37,7 @@ func TestDashboard(t *testing.T) {
 	if err := store.AddActor(harbor.Actor{ID: "mgr-1"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := get(t, adminui.Handler(store, testLogger()), "/ui/")
+	rec := get(t, adminui.Handler(store, testLogger(), nil), "/ui/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
 	}
@@ -64,7 +64,7 @@ func seedCove(t *testing.T, store harbor.Store) {
 func TestCovesFullPage(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	rec := get(t, adminui.Handler(store, testLogger()), "/ui/coves")
+	rec := get(t, adminui.Handler(store, testLogger(), nil), "/ui/coves")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/coves = %d, want 200", rec.Code)
 	}
@@ -82,7 +82,7 @@ func TestCovesFragment(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
 	req.Header.Set("HX-Request", "true")
-	adminui.Handler(store, testLogger()).ServeHTTP(rec, req)
+	adminui.Handler(store, testLogger(), nil).ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if !strings.Contains(body, `id="coves"`) || !strings.Contains(body, "spider-9") {
 		t.Errorf("fragment missing table/row; got:\n%s", body)
@@ -101,7 +101,7 @@ func TestCovesNoSecretLeak(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rec := get(t, adminui.Handler(store, testLogger()), "/ui/coves")
+	rec := get(t, adminui.Handler(store, testLogger(), nil), "/ui/coves")
 	if strings.Contains(rec.Body.String(), "SECRET-HASH-XYZ") {
 		t.Error("cove view leaked the launch-secret hash")
 	}
@@ -115,7 +115,7 @@ func TestRosterView(t *testing.T) {
 	if err := store.AddActor(harbor.Actor{ID: "spider-2", TokenHash: "HASH-NOPE", Grants: []harbor.Grant{{Project: "acme", Role: "worker"}}}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger()), "/ui/roster").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil), "/ui/roster").Body.String()
 	for _, want := range []string{"spider-2", "worker", "anthropic"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("roster view missing %q", want)
@@ -128,7 +128,7 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 	if err := store.AddActor(harbor.Actor{ID: "spider-2", TokenHash: "HASH-NOPE"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(get(t, adminui.Handler(store, testLogger()), "/ui/roster").Body.String(), "HASH-NOPE") {
+	if strings.Contains(get(t, adminui.Handler(store, testLogger(), nil), "/ui/roster").Body.String(), "HASH-NOPE") {
 		t.Error("roster view leaked a token hash")
 	}
 }
@@ -138,7 +138,7 @@ func TestRolesView(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "review", Scope: harbor.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, TTL: time.Hour}, Kit: ""}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger()), "/ui/roles").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil), "/ui/roles").Body.String()
 	for _, want := range []string{"acme", "review", "git", "acme/*"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("roles view missing %q", want)
@@ -151,7 +151,7 @@ func TestKitsView(t *testing.T) {
 	if _, err := store.PushKit("base", "listen: :443"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger()), "/ui/kits").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil), "/ui/kits").Body.String()
 	if !strings.Contains(body, "base") {
 		t.Errorf("kits view missing kit name; got:\n%s", body)
 	}
@@ -162,7 +162,7 @@ func TestDestinationsView(t *testing.T) {
 	if err := store.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic-key"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger()), "/ui/destinations").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil), "/ui/destinations").Body.String()
 	for _, want := range []string{"anthropic", "/anthropic/", "https://api.anthropic.com"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("destinations view missing %q", want)
@@ -171,7 +171,7 @@ func TestDestinationsView(t *testing.T) {
 }
 
 func TestStaticRouteDoesNotServeTemplates(t *testing.T) {
-	h := adminui.Handler(newStore(t), testLogger())
+	h := adminui.Handler(newStore(t), testLogger(), nil)
 	rec := get(t, h, "/ui/static/templates/layout.html")
 	if rec.Code == http.StatusOK {
 		t.Errorf("static route exposed template source (%d); templates must be unreachable", rec.Code)
@@ -179,7 +179,7 @@ func TestStaticRouteDoesNotServeTemplates(t *testing.T) {
 }
 
 func TestStaticHtmxServed(t *testing.T) {
-	h := adminui.Handler(newStore(t), testLogger())
+	h := adminui.Handler(newStore(t), testLogger(), nil)
 	rec := get(t, h, "/ui/static/htmx.min.js")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET htmx.min.js = %d, want 200", rec.Code)
