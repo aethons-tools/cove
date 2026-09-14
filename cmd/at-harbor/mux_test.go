@@ -37,6 +37,7 @@ func TestMessagesMuxRouting(t *testing.T) {
 		want string
 	}{
 		{"/messages", "messages"},
+		{"/messages/targets", "messages"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},
 		{"/messages/extra", "broker"}, // exact-match only, not a prefix route

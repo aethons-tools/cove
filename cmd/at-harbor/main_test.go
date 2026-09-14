@@ -194,6 +194,88 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	}
 }
 
+func TestProjectRosterCommands(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// project roster add-human
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+		"--name", "alice", "--handle", "alice.h",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster add-human: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// project roster add-channel
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "roster", "add-channel", "--admin-url", ts.URL, "acme",
+		"--name", "eng-help", "--ref", "ACME-1", "--service", "linear",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster add-channel: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// project roster list reflects both
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "human\talice\thandle=alice.h") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
+		t.Fatalf("project roster list output missing expected fields:\n%s", out.String())
+	}
+
+	// project roster rm-human
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "rm-human", "--admin-url", ts.URL, "acme", "alice"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster rm-human: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// project roster rm-channel
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "rm-channel", "--admin-url", ts.URL, "acme", "eng-help"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster rm-channel: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// project roster list is now empty
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster list (after removal): exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "alice") || strings.Contains(out.String(), "eng-help") {
+		t.Fatalf("project roster list still shows removed entries:\n%s", out.String())
+	}
+
+	// role add --addressing plumbs through to the role's Scope.Addressing
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "impl", "--addressing", "human:*,channel:eng-help",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --addressing: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "addressing=human:*,channel:eng-help") {
+		t.Fatalf("role list output missing addressing:\n%s", out.String())
+	}
+}
+
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {

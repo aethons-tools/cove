@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a harbor — defining roles, g
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs, and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-09-12
+updated: 2026-09-14
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -15,8 +15,10 @@ Harbor authorizes every brokered request against a **role-based** model:
   standing teammate is an Actor. Harbor stores only the token *hash*.
 - **Role** — a named, reusable security class within a **Project** (a namespace).
   A Role owns the **scope**: which `destinations` it may reach, which `repos`
-  (globs, for repo-scoped destinations), a default token `ttl`, and optionally a
-  bound **kit** (see [kits.md](kits.md)).
+  (globs, for repo-scoped destinations), which comms `addressing` targets it may
+  message (globs, e.g. `human:*`; comms plane — see
+  [comms-addressing.md](comms-addressing.md)), a default token `ttl`, and
+  optionally a bound **kit** (see [kits.md](kits.md)).
 - **Grant** — assigns a Role (within a Project) to an Actor. An Actor may hold
   several grants (e.g. a human or a standing manager across projects).
 
@@ -42,6 +44,11 @@ at-harbor role rm   [--project acme] guest
 
 - `--destinations` / `--repos` are comma-separated; `--repos` are `owner/repo`
   globs matched only for repo-scoped destinations.
+- `--addressing` (comma-separated comms target globs, e.g. `human:*,channel:eng-help`)
+  scopes which comms targets the role's actors may `send(to=…)`. This is a
+  separate plane from `destinations`/`repos`; see
+  [comms-addressing.md](comms-addressing.md) for the target space and the
+  Project's roster of humans/channels the globs resolve against.
 - `--ttl` is the default identity lifetime applied at enrollment (`0` = no
   expiry). **A role with no `--ttl` mints non-expiring tokens** — set one for
   ephemeral coves.

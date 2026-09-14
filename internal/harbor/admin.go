@@ -39,6 +39,7 @@ type GrantSummary struct {
 	Role         string   `json:"role"`
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
+	Addressing   []string `json:"addressing,omitempty"`
 }
 
 // RoleBody is the POST /admin/roles request.
@@ -47,6 +48,7 @@ type RoleBody struct {
 	Name         string   `json:"name"`
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
+	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 }
@@ -57,6 +59,7 @@ type RoleSummary struct {
 	Name         string   `json:"name"`
 	Destinations []string `json:"destinations"`
 	Repos        []string `json:"repos"`
+	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 }
@@ -183,6 +186,7 @@ func RosterSummaries(store Store) []ActorSummary {
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
 				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+				gs.Addressing = s.Addressing
 			}
 			sum.Grants = append(sum.Grants, gs)
 		}
@@ -286,6 +290,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
+				Addressing: ro.Scope.Addressing,
 				TTLSeconds: int64(ro.Scope.TTL / time.Second),
 				Kit:        ro.Kit,
 			})
@@ -307,7 +312,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 				return
 			}
 		}
-		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, TTL: time.Duration(b.TTLSeconds) * time.Second}, Kit: b.Kit}
+		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second}, Kit: b.Kit}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -346,6 +351,51 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			return
 		}
 		log.Info("admin grant removed", "operator", operatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("GET /admin/projects/{project}/roster", func(w http.ResponseWriter, r *http.Request) {
+		rr, _ := store.GetRoster(r.PathValue("project"))
+		writeJSON(w, http.StatusOK, rr)
+	})
+	mux.HandleFunc("POST /admin/projects/{project}/humans", func(w http.ResponseWriter, r *http.Request) {
+		var b Human
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin roster human", "operator", operatorID(r), "project", r.PathValue("project"), "name", b.Name)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
+		var b Channel
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin roster channel", "operator", operatorID(r), "project", r.PathValue("project"), "name", b.Name)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("DELETE /admin/projects/{project}/humans/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if err := store.RemoveHuman(r.PathValue("project"), r.PathValue("name")); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin roster human removed", "operator", operatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /admin/projects/{project}/channels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if err := store.RemoveChannel(r.PathValue("project"), r.PathValue("name")); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		log.Info("admin roster channel removed", "operator", operatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 

@@ -1,32 +1,34 @@
 ---
-summary: The messaging MCP — a harbor-brokered read/send tool a managed cove's agent uses to converse on its own Linear ticket. Tokens stay in harbor; the endpoint is self-scoped; the tools reach claude via a `cove-master mcp` stdio server.
+summary: The messaging MCP — harbor-brokered read/send/list_targets tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
 read_when: You want a raised cove's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating the harbor `/messages` endpoint and its cove-side MCP delivery.
-owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint (self-scoped read/send on the cove's ticket), the `cove-master mcp` stdio delivery, and how it's enabled
-prereqs: coves.md for the managed cove a message is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a message is attributed to
+owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md.
+prereqs: coves.md for the managed cove a message is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a message is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-14
 ---
 
 # The messaging MCP
 
-A managed cove's agent gets two **harbor-brokered** tools — `read` and `send` — over **its own Linear ticket**. Harbor holds the tracker token, does the platform I/O, and attributes the sender; the cove never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
+A managed cove's agent gets **harbor-brokered** tools — `read`, `send`, and
+`list_targets` — centered on **its own Linear ticket**. Harbor holds the tracker token, does the platform I/O, and attributes the sender; the cove never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
 
 ## What the tools do
 
-- **`send(text)`** — posts a comment on the cove's own ticket. The author is harbor's brokered identity (the agent can't spoof it).
-- **`read()`** — returns the ticket's comment thread as a tagged inbox (`{author, body, …}` per comment).
+- **`send(text, to?)`** — posts a comment. With no `to`, it lands on the cove's own ticket (the original, unchanged behavior). With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
+- **`read()`** — returns the ticket's comment thread as a tagged inbox (`{author, body, …}` per comment). **Always self-scoped to the cove's own ticket** — `read` takes no target, addressed or otherwise.
+- **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-messagestargets-list_targets).
 
-The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Suspending until a *reply* arrives — the `wake-on` exit — is the next comms slice; today `read` reflects the thread as of the call.)
+The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Today `read` reflects the thread as of the call; see [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.)
 
 ## How it's brokered and scoped
 
 - **Endpoint:** harbor serves `/messages` on its cove-facing `:443` mux. A request carries the cove's identity token (`Authorization: Bearer`); harbor resolves the actor, derives **that actor's own ticket** (`Instance.Unit`), and calls Linear.
-- **Self-scoped by construction:** there is **no ticket/target parameter** — the ticket is derived only from the authenticated identity, so a cove can only ever touch its own ticket. (Addressing *other* actors/roles/channels + a comms access-graph is the escalation slice, not this one.)
+- **`read` is self-scoped by construction:** it carries no target, so it can only ever return the caller's own ticket. **`send` is self-scoped by default and explicitly authorized when addressed:** an omitted `to` behaves exactly as before; a present `to` is checked against the comms access-graph before delivery — see [comms-addressing.md](comms-addressing.md).
 - **Tokens stay in harbor:** the Linear token lives in harbor's `SecretResolver`; the cove holds only its identity token. Nothing is logged that could leak either.
 
 ## Delivery to the agent
 
-The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/claude-code/mcp.json` (baked into the image), which launches `cove-master mcp`. That subcommand exposes `read`/`send` and forwards them to harbor `/messages` over TLS through the cove's squid proxy, using the identity token + harbor address already in the cove's environment. No new binary, no new secret in the cove.
+The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/claude-code/mcp.json` (baked into the image), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to harbor `/messages` (and `/messages/targets`) over TLS through the cove's squid proxy, using the identity token + harbor address already in the cove's environment. No new binary, no new secret in the cove.
 
 ## Enabling it
 
@@ -66,5 +68,5 @@ increase past a baseline captured when the cove suspended — restart-safe).
 ## Not yet (later comms slices)
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: messages | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
-- **C — escalation:** Project on-call tiers (`category → ordered {actor|role|channel}` + per-tier timeout) and the comms access-graph that governs who an actor may message.
-- **Multi-channel** (Discord, generalizing the switchboard) and the symbolic `actor|role|channel` target space.
+- **C2 — escalation:** Project on-call tiers (`category → ordered {actor|role|channel}` + per-tier timeout) layered on top of the `human`/`channel` addressing that shipped in C1 — see [comms-addressing.md](comms-addressing.md).
+- **C3 — multi-channel** (Discord, generalizing the switchboard) and **actor/role-to-actor addressing** (the `human`/`channel` target space shipped in C1; see [comms-addressing.md](comms-addressing.md)).
