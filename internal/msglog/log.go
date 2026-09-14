@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
-	"time"
 )
 
 // maxLineBytes bounds a single JSONL line read at open (a message body is far
@@ -80,17 +80,12 @@ func (l *Log) Close() error {
 // Append validates m, assigns an ID/At when unset, writes one JSONL line, and
 // mirrors it in memory. Returns the stored message.
 func (l *Log) Append(m Message) (Message, error) {
-	if err := m.validate(); err != nil {
+	m, err := Prepare(m)
+	if err != nil {
 		return Message{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if m.At.IsZero() {
-		m.At = time.Now()
-	}
-	if m.ID == "" {
-		m.ID = newID(m.At)
-	}
 	line, err := json.Marshal(m)
 	if err != nil {
 		return Message{}, fmt.Errorf("msglog: marshal: %w", err)
@@ -114,3 +109,16 @@ func (l *Log) snapshot() []Message {
 	}
 	return out
 }
+
+// SeenIDs returns ids with the given prefix, in append order.
+func (l *Log) SeenIDs(prefix string) []string {
+	var out []string
+	for _, m := range l.snapshot() {
+		if strings.HasPrefix(m.ID, prefix) {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+var _ Store = (*Log)(nil)
