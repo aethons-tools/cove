@@ -81,6 +81,43 @@ func TestDeleteKit(t *testing.T) {
 	}
 }
 
+// TestKitWriteCSRF mirrors TestEnrollRejectsCrossOrigin / TestRaiseCoveCSRF:
+// a cross-origin POST to /ui/kits must be refused, and the kit must not be
+// created.
+func TestKitWriteCSRF(t *testing.T) {
+	store := newStore(t)
+	h := uiHandler(t, store)
+	req := httptest.NewRequest(http.MethodPost, "/ui/kits", strings.NewReader("name=base&config=listen%3A+%3A443"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin push kit = %d, want 403", rec.Code)
+	}
+	if _, ok := store.GetKit("base"); ok {
+		t.Error("kit must not be created by a cross-origin request")
+	}
+	if len(store.ListKits()) != 0 {
+		t.Error("no kit should exist after a cross-origin push")
+	}
+}
+
+// TestPushKitNoConfigLeak asserts the kits-table fragment returned by a
+// successful push shows only name/version/count, never the raw config text.
+func TestPushKitNoConfigLeak(t *testing.T) {
+	store := newStore(t)
+	h := uiHandler(t, store)
+	const secretConfig = "SECRET-KIT-CONFIG-XYZ"
+	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {secretConfig}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("push kit = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secretConfig) {
+		t.Errorf("push response must not leak kit config; got:\n%s", rec.Body.String())
+	}
+}
+
 func TestDeleteKitReferenced409(t *testing.T) {
 	store := newStore(t)
 	if _, err := store.PushKit("base", "v1"); err != nil {

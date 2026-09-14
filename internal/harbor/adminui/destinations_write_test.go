@@ -54,6 +54,47 @@ func TestAddDestinationBadCred400(t *testing.T) {
 	}
 }
 
+// TestDestinationWriteCSRF mirrors TestEnrollRejectsCrossOrigin / TestRaiseCoveCSRF:
+// a cross-origin POST to /ui/destinations must be refused, and no
+// destination must be added.
+func TestDestinationWriteCSRF(t *testing.T) {
+	store := newStore(t)
+	h := destHandler(t, store)
+	req := httptest.NewRequest(http.MethodPost, "/ui/destinations", strings.NewReader(
+		"name=x&route=%2Fx%2F&upstream=https%3A%2F%2Fx"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin add destination = %d, want 403", rec.Code)
+	}
+	if len(store.ListDestinations()) != 0 {
+		t.Error("no destination should exist after a cross-origin add")
+	}
+}
+
+// TestAddDestinationNoCredLeak asserts the destinations-table fragment
+// returned by a successful add shows only name/route/upstream/repo-scoped,
+// never the cred-name value. Uses a dedicated credExists stub (rather than
+// the shared credOK, which only accepts "known-cred") so the add succeeds
+// with a distinctive cred-name.
+func TestAddDestinationNoCredLeak(t *testing.T) {
+	const secretCred = "SECRET-CRED-REF"
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, func(name string) bool { return name == secretCred })
+	rec := post(t, h, "/ui/destinations", url.Values{
+		"name": {"anthropic"}, "route": {"/anthropic/"}, "upstream": {"https://api.anthropic.com"},
+		"identity-in": {"x-api-key"}, "cred-name": {secretCred}, "apply": {"x-api-key"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add destination = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secretCred) {
+		t.Errorf("add-destination response must not leak cred-name; got:\n%s", rec.Body.String())
+	}
+}
+
 func TestRemoveDestination(t *testing.T) {
 	store := newStore(t)
 	if err := store.AddDestination(harbor.Destination{Name: "d1", Route: "/d1/", Upstream: "https://d1"}); err != nil {
