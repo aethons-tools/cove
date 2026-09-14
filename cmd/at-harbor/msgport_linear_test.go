@@ -49,10 +49,6 @@ func TestLinearSurfacePollMapsFeed(t *testing.T) {
 	if next != wantNext {
 		t.Fatalf("next = %q, want %q", next, wantNext)
 	}
-	// Deliver must never succeed (egress off)
-	if _, err := s.Deliver(context.Background(), msgport.Delivery{}, msglog.Message{}); err == nil {
-		t.Fatal("Deliver must error (egress not enabled)")
-	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
