@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"gopkg.in/yaml.v3"
 )
 
 func TestUnknownServeKeys(t *testing.T) {
@@ -19,7 +20,7 @@ func TestUnknownServeKeys(t *testing.T) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)
-	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\n"
+	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nmessage-log: m\n"
 	if got := unknownServeKeys([]byte(known)); len(got) != 0 {
 		t.Fatalf("all-known config flagged: %v", got)
 	}
@@ -418,5 +419,22 @@ func TestUIHostsParsed(t *testing.T) {
 	// ui-hosts is a known key (not flagged as unknown).
 	if got := unknownServeKeys([]byte("ui-hosts: [a]\n")); len(got) != 0 {
 		t.Fatalf("ui-hosts flagged as unknown: %v", got)
+	}
+}
+
+func TestServeConfigMessageLog(t *testing.T) {
+	var c serveConfig
+	if err := yaml.Unmarshal([]byte("message-log: /var/lib/harbor/messages.jsonl\n"), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.MessageLog != "/var/lib/harbor/messages.jsonl" {
+		t.Fatalf("MessageLog = %q, want the configured path", c.MessageLog)
+	}
+	var empty serveConfig
+	if err := yaml.Unmarshal([]byte("listen: \":443\"\n"), &empty); err != nil {
+		t.Fatal(err)
+	}
+	if empty.MessageLog != "" {
+		t.Fatalf("MessageLog default = %q, want empty", empty.MessageLog)
 	}
 }
