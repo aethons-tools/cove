@@ -251,9 +251,58 @@ func (c *fileCursors) SetIngress(service, project, cursor string) error {
 	return os.WriteFile(c.path, data, 0o600)
 }
 
-// noopMarkers is a trivial msgport.Markers: egress is off this slice, so
-// per-Service delivery bookkeeping is never populated or consulted.
-type noopMarkers struct{}
+// fileMarkers is a file-backed msgport.Markers: a JSON map[service]EgressMark,
+// mutex-guarded, loaded at open, saved on every SetEgress. Nested Pending maps
+// round-trip through encoding/json.
+type fileMarkers struct {
+	path string
+	mu   sync.Mutex
+	m    map[string]msgport.EgressMark
+}
 
-func (noopMarkers) Egress(service string) msgport.EgressMark             { return msgport.EgressMark{} }
-func (noopMarkers) SetEgress(service string, m msgport.EgressMark) error { return nil }
+// newFileMarkers loads path, tolerating a missing or corrupt/torn file (either
+// starts empty rather than failing).
+func newFileMarkers(path string) (*fileMarkers, error) {
+	fm := &fileMarkers{path: path, m: map[string]msgport.EgressMark{}}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fm, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return fm, nil
+	}
+	var m map[string]msgport.EgressMark
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fm, nil // torn/corrupt: tolerate, start empty
+	}
+	fm.m = m
+	return fm, nil
+}
+
+func (fm *fileMarkers) Egress(service string) msgport.EgressMark {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+	return fm.m[service]
+}
+
+func (fm *fileMarkers) SetEgress(service string, mk msgport.EgressMark) error {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+	fm.m[service] = mk
+	data, err := json.MarshalIndent(fm.m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(fm.path, data, 0o600)
+}
+
+// has reports whether service has a persisted mark (the one-time seed guard).
+func (fm *fileMarkers) has(service string) bool {
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+	_, ok := fm.m[service]
+	return ok
+}

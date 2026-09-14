@@ -284,12 +284,41 @@ func TestFileCursorsToleratesMissingOrTornFile(t *testing.T) {
 	}
 }
 
-func TestNoopMarkers(t *testing.T) {
-	var m noopMarkers
-	if got := m.Egress("linear"); got.LastMsg != "" || got.Pending != nil {
-		t.Fatalf("Egress not zero: %+v", got)
+func TestFileMarkersRoundTripAndReload(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "markers.json")
+	m, err := newFileMarkers(p)
+	if err != nil {
+		t.Fatalf("newFileMarkers: %v", err)
 	}
-	if err := m.SetEgress("linear", msgport.EgressMark{}); err != nil {
+	if m.has("linear") {
+		t.Fatal("fresh markers must not have linear")
+	}
+	want := msgport.EgressMark{LastMsg: "id-9", Pending: map[string]map[string]bool{"id-10": {"human:a": true}}}
+	if err := m.SetEgress("linear", want); err != nil {
 		t.Fatalf("SetEgress: %v", err)
+	}
+	if !m.has("linear") {
+		t.Fatal("has(linear) false after SetEgress")
+	}
+	m2, err := newFileMarkers(p) // reload from disk
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := m2.Egress("linear")
+	if got.LastMsg != "id-9" || !got.Pending["id-10"]["human:a"] {
+		t.Fatalf("reloaded mark = %+v, want %+v", got, want)
+	}
+	if got := m2.Egress("discord"); got.LastMsg != "" || got.Pending != nil {
+		t.Fatalf("unset service must be zero EgressMark, got %+v", got)
+	}
+}
+
+func TestFileMarkersMissingFileStartsEmpty(t *testing.T) {
+	m, err := newFileMarkers(filepath.Join(t.TempDir(), "nope.json"))
+	if err != nil {
+		t.Fatalf("newFileMarkers missing: %v", err)
+	}
+	if m.has("linear") {
+		t.Fatal("missing file must start empty")
 	}
 }

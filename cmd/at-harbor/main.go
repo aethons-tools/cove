@@ -1166,7 +1166,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
 				return 1
 			}
-			ingest := msgport.New(surf, messageLog, noopMarkers{}, cur, dir, msgport.Config{EgressEnabled: false}, log)
+			// noopMarkers is gone (COV-176 Task 2): fileMarkers is its file-backed
+			// replacement, but this in-memory instance (no path, never persisted)
+			// is only a compile-preserving stand-in — Egress/SetEgress are never
+			// consulted while EgressEnabled is false (egressTick never runs), so
+			// this is behaviorally identical to noopMarkers. Task 4 replaces this
+			// with a real path-backed fileMarkers, a seed, and EgressEnabled:true.
+			ingest := msgport.New(surf, messageLog, &fileMarkers{m: map[string]msgport.EgressMark{}}, cur, dir, msgport.Config{EgressEnabled: false}, log)
 			go ingest.Run(context.Background())
 			log.Info("harbor msgport (linear ingress): resident", "egress", false, "self", self != "")
 		}
@@ -1270,6 +1276,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// logTailID returns the id of the last (newest) message in lg, or "" when the
+// Log is empty. Used to seed the egress low-water at cutover so already-
+// delivered shadow history is skipped. List is time-sorted; the tail is last.
+func logTailID(lg *msglog.Log) string {
+	all := lg.List(msglog.Filter{})
+	if len(all) == 0 {
+		return ""
+	}
+	return all[len(all)-1].ID
 }
 
 func splitCSV(s string) []string {
