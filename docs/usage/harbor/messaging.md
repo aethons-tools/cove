@@ -35,6 +35,8 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 `/messages` is mounted when harbor has a tracker (Linear) configured — it reuses the same Linear client the [dispatcher](dispatcher.md) uses. With no tracker configured, the endpoint is not mounted (and a cove's `read`/`send` calls simply error).
 
+When `message-log:` is also configured, every `send` additionally shadow-writes the logical message (raw body, not the rendered `@handle` form) into the durable Log — visible in the read-only [admin message view](ui.md#messages) — with zero change to live delivery; this is the first writer in the msgport arc (see [ui.md](ui.md) for the Log itself).
+
 ## Waiting for a reply (wake-on)
 
 A raised cove is no longer strictly one-shot. When its agent reports **`needs-input`**
