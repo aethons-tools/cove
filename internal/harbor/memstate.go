@@ -273,6 +273,17 @@ func (m *memState) applyRemoveRole(project, name string) bool {
 	return true
 }
 
+// nextKitVersion returns the next version number for a kit (max existing + 1).
+func nextKitVersion(k Kit) int {
+	next := 0
+	for v := range k.Versions {
+		if v > next {
+			next = v
+		}
+	}
+	return next + 1
+}
+
 // applyPushKit appends config as a new version (max existing + 1), advances
 // Current, and returns the new version number.
 func (m *memState) applyPushKit(name, config string) int {
@@ -280,13 +291,7 @@ func (m *memState) applyPushKit(name, config string) int {
 	if !ok {
 		k = Kit{Name: name, Versions: map[int]string{}}
 	}
-	next := 0
-	for v := range k.Versions {
-		if v > next {
-			next = v
-		}
-	}
-	next++
+	next := nextKitVersion(k)
 	k.Versions[next] = config
 	k.Current = next
 	m.kits[name] = k
