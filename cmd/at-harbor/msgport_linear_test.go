@@ -221,9 +221,10 @@ func TestResolveUnroutableAndNonLinear(t *testing.T) {
 	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "human", Ref: "nobody"}, from); ok {
 		t.Fatal("unknown human should be unresolved")
 	}
-	// unknown channel (not own Unit, not a roster channel)
-	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "channel", Ref: "ACME-999"}, from); ok {
-		t.Fatal("unknown channel should be unresolved")
+	// channel that's not a roster name is treated as a direct ticket
+	// identifier (own-ticket delivery must not depend on a live instance).
+	if d, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "channel", Ref: "ACME-999"}, from); !ok || d.Address != "ACME-999" {
+		t.Fatalf("non-roster channel should resolve to a direct ticket, got %+v ok=%v", d, ok)
 	}
 	// non-linear service
 	if _, ok := dir.Resolve("discord", "acme", msglog.Target{Kind: "human", Ref: "alice"}, from); ok {
@@ -232,6 +233,29 @@ func TestResolveUnroutableAndNonLinear(t *testing.T) {
 	// sender with no instance → human unresolved
 	if _, ok := dir.Resolve("linear", "acme", msglog.Target{Kind: "human", Ref: "alice"}, msglog.Target{Kind: "actor", Ref: "ghost"}); ok {
 		t.Fatal("human target with no sender instance should be unresolved")
+	}
+}
+
+// TestResolveOwnTicketSurvivesInstanceGone proves own-ticket delivery no
+// longer needs a live Instance: the cove that sent the message may already
+// have been torn down (RemoveInstance) by the time the egress loop runs.
+func TestResolveOwnTicketSurvivesInstanceGone(t *testing.T) {
+	st := &fakeStore{
+		insts:  nil, // no live instances — the sending cove is already gone
+		roster: map[string]harbor.Roster{"acme": {}},
+	}
+	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	to := msglog.Target{Kind: "channel", Ref: "ACME-7"}
+	from := msglog.Target{Kind: "actor", Ref: "cove-1"}
+	d, ok := dir.Resolve("linear", "acme", to, from)
+	if !ok {
+		t.Fatal("own-ticket resolve must succeed even with no live instances")
+	}
+	if d.Address != "ACME-7" {
+		t.Fatalf("Address = %q, want ACME-7", d.Address)
+	}
+	if d.BodyPrefix != "" {
+		t.Fatalf("BodyPrefix = %q, want empty", d.BodyPrefix)
 	}
 }
 

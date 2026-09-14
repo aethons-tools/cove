@@ -184,9 +184,8 @@ func (d *directory) Resolve(service, project string, to, from msglog.Target) (ms
 		}
 		return msgport.Delivery{}, false
 	case "channel":
-		if haveSelf && to.Ref == self.Unit {
-			return msgport.Delivery{Service: "linear", Address: self.Unit}, true
-		}
+		// A roster channel is addressed by NAME → deliver to its configured
+		// thread (Channel.Ref).
 		if r, ok := d.store.GetRoster(project); ok {
 			for _, ch := range r.Channels {
 				if ch.Name == to.Ref {
@@ -194,7 +193,11 @@ func (d *directory) Resolve(service, project string, to, from msglog.Target) (ms
 				}
 			}
 		}
-		return msgport.Delivery{}, false
+		// Otherwise to.Ref is a ticket identifier itself — the cove's own ticket,
+		// recorded as channel:<Unit> at send time (self-scoped there). Deliver
+		// directly, with NO dependency on a live Instance: an own-ticket report
+		// must still be delivered after the cove has been torn down.
+		return msgport.Delivery{Service: "linear", Address: to.Ref}, true
 	default:
 		return msgport.Delivery{}, false
 	}
