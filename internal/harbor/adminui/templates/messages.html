@@ -13,6 +13,7 @@
   <a href="/ui/messages">Reset</a>
   <a href="/ui/messages{{if .RawQuery}}?{{.RawQuery}}{{end}}">Refresh</a>
 </form>
+{{if .BadDate}}<p class="empty">Ignored an unparseable date (expected YYYY-MM-DD).</p>{{end}}
 <table id="messages">
   <thead><tr><th>Time</th><th>From</th><th>To</th><th>Project</th><th>Body</th></tr></thead>
   <tbody>

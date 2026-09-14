@@ -47,6 +47,7 @@ type messagesData struct {
 	Since       string
 	Until       string
 	RawQuery    string
+	BadDate     bool // a non-empty since/until failed to parse (surfaced, treated as unbounded)
 }
 
 // handleMessages renders the read-only, newest-first message view. A nil reader
@@ -67,18 +68,29 @@ func handleMessages(w http.ResponseWriter, r *http.Request, msgs MessageReader) 
 	data.RawQuery = r.URL.RawQuery
 	data.Filtered = data.Project != "" || data.Participant != "" || data.Q != "" || data.Since != "" || data.Until != ""
 
+	// Date bounds are parsed as UTC day boundaries (see dateLayout). A non-empty
+	// value that fails to parse is surfaced (data.BadDate) and left unbounded on
+	// that side rather than silently swallowed.
 	f := msglog.Filter{Project: data.Project}
-	if t, err := time.Parse(dateLayout, data.Since); err == nil {
-		f.Since = t
+	if data.Since != "" {
+		if t, err := time.Parse(dateLayout, data.Since); err == nil {
+			f.Since = t
+		} else {
+			data.BadDate = true
+		}
 	}
-	if t, err := time.Parse(dateLayout, data.Until); err == nil {
-		f.Until = t.AddDate(0, 0, 1) // until is an inclusive day → exclusive next-midnight bound
+	if data.Until != "" {
+		if t, err := time.Parse(dateLayout, data.Until); err == nil {
+			f.Until = t.AddDate(0, 0, 1) // until is an inclusive day → exclusive next-midnight bound
+		} else {
+			data.BadDate = true
+		}
 	}
 
 	msgList := msgs.List(f)
 
 	needle := strings.ToLower(data.Q)
-	filtered := msgList[:0:0]
+	filtered := make([]msglog.Message, 0, len(msgList))
 	for _, m := range msgList {
 		if data.Participant != "" && !matchesParticipant(m, data.Participant) {
 			continue

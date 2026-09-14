@@ -72,8 +72,10 @@ The Messages page (`/ui/messages`) is a read-only view of harbor's durable
 message Log — enabled by setting `message-log:` in the serve config (see
 [serve.md](serve.md)). It shows a filterable, newest-first table of message
 records: filter by project, participant (`kind:ref`, e.g. `channel:eng`), a body
-substring, and a date window. Filters live in the URL, so a filtered view is
-shareable via link.
+substring, and a date window (the `since`/`until` bounds are interpreted as UTC
+day boundaries; a malformed date is ignored, with a notice, rather than
+silently applied). Filters live in the URL, so a filtered view is shareable via
+link.
 
 The page is a manual-refresh snapshot, not a live tail — reload to see new
 messages. Each recipient carries a badge showing whether it was reached

@@ -144,3 +144,25 @@ func TestMessagesFilterNoMatch(t *testing.T) {
 		t.Errorf("a no-match filter should say 'No messages match'; got:\n%s", body)
 	}
 }
+
+func TestMessagesMalformedDateNotice(t *testing.T) {
+	// A non-empty but unparseable date must be surfaced, not silently dropped —
+	// and the page still renders (unbounded on that side), not errors.
+	rec := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?since=not-a-date")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET with a bad date = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Ignored an unparseable date") {
+		t.Errorf("a malformed date should be surfaced; got:\n%s", body)
+	}
+	// The rows still render (bad bound treated as unbounded).
+	if !strings.Contains(body, "deploy started") {
+		t.Errorf("a malformed date should leave that bound unbounded, still showing rows; got:\n%s", body)
+	}
+	// A well-formed date must NOT trip the notice.
+	good := get(t, msgHandler(t, fixtureLog(t)), "/ui/messages?since=2026-09-11").Body.String()
+	if strings.Contains(good, "Ignored an unparseable date") {
+		t.Errorf("a valid date should not trip the malformed-date notice; got:\n%s", good)
+	}
+}
