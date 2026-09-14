@@ -344,6 +344,52 @@ func TestAdminGrantAddRemove(t *testing.T) {
 	}
 }
 
+func TestAdminRosterRoutes(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST human = %d", rec.Code)
+	}
+	rec = doJSON(t, h, "POST", "/admin/projects/acme/channels", Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST channel = %d", rec.Code)
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" || rr.Humans[0].Handle != "alice.h" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
+		t.Fatalf("roster channels = %+v", rr.Channels)
+	}
+	rec = doReq(t, h, "DELETE", "/admin/projects/acme/humans/alice", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE human = %d", rec.Code)
+	}
+	rec = doReq(t, h, "DELETE", "/admin/projects/acme/channels/eng-help", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE channel = %d", rec.Code)
+	}
+	var after Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &after)
+	if len(after.Humans) != 0 || len(after.Channels) != 0 {
+		t.Fatalf("roster after removal = %+v", after)
+	}
+}
+
+func TestAdminRoleAddressingRoundTrips(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || len(roles[0].Addressing) != 2 || roles[0].Addressing[0] != "human:*" || roles[0].Addressing[1] != "channel:eng-help" {
+		t.Fatalf("roles = %+v", roles)
+	}
+}
+
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
 	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {

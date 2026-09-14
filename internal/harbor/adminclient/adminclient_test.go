@@ -191,6 +191,63 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	}
 }
 
+// TestClientRosterAndAddressing exercises AddHuman/AddChannel/GetRoster/
+// RemoveHuman/RemoveChannel and role Addressing round-trips against a real
+// harbor admin handler + FileStore (not just a wire-format mock).
+func TestClientRosterAndAddressing(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+
+	if err := c.AddHuman("acme", harbor.Human{Name: "alice", Handle: "alice.h"}); err != nil {
+		t.Fatalf("AddHuman: %v", err)
+	}
+	if err := c.AddChannel("acme", harbor.Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
+		t.Fatalf("AddChannel: %v", err)
+	}
+	rr, err := c.GetRoster("acme")
+	if err != nil {
+		t.Fatalf("GetRoster: %v", err)
+	}
+	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" || rr.Humans[0].Handle != "alice.h" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
+		t.Fatalf("roster channels = %+v", rr.Channels)
+	}
+
+	if err := c.RemoveHuman("acme", "alice"); err != nil {
+		t.Fatalf("RemoveHuman: %v", err)
+	}
+	if err := c.RemoveChannel("acme", "eng-help"); err != nil {
+		t.Fatalf("RemoveChannel: %v", err)
+	}
+	rr, err = c.GetRoster("acme")
+	if err != nil {
+		t.Fatalf("GetRoster after removal: %v", err)
+	}
+	if len(rr.Humans) != 0 || len(rr.Channels) != 0 {
+		t.Fatalf("roster after removal = %+v", rr)
+	}
+
+	// PutRole with Scope.Addressing round-trips via ListRoles.
+	if err := c.PutRole("acme", harbor.Role{Name: "impl", Scope: harbor.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	roles, err := c.ListRoles("acme")
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	var got []string
+	for _, r := range roles {
+		if r.Name == "impl" {
+			got = r.Scope.Addressing
+		}
+	}
+	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
+		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
+	}
+}
+
 // TestClientEnrollBodyIsTrimmed proves Enroll's wire body carries only
 // id/project/role/overrides — no inline destinations/repos/ttl_seconds, since
 // scope now comes entirely from the role.

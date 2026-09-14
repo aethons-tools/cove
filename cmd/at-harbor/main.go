@@ -57,6 +57,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
+			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
@@ -357,6 +358,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
+	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -375,7 +377,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
 			return 2
 		}
-		r := harbor.Role{Name: *name, Kit: *kitName, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), TTL: *ttl}}
+		r := harbor.Role{Name: *name, Kit: *kitName, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl}}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -388,7 +390,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\tttl=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), r.Scope.TTL)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL)
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -402,6 +404,97 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "removed role", pos[0])
 	default:
 		fmt.Fprintln(stderr, "at-harbor role: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// cmdProject manages a project's roster (humans + channels) via the admin
+// API. All subcommands nest under "roster", mirroring the plan's CLI shape:
+// `project roster add-human|add-channel|list|rm-human|rm-channel`.
+func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) < 2 || args[0] != "roster" {
+		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel")
+		return 2
+	}
+	sub, rest := args[1], args[2:]
+	fs := flag.NewFlagSet("project roster "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
+	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
+	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
+	service := fs.String("service", "linear", "channel service (add-channel)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor project:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "add-human":
+		if len(pos) != 1 || *name == "" || *handle == "" {
+			fmt.Fprintln(stderr, "at-harbor project roster add-human: expected <project> --name and --handle")
+			return 2
+		}
+		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle}); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "added human", *name, "to", pos[0])
+	case "add-channel":
+		if len(pos) != 1 || *name == "" || *ref == "" {
+			fmt.Fprintln(stderr, "at-harbor project roster add-channel: expected <project> --name and --ref")
+			return 2
+		}
+		if err := c.AddChannel(pos[0], harbor.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "added channel", *name, "to", pos[0])
+	case "list":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor project roster list: expected one project name")
+			return 2
+		}
+		rr, err := c.GetRoster(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, h := range rr.Humans {
+			fmt.Fprintf(stdout, "human\t%s\thandle=%s\n", h.Name, h.Handle)
+		}
+		for _, ch := range rr.Channels {
+			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)
+		}
+	case "rm-human":
+		if len(pos) != 2 {
+			fmt.Fprintln(stderr, "at-harbor project roster rm-human: expected <project> <name>")
+			return 2
+		}
+		if err := c.RemoveHuman(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed human", pos[1], "from", pos[0])
+	case "rm-channel":
+		if len(pos) != 2 {
+			fmt.Fprintln(stderr, "at-harbor project roster rm-channel: expected <project> <name>")
+			return 2
+		}
+		if err := c.RemoveChannel(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed channel", pos[1], "from", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor project roster: unknown subcommand", sub)
 		return 2
 	}
 	return 0
