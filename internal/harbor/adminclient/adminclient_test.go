@@ -248,6 +248,31 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	}
 }
 
+// TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
+// against a real harbor admin handler + FileStore.
+func TestClientEscalationPolicy(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+
+	tiers := []harbor.EscalationTier{
+		{Targets: []string{"human:alice", "human:bob"}, Timeout: 15 * time.Minute},
+		{Targets: []string{"human:carol"}, Timeout: time.Hour},
+	}
+	if err := c.SetEscalationPolicy("acme", tiers); err != nil {
+		t.Fatalf("SetEscalationPolicy: %v", err)
+	}
+	got, err := c.GetEscalationPolicy("acme")
+	if err != nil {
+		t.Fatalf("GetEscalationPolicy: %v", err)
+	}
+	if len(got) != 2 || got[0].Targets[0] != "human:alice" || got[0].Targets[1] != "human:bob" || got[0].Timeout != 15*time.Minute {
+		t.Fatalf("tier 0 = %+v", got[0])
+	}
+	if got[1].Targets[0] != "human:carol" || got[1].Timeout != time.Hour {
+		t.Fatalf("tier 1 = %+v", got[1])
+	}
+}
+
 // TestClientEnrollBodyIsTrimmed proves Enroll's wire body carries only
 // id/project/role/overrides — no inline destinations/repos/ttl_seconds, since
 // scope now comes entirely from the role.

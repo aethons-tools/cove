@@ -123,10 +123,14 @@ type dispatcherConfig struct {
 	// WakePollInterval, WaitMax, and WarmTimeout configure the resident wake-on
 	// engine (internal/wakeon), which watches Waiting instances' tickets and
 	// wakes, idles (pauses), or tears them down. All optional; empty ⇒ the
-	// engine's own defaults.
-	WakePollInterval string `yaml:"wake-poll-interval"`
-	WaitMax          string `yaml:"wait-max"`
-	WarmTimeout      string `yaml:"warm-timeout"`
+	// engine's own defaults. EscalationPollInterval configures the resident
+	// escalation engine (internal/escalate), which pings ordered human tiers of
+	// a Waiting instance's Project escalation policy on per-tier timers. Also
+	// optional; empty ⇒ the engine's own default.
+	WakePollInterval       string `yaml:"wake-poll-interval"`
+	WaitMax                string `yaml:"wait-max"`
+	WarmTimeout            string `yaml:"warm-timeout"`
+	EscalationPollInterval string `yaml:"escalation-poll-interval"`
 }
 
 // toSpec converts this credential to a named secret.Spec (literal or command).

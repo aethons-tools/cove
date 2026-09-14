@@ -42,6 +42,11 @@ type GrantSummary struct {
 	Addressing   []string `json:"addressing,omitempty"`
 }
 
+// EscalationBody is the PUT/GET /admin/projects/{project}/escalation body.
+type EscalationBody struct {
+	Tiers []EscalationTier `json:"tiers"`
+}
+
 // RoleBody is the POST /admin/roles request.
 type RoleBody struct {
 	Project      string   `json:"project"`
@@ -396,6 +401,23 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			return
 		}
 		log.Info("admin roster channel removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("GET /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
+		p, _ := store.GetProject(r.PathValue("project"))
+		writeJSON(w, http.StatusOK, EscalationBody{Tiers: p.Escalation})
+	})
+	mux.HandleFunc("PUT /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
+		var b EscalationBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Tiers); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "tiers", len(b.Tiers))
 		w.WriteHeader(http.StatusNoContent)
 	})
 

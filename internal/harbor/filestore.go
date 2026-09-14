@@ -50,6 +50,7 @@ type Store interface {
 	RemoveChannel(project, name string) error
 	GetProject(name string) (Project, bool)
 	GetRoster(project string) (Roster, bool)
+	SetEscalationPolicy(project string, tiers []EscalationTier) error
 }
 
 // storeFile is the on-disk JSON shape, detected by field presence rather than a persisted version number; this shape adds Projects.
@@ -599,6 +600,19 @@ func (fs *FileStore) AddHuman(project string, h Human) error {
 	return fs.save()
 }
 
+// SetEscalationPolicy replaces a project's escalation policy wholesale (unlike
+// AddHuman/AddChannel's upsert-by-name, tiers are ordered and unnamed, so the
+// whole slice is the unit of change).
+func (fs *FileStore) SetEscalationPolicy(project string, tiers []EscalationTier) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p := fs.projects[project]
+	p.Name = project
+	p.Escalation = tiers
+	fs.projects[project] = p
+	return fs.save()
+}
+
 func (fs *FileStore) AddChannel(project string, c Channel) error {
 	if c.Name == "" {
 		return fmt.Errorf("channel name required")
@@ -671,6 +685,10 @@ func (fs *FileStore) GetProject(name string) (Project, bool) {
 	// copy so callers can't mutate the store's slices
 	p.Roster.Humans = append([]Human(nil), p.Roster.Humans...)
 	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
+	p.Escalation = append([]EscalationTier(nil), p.Escalation...)
+	for i := range p.Escalation {
+		p.Escalation[i].Targets = append([]string(nil), p.Escalation[i].Targets...)
+	}
 	return p, true
 }
 
