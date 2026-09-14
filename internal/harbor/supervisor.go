@@ -202,6 +202,19 @@ func (s *Supervisor) SetWaitCursor(actorID, cursor string) error {
 	return s.store.PutInstance(inst)
 }
 
+// SetEscalationCategory stamps the cove-declared block category on its instance.
+// Persists until re-declared or teardown (Report does not clear it); the
+// escalation engine reads it to pick the tier chain, falling back to the default
+// when the category isn't configured. No-op semantics if the actor is gone.
+func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.EscalationCategory = category
+	return s.store.PutInstance(inst)
+}
+
 // SetEscalation persists the escalation engine's per-instance tier state (which
 // tier was last pinged, and when). The zero TierPingedAt means "no escalation
 // open" — see the escalation engine. No-op semantics if the actor is gone.

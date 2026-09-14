@@ -41,20 +41,21 @@ type Lease struct {
 // operational half (location, status, lease). It has no slice/map fields, so a
 // value copy is a full copy.
 type Instance struct {
-	ActorID          string    `json:"actor_id"`
-	Project          string    `json:"project"`
-	Role             string    `json:"role"`
-	Unit             string    `json:"unit,omitempty"`
-	Backend          string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
-	Location         string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
-	Phase            Phase     `json:"phase"`
-	Activity         Activity  `json:"activity,omitempty"`
-	Lease            Lease     `json:"lease"`
-	LaunchSecretHash string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
-	RaisedAt         time.Time `json:"raised_at"`
-	LastSeen         time.Time `json:"last_seen"`
-	WaitingSince     time.Time `json:"waiting_since,omitempty"`   // set when Activity enters Waiting (B1)
-	WaitCursor       string    `json:"wait_cursor,omitempty"`     // opaque wake-on baseline set by the wake-on engine
-	EscalationTier   int       `json:"escalation_tier,omitempty"` // last-pinged tier index; meaningful only when TierPingedAt is non-zero
-	TierPingedAt     time.Time `json:"tier_pinged_at,omitempty"`  // when EscalationTier was pinged; zero = no escalation open
+	ActorID            string    `json:"actor_id"`
+	Project            string    `json:"project"`
+	Role               string    `json:"role"`
+	Unit               string    `json:"unit,omitempty"`
+	Backend            string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
+	Location           string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
+	Phase              Phase     `json:"phase"`
+	Activity           Activity  `json:"activity,omitempty"`
+	Lease              Lease     `json:"lease"`
+	LaunchSecretHash   string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
+	RaisedAt           time.Time `json:"raised_at"`
+	LastSeen           time.Time `json:"last_seen"`
+	WaitingSince       time.Time `json:"waiting_since,omitempty"`       // set when Activity enters Waiting (B1)
+	WaitCursor         string    `json:"wait_cursor,omitempty"`         // opaque wake-on baseline set by the wake-on engine
+	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
+	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
+	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
 }

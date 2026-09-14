@@ -413,7 +413,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		if !decode(w, r, &b) {
 			return
 		}
-		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Tiers); err != nil {
+		if err := store.SetEscalationPolicy(r.PathValue("project"), "", b.Tiers); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

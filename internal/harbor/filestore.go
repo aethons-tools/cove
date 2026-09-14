@@ -50,7 +50,7 @@ type Store interface {
 	RemoveChannel(project, name string) error
 	GetProject(name string) (Project, bool)
 	GetRoster(project string) (Roster, bool)
-	SetEscalationPolicy(project string, tiers []EscalationTier) error
+	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
 }
 
 // storeFile is the on-disk JSON shape, detected by field presence rather than a persisted version number; this shape adds Projects.
@@ -116,7 +116,7 @@ func NewFileStore(path string) (*FileStore, error) {
 	if err := json.Unmarshal(data, &v3); err != nil {
 		return nil, fmt.Errorf("load store %s: %w", path, err)
 	}
-	if v3.Actors != nil || v3.Roles != nil {
+	if v3.Actors != nil || v3.Roles != nil || v3.Projects != nil {
 		if v3.Roles != nil {
 			fs.roles = v3.Roles
 		}
@@ -600,15 +600,23 @@ func (fs *FileStore) AddHuman(project string, h Human) error {
 	return fs.save()
 }
 
-// SetEscalationPolicy replaces a project's escalation policy wholesale (unlike
-// AddHuman/AddChannel's upsert-by-name, tiers are ordered and unnamed, so the
-// whole slice is the unit of change).
-func (fs *FileStore) SetEscalationPolicy(project string, tiers []EscalationTier) error {
+// SetEscalationPolicy replaces one chain wholesale (unlike AddHuman/AddChannel's
+// upsert-by-name, tiers are ordered and unnamed, so the whole slice is the unit
+// of change). An empty category sets the project's default chain (Escalation);
+// any other category sets/replaces that entry in EscalationByCategory.
+func (fs *FileStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	p := fs.projects[project]
 	p.Name = project
-	p.Escalation = tiers
+	if category == "" {
+		p.Escalation = tiers
+	} else {
+		if p.EscalationByCategory == nil {
+			p.EscalationByCategory = map[string][]EscalationTier{}
+		}
+		p.EscalationByCategory[category] = tiers
+	}
 	fs.projects[project] = p
 	return fs.save()
 }
@@ -688,6 +696,17 @@ func (fs *FileStore) GetProject(name string) (Project, bool) {
 	p.Escalation = append([]EscalationTier(nil), p.Escalation...)
 	for i := range p.Escalation {
 		p.Escalation[i].Targets = append([]string(nil), p.Escalation[i].Targets...)
+	}
+	if p.EscalationByCategory != nil {
+		m := make(map[string][]EscalationTier, len(p.EscalationByCategory))
+		for cat, tiers := range p.EscalationByCategory {
+			cp := append([]EscalationTier(nil), tiers...)
+			for i := range cp {
+				cp[i].Targets = append([]string(nil), cp[i].Targets...)
+			}
+			m[cat] = cp
+		}
+		p.EscalationByCategory = m
 	}
 	return p, true
 }
