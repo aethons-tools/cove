@@ -58,7 +58,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel) or escalation policy (escalation set|list|clear) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
@@ -410,12 +410,17 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's roster (humans + channels) via the admin
-// API. All subcommands nest under "roster", mirroring the plan's CLI shape:
-// `project roster add-human|add-channel|list|rm-human|rm-channel`.
+// cmdProject manages a project's roster (humans + channels) or escalation
+// policy via the admin API. Roster subcommands nest under "roster":
+// `project roster add-human|add-channel|list|rm-human|rm-channel`. Escalation
+// subcommands nest under "escalation" and are handled by
+// cmdProjectEscalation: `project escalation set|list|clear`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) >= 1 && args[0] == "escalation" {
+		return cmdProjectEscalation(args[1:], stdout, stderr)
+	}
 	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel")
+		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel or escalation set|list|clear")
 		return 2
 	}
 	sub, rest := args[1], args[2:]
@@ -499,6 +504,89 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// cmdProjectEscalation manages a project's escalation policy via the admin
+// API: `project escalation set|list|clear`.
+func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "at-harbor project escalation: expected set|list|clear")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("project escalation "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	var tiers tierFlags
+	fs.Var(&tiers, "tier", "a tier as 'target,target@timeout' (repeatable, ordered); set only")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor project escalation:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "set":
+		if len(pos) != 1 || len(tiers) == 0 {
+			fmt.Fprintln(stderr, "at-harbor project escalation set: expected <project> and at least one --tier 'targets@timeout'")
+			return 2
+		}
+		if err := c.SetEscalationPolicy(pos[0], tiers); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "set escalation policy for", pos[0], "-", len(tiers), "tier(s)")
+	case "list":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor project escalation list: expected one project name")
+			return 2
+		}
+		got, err := c.GetEscalationPolicy(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for i, tr := range got {
+			fmt.Fprintf(stdout, "tier %d\t%s\ttimeout=%s\n", i, strings.Join(tr.Targets, ","), tr.Timeout)
+		}
+	case "clear":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor project escalation clear: expected one project name")
+			return 2
+		}
+		if err := c.SetEscalationPolicy(pos[0], nil); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "cleared escalation policy for", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor project escalation: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// tierFlags collects repeatable --tier values, parsing 'targets@timeout'.
+type tierFlags []harbor.EscalationTier
+
+func (t *tierFlags) String() string { return fmt.Sprintf("%d tiers", len(*t)) }
+func (t *tierFlags) Set(v string) error {
+	at := strings.LastIndex(v, "@")
+	if at < 0 {
+		return fmt.Errorf("tier %q missing '@timeout'", v)
+	}
+	d, err := time.ParseDuration(v[at+1:])
+	if err != nil {
+		return fmt.Errorf("tier %q: bad timeout: %w", v, err)
+	}
+	targets := strings.Split(v[:at], ",")
+	*t = append(*t, harbor.EscalationTier{Targets: targets, Timeout: d})
+	return nil
 }
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
