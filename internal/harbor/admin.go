@@ -417,7 +417,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin escalation policy", "operator", operatorID(r), "project", r.PathValue("project"), "tiers", len(b.Tiers))
+		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "tiers", len(b.Tiers))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
