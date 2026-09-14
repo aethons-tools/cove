@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -269,5 +270,66 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, su
 		}
 		log.Info("ui cove torn down", "operator", harbor.OperatorID(r), "id", id)
 		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": harbor.CoveSummaries(store), "CanEdit": true})
+	})
+
+	mux.HandleFunc("POST /ui/kits", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		config := r.FormValue("config")
+		if name == "" || config == "" {
+			renderError(w, http.StatusBadRequest, "name and config are required")
+			return
+		}
+		v, err := store.PushKit(name, config)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Info("ui kit pushed", "operator", harbor.OperatorID(r), "kit", name, "version", v)
+		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
+	})
+
+	mux.HandleFunc("POST /ui/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("version")))
+		if err != nil {
+			renderError(w, http.StatusBadRequest, "version must be an integer")
+			return
+		}
+		if err := store.PinKit(r.PathValue("name"), v); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui kit pinned", "operator", harbor.OperatorID(r), "kit", r.PathValue("name"), "version", v)
+		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
+	})
+
+	mux.HandleFunc("DELETE /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		name := r.PathValue("name")
+		if project, role, ok := store.RoleReferencingKit(name); ok {
+			renderError(w, http.StatusConflict, fmt.Sprintf("kit %q is referenced by role %s/%s", name, project, role))
+			return
+		}
+		if err := store.RemoveKit(name); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui kit removed", "operator", harbor.OperatorID(r), "kit", name)
+		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
 	})
 }
