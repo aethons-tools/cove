@@ -13,15 +13,15 @@ type Operator struct{ ID string }
 
 type operatorCtxKey struct{}
 
-// withOperator returns r carrying op, so mutation handlers can attribute the
-// change to the authenticated operator (its sub) in the audit log.
-func withOperator(r *http.Request, op Operator) *http.Request {
+// WithOperator returns r carrying op, so handlers can attribute a change to the
+// authenticated operator in the audit log.
+func WithOperator(r *http.Request, op Operator) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), operatorCtxKey{}, op))
 }
 
-// operatorID returns the authenticated operator's id from the request context,
-// or "" if the request was not authenticated (never happens past the middleware).
-func operatorID(r *http.Request) string {
+// OperatorID returns the authenticated operator's id from the request context,
+// or "" if the request was not authenticated.
+func OperatorID(r *http.Request) string {
 	op, _ := r.Context().Value(operatorCtxKey{}).(Operator)
 	return op.ID
 }

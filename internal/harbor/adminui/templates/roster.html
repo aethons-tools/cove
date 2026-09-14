@@ -1,7 +1,20 @@
 {{define "content"}}
 <h1>Roster</h1>
-<table>
-  <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th></tr></thead>
+<form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML">
+  <input name="id" placeholder="actor id" required>
+  <input name="project" placeholder="project (default)">
+  <input name="role" placeholder="role" required>
+  <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+  <input name="repos" placeholder="repo overrides (optional, comma-separated)">
+  <button type="submit">Enroll</button>
+</form>
+<div id="roster-panel"></div>
+{{template "roster-table" .}}
+{{end}}
+
+{{define "roster-table"}}
+<table id="roster">
+  <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>Actions</th></tr></thead>
   <tbody>
     {{range .Actors}}
       {{$id := .ID}}{{$exp := .Expiry}}
@@ -10,14 +23,36 @@
         <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td>
           <td>{{.Project}}</td><td>{{.Role}}</td>
           <td>{{range .Destinations}}{{.}} {{end}}</td>
-          <td>{{range .Repos}}{{.}} {{end}}</td></tr>
+          <td>{{range .Repos}}{{.}} {{end}}</td>
+          <td><button hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?">Remove</button>
+              <button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
         {{end}}
       {{else}}
-        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td><td colspan="4" class="empty">no grants</td></tr>
+        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td><td colspan="4" class="empty">no grants</td>
+          <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
       {{end}}
+      <tr class="add-grant"><td colspan="7">
+        <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
+          <input name="project" placeholder="project">
+          <input name="role" placeholder="role" required>
+          <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+          <input name="repos" placeholder="repo overrides (optional, comma-separated)">
+          <button type="submit">Add grant to {{$id}}</button>
+        </form>
+      </td></tr>
     {{else}}
-      <tr><td colspan="6" class="empty">No actors enrolled.</td></tr>
+      <tr><td colspan="7" class="empty">No actors enrolled.</td></tr>
     {{end}}
   </tbody>
 </table>
+{{end}}
+
+{{define "enroll-result"}}
+<div class="token-panel">
+  <p><strong>Enrolled {{.ID}}.</strong> Copy this identity token now — it is not shown again:</p>
+  <code>{{.Token}}</code>
+</div>
 {{end}}

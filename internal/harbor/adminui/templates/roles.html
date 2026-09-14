@@ -1,15 +1,30 @@
 {{define "content"}}
 <h1>Roles</h1>
-<table>
-  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>TTL</th><th>Kit</th></tr></thead>
+<form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML">
+  <input name="project" placeholder="project (default)">
+  <input name="name" placeholder="role name" required>
+  <input name="destinations" placeholder="destinations (comma-separated)">
+  <input name="repos" placeholder="repos (comma-separated)">
+  <input name="ttl-seconds" placeholder="ttl seconds">
+  <input name="kit" placeholder="kit (optional)">
+  <button type="submit">Add role</button>
+</form>
+{{template "roles-table" .}}
+{{end}}
+
+{{define "roles-table"}}
+<table id="roles">
+  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>TTL</th><th>Kit</th><th>Actions</th></tr></thead>
   <tbody>
     {{range .Roles}}
     <tr><td>{{.Project}}</td><td>{{.Name}}</td>
       <td>{{range .Destinations}}{{.}} {{end}}</td>
       <td>{{range .Repos}}{{.}} {{end}}</td>
-      <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td></tr>
+      <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td>
+      <td><button hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-target="#roles" hx-swap="outerHTML"
+              hx-confirm="Delete role {{.Name}} from {{.Project}}?">Delete</button></td></tr>
     {{else}}
-    <tr><td colspan="6" class="empty">No roles.</td></tr>
+    <tr><td colspan="7" class="empty">No roles.</td></tr>
     {{end}}
   </tbody>
 </table>

@@ -9,6 +9,7 @@ import (
 	"embed"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -72,9 +73,10 @@ func mustParse(names ...string) *template.Template {
 	return template.Must(template.ParseFS(files, paths...))
 }
 
-// Handler returns the UI mux (no auth wrap). store is the only dependency:
-// every view is an in-process read.
-func Handler(store harbor.Store) http.Handler {
+// Handler returns the UI mux (no auth wrap). store is the primary dependency:
+// every read view is an in-process read. log records write-action outcomes
+// (never secret values — see writes.go).
+func Handler(store harbor.Store, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(staticFS))))
@@ -108,6 +110,8 @@ func Handler(store harbor.Store) http.Handler {
 	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
 	})
+
+	registerWrites(mux, store, log)
 
 	return mux
 }
