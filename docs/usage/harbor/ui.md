@@ -81,8 +81,9 @@ internally or externally. The table is empty until the log has writers, and if
 `message-log:` is unset the page renders a "not configured" notice instead of
 an error.
 
-Unlike the roster/kit/destination pages, Messages has no mutation — the Log is
-append-only and single-writer (the serve process itself); the UI only reads it.
+Unlike the roster/kit/destination pages, Messages has no mutation — the UI only
+reads the Log. Its write-ownership model lives with the `message-log` field —
+see [serve.md](serve.md#the-serve-config).
 
 ## Editing (day-job mutations)
 
