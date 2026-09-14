@@ -367,7 +367,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin roster human", "operator", operatorID(r), "project", r.PathValue("project"), "name", b.Name)
+		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +379,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		log.Info("admin roster channel", "operator", operatorID(r), "project", r.PathValue("project"), "name", b.Name)
+		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
 		w.WriteHeader(http.StatusCreated)
 	})
 	mux.HandleFunc("DELETE /admin/projects/{project}/humans/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +387,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin roster human removed", "operator", operatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
+		log.Info("admin roster human removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /admin/projects/{project}/channels/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -395,7 +395,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		log.Info("admin roster channel removed", "operator", operatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
+		log.Info("admin roster channel removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
