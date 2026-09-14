@@ -1,5 +1,15 @@
 {{define "content"}}
 <h1>Coves</h1>
+{{if .CanEdit}}
+<form hx-post="/ui/coves" hx-target="#coves" hx-swap="outerHTML">
+  <input name="id" placeholder="cove id" required>
+  <input name="project" placeholder="project (default)">
+  <input name="role" placeholder="role" required>
+  <input name="unit" placeholder="unit (optional)">
+  <textarea name="prompt" placeholder="workload prompt (optional)"></textarea>
+  <button type="submit">Raise cove</button>
+</form>
+{{end}}
 {{template "coves-table" .}}
 {{end}}
 

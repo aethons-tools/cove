@@ -79,7 +79,7 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write([]byte(`<p class="error">` + template.HTMLEscapeString(msg) + `</p>`))
 }
 
-func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
+func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) {
 	mux.HandleFunc("POST /ui/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
@@ -215,5 +215,42 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 		}
 		log.Info("ui role removed", "operator", harbor.OperatorID(r), "project", project, "role", name)
 		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+	})
+
+	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if sup == nil {
+			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		id := strings.TrimSpace(r.FormValue("id"))
+		if id == "" {
+			renderError(w, http.StatusBadRequest, "id is required")
+			return
+		}
+		role := strings.TrimSpace(r.FormValue("role"))
+		if role == "" {
+			renderError(w, http.StatusBadRequest, "role is required")
+			return
+		}
+		project := strings.TrimSpace(r.FormValue("project"))
+		// Discard the returned identity token + launch secret: with a real launcher
+		// harbor consumes them internally; they must never reach the browser or a log.
+		_, _, _, err := sup.Raise(r.Context(), harbor.RaiseSpec{
+			ActorID: id, Project: project, Role: role,
+			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),
+		})
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Info("ui cove raised", "operator", harbor.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
+		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": harbor.CoveSummaries(store), "CanEdit": true})
 	})
 }

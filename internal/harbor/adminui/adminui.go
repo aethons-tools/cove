@@ -76,21 +76,23 @@ func mustParse(names ...string) *template.Template {
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
-func Handler(store harbor.Store, log *slog.Logger) http.Handler {
+func Handler(store harbor.Store, log *slog.Logger, sup *harbor.Supervisor) http.Handler {
 	mux := http.NewServeMux()
+	canEdit := sup != nil
 
 	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(staticFS))))
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title":  "Dashboard",
-			"Coves":  harbor.CoveSummaries(store),
-			"Actors": harbor.RosterSummaries(store),
+			"Title":   "Dashboard",
+			"Coves":   harbor.CoveSummaries(store),
+			"Actors":  harbor.RosterSummaries(store),
+			"CanEdit": canEdit,
 		})
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Coves", "Coves": harbor.CoveSummaries(store)}
+		data := map[string]any{"Title": "Coves", "Coves": harbor.CoveSummaries(store), "CanEdit": canEdit}
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, "coves", "coves-table", data)
 			return
@@ -111,7 +113,7 @@ func Handler(store harbor.Store, log *slog.Logger) http.Handler {
 		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
 	})
 
-	registerWrites(mux, store, log)
+	registerWrites(mux, store, log, sup)
 
 	return mux
 }
