@@ -1147,28 +1147,44 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go eeng.Run(context.Background())
 		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
 
-		// msgport linear ingress engine: polls the team-scoped comments feed
-		// and appends inbound human replies to the same messageLog opened
-		// above (Slice 1a's shadow writer). Egress stays off this slice — the
-		// old count-based wake-on/escalation above are untouched; this only
-		// makes the Log start filling from the ingress side too. Nil-guarded
-		// on messageLog: without a configured message-log there is nothing to
-		// ingest into, so no engine runs.
+		// msgport linear engine: polls the team-scoped comments feed and
+		// appends inbound human replies to the messageLog opened above
+		// (ingress), and now also delivers outbound Log messages to Linear
+		// (egress, COV-176 Task 4) — the old count-based wake-on/escalation
+		// above are untouched; this makes the Log the single source of truth
+		// for both directions. Nil-guarded on messageLog: without a
+		// configured message-log there is nothing to ingest into or deliver
+		// from, so no engine runs.
 		if messageLog != nil {
 			self, err := tracker.Viewer(context.Background())
 			if err != nil {
 				log.Warn("harbor msgport: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
-			surf := &linearSurface{feed: tracker, started: time.Now()}
+			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
 			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "msgport-cursors.json"))
 			if err != nil {
 				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
 				return 1
 			}
-			ingest := msgport.New(surf, messageLog, noopMarkers{}, cur, dir, msgport.Config{EgressEnabled: false}, log)
-			go ingest.Run(context.Background())
-			log.Info("harbor msgport (linear ingress): resident", "egress", false, "self", self != "")
+			markers, err := newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "msgport-markers.json"))
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor: msgport markers:", err)
+				return 1
+			}
+			// Seed once: skip everything the 1a dual-write already delivered live,
+			// so turning egress on never re-posts the Log's shadow history.
+			// Persisted → never re-seeds (a re-seed to a newer tail would drop
+			// messages appended-but-not-yet-delivered since the first cutover).
+			if !markers.has("linear") {
+				if err := markers.SetEgress("linear", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
+					fmt.Fprintln(stderr, "at-harbor: msgport egress seed:", err)
+					return 1
+				}
+			}
+			eng := msgport.New(surf, messageLog, markers, cur, dir, msgport.Config{EgressEnabled: true}, log)
+			go eng.Run(context.Background())
+			log.Info("harbor msgport (linear): resident, egress ON", "self", self != "")
 		}
 	}
 
@@ -1270,6 +1286,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// logTailID returns the id of the last (newest) message in lg, or "" when the
+// Log is empty. Used to seed the egress low-water at cutover so already-
+// delivered shadow history is skipped. List is time-sorted; the tail is last.
+func logTailID(lg *msglog.Log) string {
+	all := lg.List(msglog.Filter{})
+	if len(all) == 0 {
+		return ""
+	}
+	return all[len(all)-1].ID
 }
 
 func splitCSV(s string) []string {

@@ -97,6 +97,20 @@ func TestEgressPartialFailureRetriesOnlyFailed(t *testing.T) {
 	}
 }
 
+func TestEgressPassesBodyPrefixToDeliver(t *testing.T) {
+	surf := &fakeSurface{service: "linear"}
+	dir := &fakeDirectory{resolve: map[string]Delivery{
+		"channel:ops": {Service: "linear", Address: "ACME-9", BodyPrefix: "@bob "},
+	}}
+	e, _ := newEgressEngine(t, surf, dir)
+	// internal-authored, external target
+	_, _ = e.lg.Append(msglog.Message{From: msglog.Target{Kind: "actor", Ref: "cove-1"}, To: []msglog.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
+	e.egressTick(context.Background())
+	if len(surf.delivers) != 1 || surf.delivers[0].BodyPrefix != "@bob " {
+		t.Fatalf("BodyPrefix not passed through: %+v", surf.delivers)
+	}
+}
+
 func TestEgressSkipsOtherService(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
 	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "discord", Address: "chan-1"}}}
