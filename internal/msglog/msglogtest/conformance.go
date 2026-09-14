@@ -3,6 +3,7 @@
 package msglogtest
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -117,12 +118,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 			t.Fatal(err)
 		}
 		got := s.SeenIDs("in:linear:")
-		set := map[string]bool{}
-		for _, id := range got {
-			set[id] = true
-		}
-		if len(got) != 2 || !set["in:linear:c1"] || !set["in:linear:c2"] {
-			t.Fatalf("SeenIDs(in:linear:) = %+v, want the two linear ids", got)
+		want := []string{"in:linear:c1", "in:linear:c2"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("SeenIDs(in:linear:) = %v, want %v (prefix matches in append order)", got, want)
 		}
 	})
 }
