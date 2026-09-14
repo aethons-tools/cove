@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,5 +111,65 @@ func registerWrites(mux *http.ServeMux, store harbor.Store, log *slog.Logger) {
 		}
 		log.Info("ui revoked", "operator", harbor.OperatorID(r), "id", id)
 		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": harbor.RosterSummaries(store)})
+	})
+
+	mux.HandleFunc("POST /ui/roles", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			renderError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		kit := strings.TrimSpace(r.FormValue("kit"))
+		if kit != "" {
+			if _, ok := store.GetKit(kit); !ok {
+				renderError(w, http.StatusBadRequest, "kit does not exist")
+				return
+			}
+		}
+		ttl := 0
+		if v := strings.TrimSpace(r.FormValue("ttl-seconds")); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				renderError(w, http.StatusBadRequest, "ttl-seconds must be an integer")
+				return
+			}
+			ttl = n
+		}
+		project := strings.TrimSpace(r.FormValue("project"))
+		role := harbor.Role{
+			Name: name,
+			Scope: harbor.Scope{
+				Destinations: splitCSV(r.FormValue("destinations")),
+				Repos:        splitCSV(r.FormValue("repos")),
+				TTL:          time.Duration(ttl) * time.Second,
+			},
+			Kit: kit,
+		}
+		if err := store.PutRole(project, role); err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Info("ui role put", "operator", harbor.OperatorID(r), "project", project, "role", name)
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+	})
+
+	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		project, name := r.PathValue("project"), r.PathValue("name")
+		if err := store.RemoveRole(project, name); err != nil {
+			renderError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		log.Info("ui role removed", "operator", harbor.OperatorID(r), "project", project, "role", name)
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
 	})
 }

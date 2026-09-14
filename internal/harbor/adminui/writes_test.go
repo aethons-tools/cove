@@ -121,6 +121,36 @@ func TestRevokeActor(t *testing.T) {
 	}
 }
 
+func TestCreateAndDeleteRole(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger())
+
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create role = %d, want 200", rec.Code)
+	}
+	if _, ok := store.GetRole("acme", "review"); !ok {
+		t.Fatal("role acme/review not created")
+	}
+
+	// kit that doesn't exist → 400 inline error
+	bad := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "kit": {"ghost"}})
+	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "kit") {
+		t.Fatalf("bad kit = %d %q, want 400 mentioning kit", bad.Code, bad.Body.String())
+	}
+
+	del := httptest.NewRequest(http.MethodDelete, "/ui/roles/acme/review", nil)
+	del.Header.Set("Origin", "http://"+del.Host)
+	drec := httptest.NewRecorder()
+	h.ServeHTTP(drec, del)
+	if drec.Code != http.StatusOK {
+		t.Fatalf("delete role = %d, want 200", drec.Code)
+	}
+	if _, ok := store.GetRole("acme", "review"); ok {
+		t.Error("role should be gone after delete")
+	}
+}
+
 func TestEnrollValidationError(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger())
