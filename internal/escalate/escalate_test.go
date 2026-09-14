@@ -2,6 +2,7 @@ package escalate
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -18,14 +19,6 @@ type fakeProjects struct{ projects map[string]harbor.Project }
 func (f *fakeProjects) GetProject(name string) (harbor.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
-}
-
-func (f *fakeProjects) GetRoster(project string) (harbor.Roster, bool) {
-	p, ok := f.projects[project]
-	if !ok {
-		return harbor.Roster{}, false
-	}
-	return p.Roster, true
 }
 
 type fakeState struct {
@@ -174,6 +167,26 @@ func TestEmptyTierAdvancesWithoutPosting(t *testing.T) {
 	}
 	if pg.called {
 		t.Fatal("empty tier must post nothing")
+	}
+}
+
+func TestUnknownRosterNameWarns(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation: []harbor.EscalationTier{{Targets: []string{"human:ghost"}, Timeout: time.Minute}},
+		Roster:     harbor.Roster{}}}} // no matching humans
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	var logBuf strings.Builder
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+	e := New(reg, proj, st, pg, Config{}, log)
+	e.now = func() time.Time { return clock }
+
+	e.tick(context.Background())
+
+	if !strings.Contains(logBuf.String(), "human target not in roster") || !strings.Contains(logBuf.String(), "human:ghost") {
+		t.Fatalf("expected warn for unknown roster target; log=%q", logBuf.String())
 	}
 }
 

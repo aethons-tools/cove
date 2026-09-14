@@ -20,7 +20,6 @@ import (
 type Registry interface{ ListInstances() []harbor.Instance }
 type Projects interface {
 	GetProject(name string) (harbor.Project, bool)
-	GetRoster(project string) (harbor.Roster, bool)
 }
 type State interface {
 	SetEscalation(actorID string, tier int, at time.Time) error
@@ -125,11 +124,16 @@ func (e *Engine) resolveHandles(proj harbor.Project, tier int) []string {
 			e.log.Warn("escalate: skipping non-human tier target", "target", target)
 			continue
 		}
+		found := false
 		for _, h := range roster.Humans {
 			if h.Name == name {
 				handles = append(handles, "@"+h.Handle)
+				found = true
 				break
 			}
+		}
+		if !found {
+			e.log.Warn("escalate: human target not in roster, skipping", "target", target)
 		}
 	}
 	return handles
