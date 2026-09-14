@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -518,6 +519,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	category := fs.String("category", "", "escalation category (default chain when empty); set/clear")
 	var tiers tierFlags
 	fs.Var(&tiers, "tier", "a tier as 'target,target@timeout' (repeatable, ordered); set only")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -536,7 +538,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor project escalation set: expected <project> and at least one --tier 'targets@timeout'")
 			return 2
 		}
-		if err := c.SetEscalationPolicy(pos[0], tiers); err != nil {
+		if err := c.SetEscalationPolicy(pos[0], *category, tiers); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -546,20 +548,30 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor project escalation list: expected one project name")
 			return 2
 		}
-		got, err := c.GetEscalationPolicy(pos[0])
+		v, err := c.GetEscalationPolicy(pos[0])
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
-		for i, tr := range got {
-			fmt.Fprintf(stdout, "tier %d\t%s\ttimeout=%s\n", i, strings.Join(tr.Targets, ","), tr.Timeout)
+		for i, tr := range v.Default {
+			fmt.Fprintf(stdout, "default\ttier %d\t%s\ttimeout=%s\n", i, strings.Join(tr.Targets, ","), tr.Timeout)
+		}
+		categories := make([]string, 0, len(v.ByCategory))
+		for cat := range v.ByCategory {
+			categories = append(categories, cat)
+		}
+		sort.Strings(categories)
+		for _, cat := range categories {
+			for i, tr := range v.ByCategory[cat] {
+				fmt.Fprintf(stdout, "%s\ttier %d\t%s\ttimeout=%s\n", cat, i, strings.Join(tr.Targets, ","), tr.Timeout)
+			}
 		}
 	case "clear":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "at-harbor project escalation clear: expected one project name")
 			return 2
 		}
-		if err := c.SetEscalationPolicy(pos[0], nil); err != nil {
+		if err := c.SetEscalationPolicy(pos[0], *category, nil); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -1040,8 +1052,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
 		msgH := harbor.NewMessagesHandler(st, linearCommenter{tracker}, log)
-		httpHandler = messagesMux(msgH, broker)
+		escH := harbor.NewEscalateHandler(st, sup, log)
+		httpHandler = messagesMux(msgH, escH, broker)
 		log.Info("harbor messages: mounted", "path", "/messages")
+		log.Info("harbor escalate: mounted", "path", "/escalate")
 
 		// Wake-on engine: watches Waiting instances' tickets (via the same
 		// tracker as the dispatcher) and Wakes them over the live Attach

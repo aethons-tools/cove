@@ -227,6 +227,77 @@ func TestPostCommentFailureDoesNotAdvance(t *testing.T) {
 	}
 }
 
+func TestRoutesByCategory(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting, EscalationCategory: "infra"}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+	e.tick(context.Background())
+	if !strings.Contains(pg.lastBody, "@sre.h") || strings.Contains(pg.lastBody, "@oncall.h") {
+		t.Fatalf("infra category must ping @sre.h (not the default @oncall.h); body=%q", pg.lastBody)
+	}
+}
+
+func TestUnknownCategoryFallsBackToDefault(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting, EscalationCategory: "nonexistent"}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+	e.tick(context.Background())
+	if !strings.Contains(pg.lastBody, "@oncall.h") {
+		t.Fatalf("unknown category must fall back to default chain (@oncall.h); body=%q", pg.lastBody)
+	}
+}
+
+func TestEmptyCategoryUsesDefault(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}} // no category
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+	e.tick(context.Background())
+	if !strings.Contains(pg.lastBody, "@oncall.h") {
+		t.Fatalf("empty category must use default chain; body=%q", pg.lastBody)
+	}
+}
+
+func TestCategoryAdvanceUsesCategoryChainTimeout(t *testing.T) {
+	clock := time.Unix(2000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting,
+		EscalationCategory: "infra", EscalationTier: 0, TierPingedAt: clock.Add(-11 * time.Minute)}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation: []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {
+			{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute},
+			{Targets: []string{"human:lead"}, Timeout: time.Hour}}},
+		Roster: harbor.Roster{Humans: []harbor.Human{{Name: "sre", Handle: "s"}, {Name: "lead", Handle: "l"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+	e.tick(context.Background())
+	if st.lastTier != 1 || !strings.Contains(pg.lastBody, "@l") {
+		t.Fatalf("infra tier-0 (10m) elapsed → advance to infra tier-1 (@l); tier=%d body=%q", st.lastTier, pg.lastBody)
+	}
+}
+
 type erroringPinger struct{}
 
 func (erroringPinger) IssueByIdentifier(_ context.Context, _ string) (string, error) {

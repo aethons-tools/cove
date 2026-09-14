@@ -603,6 +603,27 @@ func TestReportResetsEscalationOnEnteringWaiting(t *testing.T) {
 	}
 }
 
+func TestSetEscalationCategoryPersistsAcrossWaitingEntry(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.SetEscalationCategory("cove-1", "infra"); err != nil {
+		t.Fatal(err)
+	}
+	// entering Waiting resets tier state but must NOT clear the category
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.EscalationCategory != "infra" {
+		t.Fatalf("category must persist across Waiting-entry, got %q", got.EscalationCategory)
+	}
+	if !got.TierPingedAt.IsZero() {
+		t.Fatal("tier state should still reset on entering Waiting")
+	}
+}
+
 // TestReconcileSkipsIdledInstance proves that an Idled instance is never
 // probed, reaped, or adopted by Reconcile even with an expired lease — a
 // paused cove can't heartbeat, so without the skip the reconciler would

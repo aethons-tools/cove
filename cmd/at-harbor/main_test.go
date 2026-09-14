@@ -305,7 +305,7 @@ func TestProjectEscalationCommands(t *testing.T) {
 	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "tier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(out.String(), "tier 1\thuman:carol\ttimeout=1h0m0s") {
+	if !strings.Contains(out.String(), "default\ttier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(out.String(), "default\ttier 1\thuman:carol\ttimeout=1h0m0s") {
 		t.Fatalf("project escalation list output missing expected fields:\n%s", out.String())
 	}
 
@@ -332,6 +332,70 @@ func TestProjectEscalationCommands(t *testing.T) {
 		"--tier", "human:alice",
 	}, getenv, &out, &errb); code == 0 {
 		t.Fatalf("project escalation set with malformed --tier should fail, got exit=0 out=%s", out.String())
+	}
+}
+
+// TestProjectEscalationCategoryCommands exercises `--category` on
+// set/list/clear: setting a category chain alongside the default, listing both,
+// then clearing just the category and confirming the default survives.
+func TestProjectEscalationCategoryCommands(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// default chain
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "escalation", "set", "--admin-url", ts.URL, "p",
+		"--tier", "human:oncall@30m",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation set (default): exit=%d stderr=%s", code, errb.String())
+	}
+
+	// infra category chain
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "escalation", "set", "--admin-url", ts.URL, "--category", "infra", "p",
+		"--tier", "human:sre@10m",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation set --category infra: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// list shows both default and infra
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "default\ttier 0\thuman:oncall\ttimeout=30m0s") {
+		t.Fatalf("project escalation list missing default chain:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "infra\ttier 0\thuman:sre\ttimeout=10m0s") {
+		t.Fatalf("project escalation list missing infra chain:\n%s", out.String())
+	}
+
+	// clear --category infra removes just infra
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "clear", "--admin-url", ts.URL, "--category", "infra", "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation clear --category infra: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project escalation list (after clear infra): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "default\ttier 0\thuman:oncall\ttimeout=30m0s") {
+		t.Fatalf("project escalation list should still show default chain after clearing infra:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "infra\ttier") {
+		t.Fatalf("project escalation list should not show infra chain after clear:\n%s", out.String())
 	}
 }
 

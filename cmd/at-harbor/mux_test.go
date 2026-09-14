@@ -27,10 +27,13 @@ func TestMessagesMuxRouting(t *testing.T) {
 	msgH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "messages")
 	})
+	escH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "escalate")
+	})
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "broker")
 	})
-	mux := messagesMux(msgH, broker)
+	mux := messagesMux(msgH, escH, broker)
 
 	for _, tc := range []struct {
 		path string
@@ -38,9 +41,11 @@ func TestMessagesMuxRouting(t *testing.T) {
 	}{
 		{"/messages", "messages"},
 		{"/messages/targets", "messages"},
+		{"/escalate", "escalate"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},
 		{"/messages/extra", "broker"}, // exact-match only, not a prefix route
+		{"/escalate/extra", "broker"}, // exact-match only, not a prefix route
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()

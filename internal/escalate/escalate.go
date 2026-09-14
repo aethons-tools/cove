@@ -73,28 +73,41 @@ func (e *Engine) tick(ctx context.Context) {
 			continue
 		}
 		proj, ok := e.proj.GetProject(inst.Project)
-		if !ok || len(proj.Escalation) == 0 {
+		if !ok {
 			continue
+		}
+		chain := chainFor(proj, inst.EscalationCategory)
+		if len(chain) == 0 {
+			continue // neither a category chain nor a default configured
 		}
 		// Open tier 0 iff no escalation is open (TierPingedAt zero — NOT the int,
 		// whose zero value would read as "tier 0 pinged").
 		if inst.TierPingedAt.IsZero() {
-			e.pingTier(ctx, inst, proj, 0)
+			e.pingTier(ctx, inst, proj, chain, 0)
 			continue
 		}
 		cur := inst.EscalationTier
-		if cur+1 < len(proj.Escalation) && e.now().Sub(inst.TierPingedAt) > proj.Escalation[cur].Timeout {
-			e.pingTier(ctx, inst, proj, cur+1)
+		if cur+1 < len(chain) && e.now().Sub(inst.TierPingedAt) > chain[cur].Timeout {
+			e.pingTier(ctx, inst, proj, chain, cur+1)
 		}
 	}
+}
+
+// chainFor picks the tier chain for a cove's declared category, falling back to
+// the Project's default chain for an unset/unknown/empty-configured category.
+func chainFor(proj harbor.Project, category string) []harbor.EscalationTier {
+	if c, ok := proj.EscalationByCategory[category]; ok && len(c) > 0 {
+		return c
+	}
+	return proj.Escalation
 }
 
 // pingTier resolves the tier's human handles from the roster, posts an @-mention
 // nudge on the cove's OWN ticket, and records the advance. A tier with no
 // resolvable human handles posts nothing but still advances the timer (so a
 // mis-configured tier can't wedge a blocked cove).
-func (e *Engine) pingTier(ctx context.Context, inst harbor.Instance, proj harbor.Project, tier int) {
-	handles := e.resolveHandles(proj, tier)
+func (e *Engine) pingTier(ctx context.Context, inst harbor.Instance, proj harbor.Project, chain []harbor.EscalationTier, tier int) {
+	handles := e.resolveHandles(proj.Roster, chain, tier)
 	if len(handles) > 0 {
 		issueID, err := e.ping.IssueByIdentifier(ctx, inst.Unit)
 		if err != nil {
@@ -115,10 +128,9 @@ func (e *Engine) pingTier(ctx context.Context, inst harbor.Instance, proj harbor
 	}
 }
 
-func (e *Engine) resolveHandles(proj harbor.Project, tier int) []string {
-	roster := proj.Roster
+func (e *Engine) resolveHandles(roster harbor.Roster, chain []harbor.EscalationTier, tier int) []string {
 	var handles []string
-	for _, target := range proj.Escalation[tier].Targets {
+	for _, target := range chain[tier].Targets {
 		kind, name, ok := strings.Cut(target, ":")
 		if !ok || kind != "human" {
 			e.log.Warn("escalate: skipping non-human tier target", "target", target)

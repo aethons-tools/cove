@@ -94,9 +94,10 @@ type EscalationTier struct {
 // Project is the top of the config tree: it owns its Roster and its escalation
 // policy. Roles remain keyed by (project, name).
 type Project struct {
-	Name       string           `json:"name"`
-	Roster     Roster           `json:"roster"`
-	Escalation []EscalationTier `json:"escalation,omitempty"`
+	Name                 string                      `json:"name"`
+	Roster               Roster                      `json:"roster"`
+	Escalation           []EscalationTier            `json:"escalation,omitempty"`
+	EscalationByCategory map[string][]EscalationTier `json:"escalation_by_category,omitempty"` // category → chain; overrides Escalation (the default)
 }
 
 // DefaultProject backs harbor-side default enrollment when no project is named.

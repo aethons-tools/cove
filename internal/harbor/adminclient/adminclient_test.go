@@ -258,18 +258,47 @@ func TestClientEscalationPolicy(t *testing.T) {
 		{Targets: []string{"human:alice", "human:bob"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:carol"}, Timeout: time.Hour},
 	}
-	if err := c.SetEscalationPolicy("acme", tiers); err != nil {
+	if err := c.SetEscalationPolicy("acme", "", tiers); err != nil {
 		t.Fatalf("SetEscalationPolicy: %v", err)
 	}
-	got, err := c.GetEscalationPolicy("acme")
+	v, err := c.GetEscalationPolicy("acme")
 	if err != nil {
 		t.Fatalf("GetEscalationPolicy: %v", err)
 	}
+	got := v.Default
 	if len(got) != 2 || got[0].Targets[0] != "human:alice" || got[0].Targets[1] != "human:bob" || got[0].Timeout != 15*time.Minute {
 		t.Fatalf("tier 0 = %+v", got[0])
 	}
 	if got[1].Targets[0] != "human:carol" || got[1].Timeout != time.Hour {
 		t.Fatalf("tier 1 = %+v", got[1])
+	}
+}
+
+// TestClientEscalationCategory exercises SetEscalationPolicy/GetEscalationPolicy
+// with a category, asserting the view carries both the default and the category
+// chain without disturbing each other.
+func TestClientEscalationCategory(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+
+	def := []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
+	infra := []harbor.EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
+	if err := c.SetEscalationPolicy("acme", "", def); err != nil {
+		t.Fatalf("SetEscalationPolicy(default): %v", err)
+	}
+	if err := c.SetEscalationPolicy("acme", "infra", infra); err != nil {
+		t.Fatalf("SetEscalationPolicy(infra): %v", err)
+	}
+	v, err := c.GetEscalationPolicy("acme")
+	if err != nil {
+		t.Fatalf("GetEscalationPolicy: %v", err)
+	}
+	if len(v.Default) != 1 || v.Default[0].Targets[0] != "human:oncall" {
+		t.Fatalf("default chain = %+v", v.Default)
+	}
+	got := v.ByCategory["infra"]
+	if len(got) != 1 || got[0].Targets[0] != "human:sre" || got[0].Timeout != 10*time.Minute {
+		t.Fatalf("infra chain = %+v", v.ByCategory)
 	}
 }
 

@@ -387,10 +387,38 @@ func TestAdminEscalationRoutes(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("PUT escalation = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	var got EscalationBody
+	var got EscalationView
 	getJSON(t, h, "/admin/projects/acme/escalation", &got)
-	if len(got.Tiers) != 1 || got.Tiers[0].Targets[0] != "human:alice" || got.Tiers[0].Timeout != 15*time.Minute {
-		t.Fatalf("escalation policy = %+v", got.Tiers)
+	if len(got.Default) != 1 || got.Default[0].Targets[0] != "human:alice" || got.Default[0].Timeout != 15*time.Minute {
+		t.Fatalf("escalation policy = %+v", got.Default)
+	}
+}
+
+// TestAdminEscalationCategoryRoutes PUTs a category-scoped chain alongside the
+// default chain, asserting GET returns both in EscalationView.
+func TestAdminEscalationCategoryRoutes(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
+		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+	})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT default escalation = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
+		Category: "infra",
+		Tiers:    []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}},
+	})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT infra escalation = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var got EscalationView
+	getJSON(t, h, "/admin/projects/acme/escalation", &got)
+	if len(got.Default) != 1 || got.Default[0].Targets[0] != "human:alice" {
+		t.Fatalf("default chain = %+v", got.Default)
+	}
+	infra, ok := got.ByCategory["infra"]
+	if !ok || len(infra) != 1 || infra[0].Targets[0] != "human:sre" || infra[0].Timeout != 10*time.Minute {
+		t.Fatalf("infra chain = %+v", got.ByCategory)
 	}
 }
 

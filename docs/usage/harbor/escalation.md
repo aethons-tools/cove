@@ -1,8 +1,8 @@
 ---
-summary: The escalation engine — a per-project ordered policy of human tiers + per-tier timeouts that actively pings while a cove is Waiting, opt-in and independent of wake-on's reply/max-wait clock.
-read_when: You want a raised cove's Waiting state to actively nudge humans instead of passively waiting — configuring ordered tiers of people to @-mention with per-tier timeouts, or operating/tuning the resident escalation engine.
-owns: the per-project escalation policy (ordered human tiers + per-tier timeout), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the `runtime.dispatcher.escalation-poll-interval` config, and the `at-harbor project escalation set|list|clear` commands.
-prereqs: messaging.md for the wake-on engine and the Waiting/suspend model escalation pings into; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
+summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that actively pings while a cove is Waiting, opt-in and independent of wake-on's reply/max-wait clock.
+read_when: You want a raised cove's Waiting state to actively nudge humans instead of passively waiting — configuring ordered tiers of people to @-mention with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
+owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-harbor project escalation set|list|clear [--category]` commands.
+prereqs: messaging.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
 updated: 2026-09-14
 ---
@@ -26,6 +26,35 @@ same Project [Roster](comms-addressing.md#the-project-roster) used for addressed
 **human-only**: a `channel:` target (or anything malformed) in a tier is skipped
 with a logged warning, never a hard failure. `Timeout` is how long the engine
 waits after pinging that tier before moving to the next one.
+
+## Categories: routing by block kind
+
+A Project's escalation policy is **category-keyed**, additive over the single
+chain above. `Project.Escalation` (the policy described above) is specifically
+the **default/uncategorized** chain; `EscalationByCategory` maps a **free-form**
+category name (e.g. `infra`, `ticket-blocked`, `code-architecture`) to its own
+ordered tier chain, same `{Targets, Timeout}` shape. An unset category, an
+unknown category, or a category with no configured chain all fall back to the
+default chain — a cove-supplied category can only ever select among
+operator-configured chains, never a recipient the operator didn't set up.
+
+A cove declares its current block's category with the brokered **`escalate`**
+tool (`escalate(category)`), one of the cove's [brokered messaging
+tools](messaging.md#what-the-tools-do): harbor stamps
+`Instance.EscalationCategory` on the caller's *own* instance — self-scoped, like
+`read`; there's no actor/target parameter. The category **persists** until the
+cove re-declares it or the instance tears down — entering Waiting does not clear
+it (only the per-tier state below resets there). Calling `escalate` **only
+categorizes** the block; it does not itself open an escalation — pinging still
+starts solely on entering Waiting, as above. A cove typically calls `escalate`
+before ending a turn `needs-input`, so the category is set before harbor
+evaluates who to ping.
+
+Operator commands take a matching `--category <name>` flag — see [Operator
+commands](#operator-commands-at-harbor-project-escalation) below. Harbor
+**auto-detecting** a category itself (e.g. stamping `infra` on an egress-wall
+denial or a `401`, without the cove calling `escalate`) is not implemented yet
+— see [Not yet](#not-yet-deferred).
 
 ## Auto-on-Waiting: immediate tier-0, then advance on timeout
 
@@ -96,29 +125,36 @@ that has an escalation policy set — leaving policies unset costs nothing.
 ## Operator commands: `at-harbor project escalation`
 
 ```
-at-harbor project escalation set   <project> --tier 'human:alice,human:bob@15m' [--tier 'human:carol@1h' …]
+at-harbor project escalation set   <project> [--category <name>] --tier 'human:alice,human:bob@15m' [--tier 'human:carol@1h' …]
 at-harbor project escalation list  <project>
-at-harbor project escalation clear <project>
+at-harbor project escalation clear <project> [--category <name>]
 ```
 
-- `set` **replaces** the whole ordered policy. Each `--tier` is
+- `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
   `comma,separated,targets@duration` — a comma-separated list of `human:<name>`
   targets, an `@`, then a `time.ParseDuration` timeout (e.g. `15m`, `1h`). Repeat
   `--tier` in order; the first is tier 0.
-- `list` prints each tier's index, targets, and timeout.
-- `clear` removes the policy — the Project reverts to today's passive wait.
+- `list` prints the default chain (labeled `default`), then each configured
+  category's chain (labeled by category name), each tier's index, targets, and
+  timeout.
+- `clear` removes one chain — the Project reverts to today's passive wait for
+  that chain.
+- `--category <name>` on `set`/`clear` targets that category's chain (see
+  [Categories](#categories-routing-by-block-kind) above) instead of the
+  default; omitted on either, it's the default chain. Example:
+  `at-harbor project escalation set acme --category infra --tier 'human:sre@10m'`.
 
 All three take the same admin-client flags (`--app`/`--admin-url`/`--token`) as
 every other `at-harbor` verb — see [operators.md](operators.md).
 
 ## Not yet (deferred)
 
-- **Categories + agent-declared `escalate(category)`, and auto-detection** —
-  today's policy is one fixed default per Project, pinged only on Waiting; an
-  agent choosing *what* to escalate, and harbor auto-detecting an infra failure
-  (an egress-wall denial or a `401`) to escalate on its own, are later slices.
-  Likewise, populating human tiers from CODEOWNERS or a tracker's
-  owner/assignee field is not wired — tiers are set by hand today.
+- **Harbor auto-detection** — the *implicit* setter: harbor stamping a
+  category itself (e.g. `infra` on an egress-wall denial or a `401`) without
+  the cove calling `escalate`. Only the agent-declared setter (`escalate`,
+  [above](#categories-routing-by-block-kind)) has shipped so far. Likewise,
+  populating human tiers from CODEOWNERS or a tracker's owner/assignee field is
+  not wired — tiers are set by hand today.
 - **Channel tiers** — a tier that pings a `channel:` target needs cross-thread
   reply-routing (a reply on a channel's own thread waking the cove), which C2 v1
   doesn't have; see [comms-addressing.md](comms-addressing.md#not-yet-later-comms-slices).
@@ -129,4 +165,6 @@ every other `at-harbor` verb — see [operators.md](operators.md).
   `at-harbor cove list` or the UI is a nice-to-have follow-up, not done yet.
 
 Design rationale lives in
-[`../../superpowers/specs/2026-09-14-harbor-escalation.md`](../../superpowers/specs/2026-09-14-harbor-escalation.md).
+[`../../superpowers/specs/2026-09-14-harbor-escalation.md`](../../superpowers/specs/2026-09-14-harbor-escalation.md)
+(the default-chain engine) and, for categories,
+[`../../superpowers/specs/2026-09-14-harbor-escalation-categories.md`](../../superpowers/specs/2026-09-14-harbor-escalation-categories.md).

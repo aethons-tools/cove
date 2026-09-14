@@ -462,7 +462,7 @@ func TestEscalationPolicyRoundTrip(t *testing.T) {
 		{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:bob"}, Timeout: time.Hour},
 	}
-	if err := fs.SetEscalationPolicy("acme", tiers); err != nil {
+	if err := fs.SetEscalationPolicy("acme", "", tiers); err != nil {
 		t.Fatal(err)
 	}
 	fs2, _ := NewFileStore(path) // reload from disk
@@ -474,8 +474,8 @@ func TestEscalationPolicyRoundTrip(t *testing.T) {
 
 func TestSetEscalationPolicyReplaces(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
-	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:b"}, Timeout: 2 * time.Minute}})
+	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
+	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:b"}, Timeout: 2 * time.Minute}})
 	p, _ := fs.GetProject("p")
 	if len(p.Escalation) != 1 || p.Escalation[0].Targets[0] != "human:b" {
 		t.Fatalf("expected replace, got %+v", p.Escalation)
@@ -484,12 +484,67 @@ func TestSetEscalationPolicyReplaces(t *testing.T) {
 
 func TestGetProjectCopiesEscalation(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-	_ = fs.SetEscalationPolicy("p", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
+	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	p, _ := fs.GetProject("p")
 	p.Escalation[0].Targets[0] = "mutated" // must not corrupt the store
 	p2, _ := fs.GetProject("p")
 	if p2.Escalation[0].Targets[0] != "human:a" {
 		t.Fatalf("GetProject leaked a live slice: %v", p2.Escalation[0].Targets)
+	}
+}
+
+func TestEscalationByCategoryRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	fs, _ := NewFileStore(path)
+	def := []EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
+	infra := []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
+	if err := fs.SetEscalationPolicy("acme", "", def); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.SetEscalationPolicy("acme", "infra", infra); err != nil {
+		t.Fatal(err)
+	}
+	fs2, _ := NewFileStore(path) // reload
+	p, ok := fs2.GetProject("acme")
+	if !ok || len(p.Escalation) != 1 || p.Escalation[0].Targets[0] != "human:oncall" {
+		t.Fatalf("default chain not persisted: %+v", p.Escalation)
+	}
+	if got := p.EscalationByCategory["infra"]; len(got) != 1 || got[0].Targets[0] != "human:sre" || got[0].Timeout != 10*time.Minute {
+		t.Fatalf("infra chain not persisted: %+v", p.EscalationByCategory)
+	}
+}
+
+func TestGetProjectDeepCopiesCategoryMap(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.SetEscalationPolicy("p", "infra", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
+	p, _ := fs.GetProject("p")
+	p.EscalationByCategory["infra"][0].Targets[0] = "mutated" // must not corrupt the store
+	p.EscalationByCategory["added"] = nil                     // must not appear in the store
+	p2, _ := fs.GetProject("p")
+	if p2.EscalationByCategory["infra"][0].Targets[0] != "human:a" {
+		t.Fatalf("category chain aliased: %v", p2.EscalationByCategory["infra"][0].Targets)
+	}
+	if _, ok := p2.EscalationByCategory["added"]; ok {
+		t.Fatal("category map aliased (new key leaked into store)")
+	}
+}
+
+func TestMigrationLeavesNilCategoryMap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	// a pre-C2b store: projects with an escalation default but no category key
+	if err := os.WriteFile(path, []byte(`{"projects":{"acme":{"name":"acme","escalation":[{"targets":["human:a"],"timeout":60000000000}]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := fs.GetProject("acme")
+	if p.EscalationByCategory != nil {
+		t.Fatalf("expected nil category map on migration, got %+v", p.EscalationByCategory)
+	}
+	if len(p.Escalation) != 1 {
+		t.Fatalf("default chain lost on migration: %+v", p.Escalation)
 	}
 }
 

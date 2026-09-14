@@ -1,7 +1,7 @@
 ---
-summary: The messaging MCP — harbor-brokered read/send/list_targets tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
+summary: The messaging MCP — harbor-brokered read/send/list_targets/escalate tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
 read_when: You want a raised cove's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating the harbor `/messages` endpoint and its cove-side MCP delivery.
-owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md.
+owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed cove a message is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a message is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
 tier: leaf
 updated: 2026-09-14
@@ -9,14 +9,15 @@ updated: 2026-09-14
 
 # The messaging MCP
 
-A managed cove's agent gets **harbor-brokered** tools — `read`, `send`, and
-`list_targets` — centered on **its own Linear ticket**. Harbor holds the tracker token, does the platform I/O, and attributes the sender; the cove never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
+A managed cove's agent gets **harbor-brokered** tools — `read`, `send`,
+`list_targets`, and `escalate` — centered on **its own Linear ticket**. Harbor holds the tracker token, does the platform I/O, and attributes the sender; the cove never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
 
 ## What the tools do
 
 - **`send(text, to?)`** — posts a comment. With no `to`, it lands on the cove's own ticket (the original, unchanged behavior). With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
 - **`read()`** — returns the ticket's comment thread as a tagged inbox (`{author, body, …}` per comment). **Always self-scoped to the cove's own ticket** — `read` takes no target, addressed or otherwise.
 - **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-messagestargets-list_targets).
+- **`escalate(category)`** — declares the cove's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
 
 The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Today `read` reflects the thread as of the call; see [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.)
 
