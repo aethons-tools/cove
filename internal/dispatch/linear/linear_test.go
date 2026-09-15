@@ -410,3 +410,15 @@ func TestClassifyLabels(t *testing.T) {
 		})
 	}
 }
+
+func TestNewDefaultsDispatchPrefix(t *testing.T) {
+	// testCfg leaves DispatchLabelPrefix empty — the harbor serve-config path,
+	// which wraps a bare LinearTracker and bypasses kit.ParseConfig's defaulter.
+	// New must still default the prefix so the dispatch gate is active, not open.
+	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResp(statesResponse), nil
+	})
+	if c.dispatchPrefix != "dispatch:" {
+		t.Fatalf("dispatchPrefix = %q; want \"dispatch:\" (defaulted)", c.dispatchPrefix)
+	}
+}
