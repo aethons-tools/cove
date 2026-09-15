@@ -99,6 +99,9 @@ func (d *Dispatcher) tick(ctx context.Context) {
 	}
 	live := d.countLive()
 	for _, iss := range issues {
+		if !iss.DispatchLabeled {
+			continue // not tagged for dispatch — never claimed, counted, or raised
+		}
 		actorID := "cove-" + iss.Identifier
 		if _, ok := d.registry.GetInstance(actorID); ok {
 			continue // already raised (dedup)

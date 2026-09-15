@@ -390,11 +390,10 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 func (c serveConfig) credSpecs() map[string]secret.Spec {
 	out := make(map[string]secret.Spec, len(c.Credentials))
 	for name, cs := range c.Credentials {
-		if cs.Value != "" {
-			out[name] = secret.Spec{Value: cs.Value, Literal: true}
-		} else {
-			out[name] = secret.Spec{Command: cs.Command}
-		}
+		// toSpec sets Name, which secret.Resolve keys its output map by; callers
+		// that index the resolved map by credential name (e.g. the store-postgres
+		// password path) get an empty value if Name is unset.
+		out[name] = cs.toSpec(name)
 	}
 	return out
 }

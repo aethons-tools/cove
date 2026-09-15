@@ -18,16 +18,20 @@ raise (run → report → teardown).
 ## The flow (per poll)
 
 1. **List ready** — poll the tracker for issues in its READY state.
-2. **Dedup** — skip any issue that already has a live Instance in the registry
+2. **Gate on the dispatch label** — skip any issue that does *not* carry a label
+   matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
+   explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
+   alone. Presence-only — the value after the prefix is unused.
+3. **Dedup** — skip any issue that already has a live Instance in the registry
    (its cove is `cove-<identifier>`), so a ticket is never raised twice.
-3. **Cap** — stop raising once the number of live Instances reaches
+4. **Cap** — stop raising once the number of live Instances reaches
    `max-concurrent`; the rest wait for the next poll. The count is read from the
    **durable Instance registry** each pass, so the cap holds across a harbor
    restart (and is the hook for a future multi-instance dispatcher).
-4. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
+5. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
-5. **Raise** — build the prompt (the issue brief + a result protocol asking the
+6. **Raise** — build the prompt (the issue brief + a result protocol asking the
    agent to write `.at-task/worker-result.json`) and call the supervisor's raise
    with `role`/`project` from config and `unit = <identifier>`. On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
@@ -59,11 +63,19 @@ runtime:
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
+      dispatch-label-prefix: "dispatch:"   # only issues carrying a dispatch:* label are raised (default: dispatch:)
       states: { ready: "Ready", in-progress: "In Progress", in-review: "In Review", done: "Done", needs-input: "Needs Input", blocked: "Blocked" }
 ```
 
 The role must grant the `anthropic` and `git` destinations so the raised cove's
 agent can reach them ([roster.md](roster.md)).
+
+**Dispatch is opt-in per ticket.** Only issues in the READY state that *also*
+carry a label matching `dispatch-label-prefix` (default `dispatch:`) are raised —
+so pointing `states.ready` at a shared column (e.g. "Todo") does not sweep the
+whole backlog into coves; tag the specific tickets with `dispatch:*`. The gate is
+presence-only (any `dispatch:<anything>` counts). It is distinct from
+`class-label-prefix`, which parses a handler *class* but does not gate.
 
 ## Not yet (deferred)
 

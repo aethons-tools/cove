@@ -165,8 +165,14 @@ credentials:
 	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.Store != "/var/lib/harbor/store.json" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	if s := cfg.credSpecs()["git-pat"]; !s.Literal || s.Value != "literal-dev-pat" {
+	if s := cfg.credSpecs()["git-pat"]; !s.Literal || s.Value != "literal-dev-pat" || s.Name != "git-pat" {
 		t.Fatalf("git-pat spec = %+v", s)
+	}
+	// Each spec must carry its Name: secret.Resolve keys its output map by Spec.Name,
+	// and callers (e.g. the store-postgres password path) index the result by the
+	// credential name. A missing Name yields an empty resolved value.
+	if s := cfg.credSpecs()["anthropic-key"]; s.Name != "anthropic-key" {
+		t.Fatalf("anthropic-key spec Name = %q, want %q", s.Name, "anthropic-key")
 	}
 }
 
