@@ -1,0 +1,41 @@
+# Sample `at-harbor serve` config for local development.
+#
+#   just dev-up                                   # raise the dev Postgres
+#   at-harbor serve --config dev/harbor.dev.yml   # run harbor against it
+#
+# This is a DEV config: plaintext admin on loopback, an inline DB password, and
+# a self-signed broker cert. Never use these settings in production — see
+# docs/usage/harbor/serve.md for the real (TLS + OIDC + resolver-cred) shape.
+
+# Cove-facing broker + Attach listener. harbor always serves this over TLS, so
+# even for dev you need a cert/key. Generate a self-signed pair with `just
+# dev-cert` (writes dev/tls/{cert,key}.pem, gitignored). The listener binds
+# harbor.local.aethons.tools, which DNS already resolves to 127.0.0.1 — no
+# /etc/hosts entry needed.
+listen: "harbor.local.aethons.tools:8443"
+tls:
+  cert: dev/tls/cert.pem
+  key: dev/tls/key.pem
+
+# Extra Host the browser admin UI accepts on loopback (beyond localhost/127.0.0.1).
+ui-hosts:
+  - harbor.local.aethons.tools
+
+# Loopback admin API — plain HTTP is fine on loopback (no OIDC needed).
+admin-listen: "127.0.0.1:8081"
+
+# Control-plane store: the dev Postgres from dev/docker-compose.yml.
+# harbor auto-migrates on startup, and the message log rides on the same DB.
+store-postgres:
+  host: localhost
+  port: 15432
+  database: harbor
+  user: harbor
+  sslmode: disable
+  password-cred: harbor-db   # references the credentials entry below
+
+credentials:
+  # DEV ONLY: an inline literal password. In production this is a `command:`
+  # resolver run on the host — never an inline value.
+  harbor-db:
+    value: harbor
