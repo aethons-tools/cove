@@ -51,6 +51,16 @@ When `message-log:` and a tracker are both configured, harbor also runs a reside
 A cove's inbox is a **durable, acked queue** over the message Log, not a snapshot
 view — it's a conversation to process in order, not an email list.
 
+> **Ordering is by a monotonic append sequence, not by message id.** Every Log
+> message carries an internal append `seq`; "oldest-first", "forward",
+> "tail", and the monotonic commit/wake cursors are all defined by that `seq`.
+> Message **ids are identifiers, not ordering keys** — ingress ids
+> (`in:linear:<uuid>`, `in:discord:<snowflake>`) are deterministic for
+> idempotent dedup and are **not** lexically sortable against each other or the
+> internal time-based ids, so cursors compare by sequence. The wire stays in
+> message ids (`committed_cursor`/`page_first`/`page_last`/`up_to` are ids the
+> cove echoes back); harbor resolves id↔seq at the boundary.
+
 - **Commit cursor.** Each cove has a durable commit cursor (its last *processed*
   message id) stored on its instance in the harbor store. It is **initialized at
   raise to the Log's current tail**, so a freshly-raised cove consumes messages
