@@ -143,6 +143,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
 		RaisedAt:         now, LastSeen: now,
+		CommitCursor: s.tailID(),
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {

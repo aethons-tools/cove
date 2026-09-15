@@ -122,6 +122,37 @@ func TestRaiseRequiresExistingRole(t *testing.T) {
 	}
 }
 
+func TestRaiseBaselinesCommitCursorFromTailReader(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	sup.SetTailReader(&fakeTailReader{id: "tail-7", ok: true})
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.CommitCursor != "tail-7" {
+		t.Fatalf("CommitCursor = %q, want %q (baselined from tail reader)", inst.CommitCursor, "tail-7")
+	}
+	got, _ := store.GetInstance("w1")
+	if got.CommitCursor != "tail-7" {
+		t.Fatalf("persisted CommitCursor = %q, want %q", got.CommitCursor, "tail-7")
+	}
+}
+
+func TestRaiseCommitCursorEmptyWithNoTailReader(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive}) // no SetTailReader call
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.CommitCursor != "" {
+		t.Fatalf("CommitCursor = %q, want \"\" (no tail reader wired)", inst.CommitCursor)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.CommitCursor != "" {
+		t.Fatalf("persisted CommitCursor = %q, want \"\"", got.CommitCursor)
+	}
+}
+
 func TestReportSetsActivityAndRenewsLease(t *testing.T) {
 	sup, store, clk := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})

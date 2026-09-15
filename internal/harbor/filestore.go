@@ -36,6 +36,7 @@ type Store interface {
 	GetInstance(actorID string) (Instance, bool)
 	ListInstances() []Instance
 	RemoveInstance(actorID string) error
+	AdvanceCommitCursor(actorID, upTo string) (Instance, error) // monotonic forward; no-op if upTo <= current; error if actor absent
 
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
@@ -337,6 +338,16 @@ func (fs *FileStore) RemoveInstance(actorID string) error {
 		return fmt.Errorf("instance %q not found", actorID)
 	}
 	return fs.save()
+}
+
+func (fs *FileStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	i, ok := fs.applyAdvanceCommitCursor(actorID, upTo)
+	if !ok {
+		return Instance{}, fmt.Errorf("instance %q not found", actorID)
+	}
+	return i, fs.save()
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {

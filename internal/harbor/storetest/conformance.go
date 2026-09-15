@@ -191,6 +191,29 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 	})
 
+	t.Run("advance_commit_cursor", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.PutInstance(harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive}); err != nil {
+			t.Fatal(err)
+		}
+		inst, err := s.AdvanceCommitCursor("cove-1", "id-5")
+		if err != nil || inst.CommitCursor != "id-5" {
+			t.Fatalf("advance to id-5 = %+v, %v", inst.CommitCursor, err)
+		}
+		// monotonic: a backward/equal up_to is a no-op success.
+		inst, err = s.AdvanceCommitCursor("cove-1", "id-3")
+		if err != nil || inst.CommitCursor != "id-5" {
+			t.Fatalf("backward advance must no-op: %+v, %v", inst.CommitCursor, err)
+		}
+		inst, err = s.AdvanceCommitCursor("cove-1", "id-9")
+		if err != nil || inst.CommitCursor != "id-9" {
+			t.Fatalf("forward advance = %+v, %v", inst.CommitCursor, err)
+		}
+		if _, err := s.AdvanceCommitCursor("absent", "id-1"); err == nil {
+			t.Fatal("advance on an absent actor must error")
+		}
+	})
+
 	t.Run("destinations_and_match", func(t *testing.T) {
 		s := newStore(t)
 		if err := s.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}); err != nil {
