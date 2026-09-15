@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -111,12 +111,17 @@ startup log names only the host and database). `store-postgres` takes precedence
 over `store` when both are present.
 
 **No data migration (Phase 1).** Switching an existing deployment from the file
-`store` to `store-postgres` starts with an **empty control plane** — there is no
-importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
-after switching; from then on Postgres backups are the recovery path. A
-deployment that needs its current roster preserved should stay on the file
-backend until it re-enrolls. (The message log is a separate, later migration —
-it stays on its own JSONL file for now.)
+`store` to `store-postgres` starts with an **empty control plane** — there is
+no importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
+after switching; a deployment needing its roster preserved should stay on the
+file backend until it re-enrolls.
+
+**The message log follows the store backend.** `store-postgres` also makes the
+durable message Log ([`message-log`](#the-serve-config) above,
+[ui.md#messages](ui.md#messages)) Postgres-backed, on the same database and
+pool (tables auto-created; `message-log:` is ignored) — effectively always-on.
+Without `store-postgres`, the file `message-log` path is used as before.
+Either way, switching backends **starts empty** — no data migration.
 
 ### The launcher (`runtime.launcher`)
 
