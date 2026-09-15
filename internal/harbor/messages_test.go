@@ -948,6 +948,71 @@ func TestHandleCommitStoreErrorIs403(t *testing.T) {
 	}
 }
 
+// TestCommitGetIsMethodNotAllowed asserts a GET to /messages/commit is
+// rejected with 405 (Allow: POST) rather than silently falling through to
+// handleGet, which would otherwise treat it as a bare inbox read.
+func TestCommitGetIsMethodNotAllowed(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/commit", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("Allow header = %q, want POST", got)
+	}
+}
+
+// TestCommitMalformedBodyIs400 asserts a non-empty but malformed JSON body
+// decodes to a 400 (distinct from the empty-body/missing-field 400 case).
+func TestCommitMalformedBodyIs400(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{not-json`))
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestCommitOversizeBodyIs413 asserts a commit body over maxMessageBodyBytes
+// is rejected as 413, matching handlePost's oversize handling.
+func TestCommitOversizeBodyIs413(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	huge := strings.Repeat("a", 32*1024)
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{"up_to":"`+huge+`"}`))
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+}
+
 // bytesDiscard is an io.Writer that discards everything, used where a *bytes.Buffer
 // isn't needed but slog.NewTextHandler still wants a writer.
 type bytesDiscard struct{}

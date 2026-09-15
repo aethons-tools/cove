@@ -110,8 +110,15 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// POST /messages/commit — advances the cove's durable commit cursor.
-	// Handled before ticket resolution: commit needs no ticket.
-	if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/commit") {
+	// Handled before ticket resolution: commit needs no ticket. A non-POST
+	// method on this path must never fall through to handleGet (a silent
+	// read) — reject it explicitly instead.
+	if strings.HasSuffix(r.URL.Path, "/commit") {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		h.handleCommit(w, r, actor)
 		return
 	}
@@ -303,7 +310,16 @@ func (h *MessagesHandler) handleCommit(w http.ResponseWriter, r *http.Request, a
 	var req struct {
 		UpTo string `json:"up_to"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UpTo == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "up_to required", http.StatusBadRequest)
+		return
+	}
+	if req.UpTo == "" {
 		http.Error(w, "up_to required", http.StatusBadRequest)
 		return
 	}

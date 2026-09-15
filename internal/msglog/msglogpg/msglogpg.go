@@ -176,7 +176,8 @@ func (s *Store) ReadInboxBefore(t msglog.Target, beforeID string, limit int) []m
 	}
 	sql += ` ORDER BY m.id DESC`
 	if limit > 0 {
-		sql += fmt.Sprintf(" LIMIT %d", limit)
+		sql += fmt.Sprintf(" LIMIT $%d", len(args)+1)
+		args = append(args, limit)
 	}
 	out := s.query(sql, args...)
 	// reverse to ascending.

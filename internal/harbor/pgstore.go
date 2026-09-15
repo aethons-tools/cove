@@ -474,7 +474,7 @@ func (s *PostgresStore) AdvanceCommitCursor(actorID, upTo string) (Instance, err
 	// for the returned value and also no-ops on a non-forward upTo.
 	if err := s.exec("AdvanceCommitCursor",
 		`UPDATE instances SET doc = jsonb_set(doc, '{commit_cursor}', to_jsonb($2::text)), version = version + 1, updated_at = now()
-		 WHERE actor_id = $1 AND coalesce(doc->>'commit_cursor','') < $2`,
+		 WHERE actor_id = $1 AND coalesce(doc->>'commit_cursor','') < $2 COLLATE "C"`,
 		actorID, upTo); err != nil {
 		return Instance{}, err
 	}
