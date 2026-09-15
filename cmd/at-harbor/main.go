@@ -1300,7 +1300,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
 					return 1
 				}
-				dsurf := &discordSurface{poster: switchboard.NewRESTClient(tokEnv["AT_DISCORD_BOT_TOKEN"], nil)}
+				discordTok := tokEnv["AT_DISCORD_BOT_TOKEN"]
+				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "msgport-receipts.json"))
+				if err != nil {
+					fmt.Fprintln(stderr, "at-harbor: msgport receipts:", err)
+					return 1
+				}
+				dsurf := &discordSurface{
+					dial: func(channels []string) discordClient {
+						return switchboard.NewRESTClient(discordTok, channels)
+					},
+					channelsFor: func(project string) []string { return discordInboxChannels(st, project) },
+					receipts:    receipts,
+				}
 				if !markers.has("discord") { // seed: don't re-deliver the backlog to Discord
 					if err := markers.SetEgress("discord", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
 						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
