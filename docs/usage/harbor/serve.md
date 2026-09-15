@@ -110,6 +110,11 @@ string — it is never written to disk, put on a command line, or logged (the
 startup log names only the host and database). `store-postgres` takes precedence
 over `store` when both are present.
 
+For a local Postgres to develop against (matching this schema and the CI
+integration setup), see [`dev/`](../../../dev/README.md) — a `docker compose`
+that raises a `postgres:17` on `localhost:15432` with database/user `harbor`,
+plus a sample dev serve config (`dev/harbor.dev.yml`) wired to it.
+
 **No data migration (Phase 1).** Switching an existing deployment from the file
 `store` to `store-postgres` starts with an **empty control plane** — there is
 no importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
