@@ -51,8 +51,9 @@ type messagesStore interface {
 	GetRoster(project string) (Roster, bool)
 }
 
-// appender is the narrow write side of the message Log used for the outbound
-// dual-write shadow. Satisfied by *msglog.Log; nil disables the shadow.
+// appender is the narrow write side of the message Log — the authoritative
+// send path for /messages POST. Satisfied by *msglog.Log; nil means messaging
+// is unconfigured and a send fails with 503.
 type appender interface {
 	Append(m msglog.Message) (msglog.Message, error)
 }
@@ -61,11 +62,11 @@ type appender interface {
 // with no `to`, are self-scoped by construction: the ticket identifier comes
 // solely from the caller's own Instance.Unit (server-derived, resolved after
 // authentication). A send may instead carry a `to` target; that path is
-// authorized by the comms access-graph (DecideSend) and, once authorized, may
-// deliver to a human — an @-mention posted on the cove's own ticket — or to a
-// channel — a comment on the channel's own thread (resolved from the roster's
-// Channel.Ref), i.e. a different ticket than the caller's own. Implements
-// http.Handler.
+// authorized by the comms access-graph (DecideSend). A send only appends the
+// logical message to the Log — it never talks to the tracker directly; a
+// separate egress engine renders and delivers it (an @-mention on the cove's
+// own ticket for a human target, a comment on the channel's own thread for a
+// channel target). Implements http.Handler.
 type MessagesHandler struct {
 	store messagesStore
 	cmt   Commenter
@@ -73,8 +74,8 @@ type MessagesHandler struct {
 	log   *slog.Logger
 }
 
-// NewMessagesHandler constructs a MessagesHandler. lg may be nil, which
-// disables the outbound shadow-write to the message Log.
+// NewMessagesHandler constructs a MessagesHandler. lg may be nil, which makes
+// every send fail with 503 (messaging unconfigured); reads are unaffected.
 func NewMessagesHandler(store messagesStore, cmt Commenter, lg appender, log *slog.Logger) *MessagesHandler {
 	return &MessagesHandler{store: store, cmt: cmt, lg: lg, log: log}
 }
@@ -113,23 +114,21 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-	issueID, err := h.cmt.IssueByIdentifier(ctx, inst.Unit)
-	if err != nil {
-		h.log.Error("messages: resolve ticket failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
-		http.Error(w, "ticket unavailable", http.StatusBadGateway)
-		return
-	}
-
 	switch r.Method {
 	case http.MethodPost:
-		h.handlePost(w, r, actor, inst, issueID)
+		h.handlePost(w, r, actor, inst)
 	case http.MethodGet:
+		issueID, err := h.cmt.IssueByIdentifier(r.Context(), inst.Unit)
+		if err != nil {
+			h.log.Error("messages: resolve ticket failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+			http.Error(w, "ticket unavailable", http.StatusBadGateway)
+			return
+		}
 		h.handleGet(w, r, actor, inst, issueID)
 	}
 }
 
-func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance, issueID string) {
+func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodyBytes)
 	var req struct {
 		Body string `json:"body"`
@@ -149,12 +148,10 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 		return
 	}
 
-	// deliverIssue defaults to the cove's own ticket; a channel target overrides
-	// it. body may be prefixed with an @-mention for a human target. logicalTo
-	// mirrors the same default/override shape for the shadow-write below, but
-	// stays in terms of the logical target (never the resolved ticket id).
-	deliverIssue, body := issueID, req.Body
-	logicalTo := msglog.Target{Kind: "channel", Ref: inst.Unit} // no `to` → own ticket-as-channel
+	// Resolve the logical target (authz via the comms access-graph). No `to` →
+	// the cove's own ticket, modeled as channel:<Unit>. A human/channel target
+	// is authorized here; rendering + ticket resolution happen at egress.
+	logicalTo := msglog.Target{Kind: "channel", Ref: inst.Unit}
 	if req.To != "" {
 		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())
 		switch {
@@ -169,42 +166,25 @@ func (h *MessagesHandler) handlePost(w http.ResponseWriter, r *http.Request, act
 			return
 		}
 		logicalTo = msglog.Target{Kind: st.Kind, Ref: st.Name}
-		switch st.Kind {
-		case "human":
-			body = "@" + st.Handle + " " + req.Body // reply lands on own ticket → existing wake-on
-		case "channel":
-			chID, err := h.cmt.IssueByIdentifier(r.Context(), st.Ref)
-			if err != nil {
-				h.log.Error("messages: resolve channel failed", "actor", actor.ID, "target", req.To, "error", err.Error())
-				http.Error(w, "channel unavailable", http.StatusBadGateway)
-				return
-			}
-			deliverIssue = chID
-		}
 	}
 
-	if err := h.cmt.PostComment(r.Context(), deliverIssue, body); err != nil {
-		h.log.Error("messages: post comment failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+	// The Log is the authoritative delivery path (egress delivers it to Linear).
+	// A send requires a configured Log; an append failure fails the send.
+	if h.lg == nil {
+		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := h.lg.Append(msglog.Message{
+		From:    msglog.Target{Kind: "actor", Ref: actor.ID},
+		To:      []msglog.Target{logicalTo},
+		Body:    req.Body, // raw — @handle rendering is the adapter's job at egress
+		Project: inst.Project,
+	}); err != nil {
+		h.log.Error("messages: append failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return
 	}
 	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "to", req.To, "bytes", len(req.Body))
-
-	// Best-effort shadow-write: the Log stores the logical, raw message (the
-	// live PostComment above is the source of truth for delivery). An append
-	// failure never fails the send — it is warn-logged (actor + error only,
-	// never the body) and swallowed.
-	if h.lg != nil {
-		if _, err := h.lg.Append(msglog.Message{
-			From:    msglog.Target{Kind: "actor", Ref: actor.ID},
-			To:      []msglog.Target{logicalTo},
-			Body:    req.Body, // raw — @handle rendering is the adapter's job at egress (Slice 3)
-			Project: inst.Project,
-		}); err != nil {
-			h.log.Warn("messages: shadow append failed", "actor", actor.ID, "error", err.Error())
-		}
-	}
-
 	w.WriteHeader(http.StatusNoContent)
 }
 
