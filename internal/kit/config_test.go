@@ -465,6 +465,9 @@ func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
 	if cfg.Tracker.Linear.ClassLabelPrefix != "class:" { // default
 		t.Fatalf("class-label-prefix default = %q; want class:", cfg.Tracker.Linear.ClassLabelPrefix)
 	}
+	if cfg.Tracker.Linear.DispatchLabelPrefix != "dispatch:" { // default
+		t.Fatalf("dispatch-label-prefix default = %q; want dispatch:", cfg.Tracker.Linear.DispatchLabelPrefix)
+	}
 	if cfg.Dispatch == nil || cfg.Dispatch.DispatchOverhead != "15m" { // default
 		t.Fatalf("dispatch-overhead default = %+v; want 15m", cfg.Dispatch)
 	}

@@ -248,11 +248,15 @@ func (t *Tracker) PollInterval() string {
 
 // LinearTracker wires the scheduler to one Linear team.
 type LinearTracker struct {
-	Team             string                  `yaml:"team"`
-	PollInterval     string                  `yaml:"poll-interval"`
-	ClassLabelPrefix string                  `yaml:"class-label-prefix"`
-	States           StateMap                `yaml:"states"`
-	Secrets          map[string]SecretConfig `yaml:"secrets"`
+	Team             string `yaml:"team"`
+	PollInterval     string `yaml:"poll-interval"`
+	ClassLabelPrefix string `yaml:"class-label-prefix"`
+	// DispatchLabelPrefix gates which ready issues harbor's resident dispatcher
+	// raises a cove for: only issues carrying a label with this prefix. Defaults
+	// to "dispatch:" (presence-only; the value after the prefix is unused).
+	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`
+	States              StateMap                `yaml:"states"`
+	Secrets             map[string]SecretConfig `yaml:"secrets"`
 }
 
 // GitHubTracker wires the scheduler to one GitHub repo's Issues. Unlike Linear,
@@ -667,6 +671,9 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 			if lt.ClassLabelPrefix == "" {
 				lt.ClassLabelPrefix = "class:"
+			}
+			if lt.DispatchLabelPrefix == "" {
+				lt.DispatchLabelPrefix = "dispatch:"
 			}
 			states := map[string]string{
 				"ready": lt.States.Ready, "in-progress": lt.States.InProgress,
