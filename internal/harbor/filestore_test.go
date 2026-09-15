@@ -493,6 +493,38 @@ func TestGetProjectCopiesEscalation(t *testing.T) {
 	}
 }
 
+func TestGetProjectCopiesDelivery(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.AddHuman("acme", Human{
+		Name:     "dave",
+		Handle:   "@dave",
+		Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-9"}},
+	})
+
+	p, _ := fs.GetProject("acme")
+	p.Roster.Humans[0].Delivery[0].Address = "MUTATED" // must not corrupt the store
+	p2, _ := fs.GetProject("acme")
+	if p2.Roster.Humans[0].Delivery[0].Address != "chan-9" {
+		t.Fatalf("GetProject leaked a live Delivery slice: %v", p2.Roster.Humans[0].Delivery)
+	}
+}
+
+func TestGetRosterCopiesDelivery(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.AddHuman("acme", Human{
+		Name:     "dave",
+		Handle:   "@dave",
+		Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-9"}},
+	})
+
+	rr, _ := fs.GetRoster("acme")
+	rr.Humans[0].Delivery[0].Address = "MUTATED" // must not corrupt the store
+	rr2, _ := fs.GetRoster("acme")
+	if rr2.Humans[0].Delivery[0].Address != "chan-9" {
+		t.Fatalf("GetRoster leaked a live Delivery slice: %v", rr2.Humans[0].Delivery)
+	}
+}
+
 func TestEscalationByCategoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)

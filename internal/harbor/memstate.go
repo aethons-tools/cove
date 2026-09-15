@@ -193,7 +193,7 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 		return Roster{}, false
 	}
 	return Roster{
-		Humans:   append([]Human(nil), p.Roster.Humans...),
+		Humans:   copyHumans(p.Roster.Humans),
 		Channels: append([]Channel(nil), p.Roster.Channels...),
 	}, true
 }
@@ -445,8 +445,18 @@ func copyKit(k Kit) Kit {
 	return Kit{Name: k.Name, Current: k.Current, Versions: vs}
 }
 
+// copyHumans returns a deep copy of hs: the slice plus each Human's Delivery
+// sub-slice, so a returned Human's Delivery can't alias the store's state.
+func copyHumans(hs []Human) []Human {
+	out := append([]Human(nil), hs...)
+	for i := range out {
+		out[i].Delivery = append([]DeliveryProfile(nil), out[i].Delivery...)
+	}
+	return out
+}
+
 func copyProject(p Project) Project {
-	p.Roster.Humans = append([]Human(nil), p.Roster.Humans...)
+	p.Roster.Humans = copyHumans(p.Roster.Humans)
 	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
 	p.Escalation = append([]EscalationTier(nil), p.Escalation...)
 	for i := range p.Escalation {
