@@ -28,7 +28,6 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
-	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/harbor"
@@ -905,11 +904,11 @@ func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liven
 func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
-// linearCommenter adapts *linear.Client to harbor.Commenter. It exists here,
-// rather than in internal/harbor, so harbor core never imports
-// internal/dispatch/linear or internal/dispatch/scheduler (see AGENTS.md
-// boundary rules): the concrete tracker type and its scheduler.Comment shape
-// are wiring-layer concerns.
+// linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
+// engine's ticket-comment capability). It exists here, rather than in
+// internal/harbor, so harbor core never imports internal/dispatch/linear or
+// internal/dispatch/scheduler (see AGENTS.md boundary rules): the concrete
+// tracker type is a wiring-layer concern.
 type linearCommenter struct{ c *linear.Client }
 
 func (l linearCommenter) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
@@ -918,21 +917,6 @@ func (l linearCommenter) IssueByIdentifier(ctx context.Context, identifier strin
 
 func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) error {
 	return l.c.PostComment(ctx, issueID, body)
-}
-
-func (l linearCommenter) Comments(ctx context.Context, issueID string) ([]harbor.Comment, error) {
-	var cs []scheduler.Comment
-	cs, err := l.c.Comments(ctx, issueID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]harbor.Comment, 0, len(cs))
-	for _, c := range cs {
-		// scheduler.Comment carries only Author/Body; ID/At are left zero
-		// (harbor.Comment documents them as best-effort).
-		out = append(out, harbor.Comment{Author: c.Author, Body: c.Body})
-	}
-	return out, nil
 }
 
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
