@@ -103,6 +103,7 @@ func (s *linearSurface) Close() error { return nil }
 type instanceRoster interface {
 	ListInstances() []harbor.Instance
 	GetRoster(project string) (harbor.Roster, bool)
+	GetProject(name string) (harbor.Project, bool)
 }
 
 // directory is the concrete msgport.Directory mapping the Linear feed into
@@ -151,56 +152,101 @@ func (d *directory) Route(service, project string, e msgport.Event) (from msglog
 	return from, to, replyTo, true
 }
 
-// Resolve maps an External Log target (+ sender) to a concrete Linear
-// Delivery, reproducing the pre-cutover handlePost rendering exactly. Pure:
-// roster/instance lookups only, no network (Deliver does the API calls).
+// Resolve maps an External Log target (+ sender) to a concrete Delivery on
+// whichever service owns it. Pure: roster/instance/project lookups only, no
+// network (each surface's Deliver does the actual API calls).
 func (d *directory) Resolve(service, project string, to, from msglog.Target) (msgport.Delivery, bool) {
+	switch to.Kind {
+	case "human":
+		return d.resolveHuman(service, project, to, from)
+	case "channel":
+		return d.resolveChannel(service, project, to, from)
+	default: // actor → internal, in-band, never egressed
+		return msgport.Delivery{}, false
+	}
+}
+
+// instanceOf finds the live Instance whose ActorID matches from.Ref (when
+// from is an actor target).
+func (d *directory) instanceOf(from msglog.Target) (harbor.Instance, bool) {
+	if from.Kind != "actor" {
+		return harbor.Instance{}, false
+	}
+	for _, inst := range d.store.ListInstances() {
+		if inst.ActorID == from.Ref {
+			return inst, true
+		}
+	}
+	return harbor.Instance{}, false
+}
+
+// findHuman looks up a roster Human by its roster-local Name.
+func findHuman(r harbor.Roster, name string) (harbor.Human, bool) {
+	for _, h := range r.Humans {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return harbor.Human{}, false
+}
+
+// resolveHuman picks the service the project uses for human DMs, falling
+// back to a Linear @-mention on the sender's own ticket (the pre-cutover
+// behavior, preserved byte-for-byte).
+func (d *directory) resolveHuman(service, project string, to, from msglog.Target) (msgport.Delivery, bool) {
+	self, haveSelf := d.instanceOf(from)
+	r, _ := d.store.GetRoster(project)
+	h, hok := findHuman(r, to.Ref)
+	proj, _ := d.store.GetProject(project)
+	// Discord DM: project uses discord AND the human has a discord profile.
+	if proj.ChatService == "discord" && hok {
+		if p, ok := h.DeliveryFor("discord"); ok {
+			if service != "discord" {
+				return msgport.Delivery{}, false // the linear engine doesn't own this target
+			}
+			return msgport.Delivery{Service: "discord", Address: p.Address, BodyPrefix: from.Ref + ": "}, true
+		}
+		// discord project but no profile → fall through to Linear @mention.
+	}
+	// Linear @mention on the SENDER's own ticket (today's behavior).
 	if service != "linear" {
 		return msgport.Delivery{}, false
 	}
-	var self harbor.Instance
-	var haveSelf bool
-	if from.Kind == "actor" {
-		for _, inst := range d.store.ListInstances() {
-			if inst.ActorID == from.Ref {
-				self, haveSelf = inst, true
-				break
-			}
-		}
-	}
-	switch to.Kind {
-	case "human":
-		if !haveSelf {
-			return msgport.Delivery{}, false
-		}
-		r, ok := d.store.GetRoster(project)
-		if !ok {
-			return msgport.Delivery{}, false
-		}
-		for _, h := range r.Humans {
-			if h.Name == to.Ref {
-				return msgport.Delivery{Service: "linear", Address: self.Unit, BodyPrefix: "@" + h.Handle + " "}, true
-			}
-		}
-		return msgport.Delivery{}, false
-	case "channel":
-		// A roster channel is addressed by NAME → deliver to its configured
-		// thread (Channel.Ref).
-		if r, ok := d.store.GetRoster(project); ok {
-			for _, ch := range r.Channels {
-				if ch.Name == to.Ref {
-					return msgport.Delivery{Service: "linear", Address: ch.Ref}, true
-				}
-			}
-		}
-		// Otherwise to.Ref is a ticket identifier itself — the cove's own ticket,
-		// recorded as channel:<Unit> at send time (self-scoped there). Deliver
-		// directly, with NO dependency on a live Instance: an own-ticket report
-		// must still be delivered after the cove has been torn down.
-		return msgport.Delivery{Service: "linear", Address: to.Ref}, true
-	default:
+	if !haveSelf || !hok {
 		return msgport.Delivery{}, false
 	}
+	return msgport.Delivery{Service: "linear", Address: self.Unit, BodyPrefix: "@" + h.Handle + " "}, true
+}
+
+// resolveChannel routes by the roster channel's own Service (the COV-179
+// fix: a channel resolves only for the engine that owns it); a target that
+// isn't a roster channel name is the cove's own ticket, delivered via
+// Linear with NO dependency on a live Instance — an own-ticket report must
+// still be delivered after the cove has been torn down.
+func (d *directory) resolveChannel(service, project string, to, from msglog.Target) (msgport.Delivery, bool) {
+	if r, ok := d.store.GetRoster(project); ok {
+		for _, ch := range r.Channels {
+			if ch.Name != to.Ref {
+				continue
+			}
+			chSvc := ch.Service
+			if chSvc == "" {
+				chSvc = "linear" // back-compat: existing channels had no Service
+			}
+			if service != chSvc {
+				return msgport.Delivery{}, false // another engine owns it
+			}
+			if chSvc == "discord" {
+				return msgport.Delivery{Service: "discord", Address: ch.Ref, BodyPrefix: from.Ref + ": "}, true
+			}
+			return msgport.Delivery{Service: "linear", Address: ch.Ref}, true // raw, no prefix (parity)
+		}
+	}
+	// Not a roster channel → the cove's own ticket (channel:<Unit>) → Linear.
+	if service != "linear" {
+		return msgport.Delivery{}, false
+	}
+	return msgport.Delivery{Service: "linear", Address: to.Ref}, true
 }
 
 // fileCursors is a small file-backed msgport.Cursors: a JSON

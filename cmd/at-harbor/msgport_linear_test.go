@@ -116,11 +116,12 @@ func TestDirectoryRoute(t *testing.T) {
 	}
 }
 
-// fakeStore is a minimal instanceRoster: canned instances + rosters, so
-// Resolve/Deliver tests don't need a real *harbor.FileStore.
+// fakeStore is a minimal instanceRoster: canned instances, rosters and
+// projects, so Resolve/Deliver tests don't need a real *harbor.FileStore.
 type fakeStore struct {
-	insts  []harbor.Instance
-	roster map[string]harbor.Roster
+	insts    []harbor.Instance
+	roster   map[string]harbor.Roster
+	projects map[string]harbor.Project
 }
 
 func (f *fakeStore) ListInstances() []harbor.Instance { return f.insts }
@@ -129,12 +130,28 @@ func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
 	return r, ok
 }
 
+// GetProject returns the fake project record, if any was seeded. Tests that
+// never populate projects get ok=false, which (for Resolve's purposes)
+// behaves like a zero Project — ChatService=="" — preserving the Linear-only
+// path.
+func (f *fakeStore) GetProject(name string) (harbor.Project, bool) {
+	p, ok := f.projects[name]
+	return p, ok
+}
+
 // newRosterStore builds a fakeStore with a single Instance and the project's
-// Roster preloaded.
+// Roster preloaded (no ChatService set — Linear-only routing).
 func newRosterStore(t *testing.T, project string, inst harbor.Instance, roster harbor.Roster) *fakeStore {
 	t.Helper()
-	return &fakeStore{insts: []harbor.Instance{inst}, roster: map[string]harbor.Roster{project: roster}}
+	return &fakeStore{
+		insts:    []harbor.Instance{inst},
+		roster:   map[string]harbor.Roster{project: roster},
+		projects: map[string]harbor.Project{project: {Name: project, Roster: roster}},
+	}
 }
+
+// tgt is a tiny msglog.Target builder for readable Resolve test cases.
+func tgt(kind, ref string) msglog.Target { return msglog.Target{Kind: kind, Ref: ref} }
 
 // fakePoster is a fake commentPoster: canned identifier→id resolution and
 // recorded posts, so Deliver is testable without a live Linear client.
@@ -208,6 +225,79 @@ func TestEgressGoldenParity(t *testing.T) {
 		if poster.posts[i] != w {
 			t.Fatalf("post %d = %+v, want %+v", i, poster.posts[i], w)
 		}
+	}
+}
+
+// TestResolveDiscordRouting exercises the service-aware Resolve: a project
+// on Discord for human DMs, a human with no discord profile (Linear
+// fallback), a roster channel owned by discord, and a roster channel still
+// owned by linear (COV-179: the discord engine must not claim it).
+func TestResolveDiscordRouting(t *testing.T) {
+	roster := harbor.Roster{
+		Humans: []harbor.Human{
+			{Name: "alice", Handle: "alice.h", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
+			{Name: "bob", Handle: "bob.h"}, // no discord profile
+		},
+		Channels: []harbor.Channel{
+			{Name: "eng", Service: "discord", Ref: "disc-eng"},
+			{Name: "tick", Service: "linear", Ref: "ACME-9"},
+		},
+	}
+	st := &fakeStore{
+		insts:    []harbor.Instance{{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
+		roster:   map[string]harbor.Roster{"acme": roster},
+		projects: map[string]harbor.Project{"acme": {Name: "acme", Roster: roster, ChatService: "discord"}},
+	}
+	from := msglog.Target{Kind: "actor", Ref: "cove-1"}
+	dir := &directory{store: st, project: "acme"}
+
+	// discord human via discord engine
+	if d, ok := dir.Resolve("discord", "acme", tgt("human", "alice"), from); !ok || d.Service != "discord" || d.Address != "inbox-A" || d.BodyPrefix != "cove-1: " {
+		t.Fatalf("discord human: %+v %v", d, ok)
+	}
+	// linear engine does NOT own the discord human
+	if _, ok := dir.Resolve("linear", "acme", tgt("human", "alice"), from); ok {
+		t.Fatal("linear must not own a discord-routed human")
+	}
+	// fallback: bob has no discord profile → Linear @mention (linear engine)
+	if d, ok := dir.Resolve("linear", "acme", tgt("human", "bob"), from); !ok || d.Service != "linear" || d.Address != "ACME-7" || d.BodyPrefix != "@bob.h " {
+		t.Fatalf("fallback human: %+v %v", d, ok)
+	}
+	if _, ok := dir.Resolve("discord", "acme", tgt("human", "bob"), from); ok {
+		t.Fatal("discord must not own a profileless human (linear fallback owns it)")
+	}
+	// discord channel
+	if d, ok := dir.Resolve("discord", "acme", tgt("channel", "eng"), from); !ok || d.Address != "disc-eng" || d.BodyPrefix != "cove-1: " {
+		t.Fatalf("discord channel: %+v %v", d, ok)
+	}
+	// linear channel — discord engine must NOT own it (COV-179)
+	if _, ok := dir.Resolve("discord", "acme", tgt("channel", "tick"), from); ok {
+		t.Fatal("discord must not own a linear channel")
+	}
+	if d, ok := dir.Resolve("linear", "acme", tgt("channel", "tick"), from); !ok || d.Address != "ACME-9" || d.BodyPrefix != "" {
+		t.Fatalf("linear channel: %+v %v", d, ok)
+	}
+	// own-ticket (not a roster channel) → linear raw
+	if d, ok := dir.Resolve("linear", "acme", tgt("channel", "ACME-7"), from); !ok || d.Address != "ACME-7" || d.BodyPrefix != "" {
+		t.Fatalf("own ticket: %+v %v", d, ok)
+	}
+}
+
+// TestResolveNonDiscordProjectFallsBackToLinear proves a project that never
+// opted into Discord (ChatService=="") always resolves humans via Linear,
+// and the discord engine never owns any of its targets.
+func TestResolveNonDiscordProjectFallsBackToLinear(t *testing.T) {
+	st := newRosterStore(t, "acme",
+		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}})
+	dir := &directory{store: st, project: "acme"}
+	from := msglog.Target{Kind: "actor", Ref: "cove-1"}
+
+	if d, ok := dir.Resolve("linear", "acme", tgt("human", "alice"), from); !ok || d.Service != "linear" || d.Address != "ACME-7" || d.BodyPrefix != "@alice.h " {
+		t.Fatalf("non-discord project human: %+v %v", d, ok)
+	}
+	if _, ok := dir.Resolve("discord", "acme", tgt("human", "alice"), from); ok {
+		t.Fatal("discord must not own a human on a non-discord project")
 	}
 }
 
