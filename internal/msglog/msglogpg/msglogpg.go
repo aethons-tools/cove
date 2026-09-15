@@ -164,6 +164,28 @@ func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msg
 	return s.query(sql, args...)
 }
 
+func (s *Store) ReadInboxBefore(t msglog.Target, beforeID string, limit int) []msglog.Message {
+	// nearest-below beforeID: order DESC + LIMIT, then reverse to ascending.
+	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
+	        WHERE r.kind = $1 AND r.ref = $2`
+	args := []any{t.Kind, t.Ref}
+	if beforeID != "" {
+		sql += ` AND m.id < $3`
+		args = append(args, beforeID)
+	}
+	sql += ` ORDER BY m.id DESC`
+	if limit > 0 {
+		sql += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	out := s.query(sql, args...)
+	// reverse to ascending.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 func (s *Store) TailID() (string, bool) {
 	var id string
 	err := s.pool.QueryRow(context.Background(),

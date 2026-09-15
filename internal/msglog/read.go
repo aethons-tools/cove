@@ -89,6 +89,29 @@ func (l *Log) ReadInboxSince(t Target, afterID string, limit int) []Message {
 	return out
 }
 
+// ReadInboxBefore returns messages addressed to t with id < beforeID, the
+// `limit` nearest below beforeID, in append (ascending) order (limit <= 0 =
+// unbounded). beforeID == "" means "from the end" (the last `limit`).
+func (l *Log) ReadInboxBefore(t Target, beforeID string, limit int) []Message {
+	var out []Message
+	for _, m := range l.snapshot() {
+		if beforeID != "" && m.ID >= beforeID {
+			continue
+		}
+		for _, r := range m.To {
+			if r == t {
+				out = append(out, m)
+				break
+			}
+		}
+	}
+	// keep the last `limit` (nearest below beforeID), preserving ascending order.
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
 // TailID returns the last message's id, or ("", false) if the log is empty.
 func (l *Log) TailID() (string, bool) {
 	ms := l.snapshot()

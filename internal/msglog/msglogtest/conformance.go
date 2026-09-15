@@ -211,4 +211,36 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 			t.Fatalf("ReadInboxSince(y) multi To = %+v, want %+v", gotY[1].To, wantTo)
 		}
 	})
+
+	t.Run("read_inbox_before", func(t *testing.T) {
+		s := newStore(t)
+		m1, _ := s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x")}, Body: "b1"})
+		_, _ = s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x")}, Body: "b2"})
+		m3, _ := s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x")}, Body: "b3"})
+		// from the end: last 2, ascending.
+		end := s.ReadInboxBefore(actor("x"), "", 2)
+		if len(end) != 2 || end[0].Body != "b2" || end[1].Body != "b3" {
+			t.Fatalf("ReadInboxBefore(x,\"\",2) = %+v, want [b2,b3]", end)
+		}
+		// before m3 (exclusive): the nearest-below, ascending.
+		before := s.ReadInboxBefore(actor("x"), m3.ID, 10)
+		if len(before) != 2 || before[0].Body != "b1" || before[1].Body != "b2" {
+			t.Fatalf("ReadInboxBefore(x,m3,10) = %+v, want [b1,b2]", before)
+		}
+		// before m1: nothing (exclusive anchor).
+		if none := s.ReadInboxBefore(actor("x"), m1.ID, 10); len(none) != 0 {
+			t.Fatalf("ReadInboxBefore(x,m1) = %+v, want empty", none)
+		}
+	})
+
+	t.Run("read_inbox_before_multi_recipient", func(t *testing.T) {
+		s := newStore(t)
+		_, _ = s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x"), actor("y")}, Body: "shared"})
+		if got := s.ReadInboxBefore(actor("x"), "", 10); len(got) != 1 || len(got[0].To) != 2 {
+			t.Fatalf("multi-recipient before(x) = %+v", got)
+		}
+		if got := s.ReadInboxBefore(actor("y"), "", 10); len(got) != 1 {
+			t.Fatalf("multi-recipient before(y) = %+v", got)
+		}
+	})
 }

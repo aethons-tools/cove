@@ -22,6 +22,12 @@ type Store interface {
 	// ReadInboxSince returns messages addressed to t with id > afterID, in append
 	// order, capped at limit (<= 0 = unbounded). afterID == "" = the whole inbox.
 	ReadInboxSince(t Target, afterID string, limit int) []Message
+	// ReadInboxBefore returns messages addressed to t with id < beforeID, the
+	// `limit` nearest below beforeID, in append (ascending) order (limit <= 0 =
+	// unbounded). beforeID == "" means "from the end" (the last `limit`). Pairs
+	// with ReadInboxSince for backward paging: next-backward from a page is
+	// ReadInboxBefore(t, page.first, limit).
+	ReadInboxBefore(t Target, beforeID string, limit int) []Message
 	// TailID returns the highest-id (last-appended) message's id, or ("", false)
 	// when the log is empty.
 	TailID() (string, bool)
