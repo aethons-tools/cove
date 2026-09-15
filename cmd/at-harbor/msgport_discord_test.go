@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/msglog"
@@ -52,5 +53,39 @@ func TestDiscordPollIsInert(t *testing.T) {
 	ev, next, err := s.Poll(context.Background(), "acme", "cursor-7")
 	if err != nil || len(ev) != 0 || next != "cursor-7" {
 		t.Fatalf("Poll = %v,%q,%v; want nil,cursor-7,nil", ev, next, err)
+	}
+}
+
+func TestFileReceiptsRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "r.json")
+	r, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Lookup("D1"); ok {
+		t.Fatal("empty lookup should miss")
+	}
+	if err := r.Record("D1", "cove-1"); err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r.Lookup("D1"); !ok || a != "cove-1" {
+		t.Fatalf("lookup = %q,%v", a, ok)
+	}
+	r2, err := newFileReceipts(p) // reload
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r2.Lookup("D1"); !ok || a != "cove-1" {
+		t.Fatalf("reload = %q,%v", a, ok)
+	}
+}
+
+func TestFileReceiptsMissingFile(t *testing.T) {
+	r, err := newFileReceipts(filepath.Join(t.TempDir(), "nope.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Lookup("x"); ok {
+		t.Fatal("missing file → empty")
 	}
 }
