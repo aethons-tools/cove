@@ -537,6 +537,12 @@ func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []Es
 	return s.putProject(setEscalation(copyProject(s.rawProject(project)), category, tiers))
 }
 
+func (s *PostgresStore) SetChatService(project, service string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.putProject(setChatService(copyProject(s.rawProject(project)), service))
+}
+
 // putProject upserts a project's row and, on success, updates the cache.
 func (s *PostgresStore) putProject(p Project) error {
 	doc, err := json.Marshal(p)

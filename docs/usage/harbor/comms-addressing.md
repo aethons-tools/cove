@@ -4,7 +4,7 @@ read_when: You want a cove's agent to send to someone other than its own ticket 
 owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /messages/targets + list_targets, and the project/role --addressing operator commands
 prereqs: messaging.md for the /messages endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # Comms addressing (target space & access-graph)
@@ -54,6 +54,48 @@ at-harbor project roster rm-channel  <project> <name>
 `--service` defaults to `linear`. All subcommands take the same admin-client flags
 (`--app`/`--admin-url`/`--token`) as every other `at-harbor` verb — see
 [operators.md](operators.md).
+
+## Delivery profiles & per-project chat service
+
+This is the **data foundation** for a second messaging service beyond the
+tracker — Discord egress/ingress arrive in later slices. Today, setting these
+fields changes nothing about delivery: `send(to=…)` still only ever posts an
+`@`-mention or a tracker comment, as described above.
+
+A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
+non-tracker service the human can be reached on. For `Service: "discord"`,
+`Address` is the id of the **inbox channel** harbor posts that human's DMs into
+(never a bot token or other secret — see [operators.md](operators.md) for where
+credentials actually live). Look up a human's profile for a service with
+`Human.DeliveryFor(service)`.
+
+A **Project** additionally carries `ChatService string` — the service backing
+that project's human DMs (e.g. `"discord"`); empty means tracker `@`-mentions
+only, same as before this field existed.
+
+Set a human's delivery profiles with `--delivery service:address` on
+`add-human` (repeatable — one flag per service):
+
+```
+at-harbor project roster add-human <project> --name alice --handle alice.h \
+  --delivery discord:123456789
+```
+
+Each `--delivery` value splits on the first `:`; both the service and the
+address must be non-empty, or the command exits `2` (e.g. `discord:`, `:123`,
+or a value with no `:` are all rejected).
+
+Manage a project's chat service with `at-harbor project chat-service`:
+
+```
+at-harbor project chat-service set   --project <project> --service discord
+at-harbor project chat-service show  --project <project>
+at-harbor project chat-service clear --project <project>
+```
+
+`set` requires `--project` and `--service`; `clear` is `set` with `""` under
+the hood; `show` prints the configured service or `(none)`. All three take the
+same admin-client flags as every other `at-harbor` verb.
 
 ## The comms access-graph
 
