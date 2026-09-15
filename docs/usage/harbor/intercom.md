@@ -30,7 +30,7 @@ The agent blends these with its work inside a turn — e.g. leave a status, read
 
 ## Delivery to the agent
 
-The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/claude-code/mcp.json` (baked into the image), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to harbor `/squawks` (and `/squawks/targets`) over TLS through the cove's squid proxy, using the identity token + harbor address already in the cove's environment. No new binary, no new secret in the cove.
+The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/claude-code/mcp.json` (baked into the image), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to harbor `/squawks` (and `/squawks/targets`) over TLS through the cove's squid proxy, using the identity token + harbor address from its environment. Claude Code does **not** pass its own environment to a stdio MCP child, so the `mcp.json` carries an `env` block that forwards `AT_HARBOR_RUNTIME_ADDR` / `AT_HARBOR_IDENTITY_TOKEN` (and the `*_proxy` vars, so the server's calls still traverse squid) via `${VAR}` interpolation — the values expand from claude's env at spawn and are never written into the baked file. Without this the server exits before registering any tools (COV-188). No new binary, no new secret in the cove.
 
 ## Enabling it
 

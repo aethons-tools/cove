@@ -206,6 +206,54 @@ func TestInnerDockerDaemonJSON(t *testing.T) {
 	}
 }
 
+// TestIntercomMCPForwardsEnv guards that the baked MCP config forwards the
+// environment the `cove-master mcp` (intercom) stdio server needs (COV-188).
+// Claude Code does NOT pass the parent process env to a stdio MCP server, so
+// without an explicit `env` block the server starts with no
+// AT_HARBOR_RUNTIME_ADDR / AT_HARBOR_IDENTITY_TOKEN and exits before
+// registering a single tool. The proxy vars must be forwarded too, or the
+// server's calls to harbor bypass squid and are dropped by the sealed egress.
+// Each var is forwarded via ${VAR} interpolation so the value is expanded from
+// claude's env at spawn and never written into the (image-baked) file — the
+// identity token must not land on disk.
+func TestIntercomMCPForwardsEnv(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/claude-code/mcp.json")
+	if err != nil {
+		t.Fatalf("mcp.json not embedded: %v", err)
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string            `json:"command"`
+			Env     map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatalf("mcp.json must be valid JSON: %v", err)
+	}
+	// The client-side server key stays "messaging" (the server's own
+	// Implementation.Name is "intercom"); its tools register as mcp__messaging__*.
+	srv, ok := cfg.MCPServers["messaging"]
+	if !ok {
+		t.Fatalf("mcp.json must define the messaging server; got:\n%s", b)
+	}
+	if srv.Command != "cove-master" {
+		t.Errorf("messaging server command = %q; want cove-master", srv.Command)
+	}
+	for _, key := range []string{
+		"AT_HARBOR_RUNTIME_ADDR", "AT_HARBOR_IDENTITY_TOKEN",
+		"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY",
+	} {
+		got, ok := srv.Env[key]
+		if !ok {
+			t.Errorf("mcp.json env must forward %s (claude does not inherit parent env into stdio MCP servers); got env: %v", key, srv.Env)
+			continue
+		}
+		if want := "${" + key + "}"; got != want {
+			t.Errorf("mcp.json env[%s] = %q; want %q (interpolated — keeps the value out of the baked file)", key, got, want)
+		}
+	}
+}
+
 // TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
 // force a login method: auth is env-driven, so interactive `connect` selects
 // subscription OAuth explicitly (`claude auth login --claudeai`) while a
