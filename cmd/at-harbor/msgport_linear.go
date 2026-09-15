@@ -331,16 +331,39 @@ func newFileMarkers(path string) (*fileMarkers, error) {
 	return fm, nil
 }
 
+// copyEgressMark deep-copies an EgressMark's nested Pending maps so a caller can
+// mutate the returned mark without touching fileMarkers' stored state, and so a
+// stored mark can't be mutated by the caller after SetEgress. This is load-
+// bearing: harbor runs two msgport engines (linear + discord) sharing one
+// *fileMarkers, and one engine's SetEgress marshals the whole map while the
+// other engine mutates its own Pending — without this copy that's a concurrent
+// map iteration/write (fatal).
+func copyEgressMark(mk msgport.EgressMark) msgport.EgressMark {
+	if mk.Pending == nil {
+		return mk
+	}
+	p := make(map[string]map[string]bool, len(mk.Pending))
+	for id, targets := range mk.Pending {
+		tc := make(map[string]bool, len(targets))
+		for k, v := range targets {
+			tc[k] = v
+		}
+		p[id] = tc
+	}
+	mk.Pending = p
+	return mk
+}
+
 func (fm *fileMarkers) Egress(service string) msgport.EgressMark {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	return fm.m[service]
+	return copyEgressMark(fm.m[service])
 }
 
 func (fm *fileMarkers) SetEgress(service string, mk msgport.EgressMark) error {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	fm.m[service] = mk
+	fm.m[service] = copyEgressMark(mk)
 	data, err := json.MarshalIndent(fm.m, "", "  ")
 	if err != nil {
 		return err

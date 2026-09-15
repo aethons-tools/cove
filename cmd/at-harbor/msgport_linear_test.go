@@ -436,3 +436,54 @@ func TestFileMarkersMissingFileStartsEmpty(t *testing.T) {
 		t.Fatal("missing file must start empty")
 	}
 }
+
+// TestFileMarkersEgressIsDeepCopied guards against the COV-182 data race:
+// harbor runs two msgport engines (linear + discord) sharing one
+// *fileMarkers. If Egress/SetEgress ever hand out or store an EgressMark
+// whose Pending map aliases fileMarkers' stored map, one engine's goroutine
+// can mutate that map without fm.mu held while the other engine's SetEgress
+// concurrently iterates it in json.MarshalIndent — a fatal concurrent map
+// iteration/write. Both directions (read-then-mutate, and mutate-after-set)
+// must be insulated by a deep copy.
+func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "markers.json")
+	m, err := newFileMarkers(p)
+	if err != nil {
+		t.Fatalf("newFileMarkers: %v", err)
+	}
+
+	if err := m.SetEgress("linear", msgport.EgressMark{
+		LastMsg: "a",
+		Pending: map[string]map[string]bool{"m1": {"t1": true}},
+	}); err != nil {
+		t.Fatalf("SetEgress: %v", err)
+	}
+
+	// Read path: mutating the returned mark must not reach the store.
+	got := m.Egress("linear")
+	got.Pending["m1"]["t1"] = false
+	got.Pending["m2"] = map[string]bool{"t2": true}
+
+	got2 := m.Egress("linear")
+	if !got2.Pending["m1"]["t1"] {
+		t.Fatalf("store mutated via Egress-returned map: got2 = %+v", got2)
+	}
+	if _, ok := got2.Pending["m2"]; ok {
+		t.Fatalf("store gained key added via Egress-returned map: got2 = %+v", got2)
+	}
+
+	// Write path: mutating the mark AFTER SetEgress must not reach the store.
+	orig := msgport.EgressMark{
+		LastMsg: "b",
+		Pending: map[string]map[string]bool{"m1": {"t1": true}},
+	}
+	if err := m.SetEgress("x", orig); err != nil {
+		t.Fatalf("SetEgress: %v", err)
+	}
+	orig.Pending["m1"]["t1"] = false
+
+	got3 := m.Egress("x")
+	if !got3.Pending["m1"]["t1"] {
+		t.Fatalf("store mutated via caller's map after SetEgress: got3 = %+v", got3)
+	}
+}
