@@ -26,17 +26,17 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 	return srv.ServeTLS(lis, "", "")
 }
 
-// messagesMux routes exactly "/messages", "/messages/targets", and
-// "/messages/commit" to msgH and "/escalate" to escH; every other path goes
-// to broker unchanged. Used to mount harbor's brokered ticket-messaging
+// squawksMux routes exactly "/squawks", "/squawks/targets", and
+// "/squawks/commit" to squawksH and "/escalate" to escH; every other path goes
+// to broker unchanged. Used to mount harbor's brokered ticket-squawk
 // endpoint (its target-discovery and commit-cursor subpaths included) and its
 // brokered escalation-category endpoint on the same cove-facing handler as
 // the broker, without disturbing the broker's own routing.
-func messagesMux(msgH, escH, broker http.Handler) http.Handler {
+func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/messages", "/messages/targets", "/messages/commit":
-			msgH.ServeHTTP(w, r)
+		case "/squawks", "/squawks/targets", "/squawks/commit":
+			squawksH.ServeHTTP(w, r)
 		case "/escalate":
 			escH.ServeHTTP(w, r)
 		default:

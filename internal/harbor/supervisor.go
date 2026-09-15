@@ -97,7 +97,7 @@ func NewHolderID() string {
 // supervisor↔Attach-server cycle). nil-safe throughout.
 func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
 
-// SetTailReader wires the message-log tail source used to baseline WaitSeq on
+// SetTailReader wires the squawk log tail source used to baseline WaitSeq on
 // entering Waiting (and CommitSeq at Raise). Called once at wiring time before
 // serving begins; nil (no message log) leaves both 0.
 func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
@@ -211,7 +211,7 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	return nil
 }
 
-// SetWaitSeq persists a wake-on baseline (message-log append Seq) on the
+// SetWaitSeq persists a wake-on baseline (squawk log append Seq) on the
 // instance (used by the wake-on engine to detect a new ticket comment). No-op
 // semantics if the actor is gone.
 func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {

@@ -1,9 +1,9 @@
 // The mcp subcommand ("cove-master mcp") runs a stdio Model Context Protocol
 // server that gives the cove's claude agent tools — "read" and "send" brokered
-// through harbor's /messages endpoint on the cove's own ticket (or, via an
+// through harbor's /squawks endpoint on the cove's own ticket (or, via an
 // optional "to" target, another authorized human/channel), "commit" brokered
-// through harbor's POST /messages/commit endpoint to advance the durable read
-// cursor, and "list_targets" brokered through harbor's GET /messages/targets
+// through harbor's POST /squawks/commit endpoint to advance the durable read
+// cursor, and "list_targets" brokered through harbor's GET /squawks/targets
 // endpoint.
 //
 // Security notes (see AGENTS.md / the harbor messaging MCP plan):
@@ -37,8 +37,8 @@ import (
 // into memory, whether success or failure.
 const maxHarborResponseBytes = 1 << 20 // 1 MiB
 
-// messageOut mirrors one entry of harbor's GET /messages response.
-type messageOut struct {
+// squawkOut mirrors one entry of harbor's GET /squawks response.
+type squawkOut struct {
 	ID     string `json:"id,omitempty"`
 	Author string `json:"author,omitempty"`
 	Body   string `json:"body,omitempty"`
@@ -61,10 +61,10 @@ type readIn struct {
 
 // readOut is the "read" tool's typed output: the cove's inbox.
 type readOut struct {
-	Messages        []messageOut `json:"messages"`
-	CommittedCursor string       `json:"committed_cursor,omitempty"`
-	PageFirst       string       `json:"page_first,omitempty"`
-	PageLast        string       `json:"page_last,omitempty"`
+	Squawks         []squawkOut `json:"squawks"`
+	CommittedCursor string      `json:"committed_cursor,omitempty"`
+	PageFirst       string      `json:"page_first,omitempty"`
+	PageLast        string      `json:"page_last,omitempty"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
@@ -85,7 +85,7 @@ type escalateIn struct {
 	Category string `json:"category" jsonschema:"the block category to route escalation by, e.g. infra / ticket-blocked / code-architecture (free-form; unknown falls back to the default tier chain)"`
 }
 
-// targetItem mirrors one entry of harbor's GET /messages/targets response.
+// targetItem mirrors one entry of harbor's GET /squawks/targets response.
 type targetItem struct {
 	Target string `json:"target"`
 	Kind   string `json:"kind"`
@@ -97,14 +97,14 @@ type targetsOut struct {
 	Targets []targetItem `json:"targets"`
 }
 
-// messagingClient forwards read/send calls to harbor's /messages endpoint.
+// messagingClient forwards read/send calls to harbor's /squawks endpoint.
 type messagingClient struct {
 	http    *http.Client
 	baseURL string // e.g. "https://harbor.example.com", no trailing slash
 	token   string
 }
 
-// harborBaseURL derives the https base URL harbor's /messages endpoint is
+// harborBaseURL derives the https base URL harbor's /squawks endpoint is
 // served from, given AT_HARBOR_RUNTIME_ADDR.
 //
 // In production that variable is "host:443" (per cove-master's Attach dial
@@ -195,7 +195,7 @@ func (c *messagingClient) send(ctx context.Context, text, to string) error {
 	if err != nil {
 		return fmt.Errorf("encoding send payload: %w", err)
 	}
-	_, err = c.do(ctx, http.MethodPost, "/messages", payload)
+	_, err = c.do(ctx, http.MethodPost, "/squawks", payload)
 	return err
 }
 
@@ -215,7 +215,7 @@ func (c *messagingClient) read(ctx context.Context, in readIn) (readOut, error) 
 	if in.Limit > 0 {
 		q.Set("limit", strconv.Itoa(in.Limit))
 	}
-	path := "/messages"
+	path := "/squawks"
 	if enc := q.Encode(); enc != "" {
 		path += "?" + enc
 	}
@@ -239,7 +239,7 @@ func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, e
 	if err != nil {
 		return commitOut{}, err
 	}
-	body, err := c.do(ctx, http.MethodPost, "/messages/commit", payload)
+	body, err := c.do(ctx, http.MethodPost, "/squawks/commit", payload)
 	if err != nil {
 		return commitOut{}, err
 	}
@@ -252,7 +252,7 @@ func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, e
 
 // listTargets fetches the actor's addressable send targets via harbor.
 func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
-	body, err := c.do(ctx, http.MethodGet, "/messages/targets", nil)
+	body, err := c.do(ctx, http.MethodGet, "/squawks/targets", nil)
 	if err != nil {
 		return targetsOut{}, err
 	}
@@ -277,7 +277,7 @@ func (c *messagingClient) escalate(ctx context.Context, category string) error {
 	return err
 }
 
-// newMessagingServer builds the "messaging" MCP server exposing read/send.
+// newMessagingServer builds the "intercom" MCP server exposing read/send.
 //
 // Configuration errors (missing env vars, a malformed address) are captured
 // once at construction time and surfaced by every tool call as a clear,
@@ -290,7 +290,7 @@ func (c *messagingClient) escalate(ctx context.Context, category string) error {
 func newMessagingServer(getenv func(string) string) *mcp.Server {
 	client, cfgErr := newMessagingClient(getenv)
 
-	s := mcp.NewServer(&mcp.Implementation{Name: "messaging", Version: "0.1.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "intercom", Version: "0.1.0"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",

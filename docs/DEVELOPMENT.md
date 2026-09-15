@@ -83,9 +83,9 @@ and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
 - `go test -tags integration ./internal/baseimage/` proves the provenance gate against
   **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
   `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
-- `HARBOR_TEST_POSTGRES_DSN=… go test -tags integration ./internal/harbor/... ./internal/msglog/...`
+- `HARBOR_TEST_POSTGRES_DSN=… go test -tags integration ./internal/harbor/... ./internal/intercom/...`
   runs the **Postgres store** conformance + fail-closed suite (`PostgresStore`)
-  and the **Postgres message-log** (`msglogpg`) conformance suite against a real
+  and the **Postgres squawk log** (`intercompg`) conformance suite against a real
   Postgres; both **skip** when `HARBOR_TEST_POSTGRES_DSN` is unset (so the hermetic
   `go test ./...` is unaffected). Example DSN:
   `host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable`.
@@ -141,10 +141,10 @@ loop cannot drift.
 ## CI: the store integration job
 
 [`.github/workflows/store-integration.yml`](../.github/workflows/store-integration.yml)
-runs `go test -tags integration ./internal/harbor/... ./internal/msglog/...`
+runs `go test -tags integration ./internal/harbor/... ./internal/intercom/...`
 against a Postgres **service container**, with `HARBOR_TEST_POSTGRES_DSN`
 pointing at it — the Postgres-backed `harbor.Store` conformance suite and the
-Postgres message-log (`msglogpg`) conformance suite, both behind the
+Postgres squawk log (`intercompg`) conformance suite, both behind the
 `//go:build integration` tag. It is a **separate** workflow from `gate.yml` on
 purpose: the required check is `gate`, and this job must not touch it. This job
 only reports — promoting it to a required check is a branch-protection

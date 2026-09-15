@@ -2,7 +2,7 @@
 summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that actively pings while a cove is Waiting, opt-in and independent of wake-on's reply/max-wait clock.
 read_when: You want a raised cove's Waiting state to actively nudge humans instead of passively waiting — configuring ordered tiers of people to @-mention with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-harbor project escalation set|list|clear [--category]` commands.
-prereqs: messaging.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
+prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
 updated: 2026-09-14
 ---
@@ -15,7 +15,7 @@ A **Project** opts in with an ordered **escalation policy**: tiers of humans, ea
 with a timeout. The engine pings tier 0 the moment a cove starts waiting, and
 escalates to the next tier if nobody answers in time. It is opt-in — a Project
 with no policy behaves exactly as before (see
-[messaging.md](messaging.md#waiting-for-a-reply-wake-on)).
+[intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
 
 ## The policy: ordered tiers + per-tier timeout
 
@@ -39,8 +39,8 @@ default chain — a cove-supplied category can only ever select among
 operator-configured chains, never a recipient the operator didn't set up.
 
 A cove declares its current block's category with the brokered **`escalate`**
-tool (`escalate(category)`), one of the cove's [brokered messaging
-tools](messaging.md#what-the-tools-do): harbor stamps
+tool (`escalate(category)`), one of the cove's [brokered intercom
+tools](intercom.md#what-the-tools-do): harbor stamps
 `Instance.EscalationCategory` on the caller's *own* instance — self-scoped, like
 `read`; there's no actor/target parameter. The category **persists** until the
 cove re-declares it or the instance tears down — entering Waiting does not clear
@@ -60,7 +60,7 @@ denial or a `401`, without the cove calling `escalate`) is not implemented yet
 
 Escalation isn't triggered by a separate command — it starts the moment a cove's
 Activity transitions to **Waiting** (typically after the agent reports
-`needs-input`; see [messaging.md](messaging.md#waiting-for-a-reply-wake-on)):
+`needs-input`; see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)):
 
 1. **Tier 0 is pinged immediately**, with no grace period. If you want a delay
    before the first nudge, give tier 0 a longer timeout — there is no separate
@@ -80,7 +80,7 @@ clocks**, run by two separate engines:
 
 - **Escalation** only pings tiers on a schedule; it never reads comments, never
   wakes a cove, and never tears one down.
-- **Wake-on** (see [messaging.md](messaging.md#waiting-for-a-reply-wake-on)) owns
+- **Wake-on** (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)) owns
   reply-detection, waking, and `wait-max` teardown — unchanged by escalation.
 
 A human's answer — a comment on the cove's own ticket, posted in response to a

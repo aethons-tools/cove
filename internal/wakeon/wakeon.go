@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/msglog"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 type Registry interface{ ListInstances() []harbor.Instance }
@@ -20,10 +20,10 @@ type Reaper interface {
 }
 
 // Inbox is the read side of the message Log the engine uses to detect
-// replies. Satisfied by *msglog.Log; may be nil (message-log unconfigured →
+// replies. Satisfied by *intercom.Log; may be nil (squawk log unconfigured →
 // no reply-waking, teardown/pause still run).
 type Inbox interface {
-	ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message
+	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -122,14 +122,14 @@ func (e *Engine) tick(ctx context.Context) {
 // source (Linear vs. Discord ingress, etc.) produced the reply's id (COV-184:
 // a lexical-id compare could wrongly treat a later reply as "before" the
 // baseline when the two ids come from different, non-interleaved namespaces).
-// A nil inbox (message-log unconfigured) always reports false — reply-waking
+// A nil inbox (squawk log unconfigured) always reports false — reply-waking
 // is off, but the max-wait teardown and warm-timeout Idle above still run.
 func (e *Engine) replied(inst harbor.Instance) bool {
 	if e.inbox == nil {
 		return false
 	}
-	for _, m := range e.inbox.ReadInboxSince(msglog.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
-		if msglog.Classify(m.From) == msglog.External {
+	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
+		if intercom.Classify(m.From) == intercom.External {
 			return true
 		}
 	}

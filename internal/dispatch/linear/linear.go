@@ -365,7 +365,7 @@ type FeedComment struct {
 }
 
 // CommentFeed returns comments in the Client's team created after `since`,
-// oldest-first, capped at `limit`. Backs the msgport Linear ingress adapter.
+// oldest-first, capped at `limit`. Backs the relay Linear ingress adapter.
 func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([]FeedComment, error) {
 	const q = `query($key:String!,$since:DateTimeOrDuration!,$first:Int!){comments(filter:{issue:{team:{key:{eq:$key}}},createdAt:{gt:$since}},orderBy:createdAt,first:$first){nodes{id body createdAt user{displayName} issue{identifier} parent{id}}}}`
 	var out struct {

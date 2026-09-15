@@ -1,8 +1,8 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a cove's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a cove may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /messages/targets + list_targets, and the project/role --addressing operator commands
-prereqs: messaging.md for the /messages endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
+owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-09-15
 ---
@@ -65,23 +65,23 @@ roster channel's own `Ref` when the channel's `Service` is `discord`. Every
 Discord post is prefixed `"<cove>: "` (the sending cove's identity —
 `Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
 username/avatar is a future polish). Delivery is exactly-once (the resident
-Discord msgport engine's own `EgressMark`, seeded to the Log tail on first
+Discord relay engine's own `EgressMark`, seeded to the Log tail on first
 enable so turning it on never redelivers the backlog) — see
-[messaging.md](messaging.md#enabling-it) for the engine and
+[intercom.md](intercom.md#enabling-it) for the engine and
 [serve.md](serve.md) for the `runtime.discord.bot-token` config that enables
-it (requires a message-log; without one the engine doesn't run).
+it (requires an intercom-log; without one the engine doesn't run).
 
 **The reply loop:** when a human **replies** (Discord's own reply-to-message
 feature, not a bare follow-up post) to a cove's Discord post, harbor routes
-that reply back to the cove that sent the original message — the same
-[wake-on](messaging.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
+that reply back to the cove that sent the original squawk — the same
+[wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
 so a Waiting cove resumes with the reply already in its inbox. Routing works
 by a small **receipt**: on every Discord post the engine records the posted
-message's id against the sending cove (`discord-msg-id → actor`); an inbound
-message is matched to that receipt by the id it *replies to*. Two
+squawk's id against the sending cove (`discord-msg-id → actor`); an inbound
+squawk is matched to that receipt by the id it *replies to*. Two
 consequences follow directly from that mechanism:
 
-- **Only a reply routes.** A bare (non-reply) message posted into a shared
+- **Only a reply routes.** A bare (non-reply) squawk posted into a shared
   inbox channel carries no id to look up against, so it can't be attributed
   to any cove — it is silently dropped, by construction (this also means
   harbor's own outbound Discord posts, echoed back on the same channel,
@@ -158,7 +158,7 @@ ordering means a 403 never reveals whether a target would otherwise exist.
 | `to` | Delivery | Reply |
 |---|---|---|
 | *(empty)* | own ticket (unchanged self-scoped `send`) | own ticket → existing wake-on |
-| `human:<name>` | `@<handle>` mention posted on the cove's **own ticket** | own ticket → existing [wake-on](messaging.md#waiting-for-a-reply-wake-on) — **two-way, free** |
+| `human:<name>` | `@<handle>` mention posted on the cove's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
 | `channel:<name>` | comment posted on the channel's own thread (`Channel.Ref`) | **none in C1 — post-only** |
 
 A human target is delivered as an `@`-mention so the reply lands where the cove is
@@ -166,9 +166,9 @@ already listening — no new tracker method or wake-on wiring needed. A channel
 target posts to a different ticket than the cove's own; C1 does not route replies
 back (that's a later comms slice — see below).
 
-## Discovering targets: `GET /messages/targets` / `list_targets`
+## Discovering targets: `GET /squawks/targets` / `list_targets`
 
-An agent doesn't need to know its addressing in advance. `GET /messages/targets`
+An agent doesn't need to know its addressing in advance. `GET /squawks/targets`
 (brokered, self-derived from the caller's identity — no parameters) returns the
 actor's authorized-**and**-resolvable targets:
 
@@ -179,7 +179,7 @@ actor's authorized-**and**-resolvable targets:
 Handles are deliberately omitted — the agent addresses by `human:<name>`, not by
 handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
-[messaging.md](messaging.md#what-the-tools-do) for the tool surface.
+[intercom.md](intercom.md#what-the-tools-do) for the tool surface.
 
 ## Not yet (later comms slices)
 
