@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,9 +28,12 @@ type Comment struct {
 }
 
 // inboxReader is the narrow read side of the message Log the /messages GET
-// path needs. Satisfied by *msglog.Log; nil disables reads (GET → 503).
+// path needs — seekable in both directions, so the handler never needs the
+// unbounded ReadInbox. Satisfied by *msglog.Log and *msglogpg.Store; nil
+// disables reads (GET → 503).
 type inboxReader interface {
-	ReadInbox(t msglog.Target) []msglog.Message
+	ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message
+	ReadInboxBefore(t msglog.Target, beforeID string, limit int) []msglog.Message
 }
 
 // messagesStore is the narrow slice of Store the /messages handler needs.
@@ -39,6 +43,7 @@ type messagesStore interface {
 	GetInstance(actorID string) (Instance, bool)
 	GetRole(project, name string) (Role, bool)
 	GetRoster(project string) (Roster, bool)
+	AdvanceCommitCursor(actorID, upTo string) (Instance, error)
 }
 
 // appender is the narrow write side of the message Log — the authoritative
@@ -101,6 +106,13 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// never resolve one (and must never fail if the ticket is unavailable).
 	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/targets") {
 		h.handleTargets(w, r, actor)
+		return
+	}
+
+	// POST /messages/commit — advances the cove's durable commit cursor.
+	// Handled before ticket resolution: commit needs no ticket.
+	if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/commit") {
+		h.handleCommit(w, r, actor)
 		return
 	}
 
@@ -196,23 +208,115 @@ func (h *MessagesHandler) handleTargets(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// defaultReadLimit and maxReadLimit bound GET /messages page size: the
+// default page when the caller omits limit, and the hard cap a caller cannot
+// exceed regardless of what they ask for.
+const (
+	defaultReadLimit = 50
+	maxReadLimit     = 500
+)
+
+// handleGet serves a seekable page of the cove's own inbox. anchor selects
+// where the page starts — "" or "cursor" (the cove's durable CommitCursor,
+// the default), "start"/"end" (the log's bounds), or "id" (an explicit
+// message id via ?id=) — and dir selects which way the page reads from
+// there: "" or "forward" (ReadInboxSince) or "backward" (ReadInboxBefore). A
+// read never advances CommitCursor; only POST /messages/commit does that.
 func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	if h.reader == nil {
 		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
 		return
 	}
-	msgs := h.reader.ReadInbox(msglog.Target{Kind: "actor", Ref: actor.ID})
+	q := r.URL.Query()
+	anchor := q.Get("anchor") // "", cursor, start, end, id
+	dir := q.Get("dir")       // "", forward, backward
+	limit := defaultReadLimit
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	if limit > maxReadLimit {
+		limit = maxReadLimit
+	}
+	target := msglog.Target{Kind: "actor", Ref: actor.ID}
+
+	var msgs []msglog.Message
+	switch anchor {
+	case "", "cursor":
+		if dir == "backward" {
+			msgs = h.reader.ReadInboxBefore(target, inst.CommitCursor, limit)
+		} else {
+			msgs = h.reader.ReadInboxSince(target, inst.CommitCursor, limit)
+		}
+	case "start":
+		msgs = h.reader.ReadInboxSince(target, "", limit)
+	case "end":
+		msgs = h.reader.ReadInboxBefore(target, "", limit)
+	case "id":
+		id := q.Get("id")
+		if id == "" {
+			http.Error(w, "anchor=id requires id", http.StatusBadRequest)
+			return
+		}
+		if dir == "backward" {
+			msgs = h.reader.ReadInboxBefore(target, id, limit)
+		} else {
+			msgs = h.reader.ReadInboxSince(target, id, limit)
+		}
+	default:
+		http.Error(w, "invalid anchor", http.StatusBadRequest)
+		return
+	}
+
 	out := make([]Comment, 0, len(msgs))
 	for i := range msgs {
 		m := msgs[i]
 		at := m.At
 		out = append(out, Comment{ID: m.ID, Author: m.From.Ref, Body: m.Body, At: &at})
 	}
-	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "read", "count", len(out))
+	pageFirst, pageLast := "", ""
+	if len(msgs) > 0 {
+		pageFirst, pageLast = msgs[0].ID, msgs[len(msgs)-1].ID
+	}
+	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "read", "anchor", anchor, "dir", dir, "count", len(out))
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(struct {
-		Messages []Comment `json:"messages"`
-	}{Messages: out}); err != nil {
+		Messages        []Comment `json:"messages"`
+		CommittedCursor string    `json:"committed_cursor"`
+		PageFirst       string    `json:"page_first"`
+		PageLast        string    `json:"page_last"`
+	}{Messages: out, CommittedCursor: inst.CommitCursor, PageFirst: pageFirst, PageLast: pageLast}); err != nil {
 		h.log.Error("messages: encode response failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+	}
+}
+
+// handleCommit advances the caller's durable commit cursor to up_to (POST
+// /messages/commit {"up_to": "<message id>"}). The actor comes solely from
+// the authenticated token, never the request body — there is no way for a
+// cove to advance another cove's cursor.
+func (h *MessagesHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodyBytes)
+	var req struct {
+		UpTo string `json:"up_to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UpTo == "" {
+		http.Error(w, "up_to required", http.StatusBadRequest)
+		return
+	}
+	inst, err := h.store.AdvanceCommitCursor(actor.ID, req.UpTo)
+	if err != nil {
+		http.Error(w, "no instance", http.StatusForbidden)
+		return
+	}
+	h.log.Info("messages", "actor", actor.ID, "op", "commit", "up_to", req.UpTo, "committed", inst.CommitCursor)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		CommittedCursor string `json:"committed_cursor"`
+	}{CommittedCursor: inst.CommitCursor}); err != nil {
+		h.log.Error("messages: encode commit response failed", "actor", actor.ID, "error", err.Error())
 	}
 }
