@@ -36,7 +36,7 @@ type Store interface {
 	GetInstance(actorID string) (Instance, bool)
 	ListInstances() []Instance
 	RemoveInstance(actorID string) error
-	AdvanceCommitCursor(actorID, upTo string) (Instance, error) // monotonic forward; no-op if upTo <= current; error if actor absent
+	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) // monotonic forward on upToSeq; no-op if upToSeq <= current CommitSeq; error if actor absent
 
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
@@ -343,16 +343,16 @@ func (fs *FileStore) RemoveInstance(actorID string) error {
 	return fs.save()
 }
 
-func (fs *FileStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+func (fs *FileStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	before, ok := fs.instances[actorID]
 	if !ok {
 		return Instance{}, fmt.Errorf("instance %q not found", actorID)
 	}
-	i, _ := fs.applyAdvanceCommitCursor(actorID, upTo)
-	if i.CommitCursor == before.CommitCursor {
-		// No-op advance (backward/equal upTo): the cache is unchanged, so
+	i, _ := fs.applyAdvanceCommitCursor(actorID, upToID, upToSeq)
+	if i.CommitSeq == before.CommitSeq {
+		// No-op advance (backward/equal upToSeq): the cache is unchanged, so
 		// skip the write to avoid an unnecessary disk save.
 		return i, nil
 	}

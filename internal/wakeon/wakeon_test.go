@@ -36,15 +36,16 @@ func (f *fakeIdler) Resume(_ context.Context, a string) error {
 }
 
 // fakeInbox scripts ReadInboxSince per actor ref, standing in for *msglog.Log.
-// The id > afterID filter mirrors the real backend's string-compare semantics.
+// The Seq > afterSeq filter mirrors the real backend's append-order semantics
+// (Seq, never the id, decides ordering — see extInbound/COV-184).
 type fakeInbox struct {
 	byActor map[string][]msglog.Message // actor ref → its inbox
 }
 
-func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message {
+func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message {
 	var out []msglog.Message
 	for _, m := range f.byActor[t.Ref] {
-		if m.ID <= afterID {
+		if m.Seq <= afterSeq {
 			continue
 		}
 		out = append(out, m)
@@ -55,10 +56,14 @@ func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterID string, limit int) [
 	return out
 }
 
-// extInbound is an external-origin (human) inbound message addressed to coveID,
-// with the given log id (compared lexically against WaitCursor by ReadInboxSince).
-func extInbound(coveID, id string) msglog.Message {
+// extInbound is an external-origin (human) inbound message addressed to
+// coveID, with the given append-order Seq (compared against WaitSeq by
+// ReadInboxSince) and log id. The id is deliberately NOT required to sort
+// lexically consistent with seq — see the COV-184 regression test below,
+// which exploits exactly that to prove ordering is Seq-based, not id-based.
+func extInbound(coveID string, seq int64, id string) msglog.Message {
 	return msglog.Message{
+		Seq:  seq,
 		ID:   id,
 		From: msglog.Target{Kind: "human", Ref: "alice"},
 		To:   []msglog.Target{{Kind: "actor", Ref: coveID}},
@@ -75,13 +80,13 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-func TestTick_ExternalReplyAfterWaitCursor_Wakes(t *testing.T) {
+func TestTick_ExternalReplyAfterWaitSeq_Wakes(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", "id-6")},
+		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -92,21 +97,59 @@ func TestTick_ExternalReplyAfterWaitCursor_Wakes(t *testing.T) {
 	e.tick(context.Background())
 
 	if !contains(wake.woke, "a1") {
-		t.Fatalf("an external reply with id > WaitCursor must Wake the cove, got wake=%v", wake.woke)
+		t.Fatalf("an external reply with Seq > WaitSeq must Wake the cove, got wake=%v", wake.woke)
 	}
 	if len(idler.idled) != 0 || len(idler.resumed) != 0 || len(reap.down) != 0 {
 		t.Errorf("expected only Wake, got idle=%v resume=%v teardown=%v", idler.idled, idler.resumed, reap.down)
 	}
 }
 
+// TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder is the
+// COV-184 regression: before the append-Seq fix, a reply was judged "after"
+// the wake-on baseline by comparing message ids lexically. That's wrong once
+// ids can come from different, non-interleaved id-namespaces (e.g. an
+// ingress adapter minting "in:discord:..." ids alongside the log's own
+// "<unixnano>-<rand>" ids) — a later-arriving reply can easily have an id
+// that sorts BEFORE an earlier baseline id, so the lexical compare would
+// silently never wake the cove. Seq is the log's actual append order and is
+// immune to this: here the reply's id ("in:discord:aaa") sorts lexically
+// BEFORE a stand-in baseline id ("in:linear:zzz") it logically follows, yet
+// its Seq (6) is still greater than WaitSeq (5) — and that must be enough to
+// wake.
+func TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder(t *testing.T) {
+	const baselineID = "in:linear:zzz" // hypothetical id the WaitSeq=5 baseline would have carried
+	waitStart := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []harbor.Instance{
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	}}
+	replyID := "in:discord:aaa"
+	if replyID >= baselineID {
+		t.Fatalf("test setup invariant broken: replyID %q must sort lexically BEFORE baselineID %q", replyID, baselineID)
+	}
+	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+		"a1": {extInbound("a1", 6, replyID)},
+	}}
+	wake := &fakeWaker{}
+	reap := &fakeReaper{}
+	idler := &fakeIdler{}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: 10 * time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+
+	e.tick(context.Background())
+
+	if !contains(wake.woke, "a1") {
+		t.Fatalf("Seq(6) > WaitSeq(5) must wake even though the reply id %q sorts lexically before %q — got wake=%v", replyID, baselineID, wake.woke)
+	}
+}
+
 func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	// inbound at/before the WaitCursor baseline → not a reply
+	// inbound at the WaitSeq baseline (Seq == WaitSeq, not >) → not a reply
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", "id-5")},
+		"a1": {extInbound("a1", 5, "id-5")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -117,7 +160,7 @@ func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 	e.tick(context.Background())
 
 	if contains(wake.woke, "a1") {
-		t.Fatal("pre-baseline inbound (id <= WaitCursor) must not wake")
+		t.Fatal("pre-baseline inbound (Seq <= WaitSeq) must not wake")
 	}
 	if !contains(idler.idled, "a1") {
 		t.Fatal("no reply past warm-timeout → Idle")
@@ -127,9 +170,10 @@ func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	internal := msglog.Message{
+		Seq:  6,
 		ID:   "id-6",
 		From: msglog.Target{Kind: "actor", Ref: "a2"},
 		To:   []msglog.Target{{Kind: "actor", Ref: "a1"}},
@@ -152,10 +196,10 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
+		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", "id-6")},
+		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -226,7 +270,7 @@ func TestTick_NonWaitingIgnored(t *testing.T) {
 		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", "id-1")},
+		"a1": {extInbound("a1", 1, "id-1")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -303,7 +347,7 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 			}}
 			// even with a pending reply, max-wait teardown wins
 			inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-				"a1": {extInbound("a1", "id-1")},
+				"a1": {extInbound("a1", 1, "id-1")},
 			}}
 			wake := &fakeWaker{}
 			reap := &fakeReaper{}

@@ -54,8 +54,9 @@ type Instance struct {
 	RaisedAt           time.Time `json:"raised_at"`
 	LastSeen           time.Time `json:"last_seen"`
 	WaitingSince       time.Time `json:"waiting_since,omitempty"`       // set when Activity enters Waiting (B1)
-	WaitCursor         string    `json:"wait_cursor,omitempty"`         // opaque wake-on baseline set by the wake-on engine
-	CommitCursor       string    `json:"commit_cursor,omitempty"`       // durable inbox consume offset: last message id the cove has committed as processed; set at raise to the log tail, advanced by /messages/commit
+	WaitSeq            int64     `json:"wait_seq,omitempty"`            // wake-on baseline (message-log append Seq) set by the wake-on engine on entering Waiting; a reply wakes iff its Seq > this. Old persisted wait_cursor (pre-Seq) is ignored, defaulting to 0 — safe on ephemeral coves (wakes on anything after 0).
+	CommitSeq          int64     `json:"commit_seq,omitempty"`          // durable inbox consume offset, as the append-order Seq of the last message the cove has committed as processed; the ordering key for AdvanceCommitCursor and read anchor=cursor. Set at raise to the log tail, advanced by /messages/commit. Old persisted commit_seq-less stores default to 0 (read-from-start) — harmless on ephemeral coves.
+	CommitCursor       string    `json:"commit_cursor,omitempty"`       // the committed message id — CommitSeq's id, kept for the commit/read response echo so callers get an id back with no seq→id reverse lookup. A deliberate denormalization: always kept in lockstep with CommitSeq by AdvanceCommitCursor. NOT itself compared for ordering (see CommitSeq). Old persisted commit_cursor id loads fine.
 	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
 	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
