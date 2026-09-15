@@ -429,6 +429,12 @@ func setEscalation(p Project, category string, tiers []EscalationTier) Project {
 	return p
 }
 
+// setChatService returns p with its chat service set (or cleared when "").
+func setChatService(p Project, service string) Project {
+	p.ChatService = service
+	return p
+}
+
 // ---- copy helpers (defensive copies for reads) ----
 
 func copyKit(k Kit) Kit {

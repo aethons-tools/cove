@@ -66,8 +66,27 @@ type Actor struct {
 
 // Human is a roster member reachable by @-mention on a tracker thread.
 type Human struct {
-	Name   string `json:"name"`   // roster-local name, e.g. "alice"
-	Handle string `json:"handle"` // tracker @-mention handle
+	Name     string            `json:"name"`               // roster-local name, e.g. "alice"
+	Handle   string            `json:"handle"`             // tracker @-mention handle
+	Delivery []DeliveryProfile `json:"delivery,omitempty"` // per-service DM delivery targets
+}
+
+// DeliveryProfile is how a Human receives messages on one non-tracker Service.
+// Address is the service-native delivery target: for "discord", the id of the
+// inbox channel harbor posts the human's DMs into.
+type DeliveryProfile struct {
+	Service string `json:"service"`
+	Address string `json:"address"`
+}
+
+// DeliveryFor returns the human's profile for service, if present.
+func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
+	for _, d := range h.Delivery {
+		if d.Service == service {
+			return d, true
+		}
+	}
+	return DeliveryProfile{}, false
 }
 
 // Channel is a named conduit on a Service. C1: Service == "linear", Ref is a
@@ -98,6 +117,9 @@ type Project struct {
 	Roster               Roster                      `json:"roster"`
 	Escalation           []EscalationTier            `json:"escalation,omitempty"`
 	EscalationByCategory map[string][]EscalationTier `json:"escalation_by_category,omitempty"` // category → chain; overrides Escalation (the default)
+	// ChatService is the service backing human DMs (e.g. "discord"); ""
+	// means tracker @-mentions only.
+	ChatService string `json:"chat_service,omitempty"`
 }
 
 // DefaultProject backs harbor-side default enrollment when no project is named.
