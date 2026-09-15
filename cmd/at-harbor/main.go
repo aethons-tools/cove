@@ -1115,15 +1115,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Pass messageLog as the appender only when it's genuinely non-nil: it is
-		// an msglog.Store interface value assigned only to a real backend (see
-		// messageLog above) or left as a true nil interface, so this guard is a
-		// plain nil check with no typed-nil hazard.
+		// Pass messageLog as both the reader and the appender only when it's
+		// genuinely non-nil: it is an msglog.Store interface value assigned only
+		// to a real backend (see messageLog above) or left as a true nil
+		// interface, so this guard is a plain nil check. Unconfigured → nil
+		// reader+appender → GET/POST return a clean 503.
 		var msgH *harbor.MessagesHandler
 		if messageLog != nil {
-			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, messageLog, log)
+			msgH = harbor.NewMessagesHandler(st, messageLog, messageLog, log)
 		} else {
-			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, nil, log)
+			msgH = harbor.NewMessagesHandler(st, nil, nil, log)
 		}
 		escH := harbor.NewEscalateHandler(st, sup, log)
 		httpHandler = messagesMux(msgH, escH, broker)

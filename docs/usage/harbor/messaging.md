@@ -4,7 +4,7 @@ read_when: You want a raised cove's agent to be able to read and post comments o
 owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed cove a message is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a message is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # The messaging MCP
@@ -15,11 +15,11 @@ A managed cove's agent gets **harbor-brokered** tools — `read`, `send`,
 ## What the tools do
 
 - **`send(text, to?)`** — appends the message to harbor's durable message-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it lands on the cove's own ticket (the original, unchanged addressing). With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
-- **`read()`** — returns the ticket's comment thread as a tagged inbox (`{author, body, …}` per comment). **Always self-scoped to the cove's own ticket** — `read` takes no target, addressed or otherwise.
+- **`read()`** — returns the cove's inbox as a tagged list (`{author, body, …}` per message); see [Enabling it](#enabling-it) below for what backs it. **Always self-scoped to the cove's own ticket** — `read` takes no target, addressed or otherwise.
 - **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-messagestargets-list_targets).
 - **`escalate(category)`** — declares the cove's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
 
-The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Today `read` reflects the thread as of the call; see [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.)
+The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Today `read` reflects the inbox as of the call; see [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.)
 
 ## How it's brokered and scoped
 
@@ -36,6 +36,8 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 `/messages` is mounted when harbor has a tracker (Linear) configured — it reuses the same Linear client the [dispatcher](dispatcher.md) uses. With no tracker configured, the endpoint is not mounted (and a cove's `read`/`send` calls simply error).
 
 **Outbound is Log→egress (asynchronous, at-least-once).** A `send` appends the message to harbor's durable message-log and returns `204`; a resident egress loop then delivers it to Linear (≈ the egress poll interval later). A **message-log is required** for sends — without one, `POST /messages` returns `503`. An append failure returns `502` (the append *is* the delivery). The Log entry — visible in the read-only [admin message view](ui.md#messages) — appears as soon as it's appended, ahead of the Linear post landing.
+
+**Read is Log-backed and tracker-independent.** `GET /messages` returns the cove's **inbox** — the inbound messages addressed to it (human replies), from harbor's durable message-log — not a live Linear query. It returns messages sent **to** the cove (not the cove's own sent messages), and reflects the Log from when ingestion began; pre-Log ticket history is not included. Because wake-on only wakes a cove once a reply is in the Log, the reply is always present by the time the cove reads. A read requires a configured message-log (none → `503`).
 
 When `message-log:` and a tracker are both configured, harbor also runs a resident **msgport linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable messages (the `send` path above) and posts them to Linear, at-least-once per message. Both directions are visible in the admin message view. **Wake-on (below) now reads replies from this Log**, so `message-log:` is required for a Waiting cove to wake on a reply.
 
