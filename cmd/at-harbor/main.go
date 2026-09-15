@@ -1071,6 +1071,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		messageLog = ml
 		log.Info("harbor message log: file", "path", cfg.MessageLog)
 	}
+	if messageLog != nil {
+		sup.SetTailReader(messageLog)
+	}
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
