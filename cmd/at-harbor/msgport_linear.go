@@ -111,18 +111,47 @@ type instanceRoster interface {
 type directory struct {
 	store        instanceRoster
 	project      string
-	selfIdentity string // harbor's Linear viewer displayName (self-post filter)
+	selfIdentity string        // harbor's Linear viewer displayName (self-post filter)
+	receipts     *fileReceipts // discord-msg-id → actorID (nil when discord unconfigured; routeLinear never touches it)
 }
 
 func (d *directory) Projects(service string) []string { return []string{d.project} }
 
-// Route drops any comment authored by harbor's own Linear identity (a
+// Route dispatches to the service-appropriate routing logic: discord replies
+// route via the receipt store (routeDiscord); everything else preserves the
+// original Linear-shaped routing (routeLinear), byte-identical to before
+// Route became service-aware.
+func (d *directory) Route(service, project string, e msgport.Event) (from msglog.Target, to []msglog.Target, replyTo string, ok bool) {
+	if service == "discord" {
+		return d.routeDiscord(e)
+	}
+	return d.routeLinear(project, e)
+}
+
+// routeDiscord maps a human's Discord reply to the cove it replies to, via
+// the receipt store. A message that is NOT a reply, or replies to an unknown
+// id (not a receipt), is unroutable and dropped — which also drops harbor's
+// own non-reply posts (the self-post filter).
+func (d *directory) routeDiscord(e msgport.Event) (from msglog.Target, to []msglog.Target, replyTo string, ok bool) {
+	if e.ReplyToForeign == "" {
+		return msglog.Target{}, nil, "", false
+	}
+	actorID, ok := d.receipts.Lookup(e.ReplyToForeign)
+	if !ok {
+		return msglog.Target{}, nil, "", false
+	}
+	return msglog.Target{Kind: "human", Ref: e.Author},
+		[]msglog.Target{{Kind: "actor", Ref: actorID}},
+		"in:discord:" + e.ReplyToForeign, true
+}
+
+// routeLinear drops any comment authored by harbor's own Linear identity (a
 // cove's brokered outbound, echoed back on the feed), then maps the ticket
 // the comment landed on to either a live cove's own ticket (Instance.Unit
 // match → actor) or a configured channel (Channel.Ref match → channel).
 // Unroutable events return ok=false so the cursor still advances without
 // appending anything.
-func (d *directory) Route(service, project string, e msgport.Event) (from msglog.Target, to []msglog.Target, replyTo string, ok bool) {
+func (d *directory) routeLinear(project string, e msgport.Event) (from msglog.Target, to []msglog.Target, replyTo string, ok bool) {
 	if e.Author == d.selfIdentity {
 		return msglog.Target{}, nil, "", false
 	}
@@ -147,7 +176,7 @@ func (d *directory) Route(service, project string, e msgport.Event) (from msglog
 		return msglog.Target{}, nil, "", false
 	}
 	if e.ReplyToForeign != "" {
-		replyTo = "in:" + service + ":" + e.ReplyToForeign
+		replyTo = "in:linear:" + e.ReplyToForeign
 	}
 	return from, to, replyTo, true
 }

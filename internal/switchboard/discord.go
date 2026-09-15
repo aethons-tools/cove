@@ -127,6 +127,9 @@ type discordMessage struct {
 		Username   string `json:"username"`
 		GlobalName string `json:"global_name"`
 	} `json:"author"`
+	MessageReference struct {
+		MessageID string `json:"message_id"`
+	} `json:"message_reference"`
 }
 
 func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Message, map[string]string, error) {
@@ -170,7 +173,7 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 			if author == "" {
 				author = m.Author.Username
 			}
-			out = append(out, Message{ID: m.ID, Channel: ch, Author: author, Content: m.Content})
+			out = append(out, Message{ID: m.ID, Channel: ch, Author: author, Content: m.Content, ReferencedID: m.MessageReference.MessageID})
 			nc[ch] = m.ID
 		}
 	}
@@ -211,10 +214,17 @@ func (c *RESTClient) Seed(ctx context.Context) (map[string]string, error) {
 	return cursors, nil
 }
 
+// Post sends content to channel, discarding the created message's id.
 func (c *RESTClient) Post(ctx context.Context, channel, content string) error {
+	_, err := c.PostID(ctx, channel, content)
+	return err
+}
+
+// PostID sends content to channel and returns the created message's id.
+func (c *RESTClient) PostID(ctx context.Context, channel, content string) (string, error) {
 	body, err := json.Marshal(map[string]string{"content": content})
 	if err != nil {
-		return err
+		return "", err
 	}
 	u := fmt.Sprintf("%s/channels/%s/messages", c.baseURL, channel)
 	// Rebuild the request from the marshalled body bytes on every attempt so
@@ -229,11 +239,19 @@ func (c *RESTClient) Post(ctx context.Context, channel, content string) error {
 		return req, nil
 	})
 	if err != nil {
-		return fmt.Errorf("switchboard: post %s: %w", channel, err)
+		return "", fmt.Errorf("switchboard: post %s: %w", channel, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("switchboard: post %s: status %d", channel, resp.StatusCode)
+		return "", fmt.Errorf("switchboard: post %s: status %d", channel, resp.StatusCode)
 	}
-	return nil
+	var created struct {
+		ID string `json:"id"`
+	}
+	// A malformed or empty body is not treated as a failure: the post itself
+	// succeeded (2xx), and callers that only need Post's error semantics
+	// (via the Post wrapper) must not see an error for it. PostID callers
+	// simply get back an empty id in that case.
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	return created.ID, nil
 }
