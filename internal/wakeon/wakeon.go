@@ -23,7 +23,7 @@ type Reaper interface {
 // replies. Satisfied by *msglog.Log; may be nil (message-log unconfigured →
 // no reply-waking, teardown/pause still run).
 type Inbox interface {
-	ReadInbox(t msglog.Target) []msglog.Message
+	ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -116,15 +116,16 @@ func (e *Engine) tick(ctx context.Context) {
 }
 
 // replied reports whether an external-origin inbound message addressed to
-// the cove arrived after it started waiting. A nil inbox (message-log
-// unconfigured) always reports false — reply-waking is off, but the
-// max-wait teardown and warm-timeout Idle above still run.
+// the cove arrived after its WaitCursor position (the log tail baselined
+// when it entered Waiting). A nil inbox (message-log unconfigured) always
+// reports false — reply-waking is off, but the max-wait teardown and
+// warm-timeout Idle above still run.
 func (e *Engine) replied(inst harbor.Instance) bool {
 	if e.inbox == nil {
 		return false
 	}
-	for _, m := range e.inbox.ReadInbox(msglog.Target{Kind: "actor", Ref: inst.ActorID}) {
-		if msglog.Classify(m.From) == msglog.External && m.At.After(inst.WaitingSince) {
+	for _, m := range e.inbox.ReadInboxSince(msglog.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitCursor, 0) {
+		if msglog.Classify(m.From) == msglog.External {
 			return true
 		}
 	}

@@ -35,20 +35,34 @@ func (f *fakeIdler) Resume(_ context.Context, a string) error {
 	return nil
 }
 
-// fakeInbox scripts ReadInbox per actor ref, standing in for *msglog.Log.
+// fakeInbox scripts ReadInboxSince per actor ref, standing in for *msglog.Log.
+// The id > afterID filter mirrors the real backend's string-compare semantics.
 type fakeInbox struct {
 	byActor map[string][]msglog.Message // actor ref → its inbox
 }
 
-func (f *fakeInbox) ReadInbox(t msglog.Target) []msglog.Message { return f.byActor[t.Ref] }
+func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message {
+	var out []msglog.Message
+	for _, m := range f.byActor[t.Ref] {
+		if m.ID <= afterID {
+			continue
+		}
+		out = append(out, m)
+		if limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return out
+}
 
-// extInbound is an external-origin (human) inbound message addressed to coveID.
-func extInbound(coveID string, at time.Time) msglog.Message {
+// extInbound is an external-origin (human) inbound message addressed to coveID,
+// with the given log id (compared lexically against WaitCursor by ReadInboxSince).
+func extInbound(coveID, id string) msglog.Message {
 	return msglog.Message{
+		ID:   id,
 		From: msglog.Target{Kind: "human", Ref: "alice"},
 		To:   []msglog.Target{{Kind: "actor", Ref: coveID}},
 		Body: "reply",
-		At:   at,
 	}
 }
 
@@ -61,13 +75,13 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-func TestTick_ExternalReplyAfterWaitingSince_Wakes(t *testing.T) {
+func TestTick_ExternalReplyAfterWaitCursor_Wakes(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", waitStart.Add(time.Minute))},
+		"a1": {extInbound("a1", "id-6")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -78,21 +92,21 @@ func TestTick_ExternalReplyAfterWaitingSince_Wakes(t *testing.T) {
 	e.tick(context.Background())
 
 	if !contains(wake.woke, "a1") {
-		t.Fatalf("an external reply after WaitingSince must Wake the cove, got wake=%v", wake.woke)
+		t.Fatalf("an external reply with id > WaitCursor must Wake the cove, got wake=%v", wake.woke)
 	}
 	if len(idler.idled) != 0 || len(idler.resumed) != 0 || len(reap.down) != 0 {
 		t.Errorf("expected only Wake, got idle=%v resume=%v teardown=%v", idler.idled, idler.resumed, reap.down)
 	}
 }
 
-func TestTick_OldInboundBeforeWaitingSince_NoWake_IdlesPastWarmTimeout(t *testing.T) {
+func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
 	}}
-	// inbound BEFORE WaitingSince → not a reply
+	// inbound at/before the WaitCursor baseline → not a reply
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", waitStart.Add(-time.Minute))},
+		"a1": {extInbound("a1", "id-5")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -103,7 +117,7 @@ func TestTick_OldInboundBeforeWaitingSince_NoWake_IdlesPastWarmTimeout(t *testin
 	e.tick(context.Background())
 
 	if contains(wake.woke, "a1") {
-		t.Fatal("old inbound (before WaitingSince) must not wake")
+		t.Fatal("pre-baseline inbound (id <= WaitCursor) must not wake")
 	}
 	if !contains(idler.idled, "a1") {
 		t.Fatal("no reply past warm-timeout → Idle")
@@ -113,13 +127,13 @@ func TestTick_OldInboundBeforeWaitingSince_NoWake_IdlesPastWarmTimeout(t *testin
 func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
 	}}
 	internal := msglog.Message{
+		ID:   "id-6",
 		From: msglog.Target{Kind: "actor", Ref: "a2"},
 		To:   []msglog.Target{{Kind: "actor", Ref: "a1"}},
 		Body: "internal",
-		At:   waitStart.Add(time.Minute),
 	}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{"a1": {internal}}}
 	wake := &fakeWaker{}
@@ -138,10 +152,10 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitCursor: "id-5"},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", waitStart.Add(time.Minute))},
+		"a1": {extInbound("a1", "id-6")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -212,7 +226,7 @@ func TestTick_NonWaitingIgnored(t *testing.T) {
 		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-		"a1": {extInbound("a1", time.Unix(1, 0))},
+		"a1": {extInbound("a1", "id-1")},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -289,7 +303,7 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 			}}
 			// even with a pending reply, max-wait teardown wins
 			inbox := &fakeInbox{byActor: map[string][]msglog.Message{
-				"a1": {extInbound("a1", time.Unix(0, 0).Add(time.Second))},
+				"a1": {extInbound("a1", "id-1")},
 			}}
 			wake := &fakeWaker{}
 			reap := &fakeReaper{}

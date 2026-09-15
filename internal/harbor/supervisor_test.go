@@ -159,7 +159,7 @@ func TestReportDoneTearsDown(t *testing.T) {
 	}
 }
 
-func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
+func TestReportWaitingBaselinesWaitCursor(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
@@ -175,11 +175,12 @@ func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
 		t.Fatal("WaitingSince not set on transition into Waiting")
 	}
 	if inst.WaitCursor != "" {
-		t.Fatalf("WaitCursor should clear on transition into Waiting, got %q", inst.WaitCursor)
+		t.Fatalf("WaitCursor should baseline to the log tail (empty here: no tail reader wired) on transition into Waiting, got %q", inst.WaitCursor)
 	}
 
 	// A second Report(Waiting) while already Waiting must NOT reset
-	// WaitingSince, and must NOT clear a cursor set in between.
+	// WaitingSince, and must NOT re-baseline (or otherwise clear) a cursor set
+	// in between.
 	first := inst.WaitingSince
 	if err := sup.SetWaitCursor("w1", "4"); err != nil {
 		t.Fatal(err)
@@ -193,6 +194,43 @@ func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
 	}
 	if inst.WaitCursor != "4" {
 		t.Fatalf("WaitCursor cleared while already Waiting, got %q", inst.WaitCursor)
+	}
+}
+
+// fakeTailReader is a scripted tailReader standing in for a message log's TailID.
+type fakeTailReader struct {
+	id string
+	ok bool
+}
+
+func (f *fakeTailReader) TailID() (string, bool) { return f.id, f.ok }
+
+func TestReportWaitingBaselinesWaitCursorFromTailReader(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	sup.SetTailReader(&fakeTailReader{id: "id-9", ok: true})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if inst.WaitCursor != "id-9" {
+		t.Fatalf("WaitCursor = %q, want %q (baselined from tail reader)", inst.WaitCursor, "id-9")
+	}
+}
+
+func TestReportWaitingWaitCursorEmptyWithNoTailReader(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive}) // no SetTailReader call
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if inst.WaitCursor != "" {
+		t.Fatalf("WaitCursor = %q, want \"\" (no tail reader wired)", inst.WaitCursor)
 	}
 }
 

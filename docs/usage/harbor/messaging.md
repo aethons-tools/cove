@@ -72,10 +72,14 @@ runtime:
 ```
 
 The wake trigger is **an external-origin message addressed to the cove landing in
-the durable message Log** after it started waiting (`WaitingSince`, stamped when it
-suspended — no cursor to migrate). It's fed by the msgport ingress engine above, so
-**without a configured `message-log:`, a Waiting cove never wakes on a reply** — it's
-bounded only by `wait-max` teardown (pausing at `warm-timeout` still happens).
+the durable message Log** after a `WaitCursor` baseline: on entering Waiting the
+supervisor stamps `WaitCursor` to the Log's current tail position, and any later
+external-origin message addressed to the cove counts as a reply — a log-position
+compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
+`wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
+by the msgport ingress engine above, so **without a configured `message-log:`, a
+Waiting cove never wakes on a reply** — it's bounded only by `wait-max` teardown
+(pausing at `warm-timeout` still happens).
 
 A Project may also configure an **escalation policy** that actively pings ordered
 human tiers on their own per-tier timers while a cove waits, instead of leaving it

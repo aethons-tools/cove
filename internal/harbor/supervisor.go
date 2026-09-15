@@ -58,6 +58,12 @@ type ControlSink interface {
 	Wake(actorID string)
 }
 
+// tailReader is the sliver of the message log the supervisor needs to baseline a
+// cove's wake-on cursor to the current log position when it enters Waiting.
+type tailReader interface {
+	TailID() (string, bool)
+}
+
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
 // the lease model, and the state machine. One supervisor per harbor process.
 type Supervisor struct {
@@ -69,6 +75,7 @@ type Supervisor struct {
 	now       func() time.Time
 	log       *slog.Logger
 	sink      ControlSink
+	tail      tailReader
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -89,6 +96,19 @@ func NewHolderID() string {
 // SetControlSink installs the control sink after construction (resolving the
 // supervisor↔Attach-server cycle). nil-safe throughout.
 func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+
+// SetTailReader wires the message-log tail source used to baseline WaitCursor on
+// entering Waiting. Called once at wiring time before serving begins; nil (no
+// message log) leaves WaitCursor "".
+func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
+
+func (s *Supervisor) tailID() string {
+	if s.tail == nil {
+		return ""
+	}
+	id, _ := s.tail.TailID()
+	return id
+}
 
 // Raise enrolls the identity, mints a per-instance launch secret, launches the
 // cove, and records a Live Instance leased to this process. Returns the
@@ -174,7 +194,7 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
 	if enteringWaiting {
 		inst.WaitingSince = now
-		inst.WaitCursor = ""
+		inst.WaitCursor = s.tailID()
 		inst.EscalationTier = 0
 		inst.TierPingedAt = time.Time{}
 	}
