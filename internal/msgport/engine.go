@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/msglog"
@@ -25,7 +24,7 @@ const (
 // write seen from the egress loop or from any other caller.
 type Engine struct {
 	surf Surface
-	lg   *msglog.Log
+	lg   msglog.Store
 	mk   Markers
 	cur  Cursors
 	dir  Directory
@@ -37,7 +36,7 @@ type Engine struct {
 // New constructs an Engine for surf, rebuilding seen from the Log's existing
 // "in:"+surf.Service()+":" prefixed ids so a restart never re-ingests events
 // already recorded. Zero Config fields and a nil logger get defaults.
-func New(surf Surface, lg *msglog.Log, mk Markers, cur Cursors, dir Directory, cfg Config, log *slog.Logger) *Engine {
+func New(surf Surface, lg msglog.Store, mk Markers, cur Cursors, dir Directory, cfg Config, log *slog.Logger) *Engine {
 	if cfg.EgressPoll <= 0 {
 		cfg.EgressPoll = defaultEgressPoll
 	}
@@ -49,10 +48,8 @@ func New(surf Surface, lg *msglog.Log, mk Markers, cur Cursors, dir Directory, c
 	}
 	e := &Engine{surf: surf, lg: lg, mk: mk, cur: cur, dir: dir, cfg: cfg, log: log, seen: map[string]bool{}}
 	prefix := "in:" + surf.Service() + ":"
-	for _, m := range lg.List(msglog.Filter{}) {
-		if strings.HasPrefix(m.ID, prefix) {
-			e.seen[m.ID] = true
-		}
+	for _, id := range lg.SeenIDs(prefix) {
+		e.seen[id] = true
 	}
 	return e
 }

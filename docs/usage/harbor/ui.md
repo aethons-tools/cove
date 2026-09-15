@@ -4,7 +4,7 @@ read_when: You want to watch a running harbor in a browser — the live cove fle
 owns: the `/ui/` observability + roster/kit/destination-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # The harbor admin UI (`/ui/`)
@@ -85,7 +85,11 @@ an error.
 
 Unlike the roster/kit/destination pages, Messages has no mutation — the UI only
 reads the Log. Its write-ownership model lives with the `message-log` field —
-see [serve.md](serve.md#the-serve-config).
+see [serve.md](serve.md#the-serve-config). When `store-postgres` is set, the
+Log — and so this view — is served from Postgres instead of the JSONL file;
+behavior here is unchanged (still a full snapshot per load — pagination is a
+later phase). See [serve.md's Postgres store backend section](serve.md#postgres-store-backend-store-postgres)
+for the backend-selection rule.
 
 ## Editing (day-job mutations)
 
