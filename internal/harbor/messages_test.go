@@ -2,13 +2,12 @@ package harbor
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,20 +48,6 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 	return r, ok
 }
 
-// fakeCommenter records PostComment calls, returns canned Comments, and maps a
-// ticket identifier (e.g. "AET-7") to an internal issue id.
-type fakeCommenter struct {
-	ids      map[string]string // identifier -> issue id
-	comments []Comment
-	posted   []postedComment
-	err      error // if set, every method fails with this error
-}
-
-type postedComment struct {
-	issueID string
-	body    string
-}
-
 // fakeAppender records every message passed to Append, for asserting the
 // outbound send. The Log is the authoritative send path: a configured err is
 // returned to the caller (but the message is still recorded) so the
@@ -77,33 +62,13 @@ func (f *fakeAppender) Append(m msglog.Message) (msglog.Message, error) {
 	return m, f.err
 }
 
-func (f *fakeCommenter) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	id, ok := f.ids[identifier]
-	if !ok {
-		return "", fmt.Errorf("fakeCommenter: no issue for identifier %q", identifier)
-	}
-	return id, nil
-}
-
-func (f *fakeCommenter) PostComment(_ context.Context, issueID, body string) error {
-	if f.err != nil {
-		return f.err
-	}
-	f.posted = append(f.posted, postedComment{issueID: issueID, body: body})
-	return nil
-}
-
-func (f *fakeCommenter) Comments(_ context.Context, issueID string) ([]Comment, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.comments, nil
-}
-
-func newTestMessagesHandler() (*MessagesHandler, *fakeStore, *fakeCommenter, *bytes.Buffer) {
+// newTestMessagesHandler builds a MessagesHandler backed by a real (temp-file)
+// msglog.Log for both the reader and the appender — the same wiring
+// production uses — with one actor "cove-AET-7" (bearer "tok-A", ticket
+// "AET-7"). It returns the Log too, so a test can seed the actor's inbox via
+// lg.Append before issuing a GET.
+func newTestMessagesHandler(t *testing.T) (*MessagesHandler, *fakeStore, *msglog.Log, *bytes.Buffer) {
+	t.Helper()
 	store := &fakeStore{
 		actors: map[string]Actor{
 			HashToken("tok-A"): {ID: "cove-AET-7"},
@@ -112,39 +77,70 @@ func newTestMessagesHandler() (*MessagesHandler, *fakeStore, *fakeCommenter, *by
 			"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"},
 		},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
 	var logbuf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	// A configured appender, so a bare POST succeeds (204) by default; tests
-	// that specifically want the unconfigured-Log path build their own handler.
-	h := NewMessagesHandler(store, cmt, &fakeAppender{}, log)
-	return h, store, cmt, &logbuf
+	slogger := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewMessagesHandler(store, lg, lg, slogger)
+	return h, store, lg, &logbuf
+}
+
+// newReadTestStore builds a fakeStore with one actor+instance enrolled: actor
+// actorID, bearer tokenFor(actorID), ticket unit, project project.
+func newReadTestStore(t *testing.T, actorID, unit, project string) *fakeStore {
+	t.Helper()
+	return &fakeStore{
+		actors: map[string]Actor{
+			HashToken(tokenFor(actorID)): {ID: actorID},
+		},
+		instances: map[string]Instance{
+			actorID: {ActorID: actorID, Unit: unit, Project: project},
+		},
+	}
+}
+
+// tokenFor returns the deterministic bearer token newReadTestStore enrolled
+// for actorID.
+func tokenFor(actorID string) string { return "tok-" + actorID }
+
+// mustAppend appends m to lg, failing the test on error.
+func mustAppend(t *testing.T, lg *msglog.Log, m msglog.Message) {
+	t.Helper()
+	if _, err := lg.Append(m); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+}
+
+// doGet issues an authenticated GET /messages against h.
+func doGet(t *testing.T, h *MessagesHandler, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func TestMessagesMissingTokenIs401(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
+	h, _, _, _ := newTestMessagesHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
-	if len(cmt.posted) != 0 || cmt.comments != nil && rec.Code == http.StatusOK {
-		t.Fatalf("commenter should not have been called")
-	}
 }
 
 func TestMessagesUnknownTokenIs401(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
+	h, _, _, _ := newTestMessagesHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
 	req.Header.Set("Authorization", "Bearer not-a-real-token")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment should not have been called")
 	}
 }
 
@@ -155,9 +151,8 @@ func TestMessagesNoInstanceIs403(t *testing.T) {
 		},
 		instances: map[string]Instance{},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{}}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, nil, nil, log)
 
 	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
 	req.Header.Set("Authorization", "Bearer tok-B")
@@ -172,17 +167,16 @@ func TestMessagesNoInstanceIs403(t *testing.T) {
 // appended target is derived ONLY from the authenticated actor's own
 // Instance.Unit. The POST request itself carries no ticket/target field at
 // all, so there is no way for a cove to name another cove's ticket. Since the
-// Log cutover, handlePost never calls PostComment — it only appends; a
-// separate egress engine delivers to Linear.
+// Log cutover, handlePost only appends; a separate egress engine delivers to
+// Linear.
 func TestMessagesPostIsSelfScoped(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -191,9 +185,6 @@ func TestMessagesPostIsSelfScoped(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
 	if len(ap.got) != 1 {
 		t.Fatalf("append calls = %d, want 1", len(ap.got))
@@ -213,61 +204,8 @@ func TestMessagesPostIsSelfScoped(t *testing.T) {
 	}
 }
 
-// TestMessagesPostDoesNotResolveTicket asserts POST /messages is fully
-// decoupled from the tracker: even when IssueByIdentifier fails (e.g. a
-// Linear outage), a send still succeeds (204) and appends, since a send only
-// writes to the Log — it never resolves or talks to the tracker directly.
-func TestMessagesPostDoesNotResolveTicket(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	cmt := &fakeCommenter{err: fmt.Errorf("tracker down")}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204 (tracker outage must not block a send); body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("append calls = %d, want 1", len(ap.got))
-	}
-}
-
-func TestMessagesGetReturnsTaggedInbox(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
-	cmt.comments = []Comment{
-		{ID: "c1", Author: "alice", Body: "hello"},
-		{ID: "c2", Author: "bob", Body: "world"},
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Messages []Comment `json:"messages"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
-	}
-	if len(out.Messages) != 2 || out.Messages[0].Author != "alice" || out.Messages[1].Body != "world" {
-		t.Fatalf("messages = %+v, want the canned inbox", out.Messages)
-	}
-}
-
 func TestMessagesMethodNotAllowed(t *testing.T) {
-	h, _, _, _ := newTestMessagesHandler()
+	h, _, _, _ := newTestMessagesHandler(t)
 	req := httptest.NewRequest(http.MethodPut, "/messages", nil)
 	req.Header.Set("Authorization", "Bearer tok-A")
 	rec := httptest.NewRecorder()
@@ -278,7 +216,7 @@ func TestMessagesMethodNotAllowed(t *testing.T) {
 }
 
 func TestMessagesOversizeBodyIs413(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
+	h, _, _, _ := newTestMessagesHandler(t)
 	huge := strings.Repeat("a", 32*1024)
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"`+huge+`"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -287,13 +225,10 @@ func TestMessagesOversizeBodyIs413(t *testing.T) {
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", rec.Code)
 	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment should not have been called for an oversize body")
-	}
 }
 
 func TestMessagesEmptyBodyIs400(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
+	h, _, _, _ := newTestMessagesHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":""}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
 	rec := httptest.NewRecorder()
@@ -301,16 +236,13 @@ func TestMessagesEmptyBodyIs400(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment should not have been called for an empty body")
-	}
 }
 
 // TestMessagesNeverLogsToken asserts the bearer token string never appears in
 // any logged output, across both the success and failure paths, and that error
 // bodies returned to the client are generic (no token, no internal detail).
 func TestMessagesNeverLogsToken(t *testing.T) {
-	h, _, _, logbuf := newTestMessagesHandler()
+	h, _, _, logbuf := newTestMessagesHandler(t)
 
 	const tok = "tok-A"
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
@@ -351,11 +283,10 @@ func TestSendToHumanAppendsRawToHumanTarget(t *testing.T) {
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{}
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"ping","to":"human:alice"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -364,9 +295,6 @@ func TestSendToHumanAppendsRawToHumanTarget(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
 	if len(ap.got) != 1 {
 		t.Fatalf("append calls = %d, want 1", len(ap.got))
@@ -397,10 +325,9 @@ func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -409,9 +336,6 @@ func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("handlePost must not PostComment after cutover; got %d", len(cmt.posted))
 	}
 	if len(ap.got) != 1 {
 		t.Fatalf("append calls = %d, want 1", len(ap.got))
@@ -426,18 +350,15 @@ func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
 }
 
 // TestMessagesPostAppendFailureIs502 asserts that once the Log is the
-// authoritative delivery path, an Append failure fails the send (502) —
-// unlike the old best-effort shadow-write, there is no live PostComment left
-// to fall back on.
+// authoritative delivery path, an Append failure fails the send (502).
 func TestMessagesPostAppendFailureIs502(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{err: errors.New("disk full")}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -447,22 +368,17 @@ func TestMessagesPostAppendFailureIs502(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment must not be called after cutover")
-	}
 }
 
 // TestMessagesPostNilLogIs503 asserts a send fails with 503 (not a silent
-// swallow, and not a fall-back live PostComment — both removed by the
-// cutover) when the Log is unconfigured (nil appender).
+// swallow) when the Log is unconfigured (nil appender).
 func TestMessagesPostNilLogIs503(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log) // nil appender
+	h := NewMessagesHandler(store, nil, nil, log) // nil appender
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"hi"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -471,9 +387,6 @@ func TestMessagesPostNilLogIs503(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment must not be called when the Log is unconfigured")
 	}
 }
 
@@ -486,10 +399,9 @@ func TestSendToDeniedIs403(t *testing.T) {
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "secret", Ref: "X"}}}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"channel:secret"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -498,9 +410,6 @@ func TestSendToDeniedIs403(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
-	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment must not be called on a denied send")
 	}
 	if len(ap.got) != 0 {
 		t.Fatalf("Append must not be called on a denied send; got %d", len(ap.got))
@@ -517,10 +426,9 @@ func TestSendToUnresolvedIs404(t *testing.T) {
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}}},
 	}
-	cmt := &fakeCommenter{ids: map[string]string{"AET-7": "iss_7"}}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, ap, log)
+	h := NewMessagesHandler(store, nil, ap, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"body":"x","to":"human:bob"}`))
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -530,9 +438,6 @@ func TestSendToUnresolvedIs404(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
-	if len(cmt.posted) != 0 {
-		t.Fatalf("PostComment must not be called on an unresolved send")
-	}
 	if len(ap.got) != 0 {
 		t.Fatalf("Append must not be called on an unresolved send; got %d", len(ap.got))
 	}
@@ -540,8 +445,8 @@ func TestSendToUnresolvedIs404(t *testing.T) {
 
 // TestTargetsListsAllowedTargets asserts GET /messages/targets returns the
 // actor's authorized-and-resolvable targets — a channel not in the role's
-// addressing must be excluded — and that it never resolves a ticket (no
-// IssueByIdentifier call) and never includes handles in the response.
+// addressing must be excluded — and that it never includes handles in the
+// response.
 func TestTargetsListsAllowedTargets(t *testing.T) {
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
@@ -549,10 +454,8 @@ func TestTargetsListsAllowedTargets(t *testing.T) {
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
 		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}},
 	}
-	// No ids configured: if the handler tried to resolve a ticket it would 502.
-	cmt := &fakeCommenter{ids: map[string]string{}}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, cmt, nil, log)
+	h := NewMessagesHandler(store, nil, nil, log)
 
 	req := httptest.NewRequest(http.MethodGet, "/messages/targets", nil)
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -582,10 +485,14 @@ func TestTargetsListsAllowedTargets(t *testing.T) {
 
 // TestTargetsGetStillReturnsInboxForBareMessagesPath is the regression guard:
 // the targets branch must only fire on the exact "/targets" suffix — GET
-// /messages must still return the caller's own-ticket inbox.
+// /messages must still return the caller's own inbox.
 func TestTargetsGetStillReturnsInboxForBareMessagesPath(t *testing.T) {
-	h, _, cmt, _ := newTestMessagesHandler()
-	cmt.comments = []Comment{{ID: "c1", Author: "alice", Body: "hello"}}
+	h, _, lg, _ := newTestMessagesHandler(t)
+	mustAppend(t, lg, msglog.Message{
+		From: msglog.Target{Kind: "human", Ref: "alice"},
+		To:   []msglog.Target{{Kind: "actor", Ref: "cove-AET-7"}},
+		Body: "hello",
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/messages", nil)
 	req.Header.Set("Authorization", "Bearer tok-A")
@@ -602,7 +509,94 @@ func TestTargetsGetStillReturnsInboxForBareMessagesPath(t *testing.T) {
 		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
 	}
 	if len(out.Messages) != 1 || out.Messages[0].Author != "alice" {
-		t.Fatalf("messages = %+v, want the canned inbox (own-ticket read must be unaffected)", out.Messages)
+		t.Fatalf("messages = %+v, want the seeded inbox (own-ticket read must be unaffected)", out.Messages)
+	}
+}
+
+func TestReadReturnsInbox(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	// two inbound replies to the cove + one of the cove's OWN outbound (must be excluded)
+	coveActor := msglog.Target{Kind: "actor", Ref: "cove-1"}
+	mustAppend(t, lg, msglog.Message{From: msglog.Target{Kind: "human", Ref: "Alice"}, To: []msglog.Target{coveActor}, Body: "first", Project: "acme"})
+	mustAppend(t, lg, msglog.Message{From: coveActor, To: []msglog.Target{{Kind: "channel", Ref: "ACME-7"}}, Body: "my own send", Project: "acme"})
+	mustAppend(t, lg, msglog.Message{From: msglog.Target{Kind: "human", Ref: "Alice"}, To: []msglog.Target{coveActor}, Body: "second", Project: "acme"})
+
+	// store: actor "cove-1" with a token, instance Unit "ACME-7"
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGet(t, h, tokenFor("cove-1")) // GET /messages with the actor's bearer
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Messages []Comment `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2 (own send excluded); got %+v", len(resp.Messages), resp.Messages)
+	}
+	if resp.Messages[0].Author != "Alice" || resp.Messages[0].Body != "first" {
+		t.Fatalf("msg0 = %+v, want Alice/first", resp.Messages[0])
+	}
+	if resp.Messages[1].Body != "second" {
+		t.Fatalf("msg1 = %+v, want second", resp.Messages[1])
+	}
+	for _, m := range resp.Messages {
+		if m.ID == "" || m.At == nil {
+			t.Fatalf("id/at missing: %+v", m)
+		}
+	}
+}
+
+func TestReadEmptyInboxIsEmptyArray(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+	rec := doGet(t, h, tokenFor("cove-1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"messages":[]`) {
+		t.Fatalf("body = %s, want empty array (not null)", got)
+	}
+}
+
+func TestReadNilReaderIs503(t *testing.T) {
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, nil, nil, testLogger())
+	rec := doGet(t, h, tokenFor("cove-1"))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestReadIsSelfScoped(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	// an inbound to a DIFFERENT cove
+	mustAppend(t, lg, msglog.Message{From: msglog.Target{Kind: "human", Ref: "Bob"}, To: []msglog.Target{{Kind: "actor", Ref: "cove-2"}}, Body: "for cove-2", Project: "acme"})
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+	rec := doGet(t, h, tokenFor("cove-1"))
+	var resp struct {
+		Messages []Comment `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != 0 {
+		t.Fatalf("cove-1 must not see cove-2's inbox; got %+v", resp.Messages)
 	}
 }
 
