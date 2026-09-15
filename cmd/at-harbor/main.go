@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
 	"github.com/aethons-tools/cove/internal/backend/colima"
@@ -41,6 +42,7 @@ import (
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/msglog"
+	"github.com/aethons-tools/cove/internal/msglog/msglogpg"
 	"github.com/aethons-tools/cove/internal/msgport"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -985,6 +987,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// store. The DB password is resolved on the host in memory and assembled into
 	// the DSN — never written to disk/argv, never logged.
 	var st harbor.Store
+	var pgPool *pgxpool.Pool // non-nil ⇒ Postgres backend; shared with the message log
 	if pc := cfg.StorePostgres; pc != nil {
 		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
 		if err != nil {
@@ -1000,6 +1003,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		defer ps.Close()
 		st = ps
+		pgPool = ps.Pool()
 		log.Info("harbor store: postgres", "host", pc.Host, "database", pc.Database) // never the password
 	} else {
 		fs, err := harbor.NewFileStore(cfg.Store)
@@ -1057,13 +1061,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
-	// Message Log: opened once (append handle held for the serve lifetime) and
-	// shared between the /messages writer (dual-write shadow, below) and the
-	// admin UI's read-only reader (further down). Unset config → nil → the
-	// writer's dual-write is disabled and the admin view renders a "not
-	// configured" notice.
-	var messageLog *msglog.Log
-	if cfg.MessageLog != "" {
+	// Message Log: opened once (handle held for the serve lifetime) and shared
+	// between the /messages writer (dual-write shadow, below) and the admin UI's
+	// read-only reader (further down). Backend follows the store backend:
+	// Postgres (shared control-plane pool) when store-postgres is set, else the
+	// file log at message-log. Unset config → nil → the writer's dual-write is
+	// disabled and the admin view renders a "not configured" notice.
+	var messageLog msglog.Store
+	switch {
+	case pgPool != nil:
+		ml, err := msglogpg.New(context.Background(), pgPool, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: message-log (postgres):", err)
+			return 1
+		}
+		messageLog = ml // Close is a no-op; the store owns the pool
+		log.Info("harbor message log: postgres (shared control-plane database)")
+	case cfg.MessageLog != "":
 		ml, err := msglog.Open(cfg.MessageLog, log)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor: message-log:", err)
@@ -1071,7 +1085,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		defer ml.Close()
 		messageLog = ml
-		log.Info("harbor message log", "path", cfg.MessageLog)
+		log.Info("harbor message log: file", "path", cfg.MessageLog)
 	}
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
@@ -1101,9 +1115,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Pass messageLog as the appender only when it's genuinely non-nil: a
-		// typed-nil *msglog.Log boxed into the appender interface would compare
-		// non-nil inside handlePost and panic on Append. See messageLog above.
+		// Pass messageLog as the appender only when it's genuinely non-nil: it is
+		// an msglog.Store interface value assigned only to a real backend (see
+		// messageLog above) or left as a true nil interface, so this guard is a
+		// plain nil check with no typed-nil hazard.
 		var msgH *harbor.MessagesHandler
 		if messageLog != nil {
 			msgH = harbor.NewMessagesHandler(st, linearCommenter{tracker}, messageLog, log)
@@ -1122,10 +1137,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
 		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
 		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		// Pass messageLog as the Inbox only when it's genuinely non-nil: a
-		// typed-nil *msglog.Log boxed into the Inbox interface would compare
-		// non-nil inside Engine.replied and panic on ReadInbox. See
-		// messageLog above (same trap as the msgH wiring).
+		// Pass messageLog as the Inbox only when it's genuinely non-nil (same
+		// plain nil check as the msgH wiring above — no typed-nil hazard).
 		var inbox wakeon.Inbox
 		if messageLog != nil {
 			inbox = messageLog

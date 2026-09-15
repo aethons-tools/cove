@@ -60,6 +60,11 @@ var _ Store = (*PostgresStore)(nil)
 // Close releases the connection pool.
 func (s *PostgresStore) Close() { s.pool.Close() }
 
+// Pool returns the underlying connection pool so colocated subsystems (e.g. the
+// Postgres message log) can share this store's database. The pool's lifecycle is
+// owned by the store; callers must not close it.
+func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
+
 // migrate applies any embedded migrations not yet recorded in schema_migrations,
 // under an advisory lock so concurrent starts don't race.
 func (s *PostgresStore) migrate(ctx context.Context) error {
