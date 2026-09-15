@@ -31,6 +31,7 @@ func (t Target) valid() bool { return validKind(t.Kind) && t.Ref != "" }
 
 // Message is one immutable Log entry.
 type Message struct {
+	Seq     int64     `json:"seq"` // monotonic append order; assigned at Append, 0 before
 	ID      string    `json:"id"`
 	From    Target    `json:"from"`
 	To      []Target  `json:"to"`

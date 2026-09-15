@@ -18,11 +18,12 @@ const maxLineBytes = 4 << 20 // 4 MiB
 // Log is a durable, append-only message log: a JSONL file mirrored in memory.
 // The serve process is the sole writer (single-node MVP).
 type Log struct {
-	mu   sync.Mutex
-	path string
-	f    *os.File
-	msgs []Message
-	log  *slog.Logger
+	mu      sync.Mutex
+	path    string
+	f       *os.File
+	msgs    []Message
+	log     *slog.Logger
+	nextSeq int64 // next Seq to assign; resumed on Open to max(seen Seq)+1
 }
 
 // Open loads (or creates) the log at path — reading every well-formed line into
@@ -57,6 +58,13 @@ func Open(path string, log *slog.Logger) (*Log, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("msglog: open %s: %w", path, err)
 	}
+	var maxSeq int64
+	for _, m := range l.msgs {
+		if m.Seq > maxSeq {
+			maxSeq = m.Seq
+		}
+	}
+	l.nextSeq = maxSeq + 1
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("msglog: open-append %s: %w", path, err)
@@ -86,6 +94,8 @@ func (l *Log) Append(m Message) (Message, error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	m.Seq = l.nextSeq
+	l.nextSeq++
 	line, err := json.Marshal(m)
 	if err != nil {
 		return Message{}, fmt.Errorf("msglog: marshal: %w", err)

@@ -49,18 +49,38 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 }
 
 // AdvanceCommitCursor mimics FileStore/PostgresStore semantics: monotonic
-// forward only (a no-op if upTo <= the current cursor), error if the actor
-// has no instance.
-func (f *fakeStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+// forward on upToSeq only (a no-op if upToSeq <= the current CommitSeq),
+// error if the actor has no instance. CommitCursor (the id echo) travels in
+// lockstep with CommitSeq.
+func (f *fakeStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) {
 	i, ok := f.instances[actorID]
 	if !ok {
 		return Instance{}, errors.New("no instance")
 	}
-	if upTo > i.CommitCursor {
-		i.CommitCursor = upTo
+	if upToSeq > i.CommitSeq {
+		i.CommitCursor = upToID
+		i.CommitSeq = upToSeq
 	}
 	f.instances[actorID] = i
 	return i, nil
+}
+
+// fakeReader is a scripted inboxReader for handleCommit tests that need
+// SeqOf id→Seq resolution without a real *msglog.Log. ReadInboxSince/Before
+// are unused by these tests (commit never reads) and return nil.
+type fakeReader struct {
+	seqs map[string]int64 // id -> seq
+}
+
+func (f *fakeReader) ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message {
+	return nil
+}
+func (f *fakeReader) ReadInboxBefore(t msglog.Target, beforeSeq int64, limit int) []msglog.Message {
+	return nil
+}
+func (f *fakeReader) SeqOf(id string) (int64, bool) {
+	seq, ok := f.seqs[id]
+	return seq, ok
 }
 
 // fakeAppender records every message passed to Append, for asserting the
@@ -654,20 +674,20 @@ type readResp struct {
 	PageLast        string    `json:"page_last"`
 }
 
-// seedInbox appends n messages (bodies "m0".."m(n-1)") addressed to actor:coveID,
-// returning their ids in append order.
-func seedInbox(t *testing.T, lg *msglog.Log, coveID string, n int) []string {
+// seedInbox appends n messages (body "m") addressed to actor:coveID,
+// returning the appended messages (id + Seq) in append order.
+func seedInbox(t *testing.T, lg *msglog.Log, coveID string, n int) []msglog.Message {
 	t.Helper()
 	coveActor := msglog.Target{Kind: "actor", Ref: coveID}
-	ids := make([]string, 0, n)
+	msgs := make([]msglog.Message, 0, n)
 	for i := 0; i < n; i++ {
 		m, err := lg.Append(msglog.Message{From: msglog.Target{Kind: "human", Ref: "Alice"}, To: []msglog.Target{coveActor}, Body: "m", Project: "acme"})
 		if err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
-		ids = append(ids, m.ID)
+		msgs = append(msgs, m)
 	}
-	return ids
+	return msgs
 }
 
 // TestReadDefaultAnchorIsNextAfterCommitCursor asserts the default GET (no
@@ -680,10 +700,10 @@ func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	ids := seedInbox(t, lg, "cove-1", 5)
+	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme", CommitCursor: ids[1]}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme", CommitCursor: msgs[1].ID, CommitSeq: msgs[1].Seq}},
 	}
 	h := NewMessagesHandler(store, lg, lg, testLogger())
 
@@ -696,22 +716,22 @@ func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(resp.Messages) != 3 {
-		t.Fatalf("messages = %d, want 3 (ids[2..4]); got %+v", len(resp.Messages), resp.Messages)
+		t.Fatalf("messages = %d, want 3 (msgs[2..4]); got %+v", len(resp.Messages), resp.Messages)
 	}
-	if resp.Messages[0].ID != ids[2] || resp.Messages[2].ID != ids[4] {
-		t.Fatalf("messages = %+v, want ids[2..4] = %v", resp.Messages, ids[2:])
+	if resp.Messages[0].ID != msgs[2].ID || resp.Messages[2].ID != msgs[4].ID {
+		t.Fatalf("messages = %+v, want msgs[2..4] = %v", resp.Messages, msgs[2:])
 	}
-	if resp.CommittedCursor != ids[1] {
-		t.Fatalf("committed_cursor = %q, want %q", resp.CommittedCursor, ids[1])
+	if resp.CommittedCursor != msgs[1].ID {
+		t.Fatalf("committed_cursor = %q, want %q", resp.CommittedCursor, msgs[1].ID)
 	}
-	if resp.PageFirst != ids[2] || resp.PageLast != ids[4] {
-		t.Fatalf("page_first/page_last = %q/%q, want %q/%q", resp.PageFirst, resp.PageLast, ids[2], ids[4])
+	if resp.PageFirst != msgs[2].ID || resp.PageLast != msgs[4].ID {
+		t.Fatalf("page_first/page_last = %q/%q, want %q/%q", resp.PageFirst, resp.PageLast, msgs[2].ID, msgs[4].ID)
 	}
 
 	// A read must never advance the cursor.
 	inst, _ := store.GetInstance("cove-1")
-	if inst.CommitCursor != ids[1] {
-		t.Fatalf("CommitCursor changed by a read: %q, want unchanged %q", inst.CommitCursor, ids[1])
+	if inst.CommitCursor != msgs[1].ID || inst.CommitSeq != msgs[1].Seq {
+		t.Fatalf("commit cursor changed by a read: %+v, want unchanged id=%q seq=%d", inst, msgs[1].ID, msgs[1].Seq)
 	}
 }
 
@@ -722,10 +742,10 @@ func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	ids := seedInbox(t, lg, "cove-1", 3)
+	msgs := seedInbox(t, lg, "cove-1", 3)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: ids[2]}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: msgs[2].ID, CommitSeq: msgs[2].Seq}},
 	}
 	h := NewMessagesHandler(store, lg, lg, testLogger())
 
@@ -737,8 +757,8 @@ func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Messages) != 3 || resp.Messages[0].ID != ids[0] {
-		t.Fatalf("messages = %+v, want all 3 starting at %q", resp.Messages, ids[0])
+	if len(resp.Messages) != 3 || resp.Messages[0].ID != msgs[0].ID {
+		t.Fatalf("messages = %+v, want all 3 starting at %q", resp.Messages, msgs[0].ID)
 	}
 }
 
@@ -749,10 +769,10 @@ func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	ids := seedInbox(t, lg, "cove-1", 5)
+	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: ids[0]}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: msgs[0].ID, CommitSeq: msgs[0].Seq}},
 	}
 	h := NewMessagesHandler(store, lg, lg, testLogger())
 
@@ -764,8 +784,8 @@ func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Messages) != 2 || resp.Messages[0].ID != ids[3] || resp.Messages[1].ID != ids[4] {
-		t.Fatalf("messages = %+v, want the last 2 (%v)", resp.Messages, ids[3:])
+	if len(resp.Messages) != 2 || resp.Messages[0].ID != msgs[3].ID || resp.Messages[1].ID != msgs[4].ID {
+		t.Fatalf("messages = %+v, want the last 2 (%v)", resp.Messages, msgs[3:])
 	}
 }
 
@@ -777,26 +797,44 @@ func TestReadAnchorIDForwardAndBackward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	ids := seedInbox(t, lg, "cove-1", 5)
+	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewMessagesHandler(store, lg, lg, testLogger())
 
-	fwd := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+ids[2])
+	fwd := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+msgs[2].ID)
 	var fwdResp readResp
 	if err := json.Unmarshal(fwd.Body.Bytes(), &fwdResp); err != nil {
 		t.Fatalf("decode forward: %v", err)
 	}
-	if len(fwdResp.Messages) != 2 || fwdResp.Messages[0].ID != ids[3] || fwdResp.Messages[1].ID != ids[4] {
-		t.Fatalf("forward messages = %+v, want %v", fwdResp.Messages, ids[3:])
+	if len(fwdResp.Messages) != 2 || fwdResp.Messages[0].ID != msgs[3].ID || fwdResp.Messages[1].ID != msgs[4].ID {
+		t.Fatalf("forward messages = %+v, want %v", fwdResp.Messages, msgs[3:])
 	}
 
-	back := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+ids[2]+"&dir=backward")
+	back := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+msgs[2].ID+"&dir=backward")
 	var backResp readResp
 	if err := json.Unmarshal(back.Body.Bytes(), &backResp); err != nil {
 		t.Fatalf("decode backward: %v", err)
 	}
-	if len(backResp.Messages) != 2 || backResp.Messages[0].ID != ids[0] || backResp.Messages[1].ID != ids[1] {
-		t.Fatalf("backward messages = %+v, want %v", backResp.Messages, ids[:2])
+	if len(backResp.Messages) != 2 || backResp.Messages[0].ID != msgs[0].ID || backResp.Messages[1].ID != msgs[1].ID {
+		t.Fatalf("backward messages = %+v, want %v", backResp.Messages, msgs[:2])
+	}
+}
+
+// TestReadAnchorIDUnknownIs400 asserts anchor=id with an id the log doesn't
+// recognize is a 400 (SeqOf can't resolve it) — not silently treated as
+// "from the start" or "from the end".
+func TestReadAnchorIDUnknownIs400(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	seedInbox(t, lg, "cove-1", 2)
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id=does-not-exist")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
 
@@ -861,7 +899,7 @@ func TestCommitAdvancesCursorAndReturnsIt(t *testing.T) {
 		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
 	}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, nil, nil, log)
+	h := NewMessagesHandler(store, &fakeReader{seqs: map[string]int64{"msg-005": 5}}, nil, log)
 
 	rec := doCommit(t, h, tokenFor("cove-1"), "msg-005")
 	if rec.Code != http.StatusOK {
@@ -917,7 +955,7 @@ func TestCommitOnlyAdvancesCallersOwnInstance(t *testing.T) {
 		},
 	}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, nil, nil, log)
+	h := NewMessagesHandler(store, &fakeReader{seqs: map[string]int64{"msg-100": 100}}, nil, log)
 
 	rec := doCommit(t, h, tokenFor("cove-1"), "msg-100")
 	if rec.Code != http.StatusOK {
@@ -937,7 +975,7 @@ func TestCommitOnlyAdvancesCallersOwnInstance(t *testing.T) {
 func TestHandleCommitStoreErrorIs403(t *testing.T) {
 	store := &fakeStore{instances: map[string]Instance{}}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewMessagesHandler(store, nil, nil, log)
+	h := NewMessagesHandler(store, &fakeReader{seqs: map[string]int64{"msg-1": 1}}, nil, log)
 
 	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{"up_to":"msg-1"}`))
 	rec := httptest.NewRecorder()
@@ -1010,6 +1048,43 @@ func TestCommitOversizeBodyIs413(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+}
+
+// TestCommitUnknownUpToIs400 asserts an up_to id the reader's SeqOf can't
+// resolve is a 400 — commit must never silently no-op or misresolve an
+// unknown id to some arbitrary Seq.
+func TestCommitUnknownUpToIs400(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, &fakeReader{}, nil, log) // empty seqs: every id unknown
+
+	rec := doCommit(t, h, tokenFor("cove-1"), "ghost-id")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "" || inst.CommitSeq != 0 {
+		t.Fatalf("commit cursor changed on an unknown up_to: %+v", inst)
+	}
+}
+
+// TestCommitNilReaderIs503 asserts a commit fails 503 (messaging not
+// configured) when no reader is wired — commit can no longer resolve up_to
+// to a Seq without one, so it must fail closed rather than silently no-op.
+func TestCommitNilReaderIs503(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	rec := doCommit(t, h, tokenFor("cove-1"), "msg-1")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }
 

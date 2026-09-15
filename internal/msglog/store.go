@@ -11,26 +11,33 @@ type Store interface {
 	List(f Filter) []Message
 	// SeenIDs returns the ids of messages whose id starts with prefix, in append
 	// order — the bounded query the msgport engine uses to rebuild its ingress
-	// dedupe set at startup without materializing the whole log.
+	// dedupe set at startup without materializing the whole log. Ids are
+	// identifiers only, not an ordering key — see Seq for that.
 	SeenIDs(prefix string) []string
-	// ListSince returns messages with id > afterID, in append order, capped at
-	// limit (limit <= 0 = unbounded). afterID == "" starts from the beginning.
-	// Append order == lexical id order relies on distinct At nanoseconds (the
-	// "%020d-<rand>" id in newID); a sub-nanosecond tie under the single writer
-	// is the only case where id order could differ from insertion order.
-	ListSince(afterID string, limit int) []Message
-	// ReadInboxSince returns messages addressed to t with id > afterID, in append
-	// order, capped at limit (<= 0 = unbounded). afterID == "" = the whole inbox.
-	ReadInboxSince(t Target, afterID string, limit int) []Message
-	// ReadInboxBefore returns messages addressed to t with id < beforeID, the
-	// `limit` nearest below beforeID, in append (ascending) order (limit <= 0 =
-	// unbounded). beforeID == "" means "from the end" (the last `limit`). Pairs
-	// with ReadInboxSince for backward paging: next-backward from a page is
-	// ReadInboxBefore(t, page.first, limit).
-	ReadInboxBefore(t Target, beforeID string, limit int) []Message
-	// TailID returns the highest-id (last-appended) message's id, or ("", false)
-	// when the log is empty.
-	TailID() (string, bool)
+	// ListSince returns messages with Seq > afterSeq, in append (Seq) order,
+	// capped at limit (limit <= 0 = unbounded). afterSeq <= 0 starts from the
+	// beginning. Seq, not id, is the order key: message ids are opaque
+	// identifiers (including ingress ids like "in:linear:<uuid>" from other
+	// namespaces) and are not comparable across sources.
+	ListSince(afterSeq int64, limit int) []Message
+	// ReadInboxSince returns messages addressed to t with Seq > afterSeq, in
+	// append (Seq) order, capped at limit (<= 0 = unbounded). afterSeq <= 0 =
+	// the whole inbox.
+	ReadInboxSince(t Target, afterSeq int64, limit int) []Message
+	// ReadInboxBefore returns messages addressed to t with Seq < beforeSeq, the
+	// `limit` nearest below beforeSeq, in append (ascending Seq) order (limit <=
+	// 0 = unbounded). beforeSeq <= 0 means "from the end" (the last `limit`).
+	// Pairs with ReadInboxSince for backward paging: next-backward from a page
+	// is ReadInboxBefore(t, page.first.Seq, limit).
+	ReadInboxBefore(t Target, beforeSeq int64, limit int) []Message
+	// SeqOf returns the append-order Seq assigned to the message with the given
+	// id, or (0, false) if no such message exists. It is the boundary resolver
+	// from an externally-facing id (e.g. a wire cursor) to the internal Seq
+	// ordering key.
+	SeqOf(id string) (int64, bool)
+	// TailSeq returns the last-appended message's Seq, or (0, false) when the
+	// log is empty.
+	TailSeq() (int64, bool)
 	Close() error
 }
 

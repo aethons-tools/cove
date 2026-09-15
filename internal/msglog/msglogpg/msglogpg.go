@@ -60,10 +60,10 @@ func (s *Store) Append(m msglog.Message) (msglog.Message, error) {
 		return msglog.Message{}, err
 	}
 	err = pgx.BeginFunc(context.Background(), s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(context.Background(),
+		if err := tx.QueryRow(context.Background(),
 			`INSERT INTO messages (id, from_kind, from_ref, body, at, project, reply_to, "to")
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON); err != nil {
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING seq`,
+			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON).Scan(&m.Seq); err != nil {
 			return err
 		}
 		for _, t := range m.To {
@@ -87,29 +87,29 @@ func (s *Store) Append(m msglog.Message) (msglog.Message, error) {
 
 func (s *Store) ReadInbox(t msglog.Target) []msglog.Message {
 	return s.query(
-		`SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 		 FROM messages m JOIN message_recipients r ON r.message_id = m.id
-		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.id`, t.Kind, t.Ref)
+		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.seq`, t.Kind, t.Ref)
 }
 
 func (s *Store) ReadThread(rootID string) []msglog.Message {
 	return s.query(
-		`SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
-		 FROM messages WHERE id = $1 OR reply_to = $1 ORDER BY id`, rootID)
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
+		 FROM messages WHERE id = $1 OR reply_to = $1 ORDER BY seq`, rootID)
 }
 
 func (s *Store) List(f msglog.Filter) []msglog.Message {
 	// Zero Since/Until are unbounded; pass them as conditional predicates.
-	// ORDER BY id reflects append order under the single-writer real-time-append
-	// model: ids are monotonic with insertion because Prepare stamps At=time.Now(),
-	// matching the file backend's append-ordered scan.
+	// ORDER BY seq is the append-order key (see Store.ListSince doc): ids are
+	// opaque identifiers, not comparable across namespaces, so ordering must
+	// never rely on lexical id order.
 	return s.query(
-		`SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
 		 FROM messages
 		 WHERE ($1 = '' OR project = $1)
 		   AND ($2::timestamptz IS NULL OR at >= $2)
 		   AND ($3::timestamptz IS NULL OR at < $3)
-		 ORDER BY id`,
+		 ORDER BY seq`,
 		f.Project, nullTime(f.Since), nullTime(f.Until))
 }
 
@@ -141,10 +141,10 @@ func (s *Store) SeenIDs(prefix string) []string {
 	return out
 }
 
-func (s *Store) ListSince(afterID string, limit int) []msglog.Message {
-	sql := `SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
-	        FROM messages WHERE id > $1 ORDER BY id`
-	args := []any{afterID}
+func (s *Store) ListSince(afterSeq int64, limit int) []msglog.Message {
+	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
+	        FROM messages WHERE seq > $1 ORDER BY seq`
+	args := []any{afterSeq}
 	if limit > 0 {
 		sql += ` LIMIT $2`
 		args = append(args, limit)
@@ -152,11 +152,11 @@ func (s *Store) ListSince(afterID string, limit int) []msglog.Message {
 	return s.query(sql, args...)
 }
 
-func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message {
-	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+func (s *Store) ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message {
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
-	        WHERE r.kind = $1 AND r.ref = $2 AND m.id > $3 ORDER BY m.id`
-	args := []any{t.Kind, t.Ref, afterID}
+	        WHERE r.kind = $1 AND r.ref = $2 AND m.seq > $3 ORDER BY m.seq`
+	args := []any{t.Kind, t.Ref, afterSeq}
 	if limit > 0 {
 		sql += ` LIMIT $4`
 		args = append(args, limit)
@@ -164,17 +164,17 @@ func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msg
 	return s.query(sql, args...)
 }
 
-func (s *Store) ReadInboxBefore(t msglog.Target, beforeID string, limit int) []msglog.Message {
-	// nearest-below beforeID: order DESC + LIMIT, then reverse to ascending.
-	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+func (s *Store) ReadInboxBefore(t msglog.Target, beforeSeq int64, limit int) []msglog.Message {
+	// nearest-below beforeSeq: order DESC + LIMIT, then reverse to ascending.
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2`
 	args := []any{t.Kind, t.Ref}
-	if beforeID != "" {
-		sql += ` AND m.id < $3`
-		args = append(args, beforeID)
+	if beforeSeq > 0 {
+		sql += ` AND m.seq < $3`
+		args = append(args, beforeSeq)
 	}
-	sql += ` ORDER BY m.id DESC`
+	sql += ` ORDER BY m.seq DESC`
 	if limit > 0 {
 		sql += fmt.Sprintf(" LIMIT $%d", len(args)+1)
 		args = append(args, limit)
@@ -187,18 +187,36 @@ func (s *Store) ReadInboxBefore(t msglog.Target, beforeID string, limit int) []m
 	return out
 }
 
-func (s *Store) TailID() (string, bool) {
-	var id string
+// SeqOf returns the append-order Seq assigned to the message with the given
+// id, or (0, false) if no such message exists.
+func (s *Store) SeqOf(id string) (int64, bool) {
+	var seq int64
 	err := s.pool.QueryRow(context.Background(),
-		`SELECT id FROM messages ORDER BY id DESC LIMIT 1`).Scan(&id)
+		`SELECT seq FROM messages WHERE id = $1`, id).Scan(&seq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", false
+			return 0, false
 		}
-		s.log.Error("msglogpg: TailID query", "error", err.Error())
-		return "", false
+		s.log.Error("msglogpg: SeqOf query", "error", err.Error())
+		return 0, false
 	}
-	return id, true
+	return seq, true
+}
+
+// TailSeq returns the last-appended message's Seq, or (0, false) when the log
+// is empty.
+func (s *Store) TailSeq() (int64, bool) {
+	var seq int64
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT seq FROM messages ORDER BY seq DESC LIMIT 1`).Scan(&seq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false
+		}
+		s.log.Error("msglogpg: TailSeq query", "error", err.Error())
+		return 0, false
+	}
+	return seq, true
 }
 
 // query runs a message SELECT (columns in the fixed order below) and
@@ -214,18 +232,18 @@ func (s *Store) query(sql string, args ...any) []msglog.Message {
 }
 
 // scanMessages scans each row of a message SELECT (columns in the fixed order:
-// id, from_kind, from_ref, body, at, project, reply_to, "to") and reconstructs
-// each Message, decoding To from the "to" JSONB column. On a scan or decode
-// error it logs and returns nil rather than a partial result. After the loop it
-// checks rows.Err(): in pgx v5 a mid-stream failure can end Next() early without
-// a Scan error, surfacing only via rows.Err(), so a truncated read must not be
-// silently returned as a short success.
+// seq, id, from_kind, from_ref, body, at, project, reply_to, "to") and
+// reconstructs each Message, decoding To from the "to" JSONB column. On a scan
+// or decode error it logs and returns nil rather than a partial result. After
+// the loop it checks rows.Err(): in pgx v5 a mid-stream failure can end Next()
+// early without a Scan error, surfacing only via rows.Err(), so a truncated
+// read must not be silently returned as a short success.
 func (s *Store) scanMessages(rows pgx.Rows) []msglog.Message {
 	var out []msglog.Message
 	for rows.Next() {
 		var m msglog.Message
 		var toJSON []byte
-		if err := rows.Scan(&m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
+		if err := rows.Scan(&m.Seq, &m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
 			s.log.Error("msglogpg: scan", "error", err.Error())
 			return nil
 		}

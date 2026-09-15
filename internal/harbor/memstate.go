@@ -322,16 +322,19 @@ func (m *memState) applyRemoveInstance(actorID string) bool {
 	return true
 }
 
-// applyAdvanceCommitCursor moves the instance's CommitCursor to upTo iff it is
-// forward of the current value; returns the (possibly unchanged) instance and
-// whether the actor exists. Caller holds the write lock.
-func (m *memState) applyAdvanceCommitCursor(actorID, upTo string) (Instance, bool) {
+// applyAdvanceCommitCursor moves the instance's CommitSeq (the ordering key)
+// and CommitCursor (the id echo, kept in lockstep) to upToSeq/upToID iff
+// upToSeq is forward of the current CommitSeq; returns the (possibly
+// unchanged) instance and whether the actor exists. Caller holds the write
+// lock.
+func (m *memState) applyAdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, bool) {
 	i, ok := m.instances[actorID]
 	if !ok {
 		return Instance{}, false
 	}
-	if upTo > i.CommitCursor {
-		i.CommitCursor = upTo
+	if upToSeq > i.CommitSeq {
+		i.CommitSeq = upToSeq
+		i.CommitCursor = upToID
 		m.instances[actorID] = i
 	}
 	return i, true

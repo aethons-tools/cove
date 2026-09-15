@@ -54,7 +54,7 @@ type Surface interface {
 // EgressMark is the BOUNDED per-Service delivery bookkeeping (not stored in
 // msglog — it stays pure).
 type EgressMark struct {
-	LastMsg string                     // low-water: every Log id <= this is fully delivered for this Service
+	LastSeq int64                      // low-water: every Log message with Seq <= this is fully delivered for this Service
 	Pending map[string]map[string]bool // msgID → set of delivered target.String() (the draining in-flight window)
 }
 

@@ -28,12 +28,16 @@ type Comment struct {
 }
 
 // inboxReader is the narrow read side of the message Log the /messages GET
-// path needs — seekable in both directions, so the handler never needs the
-// unbounded ReadInbox. Satisfied by *msglog.Log and *msglogpg.Store; nil
-// disables reads (GET → 503).
+// and commit paths need — seekable in both directions (so the handler never
+// needs the unbounded ReadInbox), plus SeqOf to resolve a wire-level message
+// id to its append-order Seq at the boundary (the cove-facing wire stays
+// id-based; harbor resolves internally). Satisfied by *msglog.Log and
+// *msglogpg.Store; nil disables reads (GET → 503) and commits (POST
+// /messages/commit → 503, since it can no longer resolve up_to to a Seq).
 type inboxReader interface {
-	ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message
-	ReadInboxBefore(t msglog.Target, beforeID string, limit int) []msglog.Message
+	ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message
+	ReadInboxBefore(t msglog.Target, beforeSeq int64, limit int) []msglog.Message
+	SeqOf(id string) (int64, bool)
 }
 
 // messagesStore is the narrow slice of Store the /messages handler needs.
@@ -43,7 +47,7 @@ type messagesStore interface {
 	GetInstance(actorID string) (Instance, bool)
 	GetRole(project, name string) (Role, bool)
 	GetRoster(project string) (Roster, bool)
-	AdvanceCommitCursor(actorID, upTo string) (Instance, error)
+	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error)
 }
 
 // appender is the narrow write side of the message Log — the authoritative
@@ -224,11 +228,13 @@ const (
 )
 
 // handleGet serves a seekable page of the cove's own inbox. anchor selects
-// where the page starts — "" or "cursor" (the cove's durable CommitCursor,
-// the default), "start"/"end" (the log's bounds), or "id" (an explicit
-// message id via ?id=) — and dir selects which way the page reads from
-// there: "" or "forward" (ReadInboxSince) or "backward" (ReadInboxBefore). A
-// read never advances CommitCursor; only POST /messages/commit does that.
+// where the page starts — "" or "cursor" (the cove's durable CommitSeq, the
+// default), "start"/"end" (the log's bounds), or "id" (an explicit message id
+// via ?id=, resolved to its Seq via SeqOf) — and dir selects which way the
+// page reads from there: "" or "forward" (ReadInboxSince) or "backward"
+// (ReadInboxBefore). A read never advances the commit cursor; only POST
+// /messages/commit does that. The wire stays id-based throughout (Seq is an
+// internal resolution detail, never returned).
 func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	if h.reader == nil {
 		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
@@ -255,24 +261,29 @@ func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, acto
 	switch anchor {
 	case "", "cursor":
 		if dir == "backward" {
-			msgs = h.reader.ReadInboxBefore(target, inst.CommitCursor, limit)
+			msgs = h.reader.ReadInboxBefore(target, inst.CommitSeq, limit)
 		} else {
-			msgs = h.reader.ReadInboxSince(target, inst.CommitCursor, limit)
+			msgs = h.reader.ReadInboxSince(target, inst.CommitSeq, limit)
 		}
 	case "start":
-		msgs = h.reader.ReadInboxSince(target, "", limit)
+		msgs = h.reader.ReadInboxSince(target, 0, limit)
 	case "end":
-		msgs = h.reader.ReadInboxBefore(target, "", limit)
+		msgs = h.reader.ReadInboxBefore(target, 0, limit)
 	case "id":
 		id := q.Get("id")
 		if id == "" {
 			http.Error(w, "anchor=id requires id", http.StatusBadRequest)
 			return
 		}
+		seq, ok := h.reader.SeqOf(id)
+		if !ok {
+			http.Error(w, "unknown message id", http.StatusBadRequest)
+			return
+		}
 		if dir == "backward" {
-			msgs = h.reader.ReadInboxBefore(target, id, limit)
+			msgs = h.reader.ReadInboxBefore(target, seq, limit)
 		} else {
-			msgs = h.reader.ReadInboxSince(target, id, limit)
+			msgs = h.reader.ReadInboxSince(target, seq, limit)
 		}
 	default:
 		http.Error(w, "invalid anchor", http.StatusBadRequest)
@@ -304,7 +315,10 @@ func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, acto
 // handleCommit advances the caller's durable commit cursor to up_to (POST
 // /messages/commit {"up_to": "<message id>"}). The actor comes solely from
 // the authenticated token, never the request body — there is no way for a
-// cove to advance another cove's cursor.
+// cove to advance another cove's cursor. up_to is a wire-level message id;
+// it's resolved to its append-order Seq (the actual ordering key) via
+// h.reader.SeqOf before the store is touched — an unknown id is a 400, never
+// silently advances anything.
 func (h *MessagesHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageBodyBytes)
 	var req struct {
@@ -323,7 +337,16 @@ func (h *MessagesHandler) handleCommit(w http.ResponseWriter, r *http.Request, a
 		http.Error(w, "up_to required", http.StatusBadRequest)
 		return
 	}
-	inst, err := h.store.AdvanceCommitCursor(actor.ID, req.UpTo)
+	if h.reader == nil {
+		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+		return
+	}
+	seq, ok := h.reader.SeqOf(req.UpTo)
+	if !ok {
+		http.Error(w, "unknown message id", http.StatusBadRequest)
+		return
+	}
+	inst, err := h.store.AdvanceCommitCursor(actor.ID, req.UpTo, seq)
 	if err != nil {
 		http.Error(w, "no instance", http.StatusForbidden)
 		return

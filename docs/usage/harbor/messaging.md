@@ -51,11 +51,21 @@ When `message-log:` and a tracker are both configured, harbor also runs a reside
 A cove's inbox is a **durable, acked queue** over the message Log, not a snapshot
 view — it's a conversation to process in order, not an email list.
 
+> **Ordering is by a monotonic append sequence, not by message id.** Every Log
+> message carries an internal append `seq`; "oldest-first", "forward",
+> "tail", and the monotonic commit/wake cursors are all defined by that `seq`.
+> Message **ids are identifiers, not ordering keys** — ingress ids
+> (`in:linear:<uuid>`, `in:discord:<snowflake>`) are deterministic for
+> idempotent dedup and are **not** lexically sortable against each other or the
+> internal time-based ids, so cursors compare by sequence. The wire stays in
+> message ids (`committed_cursor`/`page_first`/`page_last`/`up_to` are ids the
+> cove echoes back); harbor resolves id↔seq at the boundary.
+
 - **Commit cursor.** Each cove has a durable commit cursor (its last *processed*
   message id) stored on its instance in the harbor store. It is **initialized at
   raise to the Log's current tail**, so a freshly-raised cove consumes messages
   addressed to it from that point forward, not the whole prior history. It is
-  **separate from the wake-on `WaitCursor`** ([below](#waiting-for-a-reply-wake-on)):
+  **separate from the wake-on `WaitSeq`** ([below](#waiting-for-a-reply-wake-on)):
   one is the consume offset, the other the reply-wake baseline.
 - **Seekable reads that never commit.** `read` (default) returns the next
   messages after the commit cursor, oldest-first. `anchor` (`cursor`/`start`/`end`/`id`)
@@ -99,10 +109,10 @@ runtime:
 ```
 
 The wake trigger is **an external-origin message addressed to the cove landing in
-the durable message Log** after a `WaitCursor` baseline: on entering Waiting the
-supervisor stamps `WaitCursor` to the Log's current tail position, and any later
-external-origin message addressed to the cove counts as a reply — a log-position
-compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
+the durable message Log** after a `WaitSeq` baseline: on entering Waiting the
+supervisor stamps `WaitSeq` to the Log's current tail sequence, and any later
+external-origin message addressed to the cove (append `seq` > `WaitSeq`) counts as a
+reply — an append-sequence compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
 `wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
 by the msgport ingress engine above, so **without a configured `message-log:`, a
 Waiting cove never wakes on a reply** — it's bounded only by `wait-max` teardown

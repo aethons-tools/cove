@@ -117,7 +117,7 @@ func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
 	e, mk := newEgressEngine(t, surf, dir)
 
 	// Seed one message and fully drain it, establishing a non-empty starting
-	// LastMsg — messages at/under this id must never be (re-)delivered.
+	// LastSeq — messages at/under this Seq must never be (re-)delivered.
 	first, err := e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -126,19 +126,19 @@ func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
 	if surf.deliverCount() != 1 {
 		t.Fatalf("setup: expected 1 delivery, got %d", surf.deliverCount())
 	}
-	if got := mk.m[surf.service].LastMsg; got != first.ID {
-		t.Fatalf("setup: LastMsg = %q, want %q", got, first.ID)
+	if got := mk.m[surf.service].LastSeq; got != first.Seq {
+		t.Fatalf("setup: LastSeq = %d, want %d", got, first.Seq)
 	}
 
 	// Append a backlog bigger than one egressBatch.
 	const backlogSize = egressBatch + 50
-	var tail string
+	var tail msglog.Message
 	for i := 0; i < backlogSize; i++ {
 		m, err := e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
 		if err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
-		tail = m.ID
+		tail = m
 	}
 
 	// Drain across enough ticks to cover the whole backlog.
@@ -156,10 +156,44 @@ func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
 		}
 	}
 	if firstDeliveries != 1 {
-		t.Fatalf("message at/under starting LastMsg was (re-)delivered %d times, want 1", firstDeliveries)
+		t.Fatalf("message at/under starting LastSeq was (re-)delivered %d times, want 1", firstDeliveries)
 	}
-	if got := mk.m[surf.service].LastMsg; got != tail {
-		t.Fatalf("LastMsg = %q after drain, want tail %q", got, tail)
+	if got := mk.m[surf.service].LastSeq; got != tail.Seq {
+		t.Fatalf("LastSeq = %d after drain, want tail %d", got, tail.Seq)
+	}
+}
+
+// TestEgressLowWaterUsesSeqNotID interleaves externally-authored ingress ids
+// ("in:linear:...", echo-guarded and never egressed) with internal-authored
+// messages carrying ordinary generated ids. The id namespaces are NOT
+// mutually lexically ordered, so a low-water keyed on id would be unsound;
+// this asserts the low-water tracks Seq (append order) instead, and that a
+// re-tick after advancing delivers nothing new (ListSince(LastSeq) is empty).
+func TestEgressLowWaterUsesSeqNotID(t *testing.T) {
+	surf := &fakeSurface{service: "linear"}
+	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
+	e, mk := newEgressEngine(t, surf, dir)
+
+	_, _ = e.lg.Append(msglog.Message{ID: "in:linear:c1", From: msglog.Target{Kind: "human", Ref: "bob"}, To: []msglog.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
+	_, _ = e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
+	_, _ = e.lg.Append(msglog.Message{ID: "in:linear:c2", From: msglog.Target{Kind: "human", Ref: "bob"}, To: []msglog.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
+	tail, err := e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	e.egressTick(context.Background())
+	if surf.deliverCount() != 2 {
+		t.Fatalf("expected 2 deliveries (echo-guard skips the in:* messages), got %d", surf.deliverCount())
+	}
+	if got := mk.m[surf.service].LastSeq; got != tail.Seq {
+		t.Fatalf("LastSeq = %d, want tail Seq %d", got, tail.Seq)
+	}
+
+	// Re-tick: ListSince(LastSeq) returns nothing new → exactly-once holds.
+	e.egressTick(context.Background())
+	if surf.deliverCount() != 2 {
+		t.Fatalf("re-tick delivered extra messages: %d", surf.deliverCount())
 	}
 }
 

@@ -54,11 +54,12 @@ func (l *Log) List(f Filter) []Message {
 	return out
 }
 
-// ListSince returns messages with id > afterID, in append order, capped at limit.
-func (l *Log) ListSince(afterID string, limit int) []Message {
+// ListSince returns messages with Seq > afterSeq, in append order, capped at
+// limit (afterSeq <= 0 = from start).
+func (l *Log) ListSince(afterSeq int64, limit int) []Message {
 	var out []Message
 	for _, m := range l.snapshot() {
-		if m.ID <= afterID {
+		if m.Seq <= afterSeq {
 			continue
 		}
 		out = append(out, m)
@@ -69,11 +70,12 @@ func (l *Log) ListSince(afterID string, limit int) []Message {
 	return out
 }
 
-// ReadInboxSince returns messages addressed to t with id > afterID, capped at limit.
-func (l *Log) ReadInboxSince(t Target, afterID string, limit int) []Message {
+// ReadInboxSince returns messages addressed to t with Seq > afterSeq, capped
+// at limit (afterSeq <= 0 = from start).
+func (l *Log) ReadInboxSince(t Target, afterSeq int64, limit int) []Message {
 	var out []Message
 	for _, m := range l.snapshot() {
-		if m.ID <= afterID {
+		if m.Seq <= afterSeq {
 			continue
 		}
 		for _, r := range m.To {
@@ -89,13 +91,13 @@ func (l *Log) ReadInboxSince(t Target, afterID string, limit int) []Message {
 	return out
 }
 
-// ReadInboxBefore returns messages addressed to t with id < beforeID, the
-// `limit` nearest below beforeID, in append (ascending) order (limit <= 0 =
-// unbounded). beforeID == "" means "from the end" (the last `limit`).
-func (l *Log) ReadInboxBefore(t Target, beforeID string, limit int) []Message {
+// ReadInboxBefore returns messages addressed to t with Seq < beforeSeq, the
+// `limit` nearest below beforeSeq, in append (ascending) order (limit <= 0 =
+// unbounded). beforeSeq <= 0 means "from the end" (the last `limit`).
+func (l *Log) ReadInboxBefore(t Target, beforeSeq int64, limit int) []Message {
 	var out []Message
 	for _, m := range l.snapshot() {
-		if beforeID != "" && m.ID >= beforeID {
+		if beforeSeq > 0 && m.Seq >= beforeSeq {
 			continue
 		}
 		for _, r := range m.To {
@@ -105,18 +107,29 @@ func (l *Log) ReadInboxBefore(t Target, beforeID string, limit int) []Message {
 			}
 		}
 	}
-	// keep the last `limit` (nearest below beforeID), preserving ascending order.
+	// keep the last `limit` (nearest below beforeSeq), preserving ascending order.
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]
 	}
 	return out
 }
 
-// TailID returns the last message's id, or ("", false) if the log is empty.
-func (l *Log) TailID() (string, bool) {
+// SeqOf returns the append-order Seq assigned to the message with the given
+// id, or (0, false) if no such message exists.
+func (l *Log) SeqOf(id string) (int64, bool) {
+	for _, m := range l.snapshot() {
+		if m.ID == id {
+			return m.Seq, true
+		}
+	}
+	return 0, false
+}
+
+// TailSeq returns the last message's Seq, or (0, false) if the log is empty.
+func (l *Log) TailSeq() (int64, bool) {
 	ms := l.snapshot()
 	if len(ms) == 0 {
-		return "", false
+		return 0, false
 	}
-	return ms[len(ms)-1].ID, true
+	return ms[len(ms)-1].Seq, true
 }

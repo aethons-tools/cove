@@ -407,3 +407,15 @@ func (fm *fileMarkers) has(service string) bool {
 	_, ok := fm.m[service]
 	return ok
 }
+
+// needsSeed reports whether service's egress low-water must be (re-)seeded to
+// the current Log tail: either no marker is persisted yet, or one is but its
+// LastSeq is zero. The zero case covers the COV-184 upgrade: a pre-COV-184
+// marker persisted the low-water as LastMsg (a string id); that field no
+// longer exists on EgressMark, so an old marker file unmarshals into a
+// present-but-LastSeq==0 entry. Without this check, `has(service)` alone
+// would be true and the seed would be skipped, so egress would resume
+// ListSince(0) — re-delivering the entire backlog to the Service.
+func (fm *fileMarkers) needsSeed(service string) bool {
+	return !fm.has(service) || fm.Egress(service).LastSeq == 0
+}
