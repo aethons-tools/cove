@@ -1,5 +1,5 @@
 ---
-summary: The messaging MCP — harbor-brokered read/send/list_targets/escalate tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
+summary: The messaging MCP — harbor-brokered read/commit/send/list_targets/escalate tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
 read_when: You want a raised cove's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating the harbor `/messages` endpoint and its cove-side MCP delivery.
 owns: the operator-facing messaging-MCP story — the `/messages` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed cove a message is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a message is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
@@ -15,11 +15,12 @@ A managed cove's agent gets **harbor-brokered** tools — `read`, `send`,
 ## What the tools do
 
 - **`send(text, to?)`** — appends the message to harbor's durable message-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it lands on the cove's own ticket (the original, unchanged addressing). With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
-- **`read()`** — returns the cove's inbox as a tagged list (`{author, body, …}` per message); see [Enabling it](#enabling-it) below for what backs it. **Always self-scoped to the cove's own ticket** — `read` takes no target, addressed or otherwise.
+- **`read(anchor?, id?, dir?, limit?)`** — reads the cove's inbox **as a queue**: by default the next unprocessed messages after the cove's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the cove's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
+- **`commit(up_to)`** — confirms the cove has processed its inbox up to a message id, advancing its durable commit cursor (monotonic, forward-only) so those messages aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-messagestargets-list_targets).
 - **`escalate(category)`** — declares the cove's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
 
-The agent blends these with its work inside a turn — e.g. leave a status, read a human's prior comment, adjust. (Today `read` reflects the inbox as of the call; see [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.)
+The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.
 
 ## How it's brokered and scoped
 
@@ -42,6 +43,30 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 When `message-log:` and a tracker are both configured, harbor also runs a resident **msgport linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable messages (the `send` path above) and posts them to Linear, at-least-once per message. Both directions are visible in the admin message view. **Wake-on (below) now reads replies from this Log**, so `message-log:` is required for a Waiting cove to wake on a reply.
 
 > **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. harbor targets the schema captured during development; if it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**. This can't be exercised in an egress-locked build environment.
+
+## The inbox as a durable queue
+
+A cove's inbox is a **durable, acked queue** over the message Log, not a snapshot
+view — it's a conversation to process in order, not an email list.
+
+- **Commit cursor.** Each cove has a durable commit cursor (its last *processed*
+  message id) stored on its instance in the harbor store. It is **initialized at
+  raise to the Log's current tail**, so a freshly-raised cove consumes messages
+  addressed to it from that point forward, not the whole prior history. It is
+  **separate from the wake-on `WaitCursor`** ([below](#waiting-for-a-reply-wake-on)):
+  one is the consume offset, the other the reply-wake baseline.
+- **Seekable reads that never commit.** `read` (default) returns the next
+  messages after the commit cursor, oldest-first. `anchor` (`cursor`/`start`/`end`/`id`)
+  × `dir` (`forward`/`backward`) × `limit` let the cove page anywhere —
+  re-read processed history, jump to the start/end, or walk from a given id.
+  Reading is pure: it never moves the cursor.
+- **Explicit commit.** When the cove has durably handled messages, it calls
+  `commit(up_to)` to advance the cursor past them (monotonic, forward-only,
+  idempotent). Until it commits, uncommitted messages remain in the queue — so a
+  cove that restarts before committing re-consumes them (at-least-once).
+- **Nothing is pruned** — the Log is a durable audit/research record; the cursor
+  is only a position into an ever-growing log, so backward/`start` reads always
+  work. (Date-anchored reads are a planned addition.)
 
 ## Waiting for a reply (wake-on)
 
