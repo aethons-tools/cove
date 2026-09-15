@@ -4,7 +4,7 @@ read_when: You are running or administering a harbor service — standing it up,
 owns: the map of the at-harbor operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
 tier: section
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # `at-harbor` — operating the central service
@@ -30,6 +30,7 @@ five pillars), see the design history:
 
 | Doc | Read when |
 |-----|-----------|
+| [dispatch-runbook.md](dispatch-runbook.md) | You are standing up (or reproducing) a real Linear→cove dispatch loop end to end and want the ordered steps + the field gotchas (egress, cert-name, flat-vs-grouped labels), not the per-field reference. |
 | [serve.md](serve.md) | Standing up the service: `at-harbor serve`, the serve-config YAML (listen, TLS, store, credentials), the broker + destinations, and the off-loopback exposure rule. |
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice. |
