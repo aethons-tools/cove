@@ -165,6 +165,16 @@ common case, and this interval only needs to catch what they miss.
 
 The label prefix that maps a Linear issue to a worker class (e.g. `class:implement`).
 
+#### tracker.linear.dispatch-label-prefix
+*string, defaults to `dispatch:`*
+
+The label prefix that gates which READY issues harbor's [resident
+dispatcher](harbor/dispatcher.md) raises a cove for: only issues carrying a label
+with this prefix (e.g. `dispatch:go`) are worked. Presence-only — the value after
+the prefix is unused — and distinct from `class-label-prefix` (which parses a
+class but does not gate). Only consulted by the harbor dispatcher; the standalone
+`at-cove dispatch` scheduler ignores it.
+
 #### tracker.linear.states*
 *map of the scheduler's six lifecycle roles → that team's real state names*
 

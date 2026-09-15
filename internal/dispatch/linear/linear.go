@@ -19,12 +19,13 @@ const endpoint = "https://api.linear.app/graphql"
 
 // Client talks to one Linear team. It satisfies scheduler.Tracker.
 type Client struct {
-	http    *http.Client
-	token   string
-	team    string
-	prefix  string       // class label prefix
-	states  kit.StateMap // role → configured state name
-	stateID map[scheduler.Role]string
+	http           *http.Client
+	token          string
+	team           string
+	prefix         string       // class label prefix
+	dispatchPrefix string       // dispatch label prefix (gates which issues are raised)
+	states         kit.StateMap // role → configured state name
+	stateID        map[scheduler.Role]string
 }
 
 // New constructs a Client and resolves the team's state names to ids up front.
@@ -38,9 +39,10 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 	}
 	c := &Client{
 		http: httpc, token: token,
-		team:   lt.Team,
-		prefix: lt.ClassLabelPrefix,
-		states: lt.States,
+		team:           lt.Team,
+		prefix:         lt.ClassLabelPrefix,
+		dispatchPrefix: lt.DispatchLabelPrefix,
+		states:         lt.States,
 	}
 	if err := c.loadStates(context.Background()); err != nil {
 		return nil, err
@@ -166,17 +168,33 @@ type issueNode struct {
 }
 
 func (c *Client) toIssue(n issueNode) scheduler.Issue {
-	class := ""
-	for _, l := range n.Labels.Nodes {
-		if strings.HasPrefix(l.Name, c.prefix) {
-			class = strings.TrimPrefix(l.Name, c.prefix)
-			break
-		}
+	names := make([]string, len(n.Labels.Nodes))
+	for i, l := range n.Labels.Nodes {
+		names[i] = l.Name
 	}
+	class, dispatchLabeled := classifyLabels(names, c.prefix, c.dispatchPrefix)
 	return scheduler.Issue{
 		ID: n.ID, Identifier: n.Identifier, Title: n.Title,
-		Description: n.Description, Class: class,
+		Description: n.Description, Class: class, DispatchLabeled: dispatchLabeled,
 	}
+}
+
+// classifyLabels derives the handler class (the value after classPrefix, first
+// match wins) and whether the issue is tagged for dispatch (any label matching
+// dispatchPrefix — presence-only). An empty dispatchPrefix means no gate (every
+// issue is dispatchable); config defaults it to "dispatch:", so that case is
+// only reached by callers that bypass kit parsing.
+func classifyLabels(labels []string, classPrefix, dispatchPrefix string) (class string, dispatchLabeled bool) {
+	dispatchLabeled = dispatchPrefix == ""
+	for _, name := range labels {
+		if class == "" && strings.HasPrefix(name, classPrefix) {
+			class = strings.TrimPrefix(name, classPrefix)
+		}
+		if dispatchPrefix != "" && strings.HasPrefix(name, dispatchPrefix) {
+			dispatchLabeled = true
+		}
+	}
+	return class, dispatchLabeled
 }
 
 // ListReady returns issues in the READY state that are dispatchable now: every

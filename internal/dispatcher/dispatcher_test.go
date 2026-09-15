@@ -64,7 +64,7 @@ func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, max int
 }
 
 func TestTickClaimsAndRaises(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", Title: "do a thing", Description: "the desc"}}}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", Title: "do a thing", Description: "the desc", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
 	d := newTestDispatcher(tr, r, &fakeRegistry{}, 5)
 	d.tick(context.Background())
@@ -84,8 +84,31 @@ func TestTickClaimsAndRaises(t *testing.T) {
 	}
 }
 
+func TestTickSkipsUnlabeledIssues(t *testing.T) {
+	// An issue with no dispatch label must never be claimed or raised.
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: false}}}
+	r := &fakeRaiser{}
+	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
+	if len(tr.transitions) != 0 || len(r.specs) != 0 {
+		t.Fatalf("unlabeled issue must be skipped: transitions=%v raises=%v", tr.transitions, r.specs)
+	}
+}
+
+func TestTickRaisesOnlyLabeledAmongMixed(t *testing.T) {
+	// Mixed batch: only the dispatch-labeled issue is raised.
+	tr := &fakeTracker{ready: []scheduler.Issue{
+		{ID: "id1", Identifier: "AET-1", DispatchLabeled: false},
+		{ID: "id2", Identifier: "AET-2", DispatchLabeled: true},
+	}}
+	r := &fakeRaiser{}
+	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
+	if len(r.specs) != 1 || r.specs[0].Unit != "AET-2" {
+		t.Fatalf("want only AET-2 raised, got %+v", r.specs)
+	}
+}
+
 func TestTickDedupsExistingInstance(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1"}}}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
 	reg := &fakeRegistry{insts: []harbor.Instance{{ActorID: "cove-AET-1", Phase: harbor.PhaseLive}}}
 	newTestDispatcher(tr, r, reg, 5).tick(context.Background())
@@ -96,7 +119,7 @@ func TestTickDedupsExistingInstance(t *testing.T) {
 
 func TestTickRespectsCap(t *testing.T) {
 	tr := &fakeTracker{ready: []scheduler.Issue{
-		{ID: "id1", Identifier: "AET-1"}, {ID: "id2", Identifier: "AET-2"}, {ID: "id3", Identifier: "AET-3"},
+		{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}, {ID: "id2", Identifier: "AET-2", DispatchLabeled: true}, {ID: "id3", Identifier: "AET-3", DispatchLabeled: true},
 	}}
 	r := &fakeRaiser{}
 	// 1 already live + cap 2 ⇒ exactly 1 new raise allowed this tick.
@@ -108,7 +131,7 @@ func TestTickRespectsCap(t *testing.T) {
 }
 
 func TestTickCapCountExcludesGone(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1"}}}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
 	// A gone instance must NOT count toward the cap.
 	reg := &fakeRegistry{insts: []harbor.Instance{{ActorID: "cove-OLD", Phase: harbor.PhaseGone}}}
@@ -119,7 +142,7 @@ func TestTickCapCountExcludesGone(t *testing.T) {
 }
 
 func TestTickRaiseFailureMovesToNeedsInput(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1"}}}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
 	r := &fakeRaiser{err: errors.New("launch boom")}
 	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
 	// InProgress (claim) then NeedsInput (failure).
@@ -131,7 +154,7 @@ func TestTickRaiseFailureMovesToNeedsInput(t *testing.T) {
 }
 
 func TestTickClaimFailureSkipsRaise(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1"}}, transitionErr: errors.New("claim boom")}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}, transitionErr: errors.New("claim boom")}
 	r := &fakeRaiser{}
 	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
 	if len(r.specs) != 0 {
