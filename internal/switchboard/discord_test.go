@@ -252,6 +252,38 @@ func TestRESTClient_PollCtxCancelDuringBackoffReturnsPromptly(t *testing.T) {
 	}
 }
 
+func TestRESTClient_PostIDReturnsCreatedID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"D1"}`))
+	}))
+	defer srv.Close()
+	c := NewRESTClient("tok", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	id, err := c.PostID(context.Background(), "chan1", "hello")
+	if err != nil || id != "D1" {
+		t.Fatalf("PostID = %q,%v; want D1,nil", id, err)
+	}
+}
+
+func TestRESTClient_PollDecodesReferencedID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"id":                "m2",
+				"content":           "re",
+				"author":            map[string]any{"username": "alice"},
+				"message_reference": map[string]any{"message_id": "D1"},
+			},
+		})
+	}))
+	defer srv.Close()
+	c := NewRESTClient("tok", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	msgs, _, err := c.Poll(context.Background(), map[string]string{})
+	if err != nil || len(msgs) != 1 || msgs[0].ReferencedID != "D1" {
+		t.Fatalf("Poll ReferencedID = %+v,%v", msgs, err)
+	}
+}
+
 // TestRESTClient_PollCapsRetryAfter guards against honoring an unbounded
 // Discord Retry-After (e.g. 3600s) uninterruptibly: doWithRetry must cap the
 // wait it hands to the sleep seam at maxRetryAfter.

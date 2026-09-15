@@ -1290,17 +1290,33 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 			// msgport discord engine: a second resident engine over the same Log,
 			// markers file, cursors, and directory — delivers outbound Log messages
-			// to Discord (egress only this slice; ingress is a future slice). The
-			// engine keys EgressMark by Service(), so "linear" and "discord" marks
-			// live side by side in the one markers file. Gated on runtime.discord;
-			// unset → no Discord engine, unchanged from before this block existed.
+			// to Discord (egress) AND polls each project's discord inbox channels
+			// for human replies, routing a reply back to the cove it answers via
+			// the receipt store (ingress). The engine keys EgressMark by Service(),
+			// so "linear" and "discord" marks live side by side in the one markers
+			// file. Gated on runtime.discord; unset → no Discord engine, unchanged
+			// from before this block existed.
 			if dcfg := cfg.Runtime.Discord; dcfg != nil {
 				tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dcfg.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
 				if err != nil {
 					fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
 					return 1
 				}
-				dsurf := &discordSurface{poster: switchboard.NewRESTClient(tokEnv["AT_DISCORD_BOT_TOKEN"], nil)}
+				discordTok := tokEnv["AT_DISCORD_BOT_TOKEN"]
+				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "msgport-receipts.json"))
+				if err != nil {
+					fmt.Fprintln(stderr, "at-harbor: msgport receipts:", err)
+					return 1
+				}
+				dir.receipts = receipts // wires directory.routeDiscord (COV-183): reply→cove lookup
+				dsurf := &discordSurface{
+					dial: func(channels []string) discordClient {
+						return switchboard.NewRESTClient(discordTok, channels)
+					},
+					channelsFor: func(project string) []string { return discordInboxChannels(st, project) },
+					receipts:    receipts,
+					log:         log,
+				}
 				if !markers.has("discord") { // seed: don't re-deliver the backlog to Discord
 					if err := markers.SetEgress("discord", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
 						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)

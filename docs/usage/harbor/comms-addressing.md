@@ -57,12 +57,12 @@ at-harbor project roster rm-channel  <project> <name>
 
 ## Delivery profiles & per-project chat service
 
-**Discord egress is live** (ingress + reply-routing are a later slice). A
-discord-project's `send(to=human:<name>)` posts to that human's Discord **inbox
-channel** when they have a `discord` delivery profile (falling back to the
-Linear `@`-mention when they don't); `send(to=channel:<name>)` posts to a
-discord roster channel's own `Ref` when the channel's `Service` is `discord`.
-Every Discord post is prefixed `"<cove>: "` (the sending cove's identity —
+**Discord egress and reply-routing are both live.** A discord-project's
+`send(to=human:<name>)` posts to that human's Discord **inbox channel** when
+they have a `discord` delivery profile (falling back to the Linear
+`@`-mention when they don't); `send(to=channel:<name>)` posts to a discord
+roster channel's own `Ref` when the channel's `Service` is `discord`. Every
+Discord post is prefixed `"<cove>: "` (the sending cove's identity —
 `Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
 username/avatar is a future polish). Delivery is exactly-once (the resident
 Discord msgport engine's own `EgressMark`, seeded to the Log tail on first
@@ -70,6 +70,26 @@ enable so turning it on never redelivers the backlog) — see
 [messaging.md](messaging.md#enabling-it) for the engine and
 [serve.md](serve.md) for the `runtime.discord.bot-token` config that enables
 it (requires a message-log; without one the engine doesn't run).
+
+**The reply loop:** when a human **replies** (Discord's own reply-to-message
+feature, not a bare follow-up post) to a cove's Discord post, harbor routes
+that reply back to the cove that sent the original message — the same
+[wake-on](messaging.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
+so a Waiting cove resumes with the reply already in its inbox. Routing works
+by a small **receipt**: on every Discord post the engine records the posted
+message's id against the sending cove (`discord-msg-id → actor`); an inbound
+message is matched to that receipt by the id it *replies to*. Two
+consequences follow directly from that mechanism:
+
+- **Only a reply routes.** A bare (non-reply) message posted into a shared
+  inbox channel carries no id to look up against, so it can't be attributed
+  to any cove — it is silently dropped, by construction (this also means
+  harbor's own outbound Discord posts, echoed back on the same channel,
+  never mis-route to themselves; no separate self-post filter is needed).
+- **Receipts are currently unpruned.** The receipt store grows by one entry
+  per Discord post and is never garbage-collected — a known follow-up, not a
+  correctness issue today (an unbounded map on local disk, not a leak
+  visible to any cove).
 
 A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
 non-tracker service the human can be reached on. For `Service: "discord"`,
@@ -163,10 +183,13 @@ alongside `send`'s now-optional `to` argument; see
 
 ## Not yet (later comms slices)
 
-- **Cross-thread reply-routing + merged inbox:** making channel-sends two-way, and
-  generalizing `read` into a merged, tagged multi-source inbox.
-- **Discord ingress:** Discord egress is live (above); a real chat `Poll` feeding
-  human replies into the Log (generalizing at-switchboard) is a later slice.
+- **Cross-thread reply-routing + merged inbox (Linear):** making Linear
+  channel-sends two-way, and generalizing `read` into a merged, tagged
+  multi-source inbox. (Discord already routes replies regardless of target
+  kind — see the reply loop above.)
+- **Discord receipt pruning:** the discord-msg-id→cove receipt store (above)
+  is currently unpruned — an unbounded, never-garbage-collected map on local
+  disk.
 - **Actor/role-to-actor addressing:** addressing another managed cove or Manager
   directly (waits on the Manager pillar).
 
