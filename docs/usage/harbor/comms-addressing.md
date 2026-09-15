@@ -57,10 +57,19 @@ at-harbor project roster rm-channel  <project> <name>
 
 ## Delivery profiles & per-project chat service
 
-This is the **data foundation** for a second messaging service beyond the
-tracker — Discord egress/ingress arrive in later slices. Today, setting these
-fields changes nothing about delivery: `send(to=…)` still only ever posts an
-`@`-mention or a tracker comment, as described above.
+**Discord egress is live** (ingress + reply-routing are a later slice). A
+discord-project's `send(to=human:<name>)` posts to that human's Discord **inbox
+channel** when they have a `discord` delivery profile (falling back to the
+Linear `@`-mention when they don't); `send(to=channel:<name>)` posts to a
+discord roster channel's own `Ref` when the channel's `Service` is `discord`.
+Every Discord post is prefixed `"<cove>: "` (the sending cove's identity —
+`Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
+username/avatar is a future polish). Delivery is exactly-once (the resident
+Discord msgport engine's own `EgressMark`, seeded to the Log tail on first
+enable so turning it on never redelivers the backlog) — see
+[messaging.md](messaging.md#enabling-it) for the engine and
+[serve.md](serve.md) for the `runtime.discord.bot-token` config that enables
+it (requires a message-log; without one the engine doesn't run).
 
 A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
 non-tracker service the human can be reached on. For `Service: "discord"`,
@@ -156,8 +165,8 @@ alongside `send`'s now-optional `to` argument; see
 
 - **Cross-thread reply-routing + merged inbox:** making channel-sends two-way, and
   generalizing `read` into a merged, tagged multi-source inbox.
-- **C3 — Discord / multi-channel:** a real chat `Service` so a channel target can
-  be a Discord channel (generalizing at-switchboard).
+- **Discord ingress:** Discord egress is live (above); a real chat `Poll` feeding
+  human replies into the Log (generalizing at-switchboard) is a later slice.
 - **Actor/role-to-actor addressing:** addressing another managed cove or Manager
   directly (waits on the Manager pillar).
 

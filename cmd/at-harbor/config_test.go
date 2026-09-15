@@ -486,3 +486,19 @@ func TestValidateStorePostgres(t *testing.T) {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 }
+
+func TestValidateDiscord(t *testing.T) {
+	var c serveConfig
+	c.Runtime.Discord = &discordConfig{} // no bot-token
+	if err := c.validateDiscord(); err == nil {
+		t.Fatal("expected error for missing bot-token")
+	}
+	c.Runtime.Discord = &discordConfig{BotToken: credSpec{Value: "x"}}
+	if err := c.validateDiscord(); err != nil {
+		t.Fatalf("valid discord: %v", err)
+	}
+	var empty serveConfig // Discord unset → no-op
+	if err := empty.validateDiscord(); err != nil {
+		t.Fatalf("unset discord must be a no-op: %v", err)
+	}
+}
