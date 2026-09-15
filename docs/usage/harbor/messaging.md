@@ -65,7 +65,7 @@ view — it's a conversation to process in order, not an email list.
   message id) stored on its instance in the harbor store. It is **initialized at
   raise to the Log's current tail**, so a freshly-raised cove consumes messages
   addressed to it from that point forward, not the whole prior history. It is
-  **separate from the wake-on `WaitCursor`** ([below](#waiting-for-a-reply-wake-on)):
+  **separate from the wake-on `WaitSeq`** ([below](#waiting-for-a-reply-wake-on)):
   one is the consume offset, the other the reply-wake baseline.
 - **Seekable reads that never commit.** `read` (default) returns the next
   messages after the commit cursor, oldest-first. `anchor` (`cursor`/`start`/`end`/`id`)
@@ -109,10 +109,10 @@ runtime:
 ```
 
 The wake trigger is **an external-origin message addressed to the cove landing in
-the durable message Log** after a `WaitCursor` baseline: on entering Waiting the
-supervisor stamps `WaitCursor` to the Log's current tail position, and any later
-external-origin message addressed to the cove counts as a reply — a log-position
-compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
+the durable message Log** after a `WaitSeq` baseline: on entering Waiting the
+supervisor stamps `WaitSeq` to the Log's current tail sequence, and any later
+external-origin message addressed to the cove (append `seq` > `WaitSeq`) counts as a
+reply — an append-sequence compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
 `wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
 by the msgport ingress engine above, so **without a configured `message-log:`, a
 Waiting cove never wakes on a reply** — it's bounded only by `wait-max` teardown
