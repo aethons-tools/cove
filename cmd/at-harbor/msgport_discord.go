@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -28,6 +29,7 @@ type discordSurface struct {
 	dial        func(channels []string) discordClient // real: wraps switchboard.NewRESTClient(token, channels, opts…)
 	channelsFor func(project string) []string         // roster-derived discord inbox channels
 	receipts    *fileReceipts
+	log         *slog.Logger // optional: nil is tolerated (no-op), see warn below
 }
 
 func (s *discordSurface) Service() string { return "discord" }
@@ -49,6 +51,9 @@ func (s *discordSurface) Deliver(ctx context.Context, d msgport.Delivery, m msgl
 		if err := s.receipts.Record(id, m.From.Ref); err != nil {
 			// warn only (no body/token); a lost receipt only means a future
 			// reply to THIS message won't route — never a double-post.
+			if s.log != nil {
+				s.log.Warn("discord deliver: receipt record failed", "channel", d.Address, "error", err.Error())
+			}
 		}
 	}
 	return id, nil

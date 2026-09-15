@@ -1290,10 +1290,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 			// msgport discord engine: a second resident engine over the same Log,
 			// markers file, cursors, and directory — delivers outbound Log messages
-			// to Discord (egress only this slice; ingress is a future slice). The
-			// engine keys EgressMark by Service(), so "linear" and "discord" marks
-			// live side by side in the one markers file. Gated on runtime.discord;
-			// unset → no Discord engine, unchanged from before this block existed.
+			// to Discord (egress) AND polls each project's discord inbox channels
+			// for human replies, routing a reply back to the cove it answers via
+			// the receipt store (ingress). The engine keys EgressMark by Service(),
+			// so "linear" and "discord" marks live side by side in the one markers
+			// file. Gated on runtime.discord; unset → no Discord engine, unchanged
+			// from before this block existed.
 			if dcfg := cfg.Runtime.Discord; dcfg != nil {
 				tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dcfg.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
 				if err != nil {
@@ -1313,6 +1315,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					},
 					channelsFor: func(project string) []string { return discordInboxChannels(st, project) },
 					receipts:    receipts,
+					log:         log,
 				}
 				if !markers.has("discord") { // seed: don't re-deliver the backlog to Discord
 					if err := markers.SetEgress("discord", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/harbor"
@@ -89,7 +92,9 @@ func TestDiscordDeliverSwallowsEmptyID(t *testing.T) {
 func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
 	// receipts pointed at an unwritable path: Record fails, but the post
 	// already happened, so Deliver must still return a nil error — an error
-	// here would make the engine retry and double-post.
+	// here would make the engine retry and double-post. The swallowed error
+	// must still surface as a warn log (channel + error only — no secret
+	// body/token), so it isn't silently lost.
 	fc := &fakeDiscordClient{postID: "D1"}
 	// newFileReceipts tolerates a missing file at open time (starts empty);
 	// the parent dir not existing only bites on the later Record→WriteFile.
@@ -97,13 +102,37 @@ func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), msgport.Delivery{Address: "c"}, msglog.Message{From: msglog.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	var logbuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logbuf, nil))
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec, log: log}
+	const secretBody = "top-secret cove message body"
+	id, err := s.Deliver(context.Background(), msgport.Delivery{Address: "c"}, msglog.Message{From: msglog.Target{Kind: "actor", Ref: "cove-1"}, Body: secretBody})
 	if err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
 	if id != "D1" {
 		t.Fatalf("Deliver id = %q, want D1", id)
+	}
+	logs := logbuf.String()
+	if !strings.Contains(logs, "receipt record failed") || !strings.Contains(logs, "channel=c") {
+		t.Fatalf("expected a warn log naming the channel, got %q", logs)
+	}
+	if strings.Contains(logs, secretBody) {
+		t.Fatalf("log must not contain the message body, got %q", logs)
+	}
+}
+
+func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
+	// A nil logger (e.g. a discordSurface constructed without one) must not
+	// panic on the swallowed-error path.
+	fc := &fakeDiscordClient{postID: "D1"}
+	rec, err := newFileReceipts(filepath.Join(t.TempDir(), "nope", "sub", "receipts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
+	if _, err := s.Deliver(context.Background(), msgport.Delivery{Address: "c"}, msglog.Message{From: msglog.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"}); err != nil {
+		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
 }
 
