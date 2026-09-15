@@ -264,6 +264,21 @@ func (c *Client) GetEscalationPolicy(project string) (harbor.EscalationView, err
 	return v, err
 }
 
+// SetChatService sets (or clears, with "") the chat service backing project's
+// human DMs.
+func (c *Client) SetChatService(project, service string) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/chat-service", harbor.ChatServiceBody{Service: service}, nil)
+}
+
+// GetChatService returns project's configured chat service ("" if none).
+func (c *Client) GetChatService(project string) (string, error) {
+	var v harbor.ChatServiceView
+	if err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/chat-service", nil, &v); err != nil {
+		return "", err
+	}
+	return v.Service, nil
+}
+
 // CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from
 // the named role.
 type CoveRaiseParams struct {

@@ -55,6 +55,16 @@ type EscalationView struct {
 	ByCategory map[string][]EscalationTier `json:"by_category,omitempty"`
 }
 
+// ChatServiceBody is the PUT /admin/projects/{project}/chat-service body.
+type ChatServiceBody struct {
+	Service string `json:"service"` // "" clears (tracker @-mentions only)
+}
+
+// ChatServiceView is the GET /admin/projects/{project}/chat-service response.
+type ChatServiceView struct {
+	Service string `json:"service"`
+}
+
 // RoleBody is the POST /admin/roles request.
 type RoleBody struct {
 	Project      string   `json:"project"`
@@ -426,6 +436,23 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			return
 		}
 		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "category", b.Category, "tiers", len(b.Tiers))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("GET /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
+		p, _ := store.GetProject(r.PathValue("project"))
+		writeJSON(w, http.StatusOK, ChatServiceView{Service: p.ChatService})
+	})
+	mux.HandleFunc("PUT /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
+		var b ChatServiceBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.SetChatService(r.PathValue("project"), b.Service); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("admin chat-service", "operator", OperatorID(r), "project", r.PathValue("project"), "service", b.Service)
 		w.WriteHeader(http.StatusNoContent)
 	})
 

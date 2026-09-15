@@ -302,6 +302,65 @@ func TestClientEscalationCategory(t *testing.T) {
 	}
 }
 
+// TestClientChatService exercises SetChatService/GetChatService (set, get,
+// clear) against a real harbor admin handler + FileStore.
+func TestClientChatService(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+
+	if err := c.SetChatService("acme", "discord"); err != nil {
+		t.Fatalf("SetChatService: %v", err)
+	}
+	svc, err := c.GetChatService("acme")
+	if err != nil {
+		t.Fatalf("GetChatService: %v", err)
+	}
+	if svc != "discord" {
+		t.Fatalf("GetChatService = %q, want discord", svc)
+	}
+
+	if err := c.SetChatService("acme", ""); err != nil {
+		t.Fatalf("SetChatService (clear): %v", err)
+	}
+	svc, err = c.GetChatService("acme")
+	if err != nil {
+		t.Fatalf("GetChatService after clear: %v", err)
+	}
+	if svc != "" {
+		t.Fatalf("GetChatService after clear = %q, want empty", svc)
+	}
+}
+
+// TestClientAddHumanCarriesDelivery proves AddHuman's wire body carries the
+// human's per-service Delivery profiles through to the server, round-tripped
+// via GetRoster.
+func TestClientAddHumanCarriesDelivery(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+
+	h := harbor.Human{
+		Name:   "dave",
+		Handle: "dave.h",
+		Delivery: []harbor.DeliveryProfile{
+			{Service: "discord", Address: "chan-9"},
+		},
+	}
+	if err := c.AddHuman("acme", h); err != nil {
+		t.Fatalf("AddHuman: %v", err)
+	}
+	rr, err := c.GetRoster("acme")
+	if err != nil {
+		t.Fatalf("GetRoster: %v", err)
+	}
+	if len(rr.Humans) != 1 {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	d, ok := rr.Humans[0].DeliveryFor("discord")
+	if !ok || d.Address != "chan-9" {
+		t.Fatalf("delivery = %+v, ok=%v", d, ok)
+	}
+}
+
 // TestClientEnrollBodyIsTrimmed proves Enroll's wire body carries only
 // id/project/role/overrides — no inline destinations/repos/ttl_seconds, since
 // scope now comes entirely from the role.

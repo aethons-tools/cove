@@ -399,6 +399,132 @@ func TestProjectEscalationCategoryCommands(t *testing.T) {
 	}
 }
 
+// TestProjectChatServiceCommands exercises `project chat-service
+// set|show|clear` end-to-end through httptest.Server + FileStore.
+func TestProjectChatServiceCommands(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// show before set prints "(none)"
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "(none)" {
+		t.Fatalf("project chat-service show (before set) = %q, want (none)", out.String())
+	}
+
+	// set
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "chat-service", "set", "--admin-url", ts.URL, "--project", "p", "--service", "discord",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project chat-service set: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// show reflects it
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "discord" {
+		t.Fatalf("project chat-service show (after set) = %q, want discord", out.String())
+	}
+
+	// clear
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "chat-service", "clear", "--admin-url", ts.URL, "--project", "p",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project chat-service clear: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// show is back to "(none)"
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.TrimSpace(out.String()) != "(none)" {
+		t.Fatalf("project chat-service show (after clear) = %q, want (none)", out.String())
+	}
+}
+
+// TestProjectRosterAddHumanDelivery exercises `project roster add-human
+// --delivery service:address` (repeatable) end-to-end, including its
+// malformed-input errors.
+func TestProjectRosterAddHumanDelivery(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+
+	// valid --delivery reaches the roster
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+		"--name", "dave", "--handle", "dave.h",
+		"--delivery", "discord:chan-9",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster add-human --delivery: exit=%d stderr=%s", code, errb.String())
+	}
+	rr, ok := store.GetRoster("acme")
+	if !ok {
+		t.Fatal("GetRoster acme")
+	}
+	var dave harbor.Human
+	for _, hu := range rr.Humans {
+		if hu.Name == "dave" {
+			dave = hu
+		}
+	}
+	if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
+		t.Fatalf("dave delivery = %+v, ok=%v", d, ok)
+	}
+
+	// malformed --delivery values are rejected with exit 2, roster unchanged
+	for _, bad := range []string{"discord:", ":x", "x"} {
+		out.Reset()
+		errb.Reset()
+		code := run([]string{
+			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+			"--name", "eve", "--handle", "eve.h",
+			"--delivery", bad,
+		}, getenv, &out, &errb)
+		if code != 2 {
+			t.Fatalf("project roster add-human --delivery %q: exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
+		}
+	}
+	rr, ok = store.GetRoster("acme")
+	if !ok {
+		t.Fatal("GetRoster acme")
+	}
+	for _, hu := range rr.Humans {
+		if hu.Name == "eve" {
+			t.Fatalf("eve should not have been added with a malformed --delivery: %+v", hu)
+		}
+	}
+}
+
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {
