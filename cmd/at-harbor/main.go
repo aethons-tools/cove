@@ -1276,10 +1276,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			// Seed once: skip everything the 1a dual-write already delivered live,
 			// so turning egress on never re-posts the Log's shadow history.
-			// Persisted → never re-seeds (a re-seed to a newer tail would drop
-			// messages appended-but-not-yet-delivered since the first cutover).
-			if !markers.has("linear") {
-				if err := markers.SetEgress("linear", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
+			// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
+			// newer tail would drop messages appended-but-not-yet-delivered since
+			// the first cutover). needsSeed also re-seeds a marker whose LastSeq
+			// is zero, which covers a pre-COV-184 marker file (persisted the
+			// low-water as LastMsg, a string) upgrading in place — see
+			// fileMarkers.needsSeed.
+			if markers.needsSeed("linear") {
+				if err := markers.SetEgress("linear", msgport.EgressMark{LastSeq: logTailSeq(messageLog)}); err != nil {
 					fmt.Fprintln(stderr, "at-harbor: msgport egress seed:", err)
 					return 1
 				}
@@ -1317,8 +1321,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					receipts:    receipts,
 					log:         log,
 				}
-				if !markers.has("discord") { // seed: don't re-deliver the backlog to Discord
-					if err := markers.SetEgress("discord", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
+				if markers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
+					if err := markers.SetEgress("discord", msgport.EgressMark{LastSeq: logTailSeq(messageLog)}); err != nil {
 						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
 						return 1
 					}
@@ -1430,12 +1434,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// logTailID returns the id of the last (newest) message in lg, or "" when the
-// Log is empty. Used to seed the egress low-water at cutover so already-
+// logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
+// the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailID(lg msglog.Store) string {
-	id, _ := lg.TailID()
-	return id
+func logTailSeq(lg msglog.Store) int64 {
+	seq, _ := lg.TailSeq()
+	return seq
 }
 
 func splitCSV(s string) []string {

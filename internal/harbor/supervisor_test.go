@@ -122,34 +122,37 @@ func TestRaiseRequiresExistingRole(t *testing.T) {
 	}
 }
 
-func TestRaiseBaselinesCommitCursorFromTailReader(t *testing.T) {
+func TestRaiseBaselinesCommitSeqFromTailReader(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
-	sup.SetTailReader(&fakeTailReader{id: "tail-7", ok: true})
+	sup.SetTailReader(&fakeTailReader{seq: 7, ok: true})
 	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst.CommitCursor != "tail-7" {
-		t.Fatalf("CommitCursor = %q, want %q (baselined from tail reader)", inst.CommitCursor, "tail-7")
+	if inst.CommitSeq != 7 {
+		t.Fatalf("CommitSeq = %d, want 7 (baselined from tail reader)", inst.CommitSeq)
+	}
+	if inst.CommitCursor != "" {
+		t.Fatalf("CommitCursor = %q, want \"\" (an ordering baseline, not an echoable id — the cove has read nothing yet)", inst.CommitCursor)
 	}
 	got, _ := store.GetInstance("w1")
-	if got.CommitCursor != "tail-7" {
-		t.Fatalf("persisted CommitCursor = %q, want %q", got.CommitCursor, "tail-7")
+	if got.CommitSeq != 7 || got.CommitCursor != "" {
+		t.Fatalf("persisted commit cursor = %+v, want CommitSeq=7 CommitCursor=\"\"", got)
 	}
 }
 
-func TestRaiseCommitCursorEmptyWithNoTailReader(t *testing.T) {
+func TestRaiseCommitSeqZeroWithNoTailReader(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive}) // no SetTailReader call
 	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst.CommitCursor != "" {
-		t.Fatalf("CommitCursor = %q, want \"\" (no tail reader wired)", inst.CommitCursor)
+	if inst.CommitSeq != 0 || inst.CommitCursor != "" {
+		t.Fatalf("commit cursor = %+v, want zero (no tail reader wired)", inst)
 	}
 	got, _ := store.GetInstance("w1")
-	if got.CommitCursor != "" {
-		t.Fatalf("persisted CommitCursor = %q, want \"\"", got.CommitCursor)
+	if got.CommitSeq != 0 || got.CommitCursor != "" {
+		t.Fatalf("persisted commit cursor = %+v, want zero", got)
 	}
 }
 
@@ -190,12 +193,12 @@ func TestReportDoneTearsDown(t *testing.T) {
 	}
 }
 
-func TestReportWaitingBaselinesWaitCursor(t *testing.T) {
+func TestReportWaitingBaselinesWaitSeq(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sup.SetWaitCursor("w1", "3"); err != nil {
+	if err := sup.SetWaitSeq("w1", 3); err != nil {
 		t.Fatal(err)
 	}
 	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
@@ -205,15 +208,15 @@ func TestReportWaitingBaselinesWaitCursor(t *testing.T) {
 	if inst.WaitingSince.IsZero() {
 		t.Fatal("WaitingSince not set on transition into Waiting")
 	}
-	if inst.WaitCursor != "" {
-		t.Fatalf("WaitCursor should baseline to the log tail (empty here: no tail reader wired) on transition into Waiting, got %q", inst.WaitCursor)
+	if inst.WaitSeq != 0 {
+		t.Fatalf("WaitSeq should baseline to the log tail (0 here: no tail reader wired) on transition into Waiting, got %d", inst.WaitSeq)
 	}
 
 	// A second Report(Waiting) while already Waiting must NOT reset
 	// WaitingSince, and must NOT re-baseline (or otherwise clear) a cursor set
 	// in between.
 	first := inst.WaitingSince
-	if err := sup.SetWaitCursor("w1", "4"); err != nil {
+	if err := sup.SetWaitSeq("w1", 4); err != nil {
 		t.Fatal(err)
 	}
 	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
@@ -223,22 +226,22 @@ func TestReportWaitingBaselinesWaitCursor(t *testing.T) {
 	if !inst.WaitingSince.Equal(first) {
 		t.Fatal("WaitingSince reset while already Waiting")
 	}
-	if inst.WaitCursor != "4" {
-		t.Fatalf("WaitCursor cleared while already Waiting, got %q", inst.WaitCursor)
+	if inst.WaitSeq != 4 {
+		t.Fatalf("WaitSeq cleared while already Waiting, got %d", inst.WaitSeq)
 	}
 }
 
-// fakeTailReader is a scripted tailReader standing in for a message log's TailID.
+// fakeTailReader is a scripted tailReader standing in for a message log's TailSeq.
 type fakeTailReader struct {
-	id string
-	ok bool
+	seq int64
+	ok  bool
 }
 
-func (f *fakeTailReader) TailID() (string, bool) { return f.id, f.ok }
+func (f *fakeTailReader) TailSeq() (int64, bool) { return f.seq, f.ok }
 
-func TestReportWaitingBaselinesWaitCursorFromTailReader(t *testing.T) {
+func TestReportWaitingBaselinesWaitSeqFromTailReader(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
-	sup.SetTailReader(&fakeTailReader{id: "id-9", ok: true})
+	sup.SetTailReader(&fakeTailReader{seq: 9, ok: true})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
 	}
@@ -246,12 +249,12 @@ func TestReportWaitingBaselinesWaitCursorFromTailReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	inst, _ := store.GetInstance("w1")
-	if inst.WaitCursor != "id-9" {
-		t.Fatalf("WaitCursor = %q, want %q (baselined from tail reader)", inst.WaitCursor, "id-9")
+	if inst.WaitSeq != 9 {
+		t.Fatalf("WaitSeq = %d, want 9 (baselined from tail reader)", inst.WaitSeq)
 	}
 }
 
-func TestReportWaitingWaitCursorEmptyWithNoTailReader(t *testing.T) {
+func TestReportWaitingWaitSeqZeroWithNoTailReader(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive}) // no SetTailReader call
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
@@ -260,8 +263,8 @@ func TestReportWaitingWaitCursorEmptyWithNoTailReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	inst, _ := store.GetInstance("w1")
-	if inst.WaitCursor != "" {
-		t.Fatalf("WaitCursor = %q, want \"\" (no tail reader wired)", inst.WaitCursor)
+	if inst.WaitSeq != 0 {
+		t.Fatalf("WaitSeq = %d, want 0 (no tail reader wired)", inst.WaitSeq)
 	}
 }
 

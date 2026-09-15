@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -433,7 +434,7 @@ func TestFileMarkersRoundTripAndReload(t *testing.T) {
 	if m.has("linear") {
 		t.Fatal("fresh markers must not have linear")
 	}
-	want := msgport.EgressMark{LastMsg: "id-9", Pending: map[string]map[string]bool{"id-10": {"human:a": true}}}
+	want := msgport.EgressMark{LastSeq: 9, Pending: map[string]map[string]bool{"id-10": {"human:a": true}}}
 	if err := m.SetEgress("linear", want); err != nil {
 		t.Fatalf("SetEgress: %v", err)
 	}
@@ -445,11 +446,52 @@ func TestFileMarkersRoundTripAndReload(t *testing.T) {
 		t.Fatalf("reload: %v", err)
 	}
 	got := m2.Egress("linear")
-	if got.LastMsg != "id-9" || !got.Pending["id-10"]["human:a"] {
+	if got.LastSeq != 9 || !got.Pending["id-10"]["human:a"] {
 		t.Fatalf("reloaded mark = %+v, want %+v", got, want)
 	}
-	if got := m2.Egress("discord"); got.LastMsg != "" || got.Pending != nil {
+	if got := m2.Egress("discord"); got.LastSeq != 0 || got.Pending != nil {
 		t.Fatalf("unset service must be zero EgressMark, got %+v", got)
+	}
+}
+
+// TestFileMarkersNeedsSeedOnZeroLastSeq guards the COV-184 upgrade path: a
+// pre-COV-184 marker persisted the low-water as LastMsg (a string id). That
+// field no longer exists on EgressMark, so loading an old marker file leaves
+// a present-but-zero LastSeq entry. needsSeed must treat that the same as
+// "no marker at all" so the cmd seed step re-seeds to the current tail
+// instead of resuming egress from Seq 0 (which would re-deliver the backlog).
+func TestFileMarkersNeedsSeedOnZeroLastSeq(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "markers.json")
+	m, err := newFileMarkers(p)
+	if err != nil {
+		t.Fatalf("newFileMarkers: %v", err)
+	}
+	if !m.needsSeed("linear") {
+		t.Fatal("fresh markers: needsSeed(linear) must be true")
+	}
+
+	// Simulate an old-format marker file: {"linear": {}} — present key, no
+	// LastSeq (as if LastMsg had been dropped by the field rename).
+	if err := os.WriteFile(p, []byte(`{"linear": {}}`), 0o600); err != nil {
+		t.Fatalf("write old-format marker: %v", err)
+	}
+	m2, err := newFileMarkers(p)
+	if err != nil {
+		t.Fatalf("newFileMarkers reload: %v", err)
+	}
+	if !m2.has("linear") {
+		t.Fatal("old-format marker: has(linear) must be true (key present)")
+	}
+	if !m2.needsSeed("linear") {
+		t.Fatal("old-format marker (LastSeq==0): needsSeed(linear) must be true")
+	}
+
+	// A properly-seeded marker (nonzero LastSeq) must NOT re-seed.
+	if err := m2.SetEgress("linear", msgport.EgressMark{LastSeq: 5}); err != nil {
+		t.Fatalf("SetEgress: %v", err)
+	}
+	if m2.needsSeed("linear") {
+		t.Fatal("nonzero LastSeq: needsSeed(linear) must be false")
 	}
 }
 
@@ -479,7 +521,7 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 	}
 
 	if err := m.SetEgress("linear", msgport.EgressMark{
-		LastMsg: "a",
+		LastSeq: 1,
 		Pending: map[string]map[string]bool{"m1": {"t1": true}},
 	}); err != nil {
 		t.Fatalf("SetEgress: %v", err)
@@ -500,7 +542,7 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 
 	// Write path: mutating the mark AFTER SetEgress must not reach the store.
 	orig := msgport.EgressMark{
-		LastMsg: "b",
+		LastSeq: 2,
 		Pending: map[string]map[string]bool{"m1": {"t1": true}},
 	}
 	if err := m.SetEgress("x", orig); err != nil {

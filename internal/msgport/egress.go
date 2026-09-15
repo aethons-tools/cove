@@ -10,8 +10,8 @@ import (
 // ListSince, bounding per-tick work; a backlog larger than this drains
 // across multiple ticks. This is a deliberate trade-off, not
 // behavior-preserving vs. the old whole-log scan: if a message near the head
-// of the window has a permanently-failing target, LastMsg never advances, so
-// messages beyond LastMsg+egressBatch aren't attempted until it clears
+// of the window has a permanently-failing target, LastSeq never advances, so
+// messages beyond LastSeq+egressBatch aren't attempted until it clears
 // (head-of-line blocking). Transient failures still self-heal on the next tick.
 const egressBatch = 500
 
@@ -24,7 +24,7 @@ func (e *Engine) egressTick(ctx context.Context) {
 	if mark.Pending == nil {
 		mark.Pending = map[string]map[string]bool{}
 	}
-	msgs := e.lg.ListSince(mark.LastMsg, egressBatch)
+	msgs := e.lg.ListSince(mark.LastSeq, egressBatch)
 
 	// Pass 1: deliver undelivered owned targets.
 	for _, m := range msgs {
@@ -54,12 +54,12 @@ func (e *Engine) egressTick(ctx context.Context) {
 		}
 	}
 
-	// Pass 2: advance LastMsg across the contiguous fully-done prefix, GC'ing Pending.
+	// Pass 2: advance LastSeq across the contiguous fully-done prefix, GC'ing Pending.
 	for _, m := range msgs {
 		if !e.egressDone(service, m, mark.Pending) {
 			break
 		}
-		mark.LastMsg = m.ID
+		mark.LastSeq = m.Seq
 		delete(mark.Pending, m.ID)
 	}
 

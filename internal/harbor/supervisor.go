@@ -61,7 +61,7 @@ type ControlSink interface {
 // tailReader is the sliver of the message log the supervisor needs to baseline a
 // cove's wake-on cursor to the current log position when it enters Waiting.
 type tailReader interface {
-	TailID() (string, bool)
+	TailSeq() (int64, bool)
 }
 
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
@@ -97,17 +97,17 @@ func NewHolderID() string {
 // supervisor↔Attach-server cycle). nil-safe throughout.
 func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
 
-// SetTailReader wires the message-log tail source used to baseline WaitCursor on
-// entering Waiting. Called once at wiring time before serving begins; nil (no
-// message log) leaves WaitCursor "".
+// SetTailReader wires the message-log tail source used to baseline WaitSeq on
+// entering Waiting (and CommitSeq at Raise). Called once at wiring time before
+// serving begins; nil (no message log) leaves both 0.
 func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 
-func (s *Supervisor) tailID() string {
+func (s *Supervisor) tailSeq() int64 {
 	if s.tail == nil {
-		return ""
+		return 0
 	}
-	id, _ := s.tail.TailID()
-	return id
+	seq, _ := s.tail.TailSeq()
+	return seq
 }
 
 // Raise enrolls the identity, mints a per-instance launch secret, launches the
@@ -143,7 +143,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
 		RaisedAt:         now, LastSeen: now,
-		CommitCursor: s.tailID(),
+		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -195,7 +195,7 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
 	if enteringWaiting {
 		inst.WaitingSince = now
-		inst.WaitCursor = s.tailID()
+		inst.WaitSeq = s.tailSeq()
 		inst.EscalationTier = 0
 		inst.TierPingedAt = time.Time{}
 	}
@@ -211,15 +211,15 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	return nil
 }
 
-// SetWaitCursor persists an opaque wake-on baseline on the instance (used by the
-// wake-on engine to detect a new ticket comment). No-op semantics if the actor
-// is gone.
-func (s *Supervisor) SetWaitCursor(actorID, cursor string) error {
+// SetWaitSeq persists a wake-on baseline (message-log append Seq) on the
+// instance (used by the wake-on engine to detect a new ticket comment). No-op
+// semantics if the actor is gone.
+func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
-	inst.WaitCursor = cursor
+	inst.WaitSeq = seq
 	return s.store.PutInstance(inst)
 }
 
