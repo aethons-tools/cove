@@ -6,6 +6,11 @@ import (
 	"github.com/aethons-tools/cove/internal/msglog"
 )
 
+// egressBatch caps the number of messages read per egressTick from
+// ListSince, bounding per-tick work; a backlog larger than this drains
+// across multiple ticks.
+const egressBatch = 500
+
 // egressTick delivers every not-yet-delivered External target of each
 // internal-authored message above the low-water, exactly once, and advances the
 // bounded EgressMark.
@@ -15,17 +20,10 @@ func (e *Engine) egressTick(ctx context.Context) {
 	if mark.Pending == nil {
 		mark.Pending = map[string]map[string]bool{}
 	}
-	msgs := e.lg.List(msglog.Filter{})
+	msgs := e.lg.ListSince(mark.LastMsg, egressBatch)
 
 	// Pass 1: deliver undelivered owned targets.
-	seenLast := mark.LastMsg == ""
 	for _, m := range msgs {
-		if !seenLast {
-			if m.ID == mark.LastMsg {
-				seenLast = true
-			}
-			continue
-		}
 		if msglog.Classify(m.From) != msglog.Internal {
 			continue // echo guard: never re-egress an externally-authored message
 		}
@@ -53,14 +51,7 @@ func (e *Engine) egressTick(ctx context.Context) {
 	}
 
 	// Pass 2: advance LastMsg across the contiguous fully-done prefix, GC'ing Pending.
-	seenLast = mark.LastMsg == ""
 	for _, m := range msgs {
-		if !seenLast {
-			if m.ID == mark.LastMsg {
-				seenLast = true
-			}
-			continue
-		}
 		if !e.egressDone(service, m, mark.Pending) {
 			break
 		}

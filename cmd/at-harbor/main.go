@@ -1288,13 +1288,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 // logTailID returns the id of the last (newest) message in lg, or "" when the
 // Log is empty. Used to seed the egress low-water at cutover so already-
-// delivered shadow history is skipped. List is time-sorted; the tail is last.
+// delivered shadow history is skipped.
 func logTailID(lg msglog.Store) string {
-	all := lg.List(msglog.Filter{})
-	if len(all) == 0 {
-		return ""
-	}
-	return all[len(all)-1].ID
+	id, _ := lg.TailID()
+	return id
 }
 
 func splitCSV(s string) []string {

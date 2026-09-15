@@ -111,6 +111,58 @@ func TestEgressPassesBodyPrefixToDeliver(t *testing.T) {
 	}
 }
 
+func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
+	surf := &fakeSurface{service: "linear"}
+	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
+	e, mk := newEgressEngine(t, surf, dir)
+
+	// Seed one message and fully drain it, establishing a non-empty starting
+	// LastMsg — messages at/under this id must never be (re-)delivered.
+	first, err := e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	e.egressTick(context.Background())
+	if surf.deliverCount() != 1 {
+		t.Fatalf("setup: expected 1 delivery, got %d", surf.deliverCount())
+	}
+	if got := mk.m[surf.service].LastMsg; got != first.ID {
+		t.Fatalf("setup: LastMsg = %q, want %q", got, first.ID)
+	}
+
+	// Append a backlog bigger than one egressBatch.
+	const backlogSize = egressBatch + 50
+	var tail string
+	for i := 0; i < backlogSize; i++ {
+		m, err := e.lg.Append(actorMsg(msglog.Target{Kind: "human", Ref: "alice"}))
+		if err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+		tail = m.ID
+	}
+
+	// Drain across enough ticks to cover the whole backlog.
+	for i := 0; i < backlogSize/egressBatch+2; i++ {
+		e.egressTick(context.Background())
+	}
+
+	if surf.deliverCount() != 1+backlogSize {
+		t.Fatalf("backlog drain: delivered %d times, want %d", surf.deliverCount(), 1+backlogSize)
+	}
+	firstDeliveries := 0
+	for _, d := range surf.delivers {
+		if d.MsgID == first.ID {
+			firstDeliveries++
+		}
+	}
+	if firstDeliveries != 1 {
+		t.Fatalf("message at/under starting LastMsg was (re-)delivered %d times, want 1", firstDeliveries)
+	}
+	if got := mk.m[surf.service].LastMsg; got != tail {
+		t.Fatalf("LastMsg = %q after drain, want tail %q", got, tail)
+	}
+}
+
 func TestEgressSkipsOtherService(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
 	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "discord", Address: "chan-1"}}}
