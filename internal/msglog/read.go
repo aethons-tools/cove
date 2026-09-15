@@ -53,3 +53,47 @@ func (l *Log) List(f Filter) []Message {
 	}
 	return out
 }
+
+// ListSince returns messages with id > afterID, in append order, capped at limit.
+func (l *Log) ListSince(afterID string, limit int) []Message {
+	var out []Message
+	for _, m := range l.snapshot() {
+		if m.ID <= afterID {
+			continue
+		}
+		out = append(out, m)
+		if limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// ReadInboxSince returns messages addressed to t with id > afterID, capped at limit.
+func (l *Log) ReadInboxSince(t Target, afterID string, limit int) []Message {
+	var out []Message
+	for _, m := range l.snapshot() {
+		if m.ID <= afterID {
+			continue
+		}
+		for _, r := range m.To {
+			if r == t {
+				out = append(out, m)
+				break
+			}
+		}
+		if limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// TailID returns the last message's id, or ("", false) if the log is empty.
+func (l *Log) TailID() (string, bool) {
+	ms := l.snapshot()
+	if len(ms) == 0 {
+		return "", false
+	}
+	return ms[len(ms)-1].ID, true
+}

@@ -140,6 +140,43 @@ func (s *Store) SeenIDs(prefix string) []string {
 	return out
 }
 
+func (s *Store) ListSince(afterID string, limit int) []msglog.Message {
+	sql := `SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
+	        FROM messages WHERE id > $1 ORDER BY id`
+	args := []any{afterID}
+	if limit > 0 {
+		sql += ` LIMIT $2`
+		args = append(args, limit)
+	}
+	return s.query(sql, args...)
+}
+
+func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message {
+	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
+	        WHERE r.kind = $1 AND r.ref = $2 AND m.id > $3 ORDER BY m.id`
+	args := []any{t.Kind, t.Ref, afterID}
+	if limit > 0 {
+		sql += ` LIMIT $4`
+		args = append(args, limit)
+	}
+	return s.query(sql, args...)
+}
+
+func (s *Store) TailID() (string, bool) {
+	var id string
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT id FROM messages ORDER BY id DESC LIMIT 1`).Scan(&id)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", false
+		}
+		s.log.Error("msglogpg: TailID query", "error", err.Error())
+		return "", false
+	}
+	return id, true
+}
+
 // query runs a message SELECT (columns in the fixed order below) and
 // reconstructs each Message via scanMessages.
 func (s *Store) query(sql string, args ...any) []msglog.Message {

@@ -138,4 +138,52 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 			t.Fatalf("SeenIDs(in:linear:) = %v, want %v (prefix matches in append order)", got, want)
 		}
 	})
+
+	t.Run("list_since_and_tail", func(t *testing.T) {
+		s := newStore(t)
+		var ids []string
+		for _, b := range []string{"m1", "m2", "m3"} {
+			got, err := s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{human("h")}, Body: b})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, got.ID)
+		}
+		if tail, ok := s.TailID(); !ok || tail != ids[2] {
+			t.Fatalf("TailID = %q,%v, want %q,true", tail, ok, ids[2])
+		}
+		after := s.ListSince(ids[0], 0) // everything after m1
+		if len(after) != 2 || after[0].Body != "m2" || after[1].Body != "m3" {
+			t.Fatalf("ListSince(m1,0) = %+v, want [m2,m3]", after)
+		}
+		if lim := s.ListSince("", 2); len(lim) != 2 || lim[0].Body != "m1" {
+			t.Fatalf("ListSince(\"\",2) = %+v, want [m1,m2]", lim)
+		}
+		if none := s.ListSince(ids[2], 0); len(none) != 0 {
+			t.Fatalf("ListSince(tail,0) = %+v, want empty", none)
+		}
+	})
+
+	t.Run("tail_empty_log", func(t *testing.T) {
+		if id, ok := newStore(t).TailID(); ok || id != "" {
+			t.Fatalf("TailID(empty) = %q,%v, want \"\",false", id, ok)
+		}
+	})
+
+	t.Run("read_inbox_since", func(t *testing.T) {
+		s := newStore(t)
+		m1, _ := s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x")}, Body: "before"})
+		m2, _ := s.Append(msglog.Message{From: human("a"), To: []msglog.Target{actor("x")}, Body: "after1"})
+		_, _ = s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("y")}, Body: "other"})
+		got := s.ReadInboxSince(actor("x"), m1.ID, 0)
+		if len(got) != 1 || got[0].Body != "after1" || got[0].ID != m2.ID {
+			t.Fatalf("ReadInboxSince(x, m1) = %+v, want [after1]", got)
+		}
+		if all := s.ReadInboxSince(actor("x"), "", 0); len(all) != 2 {
+			t.Fatalf("ReadInboxSince(x, \"\") = %d, want 2", len(all))
+		}
+		if none := s.ReadInboxSince(actor("z"), "", 0); len(none) != 0 {
+			t.Fatalf("ReadInboxSince(z) = %+v, want empty", none)
+		}
+	})
 }

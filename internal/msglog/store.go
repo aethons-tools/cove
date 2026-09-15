@@ -13,6 +13,15 @@ type Store interface {
 	// order — the bounded query the msgport engine uses to rebuild its ingress
 	// dedupe set at startup without materializing the whole log.
 	SeenIDs(prefix string) []string
+	// ListSince returns messages with id > afterID, in append order, capped at
+	// limit (limit <= 0 = unbounded). afterID == "" starts from the beginning.
+	ListSince(afterID string, limit int) []Message
+	// ReadInboxSince returns messages addressed to t with id > afterID, in append
+	// order, capped at limit (<= 0 = unbounded). afterID == "" = the whole inbox.
+	ReadInboxSince(t Target, afterID string, limit int) []Message
+	// TailID returns the highest-id (last-appended) message's id, or ("", false)
+	// when the log is empty.
+	TailID() (string, bool)
 	Close() error
 }
 
