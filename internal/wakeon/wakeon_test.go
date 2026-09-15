@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/msglog"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 type fakeReg struct{ insts []harbor.Instance }
@@ -35,15 +35,15 @@ func (f *fakeIdler) Resume(_ context.Context, a string) error {
 	return nil
 }
 
-// fakeInbox scripts ReadInboxSince per actor ref, standing in for *msglog.Log.
+// fakeInbox scripts ReadInboxSince per actor ref, standing in for *intercom.Log.
 // The Seq > afterSeq filter mirrors the real backend's append-order semantics
 // (Seq, never the id, decides ordering — see extInbound/COV-184).
 type fakeInbox struct {
-	byActor map[string][]msglog.Message // actor ref → its inbox
+	byActor map[string][]intercom.Squawk // actor ref → its inbox
 }
 
-func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterSeq int64, limit int) []msglog.Message {
-	var out []msglog.Message
+func (f *fakeInbox) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
+	var out []intercom.Squawk
 	for _, m := range f.byActor[t.Ref] {
 		if m.Seq <= afterSeq {
 			continue
@@ -61,12 +61,12 @@ func (f *fakeInbox) ReadInboxSince(t msglog.Target, afterSeq int64, limit int) [
 // ReadInboxSince) and log id. The id is deliberately NOT required to sort
 // lexically consistent with seq — see the COV-184 regression test below,
 // which exploits exactly that to prove ordering is Seq-based, not id-based.
-func extInbound(coveID string, seq int64, id string) msglog.Message {
-	return msglog.Message{
+func extInbound(coveID string, seq int64, id string) intercom.Squawk {
+	return intercom.Squawk{
 		Seq:  seq,
 		ID:   id,
-		From: msglog.Target{Kind: "human", Ref: "alice"},
-		To:   []msglog.Target{{Kind: "actor", Ref: coveID}},
+		From: intercom.Target{Kind: "human", Ref: "alice"},
+		To:   []intercom.Target{{Kind: "actor", Ref: coveID}},
 		Body: "reply",
 	}
 }
@@ -85,7 +85,7 @@ func TestTick_ExternalReplyAfterWaitSeq_Wakes(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
@@ -126,7 +126,7 @@ func TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder(t *testing.T) 
 	if replyID >= baselineID {
 		t.Fatalf("test setup invariant broken: replyID %q must sort lexically BEFORE baselineID %q", replyID, baselineID)
 	}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 6, replyID)},
 	}}
 	wake := &fakeWaker{}
@@ -148,7 +148,7 @@ func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	// inbound at the WaitSeq baseline (Seq == WaitSeq, not >) → not a reply
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 5, "id-5")},
 	}}
 	wake := &fakeWaker{}
@@ -172,14 +172,14 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	internal := msglog.Message{
+	internal := intercom.Squawk{
 		Seq:  6,
 		ID:   "id-6",
-		From: msglog.Target{Kind: "actor", Ref: "a2"},
-		To:   []msglog.Target{{Kind: "actor", Ref: "a1"}},
+		From: intercom.Target{Kind: "actor", Ref: "a2"},
+		To:   []intercom.Target{{Kind: "actor", Ref: "a1"}},
 		Body: "internal",
 	}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{"a1": {internal}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {internal}}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -198,7 +198,7 @@ func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
@@ -269,7 +269,7 @@ func TestTick_NonWaitingIgnored(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 1, "id-1")},
 	}}
 	wake := &fakeWaker{}
@@ -289,7 +289,7 @@ func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{}} // no reply
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -316,7 +316,7 @@ func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
 	reg := &fakeReg{insts: []harbor.Instance{
 		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]msglog.Message{}} // no reply
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -346,7 +346,7 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 				{ActorID: "a1", Phase: phase, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 			}}
 			// even with a pending reply, max-wait teardown wins
-			inbox := &fakeInbox{byActor: map[string][]msglog.Message{
+			inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 				"a1": {extInbound("a1", 1, "id-1")},
 			}}
 			wake := &fakeWaker{}

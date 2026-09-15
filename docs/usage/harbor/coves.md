@@ -30,7 +30,7 @@ two status fields with different owners:
   `→ lost → terminating` when the reconciler finds it dead. A `live` cove
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
   lease-reaping suspended — and back `→ live` on reply or teardown past
-  `wait-max`; see [messaging.md](messaging.md#waiting-for-a-reply-wake-on) for
+  `wait-max`; see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the cove reports it, only while `live`): `running | waiting |
   blocked | done`. Reporting `done` tells harbor to tear the cove down.
@@ -75,11 +75,11 @@ Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `cove raise` verb.
 
-A raised cove's agent also gets a brokered [messaging MCP](messaging.md) — `read`/`send`
+A raised cove's agent also gets a brokered [intercom MCP](intercom.md) — `read`/`send`
 on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
 A cove is no longer strictly one-shot: on `needs-input` it **suspends** (Activity `waiting`)
 and harbor **wakes** it to resume (`claude --continue`) when a reply lands on its ticket,
-bounded by `wait-max` — see [messaging.md](messaging.md#waiting-for-a-reply-wake-on).
+bounded by `wait-max` — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
 
 All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

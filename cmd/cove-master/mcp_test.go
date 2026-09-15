@@ -20,8 +20,8 @@ type fakeHarbor struct {
 	gotMethod string
 	gotBody   map[string]any
 
-	failStatus int          // if non-zero, ServeHTTP replies with this status instead
-	inbox      []messageOut // canned GET response
+	failStatus int         // if non-zero, ServeHTTP replies with this status instead
+	inbox      []squawkOut // canned GET response
 }
 
 func (f *fakeHarbor) handler() http.HandlerFunc {
@@ -43,7 +43,7 @@ func (f *fakeHarbor) handler() http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"messages": f.inbox})
+			_ = json.NewEncoder(w).Encode(map[string]any{"squawks": f.inbox})
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -134,7 +134,7 @@ func TestMCPSendForwardsToHarbor(t *testing.T) {
 }
 
 func TestMCPReadReturnsInbox(t *testing.T) {
-	fh := &fakeHarbor{inbox: []messageOut{
+	fh := &fakeHarbor{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
 	}}
 	backend := httptest.NewServer(fh.handler())
@@ -172,7 +172,7 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("unmarshal structured content: %v", err)
 	}
-	if len(out.Messages) != 1 || out.Messages[0].Body != "hello" {
+	if len(out.Squawks) != 1 || out.Squawks[0].Body != "hello" {
 		t.Fatalf("read result = %+v", out)
 	}
 }
@@ -201,14 +201,14 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err := c.send(context.Background(), "hi", "human:alice"); err != nil {
 		t.Fatal(err)
 	}
-	if gotPath != "/messages" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
+	if gotPath != "/squawks" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
 	}
 }
 
 func TestMCPListTargets(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/messages/targets" || r.Method != http.MethodGet {
+		if r.URL.Path != "/squawks/targets" || r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -235,7 +235,7 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.String()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"messages":[]}`))
+		_, _ = w.Write([]byte(`{"squawks":[]}`))
 	}))
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
@@ -253,8 +253,8 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	if _, err := c.read(context.Background(), readIn{}); err != nil {
 		t.Fatal(err)
 	}
-	if gotURL != "/messages" {
-		t.Fatalf("url=%q, want /messages with no query string", gotURL)
+	if gotURL != "/squawks" {
+		t.Fatalf("url=%q, want /squawks with no query string", gotURL)
 	}
 }
 
@@ -263,7 +263,7 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.String()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"messages":[],"committed_cursor":"m9","page_first":"m1","page_last":"m2"}`))
+		_, _ = w.Write([]byte(`{"squawks":[],"committed_cursor":"m9","page_first":"m1","page_last":"m2"}`))
 	}))
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
@@ -286,8 +286,8 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse gotURL: %v", err)
 	}
-	if u.Path != "/messages" {
-		t.Fatalf("path=%q, want /messages", u.Path)
+	if u.Path != "/squawks" {
+		t.Fatalf("path=%q, want /squawks", u.Path)
 	}
 	q := u.Query()
 	if q.Get("anchor") != "end" || q.Get("dir") != "backward" || q.Get("limit") != "10" {
@@ -303,7 +303,7 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"messages":[]}`))
+		_, _ = w.Write([]byte(`{"squawks":[]}`))
 	}))
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
@@ -352,7 +352,7 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotPath != "/messages/commit" || !strings.Contains(gotBody, `"up_to":"m5"`) {
+	if gotPath != "/squawks/commit" || !strings.Contains(gotBody, `"up_to":"m5"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
 	}
 	if out.CommittedCursor != "m5" {
@@ -388,7 +388,7 @@ func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("commit tool reported error: %+v", res.Content)
 	}
-	if gotPath != "/messages/commit" || !strings.Contains(gotBody, `"up_to":"m7"`) {
+	if gotPath != "/squawks/commit" || !strings.Contains(gotBody, `"up_to":"m7"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
 	}
 

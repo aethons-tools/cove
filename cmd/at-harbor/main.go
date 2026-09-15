@@ -39,10 +39,10 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
 	"github.com/aethons-tools/cove/internal/harbor/launcher"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/intercom/intercompg"
 	"github.com/aethons-tools/cove/internal/kit"
-	"github.com/aethons-tools/cove/internal/msglog"
-	"github.com/aethons-tools/cove/internal/msglog/msglogpg"
-	"github.com/aethons-tools/cove/internal/msgport"
+	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/switchboard"
@@ -1147,38 +1147,38 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
 	// Message Log: opened once (handle held for the serve lifetime) and shared
-	// between the /messages writer (dual-write shadow, below) and the admin UI's
+	// between the /squawks writer (dual-write shadow, below) and the admin UI's
 	// read-only reader (further down). Backend follows the store backend:
 	// Postgres (shared control-plane pool) when store-postgres is set, else the
-	// file log at message-log. Unset config → nil → the writer's dual-write is
+	// file log at intercom-log. Unset config → nil → the writer's dual-write is
 	// disabled and the admin view renders a "not configured" notice.
-	var messageLog msglog.Store
+	var intercomLog intercom.Store
 	switch {
 	case pgPool != nil:
-		ml, err := msglogpg.New(context.Background(), pgPool, log)
+		ml, err := intercompg.New(context.Background(), pgPool, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: message-log (postgres):", err)
+			fmt.Fprintln(stderr, "at-harbor: intercom-log (postgres):", err)
 			return 1
 		}
-		messageLog = ml // Close is a no-op; the store owns the pool
+		intercomLog = ml // Close is a no-op; the store owns the pool
 		log.Info("harbor message log: postgres (shared control-plane database)")
-	case cfg.MessageLog != "":
-		ml, err := msglog.Open(cfg.MessageLog, log)
+	case cfg.IntercomLog != "":
+		ml, err := intercom.Open(cfg.IntercomLog, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: message-log:", err)
+			fmt.Fprintln(stderr, "at-harbor: intercom-log:", err)
 			return 1
 		}
 		defer ml.Close()
-		messageLog = ml
-		log.Info("harbor message log: file", "path", cfg.MessageLog)
+		intercomLog = ml
+		log.Info("harbor message log: file", "path", cfg.IntercomLog)
 	}
-	if messageLog != nil {
-		sup.SetTailReader(messageLog)
+	if intercomLog != nil {
+		sup.SetTailReader(intercomLog)
 	}
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
-	// /messages route sharing the same *linear.Client as the resident
+	// /squawks route sharing the same *linear.Client as the resident
 	// dispatcher (built once, used for both).
 	var httpHandler http.Handler = broker
 	if dc := cfg.Runtime.Dispatcher; dc != nil {
@@ -1203,20 +1203,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Pass messageLog as both the reader and the appender only when it's
-		// genuinely non-nil: it is an msglog.Store interface value assigned only
-		// to a real backend (see messageLog above) or left as a true nil
+		// Pass intercomLog as both the reader and the appender only when it's
+		// genuinely non-nil: it is an intercom.Store interface value assigned only
+		// to a real backend (see intercomLog above) or left as a true nil
 		// interface, so this guard is a plain nil check. Unconfigured → nil
 		// reader+appender → GET/POST return a clean 503.
-		var msgH *harbor.MessagesHandler
-		if messageLog != nil {
-			msgH = harbor.NewMessagesHandler(st, messageLog, messageLog, log)
+		var squawksH *harbor.SquawksHandler
+		if intercomLog != nil {
+			squawksH = harbor.NewSquawksHandler(st, intercomLog, intercomLog, log)
 		} else {
-			msgH = harbor.NewMessagesHandler(st, nil, nil, log)
+			squawksH = harbor.NewSquawksHandler(st, nil, nil, log)
 		}
 		escH := harbor.NewEscalateHandler(st, sup, log)
-		httpHandler = messagesMux(msgH, escH, broker)
-		log.Info("harbor messages: mounted", "path", "/messages")
+		httpHandler = squawksMux(squawksH, escH, broker)
+		log.Info("harbor messages: mounted", "path", "/squawks")
 		log.Info("harbor escalate: mounted", "path", "/escalate")
 
 		// Wake-on engine: watches Waiting instances and Wakes them over the
@@ -1226,13 +1226,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
 		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
 		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		// Pass messageLog as the Inbox only when it's genuinely non-nil (same
-		// plain nil check as the msgH wiring above — no typed-nil hazard).
+		// Pass intercomLog as the Inbox only when it's genuinely non-nil (same
+		// plain nil check as the squawksH wiring above — no typed-nil hazard).
 		var inbox wakeon.Inbox
-		if messageLog != nil {
-			inbox = messageLog
+		if intercomLog != nil {
+			inbox = intercomLog
 		} else {
-			log.Warn("harbor wake-on: message-log not configured — coves will not wake on replies (teardown/pause only)")
+			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
 		}
 		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
 		go eng.Run(context.Background())
@@ -1249,29 +1249,29 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go eeng.Run(context.Background())
 		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
 
-		// msgport linear engine: polls the team-scoped comments feed and
-		// appends inbound human replies to the messageLog opened above
+		// relay linear engine: polls the team-scoped comments feed and
+		// appends inbound human replies to the intercomLog opened above
 		// (ingress), and now also delivers outbound Log messages to Linear
 		// (egress, COV-176 Task 4) — the old count-based wake-on/escalation
 		// above are untouched; this makes the Log the single source of truth
-		// for both directions. Nil-guarded on messageLog: without a
-		// configured message-log there is nothing to ingest into or deliver
+		// for both directions. Nil-guarded on intercomLog: without a
+		// configured intercom-log there is nothing to ingest into or deliver
 		// from, so no engine runs.
-		if messageLog != nil {
+		if intercomLog != nil {
 			self, err := tracker.Viewer(context.Background())
 			if err != nil {
-				log.Warn("harbor msgport: viewer lookup failed; self-post filter disabled", "error", err.Error())
+				log.Warn("harbor relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
 			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
-			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "msgport-cursors.json"))
+			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json"))
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: msgport cursors:", err)
+				fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
 				return 1
 			}
-			markers, err := newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "msgport-markers.json"))
+			markers, err := newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json"))
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: msgport markers:", err)
+				fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
 				return 1
 			}
 			// Seed once: skip everything the 1a dual-write already delivered live,
@@ -1283,16 +1283,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// low-water as LastMsg, a string) upgrading in place — see
 			// fileMarkers.needsSeed.
 			if markers.needsSeed("linear") {
-				if err := markers.SetEgress("linear", msgport.EgressMark{LastSeq: logTailSeq(messageLog)}); err != nil {
-					fmt.Fprintln(stderr, "at-harbor: msgport egress seed:", err)
+				if err := markers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+					fmt.Fprintln(stderr, "at-harbor: relay egress seed:", err)
 					return 1
 				}
 			}
-			eng := msgport.New(surf, messageLog, markers, cur, dir, msgport.Config{EgressEnabled: true}, log)
+			eng := relay.New(surf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
 			go eng.Run(context.Background())
-			log.Info("harbor msgport (linear): resident, egress ON", "self", self != "")
+			log.Info("harbor relay (linear): resident, egress ON", "self", self != "")
 
-			// msgport discord engine: a second resident engine over the same Log,
+			// relay discord engine: a second resident engine over the same Log,
 			// markers file, cursors, and directory — delivers outbound Log messages
 			// to Discord (egress) AND polls each project's discord inbox channels
 			// for human replies, routing a reply back to the cove it answers via
@@ -1307,9 +1307,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					return 1
 				}
 				discordTok := tokEnv["AT_DISCORD_BOT_TOKEN"]
-				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "msgport-receipts.json"))
+				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json"))
 				if err != nil {
-					fmt.Fprintln(stderr, "at-harbor: msgport receipts:", err)
+					fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
 					return 1
 				}
 				dir.receipts = receipts // wires directory.routeDiscord (COV-183): reply→cove lookup
@@ -1322,14 +1322,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					log:         log,
 				}
 				if markers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-					if err := markers.SetEgress("discord", msgport.EgressMark{LastSeq: logTailSeq(messageLog)}); err != nil {
+					if err := markers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
 						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
 						return 1
 					}
 				}
-				deng := msgport.New(dsurf, messageLog, markers, cur, dir, msgport.Config{EgressEnabled: true}, log)
+				deng := relay.New(dsurf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
 				go deng.Run(context.Background())
-				log.Info("harbor msgport (discord): resident, egress ON")
+				log.Info("harbor relay (discord): resident, egress ON")
 			}
 		}
 	}
@@ -1368,13 +1368,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
 
-		// Read-only message-log view: shares the Log opened once above (the same
-		// handle the /messages writer dual-writes into) with the admin UI as a
-		// read-only reader. Unset config → messageLog nil → msgReader stays its
+		// Read-only intercom-log view: shares the Log opened once above (the same
+		// handle the /squawks writer dual-writes into) with the admin UI as a
+		// read-only reader. Unset config → intercomLog nil → squawkReader stays its
 		// zero value and the view renders a "not configured" notice.
-		var msgReader adminui.MessageReader
-		if messageLog != nil {
-			msgReader = messageLog
+		var squawkReader adminui.SquawkReader
+		if intercomLog != nil {
+			squawkReader = intercomLog
 		}
 
 		uiMux := http.NewServeMux()
@@ -1393,7 +1393,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			log.Info("harbor UI auth: loopback-only")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, msgReader)))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
 		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
@@ -1437,7 +1437,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
 // the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailSeq(lg msglog.Store) int64 {
+func logTailSeq(lg intercom.Store) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
 }

@@ -23,9 +23,9 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func TestMessagesMuxRouting(t *testing.T) {
-	msgH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "messages")
+func TestSquawksMuxRouting(t *testing.T) {
+	squawksH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "squawks")
 	})
 	escH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "escalate")
@@ -33,19 +33,19 @@ func TestMessagesMuxRouting(t *testing.T) {
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "broker")
 	})
-	mux := messagesMux(msgH, escH, broker)
+	mux := squawksMux(squawksH, escH, broker)
 
 	for _, tc := range []struct {
 		path string
 		want string
 	}{
-		{"/messages", "messages"},
-		{"/messages/targets", "messages"},
-		{"/messages/commit", "messages"},
+		{"/squawks", "squawks"},
+		{"/squawks/targets", "squawks"},
+		{"/squawks/commit", "squawks"},
 		{"/escalate", "escalate"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},
-		{"/messages/extra", "broker"}, // exact-match only, not a prefix route
+		{"/squawks/extra", "broker"},  // exact-match only, not a prefix route
 		{"/escalate/extra", "broker"}, // exact-match only, not a prefix route
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)

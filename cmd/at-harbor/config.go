@@ -42,10 +42,10 @@ type serveConfig struct {
 		Key  string `yaml:"key"`
 	} `yaml:"admin-tls"`
 	Store string `yaml:"store"`
-	// MessageLog is an optional path to the durable msglog JSONL file. When set,
-	// `serve` opens it and the admin UI serves the read-only Messages view
-	// (/ui/messages). Created on first open. Empty disables the view.
-	MessageLog string `yaml:"message-log"`
+	// IntercomLog is an optional path to the durable intercom JSONL log file. When set,
+	// `serve` opens it and the admin UI serves the read-only Intercom view
+	// (/ui/intercom). Created on first open. Empty disables the view.
+	IntercomLog string `yaml:"intercom-log"`
 	// StorePostgres, when set, selects the Postgres store backend and takes
 	// precedence over the file `store`. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
@@ -72,7 +72,7 @@ type serveConfig struct {
 	} `yaml:"runtime"`
 }
 
-// discordConfig enables the resident Discord msgport engine (egress this slice).
+// discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
 	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
 }
@@ -213,7 +213,7 @@ func (c serveConfig) validateDispatcher() error {
 
 // validateDiscord checks runtime.discord when present (required: a non-empty
 // bot-token, as a command or a literal value). A no-op when runtime.discord is
-// unset — the resident Discord msgport engine stays disabled.
+// unset — the resident Discord relay engine stays disabled.
 func (c serveConfig) validateDiscord() error {
 	d := c.Runtime.Discord
 	if d == nil {

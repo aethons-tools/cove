@@ -20,7 +20,7 @@ func TestUnknownServeKeys(t *testing.T) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)
-	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nmessage-log: m\nstore-postgres: {}\n"
+	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nintercom-log: m\nstore-postgres: {}\n"
 	if got := unknownServeKeys([]byte(known)); len(got) != 0 {
 		t.Fatalf("all-known config flagged: %v", got)
 	}
@@ -428,20 +428,20 @@ func TestUIHostsParsed(t *testing.T) {
 	}
 }
 
-func TestServeConfigMessageLog(t *testing.T) {
+func TestServeConfigIntercomLog(t *testing.T) {
 	var c serveConfig
-	if err := yaml.Unmarshal([]byte("message-log: /var/lib/harbor/messages.jsonl\n"), &c); err != nil {
+	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/harbor/squawks.jsonl\n"), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.MessageLog != "/var/lib/harbor/messages.jsonl" {
-		t.Fatalf("MessageLog = %q, want the configured path", c.MessageLog)
+	if c.IntercomLog != "/var/lib/harbor/squawks.jsonl" {
+		t.Fatalf("IntercomLog = %q, want the configured path", c.IntercomLog)
 	}
 	var empty serveConfig
 	if err := yaml.Unmarshal([]byte("listen: \":443\"\n"), &empty); err != nil {
 		t.Fatal(err)
 	}
-	if empty.MessageLog != "" {
-		t.Fatalf("MessageLog default = %q, want empty", empty.MessageLog)
+	if empty.IntercomLog != "" {
+		t.Fatalf("IntercomLog default = %q, want empty", empty.IntercomLog)
 	}
 }
 

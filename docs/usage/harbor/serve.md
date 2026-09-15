@@ -75,14 +75,14 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
-| `message-log` | no | Filesystem path to harbor's durable message Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Messages view at `/ui/messages`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#messages](ui.md#messages). |
+| `intercom-log` | no | Filesystem path to harbor's durable squawk Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
 | `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
-| `runtime.discord` | no | Enables the resident Discord msgport engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `message-log`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [messaging.md](messaging.md#enabling-it). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
 
 ### Postgres store backend (`store-postgres`)
 
@@ -121,11 +121,11 @@ no importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
 after switching; a deployment needing its roster preserved should stay on the
 file backend until it re-enrolls.
 
-**The message log follows the store backend.** `store-postgres` also makes the
-durable message Log ([`message-log`](#the-serve-config) above,
-[ui.md#messages](ui.md#messages)) Postgres-backed, on the same database and
-pool (tables auto-created; `message-log:` is ignored) — effectively always-on.
-Without `store-postgres`, the file `message-log` path is used as before.
+**The squawk Log follows the store backend.** `store-postgres` also makes the
+durable squawk Log ([`intercom-log`](#the-serve-config) above,
+[ui.md#intercom](ui.md#intercom)) Postgres-backed, on the same database and
+pool (tables auto-created; `intercom-log:` is ignored) — effectively always-on.
+Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
 
 ### The launcher (`runtime.launcher`)
