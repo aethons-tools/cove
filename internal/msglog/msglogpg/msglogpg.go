@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"sort"
@@ -36,7 +37,7 @@ var _ msglog.Store = (*Store)(nil)
 // a ready store. It does not own the pool; Close is a no-op.
 func New(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Store, error) {
 	if log == nil {
-		log = slog.New(slog.NewTextHandler(discard{}, nil))
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Store{pool: pool, log: log}
 	if err := s.migrate(ctx); err != nil {
@@ -65,8 +66,12 @@ func (s *Store) Append(m msglog.Message) (msglog.Message, error) {
 			return err
 		}
 		for _, t := range m.To {
+			// Duplicate targets in To must not abort the append (parity with the
+			// file backend); the full To, duplicates included, is still preserved
+			// in the "to" JSONB column above.
 			if _, err := tx.Exec(context.Background(),
-				`INSERT INTO message_recipients (message_id, kind, ref) VALUES ($1,$2,$3)`,
+				`INSERT INTO message_recipients (message_id, kind, ref) VALUES ($1,$2,$3)
+				 ON CONFLICT (message_id, kind, ref) DO NOTHING`,
 				m.ID, t.Kind, t.Ref); err != nil {
 				return err
 			}
@@ -94,6 +99,9 @@ func (s *Store) ReadThread(rootID string) []msglog.Message {
 
 func (s *Store) List(f msglog.Filter) []msglog.Message {
 	// Zero Since/Until are unbounded; pass them as conditional predicates.
+	// ORDER BY id reflects append order under the single-writer real-time-append
+	// model: ids are monotonic with insertion because Prepare stamps At=time.Now(),
+	// matching the file backend's append-ordered scan.
 	return s.query(
 		`SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
 		 FROM messages
@@ -117,17 +125,23 @@ func (s *Store) SeenIDs(prefix string) []string {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			s.log.Error("msglogpg: SeenIDs scan", "error", err.Error())
-			return out
+			return nil
 		}
 		out = append(out, id)
+	}
+	// pgx v5 can end Next() early on a mid-stream failure without a Scan error;
+	// the error only surfaces via rows.Err(). A truncated dedupe set must never
+	// be treated as authoritative (it would cause duplicate message
+	// re-ingestion), so return nil rather than the partial slice.
+	if err := rows.Err(); err != nil {
+		s.log.Error("msglogpg: SeenIDs rows", "error", err.Error())
+		return nil
 	}
 	return out
 }
 
 // query runs a message SELECT (columns in the fixed order below) and
-// reconstructs each Message. Read errors are logged and yield the rows gathered
-// so far (reads are non-fatal, matching the file backend's in-memory scan which
-// cannot error).
+// reconstructs each Message via scanMessages.
 func (s *Store) query(sql string, args ...any) []msglog.Message {
 	rows, err := s.pool.Query(context.Background(), sql, args...)
 	if err != nil {
@@ -135,19 +149,34 @@ func (s *Store) query(sql string, args ...any) []msglog.Message {
 		return nil
 	}
 	defer rows.Close()
+	return s.scanMessages(rows)
+}
+
+// scanMessages scans each row of a message SELECT (columns in the fixed order:
+// id, from_kind, from_ref, body, at, project, reply_to, "to") and reconstructs
+// each Message, decoding To from the "to" JSONB column. On a scan or decode
+// error it logs and returns nil rather than a partial result. After the loop it
+// checks rows.Err(): in pgx v5 a mid-stream failure can end Next() early without
+// a Scan error, surfacing only via rows.Err(), so a truncated read must not be
+// silently returned as a short success.
+func (s *Store) scanMessages(rows pgx.Rows) []msglog.Message {
 	var out []msglog.Message
 	for rows.Next() {
 		var m msglog.Message
 		var toJSON []byte
 		if err := rows.Scan(&m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
 			s.log.Error("msglogpg: scan", "error", err.Error())
-			return out
+			return nil
 		}
 		if err := json.Unmarshal(toJSON, &m.To); err != nil {
 			s.log.Error("msglogpg: decode to", "error", err.Error())
-			return out
+			return nil
 		}
 		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		s.log.Error("msglogpg: rows", "error", err.Error())
+		return nil
 	}
 	return out
 }
@@ -230,7 +259,3 @@ func nullTime(t time.Time) any {
 	}
 	return t
 }
-
-type discard struct{}
-
-func (discard) Write(p []byte) (int, error) { return len(p), nil }

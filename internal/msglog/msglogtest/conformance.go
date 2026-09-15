@@ -107,6 +107,21 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 		}
 	})
 
+	t.Run("duplicate_to_target", func(t *testing.T) {
+		s := newStore(t)
+		if _, err := s.Append(msglog.Message{
+			From: actor("c1"),
+			To:   []msglog.Target{actor("a"), actor("a")},
+			Body: "dup",
+		}); err != nil {
+			t.Fatalf("Append with duplicate To target: %v", err)
+		}
+		got := s.ReadInbox(actor("a"))
+		if len(got) != 1 || got[0].Body != "dup" {
+			t.Fatalf("ReadInbox(actor:a) = %+v, want exactly one message [dup]", got)
+		}
+	})
+
 	t.Run("seen_ids_by_prefix", func(t *testing.T) {
 		s := newStore(t)
 		for _, id := range []string{"in:linear:c1", "in:linear:c2", "in:discord:c3"} {
