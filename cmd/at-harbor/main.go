@@ -1306,6 +1306,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					fmt.Fprintln(stderr, "at-harbor: msgport receipts:", err)
 					return 1
 				}
+				dir.receipts = receipts // wires directory.routeDiscord (COV-183): reply→cove lookup
 				dsurf := &discordSurface{
 					dial: func(channels []string) discordClient {
 						return switchboard.NewRESTClient(discordTok, channels)

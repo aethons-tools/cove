@@ -116,6 +116,32 @@ func TestDirectoryRoute(t *testing.T) {
 	}
 }
 
+// TestRouteDiscord exercises the discord side of the service-aware Route: a
+// human's reply to a known receipt maps to the cove that receipt names; a
+// non-reply event and a reply to an unknown id both drop.
+func TestRouteDiscord(t *testing.T) {
+	st := newTestStore(t)
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1"); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	dir := &directory{store: st, project: "acme", receipts: rec}
+
+	// reply to a known receipt → routes to the cove
+	from, to, replyTo, ok := dir.Route("discord", "acme", msgport.Event{Author: "alice", ReplyToForeign: "D1", ForeignID: "m2"})
+	if !ok || from.Ref != "alice" || len(to) != 1 || to[0] != (msglog.Target{Kind: "actor", Ref: "cove-1"}) || replyTo != "in:discord:D1" {
+		t.Fatalf("routeDiscord reply: from=%+v to=%+v replyTo=%q ok=%v", from, to, replyTo, ok)
+	}
+	// not a reply → drop
+	if _, _, _, ok := dir.Route("discord", "acme", msgport.Event{Author: "alice"}); ok {
+		t.Fatal("non-reply must drop")
+	}
+	// reply to unknown id → drop
+	if _, _, _, ok := dir.Route("discord", "acme", msgport.Event{Author: "alice", ReplyToForeign: "D9"}); ok {
+		t.Fatal("unknown-ref must drop")
+	}
+}
+
 // fakeStore is a minimal instanceRoster: canned instances, rosters and
 // projects, so Resolve/Deliver tests don't need a real *harbor.FileStore.
 type fakeStore struct {
