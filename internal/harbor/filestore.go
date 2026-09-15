@@ -36,6 +36,7 @@ type Store interface {
 	GetInstance(actorID string) (Instance, bool)
 	ListInstances() []Instance
 	RemoveInstance(actorID string) error
+	AdvanceCommitCursor(actorID, upTo string) (Instance, error) // monotonic forward; no-op if upTo <= current; error if actor absent
 
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
@@ -82,6 +83,9 @@ type FileStore struct {
 	path string
 	*memState
 }
+
+// FileStore implements Store.
+var _ Store = (*FileStore)(nil)
 
 // NewFileStore loads (or initializes) the store at path, migrating a v1 (bare
 // map[tokenHash]Identity) or v2 (identities+destinations) file into the v4 shape.
@@ -337,6 +341,22 @@ func (fs *FileStore) RemoveInstance(actorID string) error {
 		return fmt.Errorf("instance %q not found", actorID)
 	}
 	return fs.save()
+}
+
+func (fs *FileStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	before, ok := fs.instances[actorID]
+	if !ok {
+		return Instance{}, fmt.Errorf("instance %q not found", actorID)
+	}
+	i, _ := fs.applyAdvanceCommitCursor(actorID, upTo)
+	if i.CommitCursor == before.CommitCursor {
+		// No-op advance (backward/equal upTo): the cache is unchanged, so
+		// skip the write to avoid an unnecessary disk save.
+		return i, nil
+	}
+	return i, fs.save()
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {

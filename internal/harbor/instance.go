@@ -55,6 +55,7 @@ type Instance struct {
 	LastSeen           time.Time `json:"last_seen"`
 	WaitingSince       time.Time `json:"waiting_since,omitempty"`       // set when Activity enters Waiting (B1)
 	WaitCursor         string    `json:"wait_cursor,omitempty"`         // opaque wake-on baseline set by the wake-on engine
+	CommitCursor       string    `json:"commit_cursor,omitempty"`       // durable inbox consume offset: last message id the cove has committed as processed; set at raise to the log tail, advanced by /messages/commit
 	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
 	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain

@@ -48,6 +48,21 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 	return r, ok
 }
 
+// AdvanceCommitCursor mimics FileStore/PostgresStore semantics: monotonic
+// forward only (a no-op if upTo <= the current cursor), error if the actor
+// has no instance.
+func (f *fakeStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+	i, ok := f.instances[actorID]
+	if !ok {
+		return Instance{}, errors.New("no instance")
+	}
+	if upTo > i.CommitCursor {
+		i.CommitCursor = upTo
+	}
+	f.instances[actorID] = i
+	return i, nil
+}
+
 // fakeAppender records every message passed to Append, for asserting the
 // outbound send. The Log is the authoritative send path: a configured err is
 // returned to the caller (but the message is still recorded) so the
@@ -597,6 +612,404 @@ func TestReadIsSelfScoped(t *testing.T) {
 	}
 	if len(resp.Messages) != 0 {
 		t.Fatalf("cove-1 must not see cove-2's inbox; got %+v", resp.Messages)
+	}
+}
+
+// doGetQuery issues an authenticated GET to /messages with the given query
+// string appended (e.g. "anchor=start&limit=2").
+func doGetQuery(t *testing.T, h *MessagesHandler, token, query string) *httptest.ResponseRecorder {
+	t.Helper()
+	path := "/messages"
+	if query != "" {
+		path += "?" + query
+	}
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// doCommit issues an authenticated POST /messages/commit {"up_to": upTo}. An
+// empty upTo sends an empty JSON object (no up_to field at all), to exercise
+// the missing-field 400 path.
+func doCommit(t *testing.T, h *MessagesHandler, token, upTo string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{}`
+	if upTo != "" {
+		body = `{"up_to":"` + upTo + `"}`
+	}
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// readResp mirrors the GET /messages JSON shape, for decoding in tests.
+type readResp struct {
+	Messages        []Comment `json:"messages"`
+	CommittedCursor string    `json:"committed_cursor"`
+	PageFirst       string    `json:"page_first"`
+	PageLast        string    `json:"page_last"`
+}
+
+// seedInbox appends n messages (bodies "m0".."m(n-1)") addressed to actor:coveID,
+// returning their ids in append order.
+func seedInbox(t *testing.T, lg *msglog.Log, coveID string, n int) []string {
+	t.Helper()
+	coveActor := msglog.Target{Kind: "actor", Ref: coveID}
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		m, err := lg.Append(msglog.Message{From: msglog.Target{Kind: "human", Ref: "Alice"}, To: []msglog.Target{coveActor}, Body: "m", Project: "acme"})
+		if err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+		ids = append(ids, m.ID)
+	}
+	return ids
+}
+
+// TestReadDefaultAnchorIsNextAfterCommitCursor asserts the default GET (no
+// anchor/dir) returns the next page strictly after the cove's durable
+// CommitCursor — seeded mid-log here — and that the response carries
+// committed_cursor/page_first/page_last, and that the read itself never
+// advances the cursor.
+func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ids := seedInbox(t, lg, "cove-1", 5)
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme", CommitCursor: ids[1]}},
+	}
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGet(t, h, tokenFor("cove-1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp readResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3 (ids[2..4]); got %+v", len(resp.Messages), resp.Messages)
+	}
+	if resp.Messages[0].ID != ids[2] || resp.Messages[2].ID != ids[4] {
+		t.Fatalf("messages = %+v, want ids[2..4] = %v", resp.Messages, ids[2:])
+	}
+	if resp.CommittedCursor != ids[1] {
+		t.Fatalf("committed_cursor = %q, want %q", resp.CommittedCursor, ids[1])
+	}
+	if resp.PageFirst != ids[2] || resp.PageLast != ids[4] {
+		t.Fatalf("page_first/page_last = %q/%q, want %q/%q", resp.PageFirst, resp.PageLast, ids[2], ids[4])
+	}
+
+	// A read must never advance the cursor.
+	inst, _ := store.GetInstance("cove-1")
+	if inst.CommitCursor != ids[1] {
+		t.Fatalf("CommitCursor changed by a read: %q, want unchanged %q", inst.CommitCursor, ids[1])
+	}
+}
+
+// TestReadAnchorStartIgnoresCommitCursor asserts anchor=start reads from the
+// beginning of the log regardless of where the cursor sits.
+func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ids := seedInbox(t, lg, "cove-1", 3)
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: ids[2]}},
+	}
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=start")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp readResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != 3 || resp.Messages[0].ID != ids[0] {
+		t.Fatalf("messages = %+v, want all 3 starting at %q", resp.Messages, ids[0])
+	}
+}
+
+// TestReadAnchorEndIgnoresCommitCursor asserts anchor=end returns the last
+// `limit` messages regardless of the cursor.
+func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ids := seedInbox(t, lg, "cove-1", 5)
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: ids[0]}},
+	}
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=end&limit=2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp readResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != 2 || resp.Messages[0].ID != ids[3] || resp.Messages[1].ID != ids[4] {
+		t.Fatalf("messages = %+v, want the last 2 (%v)", resp.Messages, ids[3:])
+	}
+}
+
+// TestReadAnchorIDForwardAndBackward asserts anchor=id&id=<x> combined with
+// dir selects the window strictly after (forward, default) or strictly
+// before (backward) the given id.
+func TestReadAnchorIDForwardAndBackward(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ids := seedInbox(t, lg, "cove-1", 5)
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	fwd := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+ids[2])
+	var fwdResp readResp
+	if err := json.Unmarshal(fwd.Body.Bytes(), &fwdResp); err != nil {
+		t.Fatalf("decode forward: %v", err)
+	}
+	if len(fwdResp.Messages) != 2 || fwdResp.Messages[0].ID != ids[3] || fwdResp.Messages[1].ID != ids[4] {
+		t.Fatalf("forward messages = %+v, want %v", fwdResp.Messages, ids[3:])
+	}
+
+	back := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+ids[2]+"&dir=backward")
+	var backResp readResp
+	if err := json.Unmarshal(back.Body.Bytes(), &backResp); err != nil {
+		t.Fatalf("decode backward: %v", err)
+	}
+	if len(backResp.Messages) != 2 || backResp.Messages[0].ID != ids[0] || backResp.Messages[1].ID != ids[1] {
+		t.Fatalf("backward messages = %+v, want %v", backResp.Messages, ids[:2])
+	}
+}
+
+// TestReadAnchorIDMissingIDIs400 asserts anchor=id without ?id= is a 400.
+func TestReadAnchorIDMissingIDIs400(t *testing.T) {
+	h, _, _, _ := newTestMessagesHandler(t)
+	rec := doGetQuery(t, h, "tok-A", "anchor=id")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestReadInvalidAnchorIs400 asserts an unrecognized anchor value is a 400.
+func TestReadInvalidAnchorIs400(t *testing.T) {
+	h, _, _, _ := newTestMessagesHandler(t)
+	rec := doGetQuery(t, h, "tok-A", "anchor=bogus")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestReadInvalidLimitIs400 asserts a non-numeric or non-positive limit is a 400.
+func TestReadInvalidLimitIs400(t *testing.T) {
+	h, _, _, _ := newTestMessagesHandler(t)
+	for _, v := range []string{"abc", "0", "-5"} {
+		rec := doGetQuery(t, h, "tok-A", "limit="+v)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("limit=%s: status = %d, want 400", v, rec.Code)
+		}
+	}
+}
+
+// TestReadLimitIsCappedAtMax asserts a limit above maxReadLimit is silently
+// capped rather than honored or rejected.
+func TestReadLimitIsCappedAtMax(t *testing.T) {
+	lg, err := msglog.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	seedInbox(t, lg, "cove-1", maxReadLimit+5)
+	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
+	h := NewMessagesHandler(store, lg, lg, testLogger())
+
+	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=start&limit=100000")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp readResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Messages) != maxReadLimit {
+		t.Fatalf("messages = %d, want capped at %d", len(resp.Messages), maxReadLimit)
+	}
+}
+
+// TestCommitAdvancesCursorAndReturnsIt asserts POST /messages/commit calls
+// AdvanceCommitCursor and echoes the resulting cursor.
+func TestCommitAdvancesCursorAndReturnsIt(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	rec := doCommit(t, h, tokenFor("cove-1"), "msg-005")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		CommittedCursor string `json:"committed_cursor"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.CommittedCursor != "msg-005" {
+		t.Fatalf("committed_cursor = %q, want msg-005", resp.CommittedCursor)
+	}
+	inst, _ := store.GetInstance("cove-1")
+	if inst.CommitCursor != "msg-005" {
+		t.Fatalf("store CommitCursor = %q, want msg-005", inst.CommitCursor)
+	}
+}
+
+// TestCommitMissingUpToIs400 asserts an absent/empty up_to is a 400 and does
+// not touch the store.
+func TestCommitMissingUpToIs400(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	rec := doCommit(t, h, tokenFor("cove-1"), "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "" {
+		t.Fatalf("CommitCursor = %q, want unchanged (empty) on a rejected commit", inst.CommitCursor)
+	}
+}
+
+// TestCommitOnlyAdvancesCallersOwnInstance is the security-critical
+// assertion for commit: the actor advanced is the one derived from the
+// bearer token, never a value the request body could name (there is no such
+// field). A second actor's instance must be untouched.
+func TestCommitOnlyAdvancesCallersOwnInstance(t *testing.T) {
+	store := &fakeStore{
+		actors: map[string]Actor{
+			HashToken(tokenFor("cove-1")): {ID: "cove-1"},
+			HashToken(tokenFor("cove-2")): {ID: "cove-2"},
+		},
+		instances: map[string]Instance{
+			"cove-1": {ActorID: "cove-1", Unit: "ACME-7"},
+			"cove-2": {ActorID: "cove-2", Unit: "ACME-8"},
+		},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	rec := doCommit(t, h, tokenFor("cove-1"), "msg-100")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if inst, _ := store.GetInstance("cove-2"); inst.CommitCursor != "" {
+		t.Fatalf("cove-2 CommitCursor = %q, want unchanged (empty)", inst.CommitCursor)
+	}
+	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "msg-100" {
+		t.Fatalf("cove-1 CommitCursor = %q, want msg-100", inst.CommitCursor)
+	}
+}
+
+// TestHandleCommitStoreErrorIs403 exercises handleCommit's own defensive
+// branch (AdvanceCommitCursor failing for an actor with no instance) directly
+// — unreachable via ServeHTTP, which already gates on GetInstance beforehand.
+func TestHandleCommitStoreErrorIs403(t *testing.T) {
+	store := &fakeStore{instances: map[string]Instance{}}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{"up_to":"msg-1"}`))
+	rec := httptest.NewRecorder()
+	h.handleCommit(rec, req, Actor{ID: "ghost"})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+// TestCommitGetIsMethodNotAllowed asserts a GET to /messages/commit is
+// rejected with 405 (Allow: POST) rather than silently falling through to
+// handleGet, which would otherwise treat it as a bare inbox read.
+func TestCommitGetIsMethodNotAllowed(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/commit", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("Allow header = %q, want POST", got)
+	}
+}
+
+// TestCommitMalformedBodyIs400 asserts a non-empty but malformed JSON body
+// decodes to a 400 (distinct from the empty-body/missing-field 400 case).
+func TestCommitMalformedBodyIs400(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{not-json`))
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestCommitOversizeBodyIs413 asserts a commit body over maxMessageBodyBytes
+// is rejected as 413, matching handlePost's oversize handling.
+func TestCommitOversizeBodyIs413(t *testing.T) {
+	store := &fakeStore{
+		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
+		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
+	}
+	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	h := NewMessagesHandler(store, nil, nil, log)
+
+	huge := strings.Repeat("a", 32*1024)
+	req := httptest.NewRequest(http.MethodPost, "/messages/commit", strings.NewReader(`{"up_to":"`+huge+`"}`))
+	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
 	}
 }
 

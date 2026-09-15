@@ -191,6 +191,65 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 	})
 
+	t.Run("advance_commit_cursor", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.PutInstance(harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive}); err != nil {
+			t.Fatal(err)
+		}
+		inst, err := s.AdvanceCommitCursor("cove-1", "id-5")
+		if err != nil || inst.CommitCursor != "id-5" {
+			t.Fatalf("advance to id-5 = %+v, %v", inst.CommitCursor, err)
+		}
+		// monotonic: a backward/equal up_to is a no-op success.
+		inst, err = s.AdvanceCommitCursor("cove-1", "id-3")
+		if err != nil || inst.CommitCursor != "id-5" {
+			t.Fatalf("backward advance must no-op: %+v, %v", inst.CommitCursor, err)
+		}
+		inst, err = s.AdvanceCommitCursor("cove-1", "id-9")
+		if err != nil || inst.CommitCursor != "id-9" {
+			t.Fatalf("forward advance = %+v, %v", inst.CommitCursor, err)
+		}
+		if _, err := s.AdvanceCommitCursor("absent", "id-1"); err == nil {
+			t.Fatal("advance on an absent actor must error")
+		}
+	})
+
+	t.Run("advance_commit_cursor_realistic_ids", func(t *testing.T) {
+		// Real message ids are zero-padded-numeric-prefix + suffix
+		// ("<20-digit-seq>-<random-suffix>"). Exercise monotonicity with ids
+		// shaped like that, rather than the short "id-3/id-5/id-9" fixtures
+		// above, so a bytewise-vs-locale collation mismatch (e.g. a DB default
+		// collation that doesn't sort ASCII bytewise) would be caught here.
+		s := newStore(t)
+		if err := s.PutInstance(harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive}); err != nil {
+			t.Fatal(err)
+		}
+		const (
+			id1  = "00000000000000000001-aaaa"
+			id2  = "00000000000000000002-bbbb"
+			id10 = "00000000000000000010-cccc"
+		)
+		inst, err := s.AdvanceCommitCursor("cove-1", id1)
+		if err != nil || inst.CommitCursor != id1 {
+			t.Fatalf("advance to %q = %+v, %v", id1, inst.CommitCursor, err)
+		}
+		inst, err = s.AdvanceCommitCursor("cove-1", id2)
+		if err != nil || inst.CommitCursor != id2 {
+			t.Fatalf("advance to %q = %+v, %v", id2, inst.CommitCursor, err)
+		}
+		inst, err = s.AdvanceCommitCursor("cove-1", id10)
+		if err != nil || inst.CommitCursor != id10 {
+			t.Fatalf("advance to %q = %+v, %v", id10, inst.CommitCursor, err)
+		}
+		// A lower id (even one that would sort higher under some locale
+		// collations, e.g. by ignoring the leading zeros' significance) must
+		// no-op once the cursor is ahead of it.
+		inst, err = s.AdvanceCommitCursor("cove-1", id2)
+		if err != nil || inst.CommitCursor != id10 {
+			t.Fatalf("backward advance to %q must no-op: %+v, %v", id2, inst.CommitCursor, err)
+		}
+	})
+
 	t.Run("destinations_and_match", func(t *testing.T) {
 		s := newStore(t)
 		if err := s.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}); err != nil {

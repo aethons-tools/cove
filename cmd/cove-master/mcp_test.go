@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -94,8 +95,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] {
-		t.Fatalf("want read+send+list_targets tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] {
+		t.Fatalf("want read+send+list_targets+commit tools, got %v", names)
 	}
 }
 
@@ -226,6 +227,181 @@ func TestMCPListTargets(t *testing.T) {
 	out, err := c.listTargets(context.Background())
 	if err != nil || len(out.Targets) != 1 || out.Targets[0].Target != "human:alice" {
 		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
+	var gotURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[]}`))
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.read(context.Background(), readIn{}); err != nil {
+		t.Fatal(err)
+	}
+	if gotURL != "/messages" {
+		t.Fatalf("url=%q, want /messages with no query string", gotURL)
+	}
+}
+
+func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
+	var gotURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[],"committed_cursor":"m9","page_first":"m1","page_last":"m2"}`))
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.read(context.Background(), readIn{Anchor: "end", Dir: "backward", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(gotURL)
+	if err != nil {
+		t.Fatalf("parse gotURL: %v", err)
+	}
+	if u.Path != "/messages" {
+		t.Fatalf("path=%q, want /messages", u.Path)
+	}
+	q := u.Query()
+	if q.Get("anchor") != "end" || q.Get("dir") != "backward" || q.Get("limit") != "10" {
+		t.Fatalf("query=%q, want anchor=end dir=backward limit=10", u.RawQuery)
+	}
+	if out.CommittedCursor != "m9" || out.PageFirst != "m1" || out.PageLast != "m2" {
+		t.Fatalf("out=%+v", out)
+	}
+}
+
+func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[]}`))
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.read(context.Background(), readIn{Anchor: "id", ID: "m5"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "anchor=id") || !strings.Contains(gotQuery, "id=m5") {
+		t.Fatalf("query=%q, want anchor=id and id=m5", gotQuery)
+	}
+}
+
+func TestMCPCommitPostsUpTo(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"committed_cursor":"m5"}`))
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_HARBOR_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_HARBOR_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.commit(context.Background(), "m5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/messages/commit" || !strings.Contains(gotBody, `"up_to":"m5"`) {
+		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+	if out.CommittedCursor != "m5" {
+		t.Fatalf("out=%+v", out)
+	}
+}
+
+func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"committed_cursor":"m7"}`))
+	}))
+	defer srv.Close()
+
+	env := map[string]string{
+		"AT_HARBOR_RUNTIME_ADDR":   srv.URL,
+		"AT_HARBOR_IDENTITY_TOKEN": "tok-C",
+	}
+	getenv := func(k string) string { return env[k] }
+
+	sess := connectMCP(t, getenv)
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "commit",
+		Arguments: map[string]any{"up_to": "m7"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(commit): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("commit tool reported error: %+v", res.Content)
+	}
+	if gotPath != "/messages/commit" || !strings.Contains(gotBody, `"up_to":"m7"`) {
+		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured content: %v", err)
+	}
+	var out commitOut
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal structured content: %v", err)
+	}
+	if out.CommittedCursor != "m7" {
+		t.Fatalf("commit result = %+v", out)
 	}
 }
 

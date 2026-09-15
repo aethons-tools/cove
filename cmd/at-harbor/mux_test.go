@@ -41,6 +41,7 @@ func TestMessagesMuxRouting(t *testing.T) {
 	}{
 		{"/messages", "messages"},
 		{"/messages/targets", "messages"},
+		{"/messages/commit", "messages"},
 		{"/escalate", "escalate"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},

@@ -463,6 +463,25 @@ func (s *PostgresStore) RemoveInstance(actorID string) error {
 	return nil
 }
 
+func (s *PostgresStore) AdvanceCommitCursor(actorID, upTo string) (Instance, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.instances[actorID]; !ok {
+		return Instance{}, fmt.Errorf("instance %q not found", actorID)
+	}
+	// Advance only when forward; jsonb_set the single field. No-op UPDATE (0 rows)
+	// when upTo <= current is fine — the cache helper below is the source of truth
+	// for the returned value and also no-ops on a non-forward upTo.
+	if err := s.exec("AdvanceCommitCursor",
+		`UPDATE instances SET doc = jsonb_set(doc, '{commit_cursor}', to_jsonb($2::text)), version = version + 1, updated_at = now()
+		 WHERE actor_id = $1 AND coalesce(doc->>'commit_cursor','') < $2 COLLATE "C"`,
+		actorID, upTo); err != nil {
+		return Instance{}, err
+	}
+	i, _ := s.applyAdvanceCommitCursor(actorID, upTo)
+	return i, nil
+}
+
 func (s *PostgresStore) AddDestination(d Destination) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

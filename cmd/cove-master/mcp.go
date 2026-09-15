@@ -1,8 +1,10 @@
 // The mcp subcommand ("cove-master mcp") runs a stdio Model Context Protocol
 // server that gives the cove's claude agent tools — "read" and "send" brokered
 // through harbor's /messages endpoint on the cove's own ticket (or, via an
-// optional "to" target, another authorized human/channel), and "list_targets"
-// brokered through harbor's GET /messages/targets endpoint.
+// optional "to" target, another authorized human/channel), "commit" brokered
+// through harbor's POST /messages/commit endpoint to advance the durable read
+// cursor, and "list_targets" brokered through harbor's GET /messages/targets
+// endpoint.
 //
 // Security notes (see AGENTS.md / the harbor messaging MCP plan):
 //   - The identity token is read from AT_HARBOR_IDENTITY_TOKEN only — never
@@ -24,6 +26,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,16 +51,34 @@ type sendIn struct {
 	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to post to this cove's own ticket"`
 }
 
-// readIn is the "read" tool's (empty) typed input.
-type readIn struct{}
+// readIn is the "read" tool's typed input: optional seek parameters.
+type readIn struct {
+	Anchor string `json:"anchor,omitempty" jsonschema:"where to read from: cursor (default; your commit position), start, end, or id"`
+	ID     string `json:"id,omitempty" jsonschema:"message id anchor, required when anchor=id"`
+	Dir    string `json:"dir,omitempty" jsonschema:"direction from the anchor: forward (default, oldest-first) or backward"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max messages to return (default 50)"`
+}
 
 // readOut is the "read" tool's typed output: the cove's inbox.
 type readOut struct {
-	Messages []messageOut `json:"messages"`
+	Messages        []messageOut `json:"messages"`
+	CommittedCursor string       `json:"committed_cursor,omitempty"`
+	PageFirst       string       `json:"page_first,omitempty"`
+	PageLast        string       `json:"page_last,omitempty"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
 type listTargetsIn struct{}
+
+// commitIn is the "commit" tool's typed input.
+type commitIn struct {
+	UpTo string `json:"up_to" jsonschema:"the message id you have processed up to; advances your durable read cursor so these messages are not handed to you again"`
+}
+
+// commitOut is the "commit" tool's typed output.
+type commitOut struct {
+	CommittedCursor string `json:"committed_cursor,omitempty"`
+}
 
 // escalateIn is the "escalate" tool's typed input.
 type escalateIn struct {
@@ -178,15 +199,53 @@ func (c *messagingClient) send(ctx context.Context, text, to string) error {
 	return err
 }
 
-// read fetches the cove's inbox via harbor.
-func (c *messagingClient) read(ctx context.Context) (readOut, error) {
-	body, err := c.do(ctx, http.MethodGet, "/messages", nil)
+// read fetches the cove's inbox via harbor, optionally seeking via in's
+// anchor/id/dir/limit (each forwarded as a query param only when non-empty).
+func (c *messagingClient) read(ctx context.Context, in readIn) (readOut, error) {
+	q := url.Values{}
+	if in.Anchor != "" {
+		q.Set("anchor", in.Anchor)
+	}
+	if in.ID != "" {
+		q.Set("id", in.ID)
+	}
+	if in.Dir != "" {
+		q.Set("dir", in.Dir)
+	}
+	if in.Limit > 0 {
+		q.Set("limit", strconv.Itoa(in.Limit))
+	}
+	path := "/messages"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	body, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return readOut{}, err
 	}
 	var out readOut
 	if err := json.Unmarshal(body, &out); err != nil {
 		return readOut{}, fmt.Errorf("decoding harbor messages response")
+	}
+	return out, nil
+}
+
+// commit advances the actor's durable read cursor via harbor, marking
+// messages up to and including upTo as processed.
+func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, error) {
+	payload, err := json.Marshal(struct {
+		UpTo string `json:"up_to"`
+	}{UpTo: upTo})
+	if err != nil {
+		return commitOut{}, err
+	}
+	body, err := c.do(ctx, http.MethodPost, "/messages/commit", payload)
+	if err != nil {
+		return commitOut{}, err
+	}
+	var out commitOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		return commitOut{}, fmt.Errorf("decoding harbor commit response")
 	}
 	return out, nil
 }
@@ -248,14 +307,28 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read",
-		Description: "Read this cove's inbox: comments on its own Linear ticket.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ readIn) (*mcp.CallToolResult, readOut, error) {
+		Description: "Read your inbox as a queue. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, readOut, error) {
 		if cfgErr != nil {
 			return nil, readOut{}, cfgErr
 		}
-		out, err := client.read(ctx)
+		out, err := client.read(ctx, in)
 		if err != nil {
 			return nil, readOut{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "commit",
+		Description: "Confirm you've processed your inbox up to this message id; advances your durable read cursor so you won't be handed those messages again. Call it after you've durably handled them.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commitIn) (*mcp.CallToolResult, commitOut, error) {
+		if cfgErr != nil {
+			return nil, commitOut{}, cfgErr
+		}
+		out, err := client.commit(ctx, in.UpTo)
+		if err != nil {
+			return nil, commitOut{}, err
 		}
 		return nil, out, nil
 	})
