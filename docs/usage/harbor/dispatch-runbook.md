@@ -25,7 +25,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 1. **Postgres (optional but recommended)** — `just dev-up` raises the dev
    Postgres; a `store-postgres` block makes both the control plane *and* the
-   message log Postgres-backed. See [serve.md](serve.md#postgres-store-backend-store-postgres)
+   intercom log (the durable squawk Log) Postgres-backed. See [serve.md](serve.md#postgres-store-backend-store-postgres)
    and [`dev/`](../../../dev/README.md).
 2. **`at-harbor serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
@@ -74,9 +74,10 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Known issues (open)
 
-- **COV-188** — a raised cove's **messaging MCP tools don't register**, so the
-  agent cannot `read`/`send` on its ticket. Any ticket-messaging task (and the
-  whole comms/Discord path) is blocked until this lands.
+- **COV-188** — a raised cove's **intercom MCP tools don't register** (the
+  `cove-master mcp` server), so the agent cannot `read`/`send` on its ticket. Any
+  task that squawks on the ticket (and the whole comms/Discord path) is blocked
+  until this lands.
 - **COV-189** — an agent that **exits without a `worker-result.json`** leaves the
   Instance stuck `live/running` with no teardown.
 
