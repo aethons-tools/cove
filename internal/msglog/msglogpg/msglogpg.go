@@ -60,10 +60,10 @@ func (s *Store) Append(m msglog.Message) (msglog.Message, error) {
 		return msglog.Message{}, err
 	}
 	err = pgx.BeginFunc(context.Background(), s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(context.Background(),
+		if err := tx.QueryRow(context.Background(),
 			`INSERT INTO messages (id, from_kind, from_ref, body, at, project, reply_to, "to")
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON); err != nil {
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING seq`,
+			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON).Scan(&m.Seq); err != nil {
 			return err
 		}
 		for _, t := range m.To {
@@ -87,14 +87,14 @@ func (s *Store) Append(m msglog.Message) (msglog.Message, error) {
 
 func (s *Store) ReadInbox(t msglog.Target) []msglog.Message {
 	return s.query(
-		`SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 		 FROM messages m JOIN message_recipients r ON r.message_id = m.id
 		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.id`, t.Kind, t.Ref)
 }
 
 func (s *Store) ReadThread(rootID string) []msglog.Message {
 	return s.query(
-		`SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
 		 FROM messages WHERE id = $1 OR reply_to = $1 ORDER BY id`, rootID)
 }
 
@@ -104,7 +104,7 @@ func (s *Store) List(f msglog.Filter) []msglog.Message {
 	// model: ids are monotonic with insertion because Prepare stamps At=time.Now(),
 	// matching the file backend's append-ordered scan.
 	return s.query(
-		`SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
 		 FROM messages
 		 WHERE ($1 = '' OR project = $1)
 		   AND ($2::timestamptz IS NULL OR at >= $2)
@@ -142,7 +142,7 @@ func (s *Store) SeenIDs(prefix string) []string {
 }
 
 func (s *Store) ListSince(afterID string, limit int) []msglog.Message {
-	sql := `SELECT id, from_kind, from_ref, body, at, project, reply_to, "to"
+	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
 	        FROM messages WHERE id > $1 ORDER BY id`
 	args := []any{afterID}
 	if limit > 0 {
@@ -153,7 +153,7 @@ func (s *Store) ListSince(afterID string, limit int) []msglog.Message {
 }
 
 func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msglog.Message {
-	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2 AND m.id > $3 ORDER BY m.id`
 	args := []any{t.Kind, t.Ref, afterID}
@@ -166,7 +166,7 @@ func (s *Store) ReadInboxSince(t msglog.Target, afterID string, limit int) []msg
 
 func (s *Store) ReadInboxBefore(t msglog.Target, beforeID string, limit int) []msglog.Message {
 	// nearest-below beforeID: order DESC + LIMIT, then reverse to ascending.
-	sql := `SELECT m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
 	        FROM messages m JOIN message_recipients r ON r.message_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2`
 	args := []any{t.Kind, t.Ref}
@@ -201,6 +201,38 @@ func (s *Store) TailID() (string, bool) {
 	return id, true
 }
 
+// SeqOf returns the append-order Seq assigned to the message with the given
+// id, or (0, false) if no such message exists.
+func (s *Store) SeqOf(id string) (int64, bool) {
+	var seq int64
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT seq FROM messages WHERE id = $1`, id).Scan(&seq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false
+		}
+		s.log.Error("msglogpg: SeqOf query", "error", err.Error())
+		return 0, false
+	}
+	return seq, true
+}
+
+// TailSeq returns the last-appended message's Seq, or (0, false) when the log
+// is empty.
+func (s *Store) TailSeq() (int64, bool) {
+	var seq int64
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT seq FROM messages ORDER BY seq DESC LIMIT 1`).Scan(&seq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false
+		}
+		s.log.Error("msglogpg: TailSeq query", "error", err.Error())
+		return 0, false
+	}
+	return seq, true
+}
+
 // query runs a message SELECT (columns in the fixed order below) and
 // reconstructs each Message via scanMessages.
 func (s *Store) query(sql string, args ...any) []msglog.Message {
@@ -214,18 +246,18 @@ func (s *Store) query(sql string, args ...any) []msglog.Message {
 }
 
 // scanMessages scans each row of a message SELECT (columns in the fixed order:
-// id, from_kind, from_ref, body, at, project, reply_to, "to") and reconstructs
-// each Message, decoding To from the "to" JSONB column. On a scan or decode
-// error it logs and returns nil rather than a partial result. After the loop it
-// checks rows.Err(): in pgx v5 a mid-stream failure can end Next() early without
-// a Scan error, surfacing only via rows.Err(), so a truncated read must not be
-// silently returned as a short success.
+// seq, id, from_kind, from_ref, body, at, project, reply_to, "to") and
+// reconstructs each Message, decoding To from the "to" JSONB column. On a scan
+// or decode error it logs and returns nil rather than a partial result. After
+// the loop it checks rows.Err(): in pgx v5 a mid-stream failure can end Next()
+// early without a Scan error, surfacing only via rows.Err(), so a truncated
+// read must not be silently returned as a short success.
 func (s *Store) scanMessages(rows pgx.Rows) []msglog.Message {
 	var out []msglog.Message
 	for rows.Next() {
 		var m msglog.Message
 		var toJSON []byte
-		if err := rows.Scan(&m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
+		if err := rows.Scan(&m.Seq, &m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
 			s.log.Error("msglogpg: scan", "error", err.Error())
 			return nil
 		}

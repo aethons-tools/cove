@@ -243,4 +243,27 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 			t.Fatalf("multi-recipient before(y) = %+v", got)
 		}
 	})
+
+	t.Run("seq_and_resolution", func(t *testing.T) { testSeqAndResolution(t, newStore) })
+}
+
+// testSeqAndResolution exercises Message.Seq assignment, SeqOf resolution, and
+// TailSeq — shared by both backends via RunConformance.
+func testSeqAndResolution(t *testing.T, newStore func(t *testing.T) msglog.Store) {
+	actor := func(r string) msglog.Target { return msglog.Target{Kind: "actor", Ref: r} }
+	s := newStore(t)
+	a, _ := s.Append(msglog.Message{From: actor("c"), To: []msglog.Target{actor("x")}, Body: "a"})
+	b, _ := s.Append(msglog.Message{From: actor("c"), To: []msglog.Target{actor("x")}, Body: "b"})
+	if a.Seq <= 0 || b.Seq <= a.Seq {
+		t.Fatalf("Seq not monotonic: a=%d b=%d", a.Seq, b.Seq)
+	}
+	if seq, ok := s.SeqOf(a.ID); !ok || seq != a.Seq {
+		t.Fatalf("SeqOf(a) = %d,%v want %d", seq, ok, a.Seq)
+	}
+	if _, ok := s.SeqOf("nope"); ok {
+		t.Fatal("SeqOf(unknown) should miss")
+	}
+	if tail, ok := s.TailSeq(); !ok || tail != b.Seq {
+		t.Fatalf("TailSeq = %d,%v want %d", tail, ok, b.Seq)
+	}
 }

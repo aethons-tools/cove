@@ -120,3 +120,23 @@ func (l *Log) TailID() (string, bool) {
 	}
 	return ms[len(ms)-1].ID, true
 }
+
+// SeqOf returns the append-order Seq assigned to the message with the given
+// id, or (0, false) if no such message exists.
+func (l *Log) SeqOf(id string) (int64, bool) {
+	for _, m := range l.snapshot() {
+		if m.ID == id {
+			return m.Seq, true
+		}
+	}
+	return 0, false
+}
+
+// TailSeq returns the last message's Seq, or (0, false) if the log is empty.
+func (l *Log) TailSeq() (int64, bool) {
+	ms := l.snapshot()
+	if len(ms) == 0 {
+		return 0, false
+	}
+	return ms[len(ms)-1].Seq, true
+}

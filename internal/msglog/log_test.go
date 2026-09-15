@@ -82,6 +82,41 @@ func TestOpenToleratesTornLine(t *testing.T) {
 	}
 }
 
+func TestSeqResumesAcrossOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "m.jsonl")
+	l, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m1, err := l.Append(Message{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := l.Append(Message{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1.Seq <= 0 || m2.Seq != m1.Seq+1 {
+		t.Fatalf("Seq not monotonic before reopen: m1=%d m2=%d", m1.Seq, m2.Seq)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	l2, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l2.Close()
+	m3, err := l2.Append(Message{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "three"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m3.Seq != m2.Seq+1 {
+		t.Fatalf("Seq after reopen = %d, want %d (prior max %d + 1)", m3.Seq, m2.Seq+1, m2.Seq)
+	}
+}
+
 func TestConcurrentAppend(t *testing.T) {
 	l, _ := Open(filepath.Join(t.TempDir(), "m.jsonl"), nil)
 	defer l.Close()

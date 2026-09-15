@@ -31,6 +31,12 @@ type Store interface {
 	// TailID returns the highest-id (last-appended) message's id, or ("", false)
 	// when the log is empty.
 	TailID() (string, bool)
+	// SeqOf returns the append-order Seq assigned to the message with the given
+	// id, or (0, false) if no such message exists.
+	SeqOf(id string) (int64, bool)
+	// TailSeq returns the last-appended message's Seq, or (0, false) when the
+	// log is empty.
+	TailSeq() (int64, bool)
 	Close() error
 }
 
