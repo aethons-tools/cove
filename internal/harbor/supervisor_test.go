@@ -159,7 +159,7 @@ func TestReportDoneTearsDown(t *testing.T) {
 	}
 }
 
-func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
+func TestReportWaitingBaselinesWaitCursor(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
@@ -175,11 +175,12 @@ func TestReportWaitingStampsAndClearsCursor(t *testing.T) {
 		t.Fatal("WaitingSince not set on transition into Waiting")
 	}
 	if inst.WaitCursor != "" {
-		t.Fatalf("WaitCursor should clear on transition into Waiting, got %q", inst.WaitCursor)
+		t.Fatalf("WaitCursor should baseline to the log tail (empty here: no tail reader wired) on transition into Waiting, got %q", inst.WaitCursor)
 	}
 
 	// A second Report(Waiting) while already Waiting must NOT reset
-	// WaitingSince, and must NOT clear a cursor set in between.
+	// WaitingSince, and must NOT re-baseline (or otherwise clear) a cursor set
+	// in between.
 	first := inst.WaitingSince
 	if err := sup.SetWaitCursor("w1", "4"); err != nil {
 		t.Fatal(err)

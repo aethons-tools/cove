@@ -185,5 +185,30 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) msglog.Store) {
 		if none := s.ReadInboxSince(actor("z"), "", 0); len(none) != 0 {
 			t.Fatalf("ReadInboxSince(z) = %+v, want empty", none)
 		}
+
+		// A multi-recipient message appended after the cursor must be visible via
+		// ReadInboxSince to EVERY one of its recipients, with its full To
+		// reconstructed — exercising the message_recipients join fan-out through
+		// the cursor path.
+		m3, err := s.Append(msglog.Message{From: actor("c1"), To: []msglog.Target{actor("x"), actor("y")}, Body: "multi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantTo := []msglog.Target{actor("x"), actor("y")}
+		gotX := s.ReadInboxSince(actor("x"), m1.ID, 0)
+		if len(gotX) != 2 || gotX[1].Body != "multi" || gotX[1].ID != m3.ID {
+			t.Fatalf("ReadInboxSince(x, m1) = %+v, want [after1, multi]", gotX)
+		}
+		if !reflect.DeepEqual(gotX[1].To, wantTo) {
+			t.Fatalf("ReadInboxSince(x) multi To = %+v, want %+v", gotX[1].To, wantTo)
+		}
+		// actor:y also received "other" (appended after m1, before "multi").
+		gotY := s.ReadInboxSince(actor("y"), m1.ID, 0)
+		if len(gotY) != 2 || gotY[1].Body != "multi" || gotY[1].ID != m3.ID {
+			t.Fatalf("ReadInboxSince(y, m1) = %+v, want [other, multi]", gotY)
+		}
+		if !reflect.DeepEqual(gotY[1].To, wantTo) {
+			t.Fatalf("ReadInboxSince(y) multi To = %+v, want %+v", gotY[1].To, wantTo)
+		}
 	})
 }

@@ -8,7 +8,11 @@ import (
 
 // egressBatch caps the number of messages read per egressTick from
 // ListSince, bounding per-tick work; a backlog larger than this drains
-// across multiple ticks.
+// across multiple ticks. This is a deliberate trade-off, not
+// behavior-preserving vs. the old whole-log scan: if a message near the head
+// of the window has a permanently-failing target, LastMsg never advances, so
+// messages beyond LastMsg+egressBatch aren't attempted until it clears
+// (head-of-line blocking). Transient failures still self-heal on the next tick.
 const egressBatch = 500
 
 // egressTick delivers every not-yet-delivered External target of each

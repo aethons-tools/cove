@@ -15,6 +15,9 @@ type Store interface {
 	SeenIDs(prefix string) []string
 	// ListSince returns messages with id > afterID, in append order, capped at
 	// limit (limit <= 0 = unbounded). afterID == "" starts from the beginning.
+	// Append order == lexical id order relies on distinct At nanoseconds (the
+	// "%020d-<rand>" id in newID); a sub-nanosecond tie under the single writer
+	// is the only case where id order could differ from insertion order.
 	ListSince(afterID string, limit int) []Message
 	// ReadInboxSince returns messages addressed to t with id > afterID, in append
 	// order, capped at limit (<= 0 = unbounded). afterID == "" = the whole inbox.

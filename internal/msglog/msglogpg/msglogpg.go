@@ -6,6 +6,7 @@ package msglogpg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -168,7 +169,7 @@ func (s *Store) TailID() (string, bool) {
 	err := s.pool.QueryRow(context.Background(),
 		`SELECT id FROM messages ORDER BY id DESC LIMIT 1`).Scan(&id)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false
 		}
 		s.log.Error("msglogpg: TailID query", "error", err.Error())
