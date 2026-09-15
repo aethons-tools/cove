@@ -1,7 +1,6 @@
 package harbor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -15,10 +14,11 @@ import (
 // maxMessageBodyBytes caps a POST body to bound abuse (~16 KiB).
 const maxMessageBodyBytes = 16 * 1024
 
-// Comment is one message on a cove's ticket, as returned by a Commenter. ID and
-// At are best-effort: a Commenter that cannot supply them leaves them unset. At
-// is a pointer so an unset timestamp is omitted from the wire (json omitempty is
-// ineffective for a time.Time value, which would serialize a bogus zero time).
+// Comment is one message in a cove's inbox, as returned by GET /messages. ID
+// and At are best-effort: a reader that cannot supply them leaves them unset.
+// At is a pointer so an unset timestamp is omitted from the wire (json
+// omitempty is ineffective for a time.Time value, which would serialize a
+// bogus zero time).
 type Comment struct {
 	ID     string     `json:"id,omitempty"`
 	Author string     `json:"author"`
@@ -26,20 +26,10 @@ type Comment struct {
 	At     *time.Time `json:"at,omitempty"`
 }
 
-// Commenter is the narrow ticket-comment capability the /messages handler
-// needs. It is satisfied (via a small adapter at the wiring layer — see
-// cmd/at-harbor) by *linear.Client. Keeping it as a local interface, rather
-// than importing internal/dispatch/linear or internal/dispatch/scheduler here,
-// keeps internal/harbor's core free of the kit/grpc import graph those packages
-// pull in transitively.
-type Commenter interface {
-	// IssueByIdentifier resolves a human ticket identifier (e.g. "AET-42") to
-	// the tracker's internal issue id.
-	IssueByIdentifier(ctx context.Context, identifier string) (string, error)
-	// PostComment adds a comment to the given issue.
-	PostComment(ctx context.Context, issueID, body string) error
-	// Comments returns the issue's comments.
-	Comments(ctx context.Context, issueID string) ([]Comment, error)
+// inboxReader is the narrow read side of the message Log the /messages GET
+// path needs. Satisfied by *msglog.Log; nil disables reads (GET → 503).
+type inboxReader interface {
+	ReadInbox(t msglog.Target) []msglog.Message
 }
 
 // messagesStore is the narrow slice of Store the /messages handler needs.
@@ -68,16 +58,16 @@ type appender interface {
 // own ticket for a human target, a comment on the channel's own thread for a
 // channel target). Implements http.Handler.
 type MessagesHandler struct {
-	store messagesStore
-	cmt   Commenter
-	lg    appender
-	log   *slog.Logger
+	store  messagesStore
+	reader inboxReader
+	lg     appender
+	log    *slog.Logger
 }
 
-// NewMessagesHandler constructs a MessagesHandler. lg may be nil, which makes
-// every send fail with 503 (messaging unconfigured); reads are unaffected.
-func NewMessagesHandler(store messagesStore, cmt Commenter, lg appender, log *slog.Logger) *MessagesHandler {
-	return &MessagesHandler{store: store, cmt: cmt, lg: lg, log: log}
+// NewMessagesHandler constructs a MessagesHandler. reader and lg may each be
+// nil: a nil lg makes a send fail 503, a nil reader makes a read fail 503.
+func NewMessagesHandler(store messagesStore, reader inboxReader, lg appender, log *slog.Logger) *MessagesHandler {
+	return &MessagesHandler{store: store, reader: reader, lg: lg, log: log}
 }
 
 func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -118,13 +108,7 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.handlePost(w, r, actor, inst)
 	case http.MethodGet:
-		issueID, err := h.cmt.IssueByIdentifier(r.Context(), inst.Unit)
-		if err != nil {
-			h.log.Error("messages: resolve ticket failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
-			http.Error(w, "ticket unavailable", http.StatusBadGateway)
-			return
-		}
-		h.handleGet(w, r, actor, inst, issueID)
+		h.handleGet(w, r, actor, inst)
 	}
 }
 
@@ -212,18 +196,23 @@ func (h *MessagesHandler) handleTargets(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance, issueID string) {
-	comments, err := h.cmt.Comments(r.Context(), issueID)
-	if err != nil {
-		h.log.Error("messages: read failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
-		http.Error(w, "read failed", http.StatusBadGateway)
+func (h *MessagesHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
+	if h.reader == nil {
+		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
 		return
 	}
-	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "read", "count", len(comments))
+	msgs := h.reader.ReadInbox(msglog.Target{Kind: "actor", Ref: actor.ID})
+	out := make([]Comment, 0, len(msgs))
+	for i := range msgs {
+		m := msgs[i]
+		at := m.At
+		out = append(out, Comment{ID: m.ID, Author: m.From.Ref, Body: m.Body, At: &at})
+	}
+	h.log.Info("messages", "actor", actor.ID, "ticket", inst.Unit, "op", "read", "count", len(out))
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(struct {
 		Messages []Comment `json:"messages"`
-	}{Messages: comments}); err != nil {
+	}{Messages: out}); err != nil {
 		h.log.Error("messages: encode response failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
 	}
 }
