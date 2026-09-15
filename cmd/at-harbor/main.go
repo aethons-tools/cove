@@ -45,6 +45,7 @@ import (
 	"github.com/aethons-tools/cove/internal/msgport"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
@@ -1060,6 +1061,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if err := cfg.validateDiscord(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	specs := cfg.credSpecs()
 
@@ -1282,6 +1287,30 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			eng := msgport.New(surf, messageLog, markers, cur, dir, msgport.Config{EgressEnabled: true}, log)
 			go eng.Run(context.Background())
 			log.Info("harbor msgport (linear): resident, egress ON", "self", self != "")
+
+			// msgport discord engine: a second resident engine over the same Log,
+			// markers file, cursors, and directory — delivers outbound Log messages
+			// to Discord (egress only this slice; ingress is a future slice). The
+			// engine keys EgressMark by Service(), so "linear" and "discord" marks
+			// live side by side in the one markers file. Gated on runtime.discord;
+			// unset → no Discord engine, unchanged from before this block existed.
+			if dcfg := cfg.Runtime.Discord; dcfg != nil {
+				tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dcfg.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
+				if err != nil {
+					fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
+					return 1
+				}
+				dsurf := &discordSurface{poster: switchboard.NewRESTClient(tokEnv["AT_DISCORD_BOT_TOKEN"], nil)}
+				if !markers.has("discord") { // seed: don't re-deliver the backlog to Discord
+					if err := markers.SetEgress("discord", msgport.EgressMark{LastMsg: logTailID(messageLog)}); err != nil {
+						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
+						return 1
+					}
+				}
+				deng := msgport.New(dsurf, messageLog, markers, cur, dir, msgport.Config{EgressEnabled: true}, log)
+				go deng.Run(context.Background())
+				log.Info("harbor msgport (discord): resident, egress ON")
+			}
 		}
 	}
 
