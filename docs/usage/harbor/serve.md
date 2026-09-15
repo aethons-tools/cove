@@ -64,8 +64,7 @@ The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and th
 terminates TLS once, then multiplexes the decrypted stream by `content-type`
 (`application/grpc` → the Attach server, everything else → the broker). This is
 why a hardened cove — whose sealed egress only permits `CONNECT … :443` — can
-reach the Attach stream at all. `runtime.listen` is now only an **optional
-plaintext dev listener** (no TLS, for local testing), not the production path.
+reach the Attach stream at all. `runtime.listen` is now only an **optional plaintext dev listener** (no TLS, for local testing), not the production path.
 
 | Key | Required | Purpose |
 |-----|----------|---------|
@@ -83,6 +82,7 @@ plaintext dev listener** (no TLS, for local testing), not the production path.
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
 | `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
+| `runtime.discord` | no | Enables the resident Discord msgport engine (egress only). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `message-log`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [messaging.md](messaging.md#enabling-it). |
 
 ### Postgres store backend (`store-postgres`)
 

@@ -41,6 +41,8 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 When `message-log:` and a tracker are both configured, harbor also runs a resident **msgport linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable messages (the `send` path above) and posts them to Linear, at-least-once per message. Both directions are visible in the admin message view. **Wake-on (below) now reads replies from this Log**, so `message-log:` is required for a Waiting cove to wake on a reply.
 
+**Discord egress runs as a second, independent msgport engine** when `message-log:` and `runtime.discord.bot-token` are both configured — see [serve.md](serve.md#the-serve-config) for the config block. It shares the same Log, directory, and cursors/markers file as the linear engine above, keyed separately (`EgressMark` is keyed by `Service()`, so `"linear"` and `"discord"` don't collide), and drains the Log's egressable messages addressed to a discord-project's human DMs or discord roster channels — see [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) for delivery/addressing semantics. **Egress only this slice** — Discord ingress (replies feeding the Log, reply-routing) is a later slice; on first enable the engine's egress mark is seeded to the Log's tail so turning it on never redelivers the Log's backlog to Discord.
+
 > **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. harbor targets the schema captured during development; if it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**. This can't be exercised in an egress-locked build environment.
 
 ## Waiting for a reply (wake-on)
@@ -89,4 +91,5 @@ to wait passively — a separate, independent clock from `wait-max` above; see
 ## Not yet (later comms slices)
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: messages | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
-- **C3 — multi-channel** (Discord, generalizing the switchboard) and **actor/role-to-actor addressing** (the `human`/`channel` target space shipped in C1; see [comms-addressing.md](comms-addressing.md)).
+- **Discord ingress + reply-routing:** Discord egress is live (above); a human's Discord reply feeding the Log, and wake-on watching it, is a later slice.
+- **Actor/role-to-actor addressing** (the `human`/`channel` target space shipped in C1; see [comms-addressing.md](comms-addressing.md)).

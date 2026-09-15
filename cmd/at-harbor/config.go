@@ -68,7 +68,13 @@ type serveConfig struct {
 		ReconcileInterval string            `yaml:"reconcile-interval"`
 		Launcher          *launcherConfig   `yaml:"launcher"`
 		Dispatcher        *dispatcherConfig `yaml:"dispatcher"`
+		Discord           *discordConfig    `yaml:"discord"`
 	} `yaml:"runtime"`
+}
+
+// discordConfig enables the resident Discord msgport engine (egress this slice).
+type discordConfig struct {
+	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
 }
 
 // launcherConfig configures the real Colima-backed harbor.Launcher
@@ -201,6 +207,20 @@ func (c serveConfig) validateDispatcher() error {
 	}
 	if d.Linear == nil {
 		return fmt.Errorf("runtime.dispatcher.linear is required")
+	}
+	return nil
+}
+
+// validateDiscord checks runtime.discord when present (required: a non-empty
+// bot-token, as a command or a literal value). A no-op when runtime.discord is
+// unset — the resident Discord msgport engine stays disabled.
+func (c serveConfig) validateDiscord() error {
+	d := c.Runtime.Discord
+	if d == nil {
+		return nil
+	}
+	if len(d.BotToken.Command) == 0 && d.BotToken.Value == "" {
+		return fmt.Errorf("runtime.discord.bot-token is required")
 	}
 	return nil
 }
