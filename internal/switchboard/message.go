@@ -19,6 +19,8 @@ type Message struct {
 	Channel string
 	Author  string
 	Content string
+	// ReferencedID is the id of the message this replies to; empty if not a reply.
+	ReferencedID string
 }
 
 // Outbound is one message the agent asked the conductor to post.
