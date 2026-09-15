@@ -269,6 +269,36 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		if err := s.RemoveHuman("absent", "x"); err == nil {
 			t.Fatal("RemoveHuman on an absent project must error")
 		}
+		// delivery profile round-trips through AddHuman (upsert by name)
+		if err := s.AddHuman("acme", harbor.Human{Name: "dave", Handle: "@dave", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+			t.Fatalf("AddHuman with delivery: %v", err)
+		}
+		if r, ok := s.GetRoster("acme"); !ok {
+			t.Fatal("GetRoster acme")
+		} else {
+			var dave harbor.Human
+			for _, h := range r.Humans {
+				if h.Name == "dave" {
+					dave = h
+				}
+			}
+			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
+				t.Fatalf("dave delivery = %+v,%v", d, ok)
+			}
+		}
+		// chat-service set + clear round-trips through GetProject
+		if err := s.SetChatService("acme", "discord"); err != nil {
+			t.Fatalf("SetChatService: %v", err)
+		}
+		if p, ok := s.GetProject("acme"); !ok || p.ChatService != "discord" {
+			t.Fatalf("ChatService = %q (ok=%v), want discord", p.ChatService, ok)
+		}
+		if err := s.SetChatService("acme", ""); err != nil {
+			t.Fatalf("SetChatService clear: %v", err)
+		}
+		if p, ok := s.GetProject("acme"); !ok || p.ChatService != "" {
+			t.Fatalf("ChatService after clear = %q, want empty", p.ChatService)
+		}
 	})
 
 	t.Run("failed_write_leaves_cache_unchanged", func(t *testing.T) {

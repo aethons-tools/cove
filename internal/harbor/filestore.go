@@ -49,6 +49,7 @@ type Store interface {
 	GetProject(name string) (Project, bool)
 	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
+	SetChatService(project, service string) error
 }
 
 // storeFile is the on-disk JSON shape, detected by field presence rather than a persisted version number; this shape adds Projects.
@@ -400,5 +401,12 @@ func (fs *FileStore) SetEscalationPolicy(project, category string, tiers []Escal
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	fs.applyPutProject(setEscalation(fs.rawProject(project), category, tiers))
+	return fs.save()
+}
+
+func (fs *FileStore) SetChatService(project, service string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applyPutProject(setChatService(fs.rawProject(project), service))
 	return fs.save()
 }

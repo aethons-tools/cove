@@ -63,7 +63,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel) or escalation policy (escalation set|list|clear) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
@@ -415,17 +415,22 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's roster (humans + channels) or escalation
-// policy via the admin API. Roster subcommands nest under "roster":
-// `project roster add-human|add-channel|list|rm-human|rm-channel`. Escalation
-// subcommands nest under "escalation" and are handled by
-// cmdProjectEscalation: `project escalation set|list|clear`.
+// cmdProject manages a project's roster (humans + channels), escalation
+// policy, or chat service via the admin API. Roster subcommands nest under
+// "roster": `project roster add-human|add-channel|list|rm-human|rm-channel`.
+// Escalation subcommands nest under "escalation" and are handled by
+// cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
+// subcommands nest under "chat-service" and are handled by
+// cmdProjectChatService: `project chat-service set|clear|show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "escalation" {
 		return cmdProjectEscalation(args[1:], stdout, stderr)
 	}
+	if len(args) >= 1 && args[0] == "chat-service" {
+		return cmdProjectChatService(args[1:], stdout, stderr)
+	}
 	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel or escalation set|list|clear")
+		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
 		return 2
 	}
 	sub, rest := args[1], args[2:]
@@ -437,6 +442,8 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
 	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
 	service := fs.String("service", "linear", "channel service (add-channel)")
+	var delivery multiFlag
+	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address` (repeatable, add-human), e.g. discord:123456789")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -453,7 +460,16 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor project roster add-human: expected <project> --name and --handle")
 			return 2
 		}
-		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle}); err != nil {
+		var profiles []harbor.DeliveryProfile
+		for _, d := range delivery {
+			svc, addr, ok := strings.Cut(d, ":")
+			if !ok || svc == "" || addr == "" {
+				fmt.Fprintf(stderr, "at-harbor project roster add-human: invalid --delivery %q (want service:address)\n", d)
+				return 2
+			}
+			profiles = append(profiles, harbor.DeliveryProfile{Service: svc, Address: addr})
+		}
+		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -585,6 +601,86 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// cmdProjectChatService manages a project's chat service (the service backing
+// its humans' DMs) via the admin API: `project chat-service set|clear|show`.
+func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "at-harbor project chat-service: expected set|clear|show")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("project chat-service "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name")
+	service := fs.String("service", "", "chat service (set), e.g. discord")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if len(pos) != 0 {
+		fmt.Fprintln(stderr, "at-harbor project chat-service: unexpected arguments")
+		return 2
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor project chat-service:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "set":
+		if *project == "" || *service == "" {
+			fmt.Fprintln(stderr, "at-harbor project chat-service set: expected --project and --service")
+			return 2
+		}
+		if err := c.SetChatService(*project, *service); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "set chat service for", *project, "to", *service)
+	case "clear":
+		if *project == "" {
+			fmt.Fprintln(stderr, "at-harbor project chat-service clear: expected --project")
+			return 2
+		}
+		if err := c.SetChatService(*project, ""); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "cleared chat service for", *project)
+	case "show":
+		if *project == "" {
+			fmt.Fprintln(stderr, "at-harbor project chat-service show: expected --project")
+			return 2
+		}
+		svc, err := c.GetChatService(*project)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		if svc == "" {
+			svc = "(none)"
+		}
+		fmt.Fprintln(stdout, svc)
+	default:
+		fmt.Fprintln(stderr, "at-harbor project chat-service: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// multiFlag collects repeatable string flag values (e.g. --delivery
+// service:address, repeatable).
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error {
+	*m = append(*m, v)
+	return nil
 }
 
 // tierFlags collects repeatable --tier values, parsing 'targets@timeout'.

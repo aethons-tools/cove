@@ -422,6 +422,37 @@ func TestAdminEscalationCategoryRoutes(t *testing.T) {
 	}
 }
 
+// TestChatServiceRoute PUTs a project's chat service then GETs it back,
+// asserting a round-trip through a real FileStore + admin handler, and that
+// operator auth (non-loopback) is enforced on the route like every other
+// /admin/* route.
+func TestChatServiceRoute(t *testing.T) {
+	h, store := newTestAdmin(t)
+
+	rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT chat-service = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var got ChatServiceView
+	getJSON(t, h, "/admin/projects/acme/chat-service", &got)
+	if got.Service != "discord" {
+		t.Fatalf("chat-service view = %+v, want discord", got)
+	}
+	p, ok := store.GetProject("acme")
+	if !ok || p.ChatService != "discord" {
+		t.Fatalf("store project chat-service = %q (ok=%v), want discord", p.ChatService, ok)
+	}
+
+	// operator auth is enforced on this route, like every other /admin/* route.
+	r := httptest.NewRequest("GET", "/admin/projects/acme/chat-service", nil)
+	r.RemoteAddr = "10.0.0.9:1234"
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, r)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("non-loopback GET chat-service = %d, want 403", rec2.Code)
+	}
+}
+
 func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	h, _ := newTestAdmin(t)
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})

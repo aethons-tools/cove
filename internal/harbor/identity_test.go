@@ -21,3 +21,13 @@ func TestMintTokenIsUniqueAndHashable(t *testing.T) {
 		t.Fatal("hash not stable for same input")
 	}
 }
+
+func TestHumanDeliveryFor(t *testing.T) {
+	h := Human{Name: "alice", Handle: "@alice", Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-1"}}}
+	if d, ok := h.DeliveryFor("discord"); !ok || d.Address != "chan-1" {
+		t.Fatalf("DeliveryFor(discord) = %+v,%v", d, ok)
+	}
+	if _, ok := h.DeliveryFor("slack"); ok {
+		t.Fatal("DeliveryFor(slack) should miss")
+	}
+}
