@@ -2,9 +2,9 @@
 
 **Status:** design conversation captured; conceptual model agreed; **pre-plan**.
 A forward-looking role decomposition + supporting ontology and security model.
-Two open questions (stream topology, projection consistency) remain before a plan
-can be written; the assignable-tier question that was open earlier has been
-resolved by dropping the tier (below).
+One open question (projection consistency) remains before a plan can be written;
+stream topology and the assignable-tier question that were open earlier are now
+resolved (below).
 **Motivation:** the orchestration responsibilities inside `at-harbor serve` are
 currently collapsed into two clusters with fuzzy edges, and "security" and the
 runtime nouns (Actor/Instance/Cove) are scattered. This doc names three roles
@@ -60,6 +60,14 @@ outside RR everything is just a reservation on a cove. RR can start as a trivial
 per-kind counter and grow arbitrarily sophisticated internally — fairness,
 priority, demand prediction — with zero blast radius, because the reservation
 abstraction hides all of it.
+
+**RR and the HM hone independently, behind the reservation.** Because the seam is
+the only contract, each side can grow without the other knowing. Likely early
+moves, none touching the seam: RR puts a **TTL** on reservations from the start (an
+abandoned or unfulfilled reservation self-expires); later a **priority** carried on
+the reservation and honored by the HM, so that when the HM is backed up the hot
+raises skip the line. TTL and admission live in RR (allocation policy); placement
+order lives in the HM — the reservation hides both.
 
 > **Deferred: a "warm/assignable" reuse kind** (a pooled cove leased across units
 > and returned rather than torn down). It is intentionally *not* modeled now: it
@@ -216,6 +224,66 @@ prompt) are referenced, not embedded.
   Having just de-overloaded "message," do not re-overload "the log": one stream
   for coordination events, one for comms.
 
+## Stream topology (settled)
+
+The earlier "global vs per-project vs per-aggregate" framing conflated **two
+orthogonal axes**; separating them settles it.
+
+- **Consistency unit (fixed by the invariant).** A version-pinned append is scoped
+  to the **(project, role)** aggregate — that is where `granted ≤ budget` is
+  enforced. Grants for the same (project, role) race for one revision; grants for
+  different pairs share no invariant and must not contend. Not a choice.
+- **Grouping / subscription / tenancy / shard (chosen): the project.** Roles,
+  budgets, and the roster are already project-namespaced, so retention, replay, and
+  access align to a project. Crucially, **project is the multi-instance shard**: a
+  harbor instance that owns a project owns *both* its allocation category *and* its
+  execution category, so the whole RR↔Supervisor seam for a project lives under one
+  owner with zero cross-instance coordination (no invariant crosses projects).
+- **Global ordering (cheap, orthogonal): a `BIGINT` serial per row.** A monotonic
+  stamp assigned at persist time — the squawk log's `Seq` — giving a total order for
+  *observation* (audit, cross-stream "what happened around T", catch-up cursors). It
+  is **never** used for consistency; that is the per-stream revision's job, so it
+  adds no write bottleneck. (Tailing a serial across concurrent commits has the
+  known in-flight-gap window the squawk log already handles.)
+
+Concretely this is the squawk log generalized into a **categorized event store** —
+one events table with:
+
+- `global_seq BIGSERIAL` — total order, observation only, never consistency;
+- `category` = **project** — grouping / subscription / tenancy / shard axis;
+- `stream_id` = **(project, role)** for allocation (per-cove for execution) — the
+  aggregate;
+- `stream_revision` with `UNIQUE(stream_id, stream_revision)` — the consistency
+  unit a version-pinned append checks.
+
+Consistency per stream, ordering global-and-free, grouping-and-sharding by project —
+three independent knobs, each set on its own axis.
+
+## Capacity ceilings — policy vs mechanism
+
+The per-(project, role) budgets in RR are capacity *policy*. A *global* physical
+ceiling (a backend can only run so many coves) is **not** a global RR aggregate —
+that would un-shard RR and reintroduce a bottleneck. It decomposes into limits
+**each component enforces against its own state**:
+
+- **each launcher** — its administrative cap and physical reality, against its own
+  running-cove count;
+- **the HM** — an optional administrative cap across its launcher pool, against its
+  own fold of the pool.
+
+No component needs a global view it doesn't already have — the policy/mechanism
+split again (per-role budget = policy in RR; host capacity = mechanism at the
+launchers/HM).
+
+When RR has **granted** a reservation (policy: yes) but every launcher/HM is
+**full** (mechanism: not now), **the HM holds the reservation and reconciles it
+when capacity frees** — no bounce back to RR, because a granted reservation is
+desired state and reconcile is exactly "make this real when you can." Transient
+over-capacity just means a granted reservation waits. *Persistent* over-capacity —
+the sum of RR's budgets structurally exceeding host capacity — is config
+incoherence, not incorrectness: it surfaces as a **health signal** ("budgets
+over-subscribe capacity"), and the system stays correct (reservations wait).
+
 ## The domain ontology (three planes)
 
 The nouns aren't a single deep stack; they are **three orthogonal planes** that
@@ -342,14 +410,19 @@ and everything it is permitted.**
 - Backpressure: **deny + retry** first; real queueing deferred.
 - Security: **mechanism/policy split**, egress promoted to the Role, kit sets the
   **ceiling**, policy **delivered at raise**, harbor-managed plane only.
+- **Stream topology:** consistency per **(project, role)** stream revision; group by
+  **project** (tenancy + multi-instance shard); a cheap global `BIGINT` serial for
+  ordering/observation only. A categorized event store — the squawk log generalized.
+- **Capacity ceilings** are mechanism, enforced per launcher / per HM against each
+  one's own state — never a global RR aggregate. A granted-but-unplaceable
+  reservation is **held by the HM and reconciled when capacity frees** (no bounce);
+  structural over-subscription surfaces as a health signal.
+- **RR/HM hone independently** behind the reservation: RR TTL now, priority later
+  (HM honors it when backed up).
 
 ## Open questions (block a plan)
 
-1. **Stream topology.** One global stream, one per project, or per-aggregate? For
-   coarse-grained coves, the leaning is one stream per project with a single-writer
-   allocation aggregate, resisting sharding until there's a reason — a real fork,
-   not settled.
-2. **Projection consistency details.** The exact expected-version/optimistic-
+1. **Projection consistency details.** The exact expected-version/optimistic-
    concurrency protocol for admission, projection rebuild/versioning, and
    acceptable projection lag on RR's admission hot path.
 
@@ -375,4 +448,4 @@ single kind (ephemeral), moving the existing `max-concurrent` cap into it as a
 per-role budget, and re-point the Supervisor to reconcile the reservation ledger
 instead of taking a direct `raise` call — behavior-preserving for today's one-shot
 flow, but with the seam in place. Standing coves, the egress-policy promotion, and
-the two open questions come as later slices.
+projection-consistency hardening come as later slices.
