@@ -45,6 +45,9 @@ collaborators:
       Work with the user to intake and plan work from the Linear board.
       The workspace is shared with the user.
     share-repo-dir: true
+    shadow-dirs:
+      - .gopath
+      - dist
   reviewer:
     prompt: |
       Watch the Linear board COV team for "In Review" tickets labeled "class:implementor".
@@ -87,3 +90,5 @@ image:
     - ghcr.io
     # the project's at-harbor domain, so a collaborator sandbox can reach it.
     - .local.aethons.tools
+    # Javascript dependencies
+    - cdnjs.cloudflare.com
