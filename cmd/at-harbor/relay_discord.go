@@ -119,23 +119,34 @@ func encodeCursors(m map[string]string) string {
 	return string(data)
 }
 
-// discordInboxChannels returns the distinct non-empty discord delivery
-// addresses (inbox channel ids) across project's roster humans — the set of
-// channels the discord engine's ingress polls for replies.
-func discordInboxChannels(store instanceRoster, project string) []string {
+// discordPolledChannels returns the distinct non-empty discord channel ids the
+// discord engine's ingress polls for replies: each roster human's discord
+// delivery (inbox) channel AND each roster channel whose Service is "discord"
+// (its Ref). Without the latter, a reply to a `channel:<name>` send would never
+// be seen — egress posts to the channel but ingress never polls it.
+func discordPolledChannels(store instanceRoster, project string) []string {
 	r, ok := store.GetRoster(project)
 	if !ok {
 		return nil
 	}
 	seen := map[string]bool{}
 	var out []string
-	for _, h := range r.Humans {
-		p, ok := h.DeliveryFor("discord")
-		if !ok || p.Address == "" || seen[p.Address] {
-			continue
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
 		}
-		seen[p.Address] = true
-		out = append(out, p.Address)
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, h := range r.Humans {
+		if p, ok := h.DeliveryFor("discord"); ok {
+			add(p.Address)
+		}
+	}
+	for _, c := range r.Channels {
+		if c.Service == "discord" {
+			add(c.Ref)
+		}
 	}
 	return out
 }

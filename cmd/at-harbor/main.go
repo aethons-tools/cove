@@ -1317,7 +1317,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					dial: func(channels []string) discordClient {
 						return switchboard.NewRESTClient(discordTok, channels)
 					},
-					channelsFor: func(project string) []string { return discordInboxChannels(st, project) },
+					channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
 					receipts:    receipts,
 					log:         log,
 				}

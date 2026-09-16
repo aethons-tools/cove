@@ -225,7 +225,7 @@ func TestFileReceiptsMissingFile(t *testing.T) {
 	}
 }
 
-func TestDiscordInboxChannels(t *testing.T) {
+func TestDiscordPolledChannels(t *testing.T) {
 	store := &fakeStore{
 		roster: map[string]harbor.Roster{
 			"acme": {
@@ -235,25 +235,33 @@ func TestDiscordInboxChannels(t *testing.T) {
 					{Name: "carol", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
 					{Name: "dave"}, // no discord profile
 				},
+				Channels: []harbor.Channel{
+					{Name: "eng-help", Service: "discord", Ref: "chan-C"},   // discord channel → MUST be polled (reply-routing)
+					{Name: "chan-A-dup", Service: "discord", Ref: "chan-A"}, // duplicate of a human inbox → deduped
+					{Name: "linear-only", Service: "linear", Ref: "ACME-1"}, // non-discord → excluded
+				},
 			},
 		},
 	}
-	got := discordInboxChannels(store, "acme")
-	if len(got) != 2 {
-		t.Fatalf("channels = %v, want 2 distinct", got)
-	}
+	got := discordPolledChannels(store, "acme")
 	seen := map[string]bool{}
 	for _, c := range got {
 		seen[c] = true
 	}
-	if !seen["chan-A"] || !seen["chan-B"] {
-		t.Fatalf("channels = %v, want chan-A and chan-B", got)
+	if !seen["chan-A"] || !seen["chan-B"] || !seen["chan-C"] {
+		t.Fatalf("channels = %v, want chan-A, chan-B, and the discord roster channel chan-C", got)
+	}
+	if seen["ACME-1"] {
+		t.Fatalf("channels = %v, must exclude the non-discord (linear) channel ACME-1", got)
+	}
+	if len(got) != 3 {
+		t.Fatalf("channels = %v, want exactly 3 distinct (chan-A/B/C, deduped)", got)
 	}
 }
 
-func TestDiscordInboxChannelsNoRoster(t *testing.T) {
+func TestDiscordPolledChannelsNoRoster(t *testing.T) {
 	store := &fakeStore{roster: map[string]harbor.Roster{}}
-	if got := discordInboxChannels(store, "nope"); got != nil {
+	if got := discordPolledChannels(store, "nope"); got != nil {
 		t.Fatalf("channels = %v, want nil", got)
 	}
 }
