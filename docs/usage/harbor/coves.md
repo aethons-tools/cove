@@ -139,7 +139,11 @@ AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
 it spawns `claude -p --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
 reports `running`, and when the agent exits reads `.at-task/worker-result.json`
-(the same contract as the dispatch worker):
+(the same contract as the dispatch worker). Before spawning, it **fails loud if
+the `--mcp-config` file is missing** (a stale image without
+`/etc/claude-code/mcp.json`) rather than launch a silently toolless agent
+(COV-190) — the run ends with a logged error instead of an agent with no intercom
+tools. On a present config it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the cove down.
 - `needs-input` → a brief `waiting` is reported, then `done` (the dispatcher

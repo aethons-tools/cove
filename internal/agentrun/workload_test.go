@@ -69,9 +69,21 @@ func writeResult(t *testing.T, dir, body string) {
 	}
 }
 
+// mcpConfigFile writes a minimal MCP config into dir and returns its path, so
+// the Run guard (COV-190) — which refuses to start when --mcp-config is missing
+// — passes in tests that exercise the normal run path.
+func mcpConfigFile(t *testing.T, dir string) string {
+	t.Helper()
+	p := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(p, []byte(`{"mcpServers":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func newWL(t *testing.T, dir string, f *fakeSpawner) (*Workload, *recordHandle) {
 	t.Helper()
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
 	return w, &recordHandle{}
 }
 
@@ -96,7 +108,7 @@ func TestRunNeedsInput(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatalf("Run: want nil, got %v", err)
@@ -168,15 +180,17 @@ func TestRunTeardownCancel(t *testing.T) {
 func TestRunSpawnArgs(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	mcp := mcpConfigFile(t, dir)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcp, Spawner: f}, nil)
+	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatal(err)
 	}
 	if f.bin != "claude" {
 		t.Errorf("bin: want claude, got %q", f.bin)
 	}
-	want := []string{"-p", "--dangerously-skip-permissions", "--mcp-config", "/etc/claude-code/mcp.json", "--strict-mcp-config", "do the thing"}
+	want := []string{"-p", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config", "do the thing"}
 	if len(f.args) != len(want) {
 		t.Fatalf("args: want %v, got %v", want, f.args)
 	}
@@ -199,6 +213,37 @@ func TestRunSpawnFailure(t *testing.T) {
 	}
 	if len(h.got) != 0 {
 		t.Fatalf("activities: want none (spawn failed before Running), got %v", h.got)
+	}
+}
+
+// TestNewDefaultsMCPConfigPath guards that the production default MCP config
+// path is the baked hardening path (so a real cove points --mcp-config at the
+// image's mcp.json unless a caller overrides it).
+func TestNewDefaultsMCPConfigPath(t *testing.T) {
+	w := New(Config{WorkDir: t.TempDir(), Prompt: "x"}, nil)
+	if w.cfg.MCPConfigPath != mcpConfigPath {
+		t.Fatalf("default MCPConfigPath = %q; want %q", w.cfg.MCPConfigPath, mcpConfigPath)
+	}
+}
+
+// TestRunFailsLoudOnMissingMCPConfig guards COV-190: when the --mcp-config file
+// is missing, Run must fail before spawning the agent (never launch a toolless
+// claude), not proceed. Verified by an error return AND the spawner never being
+// invoked (f.bin stays empty; no Running reported).
+func TestRunFailsLoudOnMissingMCPConfig(t *testing.T) {
+	dir := t.TempDir()
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: filepath.Join(dir, "does-not-exist.json"), Spawner: f}, nil)
+	h := &recordHandle{}
+	err := w.Run(context.Background(), h)
+	if err == nil {
+		t.Fatal("Run: want error for missing MCP config, got nil")
+	}
+	if f.bin != "" {
+		t.Fatalf("Run must NOT spawn the agent when the MCP config is missing; spawned %q", f.bin)
+	}
+	if h.count(covemaster.Running) != 0 {
+		t.Fatalf("Run must not report Running when the MCP config is missing; got %v", h.got)
 	}
 }
 
@@ -276,7 +321,7 @@ func TestRunResumesOnWake(t *testing.T) {
 		},
 		dir: dir,
 	}
-	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- w.Run(context.Background(), h) }()
@@ -308,7 +353,7 @@ func TestRunMaxWaitEndsUnit(t *testing.T) {
 		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
 		dir:     dir,
 	}
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -328,7 +373,7 @@ func TestRunCtxCancelWhileWaiting(t *testing.T) {
 		dir:     dir,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx, h) }()
