@@ -74,12 +74,17 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Known issues (open)
 
-- **COV-188** — a raised cove's **intercom MCP tools don't register** (the
-  `cove-master mcp` server), so the agent cannot `read`/`send` on its ticket. Any
-  task that squawks on the ticket (and the whole comms/Discord path) is blocked
-  until this lands.
 - **COV-189** — an agent that **exits without a `worker-result.json`** leaves the
-  Instance stuck `live/running` with no teardown.
+  Instance stuck `live/running` with no teardown (the normal complete-and-report
+  path works; this is the resultless-exit edge case).
+- **COV-190** — a **missing `--mcp-config` file fails silently** (claude runs with
+  no tools). The intercom comms path is verified working on a current image; this
+  guard would surface a stale/broken image loudly instead of an agent flailing.
+
+> **Intercom comms verified.** A cove built from a current image registers the
+> intercom MCP and squawks on its ticket end to end. COV-188 (tools not
+> registering) was a *stale image* missing `/etc/claude-code/mcp.json`, not a code
+> defect — rebuild the image if a cove comes up toolless.
 
 For *why* harbor is built this way, follow the design-history pointer in
 [INDEX.md](INDEX.md).
