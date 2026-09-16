@@ -71,20 +71,35 @@ doc that owns the detail; this runbook only owns the **order** and the
   credential's name so the password resolved empty — fixed; if you see
   `password authentication failed` on a correct password, confirm you're on a
   build past that fix.)
+- **The cove image and the host `at-harbor` must be the same build.** The
+  intercom wire endpoint was hard-renamed `/messages` → `/squawks` (no
+  back-compat shim), so a post-rename cove calling `/squawks` against a
+  pre-rename `serve` (or vice versa) gets a 404 and the agent silently has no
+  intercom tools. If a cove's tools 404, rebuild **both** the image (`at-cove
+  install`) and the host binary (`just build`) from the same commit.
+- **Discord replies must be real replies; tell a wait-for-reply task to
+  `needs-input`.** Reply-routing matches an inbound message by the message id it
+  *replies to*, so a **bare** post in the channel carries no reference and is
+  dropped by design (that's also how harbor's own echoed posts don't
+  mis-route). Use Discord's reply-to-message. And a task that waits for a reply
+  should instruct the agent to write `worker-result.json` `needs-input` so it
+  **suspends/idles** (and wake-on resumes it when the reply lands) instead of
+  busy-polling `read` in a single long turn.
 
 ## Known issues (open)
 
-- **COV-189** — an agent that **exits without a `worker-result.json`** leaves the
-  Instance stuck `live/running` with no teardown (the normal complete-and-report
-  path works; this is the resultless-exit edge case).
-- **COV-190** — a **missing `--mcp-config` file fails silently** (claude runs with
-  no tools). The intercom comms path is verified working on a current image; this
-  guard would surface a stale/broken image loudly instead of an agent flailing.
+- **COV-189** — a cove-master/agent that **crashes without reporting `Done`**
+  (while the container's `sshd` stays alive) is not reaped, since `Probe` checks
+  container liveness, not agent liveness. The normal complete-and-report path
+  works; this is the crashed-without-`Done` edge case.
 
-> **Intercom comms verified.** A cove built from a current image registers the
-> intercom MCP and squawks on its ticket end to end. COV-188 (tools not
-> registering) was a *stale image* missing `/etc/claude-code/mcp.json`, not a code
-> defect — rebuild the image if a cove comes up toolless.
+> **Full comms loop verified.** A cove built from a current image drives the whole
+> Discord path end to end: `send(to=channel:…)` → posted to Discord → the human's
+> **reply** routed back → agent `read` + `commit` → (on a wait-for-reply task)
+> **idle → wake-on-reply → resume** → ack → done → teardown. COV-188 (tools not
+> registering) was a *stale image* missing `/etc/claude-code/mcp.json`; COV-190
+> (a missing `--mcp-config` now fails loud) is merged — rebuild the image **and**
+> host binary from the same commit if a cove comes up toolless.
 
 For *why* harbor is built this way, follow the design-history pointer in
 [INDEX.md](INDEX.md).
