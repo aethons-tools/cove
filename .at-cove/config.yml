@@ -7,6 +7,7 @@ tracker:
       AT_DISPATCH_TRACKER_TOKEN: {}
       AT_DISPATCH_WEBHOOK_SECRET: {}
     poll-interval: 60s
+    dispatch-label-prefix: "dispatch:"
     states:
       ready: Todo
       in-progress: In Progress
@@ -84,3 +85,5 @@ image:
     # base adoption (see cmd/adopt-base) and ad-hoc manifest inspection. Manifest
     # lookups only; a full image pull would also need the blob CDN host + Docker.
     - ghcr.io
+    # the project's at-harbor domain, so a collaborator sandbox can reach it.
+    - .local.aethons.tools
