@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
@@ -34,6 +35,10 @@ type Config struct {
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
 	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
 	Spawner Spawner       // nil → the real execSpawner
+	// MCPConfigPath is the --mcp-config file passed to claude; empty defaults to
+	// mcpConfigPath. Run refuses to start the agent if it is missing/unreadable
+	// (COV-190) so a stale image never yields a silently toolless agent.
+	MCPConfigPath string
 }
 
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
@@ -56,6 +61,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.MaxWait <= 0 {
 		cfg.MaxWait = defaultMaxWait
 	}
+	if cfg.MCPConfigPath == "" {
+		cfg.MCPConfigPath = mcpConfigPath
+	}
 	sp := cfg.Spawner
 	if sp == nil {
 		sp = execSpawner{grace: cfg.Grace}
@@ -73,7 +81,7 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 	if continued {
 		args = append(args, "--continue")
 	}
-	return append(args, "--dangerously-skip-permissions", "--mcp-config", mcpConfigPath, "--strict-mcp-config", prompt)
+	return append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config", prompt)
 }
 
 // Run spawns claude -p in a turn loop and maps each turn's worker-result to
@@ -83,6 +91,15 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 // lead the client to report Done; a nil error means the unit ended cleanly
 // (completed, or gave up waiting).
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
+	// Fail loud if the MCP config is missing rather than launch a silently
+	// toolless agent (COV-190): claude with --mcp-config pointing at a
+	// nonexistent file registers no servers, so the agent would have no intercom
+	// read/send tools and flail. A stale image (built before mcp.json shipped in
+	// the hardening layer) is the typical cause.
+	if _, err := os.Stat(w.cfg.MCPConfigPath); err != nil {
+		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
+		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
+	}
 	prompt := w.cfg.Prompt
 	continued := false
 	for {
