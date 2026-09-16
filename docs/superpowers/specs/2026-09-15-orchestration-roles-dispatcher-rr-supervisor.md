@@ -74,32 +74,44 @@ RR's durable state is an **event-sourced aggregate keyed by *(project, role)*** 
 "this role's allocation in this project." It is role-shaped, with two facets
 folding over one stream:
 
-- **static facet — the role's capacity config:** `RoleBudgetConfigured`,
-  `RoleBudgetRetired` (the per-kind budget, e.g. `worker: 1 standing, 4
-  ephemeral`).
+- **static facet — the *observed* budget:** `RoleBudgetObserved` (the per-kind
+  budget, e.g. `worker: 1 standing, 4 ephemeral`) — RR's materialization of the
+  admin-authored budget, *not* an authoring surface (see below).
 - **dynamic facet — the reservations:** the events below.
 
 Keeping both facets in one aggregate is what makes the cap invariant local:
-`granted ≤ budget` is checked inside a single consistency boundary that holds
-both the budget and the outstanding count. **RR is the sole writer** of this
+`granted ≤ budget` is checked inside a single consistency boundary that holds both
+the observed budget and the outstanding count. **RR is the sole writer** of this
 stream; a version-pinned append is the admission gate.
 
-**This aggregate owns capacity, not authorization.** A role's *authorization*
-(grants/scope) already has a source of truth — the roster Role in the
-control-plane store (see [roster.md](../../usage/harbor/roster.md)). The
-allocation aggregate **references** the roster Role by id (fail-closed if absent,
-exactly like enroll) and never duplicates its grants. Capacity is per-*(project,
-role)*; authorization is the global roster Role — two facets of "role," two homes,
-one id. (The larger alternative — fully event-sourcing the Role as its canonical
-store with the roster projecting from it — is coherent but reopens the
-just-migrated control-plane store and puts authorization on the event path; it is
-a separate, deliberate decision, not part of this design.)
+**This aggregate *enforces* capacity; it does not *author* it.** A budget is
+administration — CRUD role config an operator sets — so the **source of truth for
+a role's budget is the roster/control-plane store**, next to the role's scope,
+grants, and kit (see [roster.md](../../usage/harbor/roster.md)). RR **observes**
+budget changes and **materializes** them onto its own stream (`RoleBudgetObserved`)
+so admission folds the budget locally and enforces the cap atomically. The
+transfer mechanism degrades gracefully: an **active ping** from the admin path to
+RR today; a plain **event-observer** in RR once the admin/control-plane
+definitions are themselves event-sourced. So the budget has **one authoring home
+(roster) and one enforcement home (RR's aggregate)** — the *policy vs mechanism*
+split again (policy authored centrally, enforced where the invariant lives). This
+is safe *because capacity tolerates eventual consistency*: a brief window
+admitting against a just-lowered budget self-corrects as RR drains — a tolerance a
+*security* scope never has, which is why authorization stays live-checked and is
+never merely observed.
+
+Authorization itself (grants/scope) likewise lives in the roster Role; the
+allocation aggregate **references** it by id (fail-closed if absent, exactly like
+enroll) and never duplicates it. (The larger alternative — fully event-sourcing the
+Role as its canonical store — is coherent but reopens the just-migrated store and
+puts authorization on the event path; a separate, deliberate decision.)
 
 ### Events on the allocation stream (RR, sole writer)
 
-- **Config:** `RoleBudgetConfigured{project, role, perKindLimits}` ·
-  `RoleBudgetRetired{project, role}`. On-stream (not read from live config) so
-  "how many slots existed at time T" is replayable and audited.
+- **Observed config:** `RoleBudgetObserved{project, role, perKindLimits,
+  sourceVersion}` — RR's materialization of the admin-authored budget (source of
+  truth: roster). Retirement is an observed removal. On RR's stream so admission
+  folds it locally and "what budget applied at time T" stays replayable/audited.
 - **Demand:** `ReservationRequested{reservationId, role, project, kind, unit?,
   workloadRef?, priority?}` · `ReservationWithdrawn{reservationId, reason}`
   (demand evaporated before grant; standing revoked). Recording demand — not just
@@ -298,9 +310,9 @@ and everything it is permitted.**
   calls raise" to "reconcile the reservation ledger," and its launcher becomes a
   **pool** over the existing pluggable `internal/backend` seam (Colima now;
   cloud/k8s/remote later).
-- **Roster Role** — gains a per-*(project, role)* capacity budget (referenced by
-  RR's aggregate) and the promoted egress allow-list; keeps ownership of
-  authorization scope.
+- **Roster Role** — becomes the authoring home for the per-*(project, role)*
+  capacity budget (observed by RR's aggregate) and the promoted egress allow-list,
+  alongside its authorization scope.
 
 ## Naming decisions (settled)
 
@@ -321,7 +333,10 @@ and everything it is permitted.**
   if needed).
 - The allocation aggregate is keyed *(project, role)* and references — does not
   fork — the roster Role.
-- `RoleBudget*` events live **on** the allocation stream (replayable/audited).
+- Budget's **source of truth is roster** (admin CRUD); RR **observes** it onto its
+  stream (`RoleBudgetObserved`; active ping today → event-observer once admin
+  config is event-sourced) and enforces the cap atomically against the observed
+  value. Capacity **tolerates eventual consistency**; authorization does not.
 - **Record demand** (`ReservationRequested`/`Withdrawn`) as first-class events,
   not just RR's decisions.
 - Backpressure: **deny + retry** first; real queueing deferred.
