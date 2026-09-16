@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_USER: harbor
           POSTGRES_PASSWORD: harbor
