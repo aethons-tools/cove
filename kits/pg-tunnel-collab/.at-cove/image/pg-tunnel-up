@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Bring up the wstunnel client that fronts the customer's Postgres, exposing it
+# on a local port the agent's libpq/psql connects to. Idempotent and fail-loud.
+# Runs the WSS handshake through squid ($HTTPS_PROXY), so it rides the existing
+# CONNECT-to-:443 egress — no hardening change. Never logs secret values.
+set -euo pipefail
+
+PG_LOCAL="${PG_LOCAL:-127.0.0.1:5432}"
+LOG="${PG_TUNNEL_LOG:-/tmp/pg-tunnel.log}"
+TRIES="${PG_TUNNEL_WAIT_TRIES:-30}"
+SLEEP="${PG_TUNNEL_WAIT_SLEEP:-0.5}"
+
+host="${PG_LOCAL%:*}"
+port="${PG_LOCAL##*:}"
+
+port_up() { (exec 3<>"/dev/tcp/$host/$port") >/dev/null 2>&1; }
+
+if port_up; then
+  echo "pg-tunnel: already up on $PG_LOCAL"
+  exit 0
+fi
+
+: "${PG_TUNNEL_URL:?PG_TUNNEL_URL is required (wss://host:443)}"
+: "${PG_TUNNEL_SECRET:?PG_TUNNEL_SECRET is required}"
+: "${PG_TARGET:?PG_TARGET is required (dbhost:5432)}"
+: "${HTTPS_PROXY:?HTTPS_PROXY is required (the in-cove squid proxy)}"
+
+# Do not echo PG_TUNNEL_URL/SECRET/TARGET — they are customer secrets.
+echo "pg-tunnel: starting wstunnel client -> $PG_LOCAL"
+nohup wstunnel client \
+  -L "tcp://$PG_LOCAL:$PG_TARGET" \
+  --http-upgrade-path-prefix "$PG_TUNNEL_SECRET" \
+  --http-proxy "$HTTPS_PROXY" \
+  "$PG_TUNNEL_URL" >>"$LOG" 2>&1 &
+
+i=0
+while [ "$i" -lt "$TRIES" ]; do
+  if port_up; then
+    echo "pg-tunnel: ready on $PG_LOCAL"
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep "$SLEEP"
+done
+
+echo "pg-tunnel: FAILED — $PG_LOCAL did not come up in time" >&2
+echo "---- tail $LOG ----" >&2
+tail -n 20 "$LOG" >&2 2>/dev/null || true
+exit 1
