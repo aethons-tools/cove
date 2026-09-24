@@ -41,12 +41,18 @@ customer Postgres  db.internal:5432
 
 ```
 kits/pg-tunnel-collab/
-  config.yml              # allow-list widening (session-scoped) + collaborator secrets (declared, not valued)
-  RUNBOOK.md              # fill-in guide, the reference SERVER command, security notes
-  image/
-    Dockerfile            # FROM cove base; bake pinned wstunnel + the helper
-    pg-tunnel-up          # → /usr/local/bin; idempotent client launcher
+  RUNBOOK.md              # fill-in guide, the reference SERVER command, security notes (kit root)
+  .at-cove/               # the kit dir at-cove's resolveKit expects under --project-dir
+    config.yml            # allow-list widening (session-scoped) + collaborator secrets (declared, not valued)
+    image/
+      Dockerfile          # FROM cove base; bake pinned wstunnel + the helper
+      pg-tunnel-up        # → /usr/local/bin; idempotent client launcher
 ```
+
+> Note: a kit consumed via `at-cove chat/install --project-dir X` must keep its
+> `config.yml` (and sibling `image/` tree) under `X/.at-cove/` — `resolveKit`
+> joins `--project-dir` with `.at-cove`. The RUNBOOK lives at the kit root, where
+> it is most discoverable and is not read by at-cove.
 
 ### 2. `image/pg-tunnel-up` (the launcher)
 
