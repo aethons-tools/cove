@@ -47,9 +47,10 @@ fi
 
 # --- Case 3: fail-loud timeout — stub wstunnel never opens the port.
 work="$(mktemp -d)"
-cat >"$work/wstunnel" <<'EOF'
+cat >"$work/wstunnel" <<EOF
 #!/usr/bin/env bash
-sleep 60
+echo \$\$ > "$work/wstunnel.pid"
+exec sleep 60
 EOF
 chmod +x "$work/wstunnel"
 out="$(PATH="$work:$PATH" PG_LOCAL=127.0.0.1:55433 \
@@ -58,7 +59,7 @@ out="$(PATH="$work:$PATH" PG_LOCAL=127.0.0.1:55433 \
        PG_TUNNEL_LOG="$work/log" PG_TUNNEL_WAIT_TRIES=2 PG_TUNNEL_WAIT_SLEEP=0.1 \
        "$SUT" 2>&1)"
 rc=$?
-pkill -f "$work/wstunnel" 2>/dev/null
+kill "$(cat "$work/wstunnel.pid" 2>/dev/null)" 2>/dev/null || true
 if [ "$rc" -ne 0 ] && echo "$out" | grep -q "did not come up"; then
   pass "fail-loud timeout when the port never opens"
 else

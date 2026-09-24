@@ -6,6 +6,8 @@
 set -euo pipefail
 
 PG_LOCAL="${PG_LOCAL:-127.0.0.1:5432}"
+# VM-local/ephemeral (/tmp) in this single-tenant cove; the stderr dump below
+# is redacted, so no secret value reaches an operator-captured log.
 LOG="${PG_TUNNEL_LOG:-/tmp/pg-tunnel.log}"
 TRIES="${PG_TUNNEL_WAIT_TRIES:-30}"
 SLEEP="${PG_TUNNEL_WAIT_SLEEP:-0.5}"
@@ -32,6 +34,7 @@ nohup wstunnel client \
   --http-upgrade-path-prefix "$PG_TUNNEL_SECRET" \
   --http-proxy "$HTTPS_PROXY" \
   "$PG_TUNNEL_URL" >>"$LOG" 2>&1 &
+pid=$!
 
 i=0
 while [ "$i" -lt "$TRIES" ]; do
@@ -45,5 +48,9 @@ done
 
 echo "pg-tunnel: FAILED — $PG_LOCAL did not come up in time" >&2
 echo "---- tail $LOG ----" >&2
-tail -n 20 "$LOG" >&2 2>/dev/null || true
+if [ -f "$LOG" ]; then
+  logtail="$(tail -n 20 "$LOG")"
+  printf '%s\n' "${logtail//$PG_TUNNEL_SECRET/[redacted]}" >&2
+fi
+kill "$pid" 2>/dev/null || true
 exit 1
