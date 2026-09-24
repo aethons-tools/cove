@@ -844,6 +844,8 @@ internals. See the [orchestration design](orchestration/INDEX.md).
 
 A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
 
+An example collaborator kit that reaches a customer's external Postgres by tunneling it over WSS/443 with `wstunnel` — no hardening change — lives at `kits/pg-tunnel-collab/`; see its `RUNBOOK.md`.
+
 ## Building, testing, running
 
 ### Installing the binaries
