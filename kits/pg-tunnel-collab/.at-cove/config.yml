@@ -1,0 +1,31 @@
+# pg-tunnel-collab — an EXAMPLE collaborator kit. It lets an `at-cove chat`
+# session reach a customer's external Postgres by tunneling the PG wire protocol
+# over WSS/443 with wstunnel, through the existing squid CONNECT-to-:443 egress.
+# No change to at-cove core or the sealed hardening layer. See RUNBOOK.md.
+name: pg-tunnel-collab
+
+image:
+  allowed-domains: []
+
+# No root `image.allowed-domains`: Anthropic is already in the sealed base, and
+# the only widening this kit needs — the wstunnel server host — belongs to the
+# db-analyst class below (least-privilege, session-scoped).
+collaborators:
+  db-analyst:
+    # The ONE egress widening: the wstunnel server. squid already permits
+    # CONNECT to :443 for an allow-listed host, so the WSS tunnel needs nothing
+    # more than this hostname. Replace with your real tunnel host.
+    allowed-domains:
+      - tunnel.example.com
+    # Declared demand-only (name + description); every value is supplied
+    # machine-side in ~/.config/at-cove/secrets.yml and injected as session env,
+    # never written to the kit or to disk. See RUNBOOK.md.
+    secrets:
+      PG_TUNNEL_URL:
+        description: "wss URL of the wstunnel server, e.g. wss://tunnel.example.com:443"
+      PG_TUNNEL_SECRET:
+        description: "shared HTTP-upgrade path-prefix authenticating to the wstunnel server"
+      PG_TARGET:
+        description: "customer Postgres host:port the server forwards to, e.g. db.internal:5432"
+      DATABASE_URL:
+        description: "libpq conn string; dial loopback but verify the real cert — host=db.internal hostaddr=127.0.0.1 port=5432 sslmode=verify-full"
