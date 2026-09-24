@@ -4,12 +4,12 @@
 # No change to at-cove core or the sealed hardening layer. See RUNBOOK.md.
 name: pg-tunnel-collab
 
+# Root image.allowed-domains is empty: Anthropic is already in the sealed base,
+# and the only widening this kit needs — the wstunnel server host — belongs to
+# the db-analyst class below (least-privilege, session-scoped).
 image:
   allowed-domains: []
 
-# No root `image.allowed-domains`: Anthropic is already in the sealed base, and
-# the only widening this kit needs — the wstunnel server host — belongs to the
-# db-analyst class below (least-privilege, session-scoped).
 collaborators:
   db-analyst:
     # The ONE egress widening: the wstunnel server. squid already permits

@@ -81,8 +81,8 @@ git commit -m "feat(kit): pg-tunnel-collab config — db-analyst class + tunnel 
 ### Task 2: `pg-tunnel-up` launcher + hermetic smoke test
 
 **Files:**
-- Create: `kits/pg-tunnel-collab/image/pg-tunnel-up`
-- Test: `kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh`
+- Create: `kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up`
+- Test: `kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh`
 
 **Interfaces:**
 - Consumes (env): `PG_TUNNEL_URL`, `PG_TUNNEL_SECRET`, `PG_TARGET` (required); `PG_LOCAL` (default `127.0.0.1:5432`); `HTTPS_PROXY` (set in every session to `http://127.0.0.1:3128`). Test knobs with safe defaults: `PG_TUNNEL_LOG` (default `/tmp/pg-tunnel.log`), `PG_TUNNEL_WAIT_TRIES` (default `30`), `PG_TUNNEL_WAIT_SLEEP` (default `0.5`).
@@ -90,7 +90,7 @@ git commit -m "feat(kit): pg-tunnel-collab config — db-analyst class + tunnel 
 
 - [ ] **Step 1: Write the failing test**
 
-Create `kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh`:
+Create `kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -167,12 +167,12 @@ if [ "$FAILS" -eq 0 ]; then echo "all passed"; exit 0; else echo "$FAILS failed"
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `bash kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh`
+Run: `bash kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh`
 Expected: FAIL — the harness can't find/execute `pg-tunnel-up` (it doesn't exist yet), so all three cases report `FAIL` and it exits non-zero.
 
 - [ ] **Step 3: Write `pg-tunnel-up`**
 
-Create `kits/pg-tunnel-collab/image/pg-tunnel-up`:
+Create `kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up`:
 
 ```bash
 #!/usr/bin/env bash
@@ -228,22 +228,22 @@ exit 1
 
 Then make it executable:
 
-Run: `chmod +x kits/pg-tunnel-collab/image/pg-tunnel-up kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh`
+Run: `chmod +x kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh`
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `bash kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh`
+Run: `bash kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh`
 Expected: three `ok -` lines then `all passed`, exit 0.
 
 - [ ] **Step 5: Lint the helper**
 
-Run: `shellcheck kits/pg-tunnel-collab/image/pg-tunnel-up`
+Run: `shellcheck kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up`
 Expected: no output, exit 0. (If shellcheck flags the intentional `/dev/tcp` redirect or `set -e` with background jobs, resolve by the narrowest fix or a scoped `# shellcheck disable=SCxxxx` with a one-line reason — never a blanket disable.)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kits/pg-tunnel-collab/image/pg-tunnel-up kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh
+git add kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh
 git commit -m "feat(kit): pg-tunnel-up launcher + hermetic smoke test"
 ```
 
@@ -252,7 +252,7 @@ git commit -m "feat(kit): pg-tunnel-up launcher + hermetic smoke test"
 ### Task 3: `image/Dockerfile`
 
 **Files:**
-- Create: `kits/pg-tunnel-collab/image/Dockerfile`
+- Create: `kits/pg-tunnel-collab/.at-cove/image/Dockerfile`
 
 **Interfaces:**
 - Consumes: `pg-tunnel-up` from Task 2 (copied to `/usr/local/bin`); the pinned wstunnel release from Global Constraints.
@@ -260,7 +260,7 @@ git commit -m "feat(kit): pg-tunnel-up launcher + hermetic smoke test"
 
 - [ ] **Step 1: Write the Dockerfile**
 
-Create `kits/pg-tunnel-collab/image/Dockerfile`:
+Create `kits/pg-tunnel-collab/.at-cove/image/Dockerfile`:
 
 ```dockerfile
 # pg-tunnel-collab image — the blessed cove base plus the wstunnel client and the
@@ -290,9 +290,9 @@ RUN chmod +x /usr/local/bin/pg-tunnel-up
 
 Run:
 ```bash
-grep -q '9708a99717b5a951453c2ff7c14c25d3418d02ca7fcb96fdb382a8f2083bab5e' kits/pg-tunnel-collab/image/Dockerfile \
-  && grep -q 'WSTUNNEL_VERSION=11.0.0' kits/pg-tunnel-collab/image/Dockerfile \
-  && grep -q 'COPY pg-tunnel-up /usr/local/bin/pg-tunnel-up' kits/pg-tunnel-collab/image/Dockerfile \
+grep -q '9708a99717b5a951453c2ff7c14c25d3418d02ca7fcb96fdb382a8f2083bab5e' kits/pg-tunnel-collab/.at-cove/image/Dockerfile \
+  && grep -q 'WSTUNNEL_VERSION=11.0.0' kits/pg-tunnel-collab/.at-cove/image/Dockerfile \
+  && grep -q 'COPY pg-tunnel-up /usr/local/bin/pg-tunnel-up' kits/pg-tunnel-collab/.at-cove/image/Dockerfile \
   && echo PIN-OK
 ```
 Expected: `PIN-OK`. (The sha is the published `checksums.txt` value for `wstunnel_11.0.0_linux_amd64.tar.gz`; a real `docker build` is an integration step requiring docker + network and is deferred — the Dockerfile's own `sha256sum -c` is the build-time gate.)
@@ -300,7 +300,7 @@ Expected: `PIN-OK`. (The sha is the published `checksums.txt` value for `wstunne
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kits/pg-tunnel-collab/image/Dockerfile
+git add kits/pg-tunnel-collab/.at-cove/image/Dockerfile
 git commit -m "feat(kit): Dockerfile bakes pinned wstunnel v11.0.0 + pg-tunnel-up"
 ```
 
@@ -396,8 +396,8 @@ psql "$DATABASE_URL"    # -> 127.0.0.1:5432 -> tunnel -> customer Postgres
 ## Test the launcher
 
 ```bash
-bash kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh   # hermetic, no network
-shellcheck kits/pg-tunnel-collab/image/pg-tunnel-up
+bash kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh   # hermetic, no network
+shellcheck kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up
 ```
 ````
 
@@ -435,8 +435,8 @@ git commit -m "docs(kit): pg-tunnel-collab RUNBOOK + OVERVIEW pointer"
 
 Run:
 ```bash
-bash kits/pg-tunnel-collab/image/pg-tunnel-up.test.sh \
- && shellcheck kits/pg-tunnel-collab/image/pg-tunnel-up \
+bash kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up.test.sh \
+ && shellcheck kits/pg-tunnel-collab/.at-cove/image/pg-tunnel-up \
  && just run -- --dry-run install --project-dir kits/pg-tunnel-collab \
  && echo ALL-GREEN
 ```
