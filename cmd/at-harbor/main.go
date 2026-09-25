@@ -1202,7 +1202,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// configured (project, role) against a budget seeded from max-concurrent,
 		// counting live instances globally (behavior-preserving — see internal/allocator).
 		budget := allocator.StaticBudget{{Project: dc.Project, Role: dc.Role}: dc.MaxConcurrent}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget)
+		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, nil)
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: dc.Project, PollInterval: poll,
 		}, log)
