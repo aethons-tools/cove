@@ -128,6 +128,14 @@ pool (tables auto-created; `intercom-log:` is ignored) — effectively always-on
 Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
 
+**The allocation event store follows the store backend too.** With
+`store-postgres`, the dispatcher's Allocator (harbor's capacity authority) also
+records a durable `reservation_granted` event per raise to an allocation event
+store on the same database and pool (its `alloc_events` table is auto-created).
+This is a **best-effort audited shadow**: the concurrency cap is still the live
+instance count, a record failure never blocks a raise, and there is no store at
+all without `store-postgres` (file backend behaves exactly as before).
+
 ### The launcher (`runtime.launcher`)
 
 With a `launcher` block, `at-harbor cove raise` starts a **real** cove on the Colima
