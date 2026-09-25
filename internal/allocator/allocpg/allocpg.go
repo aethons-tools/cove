@@ -1,7 +1,7 @@
 // Package allocpg is the Postgres-backed allocation event store. It appends
 // allocator.Event records to a per-(project, role) stream using an
 // optimistic-concurrency (OCC) append (UNIQUE(stream_id, stream_revision) +
-// expected-revision), satisfying allocator.Recorder. It shares the control-plane
+// expected-revision), satisfying allocator.Ledger. It shares the control-plane
 // *pgxpool.Pool and keeps pgx out of the stdlib-only allocator core.
 package allocpg
 
@@ -43,7 +43,7 @@ type Store struct {
 	log  *slog.Logger
 }
 
-var _ allocator.Recorder = (*Store)(nil)
+var _ allocator.Ledger = (*Store)(nil)
 
 // New applies the embedded migrations (idempotent, advisory-locked) and returns
 // a ready store. It does not own the pool; Close is a no-op.
