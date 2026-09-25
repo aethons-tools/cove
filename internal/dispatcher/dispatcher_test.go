@@ -59,8 +59,20 @@ func (f *fakeRegistry) GetInstance(actorID string) (harbor.Instance, bool) {
 }
 func (f *fakeRegistry) ListInstances() []harbor.Instance { return f.insts }
 
-func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, max int) *Dispatcher {
-	return New(t, r, reg, Config{Role: "worker", Project: "acme", MaxConcurrent: max}, nil)
+// fakeAdmitter admits the first `allow` calls, then denies — standing in for the
+// Allocator so dispatcher tests exercise admission without a registry-derived cap.
+type fakeAdmitter struct {
+	allow int
+	calls int
+}
+
+func (f *fakeAdmitter) Admit(project, role string) bool {
+	f.calls++
+	return f.calls <= f.allow
+}
+
+func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, allow int) *Dispatcher {
+	return New(t, r, reg, &fakeAdmitter{allow: allow}, Config{Role: "worker", Project: "acme"}, nil)
 }
 
 func TestTickClaimsAndRaises(t *testing.T) {
@@ -117,27 +129,23 @@ func TestTickDedupsExistingInstance(t *testing.T) {
 	}
 }
 
-func TestTickRespectsCap(t *testing.T) {
+func TestTick_RaisesWhileAdmitted_DefersWhenNot(t *testing.T) {
+	// The dispatcher raises while the Allocator admits and defers (backpressure)
+	// once it denies. The cap now lives behind Admitter, not a registry count.
 	tr := &fakeTracker{ready: []scheduler.Issue{
-		{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}, {ID: "id2", Identifier: "AET-2", DispatchLabeled: true}, {ID: "id3", Identifier: "AET-3", DispatchLabeled: true},
+		{ID: "id1", Identifier: "AET-1", DispatchLabeled: true},
+		{ID: "id2", Identifier: "AET-2", DispatchLabeled: true},
+		{ID: "id3", Identifier: "AET-3", DispatchLabeled: true},
 	}}
-	r := &fakeRaiser{}
-	// 1 already live + cap 2 ⇒ exactly 1 new raise allowed this tick.
-	reg := &fakeRegistry{insts: []harbor.Instance{{ActorID: "cove-OTHER", Phase: harbor.PhaseLive}}}
-	newTestDispatcher(tr, r, reg, 2).tick(context.Background())
-	if len(r.specs) != 1 {
-		t.Fatalf("cap: want 1 raise, got %d", len(r.specs))
-	}
-}
+	rz := &fakeRaiser{}
+	reg := &fakeRegistry{} // no live instances → no dedup skips
+	adm := &fakeAdmitter{allow: 2}
+	d := New(tr, rz, reg, adm, Config{Role: "worker", Project: "acme"}, nil)
 
-func TestTickCapCountExcludesGone(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
-	r := &fakeRaiser{}
-	// A gone instance must NOT count toward the cap.
-	reg := &fakeRegistry{insts: []harbor.Instance{{ActorID: "cove-OLD", Phase: harbor.PhaseGone}}}
-	newTestDispatcher(tr, r, reg, 1).tick(context.Background())
-	if len(r.specs) != 1 {
-		t.Fatalf("gone instance should not consume a slot; want 1 raise, got %d", len(r.specs))
+	d.tick(context.Background())
+
+	if len(rz.specs) != 2 {
+		t.Fatalf("raised %d, want 2 (admitter allowed 2 then denied)", len(rz.specs))
 	}
 }
 

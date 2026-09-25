@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
+	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
@@ -1197,8 +1198,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
-		disp := dispatcher.New(tracker, sup, st, dispatcher.Config{
-			Role: dc.Role, Project: dc.Project, MaxConcurrent: dc.MaxConcurrent, PollInterval: poll,
+		// The Allocator is harbor's capacity authority: it admits raises for the
+		// configured (project, role) against a budget seeded from max-concurrent,
+		// counting live instances globally (behavior-preserving — see internal/allocator).
+		budget := allocator.StaticBudget{{Project: dc.Project, Role: dc.Role}: dc.MaxConcurrent}
+		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget)
+		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
+			Role: dc.Role, Project: dc.Project, PollInterval: poll,
 		}, log)
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
