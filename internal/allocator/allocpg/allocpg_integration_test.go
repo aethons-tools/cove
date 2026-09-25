@@ -100,3 +100,27 @@ func TestAllocpg_DuplicateRevisionRejected(t *testing.T) {
 		t.Fatalf("expected unique violation on duplicate revision, got %v", err)
 	}
 }
+
+// Outstanding folds a (project, role) stream to granted − released — the ledger
+// count the Slice-4 cutover will make authoritative.
+func TestAllocpg_OutstandingCountsGrantsMinusReleases(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	grant := allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationGranted}
+	rel := allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased}
+	for i := 0; i < 3; i++ {
+		if err := st.Record(ctx, grant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Record(ctx, rel); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Outstanding(ctx, "acme", "worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 { // 3 granted − 1 released
+		t.Fatalf("Outstanding = %d, want 2", got)
+	}
+}
