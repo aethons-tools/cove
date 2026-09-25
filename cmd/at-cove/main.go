@@ -70,6 +70,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				allowUnverified := allowUnverifiedBaseFlag(fs)
 				assembleOnly := fs.Bool("assemble-only", false, "assemble the .build context for inspection, then stop (no docker, no manifest)")
+				noCache := fs.Bool("no-cache", false, "rebuild every layer, bypassing docker's build cache (forces a fresh claude/plugin install)")
 				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
 				if !ok {
 					return code
@@ -81,7 +82,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, *assembleOnly, g.DryRun, out), errw)
+				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, *assembleOnly, g.DryRun, *noCache, out), errw)
 			}},
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -452,7 +453,7 @@ func assembleContext(kitDir string, r runner.Runner) error {
 // nothing and touches no docker, keys, or manifest; use `--assemble-only` to
 // materialize the `.build` context for inspection (the old `build`'s
 // "assemble + inspect" use) without building.
-func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly, dryRun bool, stdout io.Writer) error {
+func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly, dryRun, noCache bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -463,7 +464,11 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 		// A --dry-run must have no resolver/key/disk side effects: describe the plan
 		// from config.yml (source) and return before assembling anything. --dry-run
 		// wins over --assemble-only.
-		fmt.Fprintf(stdout, "would assemble %s, then build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
+		cacheNote := ""
+		if noCache {
+			cacheNote = " (no cache)"
+		}
+		fmt.Fprintf(stdout, "would assemble %s, then build%s + gate + tag %s and write %s\n", buildDir, cacheNote, img, install.Path(kitDir))
 		return nil
 	}
 	if err := assembleContext(kitDir, r); err != nil {
@@ -478,7 +483,7 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 		return err
 	}
 	installed, err := b.Install(backend.InstallContext{
-		Kit: cfg.Name, BuildDir: buildDir,
+		Kit: cfg.Name, BuildDir: buildDir, NoCache: noCache,
 		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: allowUnverifiedBase},
 	})
 	if err != nil {

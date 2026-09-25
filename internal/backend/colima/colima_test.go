@@ -44,6 +44,28 @@ func TestInstallBuildsGatesTags(t *testing.T) {
 	}
 }
 
+// --no-cache: Install threads InstallContext.NoCache into the build argv, and
+// omits it by default (guards against an always-on flag).
+func TestInstallNoCacheThreadsToBuildArgv(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b", NoCache: true}); err != nil {
+		t.Fatal(err)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "--no-cache") {
+		t.Fatalf("NoCache:true must add --no-cache to the build; build=%+v", f.Calls)
+	}
+
+	f2 := &runner.Fake{}
+	if _, err := New(f2).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"}); err != nil {
+		t.Fatal(err)
+	}
+	build2 := dockerCall(f2.Calls, "build")
+	if build2 == nil || contains(build2, "--no-cache") {
+		t.Fatalf("default install must NOT pass --no-cache; build=%+v", f2.Calls)
+	}
+}
+
 // TestInstallCapturesBuiltImageDigest: after building + tagging, Install inspects
 // the built tag for its own image ID and reports it as InstalledImage.Digest, so a
 // run can pin the exact built image rather than the mutable tag (COV-78). This is
