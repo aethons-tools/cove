@@ -7,7 +7,7 @@ stream topology and the assignable-kind question that were open earlier are now
 resolved (below).
 **Motivation:** the orchestration responsibilities inside `at-harbor serve` are
 currently collapsed into two clusters with fuzzy edges, "security" is split across
-two layers, and the runtime nouns (Actor/Cove, plus the durable state that had no
+two layers, and the runtime nouns (Actor/Studio, plus the durable state that had no
 name) are scattered. This doc names three roles with clean boundaries, promotes
 that durable state to a first-class entity — the **Session** — pins the domain ontology, and consolidates security
 policy — so capacity and permissions can each grow in one place without touching
@@ -30,7 +30,7 @@ Today two clusters own everything (see [dispatcher.md](../../usage/harbor/dispat
   leases, reconcile, self-heal, wake/idle, and the Colima execution.
 
 The capacity concern (the cap) is buried inside the matcher, enforced on the
-*live* instance count. That is why per-role caps and standing coves are awkward
+*live* instance count. That is why per-role caps and standing studios are awkward
 today: no component owns "what should exist." Separately, permission policy is
 split across the Role (brokered destinations) and the Kit (sandbox egress
 allow-list) — two homes for one question.
@@ -41,7 +41,7 @@ allow-list) — two homes for one question.
 |---|---|---|
 | **Requisitioner** | Match a unit of work to a **role**, then requisition a **Session** for it. | Demand producer. No counting, no raising. |
 | **Allocator** | Ration Session lifetimes: hold the reservation ledger, enforce per-project/per-role capacity, grant/deny. | Source of truth for *what Sessions should exist*. |
-| **Supervisor** | Reconcile reservations into running Sessions on Coves and keep them alive. Owns a **pool of launchers** (one per cove-hosting mechanism). | Source of truth for *what Sessions actually exist*. |
+| **Supervisor** | Reconcile reservations into running Sessions on Studios and keep them alive. Owns a **pool of launchers** (one per studio-hosting mechanism). | Source of truth for *what Sessions actually exist*. |
 
 ## Core principle: the reservation is the only currency
 
@@ -54,7 +54,7 @@ The Allocator internally splits each project's per-role concurrency into **kinds
 
 - **standing** — always-on; a reservation with no unit and no expiry (a
   teammate/manager Session). Never released.
-- **ephemeral** — one unit, then the Session is discarded (the Cove torn down).
+- **ephemeral** — one unit, then the Session is discarded (the Studio torn down).
 
 A single reservation object covers both: a standing teammate is just a reservation
 with no unit and no expiry. These kinds are **the Allocator's private concern** —
@@ -72,7 +72,7 @@ Supervisor, so that when it is backed up the hot raises skip the line. TTL and
 admission live in the Allocator (allocation policy); placement order lives in the
 Supervisor — the reservation hides both.
 
-> **Deferred: a "warm/assignable" reuse kind** (a pooled Cove leased across units
+> **Deferred: a "warm/assignable" reuse kind** (a pooled Studio leased across units
 > and returned rather than torn down). It is intentionally *not* modeled now: it
 > introduces cross-unit reuse, which forces per-assignment credential re-scoping (a
 > security property) and workspace/Session reset. It falls out as a third `kind` if
@@ -141,20 +141,20 @@ deny+retry to real queueing.)
 
 ### What is NOT on this stream
 
-- **Cove lifecycle** — `CoveRaising / CoveLive / CoveIdled / CoveWoke /
-  CoveTerminating / CoveGone / CoveLost` (the Phase vocabulary from coves.md) —
+- **Studio lifecycle** — `StudioRaising / StudioLive / StudioIdled / StudioWoke /
+  StudioTerminating / StudioGone / StudioLost` (the Phase vocabulary from coves.md) —
   lives on the **Supervisor's execution stream**. The allocation stream is
-  allocation-only; it never learns which Cove or how it ran.
+  allocation-only; it never learns which Studio or how it ran.
 - **Leases / heartbeats / liveness** — current-state with a TTL, never events
   (their history is worthless and would flood the stream; only meaningful
-  transitions like `CoveLive → CoveLost` become events).
+  transitions like `StudioLive → StudioLost` become events).
 
 ### The coupling (two thin cross-subscriptions)
 
-- The **Supervisor** subscribes to `ReservationGranted` with no live Cove yet →
-  emits `CoveRaising` on *its* stream and materializes it.
-- The **Allocator** subscribes to the execution stream's terminal (`CoveGone` /
-  `CoveLost`) for a Cove bound to reservation R → emits `ReservationReleased`,
+- The **Supervisor** subscribes to `ReservationGranted` with no live Studio yet →
+  emits `StudioRaising` on *its* stream and materializes it.
+- The **Allocator** subscribes to the execution stream's terminal (`StudioGone` /
+  `StudioLost`) for a Studio bound to reservation R → emits `ReservationReleased`,
   freeing the slot.
 
 ## Topology: desired-state in, actual-state out — no directing
@@ -178,12 +178,12 @@ this now" across the Allocator↔Supervisor seam.
                                         ┌───────────────────────┐
                                         │ reconcile loop         │  folds granted
                                         │        +               │  reservations vs
-                                        │ launcher pool          │  cove lifecycle,
+                                        │ launcher pool          │  studio lifecycle,
                                         │ (Colima / cloud / …)   │  converges reality,
                                         └───────────────────────┘  reports releases/
                                                       │             liveness back up
                                                       ▼
-                                            Sessions on Coves
+                                            Sessions on Studios
 ```
 
 **Why declarative, not "the Allocator directs the Supervisor":** if the Allocator
@@ -191,10 +191,10 @@ imperatively commanded the Supervisor, it would inherit execution reliability �
 Supervisor crash mid-raise forces the Allocator to track acks/retries, entangling
 allocation state with execution state. With reconcile-from-durable-state, a crash
 anywhere is re-derived on the next pass; self-heal is free. This is already how the
-supervisor behaves (it re-adopts live Coves from the store on restart).
+supervisor behaves (it re-adopts live Studios from the store on restart).
 
 **Why the reconcile loop lives with the launchers, not with the Allocator:**
-reconcile is inseparable from execution ground truth (is the Cove alive? lease
+reconcile is inseparable from execution ground truth (is the Studio alive? lease
 expired? reported `done`?). Co-locating it with the launchers that observe that
 truth keeps each of the two feedback loops — allocation accounting (Allocator) and
 execution ground truth (Supervisor) — sealed inside one component. The reservation
@@ -212,14 +212,14 @@ unit, what scope its token got — aligned with the standing view that these log
 durable, indefinitely-retained records.
 
 **The discipline line — event-source decisions and lifecycle transitions, not
-sensor readings.** Decisions and transitions (the reservation and cove-lifecycle
+sensor readings.** Decisions and transitions (the reservation and studio-lifecycle
 events above) are retained source-of-truth; continuous signals (leases, heartbeats,
 liveness) are current-state with a TTL; large payloads (the workload prompt) are
 referenced, not embedded.
 
 **Two consequences, both good:**
 
-- **The Allocator and the cove registry become folds, not mutable stores.**
+- **The Allocator and the studio registry become folds, not mutable stores.**
   Admission is a `ReservationGranted` appended **with an expected-version /
   version-pinned append** — the same primitive the squawk log already uses. That is
   what makes caps safe under concurrency: two racing grants cannot both win an
@@ -258,7 +258,7 @@ one events table with:
 
 - `global_seq BIGSERIAL` — total order, observation only, never consistency;
 - `category` = **project** — grouping / subscription / tenancy / shard axis;
-- `stream_id` = **(project, role)** for allocation (per-Cove for execution) — the
+- `stream_id` = **(project, role)** for allocation (per-Studio for execution) — the
   aggregate;
 - `stream_revision` with `UNIQUE(stream_id, stream_revision)` — the consistency unit
   a version-pinned append checks.
@@ -269,13 +269,13 @@ three independent knobs, each set on its own axis.
 ## Capacity ceilings — policy vs mechanism
 
 The per-(project, role) budgets in the Allocator are capacity *policy*. A *global*
-physical ceiling (a backend can only run so many Coves) is **not** a global
+physical ceiling (a backend can only run so many Studios) is **not** a global
 Allocator aggregate — that would un-shard the Allocator and reintroduce a
 bottleneck. It decomposes into limits **each component enforces against its own
 state**:
 
 - **each launcher** — its administrative cap and physical reality, against its own
-  running-Cove count;
+  running-Studio count;
 - **the Supervisor** — an optional administrative cap across its launcher pool,
   against its own fold of the pool.
 
@@ -303,29 +303,29 @@ answer?* Two concepts that answer the same question should merge.
 |---|---|---|
 | **Authorization / identity (RBAC)** | Project → Role ← Grant → Actor | Project: *which namespace?* · Role: *what may it reach / how many may exist?* · Grant: *who holds which role?* · Actor: *who is it?* |
 | **Build** | Kit | *What is it made of, and how is it sealed?* |
-| **Runtime** | Session, Cove | Session: *what has it learned / what is it for?* · Cove: *where does it run?* |
+| **Runtime** | Session, Studio | Session: *what has it learned / what is it for?* · Studio: *where does it run?* |
 
 - **Session is the entity with a lifetime** — an **Actor in flight**: its identity
-  plus what it has accumulated plus the goal it serves. Idle **freezes its Cove**
-  (Session preserved); dismiss **discards the Session** (Cove torn down); rehydrate
-  (later) reattaches the Session to a fresh Cove. Standing vs ephemeral is just
+  plus what it has accumulated plus the goal it serves. Idle **freezes its Studio**
+  (Session preserved); dismiss **discards the Session** (Studio torn down); rehydrate
+  (later) reattaches the Session to a fresh Studio. Standing vs ephemeral is just
   *whether the Session outlives one unit of work*.
-- **Cove is the substrate** a Session runs on (the hardened sandbox). It is
-  fungible; the durable thing is the Session. So "reuse a warm Cove" (deferred) is
+- **Studio is the substrate** a Session runs on (the hardened sandbox). It is
+  fungible; the durable thing is the Session. So "reuse a warm Studio" (deferred) is
   *recycle the empty substrate, attach a fresh Session* — never re-scope a live one.
 - **The RBAC plane is a correct, standard model** — leave it. **Actor is
   deliberately general** ("a cove *or a standing teammate* is an Actor," and Grant is
   M:N): it is the one identity abstraction serving both the comms/escalation plane
-  (humans) and the runtime plane (Sessions). Collapsing Actor into Cove would fork
+  (humans) and the runtime plane (Sessions). Collapsing Actor into Studio would fork
   identity — and Session is the Actor *in flight*, so it sits naturally between them.
 - **Instance dissolves into a projection.** "Instance" and the running thing
   answered the same question. In the event-sourced model, Instance is no longer a
   stored noun — it is the **current-state fold of the execution stream**, with
-  harbor-owned **Phase** and cove-reported **Activity** as two facets of a Session on
-  its Cove.
+  harbor-owned **Phase** and studio-reported **Activity** as two facets of a Session on
+  its Studio.
 - **The reservation sits above as the "why":** a reservation is granted, and the
   Supervisor runs a **Session** (what it's for) — an **Actor** (who) of a **Role**
-  (what it may reach) — on a **Cove** (where), built from that role's **Kit** (what
+  (what it may reach) — on a **Studio** (where), built from that role's **Kit** (what
   it's made of), within a **Project** (namespace). Every noun answers its own
   question.
 
@@ -352,7 +352,7 @@ Role" literally — it is to split **mechanism** from **policy**:
 
 - **Kit keeps the enforcement mechanism** — the sealed hardening layer
   (nftables/squid/sshd/credential-helper) — plus pure contents. It is the lockbox; it
-  can't leave the image, and it's the same for every Cove (reviewed once, sealed from
+  can't leave the image, and it's the same for every Studio (reviewed once, sealed from
   inside).
 - **Role owns all security *policy*** — the brokered destinations/repos/comms it
   already has, **plus the raw egress allow-list** promoted out of the kit. A reviewer
@@ -366,7 +366,7 @@ Two guardrails keep that from being a downgrade:
    layers preserved. (Decision: ceiling model — the Role narrows *within* the kit's
    bound — not full supersession.)
 2. **Egress policy delivered at raise, not baked at build.** Harbor injects the
-   Role's egress list into the Cove at boot, applied *before* the agent runs, over
+   Role's egress list into the Studio at boot, applied *before* the agent runs, over
    the same trusted channel that delivers the connector/identity, and the "sealed
    from inside" property must survive it (the box still cannot widen its own list).
    This is the one real hardening-layer change the split implies.
@@ -374,7 +374,7 @@ Two guardrails keep that from being a downgrade:
 **Scope caveat:** this consolidation applies only where a Role exists — the
 **harbor-managed plane**. A standalone `.at-cove/` dev sandbox (the `dev/` world, no
 harbor) has no Role, so its egress stays kit-owned. Precisely: the kit's egress
-config is the **default + ceiling**; when a Cove is harbor-managed, its **Role's list
+config is the **default + ceiling**; when a Studio is harbor-managed, its **Role's list
 is the effective policy** within that ceiling.
 
 Net division: **Kit = what it is made of and how it is sealed; Role = who it is and
@@ -389,7 +389,7 @@ everything it is permitted.**
 - **Allocator** — new. The cap moves here and generalizes into per-kind, per-role,
   per-project budgets; the deferred per-role/class caps and any fairness/priority
   live here.
-- **Supervisor** — mostly already built: the cove registry, leases, reconcile,
+- **Supervisor** — mostly already built: the studio registry, leases, reconcile,
   self-heal, wake/idle. It changes its *input* from "dispatcher calls raise" to
   "reconcile the reservation ledger," and its launcher becomes a **pool** over the
   existing pluggable `internal/backend` seam (Colima now; cloud/k8s/remote later).
@@ -414,8 +414,15 @@ Golden-age-of-computing style: plain, functional, no theme.
   Actor in flight. The thing whose lifetime idle/dismiss/standing/ephemeral all
   describe. Named **Session** rather than "Context" to avoid overloading the
   LLM/environment sense of "context" — which stays free for casual use.
-- **Cove** = the substrate a Session runs on (kept; the product's hardened sandbox).
-- **Instance** = retired as a stored noun; it is the Cove's tracked-state projection
+- **Studio** = the substrate a Session runs on (was **Cove**) — the hardened
+  sandbox where the work happens; a Session works in a Studio. Chosen over "Flat"
+  (a ubiquitous adjective — bad code identifier) because a Studio is a *workspace*,
+  which fits an agent doing work.
+  - **Scope of this rename: the entity/concept only.** The *product/tool* stays
+    `at-cove`, and existing code and docs (`coves.md`, `cove-master`, `.at-cove/`,
+    the `github.com/aethons-tools/cove` module) keep "cove" — migrate the entity
+    usage as we go. So: "`at-cove` raises a Studio."
+- **Instance** = retired as a stored noun; it is the Studio's tracked-state projection
   (Phase + Activity facets).
 - **Kept:** Actor, Kit, Role, Project, reservation, launcher.
 - The standalone `at-dispatch` / `internal/dispatch` scheduler keeps its name; only
@@ -446,7 +453,7 @@ Golden-age-of-computing style: plain, functional, no theme.
   each one's own state — never a global Allocator aggregate. A granted-but-unplaceable
   reservation is **held by the Supervisor and reconciled when capacity frees** (no
   bounce); structural over-subscription surfaces as a health signal.
-- **Session** is first-class; **Cove** is its (fungible) substrate; **Instance** is
+- **Session** is first-class; **Studio** is its (fungible) substrate; **Instance** is
   retired to a projection. Golden-age naming, no theme.
 
 ## Open questions (block a plan)
