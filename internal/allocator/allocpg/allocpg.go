@@ -93,6 +93,56 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	return ErrConflictExhausted
 }
 
+// Grant atomically appends a ReservationGranted at head+1 iff the stream's
+// Outstanding (granted − released) is below budget — the OCC admission gate. A
+// single conditional INSERT … SELECT … WHERE (outstanding) < budget enforces the
+// budget, and UNIQUE(stream_id, stream_revision) enforces the version, so the
+// budget check and the append are one atomic step: concurrent grants cannot
+// overshoot, because the loser of a revision race retries and re-evaluates the
+// budget against the winner's grant. Returns (true, nil) granted, (false, nil)
+// over budget (no retry), and ErrConflictExhausted after maxAppendRetries lost
+// races.
+//
+// Known gap (Slice 5): a crash between a successful Grant and the corresponding
+// raise/teardown leaves a dangling ReservationGranted (a leaked slot) with no
+// compensation. Closing it needs a reconcile sweep (release Granted reservations
+// with no live instance); the cap stays ≤ budget, so this is an availability
+// nuisance, not a correctness break.
+func (s *Store) Grant(ctx context.Context, project, role, reservationID string, budget int) (bool, error) {
+	streamID := project + "/" + role
+	data, err := json.Marshal(map[string]string{}) // no extra payload yet
+	if err != nil {
+		return false, fmt.Errorf("allocpg: marshal: %w", err)
+	}
+	for attempt := 0; attempt < maxAppendRetries; attempt++ {
+		var head int64
+		if err := s.pool.QueryRow(ctx,
+			`SELECT COALESCE(MAX(stream_revision), 0) FROM alloc_events WHERE stream_id = $1`,
+			streamID).Scan(&head); err != nil {
+			return false, fmt.Errorf("allocpg: grant head: %w", err)
+		}
+		tag, err := s.pool.Exec(ctx,
+			`INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data)
+			 SELECT $1, $2, $3, $4, $5, $6
+			 WHERE (SELECT COUNT(*) FILTER (WHERE kind = $4)
+			               - COUNT(*) FILTER (WHERE kind = $7)
+			        FROM alloc_events WHERE stream_id = $2) < $8`,
+			project, streamID, head+1, string(allocator.KindReservationGranted), reservationID, data,
+			string(allocator.KindReservationReleased), budget)
+		if err != nil {
+			if isUniqueViolation(err) {
+				continue // lost the revision race — re-read head and re-evaluate budget
+			}
+			return false, fmt.Errorf("allocpg: grant: %w", err)
+		}
+		if tag.RowsAffected() == 1 {
+			return true, nil
+		}
+		return false, nil // 0 rows inserted: at/over budget
+	}
+	return false, ErrConflictExhausted
+}
+
 // Outstanding returns the live reservation count for a (project, role) stream —
 // granted minus released. This is the ledger fold the cap will use once the
 // cutover (Slice 4) makes the store authoritative.

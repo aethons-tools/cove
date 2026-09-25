@@ -5,6 +5,7 @@ package allocpg
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -122,5 +123,52 @@ func TestAllocpg_OutstandingCountsGrantsMinusReleases(t *testing.T) {
 	}
 	if got != 2 { // 3 granted − 1 released
 		t.Fatalf("Outstanding = %d, want 2", got)
+	}
+}
+
+// Grant is the atomic OCC admission gate: it appends a ReservationGranted iff
+// Outstanding < budget. With budget 2 the first two grant and the third is denied;
+// releasing one frees a slot so the next grant succeeds again.
+func TestAllocpg_GrantHonorsBudget(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for i, want := range []bool{true, true, false} {
+		got, err := st.Grant(ctx, "acme", "worker", "cove-"+strconv.Itoa(i), 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("grant %d = %v, want %v", i, got, want)
+		}
+	}
+	// release one → a slot frees → next grant succeeds
+	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Grant(ctx, "acme", "worker", "cove-after-release", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("expected grant after a release freed a slot")
+	}
+}
+
+// A granted reservation lands as a ReservationGranted event at head+1 carrying the
+// reservation id — so the append is on the same stream Outstanding folds.
+func TestAllocpg_GrantAppendsGrantedEvent(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	got, err := st.Grant(ctx, "acme", "worker", "cove-AET-7", 3)
+	if err != nil || !got {
+		t.Fatalf("Grant = %v, %v; want true, nil", got, err)
+	}
+	rows, err := st.events(ctx, "acme/worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].revision != 1 ||
+		rows[0].kind != string(allocator.KindReservationGranted) || rows[0].reservationID != "cove-AET-7" {
+		t.Fatalf("unexpected rows after grant: %+v", rows)
 	}
 }
