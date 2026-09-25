@@ -7,9 +7,9 @@ stream topology and the assignable-kind question that were open earlier are now
 resolved (below).
 **Motivation:** the orchestration responsibilities inside `at-harbor serve` are
 currently collapsed into two clusters with fuzzy edges, "security" is split across
-two layers, and the runtime nouns (Actor/Cove, and the unnamed **Context**) are
-scattered. This doc names three roles with clean boundaries, promotes **Context**
-to a first-class entity, pins the domain ontology, and consolidates security
+two layers, and the runtime nouns (Actor/Cove, plus the durable state that had no
+name) are scattered. This doc names three roles with clean boundaries, promotes
+that durable state to a first-class entity — the **Session** — pins the domain ontology, and consolidates security
 policy — so capacity and permissions can each grow in one place without touching
 matching, execution, or the image.
 **Naming:** golden-age-of-computing style — plain, functional, no theme.
@@ -39,26 +39,26 @@ allow-list) — two homes for one question.
 
 | Role | Responsibility | One-line boundary |
 |---|---|---|
-| **Requisitioner** | Match a unit of work to a **role**, then requisition a **Context** for it. | Demand producer. No counting, no raising. |
-| **Allocator** | Ration Context lifetimes: hold the reservation ledger, enforce per-project/per-role capacity, grant/deny. | Source of truth for *what Contexts should exist*. |
-| **Supervisor** | Reconcile reservations into running Contexts on Coves and keep them alive. Owns a **pool of launchers** (one per cove-hosting mechanism). | Source of truth for *what Contexts actually exist*. |
+| **Requisitioner** | Match a unit of work to a **role**, then requisition a **Session** for it. | Demand producer. No counting, no raising. |
+| **Allocator** | Ration Session lifetimes: hold the reservation ledger, enforce per-project/per-role capacity, grant/deny. | Source of truth for *what Sessions should exist*. |
+| **Supervisor** | Reconcile reservations into running Sessions on Coves and keep them alive. Owns a **pool of launchers** (one per cove-hosting mechanism). | Source of truth for *what Sessions actually exist*. |
 
 ## Core principle: the reservation is the only currency
 
 Everything outside the Allocator sees exactly one abstraction — a **reservation**
-(a handle to a **Context** for a role, optionally bound to a unit of work). The
+(a handle to a **Session** for a role, optionally bound to a unit of work). The
 Requisitioner asks for one and never learns *how* it was satisfied. The Supervisor
 consumes reservations and never learns *why* they were allocated.
 
 The Allocator internally splits each project's per-role concurrency into **kinds**:
 
 - **standing** — always-on; a reservation with no unit and no expiry (a
-  teammate/manager Context). Never released.
-- **ephemeral** — one unit, then the Context is discarded (the Cove torn down).
+  teammate/manager Session). Never released.
+- **ephemeral** — one unit, then the Session is discarded (the Cove torn down).
 
 A single reservation object covers both: a standing teammate is just a reservation
 with no unit and no expiry. These kinds are **the Allocator's private concern** —
-outside it, everything is just a reservation on a Context. The Allocator can start
+outside it, everything is just a reservation on a Session. The Allocator can start
 as a trivial per-kind counter and grow arbitrarily sophisticated internally —
 fairness, priority, demand prediction — with zero blast radius, because the
 reservation abstraction hides all of it.
@@ -75,8 +75,8 @@ Supervisor — the reservation hides both.
 > **Deferred: a "warm/assignable" reuse kind** (a pooled Cove leased across units
 > and returned rather than torn down). It is intentionally *not* modeled now: it
 > introduces cross-unit reuse, which forces per-assignment credential re-scoping (a
-> security property) and workspace/Context reset. It falls out as a third `kind` if
-> a real need appears; until then, ephemeral Contexts are fresh actors and standing
+> security property) and workspace/Session reset. It falls out as a third `kind` if
+> a real need appears; until then, ephemeral Sessions are fresh actors and standing
 > ones are dedicated, so neither problem exists.
 
 ## The allocation aggregate (the Allocator's storage)
@@ -183,7 +183,7 @@ this now" across the Allocator↔Supervisor seam.
                                         └───────────────────────┘  reports releases/
                                                       │             liveness back up
                                                       ▼
-                                            Contexts on Coves
+                                            Sessions on Coves
 ```
 
 **Why declarative, not "the Allocator directs the Supervisor":** if the Allocator
@@ -207,7 +207,7 @@ The seam is an **append-only event stream**, and the durable stores become
 substrate: the intercom/squawk log is append-only with a monotonic `Seq` and a
 durable commit cursor + seekable reads. Event sourcing here is applying a proven
 in-house pattern, not importing a foreign one. It also gives harbor (a security
-boundary) a first-class audit trail — who reserved what, which Context ran which
+boundary) a first-class audit trail — who reserved what, which Session ran which
 unit, what scope its token got — aligned with the standing view that these logs are
 durable, indefinitely-retained records.
 
@@ -296,43 +296,43 @@ exceeding host capacity — is config incoherence, not incorrectness: it surface
 ## The domain ontology (three planes)
 
 The nouns aren't a single deep stack; they are **three orthogonal planes** that meet
-when a Context is run. The test for a right-sized boundary: *what question does each
+when a Session is run. The test for a right-sized boundary: *what question does each
 answer?* Two concepts that answer the same question should merge.
 
 | Plane | Concepts | The question each answers |
 |---|---|---|
 | **Authorization / identity (RBAC)** | Project → Role ← Grant → Actor | Project: *which namespace?* · Role: *what may it reach / how many may exist?* · Grant: *who holds which role?* · Actor: *who is it?* |
 | **Build** | Kit | *What is it made of, and how is it sealed?* |
-| **Runtime** | Context, Cove | Context: *what has it learned / what is it for?* · Cove: *where does it run?* |
+| **Runtime** | Session, Cove | Session: *what has it learned / what is it for?* · Cove: *where does it run?* |
 
-- **Context is the entity with a lifetime** — an **Actor in flight**: its identity
+- **Session is the entity with a lifetime** — an **Actor in flight**: its identity
   plus what it has accumulated plus the goal it serves. Idle **freezes its Cove**
-  (Context preserved); dismiss **discards the Context** (Cove torn down); rehydrate
-  (later) reattaches the Context to a fresh Cove. Standing vs ephemeral is just
-  *whether the Context outlives one unit of work*.
-- **Cove is the substrate** a Context runs on (the hardened sandbox). It is
-  fungible; the durable thing is the Context. So "reuse a warm Cove" (deferred) is
-  *recycle the empty substrate, attach a fresh Context* — never re-scope a live one.
+  (Session preserved); dismiss **discards the Session** (Cove torn down); rehydrate
+  (later) reattaches the Session to a fresh Cove. Standing vs ephemeral is just
+  *whether the Session outlives one unit of work*.
+- **Cove is the substrate** a Session runs on (the hardened sandbox). It is
+  fungible; the durable thing is the Session. So "reuse a warm Cove" (deferred) is
+  *recycle the empty substrate, attach a fresh Session* — never re-scope a live one.
 - **The RBAC plane is a correct, standard model** — leave it. **Actor is
   deliberately general** ("a cove *or a standing teammate* is an Actor," and Grant is
   M:N): it is the one identity abstraction serving both the comms/escalation plane
-  (humans) and the runtime plane (Contexts). Collapsing Actor into Cove would fork
-  identity — and Context is the Actor *in flight*, so it sits naturally between them.
+  (humans) and the runtime plane (Sessions). Collapsing Actor into Cove would fork
+  identity — and Session is the Actor *in flight*, so it sits naturally between them.
 - **Instance dissolves into a projection.** "Instance" and the running thing
   answered the same question. In the event-sourced model, Instance is no longer a
   stored noun — it is the **current-state fold of the execution stream**, with
-  harbor-owned **Phase** and cove-reported **Activity** as two facets of a Context on
+  harbor-owned **Phase** and cove-reported **Activity** as two facets of a Session on
   its Cove.
 - **The reservation sits above as the "why":** a reservation is granted, and the
-  Supervisor runs a **Context** (what it's for) — an **Actor** (who) of a **Role**
+  Supervisor runs a **Session** (what it's for) — an **Actor** (who) of a **Role**
   (what it may reach) — on a **Cove** (where), built from that role's **Kit** (what
   it's made of), within a **Project** (namespace). Every noun answers its own
   question.
 
 Note: **Role is the busiest concept** — it touches all three planes (authorization
 scope + a bound Kit + capacity budget). That is a natural join point ("the class of
-Context"); not a problem to split now, but the fault line, if it ever needs one, is
-authorization-scope vs a "Context type" (kit + capacity).
+Session"); not a problem to split now, but the fault line, if it ever needs one, is
+authorization-scope vs a "Session type" (kit + capacity).
 
 ## Security: split mechanism from policy
 
@@ -356,7 +356,7 @@ Role" literally — it is to split **mechanism** from **policy**:
   inside).
 - **Role owns all security *policy*** — the brokered destinations/repos/comms it
   already has, **plus the raw egress allow-list** promoted out of the kit. A reviewer
-  asking "what can this Context touch?" then reads exactly one thing: the Role.
+  asking "what can this Session touch?" then reads exactly one thing: the Role.
 
 Two guardrails keep that from being a downgrade:
 
@@ -403,17 +403,18 @@ Golden-age-of-computing style: plain, functional, no theme.
 
 - **Requisitioner** = the demand producer (was the resident "dispatcher"). Renamed to
   kill the collision with the standalone `at-dispatch` and to describe its narrowed
-  job — it *requisitions* a Context; it no longer dispatches/raises.
+  job — it *requisitions* a Session; it no longer dispatches/raises.
 - **Allocator** = the capacity rationer (was "Robot Resources"). The HR framing is
   dropped: bot labor inverts the human cost model (idle is nearly free, activity is
   expensive), so "staffing/headcount" intuitions mislead.
 - **Supervisor** = the reconciler + launcher pool (was "Harbor Master"). With the
   theme gone, the reconcile loop and the umbrella collapse into one; "Supervisor" is
   both golden-age and already the codebase term for this thing.
-- **Context** = first-class runtime entity (new): the durable, goal-bound state — an
+- **Session** = first-class runtime entity (new): the durable, goal-bound state — an
   Actor in flight. The thing whose lifetime idle/dismiss/standing/ephemeral all
-  describe.
-- **Cove** = the substrate a Context runs on (kept; the product's hardened sandbox).
+  describe. Named **Session** rather than "Context" to avoid overloading the
+  LLM/environment sense of "context" — which stays free for casual use.
+- **Cove** = the substrate a Session runs on (kept; the product's hardened sandbox).
 - **Instance** = retired as a stored noun; it is the Cove's tracked-state projection
   (Phase + Activity facets).
 - **Kept:** Actor, Kit, Role, Project, reservation, launcher.
@@ -426,7 +427,7 @@ Golden-age-of-computing style: plain, functional, no theme.
   needed).
 - **Reservation = existence, not an activity slot** — modeling it as an activity slot
   drags toward preemptive turn-scheduling (agents-as-threads), which is a non-goal
-  (below). Concurrency is admission-gated; idle is cooperative (the Context's own
+  (below). Concurrency is admission-gated; idle is cooperative (the Session's own
   wait), never scheduler-driven.
 - The allocation aggregate is keyed *(project, role)* and references — does not fork —
   the roster Role.
@@ -445,7 +446,7 @@ Golden-age-of-computing style: plain, functional, no theme.
   each one's own state — never a global Allocator aggregate. A granted-but-unplaceable
   reservation is **held by the Supervisor and reconciled when capacity frees** (no
   bounce); structural over-subscription surfaces as a health signal.
-- **Context** is first-class; **Cove** is its (fungible) substrate; **Instance** is
+- **Session** is first-class; **Cove** is its (fungible) substrate; **Instance** is
   retired to a projection. Golden-age naming, no theme.
 
 ## Open questions (block a plan)
@@ -462,10 +463,10 @@ raise** hardening-layer change (preserving "sealed from inside").
 - Building any of this — no implementation until the open question resolves and a
   plan is written.
 - **Preemptive turn-scheduling** — the Allocator/Supervisor never pause a *running*
-  Context to reallocate its slot; agents run to a natural boundary, and idle is
+  Session to reallocate its slot; agents run to a natural boundary, and idle is
   cooperative only. Concurrency is admission-gated, not time-sliced.
 - The warm/assignable reuse kind and its re-scoping/reset lifecycle.
-- Portable/rehydratable Context (freeze-in-place first; serialize-and-reattach later).
+- Portable/rehydratable Session (freeze-in-place first; serialize-and-reattach later).
 - Fully event-sourcing the roster Role (roster stays the authorization source of
   truth; the Allocator references it).
 - Merging or renaming the standalone `at-dispatch` scheduler.
@@ -480,5 +481,5 @@ stream with a single kind (ephemeral), moving the existing `max-concurrent` cap 
 it as a per-role budget, and re-point the **Supervisor** to reconcile the reservation
 ledger instead of taking a direct `raise` call from the **Requisitioner** —
 behavior-preserving for today's one-shot flow, but with the seam in place. Standing
-Contexts, the egress-policy promotion, and projection-consistency hardening come as
+Sessions, the egress-policy promotion, and projection-consistency hardening come as
 later slices.
