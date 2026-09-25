@@ -61,14 +61,23 @@ func (f *fakeRegistry) ListInstances() []harbor.Instance { return f.insts }
 
 // fakeAdmitter admits the first `allow` calls, then denies — standing in for the
 // Allocator so dispatcher tests exercise admission without a registry-derived cap.
+// It records the reservation IDs passed to RecordGrant so tests can assert the
+// dual-write shadow fires after a successful raise.
 type fakeAdmitter struct {
-	allow int
-	calls int
+	allow    int
+	calls    int
+	granted  []string
+	grantErr error
 }
 
 func (f *fakeAdmitter) Admit(project, role string) bool {
 	f.calls++
 	return f.calls <= f.allow
+}
+
+func (f *fakeAdmitter) RecordGrant(_ context.Context, project, role, reservationID string) error {
+	f.granted = append(f.granted, reservationID)
+	return f.grantErr
 }
 
 func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, allow int) *Dispatcher {
@@ -146,6 +155,28 @@ func TestTick_RaisesWhileAdmitted_DefersWhenNot(t *testing.T) {
 
 	if len(rz.specs) != 2 {
 		t.Fatalf("raised %d, want 2 (admitter allowed 2 then denied)", len(rz.specs))
+	}
+}
+
+func TestTick_RecordsGrantAfterSuccessfulRaise(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
+	rz := &fakeRaiser{}
+	adm := &fakeAdmitter{allow: 1}
+	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
+	d.tick(context.Background())
+	if len(adm.granted) != 1 || adm.granted[0] != "cove-AET-1" {
+		t.Fatalf("RecordGrant calls = %v, want [cove-AET-1]", adm.granted)
+	}
+}
+
+func TestTick_RaiseFailure_RecordsNoGrant(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
+	rz := &fakeRaiser{err: errors.New("launch boom")}
+	adm := &fakeAdmitter{allow: 1}
+	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
+	d.tick(context.Background())
+	if len(adm.granted) != 0 {
+		t.Fatalf("raise failure must record no grant, got %v", adm.granted)
 	}
 }
 
