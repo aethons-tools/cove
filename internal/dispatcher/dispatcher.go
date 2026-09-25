@@ -1,6 +1,7 @@
 // Package dispatcher is harbor's resident intake: an always-on poll loop that
-// turns ready tracker tickets into managed-cove raises, bounded by a
-// registry-derived concurrency cap. It lives outside internal/harbor core (it
+// turns ready tracker tickets into managed-cove raises, admitting each raise
+// through the Allocator (harbor's capacity authority) rather than counting
+// instances against a cap itself. It lives outside internal/harbor core (it
 // imports the tracker + kit + supervisor) and is wired from cmd/at-harbor.
 package dispatcher
 
@@ -32,12 +33,18 @@ type Tracker interface {
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 }
 
+// Admitter decides whether another session may be raised for (project, role).
+// Satisfied by *allocator.Allocator. It is harbor's capacity authority: the
+// dispatcher no longer counts instances against a cap itself.
+type Admitter interface {
+	Admit(project, role string) bool
+}
+
 // Config is the dispatcher's behavior configuration.
 type Config struct {
-	Role          string        // role raised coves get (must grant anthropic + git)
-	Project       string        // optional
-	MaxConcurrent int           // required, > 0 — max live Instances maintained
-	PollInterval  time.Duration // default 30s if <= 0
+	Role         string        // role raised coves get (must grant anthropic + git)
+	Project      string        // optional
+	PollInterval time.Duration // default 30s if <= 0
 }
 
 const defaultPollInterval = 30 * time.Second
@@ -60,18 +67,19 @@ type Dispatcher struct {
 	tracker  Tracker
 	raiser   Raiser
 	registry Registry
+	admitter Admitter
 	cfg      Config
 	log      *slog.Logger
 }
 
-func New(t Tracker, r Raiser, reg Registry, cfg Config, log *slog.Logger) *Dispatcher {
+func New(t Tracker, r Raiser, reg Registry, adm Admitter, cfg Config, log *slog.Logger) *Dispatcher {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Dispatcher{tracker: t, raiser: r, registry: reg, cfg: cfg, log: log}
+	return &Dispatcher{tracker: t, raiser: r, registry: reg, admitter: adm, cfg: cfg, log: log}
 }
 
 // Run polls until ctx is cancelled: an immediate tick, then every PollInterval
@@ -90,14 +98,13 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// tick runs one poll pass: list ready → dedup → cap → claim → raise.
+// tick runs one poll pass: list ready → dedup → admit → claim → raise.
 func (d *Dispatcher) tick(ctx context.Context) {
 	issues, err := d.tracker.ListReady(ctx)
 	if err != nil {
 		d.log.Warn("dispatcher: list ready failed", "error", err.Error())
 		return
 	}
-	live := d.countLive()
 	for _, iss := range issues {
 		if !iss.DispatchLabeled {
 			continue // not tagged for dispatch — never claimed, counted, or raised
@@ -106,8 +113,8 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		if _, ok := d.registry.GetInstance(actorID); ok {
 			continue // already raised (dedup)
 		}
-		if live >= d.cfg.MaxConcurrent {
-			d.log.Info("dispatcher: at capacity, deferring", "max", d.cfg.MaxConcurrent)
+		if !d.admitter.Admit(d.cfg.Project, d.cfg.Role) {
+			d.log.Info("dispatcher: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
 			break // backpressure — wait for a slot next tick
 		}
 		if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleInProgress); err != nil {
@@ -128,20 +135,7 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			continue
 		}
 		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
-		live++
 	}
-}
-
-// countLive counts Instances that occupy a concurrency slot (everything not gone;
-// gone Instances are already deregistered, but filter defensively).
-func (d *Dispatcher) countLive() int {
-	n := 0
-	for _, i := range d.registry.ListInstances() {
-		if i.Phase != harbor.PhaseGone {
-			n++
-		}
-	}
-	return n
 }
 
 func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (string, error) {
