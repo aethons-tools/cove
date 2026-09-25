@@ -40,6 +40,12 @@ type Kind string
 // defined-but-deferred (Released lands in Slice 3).
 const KindReservationGranted Kind = "reservation_granted"
 
+// KindReservationReleased records that a session's reservation was released (its
+// Studio was torn down) for a (project, role). Slice 3 records releases so the
+// shadow ledger's outstanding count (granted − released) tracks reality; the cap
+// stays on the registry count.
+const KindReservationReleased Kind = "reservation_released"
+
 // Event is one allocation event. Category is the project (the grouping/shard
 // axis); the stream is keyed by (Project, Role). Revision/seq/timestamp are
 // assigned by the store on append.
@@ -92,6 +98,22 @@ func (a *Allocator) RecordGrant(ctx context.Context, project, role, reservationI
 		Project:       project,
 		Role:          role,
 		Kind:          KindReservationGranted,
+		ReservationID: reservationID,
+	})
+}
+
+// RecordRelease durably records that a session's reservation was released (its
+// Studio was torn down) for (project, role) — a best-effort shadow write (the cap
+// is still the registry count in this slice). A nil Recorder is a no-op.
+func (a *Allocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
+	if a.recorder == nil {
+		return nil
+	}
+	return a.recorder.Record(ctx, Event{
+		Category:      project,
+		Project:       project,
+		Role:          role,
+		Kind:          KindReservationReleased,
 		ReservationID: reservationID,
 	})
 }

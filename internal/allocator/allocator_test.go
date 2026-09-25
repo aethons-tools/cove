@@ -58,3 +58,24 @@ func TestRecordGrant_NilRecorder_NoOp(t *testing.T) {
 		t.Fatalf("nil recorder should be a no-op, got %v", err)
 	}
 }
+
+func TestRecordRelease_AppendsEvent(t *testing.T) {
+	rec := &fakeRecorder{}
+	a := New(fakeCounter{}, StaticBudget{{Project: "acme", Role: "worker"}: 3}, rec)
+	if err := a.RecordRelease(context.Background(), "acme", "worker", "cove-AET-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.events) != 1 || rec.events[0].Kind != KindReservationReleased || rec.events[0].ReservationID != "cove-AET-1" {
+		t.Fatalf("unexpected: %+v", rec.events)
+	}
+	if got := rec.events[0]; got.Project != "acme" || got.Role != "worker" || got.Category != "acme" {
+		t.Fatalf("unexpected event: %+v", got)
+	}
+}
+
+func TestRecordRelease_NilRecorder_NoOp(t *testing.T) {
+	a := New(fakeCounter{}, StaticBudget{}, nil)
+	if err := a.RecordRelease(context.Background(), "acme", "worker", "x"); err != nil {
+		t.Fatalf("nil recorder should no-op, got %v", err)
+	}
+}
