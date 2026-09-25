@@ -1202,10 +1202,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// The Allocator is harbor's capacity authority: it admits raises for the
 		// configured (project, role) against a budget seeded from max-concurrent,
 		// counting live instances globally (behavior-preserving — see internal/allocator).
-		budget := allocator.StaticBudget{{Project: dc.Project, Role: dc.Role}: dc.MaxConcurrent}
-		// Dual-write shadow (slice 2): with Postgres the Allocator records a grant
-		// per raise to the durable event store; the cap is still the registry count.
-		// With the file store there is no pool ⇒ recorder is nil ⇒ records nothing.
+		// Normalize the project once so grants and releases land on the same
+		// (project, role) stream: grants use this value (via Config.Project →
+		// RecordGrant), and the Supervisor stores inst.Project =
+		// orDefaultProject(spec.Project) = harbor.DefaultProject when empty, which is
+		// what RecordRelease keys off on teardown. Leaving it as dc.Project ("")
+		// would split them across "/role" and "default/role" — they'd never reconcile.
+		project := dc.Project
+		if project == "" {
+			project = harbor.DefaultProject
+		}
+		budget := allocator.StaticBudget{{Project: project, Role: dc.Role}: dc.MaxConcurrent}
+		// Dual-write shadow (slices 2–3): with Postgres the Allocator records a grant
+		// per raise and a release per teardown to the durable event store; the cap is
+		// still the registry count. With the file store there is no pool ⇒ recorder is
+		// nil ⇒ records nothing (and SetReleaser(alloc) is a harmless no-op).
 		var rec allocator.Recorder
 		if pgPool != nil {
 			as, err := allocpg.New(context.Background(), pgPool, log)
@@ -1216,8 +1227,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			rec = as
 		}
 		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, rec)
+		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (shadow)
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
-			Role: dc.Role, Project: dc.Project, PollInterval: poll,
+			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)

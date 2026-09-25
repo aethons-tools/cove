@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-25
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -130,11 +130,14 @@ Either way, switching backends **starts empty** — no data migration.
 
 **The allocation event store follows the store backend too.** With
 `store-postgres`, the dispatcher's Allocator (harbor's capacity authority) also
-records a durable `reservation_granted` event per raise to an allocation event
-store on the same database and pool (its `alloc_events` table is auto-created).
-This is a **best-effort audited shadow**: the concurrency cap is still the live
-instance count, a record failure never blocks a raise, and there is no store at
-all without `store-postgres` (file backend behaves exactly as before).
+records durable events to an allocation event store on the same database and pool
+(its `alloc_events` table is auto-created): a `reservation_granted` per raise and
+a `reservation_released` per teardown, keyed on the same normalized
+`(project, role)` stream so its outstanding count (`granted − released`) tracks
+the live instance count. This is a **best-effort audited shadow**: the
+concurrency cap is still the live instance count, a record failure never blocks a
+raise or a teardown, and there is no store at all without `store-postgres` (file
+backend behaves exactly as before).
 
 ### The launcher (`runtime.launcher`)
 
