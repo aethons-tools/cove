@@ -89,6 +89,7 @@ type InstallContext struct {
 	Kit      string   // identity for the built image tag (naming.Image → atcove-<Kit>)
 	BuildDir string   // the assembled .build context to build
 	Base     BaseSpec // base resolution + provenance gate inputs (owns AllowUnverified)
+	NoCache  bool     // bypass docker's layer cache for this build (forces a fresh claude/plugin install)
 }
 
 // InstalledImage is Backend.Install's result: the built, tagged image and the

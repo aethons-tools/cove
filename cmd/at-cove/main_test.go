@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -587,6 +588,61 @@ func TestInstallOwnsAllowUnverifiedFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"install", "--allow-unverified-base", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
 		t.Fatalf("install --allow-unverified-base should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+}
+
+// findBuild returns the recorded `docker build` call, or nil.
+func findBuild(calls []runner.Call) *runner.Call {
+	for i := range calls {
+		if calls[i].Name == "docker" && slices.Contains(calls[i].Args, "build") {
+			return &calls[i]
+		}
+	}
+	return nil
+}
+
+// TestInstallNoCacheFlag: `install --no-cache` reaches the docker build with
+// --no-cache; plain `install` does not.
+func TestInstallNoCacheFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	seedConfigDir(t)
+
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--no-cache", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("install --no-cache should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if b := findBuild(f.Calls); b == nil || !slices.Contains(b.Args, "--no-cache") {
+		t.Fatalf("install --no-cache must pass --no-cache to docker build; calls=%+v", f.Calls)
+	}
+
+	f2 := &runner.Fake{}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"install", "--project-dir", dir}, f2, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("plain install should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if b := findBuild(f2.Calls); b == nil || slices.Contains(b.Args, "--no-cache") {
+		t.Fatalf("plain install must NOT pass --no-cache; calls=%+v", f2.Calls)
+	}
+}
+
+// TestDryRunInstallNoCacheNote: `--dry-run install --no-cache` notes no-cache in
+// the intent line and records no docker calls.
+func TestDryRunInstallNoCacheNote(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--dry-run", "install", "--no-cache", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("--dry-run install --no-cache should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "build (no cache)") {
+		t.Fatalf("dry-run --no-cache must note the cache bypass; out=%q", out.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("--dry-run must record no docker calls; calls=%+v", f.Calls)
 	}
 }
 
