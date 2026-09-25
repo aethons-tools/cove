@@ -538,6 +538,33 @@ type fakeSink struct {
 func (f *fakeSink) RequestTeardown(id string) { f.teardowns = append(f.teardowns, id) }
 func (f *fakeSink) Wake(id string)            { f.wakes = append(f.wakes, id) }
 
+// fakeReleaser records RecordRelease calls for assertions (the actual-state-out
+// half of the Supervisor↔Allocator seam).
+type fakeReleaser struct{ calls []string }
+
+func (f *fakeReleaser) RecordRelease(_ context.Context, project, role, id string) error {
+	f.calls = append(f.calls, project+"/"+role+"/"+id)
+	return nil
+}
+
+// TestTeardownRecordsRelease proves that tearing a live instance down records a
+// ReservationReleased for its (project, role, actorID) via the releaser — the
+// shadow-ledger release wiring (slice 3).
+func TestTeardownRecordsRelease(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-AET-1", Project: "acme", Role: "worker", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	fr := &fakeReleaser{}
+	sup.SetReleaser(fr)
+	if err := sup.Teardown(context.Background(), "cove-AET-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.calls) != 1 || fr.calls[0] != "acme/worker/cove-AET-1" {
+		t.Fatalf("release calls = %v", fr.calls)
+	}
+}
+
 func TestRaiseMintsLaunchSecret(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	inst, tok, secret, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})

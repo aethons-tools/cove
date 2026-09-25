@@ -64,6 +64,16 @@ type tailReader interface {
 	TailSeq() (int64, bool)
 }
 
+// Releaser records that a session's reservation was released when its cove is torn
+// down — the actual-state-out half of the Supervisor↔Allocator seam (the design's
+// "reports releases/liveness back up"; not the Allocator directing the Supervisor).
+// Best-effort shadow write: nil (file store / no Postgres) is a no-op, and a
+// recording failure never fails teardown. Satisfied structurally by
+// *allocator.Allocator (no import of allocator here — no cycle).
+type Releaser interface {
+	RecordRelease(ctx context.Context, project, role, reservationID string) error
+}
+
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
 // the lease model, and the state machine. One supervisor per harbor process.
 type Supervisor struct {
@@ -76,6 +86,7 @@ type Supervisor struct {
 	log       *slog.Logger
 	sink      ControlSink
 	tail      tailReader
+	released  Releaser
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -101,6 +112,11 @@ func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
 // entering Waiting (and CommitSeq at Raise). Called once at wiring time before
 // serving begins; nil (no message log) leaves both 0.
 func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
+
+// SetReleaser wires the allocation releaser recorded on teardown (the
+// actual-state-out seam). Called once at wiring time; nil (no Postgres ledger)
+// leaves teardown recording nothing, exactly as before.
+func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 
 func (s *Supervisor) tailSeq() int64 {
 	if s.tail == nil {
@@ -308,6 +324,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
+	}
+	if s.released != nil {
+		if err := s.released.RecordRelease(ctx, inst.Project, inst.Role, actorID); err != nil && s.log != nil {
+			s.log.Warn("teardown: record release failed (shadow, non-fatal)", "id", actorID, "err", err.Error())
+		}
 	}
 	if s.log != nil {
 		s.log.Info("cove torn down", "id", actorID)
