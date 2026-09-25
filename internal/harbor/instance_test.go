@@ -41,3 +41,24 @@ func TestPhaseActivityConstants(t *testing.T) {
 		}
 	}
 }
+
+func TestInstanceCounter_LiveCount(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir + "/store.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// two live, one gone → count is 2 (global, ignoring project/role, as today)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutInstance(Instance{ActorID: "a", Phase: PhaseLive}))
+	must(st.PutInstance(Instance{ActorID: "b", Phase: PhaseRaising}))
+	must(st.PutInstance(Instance{ActorID: "c", Phase: PhaseGone}))
+
+	if got := (InstanceCounter{Store: st}).LiveCount("acme", "worker"); got != 2 {
+		t.Fatalf("LiveCount = %d, want 2", got)
+	}
+}

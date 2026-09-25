@@ -61,3 +61,20 @@ type Instance struct {
 	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
 }
+
+// InstanceCounter counts live instances in a Store — the slice-1 capacity signal
+// consumed by the Allocator. It counts globally (all non-Gone instances),
+// preserving the dispatcher's prior max-concurrent semantics; per-(project, role)
+// counting is a deliberate later change. Its method set structurally satisfies
+// allocator.Counter without importing that package.
+type InstanceCounter struct{ Store Store }
+
+func (c InstanceCounter) LiveCount(project, role string) int {
+	n := 0
+	for _, i := range c.Store.ListInstances() {
+		if i.Phase != PhaseGone {
+			n++
+		}
+	}
+	return n
+}
