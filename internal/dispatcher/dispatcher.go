@@ -38,6 +38,9 @@ type Tracker interface {
 // dispatcher no longer counts instances against a cap itself.
 type Admitter interface {
 	Admit(project, role string) bool
+	// RecordGrant durably records a granted reservation after a successful raise —
+	// a best-effort shadow write (slice 2); a failure is logged, never fatal.
+	RecordGrant(ctx context.Context, project, role, reservationID string) error
 }
 
 // Config is the dispatcher's behavior configuration.
@@ -135,6 +138,9 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			continue
 		}
 		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
+		if err := d.admitter.RecordGrant(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
+			d.log.Warn("dispatcher: record grant failed (shadow, non-fatal)", "actor", actorID, "err", err.Error())
+		}
 	}
 }
 

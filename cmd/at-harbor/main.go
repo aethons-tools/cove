@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/aethons-tools/cove/internal/allocator"
+	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
@@ -1202,7 +1203,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// configured (project, role) against a budget seeded from max-concurrent,
 		// counting live instances globally (behavior-preserving — see internal/allocator).
 		budget := allocator.StaticBudget{{Project: dc.Project, Role: dc.Role}: dc.MaxConcurrent}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget)
+		// Dual-write shadow (slice 2): with Postgres the Allocator records a grant
+		// per raise to the durable event store; the cap is still the registry count.
+		// With the file store there is no pool ⇒ recorder is nil ⇒ records nothing.
+		var rec allocator.Recorder
+		if pgPool != nil {
+			as, err := allocpg.New(context.Background(), pgPool, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor:", err)
+				return 1
+			}
+			rec = as
+		}
+		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, rec)
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: dc.Project, PollInterval: poll,
 		}, log)

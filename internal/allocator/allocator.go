@@ -5,6 +5,8 @@
 // slice, behind this same interface.
 package allocator
 
+import "context"
+
 // Key identifies a role within a project — the allocation aggregate's key.
 type Key struct{ Project, Role string }
 
@@ -30,14 +32,42 @@ func (b StaticBudget) For(project, role string) (int, bool) {
 	return limit, ok
 }
 
-// Allocator decides admission: may another session exist for (project, role)?
-type Allocator struct {
-	counter Counter
-	budget  Budget
+// Kind is an allocation event type.
+type Kind string
+
+// KindReservationGranted records that a session was granted for a (project, role).
+// Slice 2 records grants only; ReservationRequested/Denied/Withdrawn/Released are
+// defined-but-deferred (Released lands in Slice 3).
+const KindReservationGranted Kind = "reservation_granted"
+
+// Event is one allocation event. Category is the project (the grouping/shard
+// axis); the stream is keyed by (Project, Role). Revision/seq/timestamp are
+// assigned by the store on append.
+type Event struct {
+	Category      string
+	Project, Role string
+	Kind          Kind
+	ReservationID string
 }
 
-func New(counter Counter, budget Budget) *Allocator {
-	return &Allocator{counter: counter, budget: budget}
+// Recorder persists allocation events (the durable reservation ledger). Optional:
+// a nil Recorder (file-store dev, no Postgres) means the Allocator records nothing,
+// exactly as slice 1. Implemented by internal/allocator/allocpg.
+type Recorder interface {
+	Record(ctx context.Context, ev Event) error
+}
+
+// Allocator decides admission: may another session exist for (project, role)?
+type Allocator struct {
+	counter  Counter
+	budget   Budget
+	recorder Recorder
+}
+
+// New builds an Allocator. recorder may be nil: with no event store (file-store
+// dev) the Allocator records nothing, preserving slice-1 behavior.
+func New(counter Counter, budget Budget, recorder Recorder) *Allocator {
+	return &Allocator{counter: counter, budget: budget, recorder: recorder}
 }
 
 // Admit reports whether a new session may be created for (project, role): the live
@@ -48,4 +78,20 @@ func (a *Allocator) Admit(project, role string) bool {
 		return false
 	}
 	return a.counter.LiveCount(project, role) < limit
+}
+
+// RecordGrant durably records that a session was granted for (project, role) — a
+// best-effort shadow write (the cap is still the registry count in this slice). A
+// nil Recorder is a no-op.
+func (a *Allocator) RecordGrant(ctx context.Context, project, role, reservationID string) error {
+	if a.recorder == nil {
+		return nil
+	}
+	return a.recorder.Record(ctx, Event{
+		Category:      project,
+		Project:       project,
+		Role:          role,
+		Kind:          KindReservationGranted,
+		ReservationID: reservationID,
+	})
 }
