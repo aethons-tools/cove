@@ -2,9 +2,10 @@
 
 **Status:** design conversation captured; conceptual model agreed; **pre-plan**.
 A forward-looking role decomposition + supporting ontology and security model.
-One open question (projection consistency) remains before a plan can be written;
-stream topology and the assignable-kind question that were open earlier are now
-resolved (below).
+**No open design questions remain — the design is plan-ready.** Stream topology,
+projection consistency, and the assignable-kind question that were open earlier are
+all resolved (below); the only carry-forward is an implementation note (egress
+delivery at raise).
 **Motivation:** the orchestration responsibilities inside `at-harbor serve` are
 currently collapsed into two clusters with fuzzy edges, "security" is split across
 two layers, and the runtime nouns (Actor/Studio, plus the durable state that had no
@@ -293,6 +294,48 @@ exceeding host capacity — is config incoherence, not incorrectness: it surface
 **health signal** ("budgets over-subscribe capacity"), and the system stays correct
 (reservations wait).
 
+## Projection consistency (settled)
+
+"Projection consistency" splits into **two read classes** with different needs, and
+admission is *not* a lagging-projection problem.
+
+- **Admission = optimistic concurrency on a short aggregate.** To grant, the
+  Allocator folds the *(project, role)* aggregate to head → `{budget, outstanding,
+  revision R}`, checks `outstanding < budget`, and appends `ReservationGranted` with
+  `expected_version = R`. The **`UNIQUE(stream_id, stream_revision)` constraint is the
+  gate**: a grant can only land at `R+1`, so racing grants can't both take the slot —
+  the loser hits the uniqueness violation, reloads, re-checks, and retries or denies.
+  **Correctness is the constraint, not read-model freshness**, so projection lag can
+  never overshoot; the worst it does is cost a retry.
+- **The count is a snapshot committed in the append transaction.** A per-*(project,
+  role)* materialized `{outstanding, budget, revision}` row, updated alongside each
+  event, makes admission O(1) instead of re-folding history (which matters once a
+  role has processed thousands of reservations). A stale snapshot only costs an OCC
+  retry, never correctness. (A pessimistic `SELECT … FOR UPDATE` on that row is a
+  simpler alternative at cove rates; OCC is preferred — it is the version-pinned
+  append already chosen.)
+- **Acceptable lag: none on the count, bounded on the budget.** The count is strongly
+  consistent (OCC). The budget is the one eventually-consistent input — observed from
+  roster — the already-accepted lag: admitting against a just-lowered budget
+  self-corrects as the Allocator drains, because capacity tolerates it. Count strict,
+  budget tolerant, by design.
+- **Observational reads are the only classic eventual-consistency.** Dashboards,
+  cross-project rollups, the over-subscription health signal — fold streams in
+  `global_seq` order, checkpoint the last `global_seq` consumed, tolerate seconds of
+  lag. They never feed a write decision, so lag is harmless.
+- **Rebuild / versioning.** Tag each projection with `(fold-logic version, caught-up
+  revision-or-global_seq)`. On a fold-logic change or corruption, drop and replay —
+  cheap for short per-*(project, role)* streams (snapshots checkpoint the count);
+  observational projections replay from their `global_seq` checkpoint.
+- **Idempotency.** The Allocator's `ReservationReleased` (driven by an at-least-once
+  subscription to execution-stream terminals) and its grant handling dedupe by
+  `reservationId` against the folded state, so a redelivered `StudioGone`/`StudioLost`
+  is a no-op.
+
+Net: admission is OCC on a short aggregate (the primitive already chosen); the only
+true eventual-consistency is the accepted budget observation plus the observational
+read models, neither of which touches correctness.
+
 ## The domain ontology (three planes)
 
 The nouns aren't a single deep stack; they are **three orthogonal planes** that meet
@@ -455,15 +498,18 @@ Golden-age-of-computing style: plain, functional, no theme.
   bounce); structural over-subscription surfaces as a health signal.
 - **Session** is first-class; **Studio** is its (fungible) substrate; **Instance** is
   retired to a projection. Golden-age naming, no theme.
+- **Projection consistency:** admission is OCC on a short aggregate — `UNIQUE(stream_id,
+  stream_revision)` is the gate, so lag can't overshoot (worst case a retry). Count is
+  a snapshot committed in the append tx (strict); budget is the only tolerated lag
+  (observed). Observational reads are eventual, replayed/checkpointed by `global_seq`;
+  handlers are idempotent by `reservationId`.
 
-## Open questions (block a plan)
+## Open questions
 
-1. **Projection consistency details.** The exact expected-version/optimistic-
-   concurrency protocol for admission, projection rebuild/versioning, and acceptable
-   projection lag on the Allocator's admission hot path.
-
-Implementation implication to design when planning: the **egress-policy delivery at
-raise** hardening-layer change (preserving "sealed from inside").
+**None** — all resolved above (see *Settled during design*). One carry-forward is an
+*implementation* concern, not a design question: the **egress-policy delivery at
+raise** hardening-layer change (preserving "sealed from inside"), to be worked when
+the security slice is planned — not a blocker for the first slice.
 
 ## Non-goals / out of scope (for now)
 
