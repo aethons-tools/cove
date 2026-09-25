@@ -93,6 +93,23 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	return ErrConflictExhausted
 }
 
+// Outstanding returns the live reservation count for a (project, role) stream —
+// granted minus released. This is the ledger fold the cap will use once the
+// cutover (Slice 4) makes the store authoritative.
+func (s *Store) Outstanding(ctx context.Context, project, role string) (int, error) {
+	streamID := project + "/" + role
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT
+		   COUNT(*) FILTER (WHERE kind = $2) - COUNT(*) FILTER (WHERE kind = $3)
+		 FROM alloc_events WHERE stream_id = $1`,
+		streamID, string(allocator.KindReservationGranted), string(allocator.KindReservationReleased),
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("allocpg: outstanding: %w", err)
+	}
+	return n, nil
+}
+
 // isUniqueViolation reports whether err is a Postgres unique-constraint violation
 // (SQLSTATE 23505) — the OCC append's expected-revision collision.
 func isUniqueViolation(err error) bool {
