@@ -33,14 +33,17 @@ type Tracker interface {
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 }
 
-// Admitter decides whether another session may be raised for (project, role).
-// Satisfied by *allocator.Allocator. It is harbor's capacity authority: the
-// dispatcher no longer counts instances against a cap itself.
+// Admitter is harbor's capacity authority: the dispatcher no longer counts
+// instances against a cap itself. Satisfied by *allocator.Allocator.
 type Admitter interface {
-	Admit(project, role string) bool
-	// RecordGrant durably records a granted reservation after a successful raise —
-	// a best-effort shadow write (slice 2); a failure is logged, never fatal.
-	RecordGrant(ctx context.Context, project, role, reservationID string) error
+	// Grant atomically admits and reserves a slot for (project, role) — the OCC
+	// admission gate. It returns true when a slot was reserved (the caller must
+	// then compensate with RecordRelease on any later failure), false when at
+	// capacity, and an error on store trouble.
+	Grant(ctx context.Context, project, role, reservationID string) (bool, error)
+	// RecordRelease frees a slot Grant reserved (compensation for a post-grant
+	// failure); a failure is logged, never fatal.
+	RecordRelease(ctx context.Context, project, role, reservationID string) error
 }
 
 // Config is the dispatcher's behavior configuration.
@@ -101,7 +104,14 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// tick runs one poll pass: list ready → dedup → admit → claim → raise.
+// tick runs one poll pass: list ready → dedup → grant → claim → prompt → raise.
+// The grant reserves the slot atomically (OCC admission) before the raise, so
+// admission cannot overshoot the budget under concurrency; any failure after a
+// successful grant compensates by releasing the reserved slot.
+//
+// Known gap (Slice 5): a crash between a successful grant and the raise leaks the
+// reserved slot (no compensation runs). A reconcile sweep that releases granted
+// reservations with no live instance closes it; the cap stays ≤ budget meanwhile.
 func (d *Dispatcher) tick(ctx context.Context) {
 	issues, err := d.tracker.ListReady(ctx)
 	if err != nil {
@@ -116,18 +126,26 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		if _, ok := d.registry.GetInstance(actorID); ok {
 			continue // already raised (dedup)
 		}
-		if !d.admitter.Admit(d.cfg.Project, d.cfg.Role) {
+		granted, err := d.admitter.Grant(ctx, d.cfg.Project, d.cfg.Role, actorID)
+		if err != nil {
+			d.log.Warn("dispatcher: grant failed", "actor", actorID, "err", err.Error())
+			break // store trouble — back off this tick
+		}
+		if !granted {
 			d.log.Info("dispatcher: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
 			break // backpressure — wait for a slot next tick
 		}
+		// slot reserved — any failure from here must release it (compensation)
 		if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleInProgress); err != nil {
 			d.log.Warn("dispatcher: claim failed", "issue", iss.Identifier, "error", err.Error())
+			d.release(ctx, actorID)
 			continue
 		}
 		prompt, err := d.buildPrompt(ctx, iss)
 		if err != nil {
 			d.log.Warn("dispatcher: build prompt failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
+			d.release(ctx, actorID)
 			continue
 		}
 		if _, _, _, err := d.raiser.Raise(ctx, harbor.RaiseSpec{
@@ -135,12 +153,19 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		}); err != nil {
 			d.log.Warn("dispatcher: raise failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
+			d.release(ctx, actorID)
 			continue
 		}
 		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
-		if err := d.admitter.RecordGrant(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
-			d.log.Warn("dispatcher: record grant failed (shadow, non-fatal)", "actor", actorID, "err", err.Error())
-		}
+	}
+}
+
+// release compensates a reserved-but-not-raised slot (best-effort; the teardown
+// path releases normally-completed sessions). It is a no-op in file-store mode,
+// where Grant reserved nothing.
+func (d *Dispatcher) release(ctx context.Context, actorID string) {
+	if err := d.admitter.RecordRelease(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
+		d.log.Warn("dispatcher: compensating release failed", "actor", actorID, "err", err.Error())
 	}
 }
 

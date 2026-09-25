@@ -56,60 +56,58 @@ type Event struct {
 	ReservationID string
 }
 
-// Recorder persists allocation events (the durable reservation ledger). Optional:
-// a nil Recorder (file-store dev, no Postgres) means the Allocator records nothing,
-// exactly as slice 1. Implemented by internal/allocator/allocpg.
-type Recorder interface {
+// Ledger is the durable reservation ledger: it appends allocation events and, as
+// of Slice 4, is the authoritative OCC admission gate via Grant. Optional: a nil
+// Ledger (file-store dev, no Postgres) means the Allocator has no ledger, so Grant
+// falls back to the registry live count and RecordRelease is a no-op. Implemented
+// by internal/allocator/allocpg.
+type Ledger interface {
 	Record(ctx context.Context, ev Event) error
+	Grant(ctx context.Context, project, role, reservationID string, budget int) (bool, error)
 }
 
 // Allocator decides admission: may another session exist for (project, role)?
 type Allocator struct {
-	counter  Counter
-	budget   Budget
-	recorder Recorder
+	counter Counter
+	budget  Budget
+	ledger  Ledger
 }
 
-// New builds an Allocator. recorder may be nil: with no event store (file-store
-// dev) the Allocator records nothing, preserving slice-1 behavior.
-func New(counter Counter, budget Budget, recorder Recorder) *Allocator {
-	return &Allocator{counter: counter, budget: budget, recorder: recorder}
+// New builds an Allocator. ledger may be nil: with no event store (file-store dev)
+// Grant falls back to the registry live count and RecordRelease is a no-op.
+func New(counter Counter, budget Budget, ledger Ledger) *Allocator {
+	return &Allocator{counter: counter, budget: budget, ledger: ledger}
 }
 
-// Admit reports whether a new session may be created for (project, role): the live
-// count is strictly below the configured budget. Fail-closed when no budget.
-func (a *Allocator) Admit(project, role string) bool {
+// Grant admits (and reserves) a session for (project, role). With a ledger it is
+// the authoritative OCC admission — an atomic append that grants iff the stream's
+// Outstanding is below budget (per-(project, role) counting). Without one
+// (file-store dev) it falls back to the registry live count vs budget (Slice-1
+// global behavior). Fail-closed when no budget is configured.
+//
+// Grant reserves the slot before the raise; the caller must compensate (call
+// RecordRelease for the same reservationID) on any post-grant failure. In
+// file-store mode Grant reserves nothing and RecordRelease is a no-op, so
+// compensation is harmless there.
+func (a *Allocator) Grant(ctx context.Context, project, role, reservationID string) (bool, error) {
 	limit, ok := a.budget.For(project, role)
 	if !ok {
-		return false
+		return false, nil
 	}
-	return a.counter.LiveCount(project, role) < limit
-}
-
-// RecordGrant durably records that a session was granted for (project, role) — a
-// best-effort shadow write (the cap is still the registry count in this slice). A
-// nil Recorder is a no-op.
-func (a *Allocator) RecordGrant(ctx context.Context, project, role, reservationID string) error {
-	if a.recorder == nil {
-		return nil
+	if a.ledger != nil {
+		return a.ledger.Grant(ctx, project, role, reservationID, limit)
 	}
-	return a.recorder.Record(ctx, Event{
-		Category:      project,
-		Project:       project,
-		Role:          role,
-		Kind:          KindReservationGranted,
-		ReservationID: reservationID,
-	})
+	return a.counter.LiveCount(project, role) < limit, nil
 }
 
 // RecordRelease durably records that a session's reservation was released (its
-// Studio was torn down) for (project, role) — a best-effort shadow write (the cap
-// is still the registry count in this slice). A nil Recorder is a no-op.
+// Studio was torn down, or a post-grant failure compensated) for (project, role).
+// It frees the slot Grant reserved. A nil Ledger (file-store dev) is a no-op.
 func (a *Allocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
-	if a.recorder == nil {
+	if a.ledger == nil {
 		return nil
 	}
-	return a.recorder.Record(ctx, Event{
+	return a.ledger.Record(ctx, Event{
 		Category:      project,
 		Project:       project,
 		Role:          role,

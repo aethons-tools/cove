@@ -128,16 +128,23 @@ pool (tables auto-created; `intercom-log:` is ignored) — effectively always-on
 Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
 
-**The allocation event store follows the store backend too.** With
-`store-postgres`, the dispatcher's Allocator (harbor's capacity authority) also
-records durable events to an allocation event store on the same database and pool
-(its `alloc_events` table is auto-created): a `reservation_granted` per raise and
-a `reservation_released` per teardown, keyed on the same normalized
-`(project, role)` stream so its outstanding count (`granted − released`) tracks
-the live instance count. This is a **best-effort audited shadow**: the
-concurrency cap is still the live instance count, a record failure never blocks a
-raise or a teardown, and there is no store at all without `store-postgres` (file
-backend behaves exactly as before).
+**The allocation event store follows the store backend too, and with
+`store-postgres` it is now AUTHORITATIVE for the cap.** With `store-postgres`, the
+dispatcher's Allocator (harbor's capacity authority) admits each raise through an
+**atomic optimistic-concurrency grant** on an allocation event store on the same
+database and pool (its `alloc_events` table is auto-created): a single conditional
+append that writes a `reservation_granted` *iff* the stream's outstanding count
+(`granted − released`) is below budget, gated by `UNIQUE(stream_id,
+stream_revision)`. The grant happens **before** the raise (it reserves the slot,
+so admission cannot overshoot the budget under concurrency), and a
+`reservation_released` is written on teardown **and** as compensation if the
+claim/prompt/raise fails after a grant. The cap is therefore per-normalized-`(project,
+role)` `Outstanding`, not a global instance count. **Without `store-postgres`
+(file backend)** there is no ledger, so the Allocator falls back to the **registry
+live instance count vs budget** (the earlier global behavior) and releases are
+no-ops. Known gap: a crash *between* a grant and the raise leaks the reserved slot
+until a future reconcile sweep frees it — the cap stays ≤ budget, so it is an
+availability nuisance, not a correctness break.
 
 ### The launcher (`runtime.launcher`)
 

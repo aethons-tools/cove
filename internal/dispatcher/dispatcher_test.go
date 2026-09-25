@@ -59,25 +59,35 @@ func (f *fakeRegistry) GetInstance(actorID string) (harbor.Instance, bool) {
 }
 func (f *fakeRegistry) ListInstances() []harbor.Instance { return f.insts }
 
-// fakeAdmitter admits the first `allow` calls, then denies — standing in for the
-// Allocator so dispatcher tests exercise admission without a registry-derived cap.
-// It records the reservation IDs passed to RecordGrant so tests can assert the
-// dual-write shadow fires after a successful raise.
+// fakeAdmitter grants the first `allow` calls, then denies (or always grants when
+// `grant` is set) — standing in for the Allocator so dispatcher tests exercise
+// grant-before-raise admission without a registry-derived cap. It records the
+// reservation IDs it granted and the ones passed to RecordRelease so tests can
+// assert grant ordering and compensation on post-grant failure.
 type fakeAdmitter struct {
-	allow    int
+	allow    int  // grant the first `allow` Grant calls, then deny
+	grant    bool // when true, always grant (ignores allow)
 	calls    int
 	granted  []string
+	released []string
 	grantErr error
 }
 
-func (f *fakeAdmitter) Admit(project, role string) bool {
+func (f *fakeAdmitter) Grant(_ context.Context, project, role, reservationID string) (bool, error) {
 	f.calls++
-	return f.calls <= f.allow
+	if f.grantErr != nil {
+		return false, f.grantErr
+	}
+	ok := f.grant || f.calls <= f.allow
+	if ok {
+		f.granted = append(f.granted, reservationID)
+	}
+	return ok, nil
 }
 
-func (f *fakeAdmitter) RecordGrant(_ context.Context, project, role, reservationID string) error {
-	f.granted = append(f.granted, reservationID)
-	return f.grantErr
+func (f *fakeAdmitter) RecordRelease(_ context.Context, project, role, reservationID string) error {
+	f.released = append(f.released, reservationID)
+	return nil
 }
 
 func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, allow int) *Dispatcher {
@@ -158,25 +168,80 @@ func TestTick_RaisesWhileAdmitted_DefersWhenNot(t *testing.T) {
 	}
 }
 
-func TestTick_RecordsGrantAfterSuccessfulRaise(t *testing.T) {
+func TestTick_GrantBeforeRaise_SuccessNoRelease(t *testing.T) {
 	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
 	rz := &fakeRaiser{}
-	adm := &fakeAdmitter{allow: 1}
+	adm := &fakeAdmitter{grant: true}
 	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
 	d.tick(context.Background())
 	if len(adm.granted) != 1 || adm.granted[0] != "cove-AET-1" {
-		t.Fatalf("RecordGrant calls = %v, want [cove-AET-1]", adm.granted)
+		t.Fatalf("Grant calls = %v, want [cove-AET-1]", adm.granted)
+	}
+	if len(adm.released) != 0 {
+		t.Fatalf("successful raise must not compensate, got releases %v", adm.released)
+	}
+	if len(rz.specs) != 1 {
+		t.Fatalf("want 1 raise after grant, got %d", len(rz.specs))
 	}
 }
 
-func TestTick_RaiseFailure_RecordsNoGrant(t *testing.T) {
+func TestTick_OverBudget_BreaksNoClaimNoRaise(t *testing.T) {
 	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
-	rz := &fakeRaiser{err: errors.New("launch boom")}
-	adm := &fakeAdmitter{allow: 1}
+	rz := &fakeRaiser{}
+	adm := &fakeAdmitter{allow: 0} // Grant denies immediately
 	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
 	d.tick(context.Background())
-	if len(adm.granted) != 0 {
-		t.Fatalf("raise failure must record no grant, got %v", adm.granted)
+	if len(tr.transitions) != 0 || len(rz.specs) != 0 {
+		t.Fatalf("over-budget must not claim or raise: transitions=%v raises=%v", tr.transitions, rz.specs)
+	}
+	if len(adm.released) != 0 {
+		t.Fatalf("no grant happened, nothing to compensate, got %v", adm.released)
+	}
+}
+
+func TestTick_GrantError_BreaksNoCompensation(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
+	rz := &fakeRaiser{}
+	adm := &fakeAdmitter{grantErr: errors.New("store boom")}
+	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
+	d.tick(context.Background())
+	if len(tr.transitions) != 0 || len(rz.specs) != 0 {
+		t.Fatalf("grant error must back off before claim/raise: transitions=%v raises=%v", tr.transitions, rz.specs)
+	}
+	if len(adm.released) != 0 {
+		t.Fatalf("no successful grant, nothing to compensate, got %v", adm.released)
+	}
+}
+
+func TestTick_RaiseFailure_CompensatesRelease(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}}}
+	rz := &fakeRaiser{err: errors.New("launch boom")}
+	adm := &fakeAdmitter{grant: true}
+	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
+	d.tick(context.Background())
+	if len(adm.released) != 1 || adm.released[0] != "cove-AET-1" {
+		t.Fatalf("expected compensation release for cove-AET-1, got %v", adm.released)
+	}
+	// ticket moves to needs-input on raise failure
+	if len(tr.transitions) != 2 || tr.transitions[1].role != scheduler.RoleNeedsInput {
+		t.Fatalf("want [InProgress, NeedsInput], got %+v", tr.transitions)
+	}
+}
+
+func TestTick_ClaimFailure_CompensatesRelease(t *testing.T) {
+	tr := &fakeTracker{
+		ready:         []scheduler.Issue{{ID: "1", Identifier: "AET-1", DispatchLabeled: true}},
+		transitionErr: errors.New("claim boom"),
+	}
+	rz := &fakeRaiser{}
+	adm := &fakeAdmitter{grant: true}
+	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
+	d.tick(context.Background())
+	if len(rz.specs) != 0 {
+		t.Fatalf("claim failure must skip raise, got %d raises", len(rz.specs))
+	}
+	if len(adm.released) != 1 || adm.released[0] != "cove-AET-1" {
+		t.Fatalf("expected compensation release for cove-AET-1, got %v", adm.released)
 	}
 }
 

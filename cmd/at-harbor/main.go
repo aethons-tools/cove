@@ -1200,34 +1200,37 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
 		// The Allocator is harbor's capacity authority: it admits raises for the
-		// configured (project, role) against a budget seeded from max-concurrent,
-		// counting live instances globally (behavior-preserving — see internal/allocator).
+		// configured (project, role) against a budget seeded from max-concurrent. With
+		// Postgres the cap is the authoritative ledger (per-(project, role) Outstanding);
+		// with the file store it is the global registry count (see internal/allocator).
 		// Normalize the project once so grants and releases land on the same
-		// (project, role) stream: grants use this value (via Config.Project →
-		// RecordGrant), and the Supervisor stores inst.Project =
-		// orDefaultProject(spec.Project) = harbor.DefaultProject when empty, which is
-		// what RecordRelease keys off on teardown. Leaving it as dc.Project ("")
-		// would split them across "/role" and "default/role" — they'd never reconcile.
+		// (project, role) stream: grants use this value (via Config.Project → Grant),
+		// and the Supervisor stores inst.Project = orDefaultProject(spec.Project) =
+		// harbor.DefaultProject when empty, which is what RecordRelease keys off on
+		// teardown. Leaving it as dc.Project ("") would split them across "/role" and
+		// "default/role" — they'd never reconcile.
 		project := dc.Project
 		if project == "" {
 			project = harbor.DefaultProject
 		}
 		budget := allocator.StaticBudget{{Project: project, Role: dc.Role}: dc.MaxConcurrent}
-		// Dual-write shadow (slices 2–3): with Postgres the Allocator records a grant
-		// per raise and a release per teardown to the durable event store; the cap is
-		// still the registry count. With the file store there is no pool ⇒ recorder is
-		// nil ⇒ records nothing (and SetReleaser(alloc) is a harmless no-op).
-		var rec allocator.Recorder
+		// Ledger cutover (slice 4): with Postgres the allocation event store is the
+		// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-budget)
+		// scoped per-(project, role) Outstanding, and teardown/compensation release the
+		// slot. With the file store there is no pool ⇒ ledger is nil ⇒ Grant falls back
+		// to the registry live count (global, slice-1 behavior) and RecordRelease is a
+		// no-op (SetReleaser(alloc) stays a harmless no-op).
+		var ledger allocator.Ledger
 		if pgPool != nil {
 			as, err := allocpg.New(context.Background(), pgPool, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-harbor:", err)
 				return 1
 			}
-			rec = as
+			ledger = as
 		}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, rec)
-		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (shadow)
+		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, ledger)
+		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
