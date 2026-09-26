@@ -142,9 +142,16 @@ claim/prompt/raise fails after a grant. The cap is therefore per-normalized-`(pr
 role)` `Outstanding`, not a global instance count. **Without `store-postgres`
 (file backend)** there is no ledger, so the Allocator falls back to the **registry
 live instance count vs budget** (the earlier global behavior) and releases are
-no-ops. Known gap: a crash *between* a grant and the raise leaks the reserved slot
-until a future reconcile sweep frees it — the cap stays ≤ budget, so it is an
-availability nuisance, not a correctness break.
+no-ops. A crash *between* a grant and the raise leaves a dangling
+`reservation_granted` (a leaked slot); with Postgres a resident **reconcile sweep**
+reclaims it, so the ledger self-heals. Every minute the Allocator releases each
+outstanding reservation (net `granted − released > 0`) whose latest grant is older
+than a ~5-minute grace window **and** whose actor has no live instance — the grace
+window keeps an in-flight raise (instance not yet in the registry) from being
+swept. The sweep is best-effort (a per-reservation release failure is logged and
+retried on the next tick) and Postgres-only (no ledger ⇒ no sweep). The cap stays
+≤ budget throughout, so an unreclaimed slot is only a transient availability
+nuisance, not a correctness break.
 
 ### The launcher (`runtime.launcher`)
 

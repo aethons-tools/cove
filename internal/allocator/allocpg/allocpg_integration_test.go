@@ -185,9 +185,9 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 	g("a")
 	g("b")
 	g("c")
-	rel("b")   // a,c outstanding; b released
-	rel("c")   // c released ...
-	g("c")     // ... then re-granted ⇒ outstanding again (net 1)
+	rel("b")                                                               // a,c outstanding; b released
+	rel("c")                                                               // c released ...
+	g("c")                                                                 // ... then re-granted ⇒ outstanding again (net 1)
 	got, err := st.OutstandingReservations(ctx, time.Now().Add(time.Hour)) // future cutoff ⇒ all ages qualify
 	if err != nil {
 		t.Fatal(err)
