@@ -8,7 +8,7 @@
 # so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
-FROM ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
 LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
@@ -22,12 +22,12 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       openssh-server=1:9.6p1-3ubuntu13.19 \
       ca-certificates=20260601~24.04.1 \
-      curl=8.5.0-2ubuntu10.13 \
+      curl=8.5.0-2ubuntu10.15 \
       git=1:2.43.0-1ubuntu7.3 \
       gh=2.45.0-1ubuntu0.3 \
       nftables=1.0.9-1ubuntu0.1 \
       squid=6.14-0ubuntu0.24.04.4 \
-      sudo=1.9.15p5-3ubuntu5.24.04.2 \
+      sudo=1.9.15p5-3ubuntu5.24.04.3 \
       systemd=255.4-1ubuntu8.17 \
       systemd-sysv=255.4-1ubuntu8.17 \
       jq=1.7.1-3ubuntu0.24.04.2 \
