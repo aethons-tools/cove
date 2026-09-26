@@ -2,11 +2,15 @@ package main
 
 import (
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 
 	"google.golang.org/grpc"
+
+	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // serveMux serves both the broker (HTTP/1.1 and HTTP/2) and the Attach gRPC
@@ -43,4 +47,28 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 			broker.ServeHTTP(w, r)
 		}
 	})
+}
+
+// coveHTTPHandler builds the cove-facing HTTP handler: the broker, plus the
+// intercom endpoints (/squawks and its subpaths) and /escalate whenever harbor
+// has an intercom log (with or without a dispatcher — a personal session needs
+// the intercom too) or a dispatcher (whose coves have always had /escalate; with
+// no log their sends fail with a clean 503). With neither, the broker alone.
+func coveHTTPHandler(broker http.Handler, st harbor.Store, sup *harbor.Supervisor, lg intercom.Store, dispatcher bool, log *slog.Logger) http.Handler {
+	if lg == nil && !dispatcher {
+		return broker
+	}
+	// Pass lg as both the reader and the appender only when it's genuinely
+	// non-nil: it is an intercom.Store interface value holding a real backend or
+	// a true nil interface, so this is a plain nil check (no typed-nil hazard).
+	var squawksH *harbor.SquawksHandler
+	if lg != nil {
+		squawksH = harbor.NewSquawksHandler(st, lg, lg, log)
+	} else {
+		squawksH = harbor.NewSquawksHandler(st, nil, nil, log)
+	}
+	escH := harbor.NewEscalateHandler(st, sup, log)
+	log.Info("harbor messages: mounted", "path", "/squawks")
+	log.Info("harbor escalate: mounted", "path", "/escalate")
+	return squawksMux(squawksH, escH, broker)
 }

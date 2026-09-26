@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
 
@@ -506,5 +507,73 @@ func TestValidateDiscord(t *testing.T) {
 	var empty serveConfig // Discord unset → no-op
 	if err := empty.validateDiscord(); err != nil {
 		t.Fatalf("unset discord must be a no-op: %v", err)
+	}
+}
+
+// runtime.wake parses, and is a known runtime key; an unknown runtime sub-key
+// is reported (dotted) so a typo'd block doesn't vanish silently.
+func TestRuntimeWakeParsedAndKnown(t *testing.T) {
+	c, err := parseServeConfig([]byte("runtime:\n  wake:\n    poll-interval: 5s\n    wait-max: 2h\n    warm-timeout: 90s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := c.Runtime.Wake; w == nil || w.PollInterval != "5s" || w.WaitMax != "2h" || w.WarmTimeout != "90s" {
+		t.Fatalf("runtime.wake = %+v", c.Runtime.Wake)
+	}
+	if got := unknownServeKeys([]byte("runtime:\n  wake:\n    wait-max: 2h\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v, want none", got)
+	}
+	if got := unknownServeKeys([]byte("runtime:\n  wak:\n    wait-max: 2h\n")); len(got) != 1 || got[0] != "runtime.wak" {
+		t.Fatalf("unknown keys = %v, want [runtime.wak]", got)
+	}
+}
+
+// Each wake-on setting resolves runtime.wake > runtime.dispatcher > the engine
+// default (zero), independently per field.
+func TestWakeSettingsPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want wakeon.Config
+	}{
+		{"defaults", "runtime: {}\n", wakeon.Config{}},
+		{"dispatcher fallback", "runtime:\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
+			wakeon.Config{PollInterval: 15 * time.Second, MaxWait: 24 * time.Hour, WarmTimeout: 5 * time.Minute}},
+		{"wake wins", "runtime:\n  wake:\n    poll-interval: 5s\n    wait-max: 2h\n    warm-timeout: 90s\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
+			wakeon.Config{PollInterval: 5 * time.Second, MaxWait: 2 * time.Hour, WarmTimeout: 90 * time.Second}},
+		{"per field", "runtime:\n  wake:\n    wait-max: 2h\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n",
+			wakeon.Config{PollInterval: 15 * time.Second, MaxWait: 2 * time.Hour}},
+		{"wake only", "runtime:\n  wake:\n    warm-timeout: 90s\n", wakeon.Config{WarmTimeout: 90 * time.Second}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := parseServeConfig([]byte(tc.yaml))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := c.wakeSettings(); got != tc.want {
+				t.Fatalf("wakeSettings = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// An invalid runtime.wake duration is a config error (the dispatcher's legacy
+// fields stay lenient: invalid ⇒ engine default).
+func TestValidateWake(t *testing.T) {
+	if err := (serveConfig{}).validateWake(); err != nil {
+		t.Fatalf("unset runtime.wake: %v", err)
+	}
+	for _, y := range []string{"poll-interval: soon", "wait-max: x", "warm-timeout: 1parsec"} {
+		c, err := parseServeConfig([]byte("runtime:\n  wake:\n    " + y + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.validateWake(); err == nil {
+			t.Fatalf("%s: want a validation error", y)
+		}
+	}
+	c, _ := parseServeConfig([]byte("runtime:\n  wake:\n    wait-max: 2h\n"))
+	if err := c.validateWake(); err != nil {
+		t.Fatalf("valid runtime.wake: %v", err)
 	}
 }

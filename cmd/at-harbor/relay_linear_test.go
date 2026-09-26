@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -164,6 +166,15 @@ func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
 func (f *fakeStore) GetProject(name string) (harbor.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
+}
+
+// ListProjects returns the seeded project names (Directory.Projects("discord")).
+func (f *fakeStore) ListProjects() []string {
+	out := make([]string, 0, len(f.projects))
+	for n := range f.projects {
+		out = append(out, n)
+	}
+	return out
 }
 
 // newRosterStore builds a fakeStore with a single Instance and the project's
@@ -553,5 +564,33 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 	got3 := m.Egress("x")
 	if !got3.Pending["m1"]["t1"] {
 		t.Fatalf("store mutated via caller's map after SetEgress: got3 = %+v", got3)
+	}
+}
+
+// Discord ingress covers every project whose chat service is discord (not just
+// a dispatcher's project), plus the dispatcher's project for back-compat;
+// Linear keeps its single dispatcher project.
+func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
+	st := newTestStore(t)
+	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": "", "delta": "slack"} {
+		if err := st.SetChatService(p, svc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sorted := func(ss []string) []string { out := append([]string(nil), ss...); sort.Strings(out); return out }
+
+	noDispatcher := &directory{store: st}
+	if got := sorted(noDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta"}) {
+		t.Fatalf("discord projects (no dispatcher) = %v, want [acme beta]", got)
+	}
+	withDispatcher := &directory{store: st, project: "gamma"}
+	if got := sorted(withDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta", "gamma"}) {
+		t.Fatalf("discord projects (dispatcher on gamma) = %v, want [acme beta gamma]", got)
+	}
+	if got := (&directory{store: st, project: "acme"}).Projects("discord"); len(got) != 2 {
+		t.Fatalf("dispatcher project already discord must not repeat: %v", got)
+	}
+	if got := withDispatcher.Projects("linear"); !reflect.DeepEqual(got, []string{"gamma"}) {
+		t.Fatalf("linear projects = %v, want [gamma]", got)
 	}
 }

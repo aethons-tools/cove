@@ -1158,6 +1158,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
+	if err := cfg.validateWake(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	specs := cfg.credSpecs()
 
@@ -1313,12 +1317,73 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
 	}
 
-	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
-	// It defaults to the broker alone; when a tracker is configured it gains a
-	// /squawks route sharing the same *linear.Client as the resident
-	// dispatcher (built once, used for both).
-	var httpHandler http.Handler = broker
-	if dc := cfg.Runtime.Dispatcher; dc != nil {
+	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
+	// the Discord relay — runs whenever harbor has an intercom log, dispatcher or
+	// not: a personal session converses with its owner over it. The tracker, the
+	// dispatcher, the escalation engine and the Linear relay need the tracker, so
+	// they stay in the dispatcher block below.
+	dc := cfg.Runtime.Dispatcher
+
+	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below:
+	// the broker, plus /squawks and /escalate with an intercom log or a dispatcher.
+	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, log)
+
+	// Wake-on engine: watches Waiting instances and Wakes them over the live
+	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
+	// in the message Log addressed to them, pauses them past the warm-timeout,
+	// and tears down non-personal ones past wait-max. Resident for the lifetime
+	// of the process. Settings: runtime.wake > runtime.dispatcher > defaults.
+	if intercomLog != nil || dc != nil {
+		// Pass intercomLog as the Inbox only when it's genuinely non-nil (a plain
+		// nil check — no typed-nil hazard).
+		var inbox wakeon.Inbox
+		if intercomLog != nil {
+			inbox = intercomLog
+		} else {
+			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
+		}
+		wcfg := cfg.wakeSettings()
+		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)
+		go eng.Run(context.Background())
+		log.Info("harbor wake-on engine: resident", "wait-max", wcfg.MaxWait)
+	}
+
+	// Relay state shared by the Linear and Discord relay engines (one cursors
+	// file, one markers file, one directory). Every directory field is set
+	// before any engine starts.
+	var (
+		relayCursors *fileCursors
+		relayMarkers *fileMarkers
+		discordTok   string
+	)
+	dir := &directory{store: st}
+	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
+	if intercomLog != nil && (dc != nil || runDiscord) {
+		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
+			return 1
+		}
+		if relayMarkers, err = newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
+			return 1
+		}
+	}
+	var discordReceipts *fileReceipts
+	if runDiscord {
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{cfg.Runtime.Discord.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
+			return 1
+		}
+		discordTok = tokEnv["AT_DISCORD_BOT_TOKEN"]
+		if discordReceipts, err = newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
+			return 1
+		}
+		dir.receipts = discordReceipts // wires directory.routeDiscord (COV-183): reply→cove lookup
+	}
+
+	if dc != nil {
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
@@ -1347,44 +1412,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Pass intercomLog as both the reader and the appender only when it's
-		// genuinely non-nil: it is an intercom.Store interface value assigned only
-		// to a real backend (see intercomLog above) or left as a true nil
-		// interface, so this guard is a plain nil check. Unconfigured → nil
-		// reader+appender → GET/POST return a clean 503.
-		var squawksH *harbor.SquawksHandler
-		if intercomLog != nil {
-			squawksH = harbor.NewSquawksHandler(st, intercomLog, intercomLog, log)
-		} else {
-			squawksH = harbor.NewSquawksHandler(st, nil, nil, log)
-		}
-		escH := harbor.NewEscalateHandler(st, sup, log)
-		httpHandler = squawksMux(squawksH, escH, broker)
-		log.Info("harbor messages: mounted", "path", "/squawks")
-		log.Info("harbor escalate: mounted", "path", "/escalate")
-
-		// Wake-on engine: watches Waiting instances and Wakes them over the
-		// live Attach stream (rsrv, the ControlSink) when an external-origin
-		// reply lands in the message Log addressed to them, or tears down
-		// past max-wait. Resident for the lifetime of the process.
-		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
-		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
-		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		// Pass intercomLog as the Inbox only when it's genuinely non-nil (same
-		// plain nil check as the squawksH wiring above — no typed-nil hazard).
-		var inbox wakeon.Inbox
-		if intercomLog != nil {
-			inbox = intercomLog
-		} else {
-			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
-		}
-		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
-		go eng.Run(context.Background())
-		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
-
-		// Escalation engine: while a managed cove is Waiting, pings ordered
-		// human tiers of its Project escalation policy on per-tier timers by
-		// @-mentioning them on the cove's own ticket. Reply-detection, waking,
+		// Escalation engine: while a managed cove is Waiting on a ticket, pings
+		// ordered human tiers of its Project escalation policy on per-tier timers
+		// by @-mentioning them on the cove's own ticket. Reply-detection, waking,
 		// and max-wait teardown stay wake-on's job (above); the two engines
 		// share only the Instance.Activity==Waiting gate. Resident for the
 		// lifetime of the process.
@@ -1395,29 +1425,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 		// relay linear engine: polls the team-scoped comments feed and
 		// appends inbound human replies to the intercomLog opened above
-		// (ingress), and now also delivers outbound Log messages to Linear
-		// (egress, COV-176 Task 4) — the old count-based wake-on/escalation
-		// above are untouched; this makes the Log the single source of truth
-		// for both directions. Nil-guarded on intercomLog: without a
-		// configured intercom-log there is nothing to ingest into or deliver
-		// from, so no engine runs.
+		// (ingress), and delivers outbound Log messages to Linear (egress,
+		// COV-176 Task 4) — the Log is the single source of truth for both
+		// directions. Nil-guarded on intercomLog: without a configured
+		// intercom-log there is nothing to ingest into or deliver from, so no
+		// engine runs.
 		if intercomLog != nil {
 			self, err := tracker.Viewer(context.Background())
 			if err != nil {
 				log.Warn("harbor relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
+			dir.project = firstNonEmpty(dc.Project, harbor.DefaultProject)
+			dir.selfIdentity = self
 			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
-			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
-			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json"))
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
-				return 1
-			}
-			markers, err := newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json"))
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
-				return 1
-			}
 			// Seed once: skip everything the 1a dual-write already delivered live,
 			// so turning egress on never re-posts the Log's shadow history.
 			// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
@@ -1426,56 +1446,43 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// is zero, which covers a pre-COV-184 marker file (persisted the
 			// low-water as LastMsg, a string) upgrading in place — see
 			// fileMarkers.needsSeed.
-			if markers.needsSeed("linear") {
-				if err := markers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if relayMarkers.needsSeed("linear") {
+				if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
 					fmt.Fprintln(stderr, "at-harbor: relay egress seed:", err)
 					return 1
 				}
 			}
-			eng := relay.New(surf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
+			eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 			go eng.Run(context.Background())
 			log.Info("harbor relay (linear): resident, egress ON", "self", self != "")
+		}
+	}
 
-			// relay discord engine: a second resident engine over the same Log,
-			// markers file, cursors, and directory — delivers outbound Log messages
-			// to Discord (egress) AND polls each project's discord inbox channels
-			// for human replies, routing a reply back to the cove it answers via
-			// the receipt store (ingress). The engine keys EgressMark by Service(),
-			// so "linear" and "discord" marks live side by side in the one markers
-			// file. Gated on runtime.discord; unset → no Discord engine, unchanged
-			// from before this block existed.
-			if dcfg := cfg.Runtime.Discord; dcfg != nil {
-				tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dcfg.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
-				if err != nil {
-					fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
-					return 1
-				}
-				discordTok := tokEnv["AT_DISCORD_BOT_TOKEN"]
-				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json"))
-				if err != nil {
-					fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
-					return 1
-				}
-				dir.receipts = receipts // wires directory.routeDiscord (COV-183): reply→cove lookup
-				dsurf := &discordSurface{
-					dial: func(channels []string) discordClient {
-						return switchboard.NewRESTClient(discordTok, channels)
-					},
-					channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
-					receipts:    receipts,
-					log:         log,
-				}
-				if markers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-					if err := markers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
-						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
-						return 1
-					}
-				}
-				deng := relay.New(dsurf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
-				go deng.Run(context.Background())
-				log.Info("harbor relay (discord): resident, egress ON")
+	// relay discord engine: a resident engine over the same Log, markers file,
+	// cursors, and directory as the Linear one — delivers outbound Log messages
+	// to Discord (egress) AND polls every discord project's inbox channels for
+	// human replies, routing a reply back to the cove it answers via the receipt
+	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
+	// "discord" marks live side by side in the one markers file. Gated on an
+	// intercom log and runtime.discord; no dispatcher needed.
+	if runDiscord {
+		dsurf := &discordSurface{
+			dial: func(channels []string) discordClient {
+				return switchboard.NewRESTClient(discordTok, channels)
+			},
+			channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
+			receipts:    discordReceipts,
+			log:         log,
+		}
+		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
+			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+				fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
+				return 1
 			}
 		}
+		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		go deng.Run(context.Background())
+		log.Info("harbor relay (discord): resident, egress ON")
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
