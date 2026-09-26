@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -158,6 +159,40 @@ func (s *Store) Outstanding(ctx context.Context, project, role string) (int, err
 		return 0, fmt.Errorf("allocpg: outstanding: %w", err)
 	}
 	return n, nil
+}
+
+// OutstandingReservations returns the reservations still holding a slot — net
+// granted−released > 0 per reservation — whose most recent grant is older than
+// olderThan (the reconcile sweep's grace window, so an in-flight raise is not
+// swept). Reservation ids recur across dispatch cycles, so this is a net count,
+// not a "has no released row" test: a reservation released then re-granted is
+// outstanding again. Category is the project and stream_id is "project/role", so
+// the role is stream_id with the "category/" prefix trimmed.
+func (s *Store) OutstandingReservations(ctx context.Context, olderThan time.Time) ([]allocator.Reservation, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT category, stream_id, reservation_id
+		 FROM alloc_events
+		 GROUP BY category, stream_id, reservation_id
+		 HAVING COUNT(*) FILTER (WHERE kind = $1) > COUNT(*) FILTER (WHERE kind = $2)
+		    AND MAX(at) FILTER (WHERE kind = $1) < $3`,
+		string(allocator.KindReservationGranted), string(allocator.KindReservationReleased), olderThan)
+	if err != nil {
+		return nil, fmt.Errorf("allocpg: outstanding reservations: %w", err)
+	}
+	defer rows.Close()
+	var out []allocator.Reservation
+	for rows.Next() {
+		var category, streamID, resID string
+		if err := rows.Scan(&category, &streamID, &resID); err != nil {
+			return nil, err
+		}
+		out = append(out, allocator.Reservation{
+			Project:       category,
+			Role:          strings.TrimPrefix(streamID, category+"/"),
+			ReservationID: resID,
+		})
+	}
+	return out, rows.Err()
 }
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint violation

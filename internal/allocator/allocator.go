@@ -56,6 +56,14 @@ type Event struct {
 	ReservationID string
 }
 
+// Reservation identifies an outstanding reservation — one still holding a slot
+// (net granted − released > 0). The reconcile Sweep (Slice 5) folds the ledger to
+// these and releases the ones whose actor has no live instance.
+type Reservation struct {
+	Project, Role string
+	ReservationID string
+}
+
 // Ledger is the durable reservation ledger: it appends allocation events and, as
 // of Slice 4, is the authoritative OCC admission gate via Grant. Optional: a nil
 // Ledger (file-store dev, no Postgres) means the Allocator has no ledger, so Grant
