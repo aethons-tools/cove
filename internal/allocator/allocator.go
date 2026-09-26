@@ -5,7 +5,12 @@
 // slice, behind this same interface.
 package allocator
 
-import "context"
+import (
+	"context"
+	"io"
+	"log/slog"
+	"time"
+)
 
 // Key identifies a role within a project — the allocation aggregate's key.
 type Key struct{ Project, Role string }
@@ -75,6 +80,10 @@ type Reservation struct {
 type Ledger interface {
 	Record(ctx context.Context, ev Event) error
 	Grant(ctx context.Context, project, role, reservationID string, budget int) (bool, error)
+	// OutstandingReservations returns the net-outstanding reservations (granted −
+	// released > 0) whose latest grant predates olderThan — the reconcile sweep's
+	// grace-windowed candidate set.
+	OutstandingReservations(ctx context.Context, olderThan time.Time) ([]Reservation, error)
 }
 
 // Allocator decides admission: may another session exist for (project, role)?
@@ -82,12 +91,22 @@ type Allocator struct {
 	counter Counter
 	budget  Budget
 	ledger  Ledger
+	now     func() time.Time // injectable clock for the sweep cutoff; defaults to time.Now
+	log     *slog.Logger
 }
 
 // New builds an Allocator. ledger may be nil: with no event store (file-store dev)
-// Grant falls back to the registry live count and RecordRelease is a no-op.
+// Grant falls back to the registry live count and RecordRelease is a no-op. The
+// sweep clock defaults to time.Now and the logger to a discard logger (the wiring
+// in cmd/at-harbor can override either after construction).
 func New(counter Counter, budget Budget, ledger Ledger) *Allocator {
-	return &Allocator{counter: counter, budget: budget, ledger: ledger}
+	return &Allocator{
+		counter: counter,
+		budget:  budget,
+		ledger:  ledger,
+		now:     time.Now,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
 }
 
 // Grant admits (and reserves) a session for (project, role). With a ledger it is
@@ -109,6 +128,63 @@ func (a *Allocator) Grant(ctx context.Context, project, role, reservationID stri
 		return a.ledger.Grant(ctx, project, role, reservationID, limit)
 	}
 	return a.counter.LiveCount(project, role) < limit, nil
+}
+
+// SetLogger routes the reconcile sweep's diagnostics to log (nil is ignored). The
+// sweep is otherwise silent (New defaults to a discard logger); cmd/at-harbor
+// calls this so a resident SweepLoop's Info/Warn records reach the sink.
+func (a *Allocator) SetLogger(log *slog.Logger) {
+	if log != nil {
+		a.log = log
+	}
+}
+
+// Sweep reclaims leaked slots: it releases outstanding reservations (whose latest
+// grant is older than grace) whose actor has no live instance — the
+// crash-between-grant-and-raise gap Slice 4 left open. No ledger (file-store dev)
+// ⇒ nothing to sweep. Best-effort and idempotent: a per-reservation release
+// failure is logged and skipped (the next tick retries), and releasing an
+// already-live or already-released reservation is harmless (the net-count query
+// excludes it next pass). Returns the number swept.
+func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error) {
+	if a.ledger == nil {
+		return 0, nil
+	}
+	outstanding, err := a.ledger.OutstandingReservations(ctx, a.now().Add(-grace))
+	if err != nil {
+		return 0, err
+	}
+	swept := 0
+	for _, r := range outstanding {
+		if a.counter.IsLive(r.ReservationID) {
+			continue // a real session — leave it
+		}
+		if err := a.RecordRelease(ctx, r.Project, r.Role, r.ReservationID); err != nil {
+			a.log.Warn("allocator: sweep release failed", "reservation", r.ReservationID, "err", err.Error())
+			continue
+		}
+		swept++
+	}
+	return swept, nil
+}
+
+// SweepLoop runs Sweep every interval until ctx is cancelled — harbor's resident
+// reconcile loop, like Dispatcher.Run. Errors and non-zero sweeps are logged.
+func (a *Allocator) SweepLoop(ctx context.Context, interval, grace time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if n, err := a.Sweep(ctx, grace); err != nil {
+				a.log.Warn("allocator: sweep failed", "err", err.Error())
+			} else if n > 0 {
+				a.log.Info("allocator: swept leaked reservations", "count", n)
+			}
+		}
+	}
 }
 
 // RecordRelease durably records that a session's reservation was released (its
