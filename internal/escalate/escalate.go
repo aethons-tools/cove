@@ -72,6 +72,9 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity != harbor.ActivityWaiting {
 			continue
 		}
+		if inst.Unit == "" {
+			continue // no ticket to escalate on (a personal session waits on its owner)
+		}
 		proj, ok := e.proj.GetProject(inst.Project)
 		if !ok {
 			continue

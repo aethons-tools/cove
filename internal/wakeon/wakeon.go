@@ -1,7 +1,7 @@
 // Package wakeon is harbor's resident wake-on engine: it watches Waiting managed
 // coves and wakes them (over the Attach ControlSink) when an external-origin
 // reply lands in the message Log addressed to them, or tears them down past a
-// max-wait. Wired from cmd/at-harbor; not imported by internal/harbor core.
+// max-wait (personal sessions excepted — they wait on their owner). Wired from cmd/at-harbor; not imported by internal/harbor core.
 package wakeon
 
 import (
@@ -88,7 +88,11 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity != harbor.ActivityWaiting {
 			continue
 		}
-		if !inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
+		// A personal session waits on its owner for as long as it takes: it is
+		// never reaped for waiting (it is still idled and woken below). Its
+		// lifetime ends when the owner releases it.
+		if inst.SessionKind != harbor.SessionKindPersonal &&
+			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
 			}

@@ -366,3 +366,54 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 		})
 	}
 }
+
+// TestTick_PersonalSessionNotReapedPastMaxWait: a personal session waits on its
+// owner indefinitely — past MaxWait it is not torn down, but is still idled
+// after the warm-timeout and woken (resumed, then woken) on a reply. An
+// ephemeral cove past MaxWait is still torn down.
+func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
+	waitStart := time.Unix(1000, 0)
+	now := func() time.Time { return waitStart.Add(2 * time.Hour) } // past MaxWait (1h)
+	cfg := Config{MaxWait: time.Hour, WarmTimeout: time.Minute}
+
+	t.Run("idled, not reaped", func(t *testing.T) {
+		reg := &fakeReg{insts: []harbor.Instance{
+			{ActorID: "p1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, Owner: "alice", WaitingSince: waitStart},
+			{ActorID: "e1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		}}
+		reap, idler := &fakeReaper{}, &fakeIdler{}
+		e := New(reg, &fakeWaker{}, reap, idler, &fakeInbox{}, cfg, nil)
+		e.now = now
+		e.tick(context.Background())
+		if contains(reap.down, "p1") {
+			t.Fatalf("personal session torn down for waiting: %v", reap.down)
+		}
+		if !contains(idler.idled, "p1") {
+			t.Fatalf("personal session past warm-timeout must still be idled; idled=%v", idler.idled)
+		}
+		if !contains(reap.down, "e1") {
+			t.Fatalf("ephemeral cove past MaxWait must still be torn down; down=%v", reap.down)
+		}
+	})
+
+	t.Run("idled + reply resumes; live + reply wakes", func(t *testing.T) {
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+			"p1": {extInbound("p1", 6, "id-6")},
+			"p2": {extInbound("p2", 6, "id-6")},
+		}}
+		reg := &fakeReg{insts: []harbor.Instance{
+			{ActorID: "p1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
+			{ActorID: "p2", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
+		}}
+		wake, reap, idler := &fakeWaker{}, &fakeReaper{}, &fakeIdler{}
+		e := New(reg, wake, reap, idler, inbox, cfg, nil)
+		e.now = now
+		e.tick(context.Background())
+		if len(reap.down) != 0 {
+			t.Fatalf("personal sessions torn down: %v", reap.down)
+		}
+		if !contains(idler.resumed, "p1") || !contains(wake.woke, "p2") {
+			t.Fatalf("want p1 resumed and p2 woken; resumed=%v woke=%v", idler.resumed, wake.woke)
+		}
+	})
+}
