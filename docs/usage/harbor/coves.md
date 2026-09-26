@@ -169,7 +169,7 @@ client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardo
 — there is no `MaxWait`. A wake resumes the agent with `claude --continue` and a prompt
 to `read` its owner's reply and carry on. The session ends only when a teardown (the
 owner's release) cancels the run. Harbor's wake-on engine never tears a personal
-session down for waiting.
+session down for `wait-max`; only its optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
 
 > **Still deferred:** cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).
