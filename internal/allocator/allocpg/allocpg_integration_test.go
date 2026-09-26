@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -151,6 +152,71 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	}
 	if !got {
 		t.Fatal("expected grant after a release freed a slot")
+	}
+}
+
+// idset projects a reservation slice to a presence set keyed by reservation id.
+func idset(rs []allocator.Reservation) map[string]bool {
+	m := make(map[string]bool, len(rs))
+	for _, r := range rs {
+		m[r.ReservationID] = true
+	}
+	return m
+}
+
+// OutstandingReservations returns the net-outstanding reservations (granted −
+// released > 0 per reservation id) whose latest grant predates the cutoff.
+// Reservation ids recur across dispatch cycles, so this must be a net count, not a
+// "has no released row" test: a reservation released then re-granted is outstanding
+// again. A future cutoff qualifies every age.
+func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	g := func(id string) {
+		if _, err := st.Grant(ctx, "acme", "worker", id, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := func(id string) {
+		if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased, ReservationID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g("a")
+	g("b")
+	g("c")
+	rel("b")                                                               // a,c outstanding; b released
+	rel("c")                                                               // c released ...
+	g("c")                                                                 // ... then re-granted ⇒ outstanding again (net 1)
+	got, err := st.OutstandingReservations(ctx, time.Now().Add(time.Hour)) // future cutoff ⇒ all ages qualify
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := idset(got)
+	if !ids["a"] || !ids["c"] || ids["b"] || len(got) != 2 {
+		t.Fatalf("outstanding = %v, want {a,c}", got)
+	}
+	for _, r := range got {
+		if r.Project != "acme" || r.Role != "worker" {
+			t.Fatalf("unexpected (project,role): %+v", r)
+		}
+	}
+}
+
+// A grace-window cutoff in the past excludes reservations whose latest grant is
+// newer than the cutoff — the in-flight-raise guard.
+func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if _, err := st.Grant(ctx, "acme", "worker", "fresh", 100); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.OutstandingReservations(ctx, time.Now().Add(-time.Hour)) // cutoff an hour ago
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("fresh grant should be inside the grace window, got %v", got)
 	}
 }
 

@@ -78,3 +78,12 @@ func (c InstanceCounter) LiveCount(project, role string) int {
 	}
 	return n
 }
+
+// IsLive reports whether a specific actor currently holds a live instance — used
+// by the Allocator's reconcile sweep to tell a real session from a leaked
+// (dangling) reservation. Live iff the instance exists and is not PhaseGone
+// (reservationID == actorID).
+func (c InstanceCounter) IsLive(actorID string) bool {
+	i, ok := c.Store.GetInstance(actorID)
+	return ok && i.Phase != PhaseGone
+}

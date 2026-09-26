@@ -1184,6 +1184,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// dispatcher (built once, used for both).
 	var httpHandler http.Handler = broker
 	if dc := cfg.Runtime.Dispatcher; dc != nil {
+		// Reconcile-sweep cadence: sweep often (a leaked slot reduces capacity until
+		// reclaimed) with a grace window comfortably beyond a Colima raise so an
+		// in-flight raise — instance not yet in the registry — is never swept.
+		const (
+			allocSweepInterval = 1 * time.Minute
+			allocSweepGrace    = 5 * time.Minute
+		)
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
@@ -1230,7 +1237,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			ledger = as
 		}
 		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, ledger)
+		alloc.SetLogger(log)
 		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
+		// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
+		// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
+		// resident sweep periodically releases outstanding reservations older than a
+		// grace window with no live instance, so the ledger self-heals. Postgres-only
+		// (nil ledger ⇒ Sweep is a no-op, so no loop). The grace window sits comfortably
+		// beyond a Colima raise so an in-flight raise is never swept.
+		if ledger != nil {
+			go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
+			log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
+		}
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
