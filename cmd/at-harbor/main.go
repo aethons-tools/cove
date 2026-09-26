@@ -72,6 +72,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
+			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -925,6 +926,80 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// cmdSession requests, lists and releases the caller's personal sessions. The
+// caller is the roster human linked (`project roster add-human --login`) to the
+// operator identity the admin API authenticates.
+func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor session: expected request|list|release")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("session "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role to request a personal session of (request only)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor session:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "request":
+		if *role == "" {
+			fmt.Fprintln(stderr, "at-harbor session request: --role is required")
+			return 2
+		}
+		var prompt string
+		if *promptFile != "" {
+			b, err := os.ReadFile(*promptFile)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor session request: --prompt-file:", err)
+				return 1
+			}
+			prompt = string(b)
+		}
+		res, err := c.RequestPersonalSession(*project, *role, prompt)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, res.ID)
+	case "list":
+		sessions, err := c.ListPersonalSessions(*project)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, s := range sessions {
+			fmt.Fprintf(stdout, "%s\trole=%s\tphase=%s\tactivity=%s\traised=%s\n",
+				s.ID, s.Role, s.Phase, s.Activity, s.RaisedAt.Format(time.RFC3339))
+		}
+	case "release":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor session release: expected one session id")
+			return 2
+		}
+		if err := c.ReleasePersonalSession(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "released", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor session: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
 func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return grantCommon(args, stdout, stderr, false)
 }
@@ -1464,7 +1539,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := harbor.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

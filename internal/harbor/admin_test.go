@@ -21,7 +21,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store
 }
 
@@ -155,7 +155,7 @@ func TestAdminHandlerMountsUI(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("UI:" + r.URL.Path))
 	})
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
 
 	// Root redirects to /ui/.
 	rec := httptest.NewRecorder()
@@ -201,7 +201,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
+	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -275,7 +275,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -642,7 +642,7 @@ func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *
 	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
-	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store, sup, launcher
 }
 

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"errors"
+
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
@@ -70,4 +73,29 @@ func dispatcherProject(dc *dispatcherConfig) string {
 		return harbor.DefaultProject
 	}
 	return dc.Project
+}
+
+// personalAllocator adapts *allocator.Allocator to harbor.SessionAllocator (harbor
+// does not import allocator): a personal grant is a SessionPersonal request owned
+// by the requester, and the allocator's no-ledger error becomes
+// harbor.ErrNeedsLedger so the admin route can answer 409.
+type personalAllocator struct{ a *allocator.Allocator }
+
+var _ harbor.SessionAllocator = personalAllocator{}
+
+// GrantPersonal implements harbor.SessionAllocator.
+func (p personalAllocator) GrantPersonal(ctx context.Context, project, role, reservationID, owner string) (bool, error) {
+	ok, err := p.a.Grant(ctx, allocator.Request{
+		Project: project, Role: role, ReservationID: reservationID,
+		Kind: allocator.SessionPersonal, Owner: owner,
+	})
+	if errors.Is(err, allocator.ErrNeedsLedger) {
+		return false, harbor.ErrNeedsLedger
+	}
+	return ok, err
+}
+
+// RecordRelease implements harbor.SessionAllocator.
+func (p personalAllocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
+	return p.a.RecordRelease(ctx, project, role, reservationID)
 }

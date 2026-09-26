@@ -231,7 +231,8 @@ func RosterSummaries(store Store) []ActorSummary {
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
-func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
+// alloc (may be nil) admits personal sessions; nil 503s their request route.
+func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -626,6 +627,8 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		log.Info("admin cove torn down", "operator", OperatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	registerPersonalSessions(mux, store, sup, alloc, log)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil {

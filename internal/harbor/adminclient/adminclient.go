@@ -318,3 +318,30 @@ func (c *Client) ReportCoveStatus(id, activity string) error {
 func (c *Client) TeardownCove(id string) error {
 	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
 }
+
+// RequestPersonalSession asks harbor for a personal session of role in project
+// ("" = the default project), owned by the roster human linked to the caller's
+// login. The prompt travels in the request body, never on argv.
+func (c *Client) RequestPersonalSession(project, role, prompt string) (harbor.PersonalSessionResult, error) {
+	var res harbor.PersonalSessionResult
+	err := c.do("POST", "/admin/sessions/personal", harbor.PersonalSessionBody{Project: project, Role: role, Prompt: prompt}, &res)
+	return res, err
+}
+
+// ListPersonalSessions lists the caller's own personal sessions in project
+// ("" = the default project).
+func (c *Client) ListPersonalSessions(project string) ([]harbor.PersonalSessionSummary, error) {
+	var out []harbor.PersonalSessionSummary
+	path := "/admin/sessions/personal"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	err := c.do("GET", path, nil, &out)
+	return out, err
+}
+
+// ReleasePersonalSession releases (tears down) one of the caller's personal
+// sessions; only its owner may.
+func (c *Client) ReleasePersonalSession(id string) error {
+	return c.do("DELETE", "/admin/sessions/personal/"+url.PathEscape(id), nil, nil)
+}
