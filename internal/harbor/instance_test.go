@@ -62,3 +62,29 @@ func TestInstanceCounter_LiveCount(t *testing.T) {
 		t.Fatalf("LiveCount = %d, want 2", got)
 	}
 }
+
+func TestInstanceCounter_IsLive(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewFileStore(dir + "/store.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutInstance(Instance{ActorID: "live", Phase: PhaseLive}))
+	must(st.PutInstance(Instance{ActorID: "gone", Phase: PhaseGone}))
+
+	c := InstanceCounter{Store: st}
+	if !c.IsLive("live") {
+		t.Error("a live instance should be live")
+	}
+	if c.IsLive("gone") {
+		t.Error("a PhaseGone instance should not be live")
+	}
+	if c.IsLive("missing") {
+		t.Error("a missing instance should not be live")
+	}
+}

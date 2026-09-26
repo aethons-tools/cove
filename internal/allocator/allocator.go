@@ -15,6 +15,9 @@ type Key struct{ Project, Role string }
 // dispatcher's prior max-concurrent semantics.
 type Counter interface {
 	LiveCount(project, role string) int
+	// IsLive reports whether a specific actor (reservationID == actorID) currently
+	// holds a live instance — the reconcile sweep's dangling-reservation signal.
+	IsLive(actorID string) bool
 }
 
 // Budget returns the per-(project, role) capacity; ok=false means no budget is
