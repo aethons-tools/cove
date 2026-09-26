@@ -246,6 +246,23 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
 	}
+	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
+	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	roles, err = c.ListRoles("acme")
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	maxEph := -1
+	for _, r := range roles {
+		if r.Name == "worker" {
+			maxEph = r.Allocation.MaxEphemeral
+		}
+	}
+	if maxEph != 4 {
+		t.Fatalf("role max-ephemeral = %d, roles=%+v", maxEph, roles)
+	}
 }
 
 // TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy

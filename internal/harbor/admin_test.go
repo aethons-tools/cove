@@ -466,6 +466,27 @@ func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	}
 }
 
+// A role's max-ephemeral allocation policy round-trips through POST/GET
+// /admin/roles; a negative cap is rejected.
+func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", Destinations: []string{"anthropic"}, MaxEphemeral: 4})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].MaxEphemeral != 4 {
+		t.Fatalf("roles = %+v, want max_ephemeral 4", roles)
+	}
+	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxEphemeral != 4 {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "bad", MaxEphemeral: -1}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative max_ephemeral = %d, want 400", rec.Code)
+	}
+}
+
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
 	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {

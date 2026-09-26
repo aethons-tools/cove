@@ -22,11 +22,21 @@ type Scope struct {
 	TTL          time.Duration `json:"ttl"`
 }
 
+// RoleAllocation is a role's allocation policy: authored on the roster, read live
+// by harbor's Allocator on each grant. Later slices add the personal cap, the
+// standing session set, idle settings, and requester grants.
+type RoleAllocation struct {
+	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
+	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
+	MaxEphemeral int `json:"max_ephemeral,omitempty"`
+}
+
 // Role is a named, reusable security class within a project.
 type Role struct {
-	Name  string `json:"name"`
-	Scope Scope  `json:"scope"`
-	Kit   string `json:"kit,omitempty"` // optional kit name; "" = no kit
+	Name       string         `json:"name"`
+	Scope      Scope          `json:"scope"`
+	Kit        string         `json:"kit,omitempty"`       // optional kit name; "" = no kit
+	Allocation RoleAllocation `json:"allocation,omitzero"` // zero = no role policy
 }
 
 // Kit is one named registry entry: immutable, monotonically-numbered versions of

@@ -1,10 +1,10 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a cove at the broker.
 read_when: You are deciding who can reach what on a harbor — defining roles, granting them to actors, enrolling a cove, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs, and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral` allocation policy), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-26
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -38,6 +38,7 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 at-harbor role add --project acme --name guest \
   --destinations anthropic,git --repos 'aethons-tools/*' --ttl 24h
 at-harbor role add --project acme --name reviewer --destinations anthropic --kit review-kit
+at-harbor role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
 at-harbor role list [--project acme]
 at-harbor role rm   [--project acme] guest
 ```
@@ -53,6 +54,12 @@ at-harbor role rm   [--project acme] guest
   expiry). **A role with no `--ttl` mints non-expiring tokens** — set one for
   ephemeral coves.
 - `--kit` binds a registered kit by name (optional; [kits.md](kits.md)).
+- `--max-ephemeral N` is the role's **allocation policy**: the cap on its
+  concurrent ephemeral (dispatcher-raised) sessions. Harbor's Allocator reads it
+  live from the roster on each grant, so an edit applies on the next grant with no
+  restart. `0` (the default) = unset — the dispatcher's `max-concurrent` applies
+  as the fallback ([dispatcher.md](dispatcher.md#config-runtimedispatcher)).
+  `role list` shows it as `max-ephemeral=N`.
 - Editing a role re-scopes every actor granted it on the next request (live).
 
 ## Grants

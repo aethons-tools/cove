@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-25
+updated: 2026-09-26
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -152,6 +152,15 @@ swept. The sweep is best-effort (a per-reservation release failure is logged and
 retried on the next tick) and Postgres-only (no ledger ⇒ no sweep). The cap stays
 ≤ budget throughout, so an unreclaimed slot is only a transient availability
 nuisance, not a correctness break.
+
+Each reservation event also records its **session kind** (`session_kind`, plus a
+standing session's name and a personal session's owner), and the grant counts
+outstanding reservations **of the requested kind only**, so kinds never consume
+each other's capacity; a release inherits the kind of the reservation's latest
+grant. Only `ephemeral` (dispatcher) sessions exist today — pre-existing rows are
+tagged `ephemeral` — and the reconcile sweep releases only ephemeral
+reservations. The ephemeral budget is the role's roster `max-ephemeral`, falling
+back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)).
 
 ### The launcher (`runtime.launcher`)
 

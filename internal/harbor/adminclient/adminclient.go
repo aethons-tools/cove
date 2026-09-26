@@ -115,8 +115,9 @@ func (c *Client) PutRole(project string, r harbor.Role) error {
 	return c.do("POST", "/admin/roles", harbor.RoleBody{
 		Project: project, Name: r.Name,
 		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos, Addressing: r.Scope.Addressing,
-		TTLSeconds: int64(r.Scope.TTL / time.Second),
-		Kit:        r.Kit,
+		TTLSeconds:   int64(r.Scope.TTL / time.Second),
+		Kit:          r.Kit,
+		MaxEphemeral: r.Allocation.MaxEphemeral,
 	}, nil)
 }
 
@@ -134,7 +135,7 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 	for _, rs := range out {
 		roles = append(roles, harbor.Role{Name: rs.Name, Kit: rs.Kit, Scope: harbor.Scope{
 			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
-		}})
+		}, Allocation: harbor.RoleAllocation{MaxEphemeral: rs.MaxEphemeral}})
 	}
 	return roles, nil
 }

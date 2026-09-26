@@ -14,6 +14,11 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 )
 
+// ephemeral builds an ephemeral acme/worker grant request for id.
+func ephemeral(id string) allocator.Request {
+	return allocator.Request{Project: "acme", Role: "worker", ReservationID: id, Kind: allocator.SessionEphemeral}
+}
+
 // row is the projection the events test helper returns.
 type row struct {
 	revision      int64
@@ -134,7 +139,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	for i, want := range []bool{true, true, false} {
-		got, err := st.Grant(ctx, "acme", "worker", "cove-"+strconv.Itoa(i), 2)
+		got, err := st.Grant(ctx, ephemeral("cove-"+strconv.Itoa(i)), 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +151,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Grant(ctx, "acme", "worker", "cove-after-release", 2)
+	got, err := st.Grant(ctx, ephemeral("cove-after-release"), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +178,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	g := func(id string) {
-		if _, err := st.Grant(ctx, "acme", "worker", id, 100); err != nil {
+		if _, err := st.Grant(ctx, ephemeral(id), 100); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -208,7 +213,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.Grant(ctx, "acme", "worker", "fresh", 100); err != nil {
+	if _, err := st.Grant(ctx, ephemeral("fresh"), 100); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.OutstandingReservations(ctx, time.Now().Add(-time.Hour)) // cutoff an hour ago
@@ -225,7 +230,7 @@ func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T)
 func TestAllocpg_GrantAppendsGrantedEvent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	got, err := st.Grant(ctx, "acme", "worker", "cove-AET-7", 3)
+	got, err := st.Grant(ctx, ephemeral("cove-AET-7"), 3)
 	if err != nil || !got {
 		t.Fatalf("Grant = %v, %v; want true, nil", got, err)
 	}
@@ -236,5 +241,110 @@ func TestAllocpg_GrantAppendsGrantedEvent(t *testing.T) {
 	if len(rows) != 1 || rows[0].revision != 1 ||
 		rows[0].kind != string(allocator.KindReservationGranted) || rows[0].reservationID != "cove-AET-7" {
 		t.Fatalf("unexpected rows after grant: %+v", rows)
+	}
+}
+
+// Existing rows (and a Record that names no session kind) are ephemeral — the
+// 0002 migration's column default — so today's counts are unchanged.
+func TestAllocpg_DefaultsToEphemeral(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationGranted, ReservationID: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id) VALUES ('acme','acme/worker',2,'reservation_granted','raw')`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := st.pool.QueryRow(ctx, `SELECT COUNT(*) FROM alloc_events WHERE session_kind = 'ephemeral'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("ephemeral rows = %d, want 2", n)
+	}
+}
+
+// A cap applies to its own kind only: personal grants do not consume ephemeral
+// capacity.
+func TestAllocpg_Grant_CapsPerSessionKind(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	req := func(id string, k allocator.SessionKind) allocator.Request {
+		return allocator.Request{Project: "acme", Role: "worker", ReservationID: id, Kind: k, Owner: "brent"}
+	}
+	for _, id := range []string{"p1", "p2"} {
+		if ok, err := st.Grant(ctx, req(id, allocator.SessionPersonal), 5); err != nil || !ok {
+			t.Fatalf("personal %s: %v,%v", id, ok, err)
+		}
+	}
+	if ok, err := st.Grant(ctx, req("e1", allocator.SessionEphemeral), 1); err != nil || !ok {
+		t.Fatalf("e1 should grant (personals don't count): %v,%v", ok, err)
+	}
+	if ok, err := st.Grant(ctx, req("e2", allocator.SessionEphemeral), 1); err != nil || ok {
+		t.Fatalf("e2 should be denied: ephemeral cap 1 reached: %v,%v", ok, err)
+	}
+	// ... while the personal kind still has its own headroom.
+	if ok, err := st.Grant(ctx, req("p3", allocator.SessionPersonal), 3); err != nil || !ok {
+		t.Fatalf("p3 should grant (2 personal < 3): %v,%v", ok, err)
+	}
+}
+
+// A release inherits the kind of the reservation's latest grant, so per-kind
+// counts net correctly without release callers knowing the kind.
+func TestAllocpg_Release_InheritsSessionKind(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	r := allocator.Request{Project: "acme", Role: "worker", ReservationID: "p1", Kind: allocator.SessionPersonal, Owner: "brent"}
+	if ok, err := st.Grant(ctx, r, 1); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased, ReservationID: "p1"}); err != nil {
+		t.Fatal(err)
+	}
+	var kind, owner string
+	if err := st.pool.QueryRow(ctx,
+		`SELECT session_kind, session_owner FROM alloc_events WHERE kind = $1 AND reservation_id = 'p1'`,
+		string(allocator.KindReservationReleased)).Scan(&kind, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if kind != string(allocator.SessionPersonal) || owner != "brent" {
+		t.Fatalf("release recorded kind=%q owner=%q, want personal/brent", kind, owner)
+	}
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p2", Kind: allocator.SessionPersonal}, 1); err != nil || !ok {
+		t.Fatalf("p2 should grant once p1's personal slot is released: %v,%v", ok, err)
+	}
+}
+
+// OutstandingReservations reports each reservation's session kind, name, and
+// owner from its latest grant.
+func TestAllocpg_OutstandingReservations_ReportsSessionFields(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p1", Kind: allocator.SessionPersonal, Owner: "brent"}, 1); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "s1", Kind: allocator.SessionStanding, Name: "triage"}, 1); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if ok, err := st.Grant(ctx, ephemeral("e1"), 1); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	got, err := st.OutstandingReservations(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]allocator.Reservation{}
+	for _, r := range got {
+		by[r.ReservationID] = r
+	}
+	if r := by["p1"]; r.SessionKind != allocator.SessionPersonal || r.Owner != "brent" {
+		t.Fatalf("p1 = %+v, want personal owned by brent", r)
+	}
+	if r := by["s1"]; r.SessionKind != allocator.SessionStanding || r.Name != "triage" {
+		t.Fatalf("s1 = %+v, want standing named triage", r)
+	}
+	if r := by["e1"]; r.SessionKind != allocator.SessionEphemeral || r.Project != "acme" || r.Role != "worker" {
+		t.Fatalf("e1 = %+v, want ephemeral acme/worker", r)
 	}
 }

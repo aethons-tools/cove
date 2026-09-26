@@ -74,6 +74,7 @@ type RoleBody struct {
 	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
+	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -85,6 +86,7 @@ type RoleSummary struct {
 	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
+	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 }
 
 // KitBody is the POST /admin/kits request.
@@ -313,9 +315,10 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
-				Addressing: ro.Scope.Addressing,
-				TTLSeconds: int64(ro.Scope.TTL / time.Second),
-				Kit:        ro.Kit,
+				Addressing:   ro.Scope.Addressing,
+				TTLSeconds:   int64(ro.Scope.TTL / time.Second),
+				Kit:          ro.Kit,
+				MaxEphemeral: ro.Allocation.MaxEphemeral,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -329,13 +332,22 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, "name is required", http.StatusBadRequest)
 			return
 		}
+		if b.MaxEphemeral < 0 {
+			http.Error(w, "max_ephemeral must be >= 0", http.StatusBadRequest)
+			return
+		}
 		if b.Kit != "" {
 			if _, ok := store.GetKit(b.Kit); !ok {
 				http.Error(w, "kit does not exist", http.StatusBadRequest)
 				return
 			}
 		}
-		role := Role{Name: b.Name, Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second}, Kit: b.Kit}
+		role := Role{
+			Name:       b.Name,
+			Scope:      Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Kit:        b.Kit,
+			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral},
+		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
