@@ -370,6 +370,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
+	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (dispatcher) sessions (0 = unset: the dispatcher's max-concurrent applies)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -386,7 +387,15 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
 			return 2
 		}
-		r := harbor.Role{Name: *name, Kit: *kitName, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl}}
+		if *maxEphemeral < 0 {
+			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral must be >= 0")
+			return 2
+		}
+		r := harbor.Role{
+			Name: *name, Kit: *kitName,
+			Scope:      harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Allocation: harbor.RoleAllocation{MaxEphemeral: *maxEphemeral},
+		}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -399,7 +408,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral)
 		}
 	case "rm":
 		if len(pos) != 1 {

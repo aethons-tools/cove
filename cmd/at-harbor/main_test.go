@@ -274,6 +274,23 @@ func TestProjectRosterCommands(t *testing.T) {
 	if !strings.Contains(out.String(), "addressing=human:*,channel:eng-help") {
 		t.Fatalf("role list output missing addressing:\n%s", out.String())
 	}
+	// role add --max-ephemeral sets the role's allocation policy; role list shows it
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "worker", "--max-ephemeral", "4",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --max-ephemeral: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "max-ephemeral=4") {
+		t.Fatalf("role list output missing max-ephemeral:\n%s", out.String())
+	}
 }
 
 // TestProjectEscalationCommands exercises `project escalation set|list|clear`
