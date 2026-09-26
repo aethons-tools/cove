@@ -121,6 +121,32 @@ func TestRevokeActor(t *testing.T) {
 	}
 }
 
+// The UI role form doesn't edit the allocation policy, so saving a role from the
+// UI must keep the policy the role already has (set via `role add --max-ephemeral`)
+// rather than resetting it to zero.
+func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit role = %d, want 200", rec.Code)
+	}
+	got, ok := store.GetRole("acme", "worker")
+	if !ok {
+		t.Fatal("role acme/worker missing after edit")
+	}
+	if got.Allocation.MaxEphemeral != 4 {
+		t.Fatalf("max-ephemeral after UI edit = %d, want 4 (kept)", got.Allocation.MaxEphemeral)
+	}
+	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
+		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
+	}
+}
+
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
