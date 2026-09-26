@@ -827,7 +827,11 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local"}); err != nil {
+	// Personal sessions are delivered over Discord (request-time check).
+	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatService("acme", "discord"); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
