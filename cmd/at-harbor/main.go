@@ -1220,7 +1220,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if project == "" {
 			project = harbor.DefaultProject
 		}
-		budget := allocator.StaticBudget{{Project: project, Role: dc.Role}: dc.MaxConcurrent}
+		policy := allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
 		// Ledger cutover (slice 4): with Postgres the allocation event store is the
 		// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-budget)
 		// scoped per-(project, role) Outstanding, and teardown/compensation release the
@@ -1236,7 +1236,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			ledger = as
 		}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, budget, ledger)
+		alloc := allocator.New(harbor.InstanceCounter{Store: st}, policy, ledger)
 		alloc.SetLogger(log)
 		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 		// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a

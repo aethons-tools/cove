@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
@@ -36,11 +37,12 @@ type Tracker interface {
 // Admitter is harbor's capacity authority: the dispatcher no longer counts
 // instances against a cap itself. Satisfied by *allocator.Allocator.
 type Admitter interface {
-	// Grant atomically admits and reserves a slot for (project, role) — the OCC
-	// admission gate. It returns true when a slot was reserved (the caller must
-	// then compensate with RecordRelease on any later failure), false when at
-	// capacity, and an error on store trouble.
-	Grant(ctx context.Context, project, role, reservationID string) (bool, error)
+	// Grant atomically admits and reserves a slot for req's (project, role) — the
+	// OCC admission gate. The dispatcher always asks for an ephemeral session. It
+	// returns true when a slot was reserved (the caller must then compensate with
+	// RecordRelease on any later failure), false when at capacity, and an error on
+	// store trouble.
+	Grant(ctx context.Context, req allocator.Request) (bool, error)
 	// RecordRelease frees a slot Grant reserved (compensation for a post-grant
 	// failure); a failure is logged, never fatal.
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
@@ -126,7 +128,9 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		if _, ok := d.registry.GetInstance(actorID); ok {
 			continue // already raised (dedup)
 		}
-		granted, err := d.admitter.Grant(ctx, d.cfg.Project, d.cfg.Role, actorID)
+		granted, err := d.admitter.Grant(ctx, allocator.Request{
+			Project: d.cfg.Project, Role: d.cfg.Role, ReservationID: actorID, Kind: allocator.SessionEphemeral,
+		})
 		if err != nil {
 			d.log.Warn("dispatcher: grant failed", "actor", actorID, "err", err.Error())
 			break // store trouble — back off this tick

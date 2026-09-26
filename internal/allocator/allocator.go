@@ -7,6 +7,8 @@ package allocator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -25,19 +27,55 @@ type Counter interface {
 	IsLive(actorID string) bool
 }
 
-// Budget returns the per-(project, role) capacity; ok=false means no budget is
-// configured for that pair, and admission fails closed.
-type Budget interface {
-	For(project, role string) (limit int, ok bool)
+// SessionKind is what kind of session a reservation holds. It is distinct from
+// Kind, which is the allocation *event* type.
+type SessionKind string
+
+const (
+	// SessionEphemeral is a dispatcher-raised session for one unit of work.
+	SessionEphemeral SessionKind = "ephemeral"
+	// SessionStanding is an operator-declared, named session that lives until
+	// dismissed (admitted in a later slice).
+	SessionStanding SessionKind = "standing"
+	// SessionPersonal is a human's ad-hoc session that lives until its owner
+	// releases it (admitted in a later slice).
+	SessionPersonal SessionKind = "personal"
+)
+
+// ErrUnsupportedKind means the Allocator does not (yet) admit this session kind.
+var ErrUnsupportedKind = errors.New("allocator: unsupported session kind")
+
+// Request asks for one reservation. Name is set for standing sessions, Owner for
+// personal ones. An empty Kind means SessionEphemeral.
+type Request struct {
+	Project, Role string
+	ReservationID string
+	Kind          SessionKind
+	Name          string
+	Owner         string
 }
 
-// StaticBudget is a fixed budget table. Slice 1 seeds it from the dispatcher's
-// max-concurrent; a later slice replaces it with a roster-observed budget.
-type StaticBudget map[Key]int
+// Policy is a (project, role)'s allocation policy. Later slices add the personal
+// cap, the standing name set, idle settings, and requester grants.
+type Policy struct {
+	// MaxEphemeral caps concurrent ephemeral sessions; <= 0 admits none.
+	MaxEphemeral int
+}
 
-func (b StaticBudget) For(project, role string) (int, bool) {
-	limit, ok := b[Key{Project: project, Role: role}]
-	return limit, ok
+// PolicySource returns the allocation policy for a (project, role); ok=false
+// means none is configured, and admission fails closed.
+type PolicySource interface {
+	Policy(project, role string) (Policy, bool)
+}
+
+// StaticPolicy is a fixed policy table (tests, and the dispatcher-seeded
+// fallback behind cmd/at-harbor's roster-sourced policy).
+type StaticPolicy map[Key]Policy
+
+// Policy implements PolicySource.
+func (p StaticPolicy) Policy(project, role string) (Policy, bool) {
+	pol, ok := p[Key{Project: project, Role: role}]
+	return pol, ok
 }
 
 // Kind is an allocation event type.
@@ -56,20 +94,30 @@ const KindReservationReleased Kind = "reservation_released"
 
 // Event is one allocation event. Category is the project (the grouping/shard
 // axis); the stream is keyed by (Project, Role). Revision/seq/timestamp are
-// assigned by the store on append.
+// assigned by the store on append. SessionKind/Name/Owner describe the
+// reservation's session; the store derives them for a release from the
+// reservation's latest grant, so release callers leave them empty.
 type Event struct {
 	Category      string
 	Project, Role string
 	Kind          Kind
 	ReservationID string
+	SessionKind   SessionKind
+	Name          string
+	Owner         string
 }
 
 // Reservation identifies an outstanding reservation — one still holding a slot
 // (net granted − released > 0). The reconcile Sweep (Slice 5) folds the ledger to
-// these and releases the ones whose actor has no live instance.
+// these and releases the ones whose actor has no live instance. SessionKind/Name/
+// Owner come from the reservation's latest grant (an empty SessionKind is legacy,
+// i.e. ephemeral).
 type Reservation struct {
 	Project, Role string
 	ReservationID string
+	SessionKind   SessionKind
+	Name          string
+	Owner         string
 }
 
 // Ledger is the durable reservation ledger: it appends allocation events and, as
@@ -79,7 +127,9 @@ type Reservation struct {
 // by internal/allocator/allocpg.
 type Ledger interface {
 	Record(ctx context.Context, ev Event) error
-	Grant(ctx context.Context, project, role, reservationID string, budget int) (bool, error)
+	// Grant atomically appends a ReservationGranted for req iff the outstanding
+	// reservations of req.Kind in its (project, role) stream are below limit.
+	Grant(ctx context.Context, req Request, limit int) (bool, error)
 	// OutstandingReservations returns the net-outstanding reservations (granted −
 	// released > 0) whose latest grant predates olderThan — the reconcile sweep's
 	// grace-windowed candidate set.
@@ -89,7 +139,7 @@ type Ledger interface {
 // Allocator decides admission: may another session exist for (project, role)?
 type Allocator struct {
 	counter Counter
-	budget  Budget
+	policy  PolicySource
 	ledger  Ledger
 	now     func() time.Time // injectable clock for the sweep cutoff; defaults to time.Now
 	log     *slog.Logger
@@ -99,35 +149,44 @@ type Allocator struct {
 // Grant falls back to the registry live count and RecordRelease is a no-op. The
 // sweep clock defaults to time.Now and the logger to a discard logger (the wiring
 // in cmd/at-harbor can override either after construction).
-func New(counter Counter, budget Budget, ledger Ledger) *Allocator {
+func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 	return &Allocator{
 		counter: counter,
-		budget:  budget,
+		policy:  policy,
 		ledger:  ledger,
 		now:     time.Now,
 		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 
-// Grant admits (and reserves) a session for (project, role). With a ledger it is
-// the authoritative OCC admission — an atomic append that grants iff the stream's
-// Outstanding is below budget (per-(project, role) counting). Without one
-// (file-store dev) it falls back to the registry live count vs budget (Slice-1
-// global behavior). Fail-closed when no budget is configured.
+// Grant admits (and reserves) a session for req's (project, role). Only
+// ephemeral sessions are admitted in this slice (an empty Kind means ephemeral);
+// standing and personal fail closed with ErrUnsupportedKind. The cap is the
+// (project, role) policy's MaxEphemeral. With a ledger it is the authoritative
+// OCC admission — an atomic append that grants iff the stream's outstanding
+// ephemeral reservations are below the cap. Without one (file-store dev) it falls
+// back to the registry live count vs the cap (Slice-1 global behavior).
+// Fail-closed when no policy (or no ephemeral cap) is configured.
 //
 // Grant reserves the slot before the raise; the caller must compensate (call
-// RecordRelease for the same reservationID) on any post-grant failure. In
+// RecordRelease for the same reservation id) on any post-grant failure. In
 // file-store mode Grant reserves nothing and RecordRelease is a no-op, so
 // compensation is harmless there.
-func (a *Allocator) Grant(ctx context.Context, project, role, reservationID string) (bool, error) {
-	limit, ok := a.budget.For(project, role)
-	if !ok {
-		return false, nil
+func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
+	if req.Kind == "" {
+		req.Kind = SessionEphemeral
+	}
+	if req.Kind != SessionEphemeral {
+		return false, fmt.Errorf("%w: %s", ErrUnsupportedKind, req.Kind)
+	}
+	pol, ok := a.policy.Policy(req.Project, req.Role)
+	if !ok || pol.MaxEphemeral <= 0 {
+		return false, nil // no policy ⇒ fail closed
 	}
 	if a.ledger != nil {
-		return a.ledger.Grant(ctx, project, role, reservationID, limit)
+		return a.ledger.Grant(ctx, req, pol.MaxEphemeral)
 	}
-	return a.counter.LiveCount(project, role) < limit, nil
+	return a.counter.LiveCount(req.Project, req.Role) < pol.MaxEphemeral, nil
 }
 
 // SetLogger routes the reconcile sweep's diagnostics to log (nil is ignored). The
@@ -139,13 +198,14 @@ func (a *Allocator) SetLogger(log *slog.Logger) {
 	}
 }
 
-// Sweep reclaims leaked slots: it releases outstanding reservations (whose latest
-// grant is older than grace) whose actor has no live instance — the
+// Sweep reclaims leaked slots: it releases outstanding ephemeral reservations
+// (whose latest grant is older than grace) whose actor has no live instance — the
 // crash-between-grant-and-raise gap Slice 4 left open. No ledger (file-store dev)
 // ⇒ nothing to sweep. Best-effort and idempotent: a per-reservation release
 // failure is logged and skipped (the next tick retries), and releasing an
 // already-live or already-released reservation is harmless (the net-count query
-// excludes it next pass). Returns the number swept.
+// excludes it next pass). Standing and personal reservations own their lifecycles
+// (resurrection, owner release) and are never swept. Returns the number swept.
 func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error) {
 	if a.ledger == nil {
 		return 0, nil
@@ -156,6 +216,9 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 	}
 	swept := 0
 	for _, r := range outstanding {
+		if r.SessionKind != "" && r.SessionKind != SessionEphemeral {
+			continue // standing/personal — not the sweep's to release
+		}
 		if a.counter.IsLive(r.ReservationID) {
 			continue // a real session — leave it
 		}

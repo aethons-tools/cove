@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
@@ -69,18 +70,20 @@ type fakeAdmitter struct {
 	grant    bool // when true, always grant (ignores allow)
 	calls    int
 	granted  []string
+	requests []allocator.Request
 	released []string
 	grantErr error
 }
 
-func (f *fakeAdmitter) Grant(_ context.Context, project, role, reservationID string) (bool, error) {
+func (f *fakeAdmitter) Grant(_ context.Context, req allocator.Request) (bool, error) {
 	f.calls++
+	f.requests = append(f.requests, req)
 	if f.grantErr != nil {
 		return false, f.grantErr
 	}
 	ok := f.grant || f.calls <= f.allow
 	if ok {
-		f.granted = append(f.granted, reservationID)
+		f.granted = append(f.granted, req.ReservationID)
 	}
 	return ok, nil
 }
@@ -176,6 +179,10 @@ func TestTick_GrantBeforeRaise_SuccessNoRelease(t *testing.T) {
 	d.tick(context.Background())
 	if len(adm.granted) != 1 || adm.granted[0] != "cove-AET-1" {
 		t.Fatalf("Grant calls = %v, want [cove-AET-1]", adm.granted)
+	}
+	want := allocator.Request{Project: "acme", Role: "worker", ReservationID: "cove-AET-1", Kind: allocator.SessionEphemeral}
+	if adm.requests[0] != want {
+		t.Fatalf("dispatcher requested %+v, want an ephemeral reservation %+v", adm.requests[0], want)
 	}
 	if len(adm.released) != 0 {
 		t.Fatalf("successful raise must not compensate, got releases %v", adm.released)

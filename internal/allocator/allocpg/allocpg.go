@@ -109,8 +109,9 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 // compensation. Closing it needs a reconcile sweep (release Granted reservations
 // with no live instance); the cap stays ≤ budget, so this is an availability
 // nuisance, not a correctness break.
-func (s *Store) Grant(ctx context.Context, project, role, reservationID string, budget int) (bool, error) {
-	streamID := project + "/" + role
+func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (bool, error) {
+	project, reservationID := req.Project, req.ReservationID
+	streamID := req.Project + "/" + req.Role
 	data, err := json.Marshal(map[string]string{}) // no extra payload yet
 	if err != nil {
 		return false, fmt.Errorf("allocpg: marshal: %w", err)

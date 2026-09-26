@@ -14,6 +14,11 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 )
 
+// ephemeral builds an ephemeral acme/worker grant request for id.
+func ephemeral(id string) allocator.Request {
+	return allocator.Request{Project: "acme", Role: "worker", ReservationID: id, Kind: allocator.SessionEphemeral}
+}
+
 // row is the projection the events test helper returns.
 type row struct {
 	revision      int64
@@ -134,7 +139,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	for i, want := range []bool{true, true, false} {
-		got, err := st.Grant(ctx, "acme", "worker", "cove-"+strconv.Itoa(i), 2)
+		got, err := st.Grant(ctx, ephemeral("cove-"+strconv.Itoa(i)), 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +151,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Grant(ctx, "acme", "worker", "cove-after-release", 2)
+	got, err := st.Grant(ctx, ephemeral("cove-after-release"), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +178,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	g := func(id string) {
-		if _, err := st.Grant(ctx, "acme", "worker", id, 100); err != nil {
+		if _, err := st.Grant(ctx, ephemeral(id), 100); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -208,7 +213,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.Grant(ctx, "acme", "worker", "fresh", 100); err != nil {
+	if _, err := st.Grant(ctx, ephemeral("fresh"), 100); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.OutstandingReservations(ctx, time.Now().Add(-time.Hour)) // cutoff an hour ago
@@ -225,7 +230,7 @@ func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T)
 func TestAllocpg_GrantAppendsGrantedEvent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	got, err := st.Grant(ctx, "acme", "worker", "cove-AET-7", 3)
+	got, err := st.Grant(ctx, ephemeral("cove-AET-7"), 3)
 	if err != nil || !got {
 		t.Fatalf("Grant = %v, %v; want true, nil", got, err)
 	}
