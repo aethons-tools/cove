@@ -76,9 +76,37 @@ type Actor struct {
 
 // Human is a roster member reachable by @-mention on a tracker thread.
 type Human struct {
-	Name     string            `json:"name"`               // roster-local name, e.g. "alice"
-	Handle   string            `json:"handle"`             // tracker @-mention handle
+	Name   string `json:"name"`   // roster-local name, e.g. "alice"
+	Handle string `json:"handle"` // tracker @-mention handle
+	// Login links the human to their admin operator identity (OperatorID: the
+	// OIDC sub, or "local" on loopback). It is how harbor knows which roster
+	// human is behind an admin request, e.g. to own a personal session. "" =
+	// unlinked. At most one human per project may hold a given login.
+	Login    string            `json:"login,omitempty"`
 	Delivery []DeliveryProfile `json:"delivery,omitempty"` // per-service DM delivery targets
+}
+
+// rosterReader is the slice of Store HumanByLogin reads.
+type rosterReader interface {
+	GetRoster(project string) (Roster, bool)
+}
+
+// HumanByLogin returns the roster Human in project whose Login matches login.
+// The empty login never matches, so an unlinked human is never an owner.
+func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
+	if login == "" {
+		return Human{}, false
+	}
+	rr, ok := store.GetRoster(project)
+	if !ok {
+		return Human{}, false
+	}
+	for _, h := range rr.Humans {
+		if h.Login == login {
+			return h, true
+		}
+	}
+	return Human{}, false
 }
 
 // DeliveryProfile is how a Human receives messages on one non-tracker Service.

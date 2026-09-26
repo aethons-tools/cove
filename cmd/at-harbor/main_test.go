@@ -208,9 +208,12 @@ func TestProjectRosterCommands(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{
 		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-		"--name", "alice", "--handle", "alice.h",
+		"--name", "alice", "--handle", "alice.h", "--login", "auth0|abc",
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project roster add-human: exit=%d stderr=%s", code, errb.String())
+	}
+	if hu, ok := harbor.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
+		t.Fatalf("add-human --login did not link alice: %+v,%v", hu, ok)
 	}
 
 	// project roster add-channel
@@ -229,7 +232,7 @@ func TestProjectRosterCommands(t *testing.T) {
 	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project roster list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "human\talice\thandle=alice.h") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
+	if !strings.Contains(out.String(), "human\talice\thandle=alice.h\tlogin=auth0|abc") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
 		t.Fatalf("project roster list output missing expected fields:\n%s", out.String())
 	}
 

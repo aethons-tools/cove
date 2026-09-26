@@ -452,6 +452,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
 	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
+	login := fs.String("login", "", "link the human to their admin login: the operator identity (OIDC sub, or \"local\" on loopback) (add-human)")
 	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
@@ -481,7 +482,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			profiles = append(profiles, harbor.DeliveryProfile{Service: svc, Address: addr})
 		}
-		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Delivery: profiles}); err != nil {
+		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -507,7 +508,11 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, h := range rr.Humans {
-			fmt.Fprintf(stdout, "human\t%s\thandle=%s\n", h.Name, h.Handle)
+			line := fmt.Sprintf("human\t%s\thandle=%s", h.Name, h.Handle)
+			if h.Login != "" {
+				line += "\tlogin=" + h.Login
+			}
+			fmt.Fprintln(stdout, line)
 		}
 		for _, ch := range rr.Channels {
 			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)

@@ -693,3 +693,29 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+// A roster human's login (the admin operator identity) round-trips through the
+// roster routes, and a login may link at most one human per project.
+func TestAdminRosterHumanLogin(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("POST human = %d %s", rec.Code, rec.Body.String())
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if len(rr.Humans) != 1 || rr.Humans[0].Login != "auth0|abc" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	// Re-upserting the same human with the same login is fine.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice2", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("re-upsert alice = %d %s", rec.Code, rec.Body.String())
+	}
+	// A different human claiming the same login in the same project is rejected.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate login = %d, want 400", rec.Code)
+	}
+	// ...but the same login may link a human in another project.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("same login in another project = %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -398,6 +398,12 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		if !decode(w, r, &b) {
 			return
 		}
+		// A login links at most one human per project, so ownership (e.g. of a
+		// personal session) is unambiguous.
+		if other, ok := HumanByLogin(store, r.PathValue("project"), b.Login); ok && other.Name != b.Name {
+			http.Error(w, fmt.Sprintf("login is already linked to roster human %q in this project", other.Name), http.StatusBadRequest)
+			return
+		}
 		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
