@@ -13,8 +13,10 @@ type roleReader interface {
 // rosterPolicy is the Allocator's PolicySource: the roster Role is the source of
 // truth (read live from the memory-cached store on each grant, so a role edit
 // takes effect on the next grant with no restart); the dispatcher's
-// max-concurrent is the fallback for its own (project, role) when the Role sets
-// no max-ephemeral. No role policy and no fallback ⇒ no policy ⇒ fail closed.
+// max-concurrent is the fallback ephemeral cap for its own (project, role) when
+// the Role sets no max-ephemeral (fallback is empty when harbor serves without a
+// dispatcher). The personal caps come only from the Role. No role and no
+// fallback ⇒ no policy ⇒ fail closed.
 type rosterPolicy struct {
 	store    roleReader
 	fallback allocator.StaticPolicy
@@ -24,8 +26,22 @@ var _ allocator.PolicySource = rosterPolicy{}
 
 // Policy implements allocator.PolicySource.
 func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
-	if r, ok := p.store.GetRole(project, role); ok && r.Allocation.MaxEphemeral > 0 {
-		return allocator.Policy{MaxEphemeral: r.Allocation.MaxEphemeral}, true
+	fb, hasFallback := p.fallback.Policy(project, role)
+	r, hasRole := p.store.GetRole(project, role)
+	if !hasRole {
+		return fb, hasFallback
 	}
-	return p.fallback.Policy(project, role)
+	a := r.Allocation
+	pol := allocator.Policy{
+		MaxEphemeral:        a.MaxEphemeral,
+		MaxPersonal:         a.MaxPersonal,
+		MaxPersonalPerOwner: a.MaxPersonalPerOwner,
+	}
+	if pol.MaxEphemeral <= 0 {
+		pol.MaxEphemeral = fb.MaxEphemeral // dispatcher fallback (0 without one)
+	}
+	if pol == (allocator.Policy{}) {
+		return pol, false // the role sets nothing and there is no fallback
+	}
+	return pol, true
 }

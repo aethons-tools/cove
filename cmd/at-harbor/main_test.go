@@ -294,6 +294,33 @@ func TestProjectRosterCommands(t *testing.T) {
 	if !strings.Contains(out.String(), "max-ephemeral=4") {
 		t.Fatalf("role list output missing max-ephemeral:\n%s", out.String())
 	}
+	// role add --max-personal / --max-personal-per-owner set the personal caps
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "pair", "--max-personal", "3", "--max-personal-per-owner", "1",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --max-personal: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, ok := store.GetRole("acme", "pair"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
+		t.Fatalf("stored role = %+v,%v", r, ok)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "max-personal=3\tmax-personal-per-owner=1") {
+		t.Fatalf("role list output missing personal caps:\n%s", out.String())
+	}
+	for _, flagName := range []string{"--max-personal", "--max-personal-per-owner"} {
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1"}, getenv, &out, &errb); code != 2 {
+			t.Fatalf("role add %s -1: exit=%d, want 2", flagName, code)
+		}
+	}
 }
 
 // TestProjectEscalationCommands exercises `project escalation set|list|clear`

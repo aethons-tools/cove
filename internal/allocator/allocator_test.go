@@ -22,6 +22,7 @@ func (f fakeCounter) IsLive(actorID string) bool { return f.live[actorID] }
 type fakeLedger struct {
 	grantResult bool
 	grantCap    int
+	grantCaps   Caps
 	grantReq    Request
 	grantCalls  int
 	records     []Event
@@ -29,10 +30,11 @@ type fakeLedger struct {
 	outErr      error
 }
 
-func (f *fakeLedger) Grant(_ context.Context, req Request, limit int) (bool, error) {
+func (f *fakeLedger) Grant(_ context.Context, req Request, caps Caps) (bool, error) {
 	f.grantCalls++
 	f.grantReq = req
-	f.grantCap = limit
+	f.grantCaps = caps
+	f.grantCap = caps.Kind
 	return f.grantResult, nil
 }
 
@@ -109,17 +111,77 @@ func TestGrant_Ephemeral_UsesMaxEphemeral(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("got %v,%v", ok, err)
 	}
-	if fl.grantCap != 3 || fl.grantReq.Kind != SessionEphemeral {
-		t.Fatalf("ledger saw cap=%d req=%+v", fl.grantCap, fl.grantReq)
+	if fl.grantCaps != (Caps{Kind: 3}) || fl.grantReq.Kind != SessionEphemeral {
+		t.Fatalf("ledger saw caps=%+v req=%+v", fl.grantCaps, fl.grantReq)
 	}
 }
 
-// Standing and personal admission land in later slices: until then they fail
-// closed with ErrUnsupportedKind and never reach the ledger.
+// A personal request passes both the pool cap (MaxPersonal) and the per-owner
+// cap (MaxPersonalPerOwner) to the ledger, which enforces them atomically.
+func TestGrant_Personal_PassesPoolAndOwnerCaps(t *testing.T) {
+	fl := &fakeLedger{grantResult: true}
+	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "worker"}: {MaxPersonal: 2, MaxPersonalPerOwner: 1}}, fl)
+	req := Request{Project: "acme", Role: "worker", ReservationID: "personal-alice-1", Kind: SessionPersonal, Owner: "alice"}
+	ok, err := a.Grant(context.Background(), req)
+	if err != nil || !ok {
+		t.Fatalf("got %v,%v; want granted", ok, err)
+	}
+	if fl.grantCaps != (Caps{Kind: 2, Owner: 1}) {
+		t.Fatalf("caps = %+v, want {Kind:2 Owner:1}", fl.grantCaps)
+	}
+	if fl.grantReq != req {
+		t.Fatalf("ledger saw %+v, want %+v", fl.grantReq, req)
+	}
+}
+
+// A personal request needs an owner.
+func TestGrant_Personal_RequiresOwner(t *testing.T) {
+	fl := &fakeLedger{grantResult: true}
+	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "worker"}: {MaxPersonal: 2}}, fl)
+	ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "worker", ReservationID: "p", Kind: SessionPersonal})
+	if ok || err == nil {
+		t.Fatalf("got %v,%v; want an error for a personal request with no owner", ok, err)
+	}
+	if fl.grantCalls != 0 {
+		t.Fatalf("an ownerless request must not reach the ledger, calls = %d", fl.grantCalls)
+	}
+}
+
+// Personal sessions need the ledger: with none (file-store dev) the request
+// fails with ErrNeedsLedger rather than falling back to the registry count.
+func TestGrant_Personal_NilLedger_ErrNeedsLedger(t *testing.T) {
+	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "worker"}: {MaxPersonal: 2}}, nil)
+	ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "worker", ReservationID: "p", Kind: SessionPersonal, Owner: "alice"})
+	if ok || !errors.Is(err, ErrNeedsLedger) {
+		t.Fatalf("got %v,%v; want ErrNeedsLedger", ok, err)
+	}
+}
+
+// No personal pool cap (or no policy at all) fails closed without touching the
+// ledger.
+func TestGrant_Personal_NoCap_FailsClosed(t *testing.T) {
+	for name, pol := range map[string]StaticPolicy{
+		"no policy":     {},
+		"zero personal": {{Project: "acme", Role: "worker"}: {MaxEphemeral: 5, MaxPersonalPerOwner: 1}},
+	} {
+		fl := &fakeLedger{grantResult: true}
+		a := New(fakeCounter{}, pol, fl)
+		ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "worker", ReservationID: "p", Kind: SessionPersonal, Owner: "alice"})
+		if ok || err != nil {
+			t.Fatalf("%s: got %v,%v; want denied (false, nil)", name, ok, err)
+		}
+		if fl.grantCalls != 0 {
+			t.Fatalf("%s: ledger.Grant must not be called, calls = %d", name, fl.grantCalls)
+		}
+	}
+}
+
+// Standing admission lands in a later slice: until then it (and any unknown
+// kind) fails closed with ErrUnsupportedKind and never reaches the ledger.
 func TestGrant_UnsupportedKind_FailsClosed(t *testing.T) {
 	fl := &fakeLedger{grantResult: true}
 	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 3}}, fl)
-	for _, k := range []SessionKind{SessionStanding, SessionPersonal, "bogus"} {
+	for _, k := range []SessionKind{SessionStanding, "bogus"} {
 		ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "worker", ReservationID: "x", Kind: k})
 		if ok || !errors.Is(err, ErrUnsupportedKind) {
 			t.Fatalf("kind %s: got %v,%v", k, ok, err)

@@ -126,7 +126,7 @@ func TestRevokeActor(t *testing.T) {
 // rather than resetting it to zero.
 func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	store := newStore(t)
-	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4}}); err != nil {
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
@@ -139,8 +139,8 @@ func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("role acme/worker missing after edit")
 	}
-	if got.Allocation.MaxEphemeral != 4 {
-		t.Fatalf("max-ephemeral after UI edit = %d, want 4 (kept)", got.Allocation.MaxEphemeral)
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}); got.Allocation != want {
+		t.Fatalf("allocation after UI edit = %+v, want %+v (kept)", got.Allocation, want)
 	}
 	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
 		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)

@@ -487,6 +487,29 @@ func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 	}
 }
 
+// A role's personal caps round-trip through POST/GET /admin/roles; a negative
+// cap is rejected.
+func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", MaxPersonal: 3, MaxPersonalPerOwner: 1})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].MaxPersonal != 3 || roles[0].MaxPersonalPerOwner != 1 {
+		t.Fatalf("roles = %+v, want max_personal 3 / per-owner 1", roles)
+	}
+	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	for _, b := range []RoleBody{{Project: "acme", Name: "bad", MaxPersonal: -1}, {Project: "acme", Name: "bad", MaxPersonalPerOwner: -1}} {
+		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
+			t.Fatalf("negative personal cap %+v = %d, want 400", b, rec.Code)
+		}
+	}
+}
+
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
 	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {

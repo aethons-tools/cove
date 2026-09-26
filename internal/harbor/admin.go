@@ -75,6 +75,10 @@ type RoleBody struct {
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// MaxPersonal is the role's personal-session pool cap; 0 = none.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -87,6 +91,10 @@ type RoleSummary struct {
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// MaxPersonal is the role's personal-session pool cap; 0 = none.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 }
 
 // KitBody is the POST /admin/kits request.
@@ -315,10 +323,12 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
-				Addressing:   ro.Scope.Addressing,
-				TTLSeconds:   int64(ro.Scope.TTL / time.Second),
-				Kit:          ro.Kit,
-				MaxEphemeral: ro.Allocation.MaxEphemeral,
+				Addressing:          ro.Scope.Addressing,
+				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
+				Kit:                 ro.Kit,
+				MaxEphemeral:        ro.Allocation.MaxEphemeral,
+				MaxPersonal:         ro.Allocation.MaxPersonal,
+				MaxPersonalPerOwner: ro.Allocation.MaxPersonalPerOwner,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -332,8 +342,8 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, "name is required", http.StatusBadRequest)
 			return
 		}
-		if b.MaxEphemeral < 0 {
-			http.Error(w, "max_ephemeral must be >= 0", http.StatusBadRequest)
+		if b.MaxEphemeral < 0 || b.MaxPersonal < 0 || b.MaxPersonalPerOwner < 0 {
+			http.Error(w, "max_ephemeral, max_personal and max_personal_per_owner must be >= 0", http.StatusBadRequest)
 			return
 		}
 		if b.Kit != "" {
@@ -346,7 +356,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			Name:       b.Name,
 			Scope:      Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
 			Kit:        b.Kit,
-			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral},
+			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner},
 		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
