@@ -66,11 +66,24 @@ func (s *Store) Close() error { return nil }
 // append: read the current head revision, insert at head+1, and on a
 // UNIQUE(stream_id, stream_revision) violation re-read and retry. Correctness is
 // the constraint, not read freshness — a stale head only costs a retry.
+//
+// A release takes its session kind, name, and owner from the reservation's latest
+// grant in the same stream (falling back to the event's own fields, then
+// ephemeral, when there is none), so per-kind counts net correctly and release
+// callers — supervisor teardown, the sweep, dispatcher compensation — need not
+// know the kind. Any other event records its own SessionKind (empty ⇒ ephemeral).
 func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	streamID := ev.Project + "/" + ev.Role
 	data, err := json.Marshal(map[string]string{}) // slice 2: no extra payload yet
 	if err != nil {
 		return fmt.Errorf("allocpg: marshal: %w", err)
+	}
+	insert := recordInsert
+	args := []any{ev.Category, streamID, 0, string(ev.Kind), ev.ReservationID, data,
+		string(sessionKindOrDefault(ev.SessionKind)), ev.Name, ev.Owner}
+	if ev.Kind == allocator.KindReservationReleased {
+		insert = recordReleaseInsert
+		args = append(args, string(allocator.KindReservationGranted))
 	}
 	for attempt := 0; attempt < maxAppendRetries; attempt++ {
 		var head int64
@@ -79,10 +92,8 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 			streamID).Scan(&head); err != nil {
 			return fmt.Errorf("allocpg: head: %w", err)
 		}
-		_, err := s.pool.Exec(ctx,
-			`INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
-			ev.Category, streamID, head+1, string(ev.Kind), ev.ReservationID, data)
+		args[2] = head + 1
+		_, err := s.pool.Exec(ctx, insert, args...)
 		if err == nil {
 			return nil
 		}
@@ -94,10 +105,41 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	return ErrConflictExhausted
 }
 
-// Grant atomically appends a ReservationGranted at head+1 iff the stream's
-// Outstanding (granted − released) is below budget — the OCC admission gate. A
-// single conditional INSERT … SELECT … WHERE (outstanding) < budget enforces the
-// budget, and UNIQUE(stream_id, stream_revision) enforces the version, so the
+// recordInsert appends a non-release event with its own session fields.
+const recordInsert = `INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data,
+                          session_kind, session_name, session_owner)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`
+
+// recordReleaseInsert appends a release whose session fields are inherited from
+// the reservation's latest grant ($10) in the same stream; with no such grant it
+// falls back to the event's own fields ($7–$9, kind defaulted to ephemeral).
+const recordReleaseInsert = `INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data,
+                          session_kind, session_name, session_owner)
+ SELECT $1, $2, $3, $4, $5, $6,
+        COALESCE(g.session_kind, $7), COALESCE(g.session_name, $8), COALESCE(g.session_owner, $9)
+ FROM (SELECT 1) AS one
+ LEFT JOIN LATERAL (
+     SELECT session_kind, session_name, session_owner FROM alloc_events
+     WHERE stream_id = $2 AND reservation_id = $5 AND kind = $10
+     ORDER BY stream_revision DESC LIMIT 1
+ ) AS g ON true`
+
+// sessionKindOrDefault maps the empty (legacy) session kind to ephemeral.
+func sessionKindOrDefault(k allocator.SessionKind) allocator.SessionKind {
+	if k == "" {
+		return allocator.SessionEphemeral
+	}
+	return k
+}
+
+// Grant atomically appends a ReservationGranted for req at head+1 iff the
+// stream's outstanding reservations of req.Kind (granted − released, counting only
+// rows of that session kind) are below budget — the OCC admission gate. Grant is
+// kind-agnostic: which kinds are admitted is the Allocator's policy. An empty
+// req.Kind is ephemeral. A single conditional INSERT … SELECT … WHERE
+// (outstanding of kind) < budget enforces the budget, and UNIQUE(stream_id,
+// stream_revision) enforces the version — every kind of a (project, role) shares
+// one stream, so all appends still serialize on it — so the
 // budget check and the append are one atomic step: concurrent grants cannot
 // overshoot, because the loser of a revision race retries and re-evaluates the
 // budget against the winner's grant. Returns (true, nil) granted, (false, nil)
@@ -110,8 +152,8 @@ func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 // with no live instance); the cap stays ≤ budget, so this is an availability
 // nuisance, not a correctness break.
 func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (bool, error) {
-	project, reservationID := req.Project, req.ReservationID
 	streamID := req.Project + "/" + req.Role
+	kind := string(sessionKindOrDefault(req.Kind))
 	data, err := json.Marshal(map[string]string{}) // no extra payload yet
 	if err != nil {
 		return false, fmt.Errorf("allocpg: marshal: %w", err)
@@ -124,13 +166,14 @@ func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (b
 			return false, fmt.Errorf("allocpg: grant head: %w", err)
 		}
 		tag, err := s.pool.Exec(ctx,
-			`INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data)
-			 SELECT $1, $2, $3, $4, $5, $6
-			 WHERE (SELECT COUNT(*) FILTER (WHERE kind = $4)
-			               - COUNT(*) FILTER (WHERE kind = $7)
+			`INSERT INTO alloc_events (category, stream_id, stream_revision, kind, reservation_id, data,
+			                          session_kind, session_name, session_owner)
+			 SELECT $1, $2, $3, $4, $5, $6, $9, $10, $11
+			 WHERE (SELECT COUNT(*) FILTER (WHERE kind = $4 AND session_kind = $9)
+			               - COUNT(*) FILTER (WHERE kind = $7 AND session_kind = $9)
 			        FROM alloc_events WHERE stream_id = $2) < $8`,
-			project, streamID, head+1, string(allocator.KindReservationGranted), reservationID, data,
-			string(allocator.KindReservationReleased), budget)
+			req.Project, streamID, head+1, string(allocator.KindReservationGranted), req.ReservationID, data,
+			string(allocator.KindReservationReleased), budget, kind, req.Name, req.Owner)
 		if err != nil {
 			if isUniqueViolation(err) {
 				continue // lost the revision race — re-read head and re-evaluate budget
@@ -146,7 +189,7 @@ func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (b
 }
 
 // Outstanding returns the live reservation count for a (project, role) stream —
-// granted minus released. This is the ledger fold the cap will use once the
+// granted minus released, across all session kinds. This is the ledger fold the cap will use once the
 // cutover (Slice 4) makes the store authoritative.
 func (s *Store) Outstanding(ctx context.Context, project, role string) (int, error) {
 	streamID := project + "/" + role
@@ -168,10 +211,14 @@ func (s *Store) Outstanding(ctx context.Context, project, role string) (int, err
 // swept). Reservation ids recur across dispatch cycles, so this is a net count,
 // not a "has no released row" test: a reservation released then re-granted is
 // outstanding again. Category is the project and stream_id is "project/role", so
-// the role is stream_id with the "category/" prefix trimmed.
+// the role is stream_id with the "category/" prefix trimmed. Each reservation's
+// session kind, name, and owner come from its latest grant.
 func (s *Store) OutstandingReservations(ctx context.Context, olderThan time.Time) ([]allocator.Reservation, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT category, stream_id, reservation_id
+		`SELECT category, stream_id, reservation_id,
+		        (array_agg(session_kind  ORDER BY stream_revision DESC) FILTER (WHERE kind = $1))[1],
+		        (array_agg(session_name  ORDER BY stream_revision DESC) FILTER (WHERE kind = $1))[1],
+		        (array_agg(session_owner ORDER BY stream_revision DESC) FILTER (WHERE kind = $1))[1]
 		 FROM alloc_events
 		 GROUP BY category, stream_id, reservation_id
 		 HAVING COUNT(*) FILTER (WHERE kind = $1) > COUNT(*) FILTER (WHERE kind = $2)
@@ -183,14 +230,17 @@ func (s *Store) OutstandingReservations(ctx context.Context, olderThan time.Time
 	defer rows.Close()
 	var out []allocator.Reservation
 	for rows.Next() {
-		var category, streamID, resID string
-		if err := rows.Scan(&category, &streamID, &resID); err != nil {
+		var category, streamID, resID, kind, name, owner string
+		if err := rows.Scan(&category, &streamID, &resID, &kind, &name, &owner); err != nil {
 			return nil, err
 		}
 		out = append(out, allocator.Reservation{
 			Project:       category,
 			Role:          strings.TrimPrefix(streamID, category+"/"),
 			ReservationID: resID,
+			SessionKind:   allocator.SessionKind(kind),
+			Name:          name,
+			Owner:         owner,
 		})
 	}
 	return out, rows.Err()
