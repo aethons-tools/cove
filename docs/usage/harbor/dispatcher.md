@@ -4,7 +4,7 @@ read_when: You are enabling or operating harbor's automatic intake — having it
 owns: the operator-facing resident-dispatcher story — the poll→claim→raise flow, the `runtime.dispatcher` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed cove does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised cove needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-26
 ---
 
 # The resident dispatcher
@@ -24,10 +24,13 @@ raise (run → report → teardown).
    alone. Presence-only — the value after the prefix is unused.
 3. **Dedup** — skip any issue that already has a live Instance in the registry
    (its cove is `cove-<identifier>`), so a ticket is never raised twice.
-4. **Cap** — stop raising once the number of live Instances reaches
-   `max-concurrent`; the rest wait for the next poll. The count is read from the
-   **durable Instance registry** each pass, so the cap holds across a harbor
-   restart (and is the hook for a future multi-instance dispatcher).
+4. **Cap** — ask harbor's Allocator for an ephemeral reservation; stop raising
+   once it denies (the role's ephemeral cap is reached); the rest wait for the
+   next poll. The cap is the role's roster `max-ephemeral`
+   ([roster.md](roster.md#roles)), falling back to `max-concurrent` when the role
+   sets none. The count is durable (the Postgres allocation ledger, else the
+   Instance registry — see [serve.md](serve.md)), so the cap holds across a
+   harbor restart.
 5. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
@@ -56,7 +59,7 @@ runtime:
   dispatcher:
     role: worker              # required — role raised coves get (must grant anthropic + git)
     project: acme             # optional
-    max-concurrent: 5         # required, > 0 — the backpressure cap
+    max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
     tracker-token:            # harbor's own secret to call the tracker API (never injected into a cove)
       command: ["op", "read", "op://harbor/linear/token"]

@@ -1216,7 +1216,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
 		// The Allocator is harbor's capacity authority: it admits raises for the
-		// configured (project, role) against a budget seeded from max-concurrent. With
+		// configured (project, role) against its ephemeral cap (see policy below). With
 		// Postgres the cap is the authoritative ledger (per-(project, role) Outstanding);
 		// with the file store it is the global registry count (see internal/allocator).
 		// Normalize the project once so grants and releases land on the same
@@ -1229,7 +1229,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if project == "" {
 			project = harbor.DefaultProject
 		}
-		policy := allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
+		// The ephemeral cap is per-(project, role) policy authored on the roster Role
+		// (`role add --max-ephemeral`), read live on each grant; the dispatcher's
+		// max-concurrent is the fallback for its own (project, role) when the Role
+		// sets none (session-kinds slice 1).
+		policy := rosterPolicy{
+			store:    st,
+			fallback: allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}},
+		}
+		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
+			log.Info("harbor allocator: roster max-ephemeral overrides dispatcher max-concurrent",
+				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
+		}
 		// Ledger cutover (slice 4): with Postgres the allocation event store is the
 		// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-budget)
 		// scoped per-(project, role) Outstanding, and teardown/compensation release the
