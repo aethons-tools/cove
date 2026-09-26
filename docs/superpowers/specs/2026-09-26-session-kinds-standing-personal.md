@@ -57,9 +57,13 @@ holding `engineer` in `acme` *may request* up to 2 personal `worker` sessions.
 
 **Where it lives:** the policy is administration, so — exactly like the budget
 decision in the orchestration design — the **roster/control-plane store is the
-source of truth**, and the Allocator **observes** it onto its ledger for atomic
-enforcement. Capacity tolerates eventual consistency; the *type* grant is
-authorization and is checked live, never merely observed.
+source of truth**, as fields on the `(project, role)` Role. The Allocator reads it
+**live from the memory-cached store on each grant** and passes the cap into the
+ledger's single atomic grant insert. (This refines the orchestration design's
+"materialize the budget onto the ledger": since the cap is a parameter of the
+atomic insert, a live read gives the same eventual consistency with no extra
+event.) Capacity tolerates eventual consistency; the *type* grant is
+authorization and is checked live as well.
 
 ## Personal sessions (the immediate need)
 
