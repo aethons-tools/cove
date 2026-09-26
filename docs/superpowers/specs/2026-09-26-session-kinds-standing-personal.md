@@ -121,13 +121,15 @@ budget, and not owned. Personal sessions put that under the Allocator.
   intercom reply routing.
 - The warm/assignable reuse kind (still deferred from the orchestration design).
 
-## Open question (resolve in the plan)
+## Resolved: what "idle" means for a personal session
 
-- **What "idle" means for a human-driven session.** Ephemeral sessions report
-  Activity (`running`/`waiting`) from their agent loop; a personal session is driven
-  by a human who may attach, work, and walk away. Candidate definition: no
-  `running` Activity **and** no attached human connection for `idle-after`. Pin
-  this down against what the Attach stream actually observes.
+Personal sessions are conversations over the intercom (see the decisions below),
+so there is no attached human to observe. A personal session is **idle while it is
+Waiting on its owner**, measured from `Instance.WaitingSince`, which resets each
+time the owner replies and the cove runs another turn. The idle ladder (Slice 4)
+runs in the wake-on engine rather than the escalation engine, because escalation
+delivers through tracker tickets and personal sessions have none. Nags are sent as
+the cove, so replying to one wakes the session.
 
 ## Personal-session decisions (from Slice 2 review)
 
