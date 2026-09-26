@@ -57,6 +57,8 @@ runtime:                            # optional — supervisor lease/reconcile ti
     known-hosts-dir: /var/lib/harbor/known_hosts.d
     dns: []
     docker: false
+  wake:                             # optional — wake-on engine timing (see intercom.md)
+    wait-max: 24h
 ```
 
 The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and the
@@ -75,14 +77,15 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
-| `intercom-log` | no | Filesystem path to harbor's durable squawk Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
+| `intercom-log` | no | Filesystem path to harbor's durable squawk Log (JSONL). With a Log (file or `store-postgres`), harbor runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a dispatcher; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
 | `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no dispatcher needed. Polls every project whose chat service is `discord`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.dispatcher` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store backend (`store-postgres`)
 
