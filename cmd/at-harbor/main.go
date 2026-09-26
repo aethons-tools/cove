@@ -1341,7 +1341,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
 	// in the message Log addressed to them, pauses them past the warm-timeout,
-	// and tears down non-personal ones past wait-max. Resident for the lifetime
+	// tears down non-personal ones past wait-max, and runs the personal-session
+	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
 	// of the process. Settings: runtime.wake > runtime.dispatcher > defaults.
 	if intercomLog != nil || dc != nil {
 		// Pass intercomLog as the Inbox only when it's genuinely non-nil (a plain
@@ -1354,6 +1355,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		wcfg := cfg.wakeSettings()
 		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)
+		// Personal-session idle ladder: nag the owner past the role's idle-after
+		// (squawks sent as the cove, delivered by the relay), optionally reclaim
+		// past reclaim-after. No intercom log → no nags, reclaim still runs.
+		var nagger wakeon.Nagger
+		if intercomLog != nil {
+			nagger = intercomNagger{log: intercomLog}
+		}
+		eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 		go eng.Run(context.Background())
 		log.Info("harbor wake-on engine: resident", "wait-max", wcfg.MaxWait)
 	}
