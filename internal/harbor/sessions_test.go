@@ -50,8 +50,9 @@ type sessionKit struct {
 }
 
 // newSessionKit builds an admin handler over a FileStore with an acme/pair role,
-// two linked roster humans (alice ↔ auth0|alice, bob ↔ auth0|bob) and one
-// unlinked human (carol), a fake launcher-backed Supervisor, and a granting
+// a discord chat service, two linked roster humans with discord delivery
+// profiles (alice ↔ auth0|alice, bob ↔ auth0|bob), one unlinked human (carol),
+// one linked human with no discord profile (dave ↔ auth0|dave), a fake launcher-backed Supervisor, and a granting
 // fake allocator. Requests are authenticated as *op (initially alice).
 func newSessionKit(t *testing.T) *sessionKit {
 	t.Helper()
@@ -62,10 +63,19 @@ func newSessionKit(t *testing.T) *sessionKit {
 	if err := store.PutRole("acme", Role{Name: "pair", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, h := range []Human{{Name: "alice", Handle: "@alice", Login: "auth0|alice"}, {Name: "bob", Handle: "@bob", Login: "auth0|bob"}, {Name: "carol", Handle: "@carol"}} {
+	discord := func(inbox string) []DeliveryProfile { return []DeliveryProfile{{Service: "discord", Address: inbox}} }
+	for _, h := range []Human{
+		{Name: "alice", Handle: "@alice", Login: "auth0|alice", Delivery: discord("111")},
+		{Name: "bob", Handle: "@bob", Login: "auth0|bob", Delivery: discord("222")},
+		{Name: "carol", Handle: "@carol"},
+		{Name: "dave", Handle: "@dave", Login: "auth0|dave"}, // linked, but no discord delivery profile
+	} {
 		if err := store.AddHuman("acme", h); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := store.SetChatService("acme", "discord"); err != nil {
+		t.Fatal(err)
 	}
 	l := &fakeLauncher{liveness: LivenessAlive}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -101,7 +111,7 @@ func TestPersonalSessionRequest_LinkedHuman(t *testing.T) {
 	if want := "acme/pair/" + res.ID + "/alice"; len(k.alloc.grants) != 1 || k.alloc.grants[0] != want {
 		t.Fatalf("grants = %v, want [%s]", k.alloc.grants, want)
 	}
-	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || s.Prompt != "help me" || s.Project != "acme" || s.Role != "pair" {
+	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || !strings.HasSuffix(s.Prompt, "\nhelp me") || s.Project != "acme" || s.Role != "pair" {
 		t.Fatalf("raise spec = %+v", s)
 	}
 	inst, ok := k.store.GetInstance(res.ID)
@@ -277,5 +287,52 @@ func TestPersonalSessionID_SanitizesOwner(t *testing.T) {
 	b, _ := personalSessionID("alice")
 	if a == b {
 		t.Fatalf("two ids for the same owner collided: %q", a)
+	}
+}
+
+// A personal session is delivered over Discord, so a project whose chat service
+// isn't discord is refused at request time — before any grant.
+func TestPersonalSessionRequest_NonDiscordProject400(t *testing.T) {
+	k := newSessionKit(t)
+	if err := k.store.SetChatService("acme", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, code, body := k.request(t)
+	if code != http.StatusBadRequest || !strings.Contains(body, "chat service") || !strings.Contains(body, "chat-service set") {
+		t.Fatalf("non-discord project = %d %q, want 400 naming the chat-service fix", code, body)
+	}
+	if len(k.alloc.grants) != 0 || len(k.launcher.raised) != 0 {
+		t.Fatalf("must neither grant nor raise: grants=%v raised=%v", k.alloc.grants, k.launcher.raised)
+	}
+}
+
+// An owner with no discord delivery profile can't be messaged: 400, no grant.
+func TestPersonalSessionRequest_OwnerWithoutDiscordProfile400(t *testing.T) {
+	k := newSessionKit(t)
+	*k.op = "auth0|dave"
+	_, code, body := k.request(t)
+	if code != http.StatusBadRequest || !strings.Contains(body, "dave has no discord delivery profile") || !strings.Contains(body, "--delivery discord:") {
+		t.Fatalf("no discord profile = %d %q, want 400 naming the --delivery fix", code, body)
+	}
+	if len(k.alloc.grants) != 0 || len(k.launcher.raised) != 0 {
+		t.Fatalf("must neither grant nor raise: grants=%v raised=%v", k.alloc.grants, k.launcher.raised)
+	}
+}
+
+// The raised prompt starts with the personal-session preamble (naming the
+// owner and the intercom flow) followed by the owner's own prompt.
+func TestPersonalSessionRequest_PromptPreamble(t *testing.T) {
+	k := newSessionKit(t)
+	if _, code, body := k.request(t); code != http.StatusCreated {
+		t.Fatalf("request = %d %s", code, body)
+	}
+	p := k.launcher.gotSpec.Prompt
+	if !strings.HasPrefix(p, "You are a personal session for alice.") {
+		t.Fatalf("prompt does not start with the preamble: %q", p)
+	}
+	for _, want := range []string{"intercom `send` tool (omit `to`)", "until alice releases it", "\n---\nhelp me"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt missing %q: %q", want, p)
+		}
 	}
 }

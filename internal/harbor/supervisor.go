@@ -141,7 +141,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if spec.ActorID == "" {
 		return Instance{}, "", "", fmt.Errorf("actor id is required")
 	}
-	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, nil, s.now())
+	// A personal session's cove may message its owner and nobody else: the
+	// override REPLACES the role's addressing (least privilege).
+	var ov *Override
+	if spec.Owner != "" {
+		ov = &Override{Addressing: []string{"human:" + spec.Owner}}
+	}
+	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, ov, s.now())
 	if err != nil {
 		return Instance{}, "", "", err
 	}

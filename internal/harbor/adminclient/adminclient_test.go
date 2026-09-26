@@ -523,7 +523,12 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local"}); err != nil {
+	// A personal session is delivered over Discord: the project's chat service
+	// and the owner's delivery profile must both be set.
+	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatService("acme", "discord"); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

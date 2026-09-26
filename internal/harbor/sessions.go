@@ -87,6 +87,14 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 			http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, b.Role), http.StatusBadRequest)
 			return
 		}
+		// A personal session talks to its owner over the intercom, and a
+		// ticketless cove's messages can only be delivered via Discord (the
+		// Linear fallback needs a ticket): fail now, before any grant, rather
+		// than silently later.
+		if msg := personalDeliveryProblem(store, project, human); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
+			return
+		}
 		id, err := personalSessionID(human.Name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -106,7 +114,7 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 			return
 		}
 		inst, _, _, err := sup.Raise(r.Context(), RaiseSpec{
-			ActorID: id, Project: project, Role: b.Role, Prompt: b.Prompt,
+			ActorID: id, Project: project, Role: b.Role, Prompt: personalPrompt(human.Name, b.Prompt),
 			Owner: human.Name, SessionKind: SessionKindPersonal,
 		})
 		if err != nil {
@@ -166,6 +174,32 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 		log.Info("admin personal session released", "operator", OperatorID(r), "id", id, "owner", inst.Owner)
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// personalDeliveryProblem returns why the owner of a personal session in
+// project could not be messaged — the project's chat service isn't discord, or
+// the owner has no discord delivery profile — with the command that fixes it;
+// "" when delivery is possible.
+func personalDeliveryProblem(store Store, project string, owner Human) string {
+	p, _ := store.GetProject(project)
+	if p.ChatService != "discord" {
+		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-harbor project chat-service set --project %s --service discord)", project, project)
+	}
+	if _, ok := owner.DeliveryFor("discord"); !ok {
+		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-harbor project roster add-human %s --name %s --handle %s --login %s --delivery discord:<inbox-channel>)",
+			owner.Name, project, project, owner.Name, owner.Handle, owner.Login)
+	}
+	return ""
+}
+
+// personalPrompt prefixes the owner's prompt with a preamble telling the agent
+// how a personal session works: it reports to its owner over the intercom and
+// is resumed with their reply, until they release it.
+func personalPrompt(owner, prompt string) string {
+	return fmt.Sprintf("You are a personal session for %[1]s. Work on the request below. When you have results or need\n"+
+		"input, message %[1]s with the intercom `send` tool (omit `to`); they will reply, and you will\n"+
+		"be resumed with their reply available via `read`. This session stays open until %[1]s releases it.\n"+
+		"---\n%[2]s", owner, prompt)
 }
 
 // personalSessionID mints a personal session's actor/reservation id:

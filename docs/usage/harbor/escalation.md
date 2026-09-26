@@ -4,7 +4,7 @@ read_when: You want a raised cove's Waiting state to actively nudge humans inste
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-harbor project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
-updated: 2026-09-14
+updated: 2026-09-26
 ---
 
 # Escalation (human tiers)
@@ -15,7 +15,9 @@ A **Project** opts in with an ordered **escalation policy**: tiers of humans, ea
 with a timeout. The engine pings tier 0 the moment a cove starts waiting, and
 escalates to the next tier if nobody answers in time. It is opt-in — a Project
 with no policy behaves exactly as before (see
-[intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
+[intercom.md](intercom.md#waiting-for-a-reply-wake-on)). Pings land on the cove's own ticket, so the
+engine skips a cove with **no ticket** — e.g. a [personal session](personal-sessions.md),
+which waits on its owner instead.
 
 ## The policy: ordered tiers + per-tier timeout
 

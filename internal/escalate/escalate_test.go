@@ -313,3 +313,19 @@ var errIssueLookup = &testError{"issue lookup failed"}
 type testError struct{ msg string }
 
 func (e *testError) Error() string { return e.msg }
+
+// TestIgnoresTicketlessCove: a Waiting cove with no Unit (a personal session)
+// has no ticket to escalate on — no ping, no state change.
+func TestIgnoresTicketlessCove(t *testing.T) {
+	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: harbor.SessionKindPersonal, Activity: harbor.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
+		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.tick(context.Background())
+	if st.called || pg.called {
+		t.Fatalf("ticketless cove must not escalate; state=%v ping=%v", st.called, pg.called)
+	}
+}

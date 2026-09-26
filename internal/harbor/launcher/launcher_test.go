@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +153,31 @@ func TestProbeMapsState(t *testing.T) {
 		got, _ := newLauncher(ops).Probe(context.Background(), harbor.Instance{Location: "x"})
 		if got != c.want {
 			t.Fatalf("state %v err %v → %v, want %v", c.st, c.err, got, c.want)
+		}
+	}
+}
+
+// TestRaisePersonalIsResident: the launcher asks cove-master for resident mode
+// (AT_COVE_RESIDENT=1) only for a personal session.
+func TestRaisePersonalIsResident(t *testing.T) {
+	for kind, want := range map[string]bool{"": false, "ephemeral": false, harbor.SessionKindPersonal: true} {
+		ops := &fakeOps{}
+		r := &runner.Fake{}
+		l := New(Config{
+			Ops: ops, Runner: r, Image: "img", HarborHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+			sleep: func(time.Duration) {},
+		})
+		if _, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Prompt: "go", SessionKind: kind}, harbor.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+			t.Fatal(err)
+		}
+		got := false
+		for _, c := range r.Calls {
+			if strings.Contains(c.Stdin, "AT_COVE_RESIDENT=1") {
+				got = true
+			}
+		}
+		if got != want {
+			t.Fatalf("kind %q: AT_COVE_RESIDENT set = %v, want %v", kind, got, want)
 		}
 	}
 }

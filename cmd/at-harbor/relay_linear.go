@@ -104,10 +104,14 @@ type instanceRoster interface {
 	ListInstances() []harbor.Instance
 	GetRoster(project string) (harbor.Roster, bool)
 	GetProject(name string) (harbor.Project, bool)
+	ListProjects() []string
 }
 
-// directory is the concrete relay.Directory mapping the Linear feed into
-// the actor model, over harbor.Store (narrowed to instanceRoster).
+// directory is the concrete relay.Directory mapping the Linear feed and
+// Discord replies into the actor model, over harbor.Store (narrowed to
+// instanceRoster). project and selfIdentity are the dispatcher's (Linear
+// routing only runs with a dispatcher); both are "" without one, and the
+// Discord path needs neither.
 type directory struct {
 	store        instanceRoster
 	project      string
@@ -115,7 +119,28 @@ type directory struct {
 	receipts     *fileReceipts // discord-msg-id → actorID (nil when discord unconfigured; routeLinear never touches it)
 }
 
-func (d *directory) Projects(service string) []string { return []string{d.project} }
+// Projects lists the projects a relay engine polls. Discord covers every store
+// project whose chat service is discord — personal sessions live in any such
+// project, with or without a dispatcher — plus the dispatcher's project (whose
+// roster discord channels were always polled). Linear keeps the dispatcher's
+// single project.
+func (d *directory) Projects(service string) []string {
+	if service != "discord" {
+		return []string{d.project}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range d.store.ListProjects() {
+		if p, ok := d.store.GetProject(name); ok && p.ChatService == "discord" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	if d.project != "" && !seen[d.project] {
+		out = append(out, d.project)
+	}
+	return out
+}
 
 // Route dispatches to the service-appropriate routing logic: discord replies
 // route via the receipt store (routeDiscord); everything else preserves the

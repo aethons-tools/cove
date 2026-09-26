@@ -70,6 +70,13 @@ runtime:
       states: { ready: "Ready", in-progress: "In Progress", in-review: "In Review", done: "Done", needs-input: "Needs Input", blocked: "Blocked" }
 ```
 
+The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
+wake-on engine) and `escalation-poll-interval` (the escalation engine). The three wake
+fields are now a **fallback**: the matching `runtime.wake` field wins when set — see
+[intercom.md](intercom.md#waiting-for-a-reply-wake-on). The dispatcher also brings the
+escalation engine and the Linear relay, both of which need its tracker; the intercom
+itself (`/squawks`, wake-on, the Discord relay) runs without a dispatcher.
+
 The role must grant the `anthropic` and `git` destinations so the raised cove's
 agent can reach them ([roster.md](roster.md)).
 

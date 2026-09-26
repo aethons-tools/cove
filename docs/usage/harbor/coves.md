@@ -134,6 +134,7 @@ AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
 AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
+AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal sessions only)
 ```
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
@@ -154,14 +155,23 @@ tools. On a present config it proceeds:
   [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
 - `error` / no result → `done` with the failure logged.
 
+(Resident mode, below, replaces all three outcomes with a wait.)
+
 A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while the agent is still
 running is held (at most one), so the next `needs-input` wait resumes at once;
 further wakes are dropped.
 
-> **Still deferred:** a long-lived agent with no `MaxWait` that keeps waiting for
-> new input between turns (the personal-session conversation loop), and
-> cove-master becoming the image entrypoint under its own non-root account
+**Resident mode (personal sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
+sets only for a [personal session](personal-sessions.md) — the agent never ends on its
+own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the
+client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
+— there is no `MaxWait`. A wake resumes the agent with `claude --continue` and a prompt
+to `read` its owner's reply and carry on. The session ends only when a teardown (the
+owner's release) cancels the run. Harbor's wake-on engine never tears a personal
+session down for waiting.
+
+> **Still deferred:** cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).
 
 Design rationale (the package boundary, the Workload seam, the reconnect model,
