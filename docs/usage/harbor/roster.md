@@ -1,7 +1,7 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a cove at the broker.
 read_when: You are deciding who can reach what on a harbor — defining roles, granting them to actors, enrolling a cove, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral` allocation policy), and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
 updated: 2026-09-26
@@ -39,6 +39,8 @@ at-harbor role add --project acme --name guest \
   --destinations anthropic,git --repos 'aethons-tools/*' --ttl 24h
 at-harbor role add --project acme --name reviewer --destinations anthropic --kit review-kit
 at-harbor role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
+at-harbor role add --project acme --name pair --destinations anthropic,git \
+  --max-personal 3 --max-personal-per-owner 1
 at-harbor role list [--project acme]
 at-harbor role rm   [--project acme] guest
 ```
@@ -60,6 +62,12 @@ at-harbor role rm   [--project acme] guest
   restart. `0` (the default) = unset — the dispatcher's `max-concurrent` applies
   as the fallback ([dispatcher.md](dispatcher.md#config-runtimedispatcher)).
   `role list` shows it as `max-ephemeral=N`.
+- `--max-personal N` caps the role's concurrent **personal sessions** across all
+  owners (the pool). `--max-personal-per-owner M` caps one owner's share (`0` =
+  the pool cap only). `0` for `--max-personal` (the default) means the role
+  admits no personal sessions. Both are read live, like `--max-ephemeral`.
+  `role list` shows them as `max-personal=N` and `max-personal-per-owner=M`. What
+  a personal session is: [personal-sessions.md](personal-sessions.md).
 - Editing a role re-scopes every actor granted it on the next request (live).
 
 ## Grants

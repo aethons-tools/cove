@@ -129,8 +129,9 @@ Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
 
 **The allocation event store follows the store backend too, and with
-`store-postgres` it is now AUTHORITATIVE for the cap.** With `store-postgres`, the
-dispatcher's Allocator (harbor's capacity authority) admits each raise through an
+`store-postgres` it is now AUTHORITATIVE for the cap.** Harbor always runs an
+Allocator (its capacity authority), with or without a dispatcher. With
+`store-postgres`, it admits each raise through an
 **atomic optimistic-concurrency grant** on an allocation event store on the same
 database and pool (its `alloc_events` table is auto-created): a single conditional
 append that writes a `reservation_granted` *iff* the stream's outstanding count
@@ -157,10 +158,15 @@ Each reservation event also records its **session kind** (`session_kind`, plus a
 standing session's name and a personal session's owner), and the grant counts
 outstanding reservations **of the requested kind only**, so kinds never consume
 each other's capacity; a release inherits the kind of the reservation's latest
-grant. Only `ephemeral` (dispatcher) sessions exist today — pre-existing rows are
-tagged `ephemeral` — and the reconcile sweep releases only ephemeral
+grant. Two kinds are admitted today: `ephemeral` (dispatcher) sessions, and
+`personal` sessions ([personal-sessions.md](personal-sessions.md)). Pre-existing
+rows are tagged `ephemeral`, and the reconcile sweep releases only ephemeral
 reservations. The ephemeral budget is the role's roster `max-ephemeral`, falling
-back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)).
+back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)). A
+personal grant checks two caps in the same atomic append: the role's
+`max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
+Personal sessions **require** `store-postgres`: the file backend has no
+fallback for them.
 
 ### The launcher (`runtime.launcher`)
 

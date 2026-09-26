@@ -4,7 +4,7 @@ read_when: You are running or administering a harbor service — standing it up,
 owns: the map of the at-harbor operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
 tier: section
-updated: 2026-09-15
+updated: 2026-09-26
 ---
 
 # `at-harbor` — operating the central service
@@ -36,6 +36,7 @@ five pillars), see the design history:
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice. |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
 | [coves.md](coves.md) | You are raising/tearing down a managed cove, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (cove-master). |
+| [personal-sessions.md](personal-sessions.md) | You (a human operator) want your own session of a role: linking your login to the roster, the role's personal caps, `session request\|list\|release`, and why it needs `store-postgres`. |
 | [dispatcher.md](dispatcher.md) | You are enabling harbor's always-on intake — polling a tracker (Linear) and raising a managed cove per ready ticket — or tuning its concurrency cap / poll interval. |
 | [ui.md](ui.md) | You want to watch a running harbor in a browser — the live coves and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), edit kits/destinations, or raise/tear down a managed cove, from the browser instead of the CLI. |
 | [intercom.md](intercom.md) | You want a raised cove's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `cove-master mcp` delivery. |
@@ -53,7 +54,7 @@ five pillars), see the design history:
    registry ([coves.md](coves.md)).
 
 Every admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
-`revoke`, `kit`, `cove`) is a thin client of the running harbor's admin API: it takes
+`revoke`, `kit`, `cove`, `session`) is a thin client of the running harbor's admin API: it takes
 `--app`/`--admin-url` to pick the target and `--token` (or a cached login) to
 authenticate. That client story lives in [operators.md](operators.md); the
 per-verb detail lives in the three admin docs above.
