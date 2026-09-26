@@ -3,6 +3,7 @@ package harbor
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func newFileStoreT(t *testing.T) *FileStore {
@@ -63,5 +64,18 @@ func TestHumanByLogin(t *testing.T) {
 	}
 	if _, ok := HumanByLogin(store, "other", "auth0|abc"); ok {
 		t.Fatal("a login links a human only within its own project")
+	}
+}
+
+// PersonalIdle applies the idle-ladder defaults for unset (zero) settings:
+// idle-after 4h, nag-every 24h, reclaim-after never (0).
+func TestRoleAllocationPersonalIdleDefaults(t *testing.T) {
+	idle, nag, reclaim := RoleAllocation{}.PersonalIdle()
+	if idle != 4*time.Hour || nag != 24*time.Hour || reclaim != 0 {
+		t.Fatalf("defaults = %v, %v, %v; want 4h, 24h, 0", idle, nag, reclaim)
+	}
+	idle, nag, reclaim = RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}.PersonalIdle()
+	if idle != time.Hour || nag != 2*time.Hour || reclaim != 72*time.Hour {
+		t.Fatalf("set = %v, %v, %v; want 1h, 2h, 72h", idle, nag, reclaim)
 	}
 }

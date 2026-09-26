@@ -316,6 +316,33 @@ func TestProjectRosterCommands(t *testing.T) {
 	if !strings.Contains(out.String(), "max-personal=3\tmax-personal-per-owner=1") {
 		t.Fatalf("role list output missing personal caps:\n%s", out.String())
 	}
+	// role add --idle-after / --nag-every / --reclaim-after set the idle ladder
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "idler", "--idle-after", "1h", "--nag-every", "2h", "--reclaim-after", "72h",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --idle-after: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, ok := store.GetRole("acme", "idler"); !ok || r.Allocation.IdleAfter != time.Hour || r.Allocation.NagEvery != 2*time.Hour || r.Allocation.ReclaimAfter != 72*time.Hour {
+		t.Fatalf("stored role = %+v,%v", r, ok)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "idle-after=1h0m0s\tnag-every=2h0m0s\treclaim-after=72h0m0s") {
+		t.Fatalf("role list output missing idle settings:\n%s", out.String())
+	}
+	for _, flagName := range []string{"--idle-after", "--nag-every", "--reclaim-after"} {
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1h"}, getenv, &out, &errb); code != 2 {
+			t.Fatalf("role add %s -1h: exit=%d, want 2", flagName, code)
+		}
+	}
 	for _, flagName := range []string{"--max-personal", "--max-personal-per-owner"} {
 		out.Reset()
 		errb.Reset()

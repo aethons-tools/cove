@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminui"
@@ -126,7 +127,7 @@ func TestRevokeActor(t *testing.T) {
 // rather than resetting it to zero.
 func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	store := newStore(t)
-	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
@@ -139,7 +140,7 @@ func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("role acme/worker missing after edit")
 	}
-	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}); got.Allocation != want {
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); got.Allocation != want {
 		t.Fatalf("allocation after UI edit = %+v, want %+v (kept)", got.Allocation, want)
 	}
 	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {

@@ -374,6 +374,9 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (dispatcher) sessions (0 = unset: the dispatcher's max-concurrent applies)")
 	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
 	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
+	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
+	nagEvery := fs.Duration("nag-every", 0, "then re-nag the owner this often (0 = default 24h)")
+	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -394,10 +397,17 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
 			return 2
 		}
+		if *idleAfter < 0 || *nagEvery < 0 || *reclaimAfter < 0 {
+			fmt.Fprintln(stderr, "at-harbor role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
+			return 2
+		}
 		r := harbor.Role{
 			Name: *name, Kit: *kitName,
-			Scope:      harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
-			Allocation: harbor.RoleAllocation{MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner},
+			Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Allocation: harbor.RoleAllocation{
+				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
+				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
+			},
 		}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
@@ -411,7 +421,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter)
 		}
 	case "rm":
 		if len(pos) != 1 {

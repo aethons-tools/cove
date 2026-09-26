@@ -247,7 +247,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
 	}
 	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
-	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
+	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err = c.ListRoles("acme")
@@ -260,7 +260,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 			alloc = r.Allocation
 		}
 	}
-	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}); alloc != want {
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); alloc != want {
 		t.Fatalf("role allocation = %+v, want %+v; roles=%+v", alloc, want, roles)
 	}
 }

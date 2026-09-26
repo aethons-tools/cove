@@ -23,8 +23,8 @@ type Scope struct {
 }
 
 // RoleAllocation is a role's allocation policy: authored on the roster, read live
-// by harbor's Allocator on each grant. Later slices add the standing session
-// set, idle settings, and requester grants.
+// by harbor's Allocator on each grant, and by wake-on's personal-session idle
+// ladder. Later slices add the standing session set and requester grants.
 type RoleAllocation struct {
 	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
 	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
@@ -35,6 +35,35 @@ type RoleAllocation struct {
 	// MaxPersonalPerOwner caps one owner's concurrent personal sessions of this
 	// role; 0 = the pool cap only.
 	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
+	// IdleAfter is how long a personal session may wait on its owner before
+	// harbor first nags them; 0 = the default (DefaultIdleAfter).
+	IdleAfter time.Duration `json:"idle_after,omitempty"`
+	// NagEvery is how often harbor re-nags the owner after the first nag;
+	// 0 = the default (DefaultNagEvery).
+	NagEvery time.Duration `json:"nag_every,omitempty"`
+	// ReclaimAfter is how long a personal session may wait on its owner before
+	// harbor reclaims it; 0 = never.
+	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
+}
+
+// The personal-session idle-ladder defaults for unset settings.
+const (
+	DefaultIdleAfter = 4 * time.Hour
+	DefaultNagEvery  = 24 * time.Hour
+)
+
+// PersonalIdle returns the role's personal-session idle ladder with defaults
+// applied: idle-after (DefaultIdleAfter when unset), nag-every
+// (DefaultNagEvery when unset), and reclaim-after (0 = never reclaim).
+func (a RoleAllocation) PersonalIdle() (idleAfter, nagEvery, reclaimAfter time.Duration) {
+	idleAfter, nagEvery = a.IdleAfter, a.NagEvery
+	if idleAfter <= 0 {
+		idleAfter = DefaultIdleAfter
+	}
+	if nagEvery <= 0 {
+		nagEvery = DefaultNagEvery
+	}
+	return idleAfter, nagEvery, max(a.ReclaimAfter, 0)
 }
 
 // Role is a named, reusable security class within a project.
