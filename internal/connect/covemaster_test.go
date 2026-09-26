@@ -74,3 +74,27 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 		t.Fatalf("no detached cove-master launch; calls=%+v", fake.Calls)
 	}
 }
+
+// TestLaunchCoveMasterResident: AT_COVE_RESIDENT=1 is exported only when the
+// options ask for a resident (personal-session) cove.
+func TestLaunchCoveMasterResident(t *testing.T) {
+	for _, resident := range []bool{false, true} {
+		fake := &runner.Fake{}
+		err := LaunchCoveMaster(fake, CoveMasterOptions{
+			Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, HarborHost: "hh", RuntimeAddr: "hh:443",
+			IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", Resident: resident,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var env string
+		for _, c := range fake.Calls {
+			if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+coveMasterEnvVMPath) {
+				env = c.Stdin
+			}
+		}
+		if got := strings.Contains(env, "export AT_COVE_RESIDENT=1\n"); got != resident {
+			t.Fatalf("resident=%v: env exports AT_COVE_RESIDENT=%v; env:\n%s", resident, got, env)
+		}
+	}
+}

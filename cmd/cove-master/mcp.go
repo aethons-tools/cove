@@ -47,8 +47,8 @@ type squawkOut struct {
 
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
-	Text string `json:"text" jsonschema:"the message body to post to the cove's ticket"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to post to this cove's own ticket"`
+	Text string `json:"text" jsonschema:"the message body to post"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to message this cove's default recipient — its ticket, or its owner for a personal session"`
 }
 
 // readIn is the "read" tool's typed input: optional seek parameters.
@@ -294,7 +294,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' for this cove's own ticket; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel.",
+		Description: "Post a message. Omit 'to' to message this cove's default recipient — its ticket, or its owner for a personal session; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
