@@ -1093,3 +1093,68 @@ func TestCommitNilReaderIs503(t *testing.T) {
 type bytesDiscard struct{}
 
 func (bytesDiscard) Write(p []byte) (int, error) { return len(p), nil }
+
+// personalSquawkStore: a personal cove "p1" (owner alice, no ticket) whose
+// grant carries the owner-only addressing override Raise gives it, on a role
+// that could otherwise address any human.
+func personalSquawkStore(unit, owner string) *fakeStore {
+	var ov *Override
+	if owner != "" {
+		ov = &Override{Addressing: []string{"human:" + owner}}
+	}
+	return &fakeStore{
+		actors:    map[string]Actor{HashToken("tok-P"): {ID: "p1", Grants: []Grant{{Project: "acme", Role: "impl", Overrides: ov}}}},
+		instances: map[string]Instance{"p1": {ActorID: "p1", Unit: unit, Project: "acme", Owner: owner}},
+		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}},
+	}
+}
+
+func postSquawk(t *testing.T, store *fakeStore, token, body string) (*httptest.ResponseRecorder, *fakeAppender) {
+	t.Helper()
+	ap := &fakeAppender{}
+	h := NewSquawksHandler(store, nil, ap, slog.New(slog.NewTextHandler(bytesDiscard{}, nil)))
+	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec, ap
+}
+
+// A ticketless personal cove's send with no `to` goes to its owner.
+func TestSendDefaultsToOwnerForTicketlessCove(t *testing.T) {
+	rec, ap := postSquawk(t, personalSquawkStore("", "alice"), "tok-P", `{"body":"done"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ap.got) != 1 || len(ap.got[0].To) != 1 || ap.got[0].To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) {
+		t.Fatalf("appended = %+v; want one message to human:alice", ap.got)
+	}
+}
+
+// The owner-only override refuses a send to any other human.
+func TestPersonalCoveCannotMessageOtherHumans(t *testing.T) {
+	rec, ap := postSquawk(t, personalSquawkStore("", "alice"), "tok-P", `{"body":"x","to":"human:bob"}`)
+	if rec.Code != http.StatusForbidden || len(ap.got) != 0 {
+		t.Fatalf("status = %d appended = %d; want 403 and nothing appended", rec.Code, len(ap.got))
+	}
+}
+
+// A ticketless, ownerless cove has no default recipient: 400, nothing appended.
+func TestSendWithNoDefaultRecipientIs400(t *testing.T) {
+	rec, ap := postSquawk(t, personalSquawkStore("", ""), "tok-P", `{"body":"x"}`)
+	if rec.Code != http.StatusBadRequest || len(ap.got) != 0 {
+		t.Fatalf("status = %d appended = %d; want 400 and nothing appended", rec.Code, len(ap.got))
+	}
+	if !strings.Contains(rec.Body.String(), "no default recipient") {
+		t.Fatalf("body = %q; want a no-default-recipient message", rec.Body.String())
+	}
+}
+
+// A cove with a ticket still defaults to the ticket channel, even with an owner.
+func TestSendDefaultsToTicketWhenUnitSet(t *testing.T) {
+	rec, ap := postSquawk(t, personalSquawkStore("AET-7", ""), "tok-P", `{"body":"x"}`)
+	if rec.Code != http.StatusNoContent || len(ap.got) != 1 || ap.got[0].To[0] != (intercom.Target{Kind: "channel", Ref: "AET-7"}) {
+		t.Fatalf("status = %d appended = %+v; want 204 to channel:AET-7", rec.Code, ap.got)
+	}
+}

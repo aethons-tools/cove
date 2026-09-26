@@ -776,3 +776,27 @@ func TestReconcileSkipsIdledInstance(t *testing.T) {
 		t.Fatalf("phase = %s, want %s (Reconcile must not adopt/change it)", got.Phase, PhaseIdled)
 	}
 }
+
+// A personal raise enrolls the cove with an owner-only addressing override
+// (least privilege: it may message its owner and nobody else); a raise with no
+// owner keeps the role's addressing (no override).
+func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"}); err != nil {
+		t.Fatal(err)
+	}
+	grants := map[string][]Grant{}
+	for _, a := range store.ListActors() {
+		grants[a.ID] = a.Grants
+	}
+	p := grants["p1"]
+	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "human:alice" {
+		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
+	}
+	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
+		t.Fatalf("dispatcher cove grant = %+v; want no override", w)
+	}
+}
