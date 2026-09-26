@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed cove through harbor, inspec
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-26
 ---
 
 # Managed coves (the supervisor)
@@ -146,15 +146,21 @@ the `--mcp-config` file is missing** (a stale image without
 tools. On a present config it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the cove down.
-- `needs-input` → a brief `waiting` is reported, then `done` (the dispatcher
-  decides whether to re-dispatch; lingering-and-waking is a later slice).
+- `needs-input` → the client reports `waiting` and blocks until harbor sends a
+  **wake**. The wake resumes the agent with `claude --continue` and a resume
+  prompt, which starts another turn. If no wake arrives within `MaxWait` (30m by
+  default), the unit ends and reports `done`. Harbor's wake-on engine sends the
+  wake when a reply lands; see
+  [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
 - `error` / no result → `done` with the failure logged.
 
 A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
-`SIGKILL` after a grace period. `wake` is a no-op for a one-shot agent.
+`SIGKILL` after a grace period. A `wake` that arrives while the agent is still
+running is held (at most one), so the next `needs-input` wait resumes at once;
+further wakes are dropped.
 
-> **Still deferred:** a persistent agent that lingers `waiting` and is woken with
-> *new* input (needs the comms-hub input channel), `blocked`/escalation, and
+> **Still deferred:** a long-lived agent with no `MaxWait` that keeps waiting for
+> new input between turns (the personal-session conversation loop), and
 > cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).
 

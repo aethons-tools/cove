@@ -23,12 +23,18 @@ type Scope struct {
 }
 
 // RoleAllocation is a role's allocation policy: authored on the roster, read live
-// by harbor's Allocator on each grant. Later slices add the personal cap, the
-// standing session set, idle settings, and requester grants.
+// by harbor's Allocator on each grant. Later slices add the standing session
+// set, idle settings, and requester grants.
 type RoleAllocation struct {
 	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
 	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
 	MaxEphemeral int `json:"max_ephemeral,omitempty"`
+	// MaxPersonal caps the role's concurrent personal sessions across all owners
+	// (the pool); 0 = no personal sessions of this role.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner caps one owner's concurrent personal sessions of this
+	// role; 0 = the pool cap only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 }
 
 // Role is a named, reusable security class within a project.
@@ -76,9 +82,37 @@ type Actor struct {
 
 // Human is a roster member reachable by @-mention on a tracker thread.
 type Human struct {
-	Name     string            `json:"name"`               // roster-local name, e.g. "alice"
-	Handle   string            `json:"handle"`             // tracker @-mention handle
+	Name   string `json:"name"`   // roster-local name, e.g. "alice"
+	Handle string `json:"handle"` // tracker @-mention handle
+	// Login links the human to their admin operator identity (OperatorID: the
+	// OIDC sub, or "local" on loopback). It is how harbor knows which roster
+	// human is behind an admin request, e.g. to own a personal session. "" =
+	// unlinked. At most one human per project may hold a given login.
+	Login    string            `json:"login,omitempty"`
 	Delivery []DeliveryProfile `json:"delivery,omitempty"` // per-service DM delivery targets
+}
+
+// rosterReader is the slice of Store HumanByLogin reads.
+type rosterReader interface {
+	GetRoster(project string) (Roster, bool)
+}
+
+// HumanByLogin returns the roster Human in project whose Login matches login.
+// The empty login never matches, so an unlinked human is never an owner.
+func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
+	if login == "" {
+		return Human{}, false
+	}
+	rr, ok := store.GetRoster(project)
+	if !ok {
+		return Human{}, false
+	}
+	for _, h := range rr.Humans {
+		if h.Login == login {
+			return h, true
+		}
+	}
+	return Human{}, false
 }
 
 // DeliveryProfile is how a Human receives messages on one non-tracker Service.

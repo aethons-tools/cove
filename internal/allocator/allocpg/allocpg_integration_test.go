@@ -139,7 +139,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	for i, want := range []bool{true, true, false} {
-		got, err := st.Grant(ctx, ephemeral("cove-"+strconv.Itoa(i)), 2)
+		got, err := st.Grant(ctx, ephemeral("cove-"+strconv.Itoa(i)), allocator.Caps{Kind: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +151,7 @@ func TestAllocpg_GrantHonorsBudget(t *testing.T) {
 	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Grant(ctx, ephemeral("cove-after-release"), 2)
+	got, err := st.Grant(ctx, ephemeral("cove-after-release"), allocator.Caps{Kind: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	g := func(id string) {
-		if _, err := st.Grant(ctx, ephemeral(id), 100); err != nil {
+		if _, err := st.Grant(ctx, ephemeral(id), allocator.Caps{Kind: 100}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -213,7 +213,7 @@ func TestAllocpg_OutstandingReservations_NetCountAndAge(t *testing.T) {
 func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.Grant(ctx, ephemeral("fresh"), 100); err != nil {
+	if _, err := st.Grant(ctx, ephemeral("fresh"), allocator.Caps{Kind: 100}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.OutstandingReservations(ctx, time.Now().Add(-time.Hour)) // cutoff an hour ago
@@ -230,7 +230,7 @@ func TestAllocpg_OutstandingReservations_GraceWindowExcludesRecent(t *testing.T)
 func TestAllocpg_GrantAppendsGrantedEvent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	got, err := st.Grant(ctx, ephemeral("cove-AET-7"), 3)
+	got, err := st.Grant(ctx, ephemeral("cove-AET-7"), allocator.Caps{Kind: 3})
 	if err != nil || !got {
 		t.Fatalf("Grant = %v, %v; want true, nil", got, err)
 	}
@@ -274,18 +274,18 @@ func TestAllocpg_Grant_CapsPerSessionKind(t *testing.T) {
 		return allocator.Request{Project: "acme", Role: "worker", ReservationID: id, Kind: k, Owner: "brent"}
 	}
 	for _, id := range []string{"p1", "p2"} {
-		if ok, err := st.Grant(ctx, req(id, allocator.SessionPersonal), 5); err != nil || !ok {
+		if ok, err := st.Grant(ctx, req(id, allocator.SessionPersonal), allocator.Caps{Kind: 5}); err != nil || !ok {
 			t.Fatalf("personal %s: %v,%v", id, ok, err)
 		}
 	}
-	if ok, err := st.Grant(ctx, req("e1", allocator.SessionEphemeral), 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, req("e1", allocator.SessionEphemeral), allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatalf("e1 should grant (personals don't count): %v,%v", ok, err)
 	}
-	if ok, err := st.Grant(ctx, req("e2", allocator.SessionEphemeral), 1); err != nil || ok {
+	if ok, err := st.Grant(ctx, req("e2", allocator.SessionEphemeral), allocator.Caps{Kind: 1}); err != nil || ok {
 		t.Fatalf("e2 should be denied: ephemeral cap 1 reached: %v,%v", ok, err)
 	}
 	// ... while the personal kind still has its own headroom.
-	if ok, err := st.Grant(ctx, req("p3", allocator.SessionPersonal), 3); err != nil || !ok {
+	if ok, err := st.Grant(ctx, req("p3", allocator.SessionPersonal), allocator.Caps{Kind: 3}); err != nil || !ok {
 		t.Fatalf("p3 should grant (2 personal < 3): %v,%v", ok, err)
 	}
 }
@@ -296,7 +296,7 @@ func TestAllocpg_Release_InheritsSessionKind(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	r := allocator.Request{Project: "acme", Role: "worker", ReservationID: "p1", Kind: allocator.SessionPersonal, Owner: "brent"}
-	if ok, err := st.Grant(ctx, r, 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, r, allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased, ReservationID: "p1"}); err != nil {
@@ -311,7 +311,7 @@ func TestAllocpg_Release_InheritsSessionKind(t *testing.T) {
 	if kind != string(allocator.SessionPersonal) || owner != "brent" {
 		t.Fatalf("release recorded kind=%q owner=%q, want personal/brent", kind, owner)
 	}
-	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p2", Kind: allocator.SessionPersonal}, 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p2", Kind: allocator.SessionPersonal}, allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatalf("p2 should grant once p1's personal slot is released: %v,%v", ok, err)
 	}
 }
@@ -321,13 +321,13 @@ func TestAllocpg_Release_InheritsSessionKind(t *testing.T) {
 func TestAllocpg_OutstandingReservations_ReportsSessionFields(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p1", Kind: allocator.SessionPersonal, Owner: "brent"}, 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "p1", Kind: allocator.SessionPersonal, Owner: "brent"}, allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "s1", Kind: allocator.SessionStanding, Name: "triage"}, 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, allocator.Request{Project: "acme", Role: "worker", ReservationID: "s1", Kind: allocator.SessionStanding, Name: "triage"}, allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	if ok, err := st.Grant(ctx, ephemeral("e1"), 1); err != nil || !ok {
+	if ok, err := st.Grant(ctx, ephemeral("e1"), allocator.Caps{Kind: 1}); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	got, err := st.OutstandingReservations(ctx, time.Now().Add(time.Hour))
@@ -346,5 +346,64 @@ func TestAllocpg_OutstandingReservations_ReportsSessionFields(t *testing.T) {
 	}
 	if r := by["e1"]; r.SessionKind != allocator.SessionEphemeral || r.Project != "acme" || r.Role != "worker" {
 		t.Fatalf("e1 = %+v, want ephemeral acme/worker", r)
+	}
+}
+
+// personal builds a personal acme/worker grant request for id owned by owner.
+func personal(id, owner string) allocator.Request {
+	return allocator.Request{Project: "acme", Role: "worker", ReservationID: id, Kind: allocator.SessionPersonal, Owner: owner}
+}
+
+// The pool cap (Caps.Kind) bounds personal sessions across all owners.
+func TestAllocpg_Grant_PersonalPoolCapAcrossOwners(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	caps := allocator.Caps{Kind: 2, Owner: 5}
+	if ok, err := st.Grant(ctx, personal("pa", "alice"), caps); err != nil || !ok {
+		t.Fatalf("alice: %v,%v", ok, err)
+	}
+	if ok, err := st.Grant(ctx, personal("pb", "bob"), caps); err != nil || !ok {
+		t.Fatalf("bob: %v,%v", ok, err)
+	}
+	if ok, err := st.Grant(ctx, personal("pc", "carol"), caps); err != nil || ok {
+		t.Fatalf("carol should be denied: pool cap 2 reached: %v,%v", ok, err)
+	}
+}
+
+// The owner cap (Caps.Owner) bounds one owner's personal sessions without
+// blocking another owner; a release frees the owner's slot (the release
+// inherits the owner from the grant).
+func TestAllocpg_Grant_PersonalOwnerCap(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	caps := allocator.Caps{Kind: 10, Owner: 1}
+	if ok, err := st.Grant(ctx, personal("a1", "alice"), caps); err != nil || !ok {
+		t.Fatalf("alice #1: %v,%v", ok, err)
+	}
+	if ok, err := st.Grant(ctx, personal("a2", "alice"), caps); err != nil || ok {
+		t.Fatalf("alice #2 should be denied: owner cap 1 reached: %v,%v", ok, err)
+	}
+	if ok, err := st.Grant(ctx, personal("b1", "bob"), caps); err != nil || !ok {
+		t.Fatalf("bob should be granted (his own owner count is 0): %v,%v", ok, err)
+	}
+	if err := st.Record(ctx, allocator.Event{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationReleased, ReservationID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.Grant(ctx, personal("a2", "alice"), caps); err != nil || !ok {
+		t.Fatalf("alice #2 should grant once a1 is released: %v,%v", ok, err)
+	}
+}
+
+// Caps.Owner == 0 means no per-owner cap: only the pool cap applies.
+func TestAllocpg_Grant_ZeroOwnerCapIsPoolOnly(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"a1", "a2", "a3"} {
+		if ok, err := st.Grant(ctx, personal(id, "alice"), allocator.Caps{Kind: 3}); err != nil || !ok {
+			t.Fatalf("%s: %v,%v", id, ok, err)
+		}
+	}
+	if ok, err := st.Grant(ctx, personal("a4", "alice"), allocator.Caps{Kind: 3}); err != nil || ok {
+		t.Fatalf("a4 should be denied by the pool cap: %v,%v", ok, err)
 	}
 }

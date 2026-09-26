@@ -39,7 +39,7 @@ func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 		t.Fatal(err)
 	}
 	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := harbor.NewAdminHandler(store, sup, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, sup, nil, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -93,7 +93,7 @@ func TestClientLoginConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -247,21 +247,21 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
 	}
 	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
-	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4}}); err != nil {
+	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err = c.ListRoles("acme")
 	if err != nil {
 		t.Fatalf("ListRoles: %v", err)
 	}
-	maxEph := -1
+	var alloc harbor.RoleAllocation
 	for _, r := range roles {
 		if r.Name == "worker" {
-			maxEph = r.Allocation.MaxEphemeral
+			alloc = r.Allocation
 		}
 	}
-	if maxEph != 4 {
-		t.Fatalf("role max-ephemeral = %d, roles=%+v", maxEph, roles)
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1}); alloc != want {
+		t.Fatalf("role allocation = %+v, want %+v; roles=%+v", alloc, want, roles)
 	}
 }
 
@@ -498,5 +498,59 @@ func TestCoveClientRoundTrip(t *testing.T) {
 	}
 	if _, ok := store.GetInstance("w1"); ok {
 		t.Fatal("instance present after teardown")
+	}
+}
+
+// grantAll is a harbor.SessionAllocator that admits every personal request.
+type grantAll struct{ releases int }
+
+func (*grantAll) GrantPersonal(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+func (g *grantAll) RecordRelease(context.Context, string, string, string) error {
+	g.releases++
+	return nil
+}
+
+// TestClientPersonalSessionRoundTrip requests, lists and releases a personal
+// session through the client against a real admin handler. The loopback
+// operator is "local", so the roster human is linked to that login.
+func TestClientPersonalSessionRoundTrip(t *testing.T) {
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	h := harbor.NewAdminHandler(store, sup, &grantAll{}, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	c := New(ts.URL, "")
+
+	res, err := c.RequestPersonalSession("acme", "pair", "help me")
+	if err != nil {
+		t.Fatalf("RequestPersonalSession: %v", err)
+	}
+	if !strings.HasPrefix(res.ID, "personal-alice-") || res.Owner != "alice" {
+		t.Fatalf("result = %+v", res)
+	}
+	list, err := c.ListPersonalSessions("acme")
+	if err != nil || len(list) != 1 || list[0].ID != res.ID {
+		t.Fatalf("ListPersonalSessions = %+v, %v", list, err)
+	}
+	if err := c.ReleasePersonalSession(res.ID); err != nil {
+		t.Fatalf("ReleasePersonalSession: %v", err)
+	}
+	if list, err := c.ListPersonalSessions("acme"); err != nil || len(list) != 0 {
+		t.Fatalf("after release = %+v, %v", list, err)
+	}
+	if err := c.ReleasePersonalSession(res.ID); err == nil {
+		t.Fatal("releasing a released session must error (404)")
 	}
 }

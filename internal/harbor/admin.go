@@ -75,6 +75,10 @@ type RoleBody struct {
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// MaxPersonal is the role's personal-session pool cap; 0 = none.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -87,6 +91,10 @@ type RoleSummary struct {
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
 	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// MaxPersonal is the role's personal-session pool cap; 0 = none.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 }
 
 // KitBody is the POST /admin/kits request.
@@ -223,7 +231,8 @@ func RosterSummaries(store Store) []ActorSummary {
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
-func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
+// alloc (may be nil) admits personal sessions; nil 503s their request route.
+func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -315,10 +324,12 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
-				Addressing:   ro.Scope.Addressing,
-				TTLSeconds:   int64(ro.Scope.TTL / time.Second),
-				Kit:          ro.Kit,
-				MaxEphemeral: ro.Allocation.MaxEphemeral,
+				Addressing:          ro.Scope.Addressing,
+				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
+				Kit:                 ro.Kit,
+				MaxEphemeral:        ro.Allocation.MaxEphemeral,
+				MaxPersonal:         ro.Allocation.MaxPersonal,
+				MaxPersonalPerOwner: ro.Allocation.MaxPersonalPerOwner,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -332,8 +343,8 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			http.Error(w, "name is required", http.StatusBadRequest)
 			return
 		}
-		if b.MaxEphemeral < 0 {
-			http.Error(w, "max_ephemeral must be >= 0", http.StatusBadRequest)
+		if b.MaxEphemeral < 0 || b.MaxPersonal < 0 || b.MaxPersonalPerOwner < 0 {
+			http.Error(w, "max_ephemeral, max_personal and max_personal_per_owner must be >= 0", http.StatusBadRequest)
 			return
 		}
 		if b.Kit != "" {
@@ -346,7 +357,7 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 			Name:       b.Name,
 			Scope:      Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
 			Kit:        b.Kit,
-			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral},
+			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner},
 		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -396,6 +407,12 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 	mux.HandleFunc("POST /admin/projects/{project}/humans", func(w http.ResponseWriter, r *http.Request) {
 		var b Human
 		if !decode(w, r, &b) {
+			return
+		}
+		// A login links at most one human per project, so ownership (e.g. of a
+		// personal session) is unambiguous.
+		if other, ok := HumanByLogin(store, r.PathValue("project"), b.Login); ok && other.Name != b.Name {
+			http.Error(w, fmt.Sprintf("login is already linked to roster human %q in this project", other.Name), http.StatusBadRequest)
 			return
 		}
 		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
@@ -610,6 +627,8 @@ func NewAdminHandler(store Store, sup *Supervisor, auth OperatorAuthenticator, c
 		log.Info("admin cove torn down", "operator", OperatorID(r), "id", r.PathValue("id"))
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	registerPersonalSessions(mux, store, sup, alloc, log)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil {

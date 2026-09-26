@@ -38,12 +38,16 @@ const (
 	// dismissed (admitted in a later slice).
 	SessionStanding SessionKind = "standing"
 	// SessionPersonal is a human's ad-hoc session that lives until its owner
-	// releases it (admitted in a later slice).
+	// releases it. Admitted only with the ledger (see ErrNeedsLedger).
 	SessionPersonal SessionKind = "personal"
 )
 
 // ErrUnsupportedKind means the Allocator does not (yet) admit this session kind.
 var ErrUnsupportedKind = errors.New("allocator: unsupported session kind")
+
+// ErrNeedsLedger means the session kind requires the allocation ledger
+// (Postgres): personal sessions have no file-store fallback.
+var ErrNeedsLedger = errors.New("allocator: personal sessions need the allocation ledger (store-postgres)")
 
 // Request asks for one reservation. Name is set for standing sessions, Owner for
 // personal ones. An empty Kind means SessionEphemeral.
@@ -55,11 +59,25 @@ type Request struct {
 	Owner         string
 }
 
-// Policy is a (project, role)'s allocation policy. Later slices add the personal
-// cap, the standing name set, idle settings, and requester grants.
+// Policy is a (project, role)'s allocation policy. Later slices add the
+// standing name set, idle settings, and requester grants.
 type Policy struct {
 	// MaxEphemeral caps concurrent ephemeral sessions; <= 0 admits none.
 	MaxEphemeral int
+	// MaxPersonal caps concurrent personal sessions across all owners (the pool);
+	// <= 0 admits none.
+	MaxPersonal int
+	// MaxPersonalPerOwner caps one owner's concurrent personal sessions; <= 0
+	// means the pool cap only.
+	MaxPersonalPerOwner int
+}
+
+// Caps are the limits a ledger grant must satisfy atomically: Kind caps the
+// outstanding reservations of the request's session kind in its (project, role)
+// stream; Owner, if > 0, also caps those with the request's owner.
+type Caps struct {
+	Kind  int
+	Owner int
 }
 
 // PolicySource returns the allocation policy for a (project, role); ok=false
@@ -128,8 +146,10 @@ type Reservation struct {
 type Ledger interface {
 	Record(ctx context.Context, ev Event) error
 	// Grant atomically appends a ReservationGranted for req iff the outstanding
-	// reservations of req.Kind in its (project, role) stream are below limit.
-	Grant(ctx context.Context, req Request, limit int) (bool, error)
+	// reservations of req.Kind in its (project, role) stream are below caps.Kind
+	// and, when caps.Owner > 0, those of req.Kind with req.Owner are below
+	// caps.Owner — both checked in the same atomic step.
+	Grant(ctx context.Context, req Request, caps Caps) (bool, error)
 	// OutstandingReservations returns the net-outstanding reservations (granted −
 	// released > 0) whose latest grant predates olderThan — the reconcile sweep's
 	// grace-windowed candidate set.
@@ -159,14 +179,21 @@ func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 	}
 }
 
-// Grant admits (and reserves) a session for req's (project, role). Only
-// ephemeral sessions are admitted in this slice (an empty Kind means ephemeral);
-// standing and personal fail closed with ErrUnsupportedKind. The cap is the
-// (project, role) policy's MaxEphemeral. With a ledger it is the authoritative
-// OCC admission — an atomic append that grants iff the stream's outstanding
-// ephemeral reservations are below the cap. Without one (file-store dev) it falls
-// back to the registry live count vs the cap (Slice-1 global behavior).
-// Fail-closed when no policy (or no ephemeral cap) is configured.
+// Grant admits (and reserves) a session for req's (project, role). An empty Kind
+// means ephemeral; standing fails closed with ErrUnsupportedKind.
+//
+// Ephemeral: the cap is the policy's MaxEphemeral. With a ledger it is the
+// authoritative OCC admission — an atomic append that grants iff the stream's
+// outstanding ephemeral reservations are below the cap. Without one (file-store
+// dev) it falls back to the registry live count vs the cap (Slice-1 global
+// behavior).
+//
+// Personal: req.Owner is required, and so is the ledger (ErrNeedsLedger — no
+// file-store fallback). The ledger grants iff the pool (MaxPersonal) and, when
+// set, the owner's share (MaxPersonalPerOwner) are both below their caps, in
+// one atomic step.
+//
+// Fail-closed when no policy (or no cap for the kind) is configured.
 //
 // Grant reserves the slot before the raise; the caller must compensate (call
 // RecordRelease for the same reservation id) on any post-grant failure. In
@@ -176,17 +203,31 @@ func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
 	if req.Kind == "" {
 		req.Kind = SessionEphemeral
 	}
-	if req.Kind != SessionEphemeral {
+	switch req.Kind {
+	case SessionEphemeral:
+		pol, ok := a.policy.Policy(req.Project, req.Role)
+		if !ok || pol.MaxEphemeral <= 0 {
+			return false, nil // no policy ⇒ fail closed
+		}
+		if a.ledger != nil {
+			return a.ledger.Grant(ctx, req, Caps{Kind: pol.MaxEphemeral})
+		}
+		return a.counter.LiveCount(req.Project, req.Role) < pol.MaxEphemeral, nil
+	case SessionPersonal:
+		if req.Owner == "" {
+			return false, errors.New("allocator: a personal session needs an owner")
+		}
+		if a.ledger == nil {
+			return false, ErrNeedsLedger
+		}
+		pol, ok := a.policy.Policy(req.Project, req.Role)
+		if !ok || pol.MaxPersonal <= 0 {
+			return false, nil // no personal pool ⇒ fail closed
+		}
+		return a.ledger.Grant(ctx, req, Caps{Kind: pol.MaxPersonal, Owner: pol.MaxPersonalPerOwner})
+	default:
 		return false, fmt.Errorf("%w: %s", ErrUnsupportedKind, req.Kind)
 	}
-	pol, ok := a.policy.Policy(req.Project, req.Role)
-	if !ok || pol.MaxEphemeral <= 0 {
-		return false, nil // no policy ⇒ fail closed
-	}
-	if a.ledger != nil {
-		return a.ledger.Grant(ctx, req, pol.MaxEphemeral)
-	}
-	return a.counter.LiveCount(req.Project, req.Role) < pol.MaxEphemeral, nil
 }
 
 // SetLogger routes the reconcile sweep's diagnostics to log (nil is ignored). The

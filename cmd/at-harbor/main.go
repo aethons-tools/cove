@@ -72,6 +72,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
+			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -371,6 +372,8 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
 	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (dispatcher) sessions (0 = unset: the dispatcher's max-concurrent applies)")
+	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
+	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -387,14 +390,14 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
 			return 2
 		}
-		if *maxEphemeral < 0 {
-			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral must be >= 0")
+		if *maxEphemeral < 0 || *maxPersonal < 0 || *maxPersonalPerOwner < 0 {
+			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
 			return 2
 		}
 		r := harbor.Role{
 			Name: *name, Kit: *kitName,
 			Scope:      harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
-			Allocation: harbor.RoleAllocation{MaxEphemeral: *maxEphemeral},
+			Allocation: harbor.RoleAllocation{MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner},
 		}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
@@ -408,7 +411,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner)
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -452,6 +455,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
 	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
+	login := fs.String("login", "", "link the human to their admin login: the operator identity (OIDC sub, or \"local\" on loopback) (add-human)")
 	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
@@ -481,7 +485,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			profiles = append(profiles, harbor.DeliveryProfile{Service: svc, Address: addr})
 		}
-		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Delivery: profiles}); err != nil {
+		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -507,7 +511,11 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, h := range rr.Humans {
-			fmt.Fprintf(stdout, "human\t%s\thandle=%s\n", h.Name, h.Handle)
+			line := fmt.Sprintf("human\t%s\thandle=%s", h.Name, h.Handle)
+			if h.Login != "" {
+				line += "\tlogin=" + h.Login
+			}
+			fmt.Fprintln(stdout, line)
 		}
 		for _, ch := range rr.Channels {
 			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)
@@ -918,6 +926,80 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// cmdSession requests, lists and releases the caller's personal sessions. The
+// caller is the roster human linked (`project roster add-human --login`) to the
+// operator identity the admin API authenticates.
+func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor session: expected request|list|release")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("session "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role to request a personal session of (request only)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor session:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "request":
+		if *role == "" {
+			fmt.Fprintln(stderr, "at-harbor session request: --role is required")
+			return 2
+		}
+		var prompt string
+		if *promptFile != "" {
+			b, err := os.ReadFile(*promptFile)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor session request: --prompt-file:", err)
+				return 1
+			}
+			prompt = string(b)
+		}
+		res, err := c.RequestPersonalSession(*project, *role, prompt)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, res.ID)
+	case "list":
+		sessions, err := c.ListPersonalSessions(*project)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, s := range sessions {
+			fmt.Fprintf(stdout, "%s\trole=%s\tphase=%s\tactivity=%s\traised=%s\n",
+				s.ID, s.Role, s.Phase, s.Activity, s.RaisedAt.Format(time.RFC3339))
+		}
+	case "release":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor session release: expected one session id")
+			return 2
+		}
+		if err := c.ReleasePersonalSession(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "released", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor session: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
 func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return grantCommon(args, stdout, stderr, false)
 }
@@ -1187,19 +1269,56 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sup.SetTailReader(intercomLog)
 	}
 
+	// The Allocator is harbor's capacity authority, built whenever harbor serves
+	// (not only with a dispatcher): it admits the dispatcher's ephemeral raises and
+	// operators' personal-session requests against
+	// the roster's per-(project, role) policy (`role add --max-ephemeral
+	// --max-personal --max-personal-per-owner`), read live on each grant. The
+	// dispatcher's max-concurrent is the ephemeral fallback for its own
+	// (project, role), seeded only when a dispatcher is configured.
+	//
+	// Ledger cutover (slice 4): with Postgres the allocation event store is the
+	// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-caps)
+	// scoped per-(project, role) Outstanding, and teardown/compensation release the
+	// slot. With the file store there is no pool ⇒ ledger is nil ⇒ ephemeral Grant
+	// falls back to the registry live count (global, slice-1 behavior), personal
+	// Grant fails with ErrNeedsLedger, and RecordRelease is a no-op
+	// (SetReleaser(alloc) stays a harmless no-op).
+	var ledger allocator.Ledger
+	if pgPool != nil {
+		as, err := allocpg.New(context.Background(), pgPool, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		ledger = as
+	}
+	alloc := allocator.New(harbor.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
+	alloc.SetLogger(log)
+	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
+	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
+	// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
+	// resident sweep periodically releases outstanding ephemeral reservations older
+	// than a grace window with no live instance, so the ledger self-heals.
+	// Postgres-only (nil ledger ⇒ Sweep is a no-op, so no loop). Sweep often (a
+	// leaked slot reduces capacity until reclaimed) with a grace window comfortably
+	// beyond a Colima raise so an in-flight raise — instance not yet in the
+	// registry — is never swept.
+	if ledger != nil {
+		const (
+			allocSweepInterval = 1 * time.Minute
+			allocSweepGrace    = 5 * time.Minute
+		)
+		go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
+		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
+	}
+
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
 	// /squawks route sharing the same *linear.Client as the resident
 	// dispatcher (built once, used for both).
 	var httpHandler http.Handler = broker
 	if dc := cfg.Runtime.Dispatcher; dc != nil {
-		// Reconcile-sweep cadence: sweep often (a leaked slot reduces capacity until
-		// reclaimed) with a grace window comfortably beyond a Colima raise so an
-		// in-flight raise — instance not yet in the registry — is never swept.
-		const (
-			allocSweepInterval = 1 * time.Minute
-			allocSweepGrace    = 5 * time.Minute
-		)
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
@@ -1215,59 +1334,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
-		// The Allocator is harbor's capacity authority: it admits raises for the
-		// configured (project, role) against its ephemeral cap (see policy below). With
-		// Postgres the cap is the authoritative ledger (per-(project, role) Outstanding);
-		// with the file store it is the global registry count (see internal/allocator).
-		// Normalize the project once so grants and releases land on the same
-		// (project, role) stream: grants use this value (via Config.Project → Grant),
-		// and the Supervisor stores inst.Project = orDefaultProject(spec.Project) =
-		// harbor.DefaultProject when empty, which is what RecordRelease keys off on
-		// teardown. Leaving it as dc.Project ("") would split them across "/role" and
-		// "default/role" — they'd never reconcile.
-		project := dc.Project
-		if project == "" {
-			project = harbor.DefaultProject
-		}
-		// The ephemeral cap is per-(project, role) policy authored on the roster Role
-		// (`role add --max-ephemeral`), read live on each grant; the dispatcher's
-		// max-concurrent is the fallback for its own (project, role) when the Role
-		// sets none (session-kinds slice 1).
-		policy := rosterPolicy{
-			store:    st,
-			fallback: allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}},
-		}
+		// The dispatcher's (project, role), normalized the same way as the
+		// Allocator's fallback (see dispatcherProject).
+		project := dispatcherProject(dc)
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
 			log.Info("harbor allocator: roster max-ephemeral overrides dispatcher max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
-		}
-		// Ledger cutover (slice 4): with Postgres the allocation event store is the
-		// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-budget)
-		// scoped per-(project, role) Outstanding, and teardown/compensation release the
-		// slot. With the file store there is no pool ⇒ ledger is nil ⇒ Grant falls back
-		// to the registry live count (global, slice-1 behavior) and RecordRelease is a
-		// no-op (SetReleaser(alloc) stays a harmless no-op).
-		var ledger allocator.Ledger
-		if pgPool != nil {
-			as, err := allocpg.New(context.Background(), pgPool, log)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor:", err)
-				return 1
-			}
-			ledger = as
-		}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, policy, ledger)
-		alloc.SetLogger(log)
-		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
-		// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
-		// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
-		// resident sweep periodically releases outstanding reservations older than a
-		// grace window with no live instance, so the ledger self-heals. Postgres-only
-		// (nil ledger ⇒ Sweep is a no-op, so no loop). The grace window sits comfortably
-		// beyond a Colima raise so an in-flight raise is never swept.
-		if ledger != nil {
-			go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
-			log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
 		}
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
@@ -1467,7 +1539,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := harbor.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

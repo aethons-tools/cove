@@ -48,10 +48,46 @@ func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 	}
 }
 
+// The role's personal caps pass through to the policy, alongside the
+// dispatcher's ephemeral fallback when the role sets no max-ephemeral.
+func TestRosterPolicy_PersonalCaps(t *testing.T) {
+	st := newPolicyStore(t)
+	if err := st.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	p := rosterPolicy{store: st, fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
+	want := allocator.Policy{MaxEphemeral: 2, MaxPersonal: 3, MaxPersonalPerOwner: 1}
+	if pol, ok := p.Policy("acme", "worker"); !ok || pol != want {
+		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
+	}
+	// With no dispatcher fallback (harbor serving without a dispatcher), a role
+	// with only personal caps still has a policy — its ephemeral cap is 0.
+	p = rosterPolicy{store: st}
+	want = allocator.Policy{MaxPersonal: 3, MaxPersonalPerOwner: 1}
+	if pol, ok := p.Policy("acme", "worker"); !ok || pol != want {
+		t.Fatalf("Policy (no fallback) = %+v,%v; want %+v", pol, ok, want)
+	}
+}
+
 // An unknown role with no fallback has no policy (the Allocator fails closed).
 func TestRosterPolicy_NoRoleNoFallback(t *testing.T) {
 	p := rosterPolicy{store: newPolicyStore(t), fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
 	if pol, ok := p.Policy("acme", "reviewer"); ok {
 		t.Fatalf("Policy = %+v,%v; want none", pol, ok)
+	}
+}
+
+// Without a dispatcher, the Allocator's policy has no ephemeral fallback (the
+// roster alone decides); with one, the dispatcher's max-concurrent seeds the
+// fallback for its own (project, role), with an empty project normalized to
+// the default so grants and releases share one stream.
+func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
+	st := newPolicyStore(t)
+	if p := newRosterPolicy(st, nil); len(p.fallback) != 0 {
+		t.Fatalf("no dispatcher: fallback = %+v, want empty", p.fallback)
+	}
+	p := newRosterPolicy(st, &dispatcherConfig{Role: "worker", MaxConcurrent: 2})
+	if pol, ok := p.Policy(harbor.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
+		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, harbor.DefaultProject)
 	}
 }

@@ -101,6 +101,29 @@ func TestRaiseEnrollsAndRecordsLiveInstance(t *testing.T) {
 	}
 }
 
+// A personal raise records its owner and session kind on the Instance (and the
+// launcher sees them on the spec); an ordinary raise leaves both empty.
+func TestRaiseRecordsOwnerAndSessionKind(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Role: "guest", Owner: "alice", SessionKind: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance("p1")
+	if !ok || got.Owner != "alice" || got.SessionKind != "personal" {
+		t.Fatalf("instance = %+v,%v; want owner alice, kind personal", got, ok)
+	}
+	if f.gotSpec.Owner != "alice" || f.gotSpec.SessionKind != "personal" {
+		t.Fatalf("launcher spec = %+v", f.gotSpec)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("w1"); got.Owner != "" || got.SessionKind != "" {
+		t.Fatalf("plain raise instance = %+v; want no owner/kind", got)
+	}
+}
+
 func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 	f := &fakeLauncher{raiseErr: errors.New("backend down")}
 	sup, store, _ := supTestKit(t, f)

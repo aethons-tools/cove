@@ -45,8 +45,10 @@ type Instance struct {
 	Project            string    `json:"project"`
 	Role               string    `json:"role"`
 	Unit               string    `json:"unit,omitempty"`
-	Backend            string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
-	Location           string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
+	Owner              string    `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
+	SessionKind        string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: harbor does not import allocator)
+	Backend            string    `json:"backend,omitempty"`      // populated by the real launcher (later slice)
+	Location           string    `json:"location,omitempty"`     // opaque handle from Launcher.Raise
 	Phase              Phase     `json:"phase"`
 	Activity           Activity  `json:"activity,omitempty"`
 	Lease              Lease     `json:"lease"`

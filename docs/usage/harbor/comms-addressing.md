@@ -1,10 +1,10 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a cove's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a cove may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-26
 ---
 
 # Comms addressing (target space & access-graph)
@@ -31,9 +31,11 @@ both.
 A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.md))
 owns a **Roster** of addressable members:
 
-- **Human** — `{Name, Handle}`. `Name` is the roster-local target name
+- **Human** — `{Name, Handle, Login}`. `Name` is the roster-local target name
   (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver to
-  them.
+  them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
+  `local` on loopback), so harbor knows who is behind an admin request, e.g. to
+  own a [personal session](personal-sessions.md). One human per login per project.
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
@@ -44,7 +46,7 @@ that get `@`-mentioned while a cove is Waiting; see [escalation.md](escalation.m
 Manage a roster with `at-harbor project`:
 
 ```
-at-harbor project roster add-human   <project> --name alice --handle alice.h
+at-harbor project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123']
 at-harbor project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-harbor project roster list        <project>
 at-harbor project roster rm-human    <project> <name>

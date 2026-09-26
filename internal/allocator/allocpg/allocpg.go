@@ -134,16 +134,20 @@ func sessionKindOrDefault(k allocator.SessionKind) allocator.SessionKind {
 
 // Grant atomically appends a ReservationGranted for req at head+1 iff the
 // stream's outstanding reservations of req.Kind (granted − released, counting only
-// rows of that session kind) are below budget — the OCC admission gate. Grant is
+// rows of that session kind) are below caps.Kind and, when caps.Owner > 0, the
+// outstanding reservations of req.Kind owned by req.Owner are below caps.Owner —
+// the OCC admission gate. Both caps sit in the same WHERE of the one conditional
+// insert, so they are checked atomically with the append. Grant is
 // kind-agnostic: which kinds are admitted is the Allocator's policy. An empty
 // req.Kind is ephemeral. A single conditional INSERT … SELECT … WHERE
-// (outstanding of kind) < budget enforces the budget, and UNIQUE(stream_id,
+// (outstanding of kind) < caps.Kind [AND (owner's outstanding) < caps.Owner]
+// enforces the caps, and UNIQUE(stream_id,
 // stream_revision) enforces the version — every kind of a (project, role) shares
 // one stream, so all appends still serialize on it — so the
-// budget check and the append are one atomic step: concurrent grants cannot
+// cap check and the append are one atomic step: concurrent grants cannot
 // overshoot, because the loser of a revision race retries and re-evaluates the
-// budget against the winner's grant. Returns (true, nil) granted, (false, nil)
-// over budget (no retry), and ErrConflictExhausted after maxAppendRetries lost
+// caps against the winner's grant. Returns (true, nil) granted, (false, nil)
+// at a cap (no retry), and ErrConflictExhausted after maxAppendRetries lost
 // races.
 //
 // Known gap (Slice 5): a crash between a successful Grant and the corresponding
@@ -151,7 +155,7 @@ func sessionKindOrDefault(k allocator.SessionKind) allocator.SessionKind {
 // compensation. Closing it needs a reconcile sweep (release Granted reservations
 // with no live instance); the cap stays ≤ budget, so this is an availability
 // nuisance, not a correctness break.
-func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (bool, error) {
+func (s *Store) Grant(ctx context.Context, req allocator.Request, caps allocator.Caps) (bool, error) {
 	streamID := req.Project + "/" + req.Role
 	kind := string(sessionKindOrDefault(req.Kind))
 	data, err := json.Marshal(map[string]string{}) // no extra payload yet
@@ -171,19 +175,23 @@ func (s *Store) Grant(ctx context.Context, req allocator.Request, budget int) (b
 			 SELECT $1, $2, $3, $4, $5, $6, $9, $10, $11
 			 WHERE (SELECT COUNT(*) FILTER (WHERE kind = $4 AND session_kind = $9)
 			               - COUNT(*) FILTER (WHERE kind = $7 AND session_kind = $9)
-			        FROM alloc_events WHERE stream_id = $2) < $8`,
+			        FROM alloc_events WHERE stream_id = $2) < $8
+			   AND ($12::int = 0 OR
+			        (SELECT COUNT(*) FILTER (WHERE kind = $4 AND session_kind = $9 AND session_owner = $11)
+			              - COUNT(*) FILTER (WHERE kind = $7 AND session_kind = $9 AND session_owner = $11)
+			         FROM alloc_events WHERE stream_id = $2) < $12::int)`,
 			req.Project, streamID, head+1, string(allocator.KindReservationGranted), req.ReservationID, data,
-			string(allocator.KindReservationReleased), budget, kind, req.Name, req.Owner)
+			string(allocator.KindReservationReleased), caps.Kind, kind, req.Name, req.Owner, max(caps.Owner, 0))
 		if err != nil {
 			if isUniqueViolation(err) {
-				continue // lost the revision race — re-read head and re-evaluate budget
+				continue // lost the revision race — re-read head and re-evaluate the caps
 			}
 			return false, fmt.Errorf("allocpg: grant: %w", err)
 		}
 		if tag.RowsAffected() == 1 {
 			return true, nil
 		}
-		return false, nil // 0 rows inserted: at/over budget
+		return false, nil // 0 rows inserted: at/over a cap
 	}
 	return false, ErrConflictExhausted
 }

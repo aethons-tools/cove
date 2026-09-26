@@ -299,7 +299,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 			t.Fatal("RemoveHuman on an absent project must error")
 		}
 		// delivery profile round-trips through AddHuman (upsert by name)
-		if err := s.AddHuman("acme", harbor.Human{Name: "dave", Handle: "@dave", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		if err := s.AddHuman("acme", harbor.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
 			t.Fatalf("AddHuman with delivery: %v", err)
 		}
 		if r, ok := s.GetRoster("acme"); !ok {
@@ -313,6 +313,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 			}
 			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
 				t.Fatalf("dave delivery = %+v,%v", d, ok)
+			}
+			if dave.Login != "auth0|dave" {
+				t.Fatalf("dave login = %q, want auth0|dave", dave.Login)
 			}
 		}
 		// chat-service set + clear round-trips through GetProject

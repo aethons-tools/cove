@@ -115,9 +115,11 @@ func (c *Client) PutRole(project string, r harbor.Role) error {
 	return c.do("POST", "/admin/roles", harbor.RoleBody{
 		Project: project, Name: r.Name,
 		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos, Addressing: r.Scope.Addressing,
-		TTLSeconds:   int64(r.Scope.TTL / time.Second),
-		Kit:          r.Kit,
-		MaxEphemeral: r.Allocation.MaxEphemeral,
+		TTLSeconds:          int64(r.Scope.TTL / time.Second),
+		Kit:                 r.Kit,
+		MaxEphemeral:        r.Allocation.MaxEphemeral,
+		MaxPersonal:         r.Allocation.MaxPersonal,
+		MaxPersonalPerOwner: r.Allocation.MaxPersonalPerOwner,
 	}, nil)
 }
 
@@ -135,7 +137,9 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 	for _, rs := range out {
 		roles = append(roles, harbor.Role{Name: rs.Name, Kit: rs.Kit, Scope: harbor.Scope{
 			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
-		}, Allocation: harbor.RoleAllocation{MaxEphemeral: rs.MaxEphemeral}})
+		}, Allocation: harbor.RoleAllocation{
+			MaxEphemeral: rs.MaxEphemeral, MaxPersonal: rs.MaxPersonal, MaxPersonalPerOwner: rs.MaxPersonalPerOwner,
+		}})
 	}
 	return roles, nil
 }
@@ -313,4 +317,31 @@ func (c *Client) ReportCoveStatus(id, activity string) error {
 // TeardownCove tears a managed cove down and deregisters it.
 func (c *Client) TeardownCove(id string) error {
 	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
+}
+
+// RequestPersonalSession asks harbor for a personal session of role in project
+// ("" = the default project), owned by the roster human linked to the caller's
+// login. The prompt travels in the request body, never on argv.
+func (c *Client) RequestPersonalSession(project, role, prompt string) (harbor.PersonalSessionResult, error) {
+	var res harbor.PersonalSessionResult
+	err := c.do("POST", "/admin/sessions/personal", harbor.PersonalSessionBody{Project: project, Role: role, Prompt: prompt}, &res)
+	return res, err
+}
+
+// ListPersonalSessions lists the caller's own personal sessions in project
+// ("" = the default project).
+func (c *Client) ListPersonalSessions(project string) ([]harbor.PersonalSessionSummary, error) {
+	var out []harbor.PersonalSessionSummary
+	path := "/admin/sessions/personal"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	err := c.do("GET", path, nil, &out)
+	return out, err
+}
+
+// ReleasePersonalSession releases (tears down) one of the caller's personal
+// sessions; only its owner may.
+func (c *Client) ReleasePersonalSession(id string) error {
+	return c.do("DELETE", "/admin/sessions/personal/"+url.PathEscape(id), nil, nil)
 }
