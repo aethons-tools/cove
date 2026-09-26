@@ -1,7 +1,7 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a cove at the broker.
 read_when: You are deciding who can reach what on a harbor — defining roles, granting them to actors, enrolling a cove, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy), and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
 updated: 2026-09-26
@@ -68,6 +68,14 @@ at-harbor role rm   [--project acme] guest
   admits no personal sessions. Both are read live, like `--max-ephemeral`.
   `role list` shows them as `max-personal=N` and `max-personal-per-owner=M`. What
   a personal session is: [personal-sessions.md](personal-sessions.md).
+- `--idle-after D`, `--nag-every D`, `--reclaim-after D` (durations, e.g. `4h`)
+  set the role's personal-session **idle ladder**: nag the owner once a session
+  has waited on them `idle-after` (`0` = default 4h), then every `nag-every`
+  (`0` = default 24h), and reclaim it after `reclaim-after` (`0` = never).
+  Negative values are refused. The admin API carries them as
+  `idle_after_seconds`/`nag_every_seconds`/`reclaim_after_seconds`; `role list`
+  shows them as `idle-after=…`, `nag-every=…`, `reclaim-after=…`. What the ladder
+  does: [personal-sessions.md](personal-sessions.md#the-idle-ladder).
 - Editing a role re-scopes every actor granted it on the next request (live).
 
 ## Grants

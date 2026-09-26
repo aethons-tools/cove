@@ -79,6 +79,12 @@ type RoleBody struct {
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
 	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
+	// IdleAfterSeconds / NagEverySeconds / ReclaimAfterSeconds are the
+	// personal-session idle ladder (RoleAllocation.IdleAfter etc.) in seconds;
+	// 0 = the default (4h / 24h / never).
+	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
+	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
+	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -95,6 +101,12 @@ type RoleSummary struct {
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
 	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
+	// IdleAfterSeconds / NagEverySeconds / ReclaimAfterSeconds are the
+	// personal-session idle ladder (RoleAllocation.IdleAfter etc.) in seconds;
+	// 0 = the default (4h / 24h / never).
+	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
+	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
+	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
 }
 
 // KitBody is the POST /admin/kits request.
@@ -330,6 +342,9 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				MaxEphemeral:        ro.Allocation.MaxEphemeral,
 				MaxPersonal:         ro.Allocation.MaxPersonal,
 				MaxPersonalPerOwner: ro.Allocation.MaxPersonalPerOwner,
+				IdleAfterSeconds:    int64(ro.Allocation.IdleAfter / time.Second),
+				NagEverySeconds:     int64(ro.Allocation.NagEvery / time.Second),
+				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -347,6 +362,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "max_ephemeral, max_personal and max_personal_per_owner must be >= 0", http.StatusBadRequest)
 			return
 		}
+		// nag_every 0 means the default, so ">= 0" also keeps a set nag_every > 0.
+		if b.IdleAfterSeconds < 0 || b.NagEverySeconds < 0 || b.ReclaimAfterSeconds < 0 {
+			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
+			return
+		}
 		if b.Kit != "" {
 			if _, ok := store.GetKit(b.Kit); !ok {
 				http.Error(w, "kit does not exist", http.StatusBadRequest)
@@ -354,10 +374,15 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 		}
 		role := Role{
-			Name:       b.Name,
-			Scope:      Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
-			Kit:        b.Kit,
-			Allocation: RoleAllocation{MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner},
+			Name:  b.Name,
+			Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Kit:   b.Kit,
+			Allocation: RoleAllocation{
+				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
+				IdleAfter:    time.Duration(b.IdleAfterSeconds) * time.Second,
+				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
+				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
+			},
 		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

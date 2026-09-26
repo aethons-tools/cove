@@ -226,6 +226,8 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		inst.WaitSeq = s.tailSeq()
 		inst.EscalationTier = 0
 		inst.TierPingedAt = time.Time{}
+		inst.LastNagAt = time.Time{} // a new Waiting period restarts the idle ladder
+		inst.Nags = 0
 	}
 	if a == ActivityDone {
 		inst.Phase = PhaseTerminating
@@ -274,6 +276,19 @@ func (s *Supervisor) SetEscalation(actorID string, tier int, at time.Time) error
 	}
 	inst.EscalationTier = tier
 	inst.TierPingedAt = at
+	return s.store.PutInstance(inst)
+}
+
+// RecordNag records that the wake-on idle ladder nagged a personal session's
+// owner at at: LastNagAt = at, Nags++. Both reset when the cove enters a new
+// Waiting period (see Report). Errors if the actor is gone.
+func (s *Supervisor) RecordNag(actorID string, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.LastNagAt = at
+	inst.Nags++
 	return s.store.PutInstance(inst)
 }
 

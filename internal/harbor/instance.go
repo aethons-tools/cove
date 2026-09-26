@@ -62,6 +62,8 @@ type Instance struct {
 	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
 	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
+	LastNagAt          time.Time `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
+	Nags               int       `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal

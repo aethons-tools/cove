@@ -90,8 +90,9 @@ over the Attach stream; the cove runs its next turn (`claude --continue`), `read
 reply, and resumes. A **`wait-max`** bounds the wait — a cove with no reply within it is
 torn down (no zombies), paused or not. **Personal sessions are exempt from `wait-max`:**
 a [personal session](personal-sessions.md) waits on its owner after every turn and is
-never torn down for waiting (it is still paused at `warm-timeout` and woken on a reply);
-it ends only when its owner releases it.
+never torn down for `wait-max` (it is still paused at `warm-timeout` and woken on a reply);
+instead it climbs the [idle ladder](personal-sessions.md#the-idle-ladder) — nags to its
+owner, and an optional reclaim.
 
 While waiting, a cove doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0

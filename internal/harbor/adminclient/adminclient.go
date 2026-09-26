@@ -120,6 +120,9 @@ func (c *Client) PutRole(project string, r harbor.Role) error {
 		MaxEphemeral:        r.Allocation.MaxEphemeral,
 		MaxPersonal:         r.Allocation.MaxPersonal,
 		MaxPersonalPerOwner: r.Allocation.MaxPersonalPerOwner,
+		IdleAfterSeconds:    int64(r.Allocation.IdleAfter / time.Second),
+		NagEverySeconds:     int64(r.Allocation.NagEvery / time.Second),
+		ReclaimAfterSeconds: int64(r.Allocation.ReclaimAfter / time.Second),
 	}, nil)
 }
 
@@ -139,6 +142,9 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
 		}, Allocation: harbor.RoleAllocation{
 			MaxEphemeral: rs.MaxEphemeral, MaxPersonal: rs.MaxPersonal, MaxPersonalPerOwner: rs.MaxPersonalPerOwner,
+			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,
+			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
+			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
 		}})
 	}
 	return roles, nil

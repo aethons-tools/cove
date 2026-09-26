@@ -510,6 +510,34 @@ func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 	}
 }
 
+// A role's personal idle settings round-trip through POST/GET /admin/roles as
+// seconds; a negative setting is rejected.
+func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", IdleAfterSeconds: 3600, NagEverySeconds: 7200, ReclaimAfterSeconds: 259200})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].IdleAfterSeconds != 3600 || roles[0].NagEverySeconds != 7200 || roles[0].ReclaimAfterSeconds != 259200 {
+		t.Fatalf("roles = %+v, want idle 3600 / nag 7200 / reclaim 259200", roles)
+	}
+	want := RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}
+	if r, ok := store.GetRole("acme", "pair"); !ok || r.Allocation != want {
+		t.Fatalf("stored role = %+v, %v; want allocation %+v", r, ok, want)
+	}
+	for _, b := range []RoleBody{
+		{Project: "acme", Name: "bad", IdleAfterSeconds: -1},
+		{Project: "acme", Name: "bad", NagEverySeconds: -1},
+		{Project: "acme", Name: "bad", ReclaimAfterSeconds: -1},
+	} {
+		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
+			t.Fatalf("negative idle setting %+v = %d, want 400", b, rec.Code)
+		}
+	}
+}
+
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
 	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {

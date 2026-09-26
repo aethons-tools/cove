@@ -246,7 +246,9 @@ func findHuman(r harbor.Roster, name string) (harbor.Human, bool) {
 
 // resolveHuman picks the service the project uses for human DMs, falling
 // back to a Linear @-mention on the sender's own ticket (the pre-cutover
-// behavior, preserved byte-for-byte).
+// behavior, preserved byte-for-byte). The Discord DM path resolves from the
+// squawk's project alone — never the sender's live Instance — so a personal
+// session's reclaim notice is still delivered after the cove is torn down.
 func (d *directory) resolveHuman(service, project string, to, from intercom.Target) (relay.Delivery, bool) {
 	self, haveSelf := d.instanceOf(from)
 	r, _ := d.store.GetRoster(project)
