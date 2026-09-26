@@ -45,3 +45,29 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 	}
 	return pol, true
 }
+
+// newRosterPolicy builds the Allocator's roster-sourced policy. The dispatcher's
+// max-concurrent seeds the ephemeral fallback for its own (project, role) only
+// when a dispatcher is configured (dc != nil); without one the roster alone
+// decides. The dispatcher project is normalized (see dispatcherProject) so
+// grants and releases land on the same (project, role) stream.
+func newRosterPolicy(store roleReader, dc *dispatcherConfig) rosterPolicy {
+	p := rosterPolicy{store: store}
+	if dc != nil {
+		p.fallback = allocator.StaticPolicy{{Project: dispatcherProject(dc), Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
+	}
+	return p
+}
+
+// dispatcherProject is the dispatcher's project, normalized: grants use this value
+// (via dispatcher.Config.Project → Grant), and the Supervisor stores
+// inst.Project = orDefaultProject(spec.Project) = harbor.DefaultProject when
+// empty, which is what RecordRelease keys off on teardown. Leaving it as
+// dc.Project ("") would split them across "/role" and "default/role" — they'd
+// never reconcile.
+func dispatcherProject(dc *dispatcherConfig) string {
+	if dc.Project == "" {
+		return harbor.DefaultProject
+	}
+	return dc.Project
+}

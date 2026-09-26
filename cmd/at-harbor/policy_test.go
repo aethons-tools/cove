@@ -76,3 +76,18 @@ func TestRosterPolicy_NoRoleNoFallback(t *testing.T) {
 		t.Fatalf("Policy = %+v,%v; want none", pol, ok)
 	}
 }
+
+// Without a dispatcher, the Allocator's policy has no ephemeral fallback (the
+// roster alone decides); with one, the dispatcher's max-concurrent seeds the
+// fallback for its own (project, role), with an empty project normalized to
+// the default so grants and releases share one stream.
+func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
+	st := newPolicyStore(t)
+	if p := newRosterPolicy(st, nil); len(p.fallback) != 0 {
+		t.Fatalf("no dispatcher: fallback = %+v, want empty", p.fallback)
+	}
+	p := newRosterPolicy(st, &dispatcherConfig{Role: "worker", MaxConcurrent: 2})
+	if pol, ok := p.Policy(harbor.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
+		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, harbor.DefaultProject)
+	}
+}

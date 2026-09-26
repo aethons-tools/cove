@@ -1194,19 +1194,56 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sup.SetTailReader(intercomLog)
 	}
 
+	// The Allocator is harbor's capacity authority, built whenever harbor serves
+	// (not only with a dispatcher): it admits the dispatcher's ephemeral raises and
+	// operators' personal-session requests against
+	// the roster's per-(project, role) policy (`role add --max-ephemeral
+	// --max-personal --max-personal-per-owner`), read live on each grant. The
+	// dispatcher's max-concurrent is the ephemeral fallback for its own
+	// (project, role), seeded only when a dispatcher is configured.
+	//
+	// Ledger cutover (slice 4): with Postgres the allocation event store is the
+	// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-caps)
+	// scoped per-(project, role) Outstanding, and teardown/compensation release the
+	// slot. With the file store there is no pool ⇒ ledger is nil ⇒ ephemeral Grant
+	// falls back to the registry live count (global, slice-1 behavior), personal
+	// Grant fails with ErrNeedsLedger, and RecordRelease is a no-op
+	// (SetReleaser(alloc) stays a harmless no-op).
+	var ledger allocator.Ledger
+	if pgPool != nil {
+		as, err := allocpg.New(context.Background(), pgPool, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		ledger = as
+	}
+	alloc := allocator.New(harbor.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
+	alloc.SetLogger(log)
+	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
+	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
+	// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
+	// resident sweep periodically releases outstanding ephemeral reservations older
+	// than a grace window with no live instance, so the ledger self-heals.
+	// Postgres-only (nil ledger ⇒ Sweep is a no-op, so no loop). Sweep often (a
+	// leaked slot reduces capacity until reclaimed) with a grace window comfortably
+	// beyond a Colima raise so an in-flight raise — instance not yet in the
+	// registry — is never swept.
+	if ledger != nil {
+		const (
+			allocSweepInterval = 1 * time.Minute
+			allocSweepGrace    = 5 * time.Minute
+		)
+		go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
+		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
+	}
+
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
 	// It defaults to the broker alone; when a tracker is configured it gains a
 	// /squawks route sharing the same *linear.Client as the resident
 	// dispatcher (built once, used for both).
 	var httpHandler http.Handler = broker
 	if dc := cfg.Runtime.Dispatcher; dc != nil {
-		// Reconcile-sweep cadence: sweep often (a leaked slot reduces capacity until
-		// reclaimed) with a grace window comfortably beyond a Colima raise so an
-		// in-flight raise — instance not yet in the registry — is never swept.
-		const (
-			allocSweepInterval = 1 * time.Minute
-			allocSweepGrace    = 5 * time.Minute
-		)
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
@@ -1222,59 +1259,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
-		// The Allocator is harbor's capacity authority: it admits raises for the
-		// configured (project, role) against its ephemeral cap (see policy below). With
-		// Postgres the cap is the authoritative ledger (per-(project, role) Outstanding);
-		// with the file store it is the global registry count (see internal/allocator).
-		// Normalize the project once so grants and releases land on the same
-		// (project, role) stream: grants use this value (via Config.Project → Grant),
-		// and the Supervisor stores inst.Project = orDefaultProject(spec.Project) =
-		// harbor.DefaultProject when empty, which is what RecordRelease keys off on
-		// teardown. Leaving it as dc.Project ("") would split them across "/role" and
-		// "default/role" — they'd never reconcile.
-		project := dc.Project
-		if project == "" {
-			project = harbor.DefaultProject
-		}
-		// The ephemeral cap is per-(project, role) policy authored on the roster Role
-		// (`role add --max-ephemeral`), read live on each grant; the dispatcher's
-		// max-concurrent is the fallback for its own (project, role) when the Role
-		// sets none (session-kinds slice 1).
-		policy := rosterPolicy{
-			store:    st,
-			fallback: allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}},
-		}
+		// The dispatcher's (project, role), normalized the same way as the
+		// Allocator's fallback (see dispatcherProject).
+		project := dispatcherProject(dc)
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
 			log.Info("harbor allocator: roster max-ephemeral overrides dispatcher max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
-		}
-		// Ledger cutover (slice 4): with Postgres the allocation event store is the
-		// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-budget)
-		// scoped per-(project, role) Outstanding, and teardown/compensation release the
-		// slot. With the file store there is no pool ⇒ ledger is nil ⇒ Grant falls back
-		// to the registry live count (global, slice-1 behavior) and RecordRelease is a
-		// no-op (SetReleaser(alloc) stays a harmless no-op).
-		var ledger allocator.Ledger
-		if pgPool != nil {
-			as, err := allocpg.New(context.Background(), pgPool, log)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor:", err)
-				return 1
-			}
-			ledger = as
-		}
-		alloc := allocator.New(harbor.InstanceCounter{Store: st}, policy, ledger)
-		alloc.SetLogger(log)
-		sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
-		// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
-		// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
-		// resident sweep periodically releases outstanding reservations older than a
-		// grace window with no live instance, so the ledger self-heals. Postgres-only
-		// (nil ledger ⇒ Sweep is a no-op, so no loop). The grace window sits comfortably
-		// beyond a Colima raise so an in-flight raise is never swept.
-		if ledger != nil {
-			go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
-			log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
 		}
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
