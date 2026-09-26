@@ -129,17 +129,35 @@ budget, and not owned. Personal sessions put that under the Allocator.
   `running` Activity **and** no attached human connection for `idle-after`. Pin
   this down against what the Attach stream actually observes.
 
-## Slice sequence (tentative)
+## Personal-session decisions (from Slice 2 review)
+
+- **How a human works in one:** over the intercom. A personal session is a
+  long-lived agent the owner converses with — the cove messages its owner, the
+  owner replies (Discord), the reply wakes it and it continues with
+  `claude --continue`. (Direct shell/SSH attach is not in scope.) v1 limit: the
+  owner can only reply to the cove's messages, not start a thread.
+- **Owner identity:** roster Humans gain a `Login` (the admin operator identity:
+  OIDC `sub`, or `"local"` on loopback); the owner is the Human whose `Login`
+  matches the caller.
+- **Authorization for v1:** caps only — `max-personal` (pool) and
+  `max-personal-per-owner`. The "which roles may I request" grant is deferred.
+- **Personal sessions require the allocation ledger** (Postgres).
+
+## Slice sequence
 
 Personal first, since it is the immediate need; standing after.
 
-1. **Generalize the reservation + policy.** `kind`/`name`/`owner` on reservations;
-   the per-`(project, role)` policy (authored in roster, observed by the
-   Allocator); `max-ephemeral` replaces today's `StaticBudget` semantics
-   (behavior-preserving for ephemeral).
-2. **Personal: request + ownership.** The operator request verb, the requester
-   grant (type, live) + both caps, OCC grant with `owner`, explicit release.
-3. **Personal: idle ladder.** Idle → pause, intercom pestering via the escalation
+1. **Generalize the reservation + policy** *(done)*. `SessionKind`/name/owner on
+   reservations; per-kind caps; the roster `max-ephemeral` policy.
+2. **Personal: request + ownership.** Login-linked Humans, pool + per-owner caps,
+   the Allocator built without a dispatcher, owner on raised coves, and
+   `session request|list|release` with owner-only release. Sessions run their
+   prompt once.
+3. **Personal: long-lived conversation.** A resident cove loop (wait for the
+   owner's reply instead of ending), wake-on and escalation exemptions, send
+   defaults and owner-only addressing, and the intercom machinery running
+   without a dispatcher.
+4. **Personal: idle ladder.** Idle → pause, intercom pestering via the escalation
    engine, optional reclaim via the sweep.
-4. **Standing.** Named declarations, keep-alive/resurrect reconcile,
+5. **Standing.** Named declarations, keep-alive/resurrect reconcile,
    dismissal-only release.
