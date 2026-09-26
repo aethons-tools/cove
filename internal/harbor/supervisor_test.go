@@ -800,3 +800,51 @@ func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
 		t.Fatalf("dispatcher cove grant = %+v; want no override", w)
 	}
 }
+
+// RecordNag stamps the nag time and counts the nag on the instance.
+func TestRecordNagPersists(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := time.Unix(5000, 0).UTC(), time.Unix(9000, 0).UTC()
+	if err := sup.RecordNag("cove-1", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.RecordNag("cove-1", second); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if !got.LastNagAt.Equal(second) || got.Nags != 2 {
+		t.Fatalf("nag state = last %v / nags %d, want %v / 2", got.LastNagAt, got.Nags, second)
+	}
+	if err := sup.RecordNag("absent", first); err == nil {
+		t.Fatal("RecordNag on an absent instance should error")
+	}
+}
+
+// A reply runs another turn; the cove's next Waiting period starts a fresh idle
+// ladder, so entering Waiting clears the nag state.
+func TestReportResetsNagsOnEnteringWaiting(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning, LastNagAt: time.Unix(500, 0), Nags: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if !got.LastNagAt.IsZero() || got.Nags != 0 {
+		t.Fatalf("entering Waiting must reset nags: last %v / nags %d", got.LastNagAt, got.Nags)
+	}
+	// Staying Waiting (a repeat report) must not clear nags recorded since.
+	if err := sup.RecordNag("cove-1", time.Unix(1500, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("cove-1"); got.Nags != 1 {
+		t.Fatalf("repeat Waiting report cleared nags: %d", got.Nags)
+	}
+}
