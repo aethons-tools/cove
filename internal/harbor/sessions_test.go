@@ -253,3 +253,29 @@ func TestPersonalSessions_NoSupervisorOrAllocator503(t *testing.T) {
 		t.Fatalf("no runtime = %d, want 503", rec.Code)
 	}
 }
+
+// The session id is used as an actor id and in URL paths (DELETE
+// /admin/sessions/personal/{id}), so an owner name with path or URL-unsafe
+// characters must not leak into it. The real owner is stored on the Instance.
+func TestPersonalSessionID_SanitizesOwner(t *testing.T) {
+	for _, owner := range []string{"a/b", "alice smith", "bob?x=1", "ok.name_1-x"} {
+		id, err := personalSessionID(owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(id, "personal-") {
+			t.Fatalf("id %q lacks the personal- prefix", id)
+		}
+		for _, r := range id {
+			ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '.' || r == '-'
+			if !ok {
+				t.Fatalf("owner %q produced unsafe id %q (char %q)", owner, id, r)
+			}
+		}
+	}
+	a, _ := personalSessionID("alice")
+	b, _ := personalSessionID("alice")
+	if a == b {
+		t.Fatalf("two ids for the same owner collided: %q", a)
+	}
+}

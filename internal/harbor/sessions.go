@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -168,11 +169,21 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 }
 
 // personalSessionID mints a personal session's actor/reservation id:
-// "personal-<owner>-<8 hex>".
+// "personal-<owner>-<8 hex>". The id is used as an actor id and in URL paths, so
+// characters outside [A-Za-z0-9._-] in the owner name become '-'; the real owner
+// is recorded on the Instance.
 func personalSessionID(owner string) (string, error) {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	return "personal-" + owner + "-" + hex.EncodeToString(b[:]), nil
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, owner)
+	return "personal-" + safe + "-" + hex.EncodeToString(b[:]), nil
 }
