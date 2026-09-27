@@ -109,9 +109,16 @@ at-harbor egress clear --project acme --role fenced          # back to the kit d
   itself. Harbor checks only syntax and normalizes (lowercase, dedupe, sort, drop
   entries a wildcard in the list already covers); **the box enforces the ceiling**.
   A role asking for more fails its raise with an error naming the domain.
-- **Takes effect at the next raise.** A running cove keeps the egress it booted
-  with. To apply a change to a standing session, dismiss and re-declare it, or tear
-  its cove down so the reconciler raises it again.
+- **Reaches running coves within one reconcile pass.** Each cove records the
+  policy it runs under; harbor's [reconcile pass](coves.md#egress-drift) re-applies
+  the role's current one when they differ (`clear` restores the kit's list). A
+  paused cove gets it when it resumes, before its agent is woken.
+- **Fails closed.** A re-apply that fails is retried on the next pass; the third
+  consecutive failure — or a failed re-apply on resume — tears the cove down, so a
+  cove never keeps running under a policy other than its role's. A standing session
+  is then raised again under the new policy; an ephemeral or personal one ends.
+  A policy outside the kit's ceiling fails every time, so it reaches that teardown
+  (the log names the domain).
 - Domains follow the rule `^\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`
   after lowercasing: at least two labels, no scheme, port, path, `*` or whitespace.
 - Grant overrides don't touch egress.
@@ -119,7 +126,8 @@ at-harbor egress clear --project acme --role fenced          # back to the kit d
   `egress=<a.com,.b.org>`.
 
 How it is applied in the box: [the egress model](../../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling);
-when in the raise: [coves.md](coves.md#raising-a-real-managed-cove).
+when in the raise: [coves.md](coves.md#raising-a-real-managed-cove); on a running
+cove: [coves.md](coves.md#egress-drift).
 
 Admin API (the verbs wrap these; each write keeps every other role field):
 
