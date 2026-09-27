@@ -112,6 +112,13 @@ budget, and not owned. Personal sessions put that under the Allocator.
   **only on dismissal** — the name is removed — after which the Supervisor tears it
   down and releases.
 
+  *As built (Slice 5):* the durable desired state is the **declaration on the
+  role**, not a persisted reservation. A dying standing Studio's teardown releases
+  its reservation like any other, and the reconciler re-grants and raises the name
+  on its next pass. The standing cap is the number of declared names, so a freed
+  slot can't be taken by another kind. Raise failures back off per name (30s,
+  doubling to 30m).
+
 ## Deferred (not in this design)
 
 - **Session-requested personal sessions** (a cove asking harbor for a helper).
