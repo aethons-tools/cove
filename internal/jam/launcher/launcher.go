@@ -19,6 +19,10 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
+// Label is the docker label on every container the launcher raises, and the
+// filter it lists them by. It keeps its pre-rename "harbor" value: changing it
+// would hide studios an older binary raised from the new one during a rollout.
+// See docs/usage/jam/renamed-from-harbor.md.
 const Label = "harbor.cove"
 
 // Backend is the backend surface the launcher needs: the ephemeral run/dial/remove
@@ -118,7 +122,7 @@ func (l *Launcher) applyRoleEgress(name string, spec jam.RaiseSpec) error {
 
 // ApplyEgress sets a running cove's egress to p (nil = the kit default), via the
 // same privileged backend op the raise uses; the sealed in-box helper enforces
-// the kit's ceiling. Harbor's supervisor calls it when the role's policy drifts
+// the kit's ceiling. Jam's supervisor calls it when the role's policy drifts
 // from the one the cove is running under.
 func (l *Launcher) ApplyEgress(ctx context.Context, inst jam.Instance, p *jam.EgressPolicy) error {
 	return l.applyEgress(inst.Location, inst.ActorID, inst.Project, inst.Role, p)

@@ -8,7 +8,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// SessionVerifier verifies the browser session cookie using harbor's own token
+// SessionVerifier verifies the browser session cookie using Jam's own token
 // verifier — the same verification (iss/aud/exp + require-scope) as the bearer API.
 type SessionVerifier struct {
 	Auth *jam.OIDCAuthenticator
@@ -38,7 +38,7 @@ type Gate struct {
 	LoginPath string
 	// ExpectedHosts are additional Host values (beyond the loopback literals)
 	// accepted on a loopback request — typically a custom hostname that DNS-binds
-	// to 127.0.0.1 (e.g. harbor.local.example). Empty ⇒ only loopback literals.
+	// to 127.0.0.1 (e.g. jam.local.example). Empty ⇒ only loopback literals.
 	ExpectedHosts []string
 	Log           *slog.Logger
 }

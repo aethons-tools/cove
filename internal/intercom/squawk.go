@@ -1,9 +1,9 @@
-// Package intercom is harbor's durable, append-only squawk Log: one envelope
+// Package intercom is Jam's durable, append-only squawk Log: one envelope
 // (Squawk{From, To[], Body, …}) for all comms, over a JSONL file mirrored in
 // memory. A Target's Reach (Internal/External) decides whether it's delivered
 // in-band (a cove reads its inbox) or later rendered onto a human surface by an
 // adapter. This package is stdlib-only and imports nothing from internal/jam;
-// harbor consumes it. Single-node (the serve process is the sole writer).
+// Jam consumes it. Single-node (the serve process is the sole writer).
 package intercom
 
 import (
@@ -15,7 +15,7 @@ import (
 
 // Target addresses a participant or conduit.
 //
-//	actor:<coveID>  — an internal harbor cove (Reach Internal; delivered in-band)
+//	actor:<coveID>  — an internal Jam cove (Reach Internal; delivered in-band)
 //	human:<name>    — an external human (Reach External; rendered by an adapter)
 //	channel:<name>  — a shared conduit (a ticket thread, a chat channel)
 type Target struct {

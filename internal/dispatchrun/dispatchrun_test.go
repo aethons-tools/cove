@@ -536,19 +536,19 @@ func TestDispatchJamConnector(t *testing.T) {
 	// values are shell-quoted in the script (export KEY='value'); match substrings.
 	if !strings.Contains(agent, "ANTHROPIC_BASE_URL") || !strings.Contains(agent, "https://h.test/anthropic") || !strings.Contains(agent, "AT_JAM_IDENTITY_TOKEN") ||
 		!strings.Contains(agent, "AT_HARBOR_IDENTITY_TOKEN") { // deprecated name, still set for older images
-		t.Fatalf("agent step missing harbor connector env:\n%s", agent)
+		t.Fatalf("agent step missing Jam connector env:\n%s", agent)
 	}
-	// harbor supersedes OAuth: the credentials file is NOT seeded.
+	// Jam supersedes OAuth: the credentials file is NOT seeded.
 	for _, c := range r.Calls {
 		if strings.Contains(strings.Join(c.Args, " "), "cat > "+credsVMPath) {
-			t.Fatalf("harbor worker must not seed the OAuth credentials file: %+v", c.Args)
+			t.Fatalf("Jam worker must not seed the OAuth credentials file: %+v", c.Args)
 		}
 	}
-	// A worker must NOT reroute git through harbor — at-task prepare/complete keep
-	// their minted code-host token, so no harbor insteadOf may be applied.
+	// A worker must NOT reroute git through Jam — at-task prepare/complete keep
+	// their minted code-host token, so no Jam insteadOf may be applied.
 	for _, c := range r.Calls {
 		if strings.Contains(c.Stdin, "insteadOf") || strings.Contains(strings.Join(c.Args, " "), "insteadOf") {
-			t.Fatalf("worker must not apply a harbor git insteadOf: %+v / %q", c.Args, c.Stdin)
+			t.Fatalf("worker must not apply a Jam git insteadOf: %+v / %q", c.Args, c.Stdin)
 		}
 	}
 	// the token rides the env script (stdin), never argv.

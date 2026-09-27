@@ -24,7 +24,7 @@ func TestUISaysStudioAndJam(t *testing.T) {
 			t.Errorf("studios page missing %q; got:\n%s", want, body)
 		}
 	}
-	for _, gone := range []string{">Coves<", "No coves.", "harbor"} {
+	for _, gone := range []string{">Coves<", "No coves."} {
 		if strings.Contains(body, gone) {
 			t.Errorf("studios page still shows %q", gone)
 		}

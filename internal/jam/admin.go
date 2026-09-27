@@ -211,7 +211,7 @@ func parseActivity(s string) (Activity, bool) {
 	return "", false
 }
 
-// OperatorLoginConfig is the public device-flow client config harbor advertises
+// OperatorLoginConfig is the public device-flow client config Jam advertises
 // at GET /admin/login-config so `at-jam login` can self-configure. Every field
 // is a public OAuth parameter — never a secret.
 type OperatorLoginConfig struct {
@@ -259,7 +259,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 
 	mux.HandleFunc("GET /admin/login-config", func(w http.ResponseWriter, r *http.Request) {
 		if login == nil {
-			http.Error(w, "harbor is not OIDC-gated; no login required", http.StatusNotFound)
+			http.Error(w, "Jam is not OIDC-gated; no login required", http.StatusNotFound)
 			return
 		}
 		writeJSON(w, http.StatusOK, login)

@@ -1,7 +1,7 @@
-// Package harbor is the credential broker: it authenticates an enrolled identity,
+// Package jam is the credential broker: it authenticates an enrolled identity,
 // decides whether that identity may reach a configured destination and which
-// credential to inject, and reverse-proxies the request with harbor's real
-// credential swapped in. Downstream secrets live in harbor, never in the caller.
+// credential to inject, and reverse-proxies the request with Jam's real
+// credential swapped in. Downstream secrets live in Jam, never in the caller.
 package jam
 
 import (
@@ -34,14 +34,14 @@ type EgressPolicy struct {
 }
 
 // StandingSession is one operator-declared, named standing session of a role:
-// harbor keeps exactly one cove running per declared name (see internal/standing).
+// Jam keeps exactly one cove running per declared name (see internal/standing).
 type StandingSession struct {
 	Name   string `json:"name"`
 	Prompt string `json:"prompt"`
 }
 
 // RoleAllocation is a role's allocation policy: authored on the roster, read live
-// by harbor's Allocator on each grant, by wake-on's personal-session idle ladder,
+// by Jam's Allocator on each grant, by wake-on's personal-session idle ladder,
 // and by the standing reconciler. A later slice adds requester grants.
 type RoleAllocation struct {
 	// MaxEphemeral caps the role's concurrent ephemeral (Requisitioner) sessions;
@@ -54,13 +54,13 @@ type RoleAllocation struct {
 	// role; 0 = the pool cap only.
 	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
 	// IdleAfter is how long a personal session may wait on its owner before
-	// harbor first nags them; 0 = the default (DefaultIdleAfter).
+	// Jam first nags them; 0 = the default (DefaultIdleAfter).
 	IdleAfter time.Duration `json:"idle_after,omitempty"`
-	// NagEvery is how often harbor re-nags the owner after the first nag;
+	// NagEvery is how often Jam re-nags the owner after the first nag;
 	// 0 = the default (DefaultNagEvery).
 	NagEvery time.Duration `json:"nag_every,omitempty"`
 	// ReclaimAfter is how long a personal session may wait on its owner before
-	// harbor reclaims it; 0 = never.
+	// Jam reclaims it; 0 = never.
 	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
 	// Standing is the role's declared standing sessions — the desired state the
 	// standing reconciler keeps running, one cove per name. Managed only by the
@@ -136,7 +136,7 @@ type Human struct {
 	Name   string `json:"name"`   // roster-local name, e.g. "alice"
 	Handle string `json:"handle"` // tracker @-mention handle
 	// Login links the human to their admin operator identity (OperatorID: the
-	// OIDC sub, or "local" on loopback). It is how harbor knows which roster
+	// OIDC sub, or "local" on loopback). It is how Jam knows which roster
 	// human is behind an admin request, e.g. to own a personal session. "" =
 	// unlinked. At most one human per project may hold a given login.
 	Login    string            `json:"login,omitempty"`
@@ -168,7 +168,7 @@ func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
 
 // DeliveryProfile is how a Human receives messages on one non-tracker Service.
 // Address is the service-native delivery target: for "discord", the id of the
-// inbox channel harbor posts the human's DMs into.
+// inbox channel Jam posts the human's DMs into.
 type DeliveryProfile struct {
 	Service string `json:"service"`
 	Address string `json:"address"`
@@ -245,7 +245,7 @@ type Project struct {
 	ChatService string `json:"chat_service,omitempty"`
 }
 
-// DefaultProject backs harbor-side default enrollment when no project is named.
+// DefaultProject backs Jam-side default enrollment when no project is named.
 const DefaultProject = "default"
 
 // MintToken returns a new high-entropy bearer token (URL-safe, no padding).

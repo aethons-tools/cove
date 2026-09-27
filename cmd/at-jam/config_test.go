@@ -30,7 +30,7 @@ func TestUnknownServeKeys(t *testing.T) {
 func TestIsLoopbackAddr(t *testing.T) {
 	cases := map[string]bool{
 		"127.0.0.1:8081": true, "localhost:8081": true, "[::1]:8081": true,
-		":8081": false, "0.0.0.0:8081": false, "10.0.0.5:8081": false, "harbor.example:8081": false,
+		":8081": false, "0.0.0.0:8081": false, "10.0.0.5:8081": false, "jam.example:8081": false,
 	}
 	for addr, want := range cases {
 		if got := isLoopbackAddr(addr); got != want {
@@ -110,7 +110,7 @@ func TestOperatorLoginConfig(t *testing.T) {
 operator-auth:
   oidc:
     issuer: https://acme.us.auth0.com/
-    audience: https://harbor.acme/api
+    audience: https://jam.acme/api
     device-client-id: NativeClientId123
 `))
 	if err != nil {
@@ -118,7 +118,7 @@ operator-auth:
 	}
 	lc := cfg.operatorLoginConfig()
 	if lc == nil || lc.ClientID != "NativeClientId123" || lc.Issuer != "https://acme.us.auth0.com/" ||
-		lc.Audience != "https://harbor.acme/api" || lc.Scope != "openid" {
+		lc.Audience != "https://jam.acme/api" || lc.Scope != "openid" {
 		t.Fatalf("login config = %+v (want default scope openid)", lc)
 	}
 
@@ -137,14 +137,14 @@ store: /s.json
 operator-auth:
   oidc:
     issuer: https://acme.us.auth0.com/
-    audience: https://harbor.acme/api
-    require-scope: harbor:admin
+    audience: https://jam.acme/api
+    require-scope: jam:admin
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if cfg.OperatorAuth.OIDC == nil || cfg.OperatorAuth.OIDC.Issuer != "https://acme.us.auth0.com/" ||
-		cfg.OperatorAuth.OIDC.Audience != "https://harbor.acme/api" || cfg.OperatorAuth.OIDC.RequireScope != "harbor:admin" {
+		cfg.OperatorAuth.OIDC.Audience != "https://jam.acme/api" || cfg.OperatorAuth.OIDC.RequireScope != "jam:admin" {
 		t.Fatalf("oidc = %+v", cfg.OperatorAuth.OIDC)
 	}
 }
@@ -154,7 +154,7 @@ func TestParseServeConfig(t *testing.T) {
 listen: ":8443"
 admin-listen: "127.0.0.1:8081"
 tls: { cert: /c.pem, key: /k.pem }
-store: /var/lib/harbor/store.json
+store: /var/lib/jam/store.json
 credentials:
   anthropic-key: { command: [at-mint, anthropic] }
   git-pat: { value: literal-dev-pat }
@@ -163,7 +163,7 @@ credentials:
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.Store != "/var/lib/harbor/store.json" {
+	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.Store != "/var/lib/jam/store.json" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	if s := cfg.credSpecs()["git-pat"]; !s.Literal || s.Value != "literal-dev-pat" || s.Name != "git-pat" {
@@ -416,11 +416,11 @@ operator-auth:
 }
 
 func TestUIHostsParsed(t *testing.T) {
-	cfg, err := parseServeConfig([]byte("ui-hosts:\n  - harbor.local.aethons.tools\n  - harbor.internal\n"))
+	cfg, err := parseServeConfig([]byte("ui-hosts:\n  - jam.local.aethons.tools\n  - jam.internal\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.UIHosts) != 2 || cfg.UIHosts[0] != "harbor.local.aethons.tools" || cfg.UIHosts[1] != "harbor.internal" {
+	if len(cfg.UIHosts) != 2 || cfg.UIHosts[0] != "jam.local.aethons.tools" || cfg.UIHosts[1] != "jam.internal" {
 		t.Fatalf("UIHosts = %v, want the two configured hosts", cfg.UIHosts)
 	}
 	// ui-hosts is a known key (not flagged as unknown).
@@ -431,10 +431,10 @@ func TestUIHostsParsed(t *testing.T) {
 
 func TestServeConfigIntercomLog(t *testing.T) {
 	var c serveConfig
-	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/harbor/squawks.jsonl\n"), &c); err != nil {
+	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/jam/squawks.jsonl\n"), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.IntercomLog != "/var/lib/harbor/squawks.jsonl" {
+	if c.IntercomLog != "/var/lib/jam/squawks.jsonl" {
 		t.Fatalf("IntercomLog = %q, want the configured path", c.IntercomLog)
 	}
 	var empty serveConfig
@@ -447,7 +447,7 @@ func TestServeConfigIntercomLog(t *testing.T) {
 }
 
 func TestServeConfigStorePostgres(t *testing.T) {
-	y := "store-postgres:\n  host: db\n  port: 5432\n  database: harbor\n  user: harbor\n  sslmode: verify-full\n  password-cred: harbor-db\n"
+	y := "store-postgres:\n  host: db\n  port: 5432\n  database: jam\n  user: jam\n  sslmode: verify-full\n  password-cred: jam-db\n"
 	var c serveConfig
 	if err := yaml.Unmarshal([]byte(y), &c); err != nil {
 		t.Fatal(err)
@@ -455,8 +455,8 @@ func TestServeConfigStorePostgres(t *testing.T) {
 	if c.StorePostgres == nil {
 		t.Fatal("StorePostgres is nil")
 	}
-	if c.StorePostgres.Host != "db" || c.StorePostgres.Port != 5432 || c.StorePostgres.Database != "harbor" ||
-		c.StorePostgres.User != "harbor" || c.StorePostgres.SSLMode != "verify-full" || c.StorePostgres.PasswordCred != "harbor-db" {
+	if c.StorePostgres.Host != "db" || c.StorePostgres.Port != 5432 || c.StorePostgres.Database != "jam" ||
+		c.StorePostgres.User != "jam" || c.StorePostgres.SSLMode != "verify-full" || c.StorePostgres.PasswordCred != "jam-db" {
 		t.Fatalf("StorePostgres = %+v", c.StorePostgres)
 	}
 	// Absent block => nil.
@@ -487,8 +487,8 @@ func TestValidateStorePostgres(t *testing.T) {
 	if err := c.validateStorePostgres(); err == nil {
 		t.Fatal("expected error when password-cred is not a configured credential")
 	}
-	c.Credentials["harbor-db"] = credSpec{Command: []string{"echo", "pw"}}
-	c.StorePostgres.PasswordCred = "harbor-db"
+	c.Credentials["jam-db"] = credSpec{Command: []string{"echo", "pw"}}
+	c.StorePostgres.PasswordCred = "jam-db"
 	if err := c.validateStorePostgres(); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}

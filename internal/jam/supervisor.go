@@ -33,7 +33,7 @@ type RaiseSpec struct {
 	// Name is a standing session's declared name; "" otherwise.
 	Name string
 	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
-	// plain string (not allocator.SessionKind) so harbor never imports allocator.
+	// plain string (not allocator.SessionKind) so Jam never imports allocator.
 	SessionKind string
 	// Egress is the role's egress policy, which the launcher applies in-box before
 	// the agent starts; nil = the kit's default list. Supervisor.Raise always
@@ -89,7 +89,7 @@ type Releaser interface {
 }
 
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
-// the lease model, and the state machine. One supervisor per harbor process.
+// the lease model, and the state machine. One supervisor per Jam process.
 type Supervisor struct {
 	store     Store
 	launcher  Launcher
@@ -446,7 +446,7 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 			if inst.Lease.Holder == s.holder {
 				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease
 				_ = s.store.PutInstance(inst)
-				// Only the lease holder re-applies, so two harbors never both exec in.
+				// Only the lease holder re-applies, so two Jams never both exec in.
 				s.reconcileEgress(ctx, inst)
 			}
 			continue // someone else's live lease: not ours to touch

@@ -8,7 +8,7 @@ import (
 )
 
 // Operator is the identity behind an admin-API request. Operator identity (humans
-// managing harbor) is a separate plane from actor identity (enrollment tokens).
+// managing Jam) is a separate plane from actor identity (enrollment tokens).
 type Operator struct{ ID string }
 
 type operatorCtxKey struct{}

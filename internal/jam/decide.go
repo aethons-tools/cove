@@ -59,7 +59,7 @@ func Decide(a Actor, scopes []Scope, dest Destination, ownerRepo string, now tim
 	return Decision{}, fmt.Errorf("actor %q not authorized for destination %q", a.ID, dest.Name)
 }
 
-// SendTarget is a resolved comms recipient: how harbor should deliver a send.
+// SendTarget is a resolved comms recipient: how Jam should deliver a send.
 type SendTarget struct {
 	Kind    string // "human" | "channel"
 	Name    string // roster-local name

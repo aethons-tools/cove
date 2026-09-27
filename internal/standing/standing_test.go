@@ -325,7 +325,7 @@ func (a *fakeActors) RemoveActor(id string) error {
 
 // A crash between enrolling a standing cove's identity and recording its
 // instance leaves an actor with the standing id and no cove. Standing ids are
-// harbor-owned and the name has no live cove, so the reconciler removes the
+// Jam-owned and the name has no live cove, so the reconciler removes the
 // leftover actor and raises — instead of failing "already exists" and backing
 // off forever.
 func TestTick_RemovesLeftoverActorBeforeRaising(t *testing.T) {

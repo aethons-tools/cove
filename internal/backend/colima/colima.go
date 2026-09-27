@@ -44,7 +44,7 @@ func dnsArgs(dns []string) []string {
 }
 
 // addHostArgs renders docker run --add-host <h>:host-gateway for each host, so
-// the container can reach a host-run service (e.g. a loopback-bound harbor
+// the container can reach a host-run service (e.g. a loopback-bound Jam
 // broker) by name — COV-138. Empty yields no flags.
 func addHostArgs(hosts []string) []string {
 	var a []string

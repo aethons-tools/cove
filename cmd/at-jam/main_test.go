@@ -80,15 +80,15 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	code := run([]string{
 		"enroll", "--admin-url", ts.URL, "--id", "spider-18", "--project", "ACME",
 		"--role", "guest",
-		"--base-url", "https://harbor.local.aethons.tools",
+		"--base-url", "https://jam.local.aethons.tools",
 	}, func(string) string { return "" }, &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=https://harbor.local.aethons.tools/anthropic") {
+	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=https://jam.local.aethons.tools/anthropic") {
 		t.Fatalf("stdout missing snippet:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "AT_HARBOR_IDENTITY_TOKEN=") {
+	if !strings.Contains(out.String(), "AT_JAM_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
 	}
 	if len(store.ListActors()) != 1 {

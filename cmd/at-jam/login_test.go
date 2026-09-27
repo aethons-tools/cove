@@ -45,7 +45,7 @@ func fakeAuth0(t *testing.T, sub string) *httptest.Server {
 	return srv
 }
 
-// jamWithLogin stands up a harbor admin API whose login-config points at the
+// jamWithLogin stands up a Jam admin API whose login-config points at the
 // given issuer.
 func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
 	t.Helper()
@@ -53,7 +53,7 @@ func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://harbor.test/api", ClientID: "cid", Scope: "openid"}
+	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: "openid"}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -141,7 +141,7 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 	}
 
 	// … but a DIFFERENT app (no token cached for it) sends nothing — per-app token
-	// files are the scoping boundary, so one harbor's token never leaks to another.
+	// files are the scoping boundary, so one Jam's token never leaks to another.
 	gotAuth = "sentinel"
 	if code := run([]string{"destination", "list", "--app", "other", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("destination list exit = %d, stderr=%s", code, errb.String())
@@ -192,7 +192,7 @@ func TestLoginNotOIDCGated(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"login", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb)
 	if code != 0 {
-		t.Fatalf("login against non-OIDC harbor exit = %d, want 0; stderr=%s", code, errb.String())
+		t.Fatalf("login against non-OIDC Jam exit = %d, want 0; stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "not OIDC-gated") {
 		t.Fatalf("output = %q, want a 'not OIDC-gated' message", out.String())

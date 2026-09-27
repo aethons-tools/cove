@@ -39,7 +39,7 @@ type TeammateOptions struct {
 	// ensureAuthenticated, which would panic on that warning path.
 	Stderr io.Writer
 	// JamHost/JamToken, when set, route the conductor's Anthropic + git
-	// through a harbor broker (COV-142), superseding the OAuth login: the connector
+	// through a Jam broker (COV-142), superseding the OAuth login: the connector
 	// env is staged and git is configured. Token pre-supplied only (teammate
 	// auto-enroll is unsupported — no exit hook to revoke on).
 	JamHost  string
@@ -87,7 +87,7 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	// Harbor supersedes the OAuth login: route git through harbor (token-free
+	// Jam supersedes the OAuth login: route git through Jam (token-free
 	// config) and skip the auth probe; the connector env is staged below.
 	if o.JamHost != "" {
 		if err := applyJamGit(r, tgt, &JamAuth{Host: o.JamHost, Token: o.JamToken}); err != nil {
@@ -111,7 +111,7 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	if o.ErrorChannel != "" {
 		fmt.Fprintf(&script, "export SWITCHBOARD_ERROR_CHANNEL=%s\n", shellQuote(o.ErrorChannel))
 	}
-	// The harbor connector env (Anthropic base URL + x-api-key/token) is sourced
+	// The Jam connector env (Anthropic base URL + x-api-key/token) is sourced
 	// with the rest — env-only, never argv.
 	if o.JamHost != "" {
 		script.WriteString(envScript(snippet.Env("https://"+o.JamHost, o.JamToken)))

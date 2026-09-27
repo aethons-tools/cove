@@ -1,6 +1,6 @@
-// Package attach is the harbor-side managed-cove Attach gRPC stream: a cove dials
+// Package attach is the Jam-side managed-cove Attach gRPC stream: a cove dials
 // in and holds one bidirectional stream — StatusUp from the cove (activity +
-// heartbeats), ControlDown from harbor (lifecycle control). grpc is isolated to
+// heartbeats), ControlDown from Jam (lifecycle control). grpc is isolated to
 // this package; internal/jam stays grpc-free.
 package attach
 
@@ -20,8 +20,11 @@ import (
 
 const (
 	mdAuthorization = "authorization"
-	mdLaunchSecret  = "x-harbor-launch-secret"
-	sendBuffer      = 8
+	// mdLaunchSecret keeps its pre-rename name: it is the gRPC metadata key
+	// cove-master in already-built images sends (see
+	// docs/usage/jam/renamed-from-harbor.md).
+	mdLaunchSecret = "x-harbor-launch-secret"
+	sendBuffer     = 8
 )
 
 type Server struct {

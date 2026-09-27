@@ -17,7 +17,7 @@ type roleReader interface {
 // truth (read live from the memory-cached store on each grant, so a role edit
 // takes effect on the next grant with no restart); the Requisitioner's
 // max-concurrent is the fallback ephemeral cap for its own (project, role) when
-// the Role sets no max-ephemeral (fallback is empty when harbor serves without a
+// the Role sets no max-ephemeral (fallback is empty when Jam serves without a
 // Requisitioner). The personal caps and the standing names come only from the
 // Role. No role and no fallback ⇒ no policy ⇒ fail closed.
 type rosterPolicy struct {
@@ -78,7 +78,7 @@ func requisitionerProject(dc *requisitionerConfig) string {
 	return dc.Project
 }
 
-// personalAllocator adapts *allocator.Allocator to jam.SessionAllocator (harbor
+// personalAllocator adapts *allocator.Allocator to jam.SessionAllocator (Jam
 // does not import allocator): a personal grant is a SessionPersonal request owned
 // by the requester, and the allocator's no-ledger error becomes
 // jam.ErrNeedsLedger so the admin route can answer 409.

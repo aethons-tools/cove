@@ -1474,7 +1474,7 @@ func TestResolvedCollaboratorKeepsShadowDirs(t *testing.T) {
 }
 
 // InfraDomains is the mechanism half of the old RootDomains: provider, self-hosted
-// GitLab and harbor hosts — always on, never replaced by a role's egress policy.
+// GitLab and Jam hosts — always on, never replaced by a role's egress policy.
 func TestInfraDomains(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k
@@ -1506,16 +1506,16 @@ source-control:
 	if strings.Join(root, ",") != strings.Join(unionDomains(cfg.Image.AllowedDomains, infra), ",") {
 		t.Fatalf("RootDomains = %v, want image.allowed-domains ∪ InfraDomains", root)
 	}
-	// harbor and model-provider are mutually exclusive, so the harbor host is
+	// Jam and model-provider are mutually exclusive, so the Jam host is
 	// checked on its own kit.
-	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\njam:\n  host: harbor.example\n"))
+	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\njam:\n  host: jam.example\n"))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if got := InfraDomains(hb); len(got) != 1 || got[0] != "harbor.example" {
-		t.Fatalf("InfraDomains(harbor kit) = %v, want [harbor.example]", got)
+	if got := InfraDomains(hb); len(got) != 1 || got[0] != "jam.example" {
+		t.Fatalf("InfraDomains(Jam kit) = %v, want [jam.example]", got)
 	}
-	// No provider/gitlab/harbor → empty.
+	// No provider/gitlab/jam → empty.
 	bare, _ := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [only.example]\n"))
 	if got := InfraDomains(bare); len(got) != 0 {
 		t.Fatalf("InfraDomains(bare) = %v, want empty", got)

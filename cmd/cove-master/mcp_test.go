@@ -50,7 +50,7 @@ func (f *fakeJam) handler() http.HandlerFunc {
 	}
 }
 
-// connectMCP wires the messaging server (built against the fake harbor via
+// connectMCP wires the messaging server (built against the fake Jam via
 // getenv) to a client over in-memory transports, per go-sdk v1.7.0's pattern:
 // the server side must connect before the client initializes its session.
 func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
@@ -123,13 +123,13 @@ func TestMCPSendForwardsToJam(t *testing.T) {
 		t.Fatalf("send tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodPost {
-		t.Fatalf("harbor saw method %q, want POST", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want POST", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-A" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-A", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-A", fh.gotAuth)
 	}
 	if fh.gotBody["body"] != "hi" {
-		t.Fatalf("harbor saw body %v, want {body: hi}", fh.gotBody)
+		t.Fatalf("Jam saw body %v, want {body: hi}", fh.gotBody)
 	}
 }
 
@@ -158,10 +158,10 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 		t.Fatalf("read tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodGet {
-		t.Fatalf("harbor saw method %q, want GET", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want GET", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-B" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-B", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-B", fh.gotAuth)
 	}
 
 	b, err := json.Marshal(res.StructuredContent)
@@ -455,7 +455,7 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 		t.Fatalf("CallTool(send) protocol error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("want a tool-level error on a non-2xx harbor response")
+		t.Fatal("want a tool-level error on a non-2xx Jam response")
 	}
 	var text strings.Builder
 	for _, c := range res.Content {

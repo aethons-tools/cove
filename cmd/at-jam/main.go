@@ -1,6 +1,6 @@
 // Command at-jam is the central credential broker + control plane. `serve`
 // runs the credential-injecting reverse proxy and a loopback admin API;
-// `enroll`/`revoke`/`destination` are admin-API clients. See the harbor specs
+// `enroll`/`revoke`/`destination` are admin-API clients. See the Jam specs
 // under docs/superpowers/specs/.
 package main
 
@@ -89,7 +89,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-jam/settings.yml)")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL; persisted to the app's settings when given")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL; persisted to the app's settings when given")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -117,7 +117,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	lc, err := adminclient.New(adminURL, "").LoginConfig()
 	if err != nil {
 		if errors.Is(err, adminclient.ErrNotFound) {
-			fmt.Fprintln(stdout, "this harbor is not OIDC-gated; no login needed")
+			fmt.Fprintln(stdout, "this Jam is not OIDC-gated; no login needed")
 			return 0
 		}
 		fmt.Fprintln(stderr, "at-jam login:", err)
@@ -203,12 +203,12 @@ func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
-	baseURLFlag := fs.String("base-url", "", "harbor broker base URL for the printed snippet (overrides the app's settings)")
+	baseURLFlag := fs.String("base-url", "", "Jam broker base URL for the printed snippet (overrides the app's settings)")
 	jsonOut := fs.Bool("json", false, `print {"id","token"} JSON instead of the shell snippet (base-url not required)`)
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
@@ -249,7 +249,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id to remove")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
@@ -281,7 +281,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	// add flags
 	var d jam.Destination
@@ -367,7 +367,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
@@ -466,7 +466,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[1], args[2:]
 	fs := flag.NewFlagSet("project roster "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
@@ -572,7 +572,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("project escalation "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	category := fs.String("category", "", "escalation category (default chain when empty); set/clear")
 	var tiers tierFlags
@@ -648,7 +648,7 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("project chat-service "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name")
 	service := fs.String("service", "", "chat service (set), e.g. discord")
@@ -744,7 +744,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
 	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
@@ -870,7 +870,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("studio "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "studio/actor id")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
@@ -961,7 +961,7 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("session "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to request a personal session of (request only)")
@@ -1024,7 +1024,7 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdStanding manages a role's standing-session declarations: harbor keeps one
+// cmdStanding manages a role's standing-session declarations: Jam keeps one
 // cove running per declared name, restarts it if it dies, and tears it down once
 // the name is removed.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
@@ -1035,7 +1035,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role the standing session belongs to")
@@ -1111,7 +1111,7 @@ func egressState(p *jam.EgressPolicy) string {
 	}
 }
 
-// cmdEgress manages a role's raw-egress policy: the list harbor pushes into each
+// cmdEgress manages a role's raw-egress policy: the list Jam pushes into each
 // cove of the role at raise, replacing the kit's policy list within the kit's
 // ceiling. A change takes effect at the role's next raise.
 func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
@@ -1122,7 +1122,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role whose egress policy to manage")
@@ -1213,7 +1213,7 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 	}
 	fs := flag.NewFlagSet(verb, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "actor id")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
@@ -1249,7 +1249,7 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("roster", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
@@ -1301,7 +1301,7 @@ func (placeholderLauncher) ApplyEgress(context.Context, jam.Instance, *jam.Egres
 
 // linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
 // engine's ticket-comment capability). It exists here, rather than in
-// internal/jam, so harbor core never imports internal/dispatch/linear or
+// internal/jam, so Jam core never imports internal/dispatch/linear or
 // internal/dispatch/scheduler (see AGENTS.md boundary rules): the concrete
 // tracker type is a wiring-layer concern.
 type linearCommenter struct{ c *linear.Client }
@@ -1339,7 +1339,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		logging.Deprecated(stderr, d[0], d[1])
 	}
 	if unknown := unknownServeKeys(data); len(unknown) > 0 {
-		fmt.Fprintf(stderr, "at-jam: warning: ignoring unknown harbor.yml key(s): %s\n", strings.Join(unknown, ", "))
+		fmt.Fprintf(stderr, "at-jam: warning: ignoring unknown jam.yml key(s): %s\n", strings.Join(unknown, ", "))
 		for _, k := range unknown {
 			if k == "destinations" {
 				fmt.Fprintln(stderr, "at-jam: note: destinations are managed via the admin API — run `at-jam destination import`")
@@ -1394,7 +1394,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		defer ps.Close()
 		st = ps
 		pgPool = ps.Pool()
-		log.Info("harbor store: postgres", "host", pc.Host, "database", pc.Database) // never the password
+		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
 	} else {
 		fs, err := jam.NewFileStore(cfg.Store)
 		if err != nil {
@@ -1402,7 +1402,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		st = fs
-		log.Info("harbor store: file", "path", cfg.Store)
+		log.Info("Jam store: file", "path", cfg.Store)
 	}
 
 	creds := jam.NewSecretResolver(runner.OS{}, specs)
@@ -1438,7 +1438,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			DNS: lc.DNS, Docker: lc.Docker,
 			Log: log,
 		})
-		log.Info("harbor launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
+		log.Info("Jam launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
 	}
 	sup := jam.NewSupervisor(st, lch, jam.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
@@ -1467,7 +1467,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		intercomLog = ml // Close is a no-op; the store owns the pool
-		log.Info("harbor message log: postgres (shared control-plane database)")
+		log.Info("Jam message log: postgres (shared control-plane database)")
 	case cfg.IntercomLog != "":
 		ml, err := intercom.Open(cfg.IntercomLog, log)
 		if err != nil {
@@ -1476,13 +1476,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		defer ml.Close()
 		intercomLog = ml
-		log.Info("harbor message log: file", "path", cfg.IntercomLog)
+		log.Info("Jam message log: file", "path", cfg.IntercomLog)
 	}
 	if intercomLog != nil {
 		sup.SetTailReader(intercomLog)
 	}
 
-	// The Allocator is harbor's capacity authority, built whenever harbor serves
+	// The Allocator is Jam's capacity authority, built whenever Jam serves
 	// (not only with a Requisitioner): it admits the Requisitioner's ephemeral raises and
 	// operators' personal-session requests against
 	// the roster's per-(project, role) policy (`role add --max-ephemeral
@@ -1523,21 +1523,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			allocSweepGrace    = 5 * time.Minute
 		)
 		go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
-		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
+		log.Info("Jam allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
 	}
 
 	// Standing reconciler: keeps one live cove per standing session declared on a
 	// role (`at-jam standing add`) — raises a missing or dead one under its
 	// per-name actor id (admitted by the Allocator, released on a failed raise,
 	// with per-name backoff) and tears down one whose name was removed. Resident
-	// whenever harbor serves; with no declarations a tick does nothing.
+	// whenever Jam serves; with no declarations a tick does nothing.
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
 	stdg.SetActors(st) // clear a standing identity left over from an interrupted raise
 	go stdg.Run(context.Background())
-	log.Info("harbor standing reconciler: resident", "interval", standing.DefaultInterval)
+	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
-	// the Discord relay — runs whenever harbor has an intercom log, Requisitioner or
+	// the Discord relay — runs whenever Jam has an intercom log, Requisitioner or
 	// not: a personal session converses with its owner over it. The tracker, the
 	// Requisitioner, the escalation engine and the Linear relay need the tracker, so
 	// they stay in the Requisitioner block below.
@@ -1560,7 +1560,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if intercomLog != nil {
 			inbox = intercomLog
 		} else {
-			log.Warn("harbor wake-on: intercom-log not configured — studios will not wake on replies (teardown/pause only)")
+			log.Warn("Jam wake-on: intercom-log not configured — studios will not wake on replies (teardown/pause only)")
 		}
 		wcfg := cfg.wakeSettings()
 		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)
@@ -1573,7 +1573,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 		go eng.Run(context.Background())
-		log.Info("harbor wake-on engine: resident", "wait-max", wcfg.MaxWait)
+		log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 	}
 
 	// Relay state shared by the Linear and Discord relay engines (one cursors
@@ -1612,7 +1612,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	if dc != nil {
-		// Resolve harbor's own tracker token (never injected into a cove, never logged).
+		// Resolve Jam's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: requisitioner tracker-token:", err)
@@ -1631,7 +1631,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Allocator's fallback (see requisitionerProject).
 		project := requisitionerProject(dc)
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
-			log.Info("harbor allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
+			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
 		}
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
@@ -1649,7 +1649,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		epoll, _ := time.ParseDuration(dc.EscalationPollInterval) // "" or invalid → 0 → engine default
 		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
 		go eeng.Run(context.Background())
-		log.Info("harbor escalation engine: resident", "poll-interval", epoll)
+		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 		// relay linear engine: polls the team-scoped comments feed and
 		// appends inbound human replies to the intercomLog opened above
@@ -1661,7 +1661,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if intercomLog != nil {
 			self, err := tracker.Viewer(context.Background())
 			if err != nil {
-				log.Warn("harbor relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
+				log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
 			dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
 			dir.selfIdentity = self
@@ -1682,7 +1682,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 			go eng.Run(context.Background())
-			log.Info("harbor relay (linear): resident, egress ON", "self", self != "")
+			log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 		}
 	}
 
@@ -1710,7 +1710,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go deng.Run(context.Background())
-		log.Info("harbor relay (discord): resident, egress ON")
+		log.Info("Jam relay (discord): resident, egress ON")
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
@@ -1720,7 +1720,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		go func() {
-			log.Info("harbor runtime (Attach) plaintext dev listener", "addr", cfg.Runtime.Listen)
+			log.Info("Jam runtime (Attach) plaintext dev listener", "addr", cfg.Runtime.Listen)
 			if err := gs.Serve(lis); err != nil {
 				log.Error("runtime dev listener stopped", "err", err.Error())
 			}
@@ -1737,9 +1737,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 			auth = oidcAuth
-			log.Info("harbor admin auth: OIDC", "issuer", o.Issuer, "audience", o.Audience)
+			log.Info("Jam admin auth: OIDC", "issuer", o.Issuer, "audience", o.Audience)
 		} else {
-			log.Info("harbor admin auth: loopback")
+			log.Info("Jam admin auth: loopback")
 		}
 		credExists := func(n string) bool { _, ok := specs[n]; return ok }
 
@@ -1768,9 +1768,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok {
 				gate.Sess = &browserauth.SessionVerifier{Auth: oidcAuth}
 			}
-			log.Info("harbor UI auth: browser OIDC login", "client-id", bc.ClientID)
+			log.Info("Jam UI auth: browser OIDC login", "client-id", bc.ClientID)
 		} else {
-			log.Info("harbor UI auth: loopback-only")
+			log.Info("Jam UI auth: loopback-only")
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
@@ -1778,13 +1778,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()
-				log.Info("harbor admin API listening (TLS)", "addr", cfg.AdminListen)
+				log.Info("Jam admin API listening (TLS)", "addr", cfg.AdminListen)
 				if err := (&http.Server{Addr: cfg.AdminListen, Handler: admin}).ListenAndServeTLS(cert, key); err != nil {
 					log.Error("admin API stopped", "err", err.Error())
 				}
 				return
 			}
-			log.Info("harbor admin API listening", "addr", cfg.AdminListen)
+			log.Info("Jam admin API listening", "addr", cfg.AdminListen)
 			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
 				log.Error("admin API stopped", "err", err.Error())
 			}
@@ -1805,7 +1805,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
-	log.Info("harbor broker+Attach listening (mux)", "addr", cfg.Listen)
+	log.Info("Jam broker+Attach listening (mux)", "addr", cfg.Listen)
 	if err := serveMux(rawLis, tlsCfg, gs, httpHandler); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1

@@ -115,7 +115,7 @@ type instanceRoster interface {
 type directory struct {
 	store        instanceRoster
 	project      string
-	selfIdentity string        // harbor's Linear viewer displayName (self-post filter)
+	selfIdentity string        // Jam's Linear viewer displayName (self-post filter)
 	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
 }
 
@@ -155,7 +155,7 @@ func (d *directory) Route(service, project string, e relay.Event) (from intercom
 
 // routeDiscord maps a human's Discord reply to the cove it replies to, via
 // the receipt store. A message that is NOT a reply, or replies to an unknown
-// id (not a receipt), is unroutable and dropped — which also drops harbor's
+// id (not a receipt), is unroutable and dropped — which also drops Jam's
 // own non-reply posts (the self-post filter). The reply's ReplyTo is the id of
 // the squawk it answers (so threads work); a legacy receipt carries no squawk
 // id and keeps the opaque in:discord:<id>.
@@ -185,7 +185,7 @@ func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.T
 	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
 }
 
-// routeLinear drops any comment authored by harbor's own Linear identity (a
+// routeLinear drops any comment authored by Jam's own Linear identity (a
 // cove's brokered outbound, echoed back on the feed), then maps the ticket
 // the comment landed on to either a live cove's own ticket (Instance.Unit
 // match → actor) or a configured channel (Channel.Ref match → channel).
@@ -405,7 +405,7 @@ func newFileMarkers(path string) (*fileMarkers, error) {
 // copyEgressMark deep-copies an EgressMark's nested Pending maps so a caller can
 // mutate the returned mark without touching fileMarkers' stored state, and so a
 // stored mark can't be mutated by the caller after SetEgress. This is load-
-// bearing: harbor runs two relay engines (linear + discord) sharing one
+// bearing: Jam runs two relay engines (linear + discord) sharing one
 // *fileMarkers, and one engine's SetEgress marshals the whole map while the
 // other engine mutates its own Pending — without this copy that's a concurrent
 // map iteration/write (fatal).

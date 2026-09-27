@@ -31,7 +31,7 @@ type Squawk struct {
 // and commit paths need — seekable in both directions (so the handler never
 // needs the unbounded ReadInbox), plus SeqOf to resolve a wire-level message
 // id to its append-order Seq at the boundary (the cove-facing wire stays
-// id-based; harbor resolves internally). Satisfied by *intercom.Log and
+// id-based; Jam resolves internally). Satisfied by *intercom.Log and
 // *intercompg.Store; nil disables reads (GET → 503) and commits (POST
 // /squawks/commit → 503, since it can no longer resolve up_to to a Seq).
 type inboxReader interface {
@@ -57,7 +57,7 @@ type appender interface {
 	Append(m intercom.Squawk) (intercom.Squawk, error)
 }
 
-// SquawksHandler is harbor's brokered messaging endpoint. Reads, and sends
+// SquawksHandler is Jam's brokered messaging endpoint. Reads, and sends
 // with no `to`, are self-scoped by construction: the ticket identifier comes
 // solely from the caller's own Instance.Unit (server-derived, resolved after
 // authentication). A send may instead carry a `to` target; that path is

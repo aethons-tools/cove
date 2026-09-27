@@ -70,9 +70,9 @@ type Options struct {
 	GitToken        secret.Spec   // code-host token; withheld from the agent step
 	CredentialsFile string        // host-saved agent login to seed; "" = none
 	// JamHost/JamToken, when set, route the AGENT step's Anthropic through a
-	// harbor broker (COV-142): the connector env is injected and the OAuth creds
+	// Jam broker (COV-142): the connector env is injected and the OAuth creds
 	// file is not seeded. Git is deliberately left on at-task's minted-token path
-	// (a global harbor insteadOf would misroute prepare/complete).
+	// (a global Jam insteadOf would misroute prepare/complete).
 	JamHost       string
 	JamToken      string
 	IdentityFile  string
@@ -173,7 +173,7 @@ func Dispatch(ctx context.Context, o Options) error {
 	// concurrent dispatch units never race on a shared .build dir.
 	var addHosts []string
 	if h := o.Cfg.Jam; h != nil && h.HostGateway() {
-		addHosts = []string{h.Host} // reach a host-run harbor by name (COV-138)
+		addHosts = []string{h.Host} // reach a host-run Jam by name (COV-138)
 	}
 	if _, err := o.Ops.RunEphemeral(o.Image, o.ImageDigest, o.Name, Label, o.Cfg.Image.DNS, addHosts, o.Cfg.Docker); err != nil {
 		return err
@@ -216,8 +216,8 @@ func Dispatch(ctx context.Context, o Options) error {
 	if err := eg.ApplySessionEgress(o.Name, domains); err != nil {
 		return fmt.Errorf("apply session egress: %w", err)
 	}
-	// Harbor supersedes the OAuth login: don't seed the credentials file when the
-	// agent authenticates to Anthropic through harbor (COV-142).
+	// Jam supersedes the OAuth login: don't seed the credentials file when the
+	// agent authenticates to Anthropic through Jam (COV-142).
 	if o.JamHost == "" {
 		if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 			return fmt.Errorf("seed agent credentials: %w", err)
@@ -268,8 +268,8 @@ func Dispatch(ctx context.Context, o Options) error {
 				agentEnv[k] = v
 			}
 		}
-		// Route the agent's Anthropic through harbor (COV-142) — env-only; git
-		// stays on at-task's minted-token path (no harbor insteadOf here).
+		// Route the agent's Anthropic through Jam (COV-142) — env-only; git
+		// stays on at-task's minted-token path (no Jam insteadOf here).
 		if o.JamHost != "" {
 			for k, v := range snippet.Env("https://"+o.JamHost, o.JamToken) {
 				agentEnv[k] = v

@@ -39,10 +39,10 @@ type ImageConfig struct {
 	DNS []string `yaml:"dns,omitempty"`
 }
 
-// JamConfig routes a hardened cove's Anthropic + git through a harbor broker
+// JamConfig routes a hardened cove's Anthropic + git through a Jam broker
 // (COV-138). When set, at-cove folds Host into the egress allow-list, adds a
 // --add-host <host>:host-gateway routability mapping (unless disabled), and
-// sources the harbor connector snippet into the session — superseding the
+// sources the Jam connector snippet into the session — superseding the
 // operator's OAuth/Vertex auth. Host is a bare hostname; the broker is reached
 // over TLS on :443 so no sealed egress changes are needed.
 type JamConfig struct {
@@ -52,7 +52,7 @@ type JamConfig struct {
 }
 
 // HostGateway reports whether to add the --add-host <host>:host-gateway mapping
-// (default true — the common host-run-harbor-on-loopback case).
+// (default true — the common host-run-Jam-on-loopback case).
 func (h *JamConfig) HostGateway() bool {
 	return h.ViaHostGateway == nil || *h.ViaHostGateway
 }
@@ -852,16 +852,16 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateJam(cfg.Jam); err != nil {
 		return Config{}, err
 	}
-	// harbor supersedes the agent's Anthropic auth, so it is mutually exclusive with
+	// Jam supersedes the agent's Anthropic auth, so it is mutually exclusive with
 	// a model provider (which would set an incoherent CLAUDE_CODE_USE_VERTEX pointed
-	// at harbor's base URL with no GCP creds).
+	// at Jam's base URL with no GCP creds).
 	if cfg.Jam != nil && cfg.ModelProvider != nil {
 		return Config{}, fmt.Errorf("config.yml: jam and model-provider are mutually exclusive (jam supersedes the agent's Anthropic auth)")
 	}
 	return cfg, nil
 }
 
-// validateJam checks the harbor: block: a non-empty bare-hostname Host (no
+// validateJam checks the jam: block: a non-empty bare-hostname Host (no
 // scheme, port, or path — the broker is reached over TLS on :443) and a non-empty
 // Identity (a host-supplied secret name).
 func validateJam(h *JamConfig) error {
@@ -872,7 +872,7 @@ func validateJam(h *JamConfig) error {
 	if host == "" {
 		return fmt.Errorf("config.yml: jam.host is required")
 	}
-	// Strict hostname charset: harbor.host flows into the squid allow-list file and
+	// Strict hostname charset: jam.host flows into the squid allow-list file and
 	// an sh-interpreted `git config` script, so reject anything that could inject a
 	// second ACL line or a shell command substitution (newline, space, quotes, $,
 	// `, ;, /, :, …). TLS :443 is implied — no scheme, port, or path.
@@ -882,7 +882,7 @@ func validateJam(h *JamConfig) error {
 			return fmt.Errorf("config.yml: jam.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
 		}
 	}
-	// harbor.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
+	// jam.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
 	// → at-cove auto-enrolls the cove (COV-141). So no required-check here.
 	return nil
 }
@@ -1225,15 +1225,15 @@ func SourceControlDomains(c Config) []string {
 }
 
 // InfraDomains is the infrastructure half of the kit's baked egress: the
-// provider-derived, self-hosted GitLab and harbor hosts the kit needs to work at
+// provider-derived, self-hosted GitLab and Jam hosts the kit needs to work at
 // all. Assemble bakes it into allowed_domains.infra.txt, which is always on — a
-// harbor role's egress policy replaces only the kit's policy list, never this.
+// Jam role's egress policy replaces only the kit's policy list, never this.
 func InfraDomains(c Config) []string {
-	var harbor []string
+	var jamHost []string
 	if c.Jam != nil && c.Jam.Host != "" {
-		harbor = []string{c.Jam.Host}
+		jamHost = []string{c.Jam.Host}
 	}
-	return unionDomains(ProviderDomains(c), SourceControlDomains(c), harbor)
+	return unionDomains(ProviderDomains(c), SourceControlDomains(c), jamHost)
 }
 
 // RootDomains is the kit's effective baked egress allow-list beyond the sealed

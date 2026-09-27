@@ -820,7 +820,7 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, diges
 	cc := backend.CreateContext{
 		Name: name, Image: image, Digest: digest, Workspace: ws, DNS: cfg.Image.DNS, Docker: cfg.Docker,
 	}
-	// Map a host-run harbor to the gateway so the hardened container can reach it
+	// Map a host-run Jam to the gateway so the hardened container can reach it
 	// by name (COV-138).
 	if cfg.Jam != nil && cfg.Jam.HostGateway() {
 		cc.ExtraHosts = []string{cfg.Jam.Host}
@@ -1010,7 +1010,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		}
 	}
 
-	// Harbor routes Anthropic + git through the broker, superseding OAuth/Vertex
+	// Jam routes Anthropic + git through the broker, superseding OAuth/Vertex
 	// (COV-138). Resolve the identity token host-side; connect delivers it env-only.
 	var jamAuth *connect.JamAuth
 	if cfg.Jam != nil && !noAuth {
@@ -1033,10 +1033,10 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if src, ok := cfg.SourceControl.Repo(); ok {
 		repo = src.Project
 	}
-	// A harbor cove must never resolve or carry the real code-host PAT: harbor's
-	// git insteadOf rewrites github.com → the harbor connector, so an at-task
-	// bootstrap clone would send the real token to harbor (and break). Skip the
-	// auto-clone under harbor — the agent clones through harbor on demand (COV-138).
+	// A Jam cove must never resolve or carry the real code-host PAT: Jam's
+	// git insteadOf rewrites github.com → the Jam connector, so an at-task
+	// bootstrap clone would send the real token to Jam (and break). Skip the
+	// auto-clone under Jam — the agent clones through Jam on demand (COV-138).
 	var wsClone *connect.WorkspaceClone
 	if cfg.Jam == nil {
 		wsClone, err = workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
@@ -1226,7 +1226,7 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 	var jamHost, jamToken string
 	if cfg.Jam != nil {
 		if cfg.Jam.Identity == "" {
-			return fmt.Errorf("teammate harbor requires harbor.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
+			return fmt.Errorf("teammate Jam requires jam.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
 		}
 		hauth, _, err := jamPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
 		if err != nil {
@@ -1309,12 +1309,12 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
 }
 
-// jamPlan produces a harbor kit's connector config host-side; nil when the kit
-// has no harbor: block. When harbor.identity is set it resolves that supplied
+// jamPlan produces a Jam kit's connector config host-side; nil when the kit
+// has no jam: block. When jam.identity is set it resolves that supplied
 // secret (COV-138); when absent it auto-enrolls by shelling at-jam (COV-141),
 // returning a revoke closure the caller defers (nil for the pre-supplied path).
 // The token is kept out of the agent's kit-secret env — connect delivers it
-// env-only as the harbor identity.
+// env-only as the Jam identity.
 // coveID is the unique per-instance identity id for auto-enroll (the container
 // name), distinct from kitName (the shared secret-bucket key used by the
 // pre-supplied path). Passing the bucket key would collide across concurrent
@@ -1323,7 +1323,7 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 	if cfg.Jam == nil {
 		return nil, nil, nil
 	}
-	// Pre-supplied path: harbor.identity names a host-supplied secret (COV-138).
+	// Pre-supplied path: jam.identity names a host-supplied secret (COV-138).
 	if cfg.Jam.Identity != "" {
 		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Jam.Identity, secretsPath)
 		if err != nil {
@@ -1335,7 +1335,7 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 		}
 		tok := resolved[cfg.Jam.Identity]
 		if strings.TrimSpace(tok) == "" {
-			return nil, nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Jam.Identity)
+			return nil, nil, fmt.Errorf("Jam kit %q: resolved identity %s is empty", kitName, cfg.Jam.Identity)
 		}
 		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok}, nil, nil
 	}
@@ -1345,17 +1345,17 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest"}
 	out, err := r.Output(atJamBinary(), args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll failed (is at-jam reachable + an operator logged in?): %w", kitName, err)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll failed (is at-jam reachable + an operator logged in?): %w", kitName, err)
 	}
 	var res struct {
 		ID    string `json:"id"`
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll returned unparseable output: %w", kitName, err)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned unparseable output: %w", kitName, err)
 	}
 	if strings.TrimSpace(res.Token) == "" {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll returned an empty token", kitName)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned an empty token", kitName)
 	}
 	revoke := func() { _ = r.Run(atJamBinary(), "revoke", "--id", res.ID) }
 	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token}, revoke, nil
@@ -1849,7 +1849,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 			break
 		}
 	}
-	// A harbor kit supplies the agent's Anthropic auth via the harbor connector
+	// A Jam kit supplies the agent's Anthropic auth via the Jam connector
 	// (injected ANTHROPIC_API_KEY = the identity token), not a worker-bucket bearer,
 	// so the bearer gate doesn't apply.
 	if !bearerResolved && cfg.Jam == nil {

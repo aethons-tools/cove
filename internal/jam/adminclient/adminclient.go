@@ -1,6 +1,6 @@
-// Package adminclient is a typed HTTP client for harbor's loopback admin API.
+// Package adminclient is a typed HTTP client for Jam's loopback admin API.
 // Kept dependency-light so a future at-jamctl can reuse it; today it imports
-// internal/jam only for the wire types (harbor is stdlib-only).
+// internal/jam only for the wire types (Jam is stdlib-only).
 package adminclient
 
 import (
@@ -19,11 +19,11 @@ import (
 )
 
 // ErrNotFound wraps a 404 from the admin API, so callers can distinguish "this
-// endpoint/resource isn't there" (e.g. a non-OIDC harbor has no login-config)
+// endpoint/resource isn't there" (e.g. a non-OIDC Jam has no login-config)
 // from a transport failure or another HTTP error.
 var ErrNotFound = errors.New("not found")
 
-// Client talks to a running harbor's admin API (e.g. http://127.0.0.1:8081).
+// Client talks to a running Jam's admin API (e.g. http://127.0.0.1:8081).
 type Client struct {
 	base  string
 	token string
@@ -32,7 +32,7 @@ type Client struct {
 
 // New returns a Client for the admin base URL (no trailing slash needed). token
 // (may be "") is sent as a bearer on every request — required against an
-// OIDC-gated harbor, ignored by a loopback-gated one.
+// OIDC-gated Jam, ignored by a loopback-gated one.
 func New(baseURL, token string) *Client {
 	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, httpc: &http.Client{Timeout: 10 * time.Second}}
 }
@@ -183,9 +183,9 @@ func (c *Client) RemoveGrant(actorID, project, role string) error {
 	return c.do("DELETE", "/admin/actors/"+actorID+"/grants/"+project+"/"+role, nil, nil)
 }
 
-// LoginConfig fetches harbor's public device-flow client parameters from
+// LoginConfig fetches Jam's public device-flow client parameters from
 // GET /admin/login-config. It needs no token (the endpoint is auth-exempt); a
-// 404 means the harbor is not OIDC-gated.
+// 404 means the Jam is not OIDC-gated.
 func (c *Client) LoginConfig() (jam.OperatorLoginConfig, error) {
 	var lc jam.OperatorLoginConfig
 	err := c.do("GET", "/admin/login-config", nil, &lc)
@@ -326,7 +326,7 @@ func (c *Client) TeardownCove(id string) error {
 	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
 }
 
-// RequestPersonalSession asks harbor for a personal session of role in project
+// RequestPersonalSession asks Jam for a personal session of role in project
 // ("" = the default project), owned by the roster human linked to the caller's
 // login. The prompt travels in the request body, never on argv.
 func (c *Client) RequestPersonalSession(project, role, prompt string) (jam.PersonalSessionResult, error) {
@@ -357,7 +357,7 @@ func standingPath(project, role string) string {
 	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/standing"
 }
 
-// AddStanding declares a named standing session on project's role; harbor then
+// AddStanding declares a named standing session on project's role; Jam then
 // keeps one cove running for it. The prompt travels in the request body, never
 // on argv.
 func (c *Client) AddStanding(project, role string, s jam.StandingSession) error {
@@ -372,7 +372,7 @@ func (c *Client) ListStanding(project, role string) ([]jam.StandingSession, erro
 	return out, err
 }
 
-// RemoveStanding dismisses a standing session; harbor tears its cove down.
+// RemoveStanding dismisses a standing session; Jam tears its cove down.
 func (c *Client) RemoveStanding(project, role, name string) error {
 	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
 }
@@ -383,7 +383,7 @@ func egressPath(project, role string) string {
 
 // SetEgress sets project's role's egress policy to domains (nil or empty = a
 // set-but-empty policy: nothing beyond the sealed base + the kit's infra
-// domains). Harbor normalizes the list; a bad domain is a 400 naming it. It takes
+// domains). Jam normalizes the list; a bad domain is a 400 naming it. It takes
 // effect at the role's next raise.
 func (c *Client) SetEgress(project, role string, domains []string) error {
 	if domains == nil {

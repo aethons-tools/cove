@@ -73,7 +73,7 @@ func (f *fakeOIDC) claims(aud, sub, scope string, exp time.Time) map[string]any 
 		"iat": time.Now().Unix(), "exp": exp.Unix()}
 }
 
-const testAud = "https://harbor.test/api"
+const testAud = "https://jam.test/api"
 
 func req(token string) *http.Request {
 	r := httptest.NewRequest("GET", "/admin/healthz", nil)
@@ -119,9 +119,9 @@ func TestOIDCAuthenticatorRejects(t *testing.T) {
 
 func TestOIDCAuthenticatorRequireScope(t *testing.T) {
 	f := newFakeOIDC(t)
-	a, _ := NewOIDCAuthenticator(context.Background(), f.url, testAud, "harbor:admin")
+	a, _ := NewOIDCAuthenticator(context.Background(), f.url, testAud, "jam:admin")
 	// scope claim carries it
-	ok := f.mint(t, "RS256", f.kid, f.claims(testAud, "s", "openid harbor:admin", time.Now().Add(time.Hour)), true)
+	ok := f.mint(t, "RS256", f.kid, f.claims(testAud, "s", "openid jam:admin", time.Now().Add(time.Hour)), true)
 	if _, err := a.Authenticate(req(ok)); err != nil {
 		t.Fatalf("in-scope token rejected: %v", err)
 	}
@@ -133,11 +133,11 @@ func TestOIDCAuthenticatorRequireScope(t *testing.T) {
 
 func TestVerifyTokenRawString(t *testing.T) {
 	f := newFakeOIDC(t)
-	auth, err := NewOIDCAuthenticator(context.Background(), f.url, testAud, "harbor:admin")
+	auth, err := NewOIDCAuthenticator(context.Background(), f.url, testAud, "jam:admin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok := f.mint(t, "RS256", f.kid, f.claims(testAud, "auth0|alice", "harbor:admin", time.Now().Add(time.Hour)), true)
+	tok := f.mint(t, "RS256", f.kid, f.claims(testAud, "auth0|alice", "jam:admin", time.Now().Add(time.Hour)), true)
 	op, err := auth.VerifyToken(context.Background(), tok)
 	if err != nil {
 		t.Fatalf("VerifyToken: %v", err)

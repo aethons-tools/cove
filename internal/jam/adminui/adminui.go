@@ -1,4 +1,4 @@
-// Package adminui is harbor's read-only, server-rendered observability UI. It
+// Package adminui is Jam's read-only, server-rendered observability UI. It
 // reads state directly from a jam.Store and renders embedded html/template
 // pages, with htmx polling for the live cove view. It exposes an unauthenticated
 // http.Handler; the operator-auth gate is applied by jam.NewAdminHandler,

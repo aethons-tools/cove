@@ -134,7 +134,7 @@ func (s stderrRunner) RunIO(stdin io.Reader, stdout, stderr io.Writer, name stri
 }
 
 // The helper's rejection (naming the domain) is carried in the returned error
-// rather than spilled onto harbor's own stdout/stderr.
+// rather than spilled onto Jam's own stdout/stderr.
 func TestApplyRoleEgressErrorNamesDomain(t *testing.T) {
 	r := stderrRunner{Fake: &runner.Fake{}, stderr: "apply-role-egress: evil.example is outside the kit's egress ceiling\n"}
 	c := New(r).(*Colima)

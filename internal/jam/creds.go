@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/secret"
 )
 
-// CredResolver returns harbor's real downstream credential value by name,
+// CredResolver returns Jam's real downstream credential value by name,
 // in-memory. Implementations must never log or persist the value.
 type CredResolver interface {
 	Resolve(name string) (string, error)

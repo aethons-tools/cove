@@ -1,11 +1,11 @@
-// Package standing is harbor's standing-session reconciler: a resident loop that
+// Package standing is Jam's standing-session reconciler: a resident loop that
 // keeps exactly one live cove per standing session declared on a role
 // (RoleAllocation.Standing). A declared name with no cove is granted and raised;
 // one whose cove died is raised again under the same actor id (a fresh session:
 // no context carries over); a cove whose name is no longer declared, or whose
 // role is gone, is torn down. A name whose raise keeps failing backs off
-// exponentially. It lives outside internal/jam core (harbor must not import
-// it) and is wired from cmd/at-jam whenever harbor serves.
+// exponentially. It lives outside internal/jam core (Jam must not import
+// it) and is wired from cmd/at-jam whenever Jam serves.
 package standing
 
 import (
@@ -30,7 +30,7 @@ type Registry interface {
 	ListInstances() []jam.Instance
 }
 
-// Granter is harbor's capacity authority (satisfied by *allocator.Allocator).
+// Granter is Jam's capacity authority (satisfied by *allocator.Allocator).
 type Granter interface {
 	Grant(ctx context.Context, req allocator.Request) (bool, error)
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
@@ -170,7 +170,7 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s jam.Sta
 	if b, ok := r.backoff[id]; ok && now.Before(b.next) {
 		return
 	}
-	// No live cove holds this harbor-owned id, so an actor with it can only be
+	// No live cove holds this Jam-owned id, so an actor with it can only be
 	// left over from a raise that crashed before recording its instance.
 	if r.actors != nil {
 		for _, a := range r.actors.ListActors() {

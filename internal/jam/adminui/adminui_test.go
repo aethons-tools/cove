@@ -54,7 +54,7 @@ func seedCove(t *testing.T, store jam.Store) {
 	if err := store.PutInstance(jam.Instance{
 		ActorID: "spider-9", Project: "acme", Role: "worker", Unit: "COV-1",
 		Phase: jam.PhaseLive, Activity: jam.ActivityRunning,
-		Lease:    jam.Lease{Holder: "harbor-a"},
+		Lease:    jam.Lease{Holder: "jam-a"},
 		RaisedAt: time.Now(), LastSeen: time.Now(),
 	}); err != nil {
 		t.Fatal(err)

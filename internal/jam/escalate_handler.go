@@ -24,8 +24,8 @@ type categorySetter interface {
 	SetEscalationCategory(actorID, category string) error
 }
 
-// EscalateHandler is harbor's brokered escalation-category endpoint: an
-// authenticated cove declares its block category, which harbor stamps on the
+// EscalateHandler is Jam's brokered escalation-category endpoint: an
+// authenticated cove declares its block category, which Jam stamps on the
 // caller's OWN instance (self-scoped by construction — no target parameter).
 // The escalation engine reads it to pick the tier chain. Implements
 // http.Handler.

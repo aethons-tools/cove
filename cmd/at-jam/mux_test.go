@@ -162,7 +162,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 	}
 }
 
-// coveHTTPHandler mounts /squawks (and /escalate) whenever harbor has an
+// coveHTTPHandler mounts /squawks (and /escalate) whenever Jam has an
 // intercom log — with or without a Requisitioner — and leaves the broker alone
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {

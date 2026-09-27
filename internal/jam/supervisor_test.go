@@ -819,7 +819,7 @@ func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
 		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
 	}
 	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
-		t.Fatalf("dispatcher cove grant = %+v; want no override", w)
+		t.Fatalf("Requisitioner cove grant = %+v; want no override", w)
 	}
 }
 

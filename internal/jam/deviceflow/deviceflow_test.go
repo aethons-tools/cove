@@ -65,7 +65,7 @@ func newFakeProvider(t *testing.T, pending int, token string) *fakeProvider {
 func TestRequestDeviceCode(t *testing.T) {
 	f := newFakeProvider(t, 0, "TOK")
 	dc, err := RequestDeviceCode(context.Background(), http.DefaultClient, Config{
-		Issuer: f.url, Audience: "https://harbor.test/api", ClientID: "cid", Scope: "openid",
+		Issuer: f.url, Audience: "https://jam.test/api", ClientID: "cid", Scope: "openid",
 	})
 	if err != nil {
 		t.Fatalf("RequestDeviceCode: %v", err)

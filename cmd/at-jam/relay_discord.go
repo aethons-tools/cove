@@ -152,7 +152,7 @@ func discordPolledChannels(store instanceRoster, project string) []string {
 	return out
 }
 
-// receipt is what harbor remembers about one message it posted to Discord:
+// receipt is what Jam remembers about one message it posted to Discord:
 // the sending cove (so a reply routes back to it) and the posted squawk's id
 // (so the reply's ReplyTo names the message it answers). Message is "" for a
 // legacy receipt written before receipts carried it.

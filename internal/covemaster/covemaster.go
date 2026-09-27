@@ -1,5 +1,5 @@
-// Package covemaster is the in-cove client of harbor's Attach stream — the first
-// limb of cove-master, the cove's primary process. It dials harbor's runtime
+// Package covemaster is the in-cove client of Jam's Attach stream — the first
+// limb of cove-master, the cove's primary process. It dials Jam's runtime
 // listener, authenticates with the cove's identity token + per-instance launch
 // secret, reports activity up and reacts to control down, reconnecting across
 // transient drops. It depends only on the generated attachpb types + grpc, never

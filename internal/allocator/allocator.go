@@ -1,4 +1,4 @@
-// Package allocator is harbor's capacity authority (the "Allocator" role from the
+// Package allocator is Jam's capacity authority (the "Allocator" role from the
 // orchestration design): it rations session existence per (project, role) against
 // a budget. Slice 1 is an in-memory admission check that moves the concurrency cap
 // out of the Requisitioner; the event-sourced reservation ledger arrives in a later
@@ -20,7 +20,7 @@ type Key struct{ Project, Role string }
 
 // Counter reports how many sessions currently exist (are live) for a
 // (project, role). Slice 1's implementation counts globally, preserving the
-// dispatcher's prior max-concurrent semantics.
+// Requisitioner's prior max-concurrent semantics.
 type Counter interface {
 	LiveCount(project, role string) int
 	// IsLive reports whether a specific actor (reservationID == actorID) currently
@@ -294,7 +294,7 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 	return swept, nil
 }
 
-// SweepLoop runs Sweep every interval until ctx is cancelled — harbor's resident
+// SweepLoop runs Sweep every interval until ctx is cancelled — Jam's resident
 // reconcile loop, like Dispatcher.Run. Errors and non-zero sweeps are logged.
 func (a *Allocator) SweepLoop(ctx context.Context, interval, grace time.Duration) {
 	t := time.NewTicker(interval)

@@ -28,7 +28,7 @@ const (
 	ActivityDone    Activity = "done"
 )
 
-// Lease records which harbor process owns an Instance and until when. Past
+// Lease records which Jam process owns an Instance and until when. Past
 // Expiry, any process may steal it (the holder is presumed dead). This is also
 // the reconnect handoff for the later gRPC-stream slice.
 type Lease struct {
@@ -47,7 +47,7 @@ type Instance struct {
 	Unit               string    `json:"unit,omitempty"`
 	Owner              string    `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
 	Name               string    `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
-	SessionKind        string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: harbor does not import allocator)
+	SessionKind        string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: Jam does not import allocator)
 	Backend            string    `json:"backend,omitempty"`      // populated by the real launcher (later slice)
 	Location           string    `json:"location,omitempty"`     // opaque handle from Launcher.Raise
 	Phase              Phase     `json:"phase"`
@@ -71,7 +71,7 @@ type Instance struct {
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal
 // consumed by the Allocator. It counts globally (all non-Gone instances),
-// preserving the dispatcher's prior max-concurrent semantics; per-(project, role)
+// preserving the Requisitioner's prior max-concurrent semantics; per-(project, role)
 // counting is a deliberate later change. Its method set structurally satisfies
 // allocator.Counter without importing that package.
 type InstanceCounter struct{ Store Store }

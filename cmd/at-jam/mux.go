@@ -32,7 +32,7 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 
 // squawksMux routes exactly "/squawks", "/squawks/targets", and
 // "/squawks/commit" to squawksH and "/escalate" to escH; every other path goes
-// to broker unchanged. Used to mount harbor's brokered ticket-squawk
+// to broker unchanged. Used to mount Jam's brokered ticket-squawk
 // endpoint (its target-discovery and commit-cursor subpaths included) and its
 // brokered escalation-category endpoint on the same cove-facing handler as
 // the broker, without disturbing the broker's own routing.
@@ -50,7 +50,7 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 }
 
 // coveHTTPHandler builds the cove-facing HTTP handler: the broker, plus the
-// intercom endpoints (/squawks and its subpaths) and /escalate whenever harbor
+// intercom endpoints (/squawks and its subpaths) and /escalate whenever Jam
 // has an intercom log (with or without a Requisitioner — a personal session needs
 // the intercom too) or a Requisitioner (whose coves have always had /escalate; with
 // no log their sends fail with a clean 503). With neither, the broker alone.
@@ -68,7 +68,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 		squawksH = jam.NewSquawksHandler(st, nil, nil, log)
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
-	log.Info("harbor messages: mounted", "path", "/squawks")
-	log.Info("harbor escalate: mounted", "path", "/escalate")
+	log.Info("Jam messages: mounted", "path", "/squawks")
+	log.Info("Jam escalate: mounted", "path", "/escalate")
 	return squawksMux(squawksH, escH, broker)
 }

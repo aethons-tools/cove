@@ -1,4 +1,4 @@
-// Package escalate is harbor's resident escalation engine: while a managed cove
+// Package escalate is Jam's resident escalation engine: while a managed cove
 // is Waiting, it pings ordered human tiers of the cove's Project escalation
 // policy on per-tier timers, advancing to the next tier on timeout. It reads no
 // comments, wakes no coves, and tears nothing down — reply-detection, waking, and

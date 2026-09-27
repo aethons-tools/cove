@@ -1,7 +1,7 @@
 // Package deviceflow implements the OAuth 2.0 device authorization grant
 // (RFC 8628) as a public client — no client secret, no redirect server. It is
-// stdlib-only and does NOT import go-oidc (harbor's server-side token verifier);
-// it merely obtains a token that harbor later verifies.
+// stdlib-only and does NOT import go-oidc (Jam's server-side token verifier);
+// it merely obtains a token that Jam later verifies.
 package deviceflow
 
 import (
@@ -20,7 +20,7 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-// Config is the public client configuration harbor advertises.
+// Config is the public client configuration Jam advertises.
 type Config struct {
 	Issuer   string
 	Audience string

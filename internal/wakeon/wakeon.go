@@ -1,9 +1,9 @@
-// Package wakeon is harbor's resident wake-on engine: it watches Waiting managed
+// Package wakeon is Jam's resident wake-on engine: it watches Waiting managed
 // coves and wakes them (over the Attach ControlSink) when an external-origin
 // reply lands in the message Log addressed to them, or tears them down past a
 // max-wait (personal sessions excepted — they wait on their owner, and instead
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
-// nag with "keep" or "release", which harbor acts on without waking). Wired from
+// nag with "keep" or "release", which Jam acts on without waking). Wired from
 // cmd/at-jam; not imported by internal/jam core.
 package wakeon
 

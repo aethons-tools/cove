@@ -57,7 +57,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			"iat": time.Now().Unix(), "exp": exp.Unix(),
 		}
 		acClaims := map[string]any{
-			"iss": f.url, "aud": "aud", "sub": "auth0|alice", "scope": "harbor:admin",
+			"iss": f.url, "aud": "aud", "sub": "auth0|alice", "scope": "jam:admin",
 			"iat": time.Now().Unix(), "exp": exp.Unix(),
 		}
 		json.NewEncoder(w).Encode(map[string]any{
@@ -99,7 +99,7 @@ func TestLoginRedirectsAndSetsTempCookies(t *testing.T) {
 	svc := mustService(t, idp)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/auth/login", nil)
-	req.Host = "harbor.test"
+	req.Host = "jam.test"
 	req.TLS = &tls.ConnectionState{}
 	svc.Routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusFound {
@@ -142,7 +142,7 @@ func TestCallbackHappyPathSetsSessionCookie(t *testing.T) {
 	// Drive login to capture the temp cookies (and the nonce the IdP must echo).
 	loginRec := httptest.NewRecorder()
 	loginReq := httptest.NewRequest("GET", "/ui/auth/login", nil)
-	loginReq.Host, loginReq.TLS = "harbor.test", &tls.ConnectionState{}
+	loginReq.Host, loginReq.TLS = "jam.test", &tls.ConnectionState{}
 	svc.Routes().ServeHTTP(loginRec, loginReq)
 	cookies := loginRec.Result().Cookies()
 	var stateVal, nonce string
@@ -158,7 +158,7 @@ func TestCallbackHappyPathSetsSessionCookie(t *testing.T) {
 
 	cbRec := httptest.NewRecorder()
 	cbReq := httptest.NewRequest("GET", "/ui/auth/callback?state="+stateVal+"&code=good", nil)
-	cbReq.Host, cbReq.TLS = "harbor.test", &tls.ConnectionState{}
+	cbReq.Host, cbReq.TLS = "jam.test", &tls.ConnectionState{}
 	for _, c := range cookies {
 		cbReq.AddCookie(c)
 	}

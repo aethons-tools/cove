@@ -239,7 +239,7 @@ func TestPersonalSessionRelease_OwnerOnly(t *testing.T) {
 }
 
 // Teardown (the release path) records the reservation release through the
-// Supervisor's releaser — the same seam the dispatcher's coves use.
+// Supervisor's releaser — the same seam the Requisitioner's coves use.
 func TestPersonalSessionRelease_RecordsRelease(t *testing.T) {
 	k := newSessionKit(t)
 	res, _, _ := k.request(t)

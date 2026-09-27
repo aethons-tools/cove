@@ -13,7 +13,7 @@ import (
 )
 
 // SessionKindPersonal is Instance.SessionKind for a human's personal session
-// (mirrors allocator.SessionPersonal; harbor does not import allocator).
+// (mirrors allocator.SessionPersonal; Jam does not import allocator).
 const SessionKindPersonal = "personal"
 
 // SessionKindStanding is Instance.SessionKind for an operator-declared, named
@@ -42,14 +42,14 @@ func IsNagReply(replyTo, actorID string) bool {
 }
 
 // ErrNeedsLedger is returned (possibly wrapped) by a SessionAllocator when
-// personal sessions cannot be admitted because harbor has no allocation ledger
+// personal sessions cannot be admitted because Jam has no allocation ledger
 // (it runs on the file store, not store-postgres).
 var ErrNeedsLedger = errors.New("personal sessions need the allocation ledger (store-postgres)")
 
 // SessionAllocator is the capacity authority the personal-session routes admit
 // against: GrantPersonal reserves a slot for owner's personal session of
 // (project, role) against the role's pool and per-owner caps; RecordRelease
-// frees it. harbor does not import allocator, so cmd/at-jam adapts
+// frees it. Jam does not import allocator, so cmd/at-jam adapts
 // *allocator.Allocator to this interface (translating its no-ledger error to
 // ErrNeedsLedger).
 type SessionAllocator interface {

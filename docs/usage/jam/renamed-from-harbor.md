@@ -35,8 +35,10 @@ process) that names the old and new name and points here. The aliases are
 
 **Deliberately unchanged:** the Postgres migration advisory-lock key (it spells
 "harbor"; changing it would let an old and a new binary migrate one database
-concurrently during a rollout) and the Attach gRPC service name
-`harbor.attach.v1.Runtime` (the wire name cove-master in already-built images
-dials). The Go module path, the internal "cove" identifiers, the Requisitioner's
+concurrently during a rollout), and three wire names older binaries and
+images depend on: the Attach gRPC service `harbor.attach.v1.Runtime` and its
+`x-harbor-launch-secret` metadata key (what cove-master in already-built images
+sends), and the `harbor.cove` docker label the launcher tags and finds its
+containers by. The Go module path, the internal "cove" identifiers, the Requisitioner's
 `internal/dispatcher` package and the historical design docs under
 `docs/superpowers/` are unchanged too.

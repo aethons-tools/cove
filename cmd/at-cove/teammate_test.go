@@ -45,16 +45,16 @@ func writeTeammateKit(t *testing.T, dir string) string {
 // unlike chat's session egress), at-switchboard must launch detached (setsid, no
 // PTY), and the bot token must never appear on any ssh/docker argv the runner
 // received (only on stdin, staged in tmpfs).
-// A harbor teammate must have a pre-supplied harbor.identity: auto-enroll is
+// A Jam teammate must have a pre-supplied jam.identity: auto-enroll is
 // unsupported for a detached conductor (no exit hook to revoke on), so doTeammate
-// rejects a harbor teammate that omits identity (COV-142).
+// rejects a Jam teammate that omits identity (COV-142).
 func TestTeammate_JamRequiresIdentity(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(kitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// teammate kit + a harbor block WITHOUT identity (parses; auto-enroll intent).
+	// teammate kit + a Jam block WITHOUT identity (parses; auto-enroll intent).
 	yml := teammateKitYAML + "jam:\n  host: jam.local.aethons.tools\n"
 	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
@@ -70,10 +70,10 @@ func TestTeammate_JamRequiresIdentity(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"teammate", "--project-dir", dir, "helper"}, f, os.LookupEnv, dummyLookPath, &out, &errOut)
 	if code == 0 {
-		t.Fatalf("harbor teammate without identity must fail; stdout=%s", out.String())
+		t.Fatalf("Jam teammate without identity must fail; stdout=%s", out.String())
 	}
-	if !strings.Contains(errOut.String(), "harbor.identity") {
-		t.Fatalf("error should name harbor.identity; got: %s", errOut.String())
+	if !strings.Contains(errOut.String(), "jam.identity") {
+		t.Fatalf("error should name jam.identity; got: %s", errOut.String())
 	}
 }
 

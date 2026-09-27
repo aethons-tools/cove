@@ -1,5 +1,5 @@
 // Command cove-master is the in-cove primary process (first limb): it connects to
-// harbor's Attach stream and supervises the cove's workload — now the real agent
+// Jam's Attach stream and supervises the cove's workload — now the real agent
 // wrapper, running claude `-p` as a headless one-shot. cove-master becoming the
 // image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
@@ -34,8 +34,8 @@ import (
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
-// clientTransportCreds dials harbor over TLS, validating against the system trust
-// store. harbor serves the Attach gRPC on its cove-facing :443 TLS listener; the
+// clientTransportCreds dials Jam over TLS, validating against the system trust
+// store. Jam serves the Attach gRPC on its cove-facing :443 TLS listener; the
 // cove reaches it through the squid CONNECT proxy (grpc-go's built-in dialer
 // honors https_proxy). ServerName is filled from the dial target authority.
 func clientTransportCreds() credentials.TransportCredentials {

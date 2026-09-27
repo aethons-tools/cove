@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// StandingActorID is the actor (and reservation) id harbor raises a role's
+// StandingActorID is the actor (and reservation) id Jam raises a role's
 // standing session under: "standing-<project>-<role>-<name>", each part with
 // characters outside [A-Za-z0-9._-] mapped to '-' (as for personal session ids).
 // One id per name is what keeps the standing reconciler idempotent.

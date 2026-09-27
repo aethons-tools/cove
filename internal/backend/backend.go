@@ -78,7 +78,7 @@ type CreateContext struct {
 	Docker bool
 	// ExtraHosts maps hostnames to the host gateway via docker run
 	// --add-host <h>:host-gateway, so the container can reach a host-run service
-	// (e.g. a loopback-bound harbor broker) by name — COV-138. Empty adds nothing.
+	// (e.g. a loopback-bound Jam broker) by name — COV-138. Empty adds nothing.
 	ExtraHosts []string
 }
 
@@ -184,7 +184,7 @@ type SessionEgress interface {
 // RoleEgress replaces a running container's active egress policy list with a
 // role's domains, which must fit the kit's baked ceiling (enforced in-box by the
 // sealed apply-role-egress.sh). Privileged: host docker exec as root; domains on
-// stdin only. Harbor's launcher applies it at raise, before the agent starts, and
+// stdin only. Jam's launcher applies it at raise, before the agent starts, and
 // again on a running cove when the role's policy changes.
 type RoleEgress interface {
 	// ApplyRoleEgress execs the sealed helper inside container (as root) with

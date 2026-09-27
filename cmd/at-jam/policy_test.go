@@ -61,7 +61,7 @@ func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	if pol, ok := p.Policy("acme", "worker"); !ok || !reflect.DeepEqual(pol, want) {
 		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
 	}
-	// With no Requisitioner fallback (harbor serving without a Requisitioner), a role
+	// With no Requisitioner fallback (Jam serving without a Requisitioner), a role
 	// with only personal caps still has a policy — its ephemeral cap is 0.
 	p = rosterPolicy{store: st}
 	want = allocator.Policy{MaxPersonal: 3, MaxPersonalPerOwner: 1}

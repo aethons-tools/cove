@@ -91,16 +91,16 @@ type Options struct {
 	// with --no-auth, neither the file nor the env var is set (the escape hatch
 	// means "I manage auth myself"; a set-but-unseeded path would be incoherent).
 	Vertex *VertexAuth
-	// Harbor, when set, routes the session's Anthropic + git through a harbor
+	// Jam, when set, routes the session's Anthropic + git through a Jam
 	// broker (COV-138): connect injects the connector env (ANTHROPIC_BASE_URL /
 	// x-api-key / the env-only identity token) and configures git to route through
-	// harbor, **superseding** the OAuth/Vertex flows. Like them, it only applies
+	// Jam, **superseding** the OAuth/Vertex flows. Like them, it only applies
 	// when SkipAuth is false. The token is resolved host-side and delivered
 	// env-only; it never enters gitconfig-on-disk, argv, or logs.
 	Jam *JamAuth
 }
 
-// JamAuth is the resolved harbor connector config for a session: the broker's
+// JamAuth is the resolved Jam connector config for a session: the broker's
 // bare host (TLS :443) and the identity token (resolved host-side, env-only).
 type JamAuth struct {
 	Host  string
@@ -173,7 +173,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 	if !o.SkipAuth {
 		switch {
 		case o.Jam != nil:
-			// Route Anthropic + git through harbor, superseding OAuth/Vertex. The
+			// Route Anthropic + git through Jam, superseding OAuth/Vertex. The
 			// git config is token-free (the helper reads the env var at run time);
 			// the token rides in the launch env only.
 			if err := applyJamGit(r, tgt, o.Jam); err != nil {
@@ -287,7 +287,7 @@ func seedCredentials(r runner.Runner, tgt sshargs.Target, credsFile string) erro
 // over ssh stdin (umask 077, never on argv), the same in-memory transport used for
 // the Anthropic login and secrets. Seed-only: an authorized_user ADC is static, so
 // there is no save-back — google-auth refreshes access tokens in-VM.
-// applyJamGit configures git in the VM to route through harbor's git connector
+// applyJamGit configures git in the VM to route through Jam's git connector
 // (COV-138). The script is token-free — the installed credential helper reads the
 // env-only identity token at run time — so it is safe to run over ssh. Idempotent
 // (git config --global overwrites the same keys), so it re-runs each session.
@@ -295,7 +295,7 @@ func applyJamGit(r runner.Runner, tgt sshargs.Target, h *JamAuth) error {
 	script := snippet.GitConfig("https://" + h.Host)
 	args := append(sshargs.Base(tgt), "sh")
 	if err := r.RunStdin(strings.NewReader(script), "ssh", args...); err != nil {
-		return fmt.Errorf("configuring harbor git routing: %w", err)
+		return fmt.Errorf("configuring Jam git routing: %w", err)
 	}
 	return nil
 }

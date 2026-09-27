@@ -250,7 +250,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
 		// Discard the returned identity token + launch secret: with a real launcher
-		// harbor consumes them internally; they must never reach the browser or a log.
+		// Jam consumes them internally; they must never reach the browser or a log.
 		_, _, _, err := sup.Raise(r.Context(), jam.RaiseSpec{
 			ActorID: id, Project: project, Role: role,
 			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),

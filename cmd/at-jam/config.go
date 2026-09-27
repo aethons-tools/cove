@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// credSpec is the YAML shape for one harbor credential: either a resolver
+// credSpec is the YAML shape for one Jam credential: either a resolver
 // command or a literal value (dev only).
 type credSpec struct {
 	Command []string `yaml:"command"`
@@ -32,7 +32,7 @@ type serveConfig struct {
 	AdminListen string `yaml:"admin-listen"`
 	// UIHosts are extra Host values accepted for the browser UI on a loopback
 	// connection, beyond the loopback literals (127.0.0.1/::1/localhost). Set a
-	// custom loopback-bound hostname here (e.g. harbor.local.example); otherwise
+	// custom loopback-bound hostname here (e.g. jam.local.example); otherwise
 	// the UI refuses it, defeating DNS-rebinding attempts.
 	UIHosts []string `yaml:"ui-hosts"`
 	TLS     struct {
@@ -85,7 +85,7 @@ type serveConfig struct {
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
-// runs whenever harbor has an intercom log or a Requisitioner. Each field is
+// runs whenever Jam has an intercom log or a Requisitioner. Each field is
 // optional and resolves runtime.wake > the matching runtime.requisitioner field
 // (wake-poll-interval / wait-max / warm-timeout) > the engine default.
 type wakeConfig struct {
@@ -161,7 +161,7 @@ type launcherConfig struct {
 	// IdentityFile/KnownHostsDir are the SSH identity Jam uses to reach a
 	// raised cove. They must be the same key `at-cove install` baked into the
 	// image's authorized_keys. Default to the at-cove config dir's
-	// id_ed25519 / known_hosts.d when empty, so a harbor host colocated with
+	// id_ed25519 / known_hosts.d when empty, so a Jam host colocated with
 	// at-cove needs no explicit path.
 	IdentityFile  string   `yaml:"identity-file"`
 	KnownHostsDir string   `yaml:"known-hosts-dir"`
@@ -197,7 +197,7 @@ func (c serveConfig) validateLauncher() error {
 	return nil
 }
 
-// requisitionerConfig enables the Requisitioner: harbor polls the tracker and
+// requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
 	Role          string             `yaml:"role"`
@@ -297,7 +297,7 @@ func (c serveConfig) validateDiscord() error {
 // atCoveConfigDir mirrors at-cove's own configDir() (cmd/at-cove/main.go):
 // $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove. Duplicated rather than
 // imported — at-cove's configDir is unexported in a different `main` package
-// — so a harbor host colocated with `at-cove install` shares its identity key
+// — so a Jam host colocated with `at-cove install` shares its identity key
 // and known_hosts without extra config.
 func atCoveConfigDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
@@ -307,7 +307,7 @@ func atCoveConfigDir() string {
 	return filepath.Join(home, ".config", "at-cove")
 }
 
-// operatorLoginConfig builds the public device-flow client config harbor
+// operatorLoginConfig builds the public device-flow client config Jam
 // advertises at /admin/login-config, or nil when device login isn't configured
 // (no device-client-id). Scope defaults to "openid".
 func (c serveConfig) operatorLoginConfig() *jam.OperatorLoginConfig {
@@ -415,7 +415,7 @@ func yamlKeys(t reflect.Type) map[string]bool {
 	return keys
 }
 
-// unknownServeKeys returns the top-level keys in the harbor.yml that serveConfig
+// unknownServeKeys returns the top-level keys in the jam.yml that serveConfig
 // does not recognize, sorted. The bootstrap config is parsed leniently (unknown
 // keys are silently dropped), so a stray `destinations:` block — natural to write
 // but now managed via the admin API — would otherwise vanish without a word.

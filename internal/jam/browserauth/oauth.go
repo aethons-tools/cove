@@ -1,8 +1,8 @@
 // Package browserauth implements OAuth 2.0 Authorization Code + PKCE browser
-// login for the harbor admin UI: a public client (no secret), a session cookie
-// holding the API access token (re-verified per request by harbor's existing
+// login for the Jam admin UI: a public client (no secret), a session cookie
+// holding the API access token (re-verified per request by Jam's existing
 // OIDCAuthenticator), and the UI gate that lets loopback through and redirects
-// off-loopback browsers to log in. It imports harbor; harbor never imports it.
+// off-loopback browsers to log in. It imports Jam; Jam never imports it.
 package browserauth
 
 import (

@@ -10,7 +10,7 @@ import (
 )
 
 // Broker is the credential-injecting reverse proxy: authenticate the identity,
-// run the three-question decision, resolve harbor's real credential, rewrite the
+// run the three-question decision, resolve Jam's real credential, rewrite the
 // request with it, and proxy to the upstream. Implements http.Handler.
 type Broker struct {
 	store Store
@@ -117,7 +117,7 @@ func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 	return "", false
 }
 
-// applyCred sets harbor's real credential on the upstream request.
+// applyCred sets Jam's real credential on the upstream request.
 func applyCred(r *http.Request, how ApplyMethod, cred string) {
 	switch how {
 	case ApplyBearer:

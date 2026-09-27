@@ -181,18 +181,18 @@ func TestCreateDNS(t *testing.T) {
 }
 
 // COV-138: ExtraHosts render as --add-host <h>:host-gateway so the container can
-// reach a host-run harbor by name; empty adds nothing.
+// reach a host-run Jam by name; empty adds nothing.
 func TestCreateExtraHosts(t *testing.T) {
 	f := &runner.Fake{}
 	if _, err := New(f).Create(backend.CreateContext{
 		Name: "box", Image: "atcove-box",
 		Workspace:  backend.WorkspaceMount{Mode: backend.Isolated},
-		ExtraHosts: []string{"harbor.local.aethons.tools"},
+		ExtraHosts: []string{"jam.local.aethons.tools"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
-		t.Fatalf("create run must map the harbor host to the gateway:\n%s", got)
+	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local.aethons.tools:host-gateway") {
+		t.Fatalf("create run must map the Jam host to the gateway:\n%s", got)
 	}
 
 	f2 := &runner.Fake{}

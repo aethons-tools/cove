@@ -16,7 +16,7 @@ func okHandler() http.Handler {
 
 func (f *fakeIdP) mintAccess(t *testing.T, aud, sub string, exp time.Time) string {
 	return f.mint(t, map[string]any{
-		"iss": f.url, "aud": aud, "sub": sub, "scope": "harbor:admin",
+		"iss": f.url, "aud": aud, "sub": sub, "scope": "jam:admin",
 		"iat": time.Now().Unix(), "exp": exp.Unix(),
 	})
 }
@@ -159,11 +159,11 @@ func TestGateLoopbackRejectsForeignHost(t *testing.T) {
 }
 
 func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", ExpectedHosts: []string{"harbor.local.aethons.tools"}, Log: discard()}
+	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", ExpectedHosts: []string{"jam.local.aethons.tools"}, Log: discard()}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
-	req.Host = "harbor.local.aethons.tools"
+	req.Host = "jam.local.aethons.tools"
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("loopback + configured Host = %d, want 200", rec.Code)
@@ -172,7 +172,7 @@ func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	req2 := httptest.NewRequest("GET", "/ui/coves", nil)
 	req2.RemoteAddr = "127.0.0.1:5000"
-	req2.Host = "harbor.evil.example"
+	req2.Host = "jam.evil.example"
 	g.Wrap(okHandler()).ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusForbidden {
 		t.Fatalf("loopback + non-configured Host = %d, want 403", rec2.Code)

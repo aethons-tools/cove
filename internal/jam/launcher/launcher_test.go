@@ -73,7 +73,7 @@ func newLauncher(ops *fakeOps) *Launcher {
 	return New(Config{
 		Ops: ops, Runner: &runner.Fake{},
 		Image: "atcove-worker", ImageDigest: "sha256:abc",
-		JamHost: "harbor.example.com", RuntimeAddr: "harbor.example.com:443",
+		JamHost: "jam.example.com", RuntimeAddr: "jam.example.com:443",
 		IdentityFile: "k", KnownHostsDir: "/kh",
 		sleep: func(time.Duration) {}, // injected no-op wait-for-sshd
 	})
@@ -89,8 +89,8 @@ func TestRaiseRunsDialsLaunches(t *testing.T) {
 	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != "atcove-worker" {
 		t.Fatalf("RunEphemeral not called correctly: %+v", ops)
 	}
-	if len(ops.runAddHost) != 1 || ops.runAddHost[0] != "harbor.example.com" {
-		t.Fatalf("addHosts = %v, want [harbor.example.com]", ops.runAddHost)
+	if len(ops.runAddHost) != 1 || ops.runAddHost[0] != "jam.example.com" {
+		t.Fatalf("addHosts = %v, want [jam.example.com]", ops.runAddHost)
 	}
 	if loc != "atcove-cove-w1" {
 		t.Fatalf("location = %q, want atcove-cove-w1", loc)

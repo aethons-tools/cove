@@ -61,7 +61,7 @@ func (f *fakeRegistry) GetInstance(actorID string) (jam.Instance, bool) {
 func (f *fakeRegistry) ListInstances() []jam.Instance { return f.insts }
 
 // fakeAdmitter grants the first `allow` calls, then denies (or always grants when
-// `grant` is set) — standing in for the Allocator so dispatcher tests exercise
+// `grant` is set) — standing in for the Allocator so Requisitioner tests exercise
 // grant-before-raise admission without a registry-derived cap. It records the
 // reservation IDs it granted and the ones passed to RecordRelease so tests can
 // assert grant ordering and compensation on post-grant failure.
@@ -152,7 +152,7 @@ func TestTickDedupsExistingInstance(t *testing.T) {
 }
 
 func TestTick_RaisesWhileAdmitted_DefersWhenNot(t *testing.T) {
-	// The dispatcher raises while the Allocator admits and defers (backpressure)
+	// The Requisitioner raises while the Allocator admits and defers (backpressure)
 	// once it denies. The cap now lives behind Admitter, not a registry count.
 	tr := &fakeTracker{ready: []scheduler.Issue{
 		{ID: "id1", Identifier: "AET-1", DispatchLabeled: true},
@@ -182,7 +182,7 @@ func TestTick_GrantBeforeRaise_SuccessNoRelease(t *testing.T) {
 	}
 	want := allocator.Request{Project: "acme", Role: "worker", ReservationID: "cove-AET-1", Kind: allocator.SessionEphemeral}
 	if adm.requests[0] != want {
-		t.Fatalf("dispatcher requested %+v, want an ephemeral reservation %+v", adm.requests[0], want)
+		t.Fatalf("Requisitioner requested %+v, want an ephemeral reservation %+v", adm.requests[0], want)
 	}
 	if len(adm.released) != 0 {
 		t.Fatalf("successful raise must not compensate, got releases %v", adm.released)

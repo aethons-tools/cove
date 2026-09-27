@@ -40,13 +40,13 @@ func TestRunEphemeralArgs(t *testing.T) {
 func TestRunEphemeralDNS(t *testing.T) {
 	f := &runner.Fake{}
 	c := New(f).(*Colima)
-	// harbor add-hosts render as --add-host h:host-gateway (COV-138)
+	// Jam add-hosts render as --add-host h:host-gateway (COV-138)
 	fh := &runner.Fake{}
-	if _, err := New(fh).(*Colima).RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, []string{"harbor.local"}, false); err != nil {
+	if _, err := New(fh).(*Colima).RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, []string{"jam.local"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host harbor.local:host-gateway") {
-		t.Fatalf("ephemeral run must map the harbor host:\n%s", got)
+	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local:host-gateway") {
+		t.Fatalf("ephemeral run must map the Jam host:\n%s", got)
 	}
 
 	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {

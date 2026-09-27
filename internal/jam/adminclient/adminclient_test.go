@@ -51,7 +51,7 @@ func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 }
 
 // TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
-// real harbor admin handler + FileStore (not just a wire-format mock), proving
+// real Jam admin handler + FileStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
 // now comes entirely from the role, so the role must be put before Enroll.
 func TestClientRoundTrip(t *testing.T) {
@@ -97,7 +97,7 @@ func TestClientLoginConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := &jam.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	lc := &jam.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -198,7 +198,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 
 // TestClientRosterAndAddressing exercises AddHuman/AddChannel/GetRoster/
 // RemoveHuman/RemoveChannel and role Addressing round-trips against a real
-// harbor admin handler + FileStore (not just a wire-format mock).
+// Jam admin handler + FileStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
 	ts, _ := newServer(t)
 	c := New(ts.URL, "")
@@ -271,7 +271,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 }
 
 // TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
-// against a real harbor admin handler + FileStore.
+// against a real Jam admin handler + FileStore.
 func TestClientEscalationPolicy(t *testing.T) {
 	ts, _ := newServer(t)
 	c := New(ts.URL, "")
@@ -325,7 +325,7 @@ func TestClientEscalationCategory(t *testing.T) {
 }
 
 // TestClientChatService exercises SetChatService/GetChatService (set, get,
-// clear) against a real harbor admin handler + FileStore.
+// clear) against a real Jam admin handler + FileStore.
 func TestClientChatService(t *testing.T) {
 	ts, _ := newServer(t)
 	c := New(ts.URL, "")

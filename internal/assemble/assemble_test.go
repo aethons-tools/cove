@@ -274,19 +274,19 @@ func domainLines(s string) []string {
 }
 
 // Assemble splits the kit's egress into the active policy list (kit.txt =
-// image.allowed-domains), the always-on infra list (provider, GitLab, harbor), and
-// the immutable ceiling a harbor role's list must fit inside (= image.allowed-domains).
+// image.allowed-domains), the always-on infra list (provider, GitLab, Jam), and
+// the immutable ceiling a Jam role's list must fit inside (= image.allowed-domains).
 func TestAssembleSplitsEgressLists(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(kitDir, ".build")
-	eg := Egress{Policy: []string{"pkg.go.dev", ".example.com"}, Infra: []string{"harbor.example"}}
+	eg := Egress{Policy: []string{"pkg.go.dev", ".example.com"}, Infra: []string{"jam.example"}}
 	if err := Assemble(kitDir, buildDir, []byte("k\n"), eg, ""); err != nil {
 		t.Fatal(err)
 	}
 	squidDir := filepath.Join(buildDir, "image-files/etc/squid")
 	for file, want := range map[string]string{
 		"allowed_domains.kit.txt":   ".example.com,pkg.go.dev",
-		"allowed_domains.infra.txt": "harbor.example",
+		"allowed_domains.infra.txt": "jam.example",
 		"egress_ceiling.txt":        ".example.com,pkg.go.dev",
 	} {
 		got := read(t, filepath.Join(squidDir, file))
@@ -317,8 +317,8 @@ func TestAssembleEgressListsAlwaysWritten(t *testing.T) {
 // The split must not change what a dev sandbox can reach: kit.txt ∪ infra.txt is
 // exactly the old single kit list (kit.RootDomains).
 func TestAssembleEgressUnionUnchanged(t *testing.T) {
-	// harbor and model-provider are mutually exclusive, so cover a provider +
-	// GitLab kit and a harbor + GitLab kit.
+	// Jam and model-provider are mutually exclusive, so cover a provider +
+	// GitLab kit and a Jam + GitLab kit.
 	for name, yml := range map[string]string{
 		"provider+gitlab": `
 name: k

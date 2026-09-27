@@ -90,10 +90,10 @@ func TestDirectoryRoute(t *testing.T) {
 	if err := st.AddChannel("acme", jam.Channel{Name: "eng", Service: "linear", Ref: "ACME-9"}); err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
-	d := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	d := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
 
 	// self-post → dropped
-	if _, _, _, ok := d.Route("linear", "acme", relay.Event{Author: "harbor-bot", Surface: "ACME-42"}); ok {
+	if _, _, _, ok := d.Route("linear", "acme", relay.Event{Author: "jam-bot", Surface: "ACME-42"}); ok {
 		t.Fatal("self-authored comment must be dropped")
 	}
 	// human reply on a cove's ticket → actor
@@ -313,7 +313,7 @@ func TestEgressGoldenParity(t *testing.T) {
 			Channels: []jam.Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
 		})
 	poster := &fakePoster{idByID: map[string]string{"ACME-7": "iss_7", "ACME-9": "iss_9"}}
-	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	dir := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
 	surf := &linearSurface{poster: poster}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 
@@ -427,7 +427,7 @@ func TestResolveUnroutableAndNonLinear(t *testing.T) {
 	st := newRosterStore(t, "acme",
 		jam.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
 		jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}})
-	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	dir := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	// unknown human
 	if _, ok := dir.Resolve("linear", "acme", intercom.Target{Kind: "human", Ref: "nobody"}, from); ok {
@@ -456,7 +456,7 @@ func TestResolveOwnTicketSurvivesInstanceGone(t *testing.T) {
 		insts:  nil, // no live instances — the sending cove is already gone
 		roster: map[string]jam.Roster{"acme": {}},
 	}
-	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
+	dir := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
 	to := intercom.Target{Kind: "channel", Ref: "ACME-7"}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	d, ok := dir.Resolve("linear", "acme", to, from)
@@ -601,7 +601,7 @@ func TestFileMarkersMissingFileStartsEmpty(t *testing.T) {
 }
 
 // TestFileMarkersEgressIsDeepCopied guards against the COV-182 data race:
-// harbor runs two relay engines (linear + discord) sharing one
+// Jam runs two relay engines (linear + discord) sharing one
 // *fileMarkers. If Egress/SetEgress ever hand out or store an EgressMark
 // whose Pending map aliases fileMarkers' stored map, one engine's goroutine
 // can mutate that map without fm.mu held while the other engine's SetEgress

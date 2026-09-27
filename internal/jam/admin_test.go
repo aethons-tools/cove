@@ -252,7 +252,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
+	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
 	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.

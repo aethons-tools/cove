@@ -12,7 +12,7 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	if _, err := buildConfig(get); err == nil {
 		t.Fatal("expected error when AT_JAM_RUNTIME_ADDR is missing")
 	}
-	env["AT_JAM_RUNTIME_ADDR"] = "harbor:9090"
+	env["AT_JAM_RUNTIME_ADDR"] = "jam:9090"
 	if _, err := buildConfig(get); err == nil {
 		t.Fatal("expected error when AT_JAM_IDENTITY_TOKEN is missing")
 	}
@@ -25,7 +25,7 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Addr != "harbor:9090" || cfg.Token != "tok" || cfg.LaunchSecret != "sec" {
+	if cfg.Addr != "jam:9090" || cfg.Token != "tok" || cfg.LaunchSecret != "sec" {
 		t.Fatalf("config = %+v", cfg)
 	}
 	if len(cfg.DialOptions) == 0 {

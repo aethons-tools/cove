@@ -1,7 +1,7 @@
 // Package dispatcher is the Requisitioner (Jam's resident intake; the package
 // keeps its pre-rename name): an always-on poll loop that
 // turns ready tracker tickets into managed-cove raises, admitting each raise
-// through the Allocator (harbor's capacity authority) rather than counting
+// through the Allocator (Jam's capacity authority) rather than counting
 // instances against a cap itself. It lives outside internal/jam core (it
 // imports the tracker + kit + supervisor) and is wired from cmd/at-jam.
 package dispatcher
@@ -28,18 +28,18 @@ type Registry interface {
 	ListInstances() []jam.Instance
 }
 
-// Tracker is the scheduler.Tracker subset the dispatcher needs (satisfied by *linear.Client).
+// Tracker is the scheduler.Tracker subset the Requisitioner needs (satisfied by *linear.Client).
 type Tracker interface {
 	ListReady(ctx context.Context) ([]scheduler.Issue, error)
 	Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error)
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 }
 
-// Admitter is harbor's capacity authority: the dispatcher no longer counts
+// Admitter is Jam's capacity authority: the Requisitioner no longer counts
 // instances against a cap itself. Satisfied by *allocator.Allocator.
 type Admitter interface {
 	// Grant atomically admits and reserves a slot for req's (project, role) — the
-	// OCC admission gate. The dispatcher always asks for an ephemeral session. It
+	// OCC admission gate. The Requisitioner always asks for an ephemeral session. It
 	// returns true when a slot was reserved (the caller must then compensate with
 	// RecordRelease on any later failure), false when at capacity, and an error on
 	// store trouble.
@@ -49,7 +49,7 @@ type Admitter interface {
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
 }
 
-// Config is the dispatcher's behavior configuration.
+// Config is the Requisitioner's behavior configuration.
 type Config struct {
 	Role         string        // role raised coves get (must grant anthropic + git)
 	Project      string        // optional
