@@ -4,7 +4,7 @@ read_when: You are enabling Docker inside a sandbox (a kit that runs `docker bui
 owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations
 prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#docker for the flag's schema
 tier: leaf
-updated: 2026-08-09
+updated: 2026-09-27
 ---
 
 # Docker inside the sandbox
@@ -115,7 +115,7 @@ the URL above already matches the 0.7.x naming.
 Image pulls ride the sandbox's **squid proxy**, so each registry's domains must be
 in the kit's root [`image.allowed-domains`](at-cove-config.md#imageallowed-domains)
 — the same additive allow-list every other egress uses
-([three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)).
+([four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)).
 Both the daemon *and* BuildKit route through squid, so this covers `docker build`
 too, not just `docker run` pulls.
 

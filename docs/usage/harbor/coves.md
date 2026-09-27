@@ -71,6 +71,15 @@ lifecycle; automated result-handling (commit/push/PR after the agent) comes with
 dispatcher. Without a `runtime.launcher`, `raise` records a placeholder Instance only
 (no real cove).
 
+The raise sequence is: enroll the identity → start the container → wait for sshd →
+**apply the role's egress policy** → start cove-master (and so the agent). The egress
+step runs only for a role with a [policy](roster.md#role-egress) and lands before the
+agent exists. It runs the sealed in-box helper as root, which enforces the kit's
+ceiling. It **fails closed**: if the backend can't apply a policy, or the box refuses
+a domain outside the ceiling, the raise fails (the error names the domain), the
+container is removed and the identity revoked. It never falls back to the wider kit
+default. A role with no policy skips the step and keeps the kit's list.
+
 Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `cove raise` verb.

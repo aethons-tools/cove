@@ -1,10 +1,10 @@
 ---
 summary: How to make a persistent change to the at-cove sandbox by editing the kit's config.yml.
 read_when: A network request is blocked, or you need a tool / PATH entry / env var to survive a rebuild, and you are about to edit `.at-cove/config.yml`.
-owns: kit change workflow, the `image:` block schema (allowed-domains, setup-scripts, paths, env), the at-cove recreate rebuild step
+owns: kit change workflow, the `image:` block schema (allowed-domains, setup-scripts, paths, env), the at-cove recreate rebuild step, how to request a domain in a harbor-managed cove
 prereqs: SANDBOX.md
 tier: leaf
-updated: 2026-07-01
+updated: 2026-09-27
 ---
 
 # Changing the sandbox — editing the kit
@@ -29,6 +29,18 @@ baseline — it can add, never override (for what it can't touch, see
 
 Be explicit in your report: name the exact `config.yml` edit you made and why, so
 the human can review it before rebuilding.
+
+## In a harbor-managed cove: egress is your role's
+
+If harbor raised you (you run under `cove-master`, not an interactive
+`at-cove` session), your role may set your egress. That list *replaces* the
+kit's `image.allowed-domains` and is applied before you start. Editing the kit
+and recreating doesn't change it. To add a domain, ask an operator to run
+`at-harbor egress set` for your role. The kit's `image.allowed-domains` must
+already cover the domain, because it is the ceiling a role's list must fit
+inside. If it doesn't, the kit needs the domain first (the workflow above, then
+a kit push). The change takes effect at your role's next raise, not in this
+cove. For a dev sandbox, the workflow above is unchanged.
 
 ## The `image:` block — reference
 
