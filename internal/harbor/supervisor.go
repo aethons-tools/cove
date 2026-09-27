@@ -29,6 +29,8 @@ type RaiseSpec struct {
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
 	// Owner is the owning roster Human's name for a personal session; "" otherwise.
 	Owner string
+	// Name is a standing session's declared name; "" otherwise.
+	Name string
 	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
 	// plain string (not allocator.SessionKind) so harbor never imports allocator.
 	SessionKind string
@@ -166,7 +168,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	now := s.now()
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
-		Owner: spec.Owner, SessionKind: spec.SessionKind,
+		Owner: spec.Owner, Name: spec.Name, SessionKind: spec.SessionKind,
 		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),

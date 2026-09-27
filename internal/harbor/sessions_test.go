@@ -336,3 +336,13 @@ func TestPersonalSessionRequest_PromptPreamble(t *testing.T) {
 		}
 	}
 }
+
+// Personal and standing sessions are resident (wait after every turn, never
+// reaped for waiting); ephemeral ones are not.
+func TestIsResident(t *testing.T) {
+	for kind, want := range map[string]bool{"": false, "ephemeral": false, SessionKindPersonal: true, SessionKindStanding: true, "bogus": false} {
+		if got := IsResident(kind); got != want {
+			t.Fatalf("IsResident(%q) = %v, want %v", kind, got, want)
+		}
+	}
+}

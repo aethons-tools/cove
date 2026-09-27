@@ -16,6 +16,17 @@ import (
 // (mirrors allocator.SessionPersonal; harbor does not import allocator).
 const SessionKindPersonal = "personal"
 
+// SessionKindStanding is Instance.SessionKind for an operator-declared, named
+// standing session (mirrors allocator.SessionStanding).
+const SessionKindStanding = "standing"
+
+// IsResident reports whether a session kind is resident: its cove waits after
+// every turn (instead of ending) and is never reaped for waiting. Personal and
+// standing sessions are resident; ephemeral ones are not.
+func IsResident(kind string) bool {
+	return kind == SessionKindPersonal || kind == SessionKindStanding
+}
+
 // ErrNeedsLedger is returned (possibly wrapped) by a SessionAllocator when
 // personal sessions cannot be admitted because harbor has no allocation ledger
 // (it runs on the file store, not store-postgres).

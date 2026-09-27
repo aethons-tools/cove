@@ -124,6 +124,21 @@ func TestRaiseRecordsOwnerAndSessionKind(t *testing.T) {
 	}
 }
 
+// A standing raise records its name and kind on the Instance; the name is how
+// the standing reconciler matches a cove to its declaration.
+func TestRaiseRecordsStandingName(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	id := StandingActorID("default", "guest", "alice-bot")
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: id, Role: "guest", Name: "alice-bot", SessionKind: SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance(id)
+	if !ok || got.Name != "alice-bot" || got.SessionKind != SessionKindStanding || got.Owner != "" {
+		t.Fatalf("instance = %+v,%v; want name alice-bot, kind standing, no owner", got, ok)
+	}
+}
+
 func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 	f := &fakeLauncher{raiseErr: errors.New("backend down")}
 	sup, store, _ := supTestKit(t, f)

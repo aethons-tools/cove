@@ -157,10 +157,10 @@ func TestProbeMapsState(t *testing.T) {
 	}
 }
 
-// TestRaisePersonalIsResident: the launcher asks cove-master for resident mode
-// (AT_COVE_RESIDENT=1) only for a personal session.
-func TestRaisePersonalIsResident(t *testing.T) {
-	for kind, want := range map[string]bool{"": false, "ephemeral": false, harbor.SessionKindPersonal: true} {
+// TestRaiseResidentKinds: the launcher asks cove-master for resident mode
+// (AT_COVE_RESIDENT=1) only for resident kinds — personal and standing.
+func TestRaiseResidentKinds(t *testing.T) {
+	for kind, want := range map[string]bool{"": false, "ephemeral": false, harbor.SessionKindPersonal: true, harbor.SessionKindStanding: true} {
 		ops := &fakeOps{}
 		r := &runner.Fake{}
 		l := New(Config{

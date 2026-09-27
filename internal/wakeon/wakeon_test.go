@@ -709,3 +709,31 @@ func TestIdleLadder_EphemeralUnaffected(t *testing.T) {
 		t.Fatalf("ephemeral must keep wait-max teardown only; down=%v calls=%+v", reap.down, n.calls)
 	}
 }
+
+// A standing session is resident like a personal one: past wait-max it is not
+// torn down (still idled), and it gets no idle-ladder nags or reclaim — it has
+// no owner to nag.
+func TestTick_StandingSessionResident_NoLadder(t *testing.T) {
+	start := time.Unix(100_000, 0)
+	st := harbor.Instance{
+		ActorID: "standing-acme-pair-bot", Project: "acme", Role: "pair", Name: "bot",
+		SessionKind: harbor.SessionKindStanding,
+		Phase:       harbor.PhaseLive, Activity: harbor.ActivityWaiting, WaitingSince: start,
+	}
+	n := &fakeNagger{}
+	reap := &fakeReaper{}
+	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Second, NagEvery: time.Second, ReclaimAfter: time.Minute}, n, reap, st)
+	idler := &fakeIdler{}
+	e.idler = idler
+	setNow(start.Add(100 * time.Hour)) // far past wait-max (1m), idle-after and reclaim-after
+	e.tick(context.Background())
+	if len(reap.down) != 0 {
+		t.Fatalf("standing session torn down for waiting: %v", reap.down)
+	}
+	if len(n.calls) != 0 || len(rec.at) != 0 {
+		t.Fatalf("standing session nagged: calls=%+v recorded=%v", n.calls, rec.at)
+	}
+	if !contains(idler.idled, st.ActorID) {
+		t.Fatalf("standing session past warm-timeout must still be idled; idled=%v", idler.idled)
+	}
+}
