@@ -355,10 +355,10 @@ func TestViewerParsesDisplayName(t *testing.T) {
 		if calls == 1 {
 			return jsonResp(statesResponse), nil // New's fetch
 		}
-		return jsonResp(`{"data":{"viewer":{"displayName":"harbor-bot"}}}`), nil
+		return jsonResp(`{"data":{"viewer":{"displayName":"jam-bot"}}}`), nil
 	})
 	name, err := c.Viewer(context.Background())
-	if err != nil || name != "harbor-bot" {
+	if err != nil || name != "jam-bot" {
 		t.Fatalf("viewer=%q err=%v", name, err)
 	}
 }
@@ -412,7 +412,7 @@ func TestClassifyLabels(t *testing.T) {
 }
 
 func TestNewDefaultsDispatchPrefix(t *testing.T) {
-	// testCfg leaves DispatchLabelPrefix empty — the harbor serve-config path,
+	// testCfg leaves DispatchLabelPrefix empty — the Jam serve-config path,
 	// which wraps a bare LinearTracker and bypasses kit.ParseConfig's defaulter.
 	// New must still default the prefix so the dispatch gate is active, not open.
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {

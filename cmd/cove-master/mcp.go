@@ -1,18 +1,19 @@
 // The mcp subcommand ("cove-master mcp") runs a stdio Model Context Protocol
 // server that gives the cove's claude agent tools — "read" and "send" brokered
-// through harbor's /squawks endpoint on the cove's own ticket (or, via an
+// through Jam's /squawks endpoint on the cove's own ticket (or, via an
 // optional "to" target, another authorized human/channel), "commit" brokered
-// through harbor's POST /squawks/commit endpoint to advance the durable read
-// cursor, and "list_targets" brokered through harbor's GET /squawks/targets
+// through Jam's POST /squawks/commit endpoint to advance the durable read
+// cursor, and "list_targets" brokered through Jam's GET /squawks/targets
 // endpoint.
 //
-// Security notes (see AGENTS.md / the harbor messaging MCP plan):
-//   - The identity token is read from AT_HARBOR_IDENTITY_TOKEN only — never
+// Security notes (see AGENTS.md / the Jam messaging MCP plan):
+//   - The identity token is read from AT_JAM_IDENTITY_TOKEN (or its deprecated
+//     name AT_HARBOR_IDENTITY_TOKEN) only — never
 //     accepted as a flag/argv, and never logged.
-//   - Requests to harbor go over TLS (https://<host>) through the default
+//   - Requests to Jam go over TLS (https://<host>) through the default
 //     transport, which honors ProxyFromEnvironment (the squid CONNECT proxy)
 //     and the system trust store.
-//   - Non-2xx responses from harbor are turned into a generic tool error that
+//   - Non-2xx responses from Jam are turned into a generic tool error that
 //     never echoes the token or the raw response body.
 package main
 
@@ -33,11 +34,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// maxHarborResponseBytes bounds how much of a harbor response we ever read
+// maxJamResponseBytes bounds how much of a Jam response we ever read
 // into memory, whether success or failure.
-const maxHarborResponseBytes = 1 << 20 // 1 MiB
+const maxJamResponseBytes = 1 << 20 // 1 MiB
 
-// squawkOut mirrors one entry of harbor's GET /squawks response.
+// squawkOut mirrors one entry of Jam's GET /squawks response.
 type squawkOut struct {
 	ID     string `json:"id,omitempty"`
 	Author string `json:"author,omitempty"`
@@ -85,7 +86,7 @@ type escalateIn struct {
 	Category string `json:"category" jsonschema:"the block category to route escalation by, e.g. infra / ticket-blocked / code-architecture (free-form; unknown falls back to the default tier chain)"`
 }
 
-// targetItem mirrors one entry of harbor's GET /squawks/targets response.
+// targetItem mirrors one entry of Jam's GET /squawks/targets response.
 type targetItem struct {
 	Target string `json:"target"`
 	Kind   string `json:"kind"`
@@ -97,29 +98,29 @@ type targetsOut struct {
 	Targets []targetItem `json:"targets"`
 }
 
-// messagingClient forwards read/send calls to harbor's /squawks endpoint.
+// messagingClient forwards read/send calls to Jam's /squawks endpoint.
 type messagingClient struct {
 	http    *http.Client
-	baseURL string // e.g. "https://harbor.example.com", no trailing slash
+	baseURL string // e.g. "https://jam.example.com", no trailing slash
 	token   string
 }
 
-// harborBaseURL derives the https base URL harbor's /squawks endpoint is
-// served from, given AT_HARBOR_RUNTIME_ADDR.
+// jamBaseURL derives the https base URL Jam's /squawks endpoint is
+// served from, given AT_JAM_RUNTIME_ADDR.
 //
 // In production that variable is "host:443" (per cove-master's Attach dial
 // config) — the port is stripped since :443 is implied by https. Tests may
 // instead pass a full URL (e.g. an httptest server's http://127.0.0.1:PORT),
 // which is used as-is: the scheme is only defaulted to https when the value
 // doesn't already carry one.
-func harborBaseURL(addr string) (string, error) {
+func jamBaseURL(addr string) (string, error) {
 	if addr == "" {
-		return "", fmt.Errorf("AT_HARBOR_RUNTIME_ADDR is required")
+		return "", fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
 	}
 	if strings.Contains(addr, "://") {
 		u, err := url.Parse(addr)
 		if err != nil {
-			return "", fmt.Errorf("invalid AT_HARBOR_RUNTIME_ADDR: %w", err)
+			return "", fmt.Errorf("invalid AT_JAM_RUNTIME_ADDR: %w", err)
 		}
 		return strings.TrimSuffix(u.String(), "/"), nil
 	}
@@ -137,13 +138,13 @@ func harborBaseURL(addr string) (string, error) {
 // newMessagingClient builds a messagingClient from the environment. It never
 // places the token on argv or in any error/log message.
 func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
-	base, err := harborBaseURL(getenv("AT_HARBOR_RUNTIME_ADDR"))
+	base, err := jamBaseURL(jamEnv(getenv, "RUNTIME_ADDR"))
 	if err != nil {
 		return nil, err
 	}
-	token := getenv("AT_HARBOR_IDENTITY_TOKEN")
+	token := jamEnv(getenv, "IDENTITY_TOKEN")
 	if token == "" {
-		return nil, fmt.Errorf("AT_HARBOR_IDENTITY_TOKEN is required")
+		return nil, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
 	}
 	return &messagingClient{
 		// nil Transport falls back to http.DefaultTransport: system TLS trust
@@ -154,10 +155,10 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 	}, nil
 }
 
-// do issues an authenticated request to harbor at c.baseURL+pathSuffix and
+// do issues an authenticated request to Jam at c.baseURL+pathSuffix and
 // returns the response body (capped) on a 2xx status. Any error returned is
 // generic: it never contains the bearer token, and never echoes the raw
-// response body from harbor.
+// response body from Jam.
 func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -165,7 +166,7 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+pathSuffix, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("building harbor messages request: %w", err)
+		return nil, fmt.Errorf("building Jam messages request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	if body != nil {
@@ -174,18 +175,18 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("harbor messages request failed")
+		return nil, fmt.Errorf("Jam messages request failed")
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxHarborResponseBytes))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJamResponseBytes))
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("harbor messages: unexpected status %d", resp.StatusCode)
+		return nil, fmt.Errorf("Jam messages: unexpected status %d", resp.StatusCode)
 	}
 	return respBody, nil
 }
 
-// send posts a message to the cove's own ticket via harbor, or, when to is
+// send posts a message to the cove's own ticket via Jam, or, when to is
 // non-empty, to the authorized human/channel target it names.
 func (c *messagingClient) send(ctx context.Context, text, to string) error {
 	payload, err := json.Marshal(struct {
@@ -199,7 +200,7 @@ func (c *messagingClient) send(ctx context.Context, text, to string) error {
 	return err
 }
 
-// read fetches the cove's inbox via harbor, optionally seeking via in's
+// read fetches the cove's inbox via Jam, optionally seeking via in's
 // anchor/id/dir/limit (each forwarded as a query param only when non-empty).
 func (c *messagingClient) read(ctx context.Context, in readIn) (readOut, error) {
 	q := url.Values{}
@@ -225,12 +226,12 @@ func (c *messagingClient) read(ctx context.Context, in readIn) (readOut, error) 
 	}
 	var out readOut
 	if err := json.Unmarshal(body, &out); err != nil {
-		return readOut{}, fmt.Errorf("decoding harbor messages response")
+		return readOut{}, fmt.Errorf("decoding Jam messages response")
 	}
 	return out, nil
 }
 
-// commit advances the actor's durable read cursor via harbor, marking
+// commit advances the actor's durable read cursor via Jam, marking
 // messages up to and including upTo as processed.
 func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, error) {
 	payload, err := json.Marshal(struct {
@@ -245,12 +246,12 @@ func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, e
 	}
 	var out commitOut
 	if err := json.Unmarshal(body, &out); err != nil {
-		return commitOut{}, fmt.Errorf("decoding harbor commit response")
+		return commitOut{}, fmt.Errorf("decoding Jam commit response")
 	}
 	return out, nil
 }
 
-// listTargets fetches the actor's addressable send targets via harbor.
+// listTargets fetches the actor's addressable send targets via Jam.
 func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
 	body, err := c.do(ctx, http.MethodGet, "/squawks/targets", nil)
 	if err != nil {
@@ -258,12 +259,12 @@ func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
 	}
 	var out targetsOut
 	if err := json.Unmarshal(body, &out); err != nil {
-		return targetsOut{}, fmt.Errorf("decoding harbor targets response")
+		return targetsOut{}, fmt.Errorf("decoding Jam targets response")
 	}
 	return out, nil
 }
 
-// escalate declares the cove's current block category via harbor's
+// escalate declares the cove's current block category via Jam's
 // POST /escalate. This only categorizes the block for the escalation
 // engine's tier routing — it does not itself trigger a page.
 func (c *messagingClient) escalate(ctx context.Context, category string) error {
@@ -349,7 +350,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "escalate",
-		Description: "Declare the category of your current block so harbor routes the escalation to the right on-call tier. Call this before you finish a turn needing input; it categorizes, it does not itself page anyone.",
+		Description: "Declare the category of your current block so Jam routes the escalation to the right on-call tier. Call this before you finish a turn needing input; it categorizes, it does not itself page anyone.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in escalateIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr

@@ -15,9 +15,9 @@ import (
 
 // Egress is the kit's baked egress beyond the sealed base, split by purpose.
 // Policy is image.allowed-domains: baked as the active policy list
-// (allowed_domains.kit.txt, which a harbor role's list replaces at raise) and as
+// (allowed_domains.kit.txt, which a Jam role's list replaces at raise) and as
 // the immutable ceiling that role list must fit inside (egress_ceiling.txt).
-// Infra is kit.InfraDomains (provider, self-hosted GitLab, harbor hosts): always
+// Infra is kit.InfraDomains (provider, self-hosted GitLab, Jam hosts): always
 // on, baked into allowed_domains.infra.txt.
 type Egress struct {
 	Policy []string
@@ -212,7 +212,7 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 }
 
 // writeEgressLists writes the kit's baked squid lists: the active policy list
-// (kit.txt), the always-on infra list (infra.txt), and the ceiling a harbor role's
+// (kit.txt), the always-on infra list (infra.txt), and the ceiling a Jam role's
 // policy must fit inside (egress_ceiling.txt — read only by the sealed
 // apply-role-egress.sh, never by squid). Each is always written (empty → header
 // only) so the sealed squid.conf never references a missing ACL file.
@@ -225,12 +225,12 @@ func writeEgressLists(buildDir string, e Egress) error {
 	}{
 		{"allowed_domains.kit.txt", []string{
 			"# Active egress policy list: the kit's image.allowed-domains by default;",
-			"# replaced (root-only) by a harbor role's list at raise, within egress_ceiling.txt.",
+			"# replaced (root-only) by a Jam role's list at raise, within egress_ceiling.txt.",
 			"# Additive to the sealed base + infra lists; leading dot = subdomains.",
 		}, policy},
 		{"allowed_domains.infra.txt", []string{
-			"# Kit infrastructure egress domains (model provider, self-hosted GitLab, harbor).",
-			"# Always on; a harbor role's egress policy cannot remove these.",
+			"# Kit infrastructure egress domains (model provider, self-hosted GitLab, Jam).",
+			"# Always on; a Jam role's egress policy cannot remove these.",
 		}, sortedUnique(e.Infra)},
 		{"egress_ceiling.txt", []string{
 			"# Egress ceiling: the kit's image.allowed-domains, baked immutable.",

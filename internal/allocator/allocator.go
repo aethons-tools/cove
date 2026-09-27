@@ -1,7 +1,7 @@
-// Package allocator is harbor's capacity authority (the "Allocator" role from the
+// Package allocator is Jam's capacity authority (the "Allocator" role from the
 // orchestration design): it rations session existence per (project, role) against
 // a budget. Slice 1 is an in-memory admission check that moves the concurrency cap
-// out of the dispatcher; the event-sourced reservation ledger arrives in a later
+// out of the Requisitioner; the event-sourced reservation ledger arrives in a later
 // slice, behind this same interface.
 package allocator
 
@@ -20,7 +20,7 @@ type Key struct{ Project, Role string }
 
 // Counter reports how many sessions currently exist (are live) for a
 // (project, role). Slice 1's implementation counts globally, preserving the
-// dispatcher's prior max-concurrent semantics.
+// Requisitioner's prior max-concurrent semantics.
 type Counter interface {
 	LiveCount(project, role string) int
 	// IsLive reports whether a specific actor (reservationID == actorID) currently
@@ -33,7 +33,7 @@ type Counter interface {
 type SessionKind string
 
 const (
-	// SessionEphemeral is a dispatcher-raised session for one unit of work.
+	// SessionEphemeral is a Requisitioner-raised session for one unit of work.
 	SessionEphemeral SessionKind = "ephemeral"
 	// SessionStanding is an operator-declared, named session that lives until
 	// dismissed. Admitted only for a declared name (Policy.StandingNames).
@@ -90,8 +90,8 @@ type PolicySource interface {
 	Policy(project, role string) (Policy, bool)
 }
 
-// StaticPolicy is a fixed policy table (tests, and the dispatcher-seeded
-// fallback behind cmd/at-harbor's roster-sourced policy).
+// StaticPolicy is a fixed policy table (tests, and the Requisitioner-seeded
+// fallback behind cmd/at-jam's roster-sourced policy).
 type StaticPolicy map[Key]Policy
 
 // Policy implements PolicySource.
@@ -172,7 +172,7 @@ type Allocator struct {
 // New builds an Allocator. ledger may be nil: with no event store (file-store dev)
 // Grant falls back to the registry live count and RecordRelease is a no-op. The
 // sweep clock defaults to time.Now and the logger to a discard logger (the wiring
-// in cmd/at-harbor can override either after construction).
+// in cmd/at-jam can override either after construction).
 func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 	return &Allocator{
 		counter: counter,
@@ -249,7 +249,7 @@ func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
 }
 
 // SetLogger routes the reconcile sweep's diagnostics to log (nil is ignored). The
-// sweep is otherwise silent (New defaults to a discard logger); cmd/at-harbor
+// sweep is otherwise silent (New defaults to a discard logger); cmd/at-jam
 // calls this so a resident SweepLoop's Info/Warn records reach the sink.
 func (a *Allocator) SetLogger(log *slog.Logger) {
 	if log != nil {
@@ -294,7 +294,7 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 	return swept, nil
 }
 
-// SweepLoop runs Sweep every interval until ctx is cancelled — harbor's resident
+// SweepLoop runs Sweep every interval until ctx is cancelled — Jam's resident
 // reconcile loop, like Dispatcher.Run. Errors and non-zero sweeps are logged.
 func (a *Allocator) SweepLoop(ctx context.Context, interval, grace time.Duration) {
 	t := time.NewTicker(interval)

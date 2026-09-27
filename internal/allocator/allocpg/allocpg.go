@@ -25,7 +25,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 )
 
-// migrateAdvisoryLock is distinct from the harbor (0x686172626f72) and intercom
+// migrateAdvisoryLock is distinct from the jam (0x686172626f72, "harbor") and intercom
 // (0x696e746572636f6d) locks so the migrators sharing one database never block
 // each other incorrectly.
 const migrateAdvisoryLock = 0x616c6c6f63 // "alloc"
@@ -70,7 +70,7 @@ func (s *Store) Close() error { return nil }
 // A release takes its session kind, name, and owner from the reservation's latest
 // grant in the same stream (falling back to the event's own fields, then
 // ephemeral, when there is none), so per-kind counts net correctly and release
-// callers — supervisor teardown, the sweep, dispatcher compensation — need not
+// callers — supervisor teardown, the sweep, Requisitioner compensation — need not
 // know the kind. Any other event records its own SessionKind (empty ⇒ ephemeral).
 func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	streamID := ev.Project + "/" + ev.Role

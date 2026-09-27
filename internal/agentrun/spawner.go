@@ -2,7 +2,7 @@
 // runs the claude agent as a headless one-shot and maps its lifecycle onto the
 // Attach Activity stream. It depends on internal/covemaster (the Workload seam)
 // and internal/dispatch/worker (the worker-result.json contract); it never
-// imports internal/harbor.
+// imports internal/jam.
 package agentrun
 
 import (

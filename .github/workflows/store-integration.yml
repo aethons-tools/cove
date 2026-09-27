@@ -1,7 +1,7 @@
 name: store-integration
 
-# Runs the Postgres-backed harbor.Store conformance suite (the //go:build
-# integration tests in internal/harbor) against a real Postgres service. Kept
+# Runs the Postgres-backed jam.Store conformance suite (the //go:build
+# integration tests in internal/jam) against a real Postgres service. Kept
 # separate from the `gate` workflow so the required `gate` check is untouched;
 # promoting this to a required check is a branch-protection setting, not here.
 
@@ -26,12 +26,12 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: harbor
-          POSTGRES_PASSWORD: harbor
-          POSTGRES_DB: harbor
+          POSTGRES_USER: jam
+          POSTGRES_PASSWORD: jam
+          POSTGRES_DB: jam
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U harbor"
+          --health-cmd "pg_isready -U jam"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -44,10 +44,10 @@ jobs:
           cache: true
 
       # The Postgres store's conformance + fail-closed tests are behind the
-      # `integration` build tag and skip without HARBOR_TEST_POSTGRES_DSN.
+      # `integration` build tag and skip without JAM_TEST_POSTGRES_DSN.
       # The intercom Postgres backend (internal/intercom/intercompg) shares the
       # same service and DSN convention.
       - name: store integration tests
         env:
-          HARBOR_TEST_POSTGRES_DSN: "host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable"
-        run: go test -tags integration ./internal/harbor/... ./internal/intercom/... ./internal/allocator/...
+          JAM_TEST_POSTGRES_DSN: "host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable"
+        run: go test -tags integration ./internal/jam/... ./internal/intercom/... ./internal/allocator/...

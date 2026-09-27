@@ -4,7 +4,7 @@ import "strings"
 
 // AssembleBrief renders the self-contained markdown brief describing an issue —
 // used as the worker's task.json `task.brief` field (dispatch) and as the
-// managed-cove prompt (the resident dispatcher, COV-146).
+// managed-cove prompt (the Requisitioner, COV-146).
 func AssembleBrief(iss Issue, comments []Comment) string {
 	var b strings.Builder
 	b.WriteString("# " + iss.Identifier + " — " + iss.Title + "\n\n")

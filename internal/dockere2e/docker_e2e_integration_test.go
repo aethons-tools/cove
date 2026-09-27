@@ -184,7 +184,7 @@ func TestDockerInSandboxE2E(t *testing.T) {
 	})
 
 	t.Run("role egress replaces the kit list within the ceiling", func(t *testing.T) {
-		// Harbor applies a role's egress with `docker exec -u root` running the
+		// Jam applies a role's egress with `docker exec -u root` running the
 		// sealed apply-role-egress.sh; the fixture kit's image.allowed-domains
 		// (registry-1/auth/index.docker.io, .cloudfront.docker.com) is the ceiling.
 		// Runs after the inner-docker subtests (which pull through the kit list)

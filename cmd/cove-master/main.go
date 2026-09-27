@@ -1,13 +1,17 @@
 // Command cove-master is the in-cove primary process (first limb): it connects to
-// harbor's Attach stream and supervises the cove's workload — now the real agent
+// Jam's Attach stream and supervises the cove's workload — now the real agent
 // wrapper, running claude `-p` as a headless one-shot. cove-master becoming the
 // image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
 //
-//	AT_HARBOR_RUNTIME_ADDR   harbor's cove-facing :443 address (host:443), dialed
+//	AT_JAM_RUNTIME_ADDR      Jam's cove-facing :443 address (host:443), dialed
 //	                         over TLS through the cove's squid CONNECT proxy
-//	AT_HARBOR_IDENTITY_TOKEN the cove's identity token
-//	AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret
+//	AT_JAM_IDENTITY_TOKEN    the cove's identity token
+//	AT_JAM_LAUNCH_SECRET     the per-instance launch secret
+//
+// Each AT_JAM_* variable falls back to its deprecated AT_HARBOR_* name, which
+// an older Jam launcher sets (docs/usage/jam/renamed-from-harbor.md).
+//
 //	AT_COVE_WORKDIR          the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 //	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 //	AT_COVE_RESIDENT         "1"/"true" keeps the agent resident between turns
@@ -30,25 +34,34 @@ import (
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
-// clientTransportCreds dials harbor over TLS, validating against the system trust
-// store. harbor serves the Attach gRPC on its cove-facing :443 TLS listener; the
+// clientTransportCreds dials Jam over TLS, validating against the system trust
+// store. Jam serves the Attach gRPC on its cove-facing :443 TLS listener; the
 // cove reaches it through the squid CONNECT proxy (grpc-go's built-in dialer
 // honors https_proxy). ServerName is filled from the dial target authority.
 func clientTransportCreds() credentials.TransportCredentials {
 	return credentials.NewTLS(&tls.Config{})
 }
 
+// jamEnv reads the AT_JAM_<suffix> variable, falling back to the deprecated
+// AT_HARBOR_<suffix> name. Values are never logged.
+func jamEnv(getenv func(string) string, suffix string) string {
+	if v := getenv("AT_JAM_" + suffix); v != "" {
+		return v
+	}
+	return getenv("AT_HARBOR_" + suffix)
+}
+
 func buildConfig(getenv func(string) string) (covemaster.Config, error) {
-	addr := getenv("AT_HARBOR_RUNTIME_ADDR")
-	token := getenv("AT_HARBOR_IDENTITY_TOKEN")
-	secret := getenv("AT_HARBOR_LAUNCH_SECRET")
+	addr := jamEnv(getenv, "RUNTIME_ADDR")
+	token := jamEnv(getenv, "IDENTITY_TOKEN")
+	secret := jamEnv(getenv, "LAUNCH_SECRET")
 	switch {
 	case addr == "":
-		return covemaster.Config{}, fmt.Errorf("AT_HARBOR_RUNTIME_ADDR is required")
+		return covemaster.Config{}, fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
 	case token == "":
-		return covemaster.Config{}, fmt.Errorf("AT_HARBOR_IDENTITY_TOKEN is required")
+		return covemaster.Config{}, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
 	case secret == "":
-		return covemaster.Config{}, fmt.Errorf("AT_HARBOR_LAUNCH_SECRET is required")
+		return covemaster.Config{}, fmt.Errorf("AT_JAM_LAUNCH_SECRET is required")
 	}
 	return covemaster.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,

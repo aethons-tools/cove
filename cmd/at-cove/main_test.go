@@ -97,10 +97,50 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 	}
 }
 
-func TestAtHarborBinary(t *testing.T) {
-	got := atHarborBinary()
-	if got == "" || filepath.Base(got) != "at-harbor" {
-		t.Fatalf("atHarborBinary() = %q, want a path/name ending in at-harbor", got)
+func TestAtJamBinary(t *testing.T) {
+	got := atJamBinary()
+	if got == "" || filepath.Base(got) != "at-jam" {
+		t.Fatalf("atJamBinary() = %q, want a path/name ending in at-jam", got)
+	}
+}
+
+// The deprecated at-harbor name is still found (sibling, then PATH) when no
+// at-jam is installed, so a new at-cove beside an old install keeps enrolling.
+// See docs/usage/jam/renamed-from-harbor.md.
+func TestResolveJamBinaryFallsBackToAtHarbor(t *testing.T) {
+	exe := func(dir, name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noPath := func(string) (string, error) { return "", os.ErrNotExist }
+
+	dir := t.TempDir()
+	if got := resolveJamBinary(dir, noPath); got != "at-jam" {
+		t.Fatalf("nothing installed: got %q, want bare at-jam", got)
+	}
+	exe(dir, "at-harbor")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-harbor") {
+		t.Fatalf("only a sibling at-harbor: got %q", got)
+	}
+	exe(dir, "at-jam")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-jam") {
+		t.Fatalf("sibling at-jam must win: got %q", got)
+	}
+
+	empty := t.TempDir()
+	onPath := func(name string) (string, error) {
+		if name == "at-harbor" {
+			return "/usr/bin/at-harbor", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if got := resolveJamBinary(empty, onPath); got != "at-harbor" {
+		t.Fatalf("only at-harbor on PATH: got %q", got)
+	}
+	both := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	if got := resolveJamBinary(empty, both); got != "at-jam" {
+		t.Fatalf("at-jam on PATH must win: got %q", got)
 	}
 }
 
@@ -116,49 +156,49 @@ func calledWith(calls []runner.Call, s string) bool {
 	return false
 }
 
-func TestHarborPlan(t *testing.T) {
-	// nil harbor block → no auth, no revoke.
-	if ha, rev, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
-		t.Fatalf("no harbor block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
+func TestJamPlan(t *testing.T) {
+	// nil Jam block → no auth, no revoke.
+	if ha, rev, err := jamPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
+		t.Fatalf("no Jam block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
 	}
 	// pre-supplied identity: resolves the secret host-side; no revoke, no shell-out.
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local", Identity: "HARBOR_ID"}}
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "jam.local", Identity: "JAM_ID"}}
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
-		"k": {"HARBOR_ID": {Value: ptr("tok-abc")}},
+		"k": {"JAM_ID": {Value: ptr("tok-abc")}},
 	}}
 	f := &runner.Fake{}
-	ha, rev, err := harborPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
 	if err != nil {
-		t.Fatalf("harborPlan: %v", err)
+		t.Fatalf("jamPlan: %v", err)
 	}
-	if ha == nil || ha.Host != "harbor.local" || ha.Token != "tok-abc" || rev != nil {
-		t.Fatalf("manual path: harborAuth=%+v revNil=%v", ha, rev == nil)
+	if ha == nil || ha.Host != "jam.local" || ha.Token != "tok-abc" || rev != nil {
+		t.Fatalf("manual path: jamAuth=%+v revNil=%v", ha, rev == nil)
 	}
 	if calledWith(f.Calls, "enroll") {
-		t.Fatalf("manual path must not shell at-harbor enroll: %+v", f.Calls)
+		t.Fatalf("manual path must not shell at-jam enroll: %+v", f.Calls)
 	}
 	// declared-but-unsupplied identity → hard error (fail closed).
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
 		t.Fatal("unsupplied identity must fail closed")
 	}
 }
 
-func TestHarborPlanAutoEnroll(t *testing.T) {
-	// no identity → auto-enroll: shell at-harbor enroll --json, use the token,
+func TestJamPlanAutoEnroll(t *testing.T) {
+	// no identity → auto-enroll: shell at-jam enroll --json, use the token,
 	// return a revoke closure.
 	cfg := kit.Config{
 		Name:          "k",
-		Harbor:        &kit.HarborConfig{Host: "harbor.local"},
+		Jam:           &kit.JamConfig{Host: "jam.local"},
 		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo"}},
 	}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"id":"cove-box-1","token":"TKN"}` + "\n"}}}
 	// kitName ("k") differs from coveID ("cove-box-1"): the enroll --id must use
 	// the per-instance coveID, not the shared kit/bucket name.
-	ha, rev, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
 	if err != nil {
 		t.Fatalf("auto-enroll: %v", err)
 	}
-	if ha == nil || ha.Token != "TKN" || ha.Host != "harbor.local" {
+	if ha == nil || ha.Token != "TKN" || ha.Host != "jam.local" {
 		t.Fatalf("auto-enroll auth = %+v", ha)
 	}
 	// the enroll call carries the derived mint scope …
@@ -169,7 +209,7 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 		}
 	}
 	if enroll == nil {
-		t.Fatalf("no at-harbor enroll call: %+v", f.Calls)
+		t.Fatalf("no at-jam enroll call: %+v", f.Calls)
 	}
 	joined := strings.Join(enroll.Args, " ")
 	for _, want := range []string{"--json", "--id cove-box-1", "--role guest"} {
@@ -192,7 +232,7 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	}
 	rev()
 	if !calledWith(f.Calls, "revoke") {
-		t.Fatalf("revoke did not shell at-harbor revoke: %+v", f.Calls)
+		t.Fatalf("revoke did not shell at-jam revoke: %+v", f.Calls)
 	}
 	revoked := false
 	for _, c := range f.Calls {
@@ -206,11 +246,11 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	}
 }
 
-func TestHarborPlanAutoEnrollFailsClosed(t *testing.T) {
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local"}}
+func TestJamPlanAutoEnrollFailsClosed(t *testing.T) {
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "jam.local"}}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
-		t.Fatal("a failing at-harbor enroll must fail closed")
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
+		t.Fatal("a failing at-jam enroll must fail closed")
 	}
 }
 
@@ -911,15 +951,15 @@ func TestDestroyReapsKnownHostsPin(t *testing.T) {
 
 // Create records the backend's actual volume names in the state file, so a later
 // destroy removes exactly those instead of re-deriving them (COV-76).
-// COV-138: a kit with a harbor: block maps the broker host to the gateway at
-// create, so the hardened container can reach a host-run harbor by name.
-func TestCreateHarborAddsHost(t *testing.T) {
+// COV-138: a kit with a jam: block maps the broker host to the gateway at
+// create, so the hardened container can reach a host-run Jam by name.
+func TestCreateJamAddsHost(t *testing.T) {
 	dir := t.TempDir()
 	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nharbor:\n  host: harbor.local.aethons.tools\n  identity: harbor-id\n"
+	yml := "name: box\njam:\n  host: jam.local.aethons.tools\n  identity: jam-id\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -933,8 +973,8 @@ func TestCreateHarborAddsHost(t *testing.T) {
 	if idx == -1 {
 		t.Fatalf("no docker run call; calls=%+v", f.Calls)
 	}
-	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
-		t.Fatalf("create must map the harbor host to the gateway:\n%s", got)
+	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host jam.local.aethons.tools:host-gateway") {
+		t.Fatalf("create must map the jam host to the gateway:\n%s", got)
 	}
 }
 

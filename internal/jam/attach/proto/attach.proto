@@ -1,0 +1,39 @@
+syntax = "proto3";
+// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
+// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
+// already-built cove images dials, so renaming it would break running coves.
+// See docs/usage/jam/renamed-from-harbor.md.
+package harbor.attach.v1;
+option go_package = "github.com/aethons-tools/cove/internal/jam/attach/attachpb";
+
+service Runtime {
+  rpc Attach(stream StatusUp) returns (stream ControlDown);
+}
+
+message StatusUp {
+  oneof msg {
+    Activity  status    = 1;
+    Heartbeat heartbeat = 2;
+  }
+}
+enum Activity {
+  ACTIVITY_UNSPECIFIED = 0;
+  RUNNING = 1;
+  WAITING = 2;
+  BLOCKED = 3;
+  DONE    = 4;
+}
+message Heartbeat {}
+
+message ControlDown {
+  oneof msg {
+    Wake        wake     = 1;
+    Teardown    teardown = 2;
+    TierChanged tier     = 3;
+    RotateToken rotate   = 4; // reserved
+  }
+}
+message Wake {}
+message Teardown    { string reason = 1; }
+message TierChanged { int32 tier = 1; }
+message RotateToken { string token = 1; }

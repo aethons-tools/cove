@@ -13,9 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// fakeHarbor records what the mcp subcommand sent it and lets tests script a
+// fakeJam records what the mcp subcommand sent it and lets tests script a
 // canned inbox or a failure status.
-type fakeHarbor struct {
+type fakeJam struct {
 	gotAuth   string
 	gotMethod string
 	gotBody   map[string]any
@@ -24,7 +24,7 @@ type fakeHarbor struct {
 	inbox      []squawkOut // canned GET response
 }
 
-func (f *fakeHarbor) handler() http.HandlerFunc {
+func (f *fakeJam) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f.gotAuth = r.Header.Get("Authorization")
 		f.gotMethod = r.Method
@@ -50,7 +50,7 @@ func (f *fakeHarbor) handler() http.HandlerFunc {
 	}
 }
 
-// connectMCP wires the messaging server (built against the fake harbor via
+// connectMCP wires the messaging server (built against the fake Jam via
 // getenv) to a client over in-memory transports, per go-sdk v1.7.0's pattern:
 // the server side must connect before the client initializes its session.
 func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
@@ -76,13 +76,13 @@ func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
 }
 
 func TestMCPListsReadAndSend(t *testing.T) {
-	fh := &fakeHarbor{}
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -100,14 +100,14 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	}
 }
 
-func TestMCPSendForwardsToHarbor(t *testing.T) {
-	fh := &fakeHarbor{}
+func TestMCPSendForwardsToJam(t *testing.T) {
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -123,26 +123,26 @@ func TestMCPSendForwardsToHarbor(t *testing.T) {
 		t.Fatalf("send tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodPost {
-		t.Fatalf("harbor saw method %q, want POST", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want POST", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-A" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-A", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-A", fh.gotAuth)
 	}
 	if fh.gotBody["body"] != "hi" {
-		t.Fatalf("harbor saw body %v, want {body: hi}", fh.gotBody)
+		t.Fatalf("Jam saw body %v, want {body: hi}", fh.gotBody)
 	}
 }
 
 func TestMCPReadReturnsInbox(t *testing.T) {
-	fh := &fakeHarbor{inbox: []squawkOut{
+	fh := &fakeJam{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
 	}}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-B",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-B",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -158,10 +158,10 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 		t.Fatalf("read tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodGet {
-		t.Fatalf("harbor saw method %q, want GET", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want GET", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-B" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-B", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-B", fh.gotAuth)
 	}
 
 	b, err := json.Marshal(res.StructuredContent)
@@ -188,9 +188,9 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -217,9 +217,9 @@ func TestMCPListTargets(t *testing.T) {
 	defer srv.Close()
 	c, _ := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -240,9 +240,9 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -268,9 +268,9 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -308,9 +308,9 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -338,9 +338,9 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -360,7 +360,7 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	}
 }
 
-func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
+func TestMCPCommitToolForwardsToJam(t *testing.T) {
 	var gotPath, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -372,8 +372,8 @@ func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
 	defer srv.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   srv.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-C",
+		"AT_JAM_RUNTIME_ADDR":   srv.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-C",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -416,9 +416,9 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -435,14 +435,14 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 }
 
 func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
-	fh := &fakeHarbor{failStatus: http.StatusInternalServerError}
+	fh := &fakeJam{failStatus: http.StatusInternalServerError}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	const secretToken = "super-secret-token-value"
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": secretToken,
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": secretToken,
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -455,7 +455,7 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 		t.Fatalf("CallTool(send) protocol error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("want a tool-level error on a non-2xx harbor response")
+		t.Fatal("want a tool-level error on a non-2xx Jam response")
 	}
 	var text strings.Builder
 	for _, c := range res.Content {

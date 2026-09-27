@@ -1,7 +1,7 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, harbor, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, jam, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
 read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, harbor, workers, collaborators, teammates, secrets, docker, image (+ validation)"
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
 updated: 2026-09-27
@@ -168,11 +168,11 @@ The label prefix that maps a Linear issue to a worker class (e.g. `class:impleme
 #### tracker.linear.dispatch-label-prefix
 *string, defaults to `dispatch:`*
 
-The label prefix that gates which READY issues harbor's [resident
-dispatcher](harbor/dispatcher.md) raises a cove for: only issues carrying a label
+The label prefix that gates which READY issues Jam's
+[Requisitioner](jam/requisitioner.md) raises a cove for: only issues carrying a label
 with this prefix (e.g. `dispatch:go`) are worked. Presence-only — the value after
 the prefix is unused — and distinct from `class-label-prefix` (which parses a
-class but does not gate). Only consulted by the harbor dispatcher; the standalone
+class but does not gate). Only consulted by the Requisitioner; the standalone
 `at-cove dispatch` scheduler ignores it.
 
 #### tracker.linear.states*
@@ -371,11 +371,11 @@ host-side and seeded as a file; see
 [Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
 [`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
 
-### harbor
-*optional; routes the cove's Anthropic + git through a harbor broker (COV-138)*
+### jam
+*optional; routes the cove's Anthropic + git through a Jam broker (COV-138)*
 
-Setting `harbor:` makes a hardened cove reach a [harbor](harbor/INDEX.md)
-broker from **inside** the sandbox, so the agent's `claude` and `git` use harbor's
+Setting `jam:` makes a hardened cove reach a [Jam](jam/INDEX.md)
+broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
@@ -386,48 +386,51 @@ helper) into the session — **superseding** the OAuth/Vertex auth for that cove
 |-------|----------|---------|
 | `host` | yes | Bare hostname of the broker. It is reached over **TLS on :443** (no scheme/port/path), so no sealed-egress changes are needed. |
 | `identity` | no | Name of a **host-supplied** secret (via `~/.config/at-cove/secrets.yml` / a `minters` profile) holding a pre-enrolled identity token. **Omit it to auto-enroll** (see below). Never a literal here; resolved host-side and delivered env-only. |
-| `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) harbor is reachable. Set `false` when `host` already resolves to a routable address. |
+| `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) Jam is reachable. Set `false` when `host` already resolves to a routable address. |
 
 ```yaml
-harbor:
-  host: harbor.local.aethons.tools
-  # identity: harbor-identity      # OMIT to auto-enroll; set to use a pre-supplied token
-  # via-host-gateway: false        # only if harbor is at a routable DNS address
+jam:
+  host: jam.local.aethons.tools
+  # identity: jam-identity         # OMIT to auto-enroll; set to use a pre-supplied token
+  # via-host-gateway: false        # only if Jam is at a routable DNS address
 ```
 
 **Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
-at-cove auto-enrolls the cove: it shells a sibling `at-harbor enroll` at session
+at-cove auto-enrolls the cove: it shells a sibling `at-jam enroll` at session
 start to mint a fresh per-cove identity (id = the instance name, role `guest`;
 destinations, repos, and TTL all come from that role, not from this config) and
-`at-harbor revoke`s it on exit. This needs the launching host to have `at-harbor`
-reachable to harbor's admin API **and** an operator credential (`at-harbor login` or
-`AT_HARBOR_ADMIN_TOKEN`). When that's not available (e.g. harbor isn't co-located),
+`at-jam revoke`s it on exit. This needs the launching host to have `at-jam`
+reachable to Jam's admin API **and** an operator credential (`at-jam login` or
+`AT_JAM_ADMIN_TOKEN`). When that's not available (e.g. Jam isn't co-located),
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
 
-> **Role prerequisite.** An auto-enrolling cove (no `harbor.identity`) enrolls into
-> the `guest` role of harbor's default project; the operator must create it first,
-> e.g. `at-harbor role add --name guest --destinations anthropic,git --repos
+> **Role prerequisite.** An auto-enrolling cove (no `jam.identity`) enrolls into
+> the `guest` role of Jam's default project; the operator must create it first,
+> e.g. `at-jam role add --name guest --destinations anthropic,git --repos
 > 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
 > into it — per-cove repo narrowing is a planned follow-up, not available yet.
 > **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
-> that never expire. See [harbor/roster.md](harbor/roster.md) for the role/enroll
-> surface and [harbor/INDEX.md](harbor/INDEX.md) for running the harbor itself.
+> that never expire. See [jam/roster.md](jam/roster.md) for the role/enroll
+> surface and [jam/INDEX.md](jam/INDEX.md) for running Jam itself.
 
-Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
+Enabling `jam:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
-**teammates**. A dispatched worker routes only its **Anthropic** through harbor (its
-git stays on at-task's minted code-host token — a global harbor rewrite would
+**teammates**. A dispatched worker routes only its **Anthropic** through Jam (its
+git stays on at-task's minted code-host token — a global Jam rewrite would
 misroute `prepare`/`complete`); chat and teammates route both connectors. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 
-`harbor:` is **mutually exclusive with `model-provider`** (harbor supersedes the
-agent's Anthropic auth). With `harbor:` set, the first-session **auto-clone is
+`jam:` is **mutually exclusive with `model-provider`** (Jam supersedes the
+agent's Anthropic auth). With `jam:` set, the first-session **auto-clone is
 disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove (that
-PAT would be misrouted to harbor's git connector); the agent clones through harbor
+PAT would be misrouted to Jam's git connector); the agent clones through Jam
 on demand instead.
+
+The block's pre-rename name is still accepted for one release, with a deprecation
+warning — see [renamed-from-harbor.md](jam/renamed-from-harbor.md).
 
 ### secrets
 *map of secret env name → config*
@@ -837,13 +840,13 @@ effective egress is **`image.allowed-domains ∪ workers.<common> ∪ workers.<c
 (and likewise for `collaborators`), where only the `<common> ∪ class` delta is
 delivered per session — see [`workers.*class*.allowed-domains`](#workersclassallowed-domains)
 and the [four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
-model. Provider, self-hosted GitLab and `harbor.host` domains are *not* part of this
+model. Provider, self-hosted GitLab and `jam.host` domains are *not* part of this
 list: they are derived into the separate, always-on infra list.
 
-It is also the **egress ceiling for harbor roles**: `install` bakes an immutable copy
-(`egress_ceiling.txt`), and a harbor-managed cove whose role has an egress policy gets
+It is also the **egress ceiling for Jam roles**: `install` bakes an immutable copy
+(`egress_ceiling.txt`), and a Jam-managed cove whose role has an egress policy gets
 that role's list *in place of* this one — only if every role domain is covered by it
-(see [role egress](harbor/roster.md#role-egress)). So a domain a role needs must be
+(see [role egress](jam/roster.md#role-egress)). So a domain a role needs must be
 listed here first (a leading-dot entry covers the domain and its subdomains).
 
 When a dispatched run is blocked by the allow-list, at-cove ends the issue in

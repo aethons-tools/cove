@@ -10,22 +10,22 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	env := map[string]string{}
 	get := func(k string) string { return env[k] }
 	if _, err := buildConfig(get); err == nil {
-		t.Fatal("expected error when AT_HARBOR_RUNTIME_ADDR is missing")
+		t.Fatal("expected error when AT_JAM_RUNTIME_ADDR is missing")
 	}
-	env["AT_HARBOR_RUNTIME_ADDR"] = "harbor:9090"
+	env["AT_JAM_RUNTIME_ADDR"] = "jam:9090"
 	if _, err := buildConfig(get); err == nil {
-		t.Fatal("expected error when AT_HARBOR_IDENTITY_TOKEN is missing")
+		t.Fatal("expected error when AT_JAM_IDENTITY_TOKEN is missing")
 	}
-	env["AT_HARBOR_IDENTITY_TOKEN"] = "tok"
+	env["AT_JAM_IDENTITY_TOKEN"] = "tok"
 	if _, err := buildConfig(get); err == nil {
-		t.Fatal("expected error when AT_HARBOR_LAUNCH_SECRET is missing")
+		t.Fatal("expected error when AT_JAM_LAUNCH_SECRET is missing")
 	}
-	env["AT_HARBOR_LAUNCH_SECRET"] = "sec"
+	env["AT_JAM_LAUNCH_SECRET"] = "sec"
 	cfg, err := buildConfig(get)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Addr != "harbor:9090" || cfg.Token != "tok" || cfg.LaunchSecret != "sec" {
+	if cfg.Addr != "jam:9090" || cfg.Token != "tok" || cfg.LaunchSecret != "sec" {
 		t.Fatalf("config = %+v", cfg)
 	}
 	if len(cfg.DialOptions) == 0 {

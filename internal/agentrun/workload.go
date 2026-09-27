@@ -19,7 +19,7 @@ const defaultGrace = 10 * time.Second
 const defaultMaxWait = 30 * time.Minute
 
 // mcpConfigPath is the baked-in MCP config (internal/assemble/hardening/
-// image-files/etc/claude-code/mcp.json) that gives claude -p the harbor
+// image-files/etc/claude-code/mcp.json) that gives claude -p the Jam
 // messaging tools. --strict-mcp-config keeps claude from also picking up any
 // project/user-level MCP config.
 const mcpConfigPath = "/etc/claude-code/mcp.json"

@@ -1,0 +1,74 @@
+package main
+
+import (
+	"crypto/tls"
+	"log/slog"
+	"net"
+	"net/http"
+	"strings"
+
+	"google.golang.org/grpc"
+
+	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
+)
+
+// serveMux serves both the broker (HTTP/1.1 and HTTP/2) and the Attach gRPC
+// server on one TLS listener. A single native http.Server terminates TLS and
+// negotiates h2/http1 per connection; requests with content-type
+// application/grpc are handed to the gRPC server (grpc-go's ServeHTTP path),
+// everything else to httpHandler (the broker). It blocks until lis closes.
+func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler http.Handler) error {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			gs.ServeHTTP(w, r)
+			return
+		}
+		httpHandler.ServeHTTP(w, r)
+	})
+	srv := &http.Server{Handler: h, TLSConfig: tlsCfg}
+	return srv.ServeTLS(lis, "", "")
+}
+
+// squawksMux routes exactly "/squawks", "/squawks/targets", and
+// "/squawks/commit" to squawksH and "/escalate" to escH; every other path goes
+// to broker unchanged. Used to mount Jam's brokered ticket-squawk
+// endpoint (its target-discovery and commit-cursor subpaths included) and its
+// brokered escalation-category endpoint on the same cove-facing handler as
+// the broker, without disturbing the broker's own routing.
+func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/squawks", "/squawks/targets", "/squawks/commit":
+			squawksH.ServeHTTP(w, r)
+		case "/escalate":
+			escH.ServeHTTP(w, r)
+		default:
+			broker.ServeHTTP(w, r)
+		}
+	})
+}
+
+// coveHTTPHandler builds the cove-facing HTTP handler: the broker, plus the
+// intercom endpoints (/squawks and its subpaths) and /escalate whenever Jam
+// has an intercom log (with or without a Requisitioner — a personal session needs
+// the intercom too) or a Requisitioner (whose coves have always had /escalate; with
+// no log their sends fail with a clean 503). With neither, the broker alone.
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, log *slog.Logger) http.Handler {
+	if lg == nil && !requisitioner {
+		return broker
+	}
+	// Pass lg as both the reader and the appender only when it's genuinely
+	// non-nil: it is an intercom.Store interface value holding a real backend or
+	// a true nil interface, so this is a plain nil check (no typed-nil hazard).
+	var squawksH *jam.SquawksHandler
+	if lg != nil {
+		squawksH = jam.NewSquawksHandler(st, lg, lg, log)
+	} else {
+		squawksH = jam.NewSquawksHandler(st, nil, nil, log)
+	}
+	escH := jam.NewEscalateHandler(st, sup, log)
+	log.Info("Jam messages: mounted", "path", "/squawks")
+	log.Info("Jam escalate: mounted", "path", "/escalate")
+	return squawksMux(squawksH, escH, broker)
+}

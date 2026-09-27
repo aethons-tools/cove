@@ -318,7 +318,7 @@ anymore:
 
 1. **Non-overridable hardening** (embedded) —
    `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
-2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/harbor hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
+2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/Jam hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
 for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
@@ -417,12 +417,12 @@ the sealed base or the `nftables` lock:
 | file | source | when | scope |
 |---|---|---|---|
 | `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
-| `allowed_domains.infra.txt` | provider, self-hosted GitLab and `harbor.host` hosts, derived from `config.yml` | baked at `install` | every session; a role can't remove it |
-| `allowed_domains.kit.txt` | the **active policy list**: `config.yml image.allowed-domains` by default | baked at `install`; replaced at raise for a harbor role with a policy | every session |
+| `allowed_domains.infra.txt` | provider, self-hosted GitLab and `jam.host` hosts, derived from `config.yml` | baked at `install` | every session; a role can't remove it |
+| `allowed_domains.kit.txt` | the **active policy list**: `config.yml image.allowed-domains` by default | baked at `install`; replaced at raise for a Jam role with a policy | every session |
 | `allowed_domains.session.txt` | `<common> ∪ class` **delta** | delivered per session | this session's handler class |
 
 A fifth file, **`egress_ceiling.txt`**, is an immutable baked copy of
-`image.allowed-domains`. Squid never reads it; it is the bound a harbor role's list
+`image.allowed-domains`. Squid never reads it; it is the bound a Jam role's list
 must fit inside (below). Every list and the ceiling are root-owned `0644`.
 
 So a class's effective egress is the union **`base ∪ infra ∪ root ∪ <common> ∪ class`**
@@ -434,9 +434,9 @@ dangles and a no-class session (`create`) simply stays root-only. See
 [`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains) for the config
 shape and union semantics.
 
-**A harbor role's egress replaces the policy list, within the ceiling, at raise.**
-When harbor raises a cove for a role with an egress policy
-([`at-harbor egress set`](usage/harbor/roster.md#role-egress)), the launcher runs the
+**A Jam role's egress replaces the policy list, within the ceiling, at raise.**
+When Jam raises a cove for a role with an egress policy
+([`at-jam egress set`](usage/jam/roster.md#role-egress)), the launcher runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and **before cove-master (and so the agent) starts**. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -444,11 +444,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `allowed_domains.kit.txt`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-([coves](usage/harbor/coves.md#raising-a-real-managed-cove)). When the role's policy
-later changes, harbor re-applies it to the role's running coves the same way
+([coves](usage/jam/coves.md#raising-a-real-managed-studio)). When the role's policy
+later changes, Jam re-applies it to the role's running coves the same way
 (`apply-role-egress.sh --kit-default` restores the ceiling's list when the policy is
 cleared; that mode takes no domains) —
-see [egress drift](usage/harbor/coves.md#egress-drift).
+see [egress drift](usage/jam/coves.md#egress-drift).
 
 **Vertex kits auto-gain their GCP hosts.** A kit with a
 [`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its
@@ -461,7 +461,7 @@ host already covers it); the multi-region values `us`/`eu` add the distinct
 any other value is taken as a specific region and adds
 `<region>-aiplatform.googleapis.com`. Always added alongside: the auth hosts
 `oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
-This only *widens* the always-on infra tier (a harbor role's policy can't remove
+This only *widens* the always-on infra tier (a Jam role's policy can't remove
 it) — the sealed base and `nftables` are unchanged.
 
 **GitLab kits reach their host too.** `gitlab.com` is already in the sealed base
@@ -469,7 +469,7 @@ it) — the sealed base and `nftables` are unchanged.
 [`source-control.gitlab.host`](usage/at-cove-config.md#source-controlgitlabhost) is
 folded into `allowed_domains.infra.txt` at `install` time — derived from the config, not
 hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above (as is the
-kit's `harbor.host`). This only *widens* the infra tier; the sealed base and `nftables`
+kit's `jam.host`). This only *widens* the infra tier; the sealed base and `nftables`
 are unchanged.
 
 **Nested-container egress is contained too.** The `nftables` `output` chain locks the
@@ -774,7 +774,7 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   (`chat`) path applies the selected collaborator's delta on start and clears it
   on exit (see [The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
   It also implements `backend.RoleEgress` — `ApplyRoleEgress` `docker exec`s the sealed
-  `apply-role-egress.sh` the same way, for harbor's launcher to apply a role's egress
+  `apply-role-egress.sh` the same way, for Jam's launcher to apply a role's egress
   at raise (see [the egress model](#egress-four-additive-allow-lists-and-a-ceiling)).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
@@ -798,8 +798,8 @@ internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — stat
 internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
-cmd/at-harbor/                at-harbor entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit` are admin-API clients (config + servers over internal/harbor)
-internal/harbor/              harbor broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image)
+cmd/at-jam/                at-jam entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit` are admin-API clients (config + servers over internal/jam)
+internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
@@ -823,9 +823,9 @@ a secret's bare `command:` or assembled by at-cove from a `minters:` profile
 via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)), `at-switchboard`
 (the in-sandbox Discord conductor — embedded into the hardening layer the same
 way as at-task, see [Building, testing, running](#building-testing-running)),
-and `at-harbor` (a standalone **host** credential-broker + control-plane service —
+and `at-jam` (a standalone **host** credential-broker + control-plane service —
 `serve` runs a client-addressed-TLS reverse proxy that swaps an enrolled actor's
-identity token for harbor's real Anthropic/git credentials, plus a loopback admin
+identity token for Jam's real Anthropic/git credentials, plus a loopback admin
 API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit` are
 admin-API clients that manage actors, roles, grants, destinations, and kits at
 runtime against one live file-backed store — no restart. An actor is granted
@@ -834,37 +834,40 @@ and, optionally, a named kit (resolved to that kit's current version); the broke
 authorizes each request additively across the actor's grants (per-grant
 existential — no cross-grant repo bleed); `enroll` is role-required, with scope
 coming from the role rather than inline flags. See the
-[harbor actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
-and the [harbor kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).
-The `harbor.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
+[Jam actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
+and the [Jam kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).
+The `jam.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
 `admin-tls`, `store`, `credentials`, optional `operator-auth`); destinations and
 enrollments are managed via the API/CLI. `serve` **warns** on any unrecognized
-top-level key (e.g. a stray `destinations:` block, which it points at `at-harbor
+top-level key (e.g. a stray `destinations:` block, which it points at `at-jam
 destination import`) so a silently-ignored key isn't a debugging trap. The admin API's operator auth defaults to loopback-only,
 or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
-`require-scope`) is set. Operators sign in with `at-harbor login` — an OIDC device
-flow that self-configures from harbor's auth-exempt `GET /admin/login-config` (fed by
+`require-scope`) is set. Operators sign in with `at-jam login` — an OIDC device
+flow that self-configures from Jam's auth-exempt `GET /admin/login-config` (fed by
 `operator-auth.oidc.device-client-id`) and caches the token per app profile at
-`~/.config/at-harbor/{app}-admin-token.json` (0600); `logout`/`whoami` manage it and
-every verb falls back to it, so `--token` / `AT_HARBOR_ADMIN_TOKEN` become optional.
-Client endpoint defaults live in `~/.config/at-harbor/settings.yml` as named **app
+`~/.config/at-jam/{app}-admin-token.json` (0600); `logout`/`whoami` manage it and
+every verb falls back to it, so `--token` / `AT_JAM_ADMIN_TOKEN` become optional.
+Client endpoint defaults live in `~/.config/at-jam/settings.yml` as named **app
 profiles** (`{admin-url, base-url}` per app); every verb takes `--app` (default
 `default`), and `login --admin-url` persists the url into that profile. The admin API
 serves **TLS** (cert from an optional `admin-tls`, else the broker's `tls:`) and
 **refuses to bind off-loopback** unless both TLS and `operator-auth.oidc` are set — a
 loopback listener stays plain HTTP, so remote/multi-operator use is safe by construction.
 Built by `just build` but **not** embedded in the sandbox image — see the
-[harbor broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
-the [harbor control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
-the [harbor operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
-the [harbor operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md),
-and the [harbor admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-design.md)).
-A hardened cove can route its **own** Anthropic + git through a harbor broker (over TLS
-on :443, through squid) by setting a [`harbor:` block](usage/at-cove-config.md#harbor) in
+[Jam broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
+the [Jam control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
+the [Jam operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
+the [Jam operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md),
+and the [Jam admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-design.md)).
+Jam was renamed this release (the historical specs keep its old name):
+[renamed-from-harbor.md](usage/jam/renamed-from-harbor.md) lists every old name — binary,
+config keys, environment variables — its new name, and which old names still work.
+A hardened cove can route its **own** Anthropic + git through a Jam broker (over TLS
+on :443, through squid) by setting a [`jam:` block](usage/at-cove-config.md#jam) in
 its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the
-[cove→harbor networking spec](superpowers/specs/2026-09-11-harbor-cove-networking-design.md).
-With `harbor.identity` omitted, at-cove **auto-enrolls** the cove (mint on start, revoke
-on exit, via a sibling `at-harbor`) — see the
+[cove→Jam networking spec](superpowers/specs/2026-09-11-harbor-cove-networking-design.md).
+With `jam.identity` omitted, at-cove **auto-enrolls** the cove (mint on start, revoke
+on exit, via a sibling `at-jam`) — see the
 [cove auto-enrollment spec](superpowers/specs/2026-09-12-harbor-cove-autoenroll-design.md).
 The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
 internals. See the [orchestration design](orchestration/INDEX.md).

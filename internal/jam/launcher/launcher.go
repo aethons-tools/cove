@@ -1,0 +1,198 @@
+// Package launcher is the real jam.Launcher: it raises/tears down/probes a
+// managed cove on a Colima backend and bootstraps cove-master over SSH. It lives
+// outside internal/jam core (which stays backend/connect-free) and is wired
+// from cmd/at-jam.
+package launcher
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"time"
+
+	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/naming"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
+)
+
+// Label is the docker label on every container the launcher raises, and the
+// filter it lists them by. It keeps its pre-rename "harbor" value: changing it
+// would hide studios an older binary raised from the new one during a rollout.
+// See docs/usage/jam/renamed-from-harbor.md.
+const Label = "harbor.cove"
+
+// Backend is the backend surface the launcher needs: the ephemeral run/dial/remove
+// ops plus GetStatus for probing. The Colima backend value satisfies both.
+type Backend interface {
+	backend.DispatchOps // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
+	GetStatus(container string) (backend.State, error)
+}
+
+// Config configures the Colima launcher.
+type Config struct {
+	Ops           Backend
+	Runner        runner.Runner
+	Image         string
+	ImageDigest   string
+	JamHost       string
+	RuntimeAddr   string
+	IdentityFile  string
+	KnownHostsDir string
+	DNS           []string
+	Docker        bool
+	WorkDir       string              // AT_COVE_WORKDIR; default /home/agent/workspace
+	Log           *slog.Logger        // nil → discard
+	sleep         func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
+}
+
+type Launcher struct{ cfg Config }
+
+var _ jam.Launcher = (*Launcher)(nil)
+
+func New(cfg Config) *Launcher {
+	if cfg.sleep == nil {
+		cfg.sleep = time.Sleep
+	}
+	if cfg.WorkDir == "" {
+		cfg.WorkDir = "/home/agent/workspace"
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
+	}
+	return &Launcher{cfg: cfg}
+}
+
+func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
+	name := naming.CoveContainer(spec.ActorID)
+	if _, err := l.cfg.Ops.RunEphemeral(l.cfg.Image, l.cfg.ImageDigest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
+		return "", fmt.Errorf("raise %s: run: %w", name, err)
+	}
+	// From here, clean up the container on any failure so a failed raise leaks nothing.
+	launch := func() error {
+		ep, cleanup, err := l.cfg.Ops.Dial(name)
+		if err != nil {
+			return fmt.Errorf("dial: %w", err)
+		}
+		defer cleanup()
+		tgt := sshargs.Target{
+			Host: ep.Host, User: ep.User, Port: ep.Port,
+			IdentityFile:   l.cfg.IdentityFile,
+			KnownHostsFile: filepath.Join(l.cfg.KnownHostsDir, name),
+		}
+		if err := l.waitForSSH(tgt); err != nil {
+			return fmt.Errorf("wait for sshd: %w", err)
+		}
+		// The role's egress policy lands before cove-master (and so the agent)
+		// starts, so the agent never runs under the wider kit default.
+		if err := l.applyRoleEgress(name, spec); err != nil {
+			return err
+		}
+		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
+			Target: tgt, JamHost: l.cfg.JamHost, RuntimeAddr: l.cfg.RuntimeAddr,
+			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
+			WorkDir: l.cfg.WorkDir, Prompt: spec.Prompt,
+			// A personal session is a long-lived conversation: its agent stays
+			// resident, waiting for its owner's reply after every turn.
+			Resident: jam.IsResident(spec.SessionKind),
+		})
+	}
+	if err := launch(); err != nil {
+		if rmErr := l.cfg.Ops.RemoveContainer(name); rmErr != nil {
+			l.cfg.Log.Warn("raise cleanup: remove container failed", "name", name, "error", rmErr)
+		}
+		return "", fmt.Errorf("raise %s: %w", name, err)
+	}
+	return name, nil
+}
+
+// applyRoleEgress pushes spec's role egress policy into the raised container. A
+// nil policy is the kit default, which the image already boots with: nothing to
+// apply at raise. Fail closed: a policy the backend can't apply fails the raise
+// rather than falling back to the wider kit default.
+func (l *Launcher) applyRoleEgress(name string, spec jam.RaiseSpec) error {
+	if spec.Egress == nil {
+		return nil
+	}
+	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
+}
+
+// ApplyEgress sets a running cove's egress to p (nil = the kit default), via the
+// same privileged backend op the raise uses; the sealed in-box helper enforces
+// the kit's ceiling. Jam's supervisor calls it when the role's policy drifts
+// from the one the cove is running under.
+func (l *Launcher) ApplyEgress(ctx context.Context, inst jam.Instance, p *jam.EgressPolicy) error {
+	return l.applyEgress(inst.Location, inst.ActorID, inst.Project, inst.Role, p)
+}
+
+// applyEgress applies p (nil = reset to the kit default) to container via the
+// backend's RoleEgress op. A backend without the op errors — never a silent no-op.
+func (l *Launcher) applyEgress(container, actorID, project, role string, p *jam.EgressPolicy) error {
+	if project == "" {
+		project = jam.DefaultProject
+	}
+	re, ok := l.cfg.Ops.(backend.RoleEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support role egress (required for role %s/%s)", project, role)
+	}
+	if p == nil {
+		if err := re.ResetRoleEgress(container); err != nil {
+			return fmt.Errorf("reset role egress: %w", err)
+		}
+		l.cfg.Log.Info("role egress reset to kit default", "id", actorID, "project", project, "role", role)
+		return nil
+	}
+	if err := re.ApplyRoleEgress(container, p.Domains); err != nil {
+		return fmt.Errorf("apply role egress: %w", err)
+	}
+	l.cfg.Log.Info("role egress applied", "id", actorID, "project", project, "role", role, "domains", len(p.Domains))
+	return nil
+}
+
+func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
+	return l.cfg.Ops.RemoveContainer(inst.Location)
+}
+
+func (l *Launcher) Probe(ctx context.Context, inst jam.Instance) (jam.Liveness, error) {
+	st, err := l.cfg.Ops.GetStatus(inst.Location)
+	if err != nil {
+		return jam.LivenessUnknown, nil // transient — don't reap (COV-151)
+	}
+	switch st {
+	case backend.StateRunning:
+		return jam.LivenessAlive, nil
+	default:
+		return jam.LivenessDead, nil
+	}
+}
+
+func (l *Launcher) Pause(ctx context.Context, inst jam.Instance) error {
+	return l.cfg.Ops.Pause(inst.Location)
+}
+
+func (l *Launcher) Unpause(ctx context.Context, inst jam.Instance) error {
+	return l.cfg.Ops.Unpause(inst.Location)
+}
+
+// waitForSSH polls sshd with a trivial command until it answers or attempts run out.
+func (l *Launcher) waitForSSH(tgt sshargs.Target) error {
+	const attempts = 30
+	probe := append(sshargs.Base(tgt), "true")
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = l.cfg.Runner.Run("ssh", probe...); err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			l.cfg.sleep(time.Second)
+		}
+	}
+	return err
+}
+
+type discard struct{}
+
+func (discard) Write(p []byte) (int, error) { return len(p), nil }

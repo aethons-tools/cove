@@ -15,9 +15,9 @@ import (
 )
 
 func TestPostgresLogConformance(t *testing.T) {
-	dsn := os.Getenv("HARBOR_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("set HARBOR_TEST_POSTGRES_DSN to run the Postgres squawk log integration tests")
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres squawk log integration tests")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

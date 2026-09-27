@@ -15,38 +15,38 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/harbor/attach"
-	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/attach"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
 type aliveLauncher struct{}
 
-func (aliveLauncher) Raise(context.Context, harbor.RaiseSpec, harbor.LaunchCreds) (string, error) {
+func (aliveLauncher) Raise(context.Context, jam.RaiseSpec, jam.LaunchCreds) (string, error) {
 	return "fake", nil
 }
-func (aliveLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
-func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
-	return harbor.LivenessAlive, nil
+func (aliveLauncher) Teardown(context.Context, jam.Instance) error { return nil }
+func (aliveLauncher) Probe(context.Context, jam.Instance) (jam.Liveness, error) {
+	return jam.LivenessAlive, nil
 }
-func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
-func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
-func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+func (aliveLauncher) Pause(context.Context, jam.Instance) error   { return nil }
+func (aliveLauncher) Unpause(context.Context, jam.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
 
 // serverHarness raises one instance and starts an in-memory attach server.
 // Returns the store, the attach server, a DialOption that reaches it, and the
 // raised actor's token + launch secret.
-func serverHarness(t *testing.T) (harbor.Store, *attach.Server, grpc.DialOption, string, string) {
+func serverHarness(t *testing.T) (jam.Store, *attach.Server, grpc.DialOption, string, string) {
 	t.Helper()
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.PutRole("default", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
-	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, tok, secret, err := sup.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Role: "guest"})
+	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, tok, secret, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestClientReportsActivity(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- c.Run(ctx, &blockWorkload{first: Waiting, controls: make(chan Control, 4)}) }()
-	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Activity == harbor.ActivityWaiting }) {
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Activity == jam.ActivityWaiting }) {
 		inst, _ := store.GetInstance("w1")
 		t.Fatalf("activity never reached waiting: %+v", inst)
 	}

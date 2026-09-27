@@ -1,8 +1,9 @@
-// Package dispatcher is harbor's resident intake: an always-on poll loop that
+// Package dispatcher is the Requisitioner (Jam's resident intake; the package
+// keeps its pre-rename name): an always-on poll loop that
 // turns ready tracker tickets into managed-cove raises, admitting each raise
-// through the Allocator (harbor's capacity authority) rather than counting
-// instances against a cap itself. It lives outside internal/harbor core (it
-// imports the tracker + kit + supervisor) and is wired from cmd/at-harbor.
+// through the Allocator (Jam's capacity authority) rather than counting
+// instances against a cap itself. It lives outside internal/jam core (it
+// imports the tracker + kit + supervisor) and is wired from cmd/at-jam.
 package dispatcher
 
 import (
@@ -13,32 +14,32 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Raiser is the supervisor's raise entrypoint (satisfied by *harbor.Supervisor).
+// Raiser is the supervisor's raise entrypoint (satisfied by *jam.Supervisor).
 type Raiser interface {
-	Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error)
+	Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error)
 }
 
-// Registry reads the durable Instance registry (satisfied by harbor.Store).
+// Registry reads the durable Instance registry (satisfied by jam.Store).
 type Registry interface {
-	GetInstance(actorID string) (harbor.Instance, bool)
-	ListInstances() []harbor.Instance
+	GetInstance(actorID string) (jam.Instance, bool)
+	ListInstances() []jam.Instance
 }
 
-// Tracker is the scheduler.Tracker subset the dispatcher needs (satisfied by *linear.Client).
+// Tracker is the scheduler.Tracker subset the Requisitioner needs (satisfied by *linear.Client).
 type Tracker interface {
 	ListReady(ctx context.Context) ([]scheduler.Issue, error)
 	Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error)
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 }
 
-// Admitter is harbor's capacity authority: the dispatcher no longer counts
+// Admitter is Jam's capacity authority: the Requisitioner no longer counts
 // instances against a cap itself. Satisfied by *allocator.Allocator.
 type Admitter interface {
 	// Grant atomically admits and reserves a slot for req's (project, role) — the
-	// OCC admission gate. The dispatcher always asks for an ephemeral session. It
+	// OCC admission gate. The Requisitioner always asks for an ephemeral session. It
 	// returns true when a slot was reserved (the caller must then compensate with
 	// RecordRelease on any later failure), false when at capacity, and an error on
 	// store trouble.
@@ -48,7 +49,7 @@ type Admitter interface {
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
 }
 
-// Config is the dispatcher's behavior configuration.
+// Config is the Requisitioner's behavior configuration.
 type Config struct {
 	Role         string        // role raised coves get (must grant anthropic + git)
 	Project      string        // optional
@@ -117,7 +118,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 func (d *Dispatcher) tick(ctx context.Context) {
 	issues, err := d.tracker.ListReady(ctx)
 	if err != nil {
-		d.log.Warn("dispatcher: list ready failed", "error", err.Error())
+		d.log.Warn("requisitioner: list ready failed", "error", err.Error())
 		return
 	}
 	for _, iss := range issues {
@@ -132,35 +133,35 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			Project: d.cfg.Project, Role: d.cfg.Role, ReservationID: actorID, Kind: allocator.SessionEphemeral,
 		})
 		if err != nil {
-			d.log.Warn("dispatcher: grant failed", "actor", actorID, "err", err.Error())
+			d.log.Warn("requisitioner: grant failed", "actor", actorID, "err", err.Error())
 			break // store trouble — back off this tick
 		}
 		if !granted {
-			d.log.Info("dispatcher: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
+			d.log.Info("requisitioner: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
 			break // backpressure — wait for a slot next tick
 		}
 		// slot reserved — any failure from here must release it (compensation)
 		if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleInProgress); err != nil {
-			d.log.Warn("dispatcher: claim failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: claim failed", "issue", iss.Identifier, "error", err.Error())
 			d.release(ctx, actorID)
 			continue
 		}
 		prompt, err := d.buildPrompt(ctx, iss)
 		if err != nil {
-			d.log.Warn("dispatcher: build prompt failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: build prompt failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
 			d.release(ctx, actorID)
 			continue
 		}
-		if _, _, _, err := d.raiser.Raise(ctx, harbor.RaiseSpec{
+		if _, _, _, err := d.raiser.Raise(ctx, jam.RaiseSpec{
 			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, Prompt: prompt,
 		}); err != nil {
-			d.log.Warn("dispatcher: raise failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: raise failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
 			d.release(ctx, actorID)
 			continue
 		}
-		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
+		d.log.Info("requisitioner: raised cove", "issue", iss.Identifier, "actor", actorID)
 	}
 }
 
@@ -169,7 +170,7 @@ func (d *Dispatcher) tick(ctx context.Context) {
 // where Grant reserved nothing.
 func (d *Dispatcher) release(ctx context.Context, actorID string) {
 	if err := d.admitter.RecordRelease(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
-		d.log.Warn("dispatcher: compensating release failed", "actor", actorID, "err", err.Error())
+		d.log.Warn("requisitioner: compensating release failed", "actor", actorID, "err", err.Error())
 	}
 }
 
@@ -183,7 +184,7 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (stri
 
 func (d *Dispatcher) needsInput(ctx context.Context, iss scheduler.Issue) {
 	if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleNeedsInput); err != nil {
-		d.log.Warn("dispatcher: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
+		d.log.Warn("requisitioner: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
 	}
 }
 

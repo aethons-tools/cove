@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
 const (
@@ -136,6 +136,8 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 	}
 	defer cc.Close()
 
+	// x-harbor-launch-secret keeps its pre-rename name: it is the wire key
+	// every Jam server reads (docs/usage/jam/renamed-from-harbor.md).
 	md := metadata.Pairs("authorization", "Bearer "+c.cfg.Token, "x-harbor-launch-secret", c.cfg.LaunchSecret)
 	stream, err := attachpb.NewRuntimeClient(cc).Attach(metadata.NewOutgoingContext(ctx, md))
 	if err != nil {

@@ -9,21 +9,21 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/allocator"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // fakeWorld is the roster, the registry and the supervisor: Raise adds a Live
 // instance (unless the actor id is set to fail), Teardown removes it.
 type fakeWorld struct {
-	roles     map[string][]harbor.Role // project → roles
-	insts     map[string]harbor.Instance
-	raised    []harbor.RaiseSpec
+	roles     map[string][]jam.Role // project → roles
+	insts     map[string]jam.Instance
+	raised    []jam.RaiseSpec
 	torn      []string
 	failRaise map[string]bool
 }
 
 func newWorld() *fakeWorld {
-	return &fakeWorld{roles: map[string][]harbor.Role{}, insts: map[string]harbor.Instance{}, failRaise: map[string]bool{}}
+	return &fakeWorld{roles: map[string][]jam.Role{}, insts: map[string]jam.Instance{}, failRaise: map[string]bool{}}
 }
 
 func (w *fakeWorld) ListProjects() []string {
@@ -35,22 +35,22 @@ func (w *fakeWorld) ListProjects() []string {
 	return out
 }
 
-func (w *fakeWorld) ListRoles(project string) []harbor.Role { return w.roles[project] }
+func (w *fakeWorld) ListRoles(project string) []jam.Role { return w.roles[project] }
 
-func (w *fakeWorld) ListInstances() []harbor.Instance {
-	var out []harbor.Instance
+func (w *fakeWorld) ListInstances() []jam.Instance {
+	var out []jam.Instance
 	for _, i := range w.insts {
 		out = append(out, i)
 	}
 	return out
 }
 
-func (w *fakeWorld) Raise(_ context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error) {
+func (w *fakeWorld) Raise(_ context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error) {
 	w.raised = append(w.raised, spec)
 	if w.failRaise[spec.ActorID] {
-		return harbor.Instance{}, "", "", errors.New("launch failed")
+		return jam.Instance{}, "", "", errors.New("launch failed")
 	}
-	inst := harbor.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: harbor.PhaseLive}
+	inst := jam.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive}
 	w.insts[spec.ActorID] = inst
 	return inst, "tok", "secret", nil
 }
@@ -62,7 +62,7 @@ func (w *fakeWorld) Teardown(_ context.Context, id string) error {
 }
 
 // declare sets project/role's standing declarations.
-func (w *fakeWorld) declare(project, role string, ss ...harbor.StandingSession) {
+func (w *fakeWorld) declare(project, role string, ss ...jam.StandingSession) {
 	rs := w.roles[project]
 	for i := range rs {
 		if rs[i].Name == role {
@@ -70,7 +70,7 @@ func (w *fakeWorld) declare(project, role string, ss ...harbor.StandingSession) 
 			return
 		}
 	}
-	w.roles[project] = append(rs, harbor.Role{Name: role, Allocation: harbor.RoleAllocation{Standing: ss}})
+	w.roles[project] = append(rs, jam.Role{Name: role, Allocation: jam.RoleAllocation{Standing: ss}})
 }
 
 type fakeGranter struct {
@@ -98,7 +98,7 @@ func kit() (*Reconciler, *fakeWorld, *fakeGranter, func(time.Duration)) {
 	return r, w, g, func(d time.Duration) { now = now.Add(d) }
 }
 
-var bot = harbor.StandingSession{Name: "alice-bot", Prompt: "review every PR"}
+var bot = jam.StandingSession{Name: "alice-bot", Prompt: "review every PR"}
 
 const botID = "standing-acme-reviewer-alice-bot"
 
@@ -117,7 +117,7 @@ func TestTick_RaisesDeclaredName(t *testing.T) {
 		t.Fatalf("raised = %+v, want one", w.raised)
 	}
 	spec := w.raised[0]
-	if spec.ActorID != botID || spec.Project != "acme" || spec.Role != "reviewer" || spec.Name != "alice-bot" || spec.SessionKind != harbor.SessionKindStanding || spec.Owner != "" {
+	if spec.ActorID != botID || spec.Project != "acme" || spec.Role != "reviewer" || spec.Name != "alice-bot" || spec.SessionKind != jam.SessionKindStanding || spec.Owner != "" {
 		t.Fatalf("spec = %+v", spec)
 	}
 	wantPrompt := "You are the standing session \"alice-bot\" for role reviewer in project acme. You run until an operator\n" +
@@ -204,7 +204,7 @@ func TestTick_RaiseFailureReleasesAndBacksOff(t *testing.T) {
 // Backoff is per name: one failing name doesn't delay another.
 func TestTick_BackoffPerName(t *testing.T) {
 	r, w, _, _ := kit()
-	other := harbor.StandingSession{Name: "bob-bot", Prompt: "triage"}
+	other := jam.StandingSession{Name: "bob-bot", Prompt: "triage"}
 	w.declare("acme", "reviewer", bot)
 	w.failRaise[botID] = true
 	r.Tick(context.Background())
@@ -218,16 +218,16 @@ func TestTick_BackoffPerName(t *testing.T) {
 // A removed name's cove is torn down, as is one whose role is gone.
 func TestTick_DismissedTornDown(t *testing.T) {
 	r, w, _, _ := kit()
-	other := harbor.StandingSession{Name: "bob-bot", Prompt: "triage"}
+	other := jam.StandingSession{Name: "bob-bot", Prompt: "triage"}
 	w.declare("acme", "reviewer", bot, other)
-	w.declare("acme", "triager", harbor.StandingSession{Name: "t", Prompt: "p"})
+	w.declare("acme", "triager", jam.StandingSession{Name: "t", Prompt: "p"})
 	r.Tick(context.Background())
 	if len(w.insts) != 3 {
 		t.Fatalf("want 3 coves, got %d", len(w.insts))
 	}
 
 	w.declare("acme", "reviewer", other) // alice-bot removed
-	w.roles["acme"] = slices.DeleteFunc(w.roles["acme"], func(ro harbor.Role) bool { return ro.Name == "triager" })
+	w.roles["acme"] = slices.DeleteFunc(w.roles["acme"], func(ro jam.Role) bool { return ro.Name == "triager" })
 	r.Tick(context.Background())
 	slices.Sort(w.torn)
 	if want := []string{botID, "standing-acme-triager-t"}; !slices.Equal(w.torn, want) {
@@ -259,9 +259,9 @@ func TestTick_DeniedGrantDoesNotRaise(t *testing.T) {
 // something else is not raised over.
 func TestTick_IgnoresOtherKinds(t *testing.T) {
 	r, w, g, _ := kit()
-	w.insts["cove-1"] = harbor.Instance{ActorID: "cove-1", Project: "acme", Role: "reviewer", Unit: "AET-1", Phase: harbor.PhaseLive}
-	w.insts["personal-alice-1"] = harbor.Instance{ActorID: "personal-alice-1", Project: "acme", Role: "reviewer", Owner: "alice", SessionKind: harbor.SessionKindPersonal, Phase: harbor.PhaseLive}
-	w.insts[botID] = harbor.Instance{ActorID: botID, Project: "acme", Role: "reviewer", SessionKind: harbor.SessionKindPersonal, Phase: harbor.PhaseLive}
+	w.insts["cove-1"] = jam.Instance{ActorID: "cove-1", Project: "acme", Role: "reviewer", Unit: "AET-1", Phase: jam.PhaseLive}
+	w.insts["personal-alice-1"] = jam.Instance{ActorID: "personal-alice-1", Project: "acme", Role: "reviewer", Owner: "alice", SessionKind: jam.SessionKindPersonal, Phase: jam.PhaseLive}
+	w.insts[botID] = jam.Instance{ActorID: botID, Project: "acme", Role: "reviewer", SessionKind: jam.SessionKindPersonal, Phase: jam.PhaseLive}
 	w.declare("acme", "reviewer", bot)
 	r.Tick(context.Background())
 	if len(w.torn) != 0 || len(w.raised) != 0 || len(g.grants) != 0 {
@@ -275,7 +275,7 @@ type signalWorld struct {
 	raisedCh chan struct{}
 }
 
-func (s signalWorld) Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error) {
+func (s signalWorld) Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error) {
 	inst, tok, sec, err := s.fakeWorld.Raise(ctx, spec)
 	s.raisedCh <- struct{}{}
 	return inst, tok, sec, err
@@ -309,10 +309,10 @@ type fakeActors struct {
 	removed []string
 }
 
-func (a *fakeActors) ListActors() []harbor.Actor {
-	var out []harbor.Actor
+func (a *fakeActors) ListActors() []jam.Actor {
+	var out []jam.Actor
 	for id := range a.ids {
-		out = append(out, harbor.Actor{ID: id})
+		out = append(out, jam.Actor{ID: id})
 	}
 	return out
 }
@@ -325,7 +325,7 @@ func (a *fakeActors) RemoveActor(id string) error {
 
 // A crash between enrolling a standing cove's identity and recording its
 // instance leaves an actor with the standing id and no cove. Standing ids are
-// harbor-owned and the name has no live cove, so the reconciler removes the
+// Jam-owned and the name has no live cove, so the reconciler removes the
 // leftover actor and raises — instead of failing "already exists" and backing
 // off forever.
 func TestTick_RemovesLeftoverActorBeforeRaising(t *testing.T) {

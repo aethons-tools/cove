@@ -28,7 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-cove at-task at-mint at-switchboard at-harbor)
+BINARIES=(at-cove at-task at-mint at-switchboard at-jam)
 
 # Stage the linux at-task and at-switchboard binaries at-cove embeds, before
 # at-cove is built — shared with the goreleaser before-hook, see
@@ -64,6 +64,11 @@ for t in "${TARGETS[@]}"; do
       go build -trimpath -ldflags "$LDFLAGS" -o "$dir/$bin" "./cmd/$bin"
     built+=("$dir/$bin")
   done
+  # Deprecated alias (Harbor → Jam rename, one release): at-harbor is a copy
+  # of at-jam; invoked under that name it runs normally and warns. See
+  # docs/usage/jam/renamed-from-harbor.md.
+  cp "$dir/at-jam" "$dir/at-harbor"
+  built+=("$dir/at-harbor")
 done
 
 echo

@@ -13,7 +13,7 @@ import (
 // backend serves both the ephemeral (work/dispatch) and persistent (chat) paths.
 var _ backend.SessionEgress = (*Colima)(nil)
 
-// Compile-time proof colima delivers a harbor role's egress policy at raise.
+// Compile-time proof colima delivers a Jam role's egress policy at raise.
 var _ backend.RoleEgress = (*Colima)(nil)
 
 // sessionDomainsHelper is the sealed, root-only helper the hardening layer bakes
@@ -43,7 +43,7 @@ func (c *Colima) ApplySessionEgress(container string, domains []string) error {
 	return c.r.RunStdin(domainsStdin(domains), "docker", helperArgs(container, sessionDomainsHelper)...)
 }
 
-// ApplyRoleEgress delivers a harbor role's egress policy to a raised container by
+// ApplyRoleEgress delivers a Jam role's egress policy to a raised container by
 // `docker exec`ing the sealed apply-role-egress.sh as root, domains on stdin one
 // per line (never argv). The helper enforces the kit's ceiling and fails —
 // changing nothing — on a domain outside it; that error surfaces here.
@@ -63,7 +63,7 @@ func (c *Colima) runRoleEgress(stdin io.Reader, args []string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	// Capture the helper's output rather than inheriting harbor's own stdio: its
+	// Capture the helper's output rather than inheriting Jam's own stdio: its
 	// rejection message names the offending domain, so it belongs in the error.
 	var out bytes.Buffer
 	if err := c.r.RunIO(stdin, &out, &out, "docker", args...); err != nil {

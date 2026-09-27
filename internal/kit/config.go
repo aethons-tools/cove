@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"path"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/naming"
 	"gopkg.in/yaml.v3"
 )
@@ -36,21 +39,21 @@ type ImageConfig struct {
 	DNS []string `yaml:"dns,omitempty"`
 }
 
-// HarborConfig routes a hardened cove's Anthropic + git through a harbor broker
+// JamConfig routes a hardened cove's Anthropic + git through a Jam broker
 // (COV-138). When set, at-cove folds Host into the egress allow-list, adds a
 // --add-host <host>:host-gateway routability mapping (unless disabled), and
-// sources the harbor connector snippet into the session — superseding the
+// sources the Jam connector snippet into the session — superseding the
 // operator's OAuth/Vertex auth. Host is a bare hostname; the broker is reached
 // over TLS on :443 so no sealed egress changes are needed.
-type HarborConfig struct {
+type JamConfig struct {
 	Host           string `yaml:"host"`             // bare hostname of the :443 TLS broker
 	Identity       string `yaml:"identity"`         // host-supplied secret name for the identity token
 	ViaHostGateway *bool  `yaml:"via-host-gateway"` // nil → true; add --add-host host:host-gateway
 }
 
 // HostGateway reports whether to add the --add-host <host>:host-gateway mapping
-// (default true — the common host-run-harbor-on-loopback case).
-func (h *HarborConfig) HostGateway() bool {
+// (default true — the common host-run-Jam-on-loopback case).
+func (h *JamConfig) HostGateway() bool {
 	return h.ViaHostGateway == nil || *h.ViaHostGateway
 }
 
@@ -251,7 +254,7 @@ type LinearTracker struct {
 	Team             string `yaml:"team"`
 	PollInterval     string `yaml:"poll-interval"`
 	ClassLabelPrefix string `yaml:"class-label-prefix"`
-	// DispatchLabelPrefix gates which ready issues harbor's resident dispatcher
+	// DispatchLabelPrefix gates which ready issues the Requisitioner
 	// raises a cove for: only issues carrying a label with this prefix. Defaults
 	// to "dispatch:" (presence-only; the value after the prefix is unused).
 	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`
@@ -525,7 +528,12 @@ type Config struct {
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
 	Teammates     map[string]Teammate     `yaml:"teammates,omitempty"`
 	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
-	Harbor        *HarborConfig           `yaml:"harbor,omitempty"`
+	Jam           *JamConfig              `yaml:"jam,omitempty"`
+	// DeprecatedHarbor is the pre-rename name of the jam: block, accepted for
+	// one release with a warning (both present is an error). ParseConfig folds
+	// it into Jam and clears it, so nothing else ever reads it. See
+	// docs/usage/jam/renamed-from-harbor.md.
+	DeprecatedHarbor *JamConfig `yaml:"harbor,omitempty"`
 	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
 	// When true, the colima backend runs the sandbox container under
 	// --runtime=sysbox-runc with a persistent /var/lib/docker cache volume, so a
@@ -534,6 +542,10 @@ type Config struct {
 	// bool, a non-bool value is rejected by the strict decoder.
 	Docker bool `yaml:"docker,omitempty"`
 }
+
+// deprecationOut receives deprecated-name warnings from ParseConfig (stderr; a
+// test swaps it to assert on them).
+var deprecationOut io.Writer = os.Stderr
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
 // rejected to catch typos early.
@@ -546,6 +558,13 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
+	}
+	if cfg.DeprecatedHarbor != nil {
+		if cfg.Jam != nil {
+			return Config{}, fmt.Errorf("config.yml: both jam: and harbor: are set; harbor: is the deprecated name for jam: — keep only jam: (see %s)", logging.RenameDoc)
+		}
+		logging.Deprecated(deprecationOut, "config.yml harbor:", "jam:")
+		cfg.Jam, cfg.DeprecatedHarbor = cfg.DeprecatedHarbor, nil
 	}
 	if err := validateSecretNames("secrets", cfg.Secrets, false); err != nil {
 		return Config{}, err
@@ -830,40 +849,40 @@ func ParseConfig(data []byte) (Config, error) {
 	if err := validateModelProvider(cfg); err != nil {
 		return Config{}, err
 	}
-	if err := validateHarbor(cfg.Harbor); err != nil {
+	if err := validateJam(cfg.Jam); err != nil {
 		return Config{}, err
 	}
-	// harbor supersedes the agent's Anthropic auth, so it is mutually exclusive with
+	// Jam supersedes the agent's Anthropic auth, so it is mutually exclusive with
 	// a model provider (which would set an incoherent CLAUDE_CODE_USE_VERTEX pointed
-	// at harbor's base URL with no GCP creds).
-	if cfg.Harbor != nil && cfg.ModelProvider != nil {
-		return Config{}, fmt.Errorf("config.yml: harbor and model-provider are mutually exclusive (harbor supersedes the agent's Anthropic auth)")
+	// at Jam's base URL with no GCP creds).
+	if cfg.Jam != nil && cfg.ModelProvider != nil {
+		return Config{}, fmt.Errorf("config.yml: jam and model-provider are mutually exclusive (jam supersedes the agent's Anthropic auth)")
 	}
 	return cfg, nil
 }
 
-// validateHarbor checks the harbor: block: a non-empty bare-hostname Host (no
+// validateJam checks the jam: block: a non-empty bare-hostname Host (no
 // scheme, port, or path — the broker is reached over TLS on :443) and a non-empty
 // Identity (a host-supplied secret name).
-func validateHarbor(h *HarborConfig) error {
+func validateJam(h *JamConfig) error {
 	if h == nil {
 		return nil
 	}
 	host := strings.TrimSpace(h.Host)
 	if host == "" {
-		return fmt.Errorf("config.yml: harbor.host is required")
+		return fmt.Errorf("config.yml: jam.host is required")
 	}
-	// Strict hostname charset: harbor.host flows into the squid allow-list file and
+	// Strict hostname charset: jam.host flows into the squid allow-list file and
 	// an sh-interpreted `git config` script, so reject anything that could inject a
 	// second ACL line or a shell command substitution (newline, space, quotes, $,
 	// `, ;, /, :, …). TLS :443 is implied — no scheme, port, or path.
 	for _, r := range host {
 		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
 		if !ok {
-			return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
+			return fmt.Errorf("config.yml: jam.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
 		}
 	}
-	// harbor.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
+	// jam.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
 	// → at-cove auto-enrolls the cove (COV-141). So no required-check here.
 	return nil
 }
@@ -1206,15 +1225,15 @@ func SourceControlDomains(c Config) []string {
 }
 
 // InfraDomains is the infrastructure half of the kit's baked egress: the
-// provider-derived, self-hosted GitLab and harbor hosts the kit needs to work at
+// provider-derived, self-hosted GitLab and Jam hosts the kit needs to work at
 // all. Assemble bakes it into allowed_domains.infra.txt, which is always on — a
-// harbor role's egress policy replaces only the kit's policy list, never this.
+// Jam role's egress policy replaces only the kit's policy list, never this.
 func InfraDomains(c Config) []string {
-	var harbor []string
-	if c.Harbor != nil && c.Harbor.Host != "" {
-		harbor = []string{c.Harbor.Host}
+	var jamHost []string
+	if c.Jam != nil && c.Jam.Host != "" {
+		jamHost = []string{c.Jam.Host}
 	}
-	return unionDomains(ProviderDomains(c), SourceControlDomains(c), harbor)
+	return unionDomains(ProviderDomains(c), SourceControlDomains(c), jamHost)
 }
 
 // RootDomains is the kit's effective baked egress allow-list beyond the sealed

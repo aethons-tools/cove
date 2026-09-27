@@ -1,11 +1,11 @@
-// Package relay is harbor's squawk log adapter engine: a resident engine
+// Package relay is Jam's squawk log adapter engine: a resident engine
 // (one per external Service) that bridges the durable squawk Log
 // (internal/intercom) to a Service. Its egress loop tails the Log and delivers
 // outbound squawks onto a surface (exactly-once); its ingress loop polls the
 // Service and appends foreign events (human replies) back into the Log
 // (idempotently). This package is the pure engine + its contract: it imports
 // ONLY internal/intercom + stdlib and is proven hermetically against fakes. The
-// concrete Linear/Discord Surface implementations, the harbor-backed
+// concrete Linear/Discord Surface implementations, the Jam-backed
 // Directory, and the cmd wiring are later slices — this package is wired to
 // nothing.
 package relay
@@ -75,7 +75,7 @@ type Cursors interface {
 }
 
 // Directory does all actor<->Service mapping (the concrete impl, over
-// harbor.Roster/Instance, is at cmd).
+// jam.Roster/Instance, is at cmd).
 type Directory interface {
 	// Projects this Service should egress/ingress for.
 	Projects(service string) []string

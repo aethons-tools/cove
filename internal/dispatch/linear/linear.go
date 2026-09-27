@@ -38,7 +38,7 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 		httpc = http.DefaultClient
 	}
 	// Default the dispatch-label prefix here, not only in kit.ParseConfig: the
-	// harbor dispatcher wraps a bare LinearTracker (cmd/at-harbor) and never runs
+	// Requisitioner wraps a bare LinearTracker (cmd/at-jam) and never runs
 	// the kit parser, so without this the prefix arrives empty and the gate opens
 	// (every ready issue would be raised).
 	dispatchPrefix := lt.DispatchLabelPrefix
@@ -428,7 +428,7 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 }
 
 // Viewer returns the display name of the identity the Client's token
-// authenticates as (harbor's own Linear user) — for the ingress self-post filter.
+// authenticates as (Jam's own Linear user) — for the ingress self-post filter.
 func (c *Client) Viewer(ctx context.Context) (string, error) {
 	const q = `query{viewer{displayName}}`
 	var out struct {

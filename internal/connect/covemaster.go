@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/harbor/snippet"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
@@ -21,16 +21,16 @@ const (
 // CoveMasterOptions carries what LaunchCoveMaster injects into a raised cove.
 type CoveMasterOptions struct {
 	Target        sshargs.Target
-	HarborHost    string // harbor.host — connector base is https://<HarborHost>
-	RuntimeAddr   string // AT_HARBOR_RUNTIME_ADDR (harbor.host:443)
-	IdentityToken string // shared: AT_HARBOR_IDENTITY_TOKEN + the agent connector token
-	LaunchSecret  string // AT_HARBOR_LAUNCH_SECRET
+	JamHost       string // jam.host — connector base is https://<JamHost>
+	RuntimeAddr   string // AT_JAM_RUNTIME_ADDR (jam.host:443)
+	IdentityToken string // shared: AT_JAM_IDENTITY_TOKEN + the agent connector token
+	LaunchSecret  string // AT_JAM_LAUNCH_SECRET
 	WorkDir       string // AT_COVE_WORKDIR
 	Prompt        string // written to tmpfs; AT_COVE_AGENT_PROMPT_FILE points at it
 	Resident      bool   // AT_COVE_RESIDENT=1: a personal session's agent waits for a Wake after every turn
 }
 
-// LaunchCoveMaster stages the agent connector (Anthropic + git through harbor)
+// LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
 // plus the cove-master env and the prompt into tmpfs over ssh stdin, then starts
 // cove-master detached over a non-tty ssh (fire-and-forget), so it survives the
 // ssh channel closing. Secrets never touch argv or persistent disk.
@@ -41,10 +41,15 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	var script strings.Builder
 	// Agent connector (Anthropic base URL + x-api-key token + git routing). The
 	// identity token is exported here and shared with cove-master below.
-	script.WriteString(snippet.Render("https://"+o.HarborHost, o.IdentityToken))
-	// cove-master's own env (AT_HARBOR_IDENTITY_TOKEN already exported by Render).
-	fmt.Fprintf(&script, "export AT_HARBOR_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
-	fmt.Fprintf(&script, "export AT_HARBOR_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))
+	script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
+	// cove-master's own env (AT_JAM_IDENTITY_TOKEN already exported by Render).
+	fmt.Fprintf(&script, "export AT_JAM_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
+	fmt.Fprintf(&script, "export AT_JAM_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))
+	// The deprecated AT_HARBOR_* names, still read by cove-master in older
+	// images, for one release (docs/usage/jam/renamed-from-harbor.md). Each is
+	// exported from its new variable, so no value is written twice.
+	script.WriteString("export AT_HARBOR_RUNTIME_ADDR=\"$AT_JAM_RUNTIME_ADDR\"\n")
+	script.WriteString("export AT_HARBOR_LAUNCH_SECRET=\"$AT_JAM_LAUNCH_SECRET\"\n")
 	fmt.Fprintf(&script, "export AT_COVE_WORKDIR=%s\n", shellQuote(o.WorkDir))
 	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(coveMasterPromptVMPath))
 	if o.Resident {
