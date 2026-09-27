@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a harbor — defining roles, g
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -76,6 +76,10 @@ at-harbor role rm   [--project acme] guest
   `idle_after_seconds`/`nag_every_seconds`/`reclaim_after_seconds`; `role list`
   shows them as `idle-after=…`, `nag-every=…`, `reclaim-after=…`. What the ladder
   does: [personal-sessions.md](personal-sessions.md#the-idle-ladder).
+- A role's **standing sessions** (named, always-running teammates) are declared
+  on the role too (`allocation.standing`), but with their own verb,
+  `at-harbor standing add|list|rm`, not with `role add` flags. Re-running
+  `role add` keeps them. See [standing-sessions.md](standing-sessions.md).
 - Editing a role re-scopes every actor granted it on the next request (live).
 
 ## Grants
