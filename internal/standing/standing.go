@@ -43,6 +43,15 @@ type Supervisor interface {
 	Teardown(ctx context.Context, actorID string) error
 }
 
+// Actors is the actor store, used to clear a leftover identity. A crash between
+// Raise enrolling a standing cove's actor and recording its instance leaves an
+// actor with the standing id and no cove; every later Raise would then fail
+// "already exists". Satisfied by harbor.Store.
+type Actors interface {
+	ListActors() []harbor.Actor
+	RemoveActor(id string) error
+}
+
 // Backoff bounds for a name whose raise fails: the first retry waits
 // BackoffInitial, each further failure doubles it, up to BackoffMax.
 const (
@@ -63,6 +72,7 @@ type Reconciler struct {
 	registry Registry
 	granter  Granter
 	sup      Supervisor
+	actors   Actors // optional; nil ⇒ leftover identities are not cleared
 	interval time.Duration
 	now      func() time.Time
 	log      *slog.Logger
@@ -83,6 +93,10 @@ func New(roster Roster, registry Registry, granter Granter, sup Supervisor, inte
 		interval: interval, now: time.Now, log: log, backoff: map[string]backoff{},
 	}
 }
+
+// SetActors lets the reconciler clear a leftover identity for a declared name
+// that has no live cove (see Actors).
+func (r *Reconciler) SetActors(a Actors) { r.actors = a }
 
 // Run reconciles until ctx is cancelled: an immediate tick, then every interval
 // (mirrors Supervisor.Run).
@@ -155,6 +169,21 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s harbor.
 	now := r.now()
 	if b, ok := r.backoff[id]; ok && now.Before(b.next) {
 		return
+	}
+	// No live cove holds this harbor-owned id, so an actor with it can only be
+	// left over from a raise that crashed before recording its instance.
+	if r.actors != nil {
+		for _, a := range r.actors.ListActors() {
+			if a.ID != id {
+				continue
+			}
+			if err := r.actors.RemoveActor(id); err != nil {
+				r.log.Warn("standing: removing leftover identity failed", "id", id, "err", err.Error())
+				return
+			}
+			r.log.Warn("standing: removed leftover identity from an interrupted raise", "id", id)
+			break
+		}
 	}
 	granted, err := r.granter.Grant(ctx, allocator.Request{
 		Project: project, Role: role, ReservationID: id,

@@ -1409,6 +1409,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever harbor serves; with no declarations a tick does nothing.
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
+	stdg.SetActors(st) // clear a standing identity left over from an interrupted raise
 	go stdg.Run(context.Background())
 	log.Info("harbor standing reconciler: resident", "interval", standing.DefaultInterval)
 

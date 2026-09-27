@@ -76,6 +76,11 @@ so one failing name doesn't delay another. It resets once the name has a live
 cove, and it is kept in memory, so a harbor restart retries at once. A denied or
 failed *grant* is logged and retried on the next pass, without backoff.
 
+If harbor stops partway through raising a standing session — after creating its
+identity but before recording the cove — the identity is left behind with no cove.
+The reconciler removes it on its next pass (standing ids are harbor's own) and
+raises the session normally, rather than failing "already exists" from then on.
+
 A standing cove is **resident**, like a personal session: it waits after every
 turn instead of ending, and it is never torn down for `wait-max` (see
 [coves.md](coves.md#cove-master-the-in-cove-client) and

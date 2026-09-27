@@ -301,3 +301,58 @@ func TestRun_TicksAndStops(t *testing.T) {
 		t.Fatalf("raised = %+v", w.raised)
 	}
 }
+
+// fakeActors is the actor store: a leftover actor makes the real Raise fail
+// with "already exists", so the fake world refuses to raise over one.
+type fakeActors struct {
+	ids     map[string]bool
+	removed []string
+}
+
+func (a *fakeActors) ListActors() []harbor.Actor {
+	var out []harbor.Actor
+	for id := range a.ids {
+		out = append(out, harbor.Actor{ID: id})
+	}
+	return out
+}
+
+func (a *fakeActors) RemoveActor(id string) error {
+	a.removed = append(a.removed, id)
+	delete(a.ids, id)
+	return nil
+}
+
+// A crash between enrolling a standing cove's identity and recording its
+// instance leaves an actor with the standing id and no cove. Standing ids are
+// harbor-owned and the name has no live cove, so the reconciler removes the
+// leftover actor and raises — instead of failing "already exists" and backing
+// off forever.
+func TestTick_RemovesLeftoverActorBeforeRaising(t *testing.T) {
+	r, w, g, _ := kit()
+	actors := &fakeActors{ids: map[string]bool{botID: true, "someone-else": true}}
+	r.SetActors(actors)
+	w.declare("acme", "reviewer", bot)
+	r.Tick(context.Background())
+
+	if !slices.Equal(actors.removed, []string{botID}) {
+		t.Fatalf("removed = %v, want only the leftover %s", actors.removed, botID)
+	}
+	if len(w.raised) != 1 || w.raised[0].ActorID != botID || len(g.releases) != 0 {
+		t.Fatalf("expected one successful raise after cleanup: raised=%+v releases=%v", w.raised, g.releases)
+	}
+}
+
+// A live cove's actor is never removed.
+func TestTick_LiveCoveActorKept(t *testing.T) {
+	r, w, _, _ := kit()
+	actors := &fakeActors{ids: map[string]bool{}}
+	r.SetActors(actors)
+	w.declare("acme", "reviewer", bot)
+	r.Tick(context.Background())
+	actors.ids[botID] = true // the raise enrolled it
+	r.Tick(context.Background())
+	if len(actors.removed) != 0 {
+		t.Fatalf("removed a live cove's actor: %v", actors.removed)
+	}
+}
