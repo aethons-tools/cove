@@ -1,5 +1,5 @@
 ---
-summary: The harbor admin UI — a server-rendered web view of the live coves, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-harbor serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
+summary: The harbor admin UI — a server-rendered web view of the live coves, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
 read_when: You want to watch a running harbor in a browser — the live cove fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
 owns: the `/ui/` observability + roster/kit/destination-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
@@ -9,7 +9,7 @@ updated: 2026-09-15
 
 # The harbor admin UI (`/ui/`)
 
-`at-harbor serve` serves a web UI on the same **admin listener** as the JSON
+`at-jam serve` serves a web UI on the same **admin listener** as the JSON
 admin API. Point a browser at the admin URL and open `/ui/` (`/` redirects
 there):
 
@@ -99,7 +99,7 @@ verbs in [roster.md](roster.md):
 - **Enroll** an actor (id, project, role, optional destination/repo overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
-  snippet (env vars / git config), use the CLI `at-harbor enroll`.
+  snippet (env vars / git config), use the CLI `at-jam enroll`.
 - **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
@@ -120,7 +120,7 @@ config — see [coves.md](coves.md)), the Coves page can also:
 
 - **Raise a managed cove** — id, role, optional project/unit and a workload
   prompt. Harbor handles the cove's identity token and launch secret internally;
-  they are never shown in the browser (use the CLI `at-harbor cove raise` for
+  they are never shown in the browser (use the CLI `at-jam cove raise` for
   manual wiring).
 - **Tear down a cove** (confirmed).
 

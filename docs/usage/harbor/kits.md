@@ -35,14 +35,14 @@ build context aren't registry-eligible yet.
 ## The `kit` verbs
 
 ```
-at-harbor kit push --name web --config ./.at-cove/config.yml   # → "pushed web v3"
-at-harbor kit push --name web --config -                       # read config from stdin
-at-harbor kit list                                             # name  current=vN  versions=K
-at-harbor kit show web                                         # current version's config
-at-harbor kit show web --version 1                             # a specific version's config
-at-harbor kit versions web                                     # v1, v2, v3, …
-at-harbor kit pin web 1                                        # roll current back to v1
-at-harbor kit rm web                                           # remove the kit (all versions)
+at-jam kit push --name web --config ./.at-cove/config.yml   # → "pushed web v3"
+at-jam kit push --name web --config -                       # read config from stdin
+at-jam kit list                                             # name  current=vN  versions=K
+at-jam kit show web                                         # current version's config
+at-jam kit show web --version 1                             # a specific version's config
+at-jam kit versions web                                     # v1, v2, v3, …
+at-jam kit pin web 1                                        # roll current back to v1
+at-jam kit rm web                                           # remove the kit (all versions)
 ```
 
 - `kit push` **validates** the config with the same parser `at-cove` uses before
@@ -57,7 +57,7 @@ All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 ## Binding a kit to a role
 
 ```
-at-harbor role add --project acme --name builder --destinations anthropic,git --kit web
+at-jam role add --project acme --name builder --destinations anthropic,git --kit web
 ```
 
 `--kit` names a registered kit (it must already exist — `role add` fails closed

@@ -153,7 +153,7 @@ func TestCommandUsesCachedTokenAsBearer(t *testing.T) {
 
 func TestEnvTokenShadowWarning(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AT_HARBOR_ADMIN_TOKEN", "ENV-TOK")
+	t.Setenv("AT_JAM_ADMIN_TOKEN", "ENV-TOK")
 	if err := saveToken("default", cachedToken{AccessToken: "CACHED", Expiry: time.Now().Add(time.Hour), AdminURL: "http://x"}); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestEnvTokenShadowWarning(t *testing.T) {
 		t.Fatalf("Authorization = %q, want Bearer ENV-TOK (env overrides cache)", gotAuth)
 	}
 	// … but the shadowing is called out, so a stale env var isn't a silent footgun.
-	if !strings.Contains(errb.String(), "AT_HARBOR_ADMIN_TOKEN is set") {
+	if !strings.Contains(errb.String(), "AT_JAM_ADMIN_TOKEN is set") {
 		t.Fatalf("expected a shadow warning on stderr, got: %q", errb.String())
 	}
 }

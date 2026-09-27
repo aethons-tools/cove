@@ -9,9 +9,9 @@ updated: 2026-09-26
 
 # The resident dispatcher
 
-The **resident dispatcher** is an always-on loop inside `at-harbor serve` that
+The **resident dispatcher** is an always-on loop inside `at-jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
-to `at-harbor cove raise` ([coves.md](coves.md)). Enable it with a
+to `at-jam cove raise` ([coves.md](coves.md)). Enable it with a
 `runtime.dispatcher` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
 

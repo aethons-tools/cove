@@ -27,16 +27,16 @@ doc that owns the detail; this runbook only owns the **order** and the
    Postgres; a `store-postgres` block makes both the control plane *and* the
    intercom log (the durable squawk Log) Postgres-backed. See [serve.md](serve.md#postgres-store-backend-store-postgres)
    and [`dev/`](../../../dev/README.md).
-2. **`at-harbor serve`** — write the serve config: cove-facing `listen: :443` +
+2. **`at-jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
    `credentials` (anthropic + git + the DB password), and a `runtime.launcher`
    pointed at your `install.json`. Start it (`:443` needs privilege). Full schema:
    [serve.md](serve.md).
-3. **Destinations** — `at-harbor destination add` for `anthropic` and `git` (the
+3. **Destinations** — `at-jam destination add` for `anthropic` and `git` (the
    latter `--repo-scoped`). Each `--cred-name` must resolve to a `credentials:`
    entry, **validated at add time** — so add the credential to the serve config
    and restart before adding the destination. [serve.md](serve.md#destinations).
-4. **Role** — `at-harbor role add --name worker --destinations anthropic,git
+4. **Role** — `at-jam role add --name worker --destinations anthropic,git
    --repos '<owner>/*' --ttl 24h`. A role with **no `--ttl` mints non-expiring
    tokens** — always set one for ephemeral coves. [roster.md](roster.md).
 5. **Dispatcher** — add `runtime.dispatcher` (`role`, `max-concurrent`,
@@ -44,7 +44,7 @@ doc that owns the detail; this runbook only owns the **order** and the
    `ready` state and raises one cove per **dispatch-labeled** ticket, bounded by
    the cap. [dispatcher.md](dispatcher.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
-   watch `at-harbor cove list`. The kit registry ([kits.md](kits.md)) is **not**
+   watch `at-jam cove list`. The kit registry ([kits.md](kits.md)) is **not**
    required — the launcher raises from `install.json`, not a registered kit.
 
 ## Gotchas (each one cost a real debugging loop)
@@ -71,7 +71,7 @@ doc that owns the detail; this runbook only owns the **order** and the
   credential's name so the password resolved empty — fixed; if you see
   `password authentication failed` on a correct password, confirm you're on a
   build past that fix.)
-- **The cove image and the host `at-harbor` must be the same build.** The
+- **The cove image and the host `at-jam` must be the same build.** The
   intercom wire endpoint was hard-renamed `/messages` → `/squawks` (no
   back-compat shim), so a post-rename cove calling `/squawks` against a
   pre-rename `serve` (or vice versa) gets a 404 and the agent silently has no

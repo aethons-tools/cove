@@ -5,7 +5,7 @@
 // no context carries over); a cove whose name is no longer declared, or whose
 // role is gone, is torn down. A name whose raise keeps failing backs off
 // exponentially. It lives outside internal/jam core (harbor must not import
-// it) and is wired from cmd/at-harbor whenever harbor serves.
+// it) and is wired from cmd/at-jam whenever harbor serves.
 package standing
 
 import (

@@ -4,7 +4,7 @@
 // max-wait (personal sessions excepted — they wait on their owner, and instead
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
 // nag with "keep" or "release", which harbor acts on without waking). Wired from
-// cmd/at-harbor; not imported by internal/jam core.
+// cmd/at-jam; not imported by internal/jam core.
 package wakeon
 
 import (
@@ -54,7 +54,7 @@ type NagRecorder interface {
 
 // Nagger tells a personal session's owner their session is idle, or that it was
 // reclaimed, and confirms their "keep"/"release" reply to a nag. Implemented in
-// cmd/at-harbor over the intercom log.
+// cmd/at-jam over the intercom log.
 type Nagger interface {
 	Nag(ctx context.Context, inst jam.Instance, idle time.Duration) error
 	NotifyReclaimed(ctx context.Context, inst jam.Instance, idle time.Duration) error

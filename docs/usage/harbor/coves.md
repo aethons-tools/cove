@@ -1,5 +1,5 @@
 ---
-summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases), the `at-harbor cove raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
+summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases), the `at-jam cove raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
 read_when: You are raising or tearing down a managed cove through harbor, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or configuring/running the in-cove `cove-master` client.
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
@@ -16,7 +16,7 @@ resident dispatcher and standing teammates build on.
 
 > With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
 > `cove raise` starts a **real** cove on the Colima backend (see [Raising a real
-> managed cove](#raising-a-real-managed-cove)). Without it, `at-harbor serve` uses
+> managed cove](#raising-a-real-managed-cove)). Without it, `at-jam serve` uses
 > a **placeholder launcher** that records a live registry entry but starts no cove
 > — useful for exercising the registry/supervisor in dev and tests.
 
@@ -43,10 +43,10 @@ instead of abandoning them — so in-progress work survives a restart.
 ## The `cove` verbs
 
 ```
-at-harbor cove raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-harbor cove list     # id  role  unit  phase  activity  lease-holder
-at-harbor cove status   --id spider-42 --activity waiting
-at-harbor cove teardown --id spider-42
+at-jam cove raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
+at-jam cove list     # id  role  unit  phase  activity  lease-holder
+at-jam cove status   --id spider-42 --activity waiting
+at-jam cove teardown --id spider-42
 ```
 
 - `cove raise` enrolls the identity (the role must exist — fail-closed) and

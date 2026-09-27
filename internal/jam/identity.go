@@ -22,7 +22,7 @@ type Scope struct {
 	TTL          time.Duration `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
 	// = the kit's default list. Managed only by the egress endpoints
-	// (`at-harbor egress set|show|clear`); a role re-put keeps it.
+	// (`at-jam egress set|show|clear`); a role re-put keeps it.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type RoleAllocation struct {
 	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
 	// Standing is the role's declared standing sessions — the desired state the
 	// standing reconciler keeps running, one cove per name. Managed only by the
-	// standing endpoints (`at-harbor standing add|rm|list`); a role re-put keeps it.
+	// standing endpoints (`at-jam standing add|rm|list`); a role re-put keeps it.
 	Standing []StandingSession `json:"standing,omitempty"`
 }
 

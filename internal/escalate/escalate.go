@@ -3,7 +3,7 @@
 // policy on per-tier timers, advancing to the next tier on timeout. It reads no
 // comments, wakes no coves, and tears nothing down — reply-detection, waking, and
 // max-wait teardown stay in internal/wakeon. The two engines share only the
-// Instance.Activity==Waiting gate. Wired from cmd/at-harbor; not imported by
+// Instance.Activity==Waiting gate. Wired from cmd/at-jam; not imported by
 // internal/jam core.
 package escalate
 

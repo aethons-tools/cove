@@ -1,15 +1,15 @@
 ---
-summary: Section index for operating `at-harbor` — the durable central service that brokers a cove's credentials/egress, holds the actor roster (RBAC), and serves the kit registry.
+summary: Section index for operating `at-jam` — the durable central service that brokers a cove's credentials/egress, holds the actor roster (RBAC), and serves the kit registry.
 read_when: You are running or administering a harbor service — standing it up, signing an operator in, deciding who can reach what, or registering kits — and need the map of its operator docs.
-owns: the map of the at-harbor operator/usage docs and how they relate
+owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
 tier: section
 updated: 2026-09-27
 ---
 
-# `at-harbor` — operating the central service
+# `at-jam` — operating the central service
 
-`at-harbor` is a **durable, always-on host service** that a fleet of hardened
+`at-jam` is a **durable, always-on host service** that a fleet of hardened
 coves points at. It does three things for the coves it serves:
 
 - **Brokers credentials + egress** — a cove reaches Anthropic and git through
@@ -31,7 +31,7 @@ five pillars), see the design history:
 | Doc | Read when |
 |-----|-----------|
 | [dispatch-runbook.md](dispatch-runbook.md) | You are standing up (or reproducing) a real Linear→cove dispatch loop end to end and want the ordered steps + the field gotchas (egress, cert-name, flat-vs-grouped labels), not the per-field reference. |
-| [serve.md](serve.md) | Standing up the service: `at-harbor serve`, the serve-config YAML (listen, TLS, store, credentials), the broker + destinations, and the off-loopback exposure rule. |
+| [serve.md](serve.md) | Standing up the service: `at-jam serve`, the serve-config YAML (listen, TLS, store, credentials), the broker + destinations, and the off-loopback exposure rule. |
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
@@ -46,7 +46,7 @@ five pillars), see the design history:
 
 ## The shape of a working harbor
 
-1. **Run it** — write a serve config and start `at-harbor serve` ([serve.md](serve.md)).
+1. **Run it** — write a serve config and start `at-jam serve` ([serve.md](serve.md)).
 2. **Gate the admin API** (beyond loopback) and sign in ([operators.md](operators.md)).
 3. **Declare destinations + roles**, then **enroll** coves or grant roles to
    standing actors ([roster.md](roster.md)).

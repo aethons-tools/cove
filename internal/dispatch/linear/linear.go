@@ -38,7 +38,7 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 		httpc = http.DefaultClient
 	}
 	// Default the dispatch-label prefix here, not only in kit.ParseConfig: the
-	// harbor dispatcher wraps a bare LinearTracker (cmd/at-harbor) and never runs
+	// harbor dispatcher wraps a bare LinearTracker (cmd/at-jam) and never runs
 	// the kit parser, so without this the prefix arrives empty and the gate opens
 	// (every ready issue would be raised).
 	dispatchPrefix := lt.DispatchLabelPrefix

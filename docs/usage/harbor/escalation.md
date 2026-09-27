@@ -1,7 +1,7 @@
 ---
 summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that actively pings while a cove is Waiting, opt-in and independent of wake-on's reply/max-wait clock.
 read_when: You want a raised cove's Waiting state to actively nudge humans instead of passively waiting — configuring ordered tiers of people to @-mention with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
-owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-harbor project escalation set|list|clear [--category]` commands.
+owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
 updated: 2026-09-26
@@ -53,7 +53,7 @@ before ending a turn `needs-input`, so the category is set before harbor
 evaluates who to ping.
 
 Operator commands take a matching `--category <name>` flag — see [Operator
-commands](#operator-commands-at-harbor-project-escalation) below. Harbor
+commands](#operator-commands-at-jam-project-escalation) below. Harbor
 **auto-detecting** a category itself (e.g. stamping `infra` on an egress-wall
 denial or a `401`, without the cove calling `escalate`) is not implemented yet
 — see [Not yet](#not-yet-deferred).
@@ -124,12 +124,12 @@ runtime:
 Omitting it keeps the 30s default. The engine only does anything for a Project
 that has an escalation policy set — leaving policies unset costs nothing.
 
-## Operator commands: `at-harbor project escalation`
+## Operator commands: `at-jam project escalation`
 
 ```
-at-harbor project escalation set   <project> [--category <name>] --tier 'human:alice,human:bob@15m' [--tier 'human:carol@1h' …]
-at-harbor project escalation list  <project>
-at-harbor project escalation clear <project> [--category <name>]
+at-jam project escalation set   <project> [--category <name>] --tier 'human:alice,human:bob@15m' [--tier 'human:carol@1h' …]
+at-jam project escalation list  <project>
+at-jam project escalation clear <project> [--category <name>]
 ```
 
 - `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
@@ -144,10 +144,10 @@ at-harbor project escalation clear <project> [--category <name>]
 - `--category <name>` on `set`/`clear` targets that category's chain (see
   [Categories](#categories-routing-by-block-kind) above) instead of the
   default; omitted on either, it's the default chain. Example:
-  `at-harbor project escalation set acme --category infra --tier 'human:sre@10m'`.
+  `at-jam project escalation set acme --category infra --tier 'human:sre@10m'`.
 
 All three take the same admin-client flags (`--app`/`--admin-url`/`--token`) as
-every other `at-harbor` verb — see [operators.md](operators.md).
+every other `at-jam` verb — see [operators.md](operators.md).
 
 ## Not yet (deferred)
 
@@ -164,7 +164,7 @@ every other `at-harbor` verb — see [operators.md](operators.md).
   *cove*, so the cove itself needs no signal about escalation state; this is the
   hook for a future model where the cove reacts to its own escalation tier.
 - **Escalation observability** — surfacing a cove's current tier in
-  `at-harbor cove list` or the UI is a nice-to-have follow-up, not done yet.
+  `at-jam cove list` or the UI is a nice-to-have follow-up, not done yet.
 
 Design rationale lives in
 [`../../superpowers/specs/2026-09-14-harbor-escalation.md`](../../superpowers/specs/2026-09-14-harbor-escalation.md)

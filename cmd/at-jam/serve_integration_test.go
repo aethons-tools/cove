@@ -27,7 +27,7 @@ func timeNow() time.Time { return time.Now() }
 
 // TestServeBrokersOverTLS starts the broker on a TLS listener with a self-signed
 // cert, enrolls an identity, and proves an Anthropic request is credential-swapped
-// end-to-end over HTTPS. Run: `go test -tags integration ./cmd/at-harbor/`.
+// end-to-end over HTTPS. Run: `go test -tags integration ./cmd/at-jam/`.
 func TestServeBrokersOverTLS(t *testing.T) {
 	var gotAuth string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -43,18 +43,18 @@ owns a **Roster** of addressable members:
 A Project's roster of humans also backs its **escalation policy** — ordered tiers
 that get `@`-mentioned while a cove is Waiting; see [escalation.md](escalation.md).
 
-Manage a roster with `at-harbor project`:
+Manage a roster with `at-jam project`:
 
 ```
-at-harbor project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123']
-at-harbor project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
-at-harbor project roster list        <project>
-at-harbor project roster rm-human    <project> <name>
-at-harbor project roster rm-channel  <project> <name>
+at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123']
+at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
+at-jam project roster list        <project>
+at-jam project roster rm-human    <project> <name>
+at-jam project roster rm-channel  <project> <name>
 ```
 
 `--service` defaults to `linear`. All subcommands take the same admin-client flags
-(`--app`/`--admin-url`/`--token`) as every other `at-harbor` verb — see
+(`--app`/`--admin-url`/`--token`) as every other `at-jam` verb — see
 [operators.md](operators.md).
 
 ## Delivery profiles & per-project chat service
@@ -111,7 +111,7 @@ Set a human's delivery profiles with `--delivery service:address` on
 `add-human` (repeatable — one flag per service):
 
 ```
-at-harbor project roster add-human <project> --name alice --handle alice.h \
+at-jam project roster add-human <project> --name alice --handle alice.h \
   --delivery discord:123456789
 ```
 
@@ -119,17 +119,17 @@ Each `--delivery` value splits on the first `:`; both the service and the
 address must be non-empty, or the command exits `2` (e.g. `discord:`, `:123`,
 or a value with no `:` are all rejected).
 
-Manage a project's chat service with `at-harbor project chat-service`:
+Manage a project's chat service with `at-jam project chat-service`:
 
 ```
-at-harbor project chat-service set   --project <project> --service discord
-at-harbor project chat-service show  --project <project>
-at-harbor project chat-service clear --project <project>
+at-jam project chat-service set   --project <project> --service discord
+at-jam project chat-service show  --project <project>
+at-jam project chat-service clear --project <project>
 ```
 
 `set` requires `--project` and `--service`; `clear` is `set` with `""` under
 the hood; `show` prints the configured service or `(none)`. All three take the
-same admin-client flags as every other `at-harbor` verb.
+same admin-client flags as every other `at-jam` verb.
 
 ## The comms access-graph
 
@@ -139,7 +139,7 @@ alongside `Destinations`/`Repos`. A `Grant`'s `Override.Addressing`, when set,
 Set it at role-creation with `role add --addressing`:
 
 ```
-at-harbor role add --project acme --name impl --addressing 'human:*,channel:eng-help'
+at-jam role add --project acme --name impl --addressing 'human:*,channel:eng-help'
 ```
 
 `--addressing` is a comma-separated list of globs, mirroring `--destinations`/`--repos`.

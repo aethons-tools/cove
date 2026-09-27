@@ -1,5 +1,5 @@
 // Package adminclient is a typed HTTP client for harbor's loopback admin API.
-// Kept dependency-light so a future at-harborctl can reuse it; today it imports
+// Kept dependency-light so a future at-jamctl can reuse it; today it imports
 // internal/jam only for the wire types (harbor is stdlib-only).
 package adminclient
 
@@ -66,7 +66,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 	}
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return fmt.Errorf("admin API unreachable at %s (is `at-harbor serve` running?): %w", c.base, err)
+		return fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {

@@ -1,4 +1,4 @@
-// Command at-harbor is the central credential broker + control plane. `serve`
+// Command at-jam is the central credential broker + control plane. `serve`
 // runs the credential-injecting reverse proxy and a loopback admin API;
 // `enroll`/`revoke`/`destination` are admin-API clients. See the harbor specs
 // under docs/superpowers/specs/.
@@ -44,6 +44,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -59,7 +60,7 @@ const defaultAdminURL = "http://127.0.0.1:8081"
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
-		Name:    "at-harbor",
+		Name:    "at-jam",
 		Version: version,
 		Commands: []cli.Command{
 			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
@@ -86,18 +87,18 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-harbor/settings.yml)")
+	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-jam/settings.yml)")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL; persisted to the app's settings when given")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
 	if len(pos) > 0 {
-		fmt.Fprintln(stderr, "at-harbor login: unexpected arguments")
+		fmt.Fprintln(stderr, "at-jam login: unexpected arguments")
 		return 2
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor login:", err)
+		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 2
 	}
 	settings := loadSettings(*app)
@@ -108,7 +109,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		s := settings
 		s.AdminURL = *adminURLFlag
 		if err := saveSettings(*app, s); err != nil {
-			fmt.Fprintln(stderr, "at-harbor login: could not save settings:", err)
+			fmt.Fprintln(stderr, "at-jam login: could not save settings:", err)
 			return 1
 		}
 	}
@@ -118,7 +119,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "this harbor is not OIDC-gated; no login needed")
 			return 0
 		}
-		fmt.Fprintln(stderr, "at-harbor login:", err)
+		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
 	ctx := context.Background()
@@ -126,7 +127,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		Issuer: lc.Issuer, Audience: lc.Audience, ClientID: lc.ClientID, Scope: lc.Scope,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor login:", err)
+		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
 	target := firstNonEmpty(dc.VerificationURIComplete, dc.VerificationURI)
@@ -141,9 +142,9 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	tok, err := deviceflow.PollToken(ctx, http.DefaultClient, time.Sleep, dc.TokenEndpoint, lc.ClientID, dc.DeviceCode, dc.Interval)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			err = fmt.Errorf("login timed out; run `at-harbor login` again")
+			err = fmt.Errorf("login timed out; run `at-jam login` again")
 		}
-		fmt.Fprintln(stderr, "at-harbor login:", err)
+		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
 	sub, exp, _ := parseJWTClaims(tok.AccessToken)
@@ -151,7 +152,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		exp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
 	if err := saveToken(*app, cachedToken{AccessToken: tok.AccessToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
-		fmt.Fprintln(stderr, "at-harbor login:", err)
+		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "logged in as %s; token expires %s\n", sub, exp.Format(time.RFC3339))
@@ -165,11 +166,11 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor logout:", err)
+		fmt.Fprintln(stderr, "at-jam logout:", err)
 		return 2
 	}
 	if err := clearToken(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, "logged out")
@@ -183,7 +184,7 @@ func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor whoami:", err)
+		fmt.Fprintln(stderr, "at-jam whoami:", err)
 		return 2
 	}
 	if t, ok := loadToken(*app); ok {
@@ -191,7 +192,7 @@ func cmdWhoami(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if _, err := os.Stat(tokenPath(*app)); err == nil {
-		fmt.Fprintln(stdout, "session expired; run `at-harbor login`")
+		fmt.Fprintln(stdout, "session expired; run `at-jam login`")
 	} else {
 		fmt.Fprintln(stdout, "not logged in")
 	}
@@ -202,7 +203,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id (e.g. spider-18)")
 	project := fs.String("project", "", "project name")
 	role := fs.String("role", "guest", "role name")
@@ -213,7 +214,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor enroll:", err)
+		fmt.Fprintln(stderr, "at-jam enroll:", err)
 		return 2
 	}
 	settings := loadSettings(*app)
@@ -221,14 +222,14 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	baseURL := firstNonEmpty(*baseURLFlag, settings.BaseURL)
 	// --base-url is only needed for the printed snippet; --json omits it.
 	if len(pos) > 0 || *id == "" || (!*jsonOut && baseURL == "") {
-		fmt.Fprintln(stderr, "at-harbor enroll: --id (and --base-url unless --json) are required")
+		fmt.Fprintln(stderr, "at-jam enroll: --id (and --base-url unless --json) are required")
 		return 2
 	}
 	res, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Enroll(adminclient.EnrollParams{
 		ID: *id, Project: *project, Role: *role,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if *jsonOut {
@@ -248,23 +249,23 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "identity id to remove")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor revoke:", err)
+		fmt.Fprintln(stderr, "at-jam revoke:", err)
 		return 2
 	}
 	if len(pos) > 0 || *id == "" {
-		fmt.Fprintln(stderr, "at-harbor revoke: --id is required")
+		fmt.Fprintln(stderr, "at-jam revoke: --id is required")
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	if err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Revoke(*id); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, "revoked", *id)
@@ -273,14 +274,14 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor destination: expected add|list|rm|import")
+		fmt.Fprintln(stderr, "at-jam destination: expected add|list|rm|import")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
 	// add flags
 	var d jam.Destination
 	fs.StringVar(&d.Name, "name", "", "destination name")
@@ -296,7 +297,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor destination:", err)
+		fmt.Fprintln(stderr, "at-jam destination:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -305,14 +306,14 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	case "add":
 		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
 		if err := c.AddDestination(d); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "added destination", d.Name)
 	case "list":
 		ds, err := c.ListDestinations()
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, dd := range ds {
@@ -320,38 +321,38 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		}
 	case "rm":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor destination rm: expected one destination name")
+			fmt.Fprintln(stderr, "at-jam destination rm: expected one destination name")
 			return 2
 		}
 		if err := c.RemoveDestination(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed destination", pos[0])
 	case "import":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor destination import: expected one YAML file path")
+			fmt.Fprintln(stderr, "at-jam destination import: expected one YAML file path")
 			return 2
 		}
 		data, err := os.ReadFile(pos[0])
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		var conf jam.Config
 		if err := yaml.Unmarshal(data, &conf); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, dd := range conf.Destinations {
 			if err := c.AddDestination(dd); err != nil {
-				fmt.Fprintln(stderr, "at-harbor:", err)
+				fmt.Fprintln(stderr, "at-jam:", err)
 				return 1
 			}
 			fmt.Fprintln(stdout, "imported destination", dd.Name)
 		}
 	default:
-		fmt.Fprintln(stderr, "at-harbor destination: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam destination: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -359,14 +360,14 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 
 func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor role: expected add|list|rm")
+		fmt.Fprintln(stderr, "at-jam role: expected add|list|rm")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
@@ -385,7 +386,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor role:", err)
+		fmt.Fprintln(stderr, "at-jam role:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -393,15 +394,15 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "add":
 		if *name == "" {
-			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
+			fmt.Fprintln(stderr, "at-jam role add: --name is required")
 			return 2
 		}
 		if *maxEphemeral < 0 || *maxPersonal < 0 || *maxPersonalPerOwner < 0 {
-			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
+			fmt.Fprintln(stderr, "at-jam role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
 			return 2
 		}
 		if *idleAfter < 0 || *nagEvery < 0 || *reclaimAfter < 0 {
-			fmt.Fprintln(stderr, "at-harbor role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
+			fmt.Fprintln(stderr, "at-jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
 			return 2
 		}
 		r := jam.Role{
@@ -413,14 +414,14 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			},
 		}
 		if err := c.PutRole(*project, r); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, jam.DefaultProject)+"/"+*name)
 	case "list":
 		roles, err := c.ListRoles(*project)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, r := range roles {
@@ -428,16 +429,16 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "rm":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor role rm: expected one role name")
+			fmt.Fprintln(stderr, "at-jam role rm: expected one role name")
 			return 2
 		}
 		if err := c.RemoveRole(firstNonEmpty(*project, jam.DefaultProject), pos[0]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed role", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor role: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam role: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -458,14 +459,14 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return cmdProjectChatService(args[1:], stdout, stderr)
 	}
 	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-harbor project: expected roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
+		fmt.Fprintln(stderr, "at-jam project: expected roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
 		return 2
 	}
 	sub, rest := args[1], args[2:]
 	fs := flag.NewFlagSet("project roster "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
 	login := fs.String("login", "", "link the human to their admin login: the operator identity (OIDC sub, or \"local\" on loopback) (add-human)")
@@ -478,7 +479,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor project:", err)
+		fmt.Fprintln(stderr, "at-jam project:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -486,41 +487,41 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "add-human":
 		if len(pos) != 1 || *name == "" || *handle == "" {
-			fmt.Fprintln(stderr, "at-harbor project roster add-human: expected <project> --name and --handle")
+			fmt.Fprintln(stderr, "at-jam project roster add-human: expected <project> --name and --handle")
 			return 2
 		}
 		var profiles []jam.DeliveryProfile
 		for _, d := range delivery {
 			svc, addr, ok := strings.Cut(d, ":")
 			if !ok || svc == "" || addr == "" {
-				fmt.Fprintf(stderr, "at-harbor project roster add-human: invalid --delivery %q (want service:address)\n", d)
+				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --delivery %q (want service:address)\n", d)
 				return 2
 			}
 			profiles = append(profiles, jam.DeliveryProfile{Service: svc, Address: addr})
 		}
 		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "added human", *name, "to", pos[0])
 	case "add-channel":
 		if len(pos) != 1 || *name == "" || *ref == "" {
-			fmt.Fprintln(stderr, "at-harbor project roster add-channel: expected <project> --name and --ref")
+			fmt.Fprintln(stderr, "at-jam project roster add-channel: expected <project> --name and --ref")
 			return 2
 		}
 		if err := c.AddChannel(pos[0], jam.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "added channel", *name, "to", pos[0])
 	case "list":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor project roster list: expected one project name")
+			fmt.Fprintln(stderr, "at-jam project roster list: expected one project name")
 			return 2
 		}
 		rr, err := c.GetRoster(pos[0])
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, h := range rr.Humans {
@@ -535,26 +536,26 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "rm-human":
 		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-harbor project roster rm-human: expected <project> <name>")
+			fmt.Fprintln(stderr, "at-jam project roster rm-human: expected <project> <name>")
 			return 2
 		}
 		if err := c.RemoveHuman(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed human", pos[1], "from", pos[0])
 	case "rm-channel":
 		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-harbor project roster rm-channel: expected <project> <name>")
+			fmt.Fprintln(stderr, "at-jam project roster rm-channel: expected <project> <name>")
 			return 2
 		}
 		if err := c.RemoveChannel(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed channel", pos[1], "from", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor project roster: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam project roster: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -564,14 +565,14 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // API: `project escalation set|list|clear`.
 func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "at-harbor project escalation: expected set|list|clear")
+		fmt.Fprintln(stderr, "at-jam project escalation: expected set|list|clear")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("project escalation "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	category := fs.String("category", "", "escalation category (default chain when empty); set/clear")
 	var tiers tierFlags
 	fs.Var(&tiers, "tier", "a tier as 'target,target@timeout' (repeatable, ordered); set only")
@@ -580,7 +581,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor project escalation:", err)
+		fmt.Fprintln(stderr, "at-jam project escalation:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -588,22 +589,22 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "set":
 		if len(pos) != 1 || len(tiers) == 0 {
-			fmt.Fprintln(stderr, "at-harbor project escalation set: expected <project> and at least one --tier 'targets@timeout'")
+			fmt.Fprintln(stderr, "at-jam project escalation set: expected <project> and at least one --tier 'targets@timeout'")
 			return 2
 		}
 		if err := c.SetEscalationPolicy(pos[0], *category, tiers); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "set escalation policy for", pos[0], "-", len(tiers), "tier(s)")
 	case "list":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor project escalation list: expected one project name")
+			fmt.Fprintln(stderr, "at-jam project escalation list: expected one project name")
 			return 2
 		}
 		v, err := c.GetEscalationPolicy(pos[0])
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for i, tr := range v.Default {
@@ -621,16 +622,16 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 		}
 	case "clear":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor project escalation clear: expected one project name")
+			fmt.Fprintln(stderr, "at-jam project escalation clear: expected one project name")
 			return 2
 		}
 		if err := c.SetEscalationPolicy(pos[0], *category, nil); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cleared escalation policy for", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor project escalation: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam project escalation: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -640,14 +641,14 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 // its humans' DMs) via the admin API: `project chat-service set|clear|show`.
 func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "at-harbor project chat-service: expected set|clear|show")
+		fmt.Fprintln(stderr, "at-jam project chat-service: expected set|clear|show")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("project chat-service "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name")
 	service := fs.String("service", "", "chat service (set), e.g. discord")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -655,11 +656,11 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(pos) != 0 {
-		fmt.Fprintln(stderr, "at-harbor project chat-service: unexpected arguments")
+		fmt.Fprintln(stderr, "at-jam project chat-service: unexpected arguments")
 		return 2
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor project chat-service:", err)
+		fmt.Fprintln(stderr, "at-jam project chat-service:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -667,32 +668,32 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "set":
 		if *project == "" || *service == "" {
-			fmt.Fprintln(stderr, "at-harbor project chat-service set: expected --project and --service")
+			fmt.Fprintln(stderr, "at-jam project chat-service set: expected --project and --service")
 			return 2
 		}
 		if err := c.SetChatService(*project, *service); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "set chat service for", *project, "to", *service)
 	case "clear":
 		if *project == "" {
-			fmt.Fprintln(stderr, "at-harbor project chat-service clear: expected --project")
+			fmt.Fprintln(stderr, "at-jam project chat-service clear: expected --project")
 			return 2
 		}
 		if err := c.SetChatService(*project, ""); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cleared chat service for", *project)
 	case "show":
 		if *project == "" {
-			fmt.Fprintln(stderr, "at-harbor project chat-service show: expected --project")
+			fmt.Fprintln(stderr, "at-jam project chat-service show: expected --project")
 			return 2
 		}
 		svc, err := c.GetChatService(*project)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		if svc == "" {
@@ -700,7 +701,7 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, svc)
 	default:
-		fmt.Fprintln(stderr, "at-harbor project chat-service: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam project chat-service: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -736,14 +737,14 @@ func (t *tierFlags) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor kit: expected push|list|show|versions|pin|rm")
+		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|pin|rm")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
 	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
@@ -752,7 +753,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor kit:", err)
+		fmt.Fprintln(stderr, "at-jam kit:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -760,28 +761,28 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "push":
 		if *name == "" || *config == "" {
-			fmt.Fprintln(stderr, "at-harbor kit push: --name and --config are required")
+			fmt.Fprintln(stderr, "at-jam kit push: --name and --config are required")
 			return 2
 		}
 		data, err := readConfig(*config) // file path or "-" for stdin
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		if _, err := kit.ParseConfig(data); err != nil {
-			fmt.Fprintln(stderr, "at-harbor kit push: invalid kit config:", err)
+			fmt.Fprintln(stderr, "at-jam kit push: invalid kit config:", err)
 			return 1
 		}
 		v, err := c.PushKit(*name, string(data))
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "pushed %s v%d\n", *name, v)
 	case "list":
 		kits, err := c.ListKits()
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, k := range kits {
@@ -789,23 +790,23 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "show":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor kit show: expected one kit name")
+			fmt.Fprintln(stderr, "at-jam kit show: expected one kit name")
 			return 2
 		}
 		res, err := c.GetKit(pos[0], *version)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprint(stdout, res.Config)
 	case "versions":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor kit versions: expected one kit name")
+			fmt.Fprintln(stderr, "at-jam kit versions: expected one kit name")
 			return 2
 		}
 		vers, err := c.KitVersions(pos[0])
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, v := range vers {
@@ -813,31 +814,31 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "pin":
 		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-harbor kit pin: expected <name> <version>")
+			fmt.Fprintln(stderr, "at-jam kit pin: expected <name> <version>")
 			return 2
 		}
 		v, err := strconv.Atoi(pos[1])
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor kit pin: version must be an integer")
+			fmt.Fprintln(stderr, "at-jam kit pin: version must be an integer")
 			return 2
 		}
 		if err := c.PinKit(pos[0], v); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "pinned %s to v%d\n", pos[0], v)
 	case "rm":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor kit rm: expected one kit name")
+			fmt.Fprintln(stderr, "at-jam kit rm: expected one kit name")
 			return 2
 		}
 		if err := c.RemoveKit(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed kit", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor kit: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam kit: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -853,14 +854,14 @@ func readConfig(path string) ([]byte, error) {
 
 func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor cove: expected raise|list|status|teardown")
+		fmt.Fprintln(stderr, "at-jam cove: expected raise|list|status|teardown")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("cove "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "cove/actor id")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to raise the cove for")
@@ -872,7 +873,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor cove:", err)
+		fmt.Fprintln(stderr, "at-jam cove:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -880,28 +881,28 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "raise":
 		if *id == "" || *role == "" {
-			fmt.Fprintln(stderr, "at-harbor cove raise: --id and --role are required")
+			fmt.Fprintln(stderr, "at-jam cove raise: --id and --role are required")
 			return 2
 		}
 		var prompt string
 		if *promptFile != "" {
 			b, err := os.ReadFile(*promptFile)
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor cove raise: --prompt-file:", err)
+				fmt.Fprintln(stderr, "at-jam cove raise: --prompt-file:", err)
 				return 1
 			}
 			prompt = string(b)
 		}
 		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "raised %s (phase=%s)\n", res.ID, res.Phase)
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, cv := range coves {
@@ -910,11 +911,11 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "status":
 		if *id == "" || *activity == "" {
-			fmt.Fprintln(stderr, "at-harbor cove status: --id and --activity are required")
+			fmt.Fprintln(stderr, "at-jam cove status: --id and --activity are required")
 			return 2
 		}
 		if err := c.ReportCoveStatus(*id, *activity); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "reported %s activity=%s\n", *id, *activity)
@@ -924,16 +925,16 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			name = pos[0]
 		}
 		if name == "" {
-			fmt.Fprintln(stderr, "at-harbor cove teardown: --id (or a positional id) is required")
+			fmt.Fprintln(stderr, "at-jam cove teardown: --id (or a positional id) is required")
 			return 2
 		}
 		if err := c.TeardownCove(name); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "tore down", name)
 	default:
-		fmt.Fprintln(stderr, "at-harbor cove: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam cove: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -944,14 +945,14 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // operator identity the admin API authenticates.
 func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor session: expected request|list|release")
+		fmt.Fprintln(stderr, "at-jam session: expected request|list|release")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("session "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to request a personal session of (request only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
@@ -960,7 +961,7 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor session:", err)
+		fmt.Fprintln(stderr, "at-jam session:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -968,28 +969,28 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "request":
 		if *role == "" {
-			fmt.Fprintln(stderr, "at-harbor session request: --role is required")
+			fmt.Fprintln(stderr, "at-jam session request: --role is required")
 			return 2
 		}
 		var prompt string
 		if *promptFile != "" {
 			b, err := os.ReadFile(*promptFile)
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor session request: --prompt-file:", err)
+				fmt.Fprintln(stderr, "at-jam session request: --prompt-file:", err)
 				return 1
 			}
 			prompt = string(b)
 		}
 		res, err := c.RequestPersonalSession(*project, *role, prompt)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, res.ID)
 	case "list":
 		sessions, err := c.ListPersonalSessions(*project)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, s := range sessions {
@@ -998,16 +999,16 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "release":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor session release: expected one session id")
+			fmt.Fprintln(stderr, "at-jam session release: expected one session id")
 			return 2
 		}
 		if err := c.ReleasePersonalSession(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "released", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor session: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam session: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -1018,14 +1019,14 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // the name is removed.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor standing: expected add|list|rm")
+		fmt.Fprintln(stderr, "at-jam standing: expected add|list|rm")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role the standing session belongs to")
 	name := fs.String("name", "", "standing session name, unique within the role (add only)")
@@ -1035,11 +1036,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor standing:", err)
+		fmt.Fprintln(stderr, "at-jam standing:", err)
 		return 2
 	}
 	if *role == "" && (sub == "add" || sub == "list" || sub == "rm") {
-		fmt.Fprintf(stderr, "at-harbor standing %s: --role is required\n", sub)
+		fmt.Fprintf(stderr, "at-jam standing %s: --role is required\n", sub)
 		return 2
 	}
 	proj := firstNonEmpty(*project, jam.DefaultProject)
@@ -1048,23 +1049,23 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "add":
 		if *name == "" || *promptFile == "" {
-			fmt.Fprintln(stderr, "at-harbor standing add: --name and --prompt-file are required")
+			fmt.Fprintln(stderr, "at-jam standing add: --name and --prompt-file are required")
 			return 2
 		}
 		b, err := os.ReadFile(*promptFile)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor standing add: --prompt-file:", err)
+			fmt.Fprintln(stderr, "at-jam standing add: --prompt-file:", err)
 			return 1
 		}
 		if err := c.AddStanding(proj, *role, jam.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, jam.StandingActorID(proj, *role, *name))
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		for _, s := range list {
@@ -1072,16 +1073,16 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "rm":
 		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-harbor standing rm: expected one standing session name")
+			fmt.Fprintln(stderr, "at-jam standing rm: expected one standing session name")
 			return 2
 		}
 		if err := c.RemoveStanding(proj, *role, pos[0]); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
 	default:
-		fmt.Fprintln(stderr, "at-harbor standing: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam standing: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -1105,14 +1106,14 @@ func egressState(p *jam.EgressPolicy) string {
 // ceiling. A change takes effect at the role's next raise.
 func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-harbor egress: expected set|show|clear")
+		fmt.Fprintln(stderr, "at-jam egress: expected set|show|clear")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role whose egress policy to manage")
 	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
@@ -1121,23 +1122,23 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor egress:", err)
+		fmt.Fprintln(stderr, "at-jam egress:", err)
 		return 2
 	}
 	switch sub {
 	case "set", "show", "clear":
 	default:
-		fmt.Fprintln(stderr, "at-harbor egress: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam egress: unknown subcommand", sub)
 		return 2
 	}
 	if *role == "" {
-		fmt.Fprintf(stderr, "at-harbor egress %s: --role is required\n", sub)
+		fmt.Fprintf(stderr, "at-jam egress %s: --role is required\n", sub)
 		return 2
 	}
 	var domains []string
 	switch {
 	case sub == "set" && *none && len(pos) > 0:
-		fmt.Fprintln(stderr, "at-harbor egress set: give domains or --none, not both")
+		fmt.Fprintln(stderr, "at-jam egress set: give domains or --none, not both")
 		return 2
 	case sub == "set" && !*none:
 		for _, d := range strings.Split(strings.Join(pos, ","), ",") {
@@ -1146,11 +1147,11 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 		}
 		if len(domains) == 0 {
-			fmt.Fprintln(stderr, "at-harbor egress set: expected a comma-separated domain list, or --none for an empty policy")
+			fmt.Fprintln(stderr, "at-jam egress set: expected a comma-separated domain list, or --none for an empty policy")
 			return 2
 		}
 	case sub != "set" && len(pos) > 0:
-		fmt.Fprintf(stderr, "at-harbor egress %s: unexpected arguments\n", sub)
+		fmt.Fprintf(stderr, "at-jam egress %s: unexpected arguments\n", sub)
 		return 2
 	}
 	proj := firstNonEmpty(*project, jam.DefaultProject)
@@ -1159,14 +1160,14 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "set":
 		if err := c.SetEgress(proj, *role, domains); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "set egress policy for %s/%s; applies at the next raise\n", proj, *role)
 	case "show":
 		v, err := c.ShowEgress(proj, *role)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		switch {
@@ -1181,7 +1182,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "clear":
 		if err := c.ClearEgress(proj, *role); err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); applies at the next raise\n", proj, *role)
@@ -1203,7 +1204,7 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 	fs := flag.NewFlagSet(verb, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	id := fs.String("id", "", "actor id")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role name")
@@ -1212,11 +1213,11 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor "+verb+":", err)
+		fmt.Fprintln(stderr, "at-jam "+verb+":", err)
 		return 2
 	}
 	if len(pos) > 0 || *id == "" || *role == "" {
-		fmt.Fprintln(stderr, "at-harbor "+verb+": --id and --role are required")
+		fmt.Fprintln(stderr, "at-jam "+verb+": --id and --role are required")
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -1228,7 +1229,7 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 		err = c.AddGrant(*id, jam.Grant{Project: *project, Role: *role})
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, verb+"ed", *role, "to", *id)
@@ -1239,23 +1240,23 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("roster", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
-	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-harbor roster:", err)
+		fmt.Fprintln(stderr, "at-jam roster:", err)
 		return 2
 	}
 	if len(pos) > 0 {
-		fmt.Fprintln(stderr, "at-harbor roster: takes no positional arguments")
+		fmt.Fprintln(stderr, "at-jam roster: takes no positional arguments")
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	roster, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Roster()
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	for _, a := range roster {
@@ -1269,7 +1270,7 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // placeholderLauncher satisfies jam.Launcher without a real backend: it
 // records a synthetic location and always probes Alive, so the supervisor spine
 // (registry, leases, reconciler, restart re-adoption) runs end-to-end against a
-// live `at-harbor serve`. `cove raise` against it creates a Live Instance with no
+// live `at-jam serve`. `cove raise` against it creates a Live Instance with no
 // actual cove. The real backend+kit launcher lands in a later slice.
 type placeholderLauncher struct{}
 
@@ -1311,49 +1312,49 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(pos) > 0 || *cfgPath == "" {
-		fmt.Fprintln(stderr, "at-harbor serve: --config is required")
+		fmt.Fprintln(stderr, "at-jam serve: --config is required")
 		return 2
 	}
 	data, err := os.ReadFile(*cfgPath)
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	cfg, err := parseServeConfig(data)
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if unknown := unknownServeKeys(data); len(unknown) > 0 {
-		fmt.Fprintf(stderr, "at-harbor: warning: ignoring unknown harbor.yml key(s): %s\n", strings.Join(unknown, ", "))
+		fmt.Fprintf(stderr, "at-jam: warning: ignoring unknown harbor.yml key(s): %s\n", strings.Join(unknown, ", "))
 		for _, k := range unknown {
 			if k == "destinations" {
-				fmt.Fprintln(stderr, "at-harbor: note: destinations are managed via the admin API — run `at-harbor destination import`")
+				fmt.Fprintln(stderr, "at-jam: note: destinations are managed via the admin API — run `at-jam destination import`")
 			}
 		}
 	}
 	if err := cfg.validateAdminExposure(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if err := cfg.validateLauncher(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if err := cfg.validateDispatcher(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if err := cfg.validateStorePostgres(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if err := cfg.validateDiscord(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	if err := cfg.validateWake(); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -1367,14 +1368,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if pc := cfg.StorePostgres; pc != nil {
 		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: store-postgres password:", err)
+			fmt.Fprintln(stderr, "at-jam: store-postgres password:", err)
 			return 1
 		}
 		dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
 			pc.Host, pc.Port, pc.Database, pc.User, resolved[pc.PasswordCred], pc.SSLMode)
 		ps, err := jam.NewPostgresStore(context.Background(), dsn, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: store-postgres:", err)
+			fmt.Fprintln(stderr, "at-jam: store-postgres:", err)
 			return 1
 		}
 		defer ps.Close()
@@ -1384,7 +1385,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	} else {
 		fs, err := jam.NewFileStore(cfg.Store)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		st = fs
@@ -1396,7 +1397,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	ttl, reconcile, err := cfg.runtimeDurations()
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	var lch jam.Launcher = placeholderLauncher{}
@@ -1404,16 +1405,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		var m install.Manifest
 		b, err := os.ReadFile(lc.InstallManifest)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: launcher install-manifest:", err)
+			fmt.Fprintln(stderr, "at-jam: launcher install-manifest:", err)
 			return 1
 		}
 		if err := json.Unmarshal(b, &m); err != nil {
-			fmt.Fprintln(stderr, "at-harbor: launcher install-manifest:", err)
+			fmt.Fprintln(stderr, "at-jam: launcher install-manifest:", err)
 			return 1
 		}
 		be, ok := colima.New(runner.OS{}).(launcher.Backend) // colima.New returns backend.Backend; *Colima also satisfies DispatchOps+GetStatus
 		if !ok {
-			fmt.Fprintln(stderr, "at-harbor: colima backend does not satisfy launcher.Backend")
+			fmt.Fprintln(stderr, "at-jam: colima backend does not satisfy launcher.Backend")
 			return 1
 		}
 		lch = launcher.New(launcher.Config{
@@ -1449,7 +1450,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	case pgPool != nil:
 		ml, err := intercompg.New(context.Background(), pgPool, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: intercom-log (postgres):", err)
+			fmt.Fprintln(stderr, "at-jam: intercom-log (postgres):", err)
 			return 1
 		}
 		intercomLog = ml // Close is a no-op; the store owns the pool
@@ -1457,7 +1458,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	case cfg.IntercomLog != "":
 		ml, err := intercom.Open(cfg.IntercomLog, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: intercom-log:", err)
+			fmt.Fprintln(stderr, "at-jam: intercom-log:", err)
 			return 1
 		}
 		defer ml.Close()
@@ -1487,7 +1488,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if pgPool != nil {
 		as, err := allocpg.New(context.Background(), pgPool, log)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		ledger = as
@@ -1513,7 +1514,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	// Standing reconciler: keeps one live cove per standing session declared on a
-	// role (`at-harbor standing add`) — raises a missing or dead one under its
+	// role (`at-jam standing add`) — raises a missing or dead one under its
 	// per-name actor id (admitted by the Allocator, released on a failed raise,
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever harbor serves; with no declarations a tick does nothing.
@@ -1574,11 +1575,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
 	if intercomLog != nil && (dc != nil || runDiscord) {
 		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {
-			fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
+			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
 			return 1
 		}
 		if relayMarkers, err = newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json")); err != nil {
-			fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
+			fmt.Fprintln(stderr, "at-jam: relay markers:", err)
 			return 1
 		}
 	}
@@ -1586,12 +1587,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if runDiscord {
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{cfg.Runtime.Discord.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
+			fmt.Fprintln(stderr, "at-jam: discord bot-token:", err)
 			return 1
 		}
 		discordTok = tokEnv["AT_DISCORD_BOT_TOKEN"]
 		if discordReceipts, err = newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json")); err != nil {
-			fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
+			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
 		}
 		dir.receipts = discordReceipts // wires directory.routeDiscord (COV-183): reply→cove lookup
@@ -1601,7 +1602,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: dispatcher tracker-token:", err)
+			fmt.Fprintln(stderr, "at-jam: dispatcher tracker-token:", err)
 			return 1
 		}
 		token := tokEnv["AT_DISPATCH_TRACKER_TOKEN"]
@@ -1609,7 +1610,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
 		tracker, err := linear.New(kitShell, token, nil)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor: dispatcher tracker:", err)
+			fmt.Fprintln(stderr, "at-jam: dispatcher tracker:", err)
 			return 1
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
@@ -1662,7 +1663,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// fileMarkers.needsSeed.
 			if relayMarkers.needsSeed("linear") {
 				if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
-					fmt.Fprintln(stderr, "at-harbor: relay egress seed:", err)
+					fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
 					return 1
 				}
 			}
@@ -1690,7 +1691,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
 			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
-				fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
+				fmt.Fprintln(stderr, "at-jam: discord egress seed:", err)
 				return 1
 			}
 		}
@@ -1702,7 +1703,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
 		lis, err := net.Listen("tcp", cfg.Runtime.Listen)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-harbor:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		go func() {
@@ -1719,7 +1720,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if o := cfg.OperatorAuth.OIDC; o != nil {
 			oidcAuth, err := jam.NewOIDCAuthenticator(context.Background(), o.Issuer, o.Audience, o.RequireScope)
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: operator OIDC:", err)
+				fmt.Fprintln(stderr, "at-jam: operator OIDC:", err)
 				return 1
 			}
 			auth = oidcAuth
@@ -1747,7 +1748,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if bc := cfg.browserAuthConfig(); bc != nil {
 			svc, err := browserauth.New(context.Background(), *bc, nil, log)
 			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: browser login:", err)
+				fmt.Fprintln(stderr, "at-jam: browser login:", err)
 				return 1
 			}
 			uiMux.Handle("/ui/auth/", svc.Routes())
@@ -1782,18 +1783,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// within its 443-only egress.
 	cert, err := tls.LoadX509KeyPair(cfg.TLS.Cert, cfg.TLS.Key)
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	rawLis, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
 	log.Info("harbor broker+Attach listening (mux)", "addr", cfg.Listen)
 	if err := serveMux(rawLis, tlsCfg, gs, httpHandler); err != nil {
-		fmt.Fprintln(stderr, "at-harbor:", err)
+		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	return 0
@@ -1817,4 +1818,19 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func main() { os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)) }
+func main() {
+	os.Exit(runAs(filepath.Base(os.Args[0]), os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+}
+
+// runAs is the process entry: invokedAs is the basename the binary was run
+// under. The deprecated at-harbor name (shipped as a copy of at-jam for one
+// release) runs normally after a one-time warning. It also carries a
+// pre-rename ~/.config/at-harbor/ across once. See
+// docs/usage/jam/renamed-from-harbor.md.
+func runAs(invokedAs string, argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if strings.TrimSuffix(invokedAs, ".exe") == "at-harbor" {
+		logging.Deprecated(stderr, "at-harbor", "at-jam")
+	}
+	migrateConfigDir(stderr)
+	return run(argv, getenv, stdout, stderr)
+}

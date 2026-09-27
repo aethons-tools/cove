@@ -9,7 +9,7 @@ updated: 2026-09-13
 
 # Operator sign-in & the admin client
 
-Every `at-harbor` admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`,
+Every `at-jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`,
 `enroll`, `revoke`, `kit`, `cove`) is a client of a running harbor's admin API. This doc
 covers how that client authenticates and how one machine targets several harbors.
 
@@ -53,15 +53,15 @@ Machine-to-Machine app (an M2M app returns `403` on device authorization).
 ## `login` / `logout` / `whoami`
 
 ```
-at-harbor login   --admin-url https://harbor.example.com   # device-flow sign-in
-at-harbor whoami                                            # show the cached identity + expiry
-at-harbor logout                                            # clear the cached token
+at-jam login   --admin-url https://harbor.example.com   # device-flow sign-in
+at-jam whoami                                            # show the cached identity + expiry
+at-jam logout                                            # clear the cached token
 ```
 
 `login` self-configures from harbor's auth-exempt `GET /admin/login-config`
 (`{issuer, audience, client_id, scope}`), runs the device flow (prints a URL +
 user code to approve in a browser), and caches the resulting operator token at
-`~/.config/at-harbor/{app}-admin-token.json` (mode `0600`). `whoami` prints the
+`~/.config/at-jam/{app}-admin-token.json` (mode `0600`). `whoami` prints the
 `sub` and expiry; an expired cache triggers a fresh `login` on the next verb.
 
 `login` against a harbor with no `operator-auth.oidc` exits cleanly (the
@@ -72,10 +72,10 @@ login-config endpoint returns 404 → "not OIDC-gated; no login required").
 Each admin verb picks its operator token in this precedence:
 
 1. `--token <value>` flag,
-2. `AT_HARBOR_ADMIN_TOKEN` environment variable,
+2. `AT_JAM_ADMIN_TOKEN` environment variable,
 3. the cached login session for the `--app` profile.
 
-A stale `AT_HARBOR_ADMIN_TOKEN` in the environment **shadows** a fresh login
+A stale `AT_JAM_ADMIN_TOKEN` in the environment **shadows** a fresh login
 session — if a verb unexpectedly `401`s or `403`s right after a successful
 `login`, check for a leftover env var (the CLI warns when the env shadows a cached
 session).
@@ -83,7 +83,7 @@ session).
 ## App profiles (`settings.yml`, `--app`)
 
 One machine often talks to several harbors (prod, a dev harbor, …). `settings.yml`
-at `~/.config/at-harbor/settings.yml` holds **named app profiles**, each with the
+at `~/.config/at-jam/settings.yml` holds **named app profiles**, each with the
 endpoints for one harbor:
 
 ```yaml
@@ -101,7 +101,7 @@ dev-app:
   to `login` **persists** it to the profile.
 - `--base-url` (on `enroll`) overrides `base-url` for the printed snippet.
 
-So `at-harbor --app dev-app roster` lists the dev harbor's roster using the dev
+So `at-jam --app dev-app roster` lists the dev harbor's roster using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
 [roster.md](roster.md) (RBAC + enrollment) and [kits.md](kits.md) (registry);
 `destination` is in [serve.md](serve.md); the managed-cove verbs are in

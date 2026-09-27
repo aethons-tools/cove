@@ -18,9 +18,9 @@ cove down. It works on the file store and on `store-postgres`.
 ## Declaring one
 
 ```
-at-harbor standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
-at-harbor standing list --project acme --role reviewer
-at-harbor standing rm   --project acme --role reviewer alice-bot
+at-jam standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
+at-jam standing list --project acme --role reviewer
+at-jam standing rm   --project acme --role reviewer alice-bot
 ```
 
 Like every admin verb they take `--app`/`--admin-url`/`--token`
@@ -56,7 +56,7 @@ declaration on any role or project (for example, `a b` and `a/b` both become
 
 ## What "kept alive" means
 
-Harbor's **standing reconciler** runs whenever `at-harbor serve` runs. It needs no
+Harbor's **standing reconciler** runs whenever `at-jam serve` runs. It needs no
 dispatcher and no config. Every 30s it walks every role's declarations. For each
 name:
 

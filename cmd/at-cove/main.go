@@ -367,24 +367,43 @@ func resolveKit(projectDir string) (string, error) {
 	return kitDir, nil
 }
 
-// atJamBinary resolves an at-harbor executable sitting beside this at-cove
+// atJamBinary resolves the at-jam executable sitting beside this at-cove
 // binary (so a dist/<os-arch>/at-cove finds its sibling), falling back to the
-// bare name "at-harbor" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
-// at-harbor for cove auto-enrollment (COV-141) rather than importing adminclient
+// bare name "at-jam" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
+// at-jam for cove auto-enrollment (COV-141) rather than importing adminclient
 // (which pulls go-oidc).
 func atJamBinary() string {
 	self, err := os.Executable()
 	if err != nil {
-		return "at-harbor"
+		return "at-jam"
 	}
 	if resolved, err := filepath.EvalSymlinks(self); err == nil {
 		self = resolved
 	}
-	sibling := filepath.Join(filepath.Dir(self), "at-harbor")
-	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-		return sibling
+	return resolveJamBinary(filepath.Dir(self), exec.LookPath)
+}
+
+// resolveJamBinary prefers at-jam (beside at-cove in dir, then on PATH) and
+// falls back to the deprecated at-harbor name the same way, so a new at-cove
+// next to an older install keeps working for the deprecation release (see
+// docs/usage/jam/renamed-from-harbor.md). With neither found it returns the
+// bare "at-jam", so the eventual exec error names the current binary.
+func resolveJamBinary(dir string, lookPath func(string) (string, error)) string {
+	isExec := func(p string) bool {
+		info, err := os.Stat(p)
+		return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 	}
-	return "at-harbor"
+	for _, name := range []string{"at-jam", "at-harbor"} {
+		if sibling := filepath.Join(dir, name); isExec(sibling) {
+			return sibling
+		}
+	}
+	for _, name := range []string{"at-jam", "at-harbor"} {
+		if _, err := lookPath(name); err == nil {
+			return name
+		}
+	}
+	return "at-jam"
 }
 
 func configDir() string {
@@ -1292,7 +1311,7 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 
 // jamPlan produces a harbor kit's connector config host-side; nil when the kit
 // has no harbor: block. When harbor.identity is set it resolves that supplied
-// secret (COV-138); when absent it auto-enrolls by shelling at-harbor (COV-141),
+// secret (COV-138); when absent it auto-enrolls by shelling at-jam (COV-141),
 // returning a revoke closure the caller defers (nil for the pre-supplied path).
 // The token is kept out of the agent's kit-secret env — connect delivers it
 // env-only as the harbor identity.
@@ -1320,23 +1339,23 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 		}
 		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok}, nil, nil
 	}
-	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
+	// Auto-enroll path (COV-141): shell a sibling at-jam to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
 	// token arrives on stdout, in memory only. The returned closure revokes it.
 	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest"}
 	out, err := r.Output(atJamBinary(), args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll failed (is at-harbor reachable + an operator logged in?): %w", kitName, err)
+		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll failed (is at-jam reachable + an operator logged in?): %w", kitName, err)
 	}
 	var res struct {
 		ID    string `json:"id"`
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned unparseable output: %w", kitName, err)
+		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll returned unparseable output: %w", kitName, err)
 	}
 	if strings.TrimSpace(res.Token) == "" {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned an empty token", kitName)
+		return nil, nil, fmt.Errorf("harbor kit %q: at-jam enroll returned an empty token", kitName)
 	}
 	revoke := func() { _ = r.Run(atJamBinary(), "revoke", "--id", res.ID) }
 	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token}, revoke, nil

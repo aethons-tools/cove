@@ -24,10 +24,10 @@ run *ARGS: build
 run-dispatch *ARGS: build
     "dist/$(go env GOOS)-$(go env GOARCH)/at-dispatch" {{ARGS}}
 
-# Run the at-harbor binary, forwarding ARGS (uses the last `just build` output —
-# run `just build` first). e.g. `just harbor destination list`  or  `just harbor version`
-harbor *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" {{ARGS}}
+# Run the at-jam binary, forwarding ARGS (uses the last `just build` output —
+# run `just build` first). e.g. `just jam destination list`  or  `just jam version`
+jam *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
 
 # install the host binaries (at-cove, at-dispatch) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
@@ -54,7 +54,7 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
-# regenerate the harbor Attach stream's gRPC code (internal/jam/attach/attachpb)
+# regenerate the jam Attach stream's gRPC code (internal/jam/attach/attachpb)
 # from internal/jam/attach/proto/attach.proto. Installs protoc-gen-go,
 # protoc-gen-go-grpc, and buf (pinned) into GOPATH/bin, then runs `buf generate`.
 # Generated files ARE committed — CI never regenerates.
@@ -93,11 +93,11 @@ dev-up:
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 
-# Run at-harbor serve against the local dev config (uses the last `just build`
+# Run at-jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). Binding a
 # privileged port (e.g. :443) needs root — sudo the built binary directly for that.
 dev-serve *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" serve --config dev/harbor.dev.yml {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/harbor.dev.yml {{ARGS}}
 
 # hermetic unit tests (no docker/network/ssh)
 test:
@@ -120,9 +120,9 @@ e2e:
 integration-docker:
     COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
-# harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
-integration-harbor:
-    go test -tags integration ./cmd/at-harbor/... ./internal/jam/... ./internal/allocator/...
+# jam integration: real-TLS broker round-trip + the jam package's tagged tests
+integration-jam:
+    go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
 
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip

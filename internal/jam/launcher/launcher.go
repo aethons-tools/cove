@@ -1,7 +1,7 @@
 // Package launcher is the real jam.Launcher: it raises/tears down/probes a
 // managed cove on a Colima backend and bootstraps cove-master over SSH. It lives
 // outside internal/jam core (which stays backend/connect-free) and is wired
-// from cmd/at-harbor.
+// from cmd/at-jam.
 package launcher
 
 import (

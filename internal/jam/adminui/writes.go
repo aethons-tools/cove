@@ -164,7 +164,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		}
 		// The form doesn't edit the allocation policy (set via `role add
 		// --max-ephemeral`), the addressing allow-list, or the egress policy (set via
-		// `at-harbor egress set`); keep the existing role's instead of resetting them.
+		// `at-jam egress set`); keep the existing role's instead of resetting them.
 		if existing, ok := store.GetRole(orDefaultProject(project), name); ok {
 			role.Allocation = existing.Allocation
 			role.Scope.Addressing = existing.Scope.Addressing

@@ -25,7 +25,7 @@ type credSpec struct {
 	Value   string   `yaml:"value"`
 }
 
-// serveConfig is the on-disk config for `at-harbor serve`.
+// serveConfig is the on-disk config for `at-jam serve`.
 type serveConfig struct {
 	Listen      string `yaml:"listen"`
 	AdminListen string `yaml:"admin-listen"`

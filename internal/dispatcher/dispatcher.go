@@ -2,7 +2,7 @@
 // turns ready tracker tickets into managed-cove raises, admitting each raise
 // through the Allocator (harbor's capacity authority) rather than counting
 // instances against a cap itself. It lives outside internal/jam core (it
-// imports the tracker + kit + supervisor) and is wired from cmd/at-harbor.
+// imports the tracker + kit + supervisor) and is wired from cmd/at-jam.
 package dispatcher
 
 import (

@@ -1,7 +1,7 @@
-# Sample `at-harbor serve` config for local development.
+# Sample `at-jam serve` config for local development.
 #
 #   just dev-up                                   # raise the dev Postgres
-#   at-harbor serve --config dev/harbor.dev.yml   # run harbor against it
+#   at-jam serve --config dev/harbor.dev.yml   # run harbor against it
 #
 # This is a DEV config: plaintext admin on loopback, an inline DB password, and
 # a self-signed broker cert. Never use these settings in production — see

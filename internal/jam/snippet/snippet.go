@@ -9,7 +9,7 @@
 //   - GitConfig: the `git config --global` commands that rewrite github.com → the
 //     harbor git connector and install a credential helper reading the env-only token.
 //
-// Render composes both into a single sourceable shell snippet (what `at-harbor
+// Render composes both into a single sourceable shell snippet (what `at-jam
 // enroll` prints for a Guest); at-cove consumes Env + GitConfig directly.
 package snippet
 

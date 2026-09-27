@@ -53,7 +53,7 @@ type LaunchCreds struct {
 // Launcher is the seam over "actually start/stop/probe a cove on a backend". The
 // supervisor depends only on this, so it stays kit-free and grpc-free and fully
 // hermetic. The real backend+kit implementation is a later slice, wired from
-// cmd/at-harbor.
+// cmd/at-jam.
 type Launcher interface {
 	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
 	Teardown(ctx context.Context, inst Instance) error

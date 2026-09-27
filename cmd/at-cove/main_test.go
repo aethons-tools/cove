@@ -99,8 +99,48 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 
 func TestAtJamBinary(t *testing.T) {
 	got := atJamBinary()
-	if got == "" || filepath.Base(got) != "at-harbor" {
-		t.Fatalf("atJamBinary() = %q, want a path/name ending in at-harbor", got)
+	if got == "" || filepath.Base(got) != "at-jam" {
+		t.Fatalf("atJamBinary() = %q, want a path/name ending in at-jam", got)
+	}
+}
+
+// The deprecated at-harbor name is still found (sibling, then PATH) when no
+// at-jam is installed, so a new at-cove beside an old install keeps enrolling.
+// See docs/usage/jam/renamed-from-harbor.md.
+func TestResolveJamBinaryFallsBackToAtHarbor(t *testing.T) {
+	exe := func(dir, name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noPath := func(string) (string, error) { return "", os.ErrNotExist }
+
+	dir := t.TempDir()
+	if got := resolveJamBinary(dir, noPath); got != "at-jam" {
+		t.Fatalf("nothing installed: got %q, want bare at-jam", got)
+	}
+	exe(dir, "at-harbor")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-harbor") {
+		t.Fatalf("only a sibling at-harbor: got %q", got)
+	}
+	exe(dir, "at-jam")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-jam") {
+		t.Fatalf("sibling at-jam must win: got %q", got)
+	}
+
+	empty := t.TempDir()
+	onPath := func(name string) (string, error) {
+		if name == "at-harbor" {
+			return "/usr/bin/at-harbor", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if got := resolveJamBinary(empty, onPath); got != "at-harbor" {
+		t.Fatalf("only at-harbor on PATH: got %q", got)
+	}
+	both := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	if got := resolveJamBinary(empty, both); got != "at-jam" {
+		t.Fatalf("at-jam on PATH must win: got %q", got)
 	}
 }
 
@@ -135,7 +175,7 @@ func TestJamPlan(t *testing.T) {
 		t.Fatalf("manual path: jamAuth=%+v revNil=%v", ha, rev == nil)
 	}
 	if calledWith(f.Calls, "enroll") {
-		t.Fatalf("manual path must not shell at-harbor enroll: %+v", f.Calls)
+		t.Fatalf("manual path must not shell at-jam enroll: %+v", f.Calls)
 	}
 	// declared-but-unsupplied identity → hard error (fail closed).
 	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
@@ -144,7 +184,7 @@ func TestJamPlan(t *testing.T) {
 }
 
 func TestJamPlanAutoEnroll(t *testing.T) {
-	// no identity → auto-enroll: shell at-harbor enroll --json, use the token,
+	// no identity → auto-enroll: shell at-jam enroll --json, use the token,
 	// return a revoke closure.
 	cfg := kit.Config{
 		Name:          "k",
@@ -169,7 +209,7 @@ func TestJamPlanAutoEnroll(t *testing.T) {
 		}
 	}
 	if enroll == nil {
-		t.Fatalf("no at-harbor enroll call: %+v", f.Calls)
+		t.Fatalf("no at-jam enroll call: %+v", f.Calls)
 	}
 	joined := strings.Join(enroll.Args, " ")
 	for _, want := range []string{"--json", "--id cove-box-1", "--role guest"} {
@@ -192,7 +232,7 @@ func TestJamPlanAutoEnroll(t *testing.T) {
 	}
 	rev()
 	if !calledWith(f.Calls, "revoke") {
-		t.Fatalf("revoke did not shell at-harbor revoke: %+v", f.Calls)
+		t.Fatalf("revoke did not shell at-jam revoke: %+v", f.Calls)
 	}
 	revoked := false
 	for _, c := range f.Calls {
@@ -210,7 +250,7 @@ func TestJamPlanAutoEnrollFailsClosed(t *testing.T) {
 	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "harbor.local"}}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
 	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
-		t.Fatal("a failing at-harbor enroll must fail closed")
+		t.Fatal("a failing at-jam enroll must fail closed")
 	}
 }
 

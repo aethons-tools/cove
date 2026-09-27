@@ -49,7 +49,7 @@ var ErrNeedsLedger = errors.New("personal sessions need the allocation ledger (s
 // SessionAllocator is the capacity authority the personal-session routes admit
 // against: GrantPersonal reserves a slot for owner's personal session of
 // (project, role) against the role's pool and per-owner caps; RecordRelease
-// frees it. harbor does not import allocator, so cmd/at-harbor adapts
+// frees it. harbor does not import allocator, so cmd/at-jam adapts
 // *allocator.Allocator to this interface (translating its no-ledger error to
 // ErrNeedsLedger).
 type SessionAllocator interface {
@@ -208,10 +208,10 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 func personalDeliveryProblem(store Store, project string, owner Human) string {
 	p, _ := store.GetProject(project)
 	if p.ChatService != "discord" {
-		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-harbor project chat-service set --project %s --service discord)", project, project)
+		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-jam project chat-service set --project %s --service discord)", project, project)
 	}
 	if _, ok := owner.DeliveryFor("discord"); !ok {
-		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-harbor project roster add-human %s --name %s --handle %s --login %s --delivery discord:<inbox-channel>)",
+		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project roster add-human %s --name %s --handle %s --login %s --delivery discord:<inbox-channel>)",
 			owner.Name, project, project, owner.Name, owner.Handle, owner.Login)
 	}
 	return ""

@@ -1,22 +1,22 @@
 ---
-summary: Running the harbor service — `at-harbor serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+summary: Running the harbor service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a harbor service — writing its serve config, wiring the real credentials it brokers, adding the destinations coves reach, or exposing the admin API beyond loopback.
-owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
+owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-09-27
 ---
 
-# Running harbor (`at-harbor serve`)
+# Running harbor (`at-jam serve`)
 
-`at-harbor serve --config <file>` runs one process that is both the **broker**
+`at-jam serve --config <file>` runs one process that is both the **broker**
 (the reverse proxy coves send Anthropic/git through) and a **loopback admin API**
-(the control plane the `at-harbor` admin verbs talk to). Both are backed by a
+(the control plane the `at-jam` admin verbs talk to). Both are backed by a
 single JSON **store** file. The serve config is bootstrap-only: destinations,
 roles, and enrollments are managed at runtime via the admin API, not this file.
 
 ```
-at-harbor serve --config /etc/harbor/harbor.yml
+at-jam serve --config /etc/harbor/harbor.yml
 ```
 
 ## The serve config
@@ -174,7 +174,7 @@ fallback for them.
 
 ### The launcher (`runtime.launcher`)
 
-With a `launcher` block, `at-harbor cove raise` starts a **real** cove on the Colima
+With a `launcher` block, `at-jam cove raise` starts a **real** cove on the Colima
 backend from the pre-built image named by `install-manifest` (the frozen
 `install.json` an `at-cove install` produced — its `Image` + `ImageDigest`),
 injects the connector + prompt over SSH, and starts `cove-master` in it. The cove
@@ -212,15 +212,15 @@ to an upstream base URL plus how the identity arrives and how the real credentia
 is applied. Destinations are managed at runtime via the admin API:
 
 ```
-at-harbor destination add \
+at-jam destination add \
   --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
   --identity-in x-api-key --cred-name anthropic-key --apply x-api-key
-at-harbor destination add \
+at-jam destination add \
   --name git --route /git/ --upstream https://github.com \
   --identity-in basic-password --cred-name git-pat --apply basic-password --repo-scoped
-at-harbor destination list
-at-harbor destination rm <name>
-at-harbor destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
+at-jam destination list
+at-jam destination rm <name>
+at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
 ```
 
 - `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —

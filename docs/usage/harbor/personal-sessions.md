@@ -48,7 +48,7 @@ wake-on engine walks it up a ladder set by the role:
 2. **Nag.** Once it has waited **`idle-after`** (default **4h**), harbor messages you
    *as the session*, in your Discord inbox: "Your personal session *id* (*role*) has
    been waiting on you for *N*. Reply to this message to pick it back up, or release
-   it with: `at-harbor session release <id>`". It repeats every **`nag-every`**
+   it with: `at-jam session release <id>`". It repeats every **`nag-every`**
    (default **24h**). **Replying to a nag is replying to the session** — it wakes and
    carries on, and the ladder starts over.
    **Or answer the nag with a command:** reply to the nag with exactly
@@ -80,7 +80,7 @@ A nag that fails to send is retried on the next tick and never ends the session;
 a reclaim waits until its notice has been sent. The three settings are role flags:
 
 ```
-at-harbor role add --project acme --name pair --max-personal 3 \
+at-jam role add --project acme --name pair --max-personal 3 \
   --idle-after 4h --nag-every 24h --reclaim-after 72h
 ```
 
@@ -95,9 +95,9 @@ A ticketless cove's messages can only be delivered over Discord, so a request is
 refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
-  `at-harbor project chat-service set --project acme --service discord`;
+  `at-jam project chat-service set --project acme --service discord`;
 - you (the owner) have a Discord delivery profile — your inbox channel:
-  `at-harbor project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>`.
+  `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>`.
 
 Harbor must also run the Discord relay (`runtime.discord` plus an `intercom-log`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a dispatcher, and it
@@ -107,12 +107,12 @@ polls every project whose chat service is `discord`
 ## Who owns it: link your login
 
 Harbor finds the owner by matching the caller's **admin login** (the operator
-identity: your OIDC `sub`, which `at-harbor whoami` shows, or `local` on a
+identity: your OIDC `sub`, which `at-jam whoami` shows, or `local` on a
 loopback-only harbor) against the **roster human** in the target project whose
 `Login` is set to it:
 
 ```
-at-harbor project roster add-human acme --name alice --handle alice.h --login 'auth0|abc123'
+at-jam project roster add-human acme --name alice --handle alice.h --login 'auth0|abc123'
 ```
 
 A login links at most one human per project. `--login` is described with the
@@ -125,7 +125,7 @@ If no human in the project is linked to your login, every `session` call answers
 A role admits personal sessions only when it sets a pool cap:
 
 ```
-at-harbor role add --project acme --name pair --destinations anthropic,git \
+at-jam role add --project acme --name pair --destinations anthropic,git \
   --max-personal 3 --max-personal-per-owner 1
 ```
 
@@ -151,9 +151,9 @@ All take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md). `--project` defaults to `default`.
 
 ```
-at-harbor session request --project acme --role pair --prompt-file task.md   # prints the session id
-at-harbor session list    [--project acme]
-at-harbor session release personal-alice-1a2b3c4d
+at-jam session request --project acme --role pair --prompt-file task.md   # prints the session id
+at-jam session list    [--project acme]
+at-jam session release personal-alice-1a2b3c4d
 ```
 
 - **request** grants a slot, then raises the cove with you as its owner, and

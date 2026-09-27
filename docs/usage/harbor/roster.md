@@ -35,14 +35,14 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 ## Roles
 
 ```
-at-harbor role add --project acme --name guest \
+at-jam role add --project acme --name guest \
   --destinations anthropic,git --repos 'aethons-tools/*' --ttl 24h
-at-harbor role add --project acme --name reviewer --destinations anthropic --kit review-kit
-at-harbor role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
-at-harbor role add --project acme --name pair --destinations anthropic,git \
+at-jam role add --project acme --name reviewer --destinations anthropic --kit review-kit
+at-jam role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
+at-jam role add --project acme --name pair --destinations anthropic,git \
   --max-personal 3 --max-personal-per-owner 1
-at-harbor role list [--project acme]
-at-harbor role rm   [--project acme] guest
+at-jam role list [--project acme]
+at-jam role rm   [--project acme] guest
 ```
 
 - `--destinations` / `--repos` are comma-separated; `--repos` are `owner/repo`
@@ -78,10 +78,10 @@ at-harbor role rm   [--project acme] guest
   does: [personal-sessions.md](personal-sessions.md#the-idle-ladder).
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
-  `at-harbor standing add|list|rm`, not with `role add` flags. Re-running
+  `at-jam standing add|list|rm`, not with `role add` flags. Re-running
   `role add` keeps them. See [standing-sessions.md](standing-sessions.md).
 - A role's **egress policy** is managed with its own verb,
-  `at-harbor egress set|show|clear`, not `role add` flags. Re-running `role add`
+  `at-jam egress set|show|clear`, not `role add` flags. Re-running `role add`
   (or saving the role in the [admin UI](ui.md)) keeps it. See
   [Role egress](#role-egress).
 - Editing a role re-scopes every actor granted it on the next request (live).
@@ -93,10 +93,10 @@ the domains the cove's squid allows beyond the sealed base and the kit's
 always-on infra list (model provider, self-hosted GitLab, harbor host).
 
 ```
-at-harbor egress set   --project acme --role fenced registry.npmjs.org,.pypi.org
-at-harbor egress set   --project acme --role fenced --none   # an empty policy
-at-harbor egress show  --project acme --role fenced          # "kit default", "none", or the list
-at-harbor egress clear --project acme --role fenced          # back to the kit default
+at-jam egress set   --project acme --role fenced registry.npmjs.org,.pypi.org
+at-jam egress set   --project acme --role fenced --none   # an empty policy
+at-jam egress show  --project acme --role fenced          # "kit default", "none", or the list
+at-jam egress clear --project acme --role fenced          # back to the kit default
 ```
 
 - **No policy (the default) = the kit's list.** The cove gets the kit's
@@ -140,8 +140,8 @@ Admin API (the verbs wrap these; each write keeps every other role field):
 ## Grants
 
 ```
-at-harbor grant   --id spider-18 --project beta --role reviewer
-at-harbor ungrant --id spider-18 --project beta --role reviewer
+at-jam grant   --id spider-18 --project beta --role reviewer
+at-jam ungrant --id spider-18 --project beta --role reviewer
 ```
 
 Grants extend an existing Actor; the Actor's token stays stable as grants come and
@@ -154,9 +154,9 @@ comes from the **role** (enrollment is role-required — there are no inline
 destination/repo/ttl flags):
 
 ```
-at-harbor enroll --id spider-18 --project acme --role guest        # prints the connector snippet
-at-harbor enroll --id spider-18 --role guest --json                # prints {"id","token"} (for tooling)
-at-harbor revoke --id spider-18                                    # removes the whole Actor
+at-jam enroll --id spider-18 --project acme --role guest        # prints the connector snippet
+at-jam enroll --id spider-18 --role guest --json                # prints {"id","token"} (for tooling)
+at-jam revoke --id spider-18                                    # removes the whole Actor
 ```
 
 - The role must already exist (else `enroll` fails closed).
@@ -173,7 +173,7 @@ at-harbor revoke --id spider-18                                    # removes the
 ## The roster
 
 ```
-at-harbor roster
+at-jam roster
 ```
 
 Lists every Actor with its grants and each grant's **effective** destinations/repos
