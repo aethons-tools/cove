@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 )
 
@@ -34,6 +35,10 @@ type RaiseSpec struct {
 	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
 	// plain string (not allocator.SessionKind) so harbor never imports allocator.
 	SessionKind string
+	// Egress is the role's egress policy, which the launcher applies in-box before
+	// the agent starts; nil = the kit's default list. Supervisor.Raise always
+	// fills it from the role, overriding any caller-set value.
+	Egress *EgressPolicy
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
@@ -152,6 +157,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, ov, s.now())
 	if err != nil {
 		return Instance{}, "", "", err
+	}
+	// The role, not the caller, decides the cove's egress policy (Enroll just
+	// proved the role exists). Callers — dispatcher, sessions, standing — need
+	// no change, and none can widen a role's egress by setting the spec.
+	spec.Egress = nil
+	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok && role.Scope.Egress != nil {
+		spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
 	}
 	secret, err := MintToken()
 	if err != nil {

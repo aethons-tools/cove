@@ -1417,6 +1417,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			HarborHost: lc.HarborHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
+			Log: log,
 		})
 		log.Info("harbor launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
 	}

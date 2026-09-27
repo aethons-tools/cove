@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -861,5 +862,29 @@ func TestReportResetsNagsOnEnteringWaiting(t *testing.T) {
 	}
 	if got, _ := store.GetInstance("cove-1"); got.Nags != 1 {
 		t.Fatalf("repeat Waiting report cleared nags: %d", got.Nags)
+	}
+}
+
+// Raise fills the spec's egress policy from the role (after enrolling),
+// overriding anything the caller set: a role with a policy yields a spec carrying
+// it, a role without one yields nil (the kit default).
+func TestRaiseCarriesRoleEgress(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if err := store.PutRole("default", Role{Name: "fenced", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour, Egress: &EgressPolicy{Domains: []string{".b.org", "a.com"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "e1", Role: "fenced"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.gotSpec.Egress == nil || !reflect.DeepEqual(f.gotSpec.Egress.Domains, []string{".b.org", "a.com"}) {
+		t.Fatalf("launcher spec egress = %+v, want the role's policy", f.gotSpec.Egress)
+	}
+	// A caller-set policy never survives: the role (kit default here) wins.
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "e2", Role: "guest", Egress: &EgressPolicy{Domains: []string{"evil.example"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.gotSpec.Egress != nil {
+		t.Fatalf("launcher spec egress = %+v, want nil (role has no policy)", f.gotSpec.Egress)
 	}
 }
