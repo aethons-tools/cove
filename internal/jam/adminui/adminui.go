@@ -92,7 +92,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists 
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Coves", "Coves": jam.CoveSummaries(store), "CanEdit": canEdit}
+		data := map[string]any{"Title": "Studios", "Coves": jam.CoveSummaries(store), "CanEdit": canEdit}
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, "coves", "coves-table", data)
 			return

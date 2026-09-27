@@ -159,7 +159,7 @@ at-jam session release personal-alice-1a2b3c4d
 - **request** grants a slot, then raises the cove with you as its owner, and
   prints only the session id (`personal-<owner>-<8 hex>`). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
-  `cove raise`, no identity token or launch secret is returned.
+  `studio raise`, no identity token or launch secret is returned.
 - **list** shows only **your** personal sessions in the project: id, role,
   phase, activity, and when each was raised.
 - **release** tears the session down. Only its owner may release it (or reply
@@ -176,6 +176,6 @@ at-jam session release personal-alice-1a2b3c4d
 | `DELETE /admin/sessions/personal/{id}` | **204** after the teardown. **404** if the id does not exist or is not a personal session. **403** unless you are its owner. |
 
 A personal session is also an ordinary managed cove. It appears in
-`cove list`, and its Instance records `owner` and `session_kind: personal`. The
+`studio list`, and its Instance records `owner` and `session_kind: personal`. The
 reconcile sweep never releases personal reservations; only the owner's release
 (the verb, or a `release` reply to a nag), or an idle-ladder reclaim, does.

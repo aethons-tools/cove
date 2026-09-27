@@ -1,7 +1,7 @@
 ---
-summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases), the `at-jam cove raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
+summary: The managed-cove supervisor operator guide — harbor's runtime registry of raised coves (Phase/Activity, leases), the `at-jam studio raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
 read_when: You are raising or tearing down a managed cove through harbor, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or configuring/running the in-cove `cove-master` client.
-owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
+owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
 tier: leaf
 updated: 2026-09-27
@@ -15,7 +15,7 @@ status → tear down, self-healing across harbor restarts. This is the spine the
 resident dispatcher and standing teammates build on.
 
 > With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-> `cove raise` starts a **real** cove on the Colima backend (see [Raising a real
+> `studio raise` starts a **real** cove on the Colima backend (see [Raising a real
 > managed cove](#raising-a-real-managed-cove)). Without it, `at-jam serve` uses
 > a **placeholder launcher** that records a live registry entry but starts no cove
 > — useful for exercising the registry/supervisor in dev and tests.
@@ -40,26 +40,26 @@ TTL; the owner renews it, and if it expires another process may take over
 (reconnect/failover). On restart, harbor re-adopts live Instances from the store
 instead of abandoning them — so in-progress work survives a restart.
 
-## The `cove` verbs
+## The `studio` verbs
 
 ```
-at-jam cove raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-jam cove list     # id  role  unit  phase  activity  lease-holder
-at-jam cove status   --id spider-42 --activity waiting
-at-jam cove teardown --id spider-42
+at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
+at-jam studio list     # id  role  unit  phase  activity  lease-holder
+at-jam studio status   --id spider-42 --activity waiting
+at-jam studio teardown --id spider-42
 ```
 
-- `cove raise` enrolls the identity (the role must exist — fail-closed) and
+- `studio raise` enrolls the identity (the role must exist — fail-closed) and
   records a `live` Instance. The role supplies scope, exactly as with
   [enroll](roster.md). `--prompt-file` supplies the workload prompt (read
   host-side, never on argv) — required by the real launcher; see below.
-- `cove status` reports the cove's activity; `--activity done` triggers teardown.
-- `cove teardown` tears the cove down and revokes its identity (idempotent).
+- `studio status` reports the cove's activity; `--activity done` triggers teardown.
+- `studio teardown` tears the cove down and revokes its identity (idempotent).
 
 ### Raising a real managed cove
 
 With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-`cove raise --prompt-file <f>` runs the whole lifecycle end to end: harbor starts a
+`studio raise --prompt-file <f>` runs the whole lifecycle end to end: harbor starts a
 Colima cove from the configured image, injects the agent connector (Anthropic + git
 through harbor) plus the cove-master env + your prompt over SSH, and starts
 `cove-master`, which runs `claude -p` on the prompt. The cove reports
@@ -91,7 +91,7 @@ Failures count in `egress_failures`; the teardown rule is in
 
 Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
-per ready ticket — not only by this manual `cove raise` verb.
+per ready ticket — not only by this manual `studio raise` verb.
 
 A raised cove's agent also gets a brokered [intercom MCP](intercom.md) — `read`/`send`
 on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
@@ -99,7 +99,7 @@ A cove is no longer strictly one-shot: on `needs-input` it **suspends** (Activit
 and harbor **wakes** it to resume (`claude --continue`) when a reply lands on its ticket,
 bounded by `wait-max` — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
 
-All `cove` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
+All `studio` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
 
 ## Tuning the supervisor (`runtime:`)

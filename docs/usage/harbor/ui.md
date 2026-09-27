@@ -20,7 +20,7 @@ http://127.0.0.1:8081/ui/
 It renders:
 
 - **Dashboard** (`/ui/`) — the live cove fleet + a roster summary.
-- **Coves** (`/ui/coves`) — every managed cove's id, project/role, unit, phase,
+- **Studios** (`/ui/coves`) — every managed cove's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
@@ -116,15 +116,15 @@ supervisor is configured — see [Runtime (coves)](#runtime-coves) below.
 ### Runtime (coves)
 
 When harbor is configured with a runtime supervisor (`runtime:` in the serve
-config — see [coves.md](coves.md)), the Coves page can also:
+config — see [coves.md](coves.md)), the Studios page can also:
 
 - **Raise a managed cove** — id, role, optional project/unit and a workload
   prompt. Harbor handles the cove's identity token and launch secret internally;
-  they are never shown in the browser (use the CLI `at-jam cove raise` for
+  they are never shown in the browser (use the CLI `at-jam studio raise` for
   manual wiring).
 - **Tear down a cove** (confirmed).
 
-Without a runtime supervisor, the Coves page is view-only. Setting a cove's
+Without a runtime supervisor, the Studios page is view-only. Setting a cove's
 activity is not a UI action — that is reported by the cove itself. These actions
 obey the same gate, CSRF, and audit-logging as the roster edits above.
 

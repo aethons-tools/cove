@@ -73,7 +73,8 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
-			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
+			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
+			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list or dismiss a role's named standing sessions (add|list|rm) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
@@ -852,19 +853,28 @@ func readConfig(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+// cmdCove is the deprecated `at-jam cove …` verb: it warns once and runs
+// `at-jam studio …` (docs/usage/jam/renamed-from-harbor.md).
+func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
+	logging.Deprecated(stderr, "at-jam cove", "at-jam studio")
+	return cmdStudio(args, g, stdout, stderr)
+}
+
+// cmdStudio manages studios (managed coves — the entity the UI and CLI call a
+// Studio; ids, routes and the admin API still say "cove").
+func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam cove: expected raise|list|status|teardown")
+		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	fs := flag.NewFlagSet("cove "+sub, flag.ContinueOnError)
+	fs := flag.NewFlagSet("studio "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
-	id := fs.String("id", "", "cove/actor id")
+	id := fs.String("id", "", "studio/actor id")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
-	role := fs.String("role", "", "role to raise the cove for")
+	role := fs.String("role", "", "role to raise the studio for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
 	activity := fs.String("activity", "", "reported activity: running|waiting|blocked|done (status only)")
@@ -873,7 +883,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-jam cove:", err)
+		fmt.Fprintln(stderr, "at-jam studio:", err)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -881,14 +891,14 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	switch sub {
 	case "raise":
 		if *id == "" || *role == "" {
-			fmt.Fprintln(stderr, "at-jam cove raise: --id and --role are required")
+			fmt.Fprintln(stderr, "at-jam studio raise: --id and --role are required")
 			return 2
 		}
 		var prompt string
 		if *promptFile != "" {
 			b, err := os.ReadFile(*promptFile)
 			if err != nil {
-				fmt.Fprintln(stderr, "at-jam cove raise: --prompt-file:", err)
+				fmt.Fprintln(stderr, "at-jam studio raise: --prompt-file:", err)
 				return 1
 			}
 			prompt = string(b)
@@ -911,7 +921,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	case "status":
 		if *id == "" || *activity == "" {
-			fmt.Fprintln(stderr, "at-jam cove status: --id and --activity are required")
+			fmt.Fprintln(stderr, "at-jam studio status: --id and --activity are required")
 			return 2
 		}
 		if err := c.ReportCoveStatus(*id, *activity); err != nil {
@@ -925,7 +935,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			name = pos[0]
 		}
 		if name == "" {
-			fmt.Fprintln(stderr, "at-jam cove teardown: --id (or a positional id) is required")
+			fmt.Fprintln(stderr, "at-jam studio teardown: --id (or a positional id) is required")
 			return 2
 		}
 		if err := c.TeardownCove(name); err != nil {
@@ -934,7 +944,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, "tore down", name)
 	default:
-		fmt.Fprintln(stderr, "at-jam cove: unknown subcommand", sub)
+		fmt.Fprintln(stderr, "at-jam studio: unknown subcommand", sub)
 		return 2
 	}
 	return 0
@@ -1550,7 +1560,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if intercomLog != nil {
 			inbox = intercomLog
 		} else {
-			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
+			log.Warn("harbor wake-on: intercom-log not configured — studios will not wake on replies (teardown/pause only)")
 		}
 		wcfg := cfg.wakeSettings()
 		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)

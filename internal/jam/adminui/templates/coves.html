@@ -1,13 +1,13 @@
 {{define "content"}}
-<h1>Coves</h1>
+<h1>Studios</h1>
 {{if .CanEdit}}
 <form hx-post="/ui/coves" hx-target="#coves" hx-swap="outerHTML">
-  <input name="id" placeholder="cove id" required>
+  <input name="id" placeholder="studio id" required>
   <input name="project" placeholder="project (default)">
   <input name="role" placeholder="role" required>
   <input name="unit" placeholder="unit (optional)">
   <textarea name="prompt" placeholder="workload prompt (optional)"></textarea>
-  <button type="submit">Raise cove</button>
+  <button type="submit">Raise studio</button>
 </form>
 {{end}}
 {{template "coves-table" .}}
@@ -29,7 +29,7 @@
           hx-confirm="Tear down {{.ID}}?">Teardown</button></td>{{end}}
     </tr>
     {{else}}
-    <tr><td colspan="{{if .CanEdit}}10{{else}}9{{end}}" class="empty">No coves.</td></tr>
+    <tr><td colspan="{{if .CanEdit}}10{{else}}9{{end}}" class="empty">No studios.</td></tr>
     {{end}}
   </tbody>
 </table>

@@ -56,7 +56,7 @@ five pillars), see the design history:
    registry ([coves.md](coves.md)).
 
 Every admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
-`revoke`, `kit`, `cove`, `session`, `standing`) is a thin client of the running harbor's admin API: it takes
+`revoke`, `kit`, `studio`, `session`, `standing`) is a thin client of the running harbor's admin API: it takes
 `--app`/`--admin-url` to pick the target and `--token` (or a cached login) to
 authenticate. That client story lives in [operators.md](operators.md); the
 per-verb detail lives in the three admin docs above.

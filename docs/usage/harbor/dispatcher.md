@@ -11,7 +11,7 @@ updated: 2026-09-26
 
 The **resident dispatcher** is an always-on loop inside `at-jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
-to `at-jam cove raise` ([coves.md](coves.md)). Enable it with a
+to `at-jam studio raise` ([coves.md](coves.md)). Enable it with a
 `runtime.requisitioner` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
 

@@ -743,12 +743,12 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCoveCommandsRoundTrip exercises the `cove` verb group (raise|list|status|
+// TestStudioCommandsRoundTrip exercises the `studio` verb group (raise|list|status|
 // teardown) end to end through the CLI entrypoint. Unlike the other CLI round
-// trips, cove's mutation routes need a live Supervisor (a nil sup 503s), so
+// trips, studio's mutation routes need a live Supervisor (a nil sup 503s), so
 // this test wires one with a fake Launcher. It also pins down the "never
-// print the identity token" constraint on `cove raise`.
-func TestCoveCommandsRoundTrip(t *testing.T) {
+// print the identity token" constraint on `studio raise`.
+func TestStudioCommandsRoundTrip(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err := store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
@@ -761,83 +761,83 @@ func TestCoveCommandsRoundTrip(t *testing.T) {
 
 	var out, errb bytes.Buffer
 
-	// cove raise
+	// studio raise
 	out.Reset()
 	errb.Reset()
 	if code := run([]string{
-		"cove", "raise", "--admin-url", ts.URL, "--id", "w1", "--role", "guest", "--unit", "AET-1",
+		"studio", "raise", "--admin-url", ts.URL, "--id", "w1", "--role", "guest", "--unit", "AET-1",
 	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove raise: exit=%d stderr=%s", code, errb.String())
+		t.Fatalf("studio raise: exit=%d stderr=%s", code, errb.String())
 	}
 	// Only id+phase may be printed — proves the minted identity token never
 	// reaches stdout.
 	if out.String() != "raised w1 (phase=live)\n" {
-		t.Fatalf("cove raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
+		t.Fatalf("studio raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
 	}
 
-	// cove list reflects the raised cove
+	// studio list reflects the raised cove
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove list: exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("studio list: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "w1") || !strings.Contains(out.String(), "role=guest") || !strings.Contains(out.String(), "phase=live") {
-		t.Fatalf("cove list output missing expected fields:\n%s", out.String())
+		t.Fatalf("studio list output missing expected fields:\n%s", out.String())
 	}
 
-	// cove status
+	// studio status
 	out.Reset()
 	errb.Reset()
 	if code := run([]string{
-		"cove", "status", "--admin-url", ts.URL, "--id", "w1", "--activity", "waiting",
+		"studio", "status", "--admin-url", ts.URL, "--id", "w1", "--activity", "waiting",
 	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove status: exit=%d stderr=%s", code, errb.String())
+		t.Fatalf("studio status: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "reported w1 activity=waiting") {
-		t.Fatalf("cove status output missing expected text:\n%s", out.String())
+		t.Fatalf("studio status output missing expected text:\n%s", out.String())
 	}
 
-	// cove list reflects the reported activity
+	// studio list reflects the reported activity
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove list (after status): exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("studio list (after status): exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "activity=waiting") {
-		t.Fatalf("cove list output missing updated activity:\n%s", out.String())
+		t.Fatalf("studio list output missing updated activity:\n%s", out.String())
 	}
 
-	// cove teardown
+	// studio teardown
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "teardown", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove teardown: exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"studio", "teardown", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("studio teardown: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "tore down w1") {
-		t.Fatalf("cove teardown output missing expected text:\n%s", out.String())
+		t.Fatalf("studio teardown output missing expected text:\n%s", out.String())
 	}
 
-	// cove list no longer shows the torn-down cove
+	// studio list no longer shows the torn-down cove
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("cove list (after teardown): exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("studio list (after teardown): exit=%d stderr=%s", code, errb.String())
 	}
 	if strings.Contains(out.String(), "w1") {
-		t.Fatalf("cove list still shows torn-down cove:\n%s", out.String())
+		t.Fatalf("studio list still shows torn-down cove:\n%s", out.String())
 	}
 
 	// required-flag checks
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "raise", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
-		t.Fatalf("cove raise (no --role): exit=%d, want 2 (stderr=%s)", code, errb.String())
+	if code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("studio raise (no --role): exit=%d, want 2 (stderr=%s)", code, errb.String())
 	}
 
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"cove", "status", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
-		t.Fatalf("cove status (no --activity): exit=%d, want 2 (stderr=%s)", code, errb.String())
+	if code := run([]string{"studio", "status", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("studio status (no --activity): exit=%d, want 2 (stderr=%s)", code, errb.String())
 	}
 }
 

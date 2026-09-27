@@ -44,7 +44,7 @@ doc that owns the detail; this runbook only owns the **order** and the
    `ready` state and raises one cove per **dispatch-labeled** ticket, bounded by
    the cap. [dispatcher.md](dispatcher.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
-   watch `at-jam cove list`. The kit registry ([kits.md](kits.md)) is **not**
+   watch `at-jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
    required — the launcher raises from `install.json`, not a registered kit.
 
 ## Gotchas (each one cost a real debugging loop)

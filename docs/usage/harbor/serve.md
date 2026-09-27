@@ -174,7 +174,7 @@ fallback for them.
 
 ### The launcher (`runtime.launcher`)
 
-With a `launcher` block, `at-jam cove raise` starts a **real** cove on the Colima
+With a `launcher` block, `at-jam studio raise` starts a **real** cove on the Colima
 backend from the pre-built image named by `install-manifest` (the frozen
 `install.json` an `at-cove install` produced — its `Image` + `ImageDigest`),
 injects the connector + prompt over SSH, and starts `cove-master` in it. The cove

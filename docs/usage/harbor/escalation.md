@@ -164,7 +164,7 @@ every other `at-jam` verb — see [operators.md](operators.md).
   *cove*, so the cove itself needs no signal about escalation state; this is the
   hook for a future model where the cove reacts to its own escalation tier.
 - **Escalation observability** — surfacing a cove's current tier in
-  `at-jam cove list` or the UI is a nice-to-have follow-up, not done yet.
+  `at-jam studio list` or the UI is a nice-to-have follow-up, not done yet.
 
 Design rationale lives in
 [`../../superpowers/specs/2026-09-14-harbor-escalation.md`](../../superpowers/specs/2026-09-14-harbor-escalation.md)

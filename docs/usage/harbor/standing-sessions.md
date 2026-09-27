@@ -99,7 +99,7 @@ cove down. `standing rm` only changes the declaration, so the cove goes away wit
 about one pass (30s). The teardown releases the reservation like any other.
 
 To stop a standing session for good, remove its name. Tearing its cove down by
-hand (`cove teardown`) only restarts it: the next pass raises it again.
+hand (`studio teardown`) only restarts it: the next pass raises it again.
 
 ## Admission
 
@@ -124,5 +124,5 @@ project roster), or it answers `400 no default recipient: pass "to"`
 messages wakes it, and it `read`s the reply. See
 [comms-addressing.md](comms-addressing.md) for the targets and the reply loop.
 
-A standing cove also appears in `cove list`. Its Instance records `name` and
+A standing cove also appears in `studio list`. Its Instance records `name` and
 `session_kind: standing`.

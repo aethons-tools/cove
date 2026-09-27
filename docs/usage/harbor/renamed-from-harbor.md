@@ -24,6 +24,7 @@ process) that names the old and new name and points here. The aliases are
 | kit `config.yml` `harbor:` block | `jam:` | Yes, with a warning. Setting both is a validation error. |
 | serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host` | Yes, with a warning. Setting both is an error. |
 | serve config `runtime.dispatcher` (the resident dispatcher) | `runtime.requisitioner` (the Requisitioner) | Yes, with a warning. Setting both is an error. The standalone `at-dispatch` keeps its name. |
+| `at-jam cove raise\|list\|status\|teardown` | `at-jam studio raise\|list\|status\|teardown` | Yes, with a warning. The entity is called a **Studio** in the CLI, the admin UI and the docs; ids, admin API routes (`/admin/coves…`, `/ui/coves`), JSON fields, `cove-master` and `.at-cove/` keep "cove". |
 | `just harbor`, `just integration-harbor` | `just jam`, `just integration-jam` | No. |
 | Go package `internal/harbor` | `internal/jam` | No (internal). |
 

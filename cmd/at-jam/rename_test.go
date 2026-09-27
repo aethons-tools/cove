@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/logging"
 )
 
@@ -234,5 +237,51 @@ func TestServeConfigDispatcherAlias(t *testing.T) {
 	if _, err := parseServeConfig([]byte("runtime:\n  requisitioner:\n" + block + "  dispatcher:\n" + block)); err == nil ||
 		!strings.Contains(err.Error(), "requisitioner") || !strings.Contains(err.Error(), "dispatcher") {
 		t.Fatalf("both present must be an error naming both; got %v", err)
+	}
+}
+
+// `at-jam cove …` is the deprecated alias of `at-jam studio …`.
+func TestCoveVerbIsADeprecatedAliasForStudio(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	logging.ResetDeprecations()
+	t.Cleanup(logging.ResetDeprecations)
+	var out, errb bytes.Buffer
+	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("studio list: exit=%d stderr=%s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "deprecated") {
+		t.Fatalf("studio must not warn; stderr=%q", errb.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"cove", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("cove list (alias): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), `at-jam cove`) || !strings.Contains(errb.String(), `at-jam studio`) {
+		t.Fatalf("want a deprecation warning naming at-jam cove → at-jam studio; stderr=%q", errb.String())
+	}
+
+	// A usage error under the alias still names the new verb.
+	errb.Reset()
+	if code := run([]string{"cove"}, getenv, &out, &errb); code != 2 || !strings.Contains(errb.String(), "at-jam studio: expected raise|list|status|teardown") {
+		t.Fatalf("bare cove: exit=%d stderr=%q", code, errb.String())
+	}
+}
+
+func TestHelpListsStudioNotCove(t *testing.T) {
+	var out, errb bytes.Buffer
+	run([]string{"help"}, func(string) string { return "" }, &out, &errb)
+	help := out.String()
+	if !strings.Contains(help, "studio") || !strings.Contains(help, "manage studios") {
+		t.Fatalf("help must list the studio verb; got:\n%s", help)
+	}
+	if !strings.Contains(help, "deprecated alias for studio") {
+		t.Fatalf("help should mark cove as a deprecated alias; got:\n%s", help)
 	}
 }

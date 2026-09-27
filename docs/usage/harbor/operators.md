@@ -10,7 +10,7 @@ updated: 2026-09-13
 # Operator sign-in & the admin client
 
 Every `at-jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`,
-`enroll`, `revoke`, `kit`, `cove`) is a client of a running harbor's admin API. This doc
+`enroll`, `revoke`, `kit`, `studio`) is a client of a running harbor's admin API. This doc
 covers how that client authenticates and how one machine targets several harbors.
 
 By default the admin API is **loopback-only** — no login required; the verbs just
