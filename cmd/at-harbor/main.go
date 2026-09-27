@@ -25,6 +25,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
+	"github.com/aethons-tools/cove/internal/allocator"
+	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
@@ -45,6 +47,7 @@ import (
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -70,6 +73,9 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
+			{Name: "standing", Brief: "declare, list or dismiss a role's named standing sessions (add|list|rm) via the admin API", Run: cmdStanding},
+			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
+			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -368,6 +374,12 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
+	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (dispatcher) sessions (0 = unset: the dispatcher's max-concurrent applies)")
+	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
+	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
+	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
+	nagEvery := fs.Duration("nag-every", 0, "then re-nag the owner this often (0 = default 24h)")
+	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -384,7 +396,22 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --name is required")
 			return 2
 		}
-		r := harbor.Role{Name: *name, Kit: *kitName, Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl}}
+		if *maxEphemeral < 0 || *maxPersonal < 0 || *maxPersonalPerOwner < 0 {
+			fmt.Fprintln(stderr, "at-harbor role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
+			return 2
+		}
+		if *idleAfter < 0 || *nagEvery < 0 || *reclaimAfter < 0 {
+			fmt.Fprintln(stderr, "at-harbor role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
+			return 2
+		}
+		r := harbor.Role{
+			Name: *name, Kit: *kitName,
+			Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Allocation: harbor.RoleAllocation{
+				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
+				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
+			},
+		}
 		if err := c.PutRole(*project, r); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -397,7 +424,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -441,6 +468,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
 	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
 	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
+	login := fs.String("login", "", "link the human to their admin login: the operator identity (OIDC sub, or \"local\" on loopback) (add-human)")
 	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
@@ -470,7 +498,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			profiles = append(profiles, harbor.DeliveryProfile{Service: svc, Address: addr})
 		}
-		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Delivery: profiles}); err != nil {
+		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -496,7 +524,11 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, h := range rr.Humans {
-			fmt.Fprintf(stdout, "human\t%s\thandle=%s\n", h.Name, h.Handle)
+			line := fmt.Sprintf("human\t%s\thandle=%s", h.Name, h.Handle)
+			if h.Login != "" {
+				line += "\tlogin=" + h.Login
+			}
+			fmt.Fprintln(stdout, line)
 		}
 		for _, ch := range rr.Channels {
 			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)
@@ -907,6 +939,256 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// cmdSession requests, lists and releases the caller's personal sessions. The
+// caller is the roster human linked (`project roster add-human --login`) to the
+// operator identity the admin API authenticates.
+func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor session: expected request|list|release")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("session "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role to request a personal session of (request only)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor session:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "request":
+		if *role == "" {
+			fmt.Fprintln(stderr, "at-harbor session request: --role is required")
+			return 2
+		}
+		var prompt string
+		if *promptFile != "" {
+			b, err := os.ReadFile(*promptFile)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-harbor session request: --prompt-file:", err)
+				return 1
+			}
+			prompt = string(b)
+		}
+		res, err := c.RequestPersonalSession(*project, *role, prompt)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, res.ID)
+	case "list":
+		sessions, err := c.ListPersonalSessions(*project)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, s := range sessions {
+			fmt.Fprintf(stdout, "%s\trole=%s\tphase=%s\tactivity=%s\traised=%s\n",
+				s.ID, s.Role, s.Phase, s.Activity, s.RaisedAt.Format(time.RFC3339))
+		}
+	case "release":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor session release: expected one session id")
+			return 2
+		}
+		if err := c.ReleasePersonalSession(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "released", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor session: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// cmdStanding manages a role's standing-session declarations: harbor keeps one
+// cove running per declared name, restarts it if it dies, and tears it down once
+// the name is removed.
+func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor standing: expected add|list|rm")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role the standing session belongs to")
+	name := fs.String("name", "", "standing session name, unique within the role (add only)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor standing:", err)
+		return 2
+	}
+	if *role == "" && (sub == "add" || sub == "list" || sub == "rm") {
+		fmt.Fprintf(stderr, "at-harbor standing %s: --role is required\n", sub)
+		return 2
+	}
+	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "add":
+		if *name == "" || *promptFile == "" {
+			fmt.Fprintln(stderr, "at-harbor standing add: --name and --prompt-file are required")
+			return 2
+		}
+		b, err := os.ReadFile(*promptFile)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor standing add: --prompt-file:", err)
+			return 1
+		}
+		if err := c.AddStanding(proj, *role, harbor.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, harbor.StandingActorID(proj, *role, *name))
+	case "list":
+		list, err := c.ListStanding(proj, *role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, s := range list {
+			fmt.Fprintf(stdout, "%s\tid=%s\n", s.Name, harbor.StandingActorID(proj, *role, s.Name))
+		}
+	case "rm":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor standing rm: expected one standing session name")
+			return 2
+		}
+		if err := c.RemoveStanding(proj, *role, pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor standing: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// egressState renders a role's egress policy for listings: "kit" (no policy:
+// the kit's default list), "none" (set but empty) or the comma-joined list.
+func egressState(p *harbor.EgressPolicy) string {
+	switch {
+	case p == nil:
+		return "kit"
+	case len(p.Domains) == 0:
+		return "none"
+	default:
+		return strings.Join(p.Domains, ",")
+	}
+}
+
+// cmdEgress manages a role's raw-egress policy: the list harbor pushes into each
+// cove of the role at raise, replacing the kit's policy list within the kit's
+// ceiling. A change takes effect at the role's next raise.
+func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor egress: expected set|show|clear")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role whose egress policy to manage")
+	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor egress:", err)
+		return 2
+	}
+	switch sub {
+	case "set", "show", "clear":
+	default:
+		fmt.Fprintln(stderr, "at-harbor egress: unknown subcommand", sub)
+		return 2
+	}
+	if *role == "" {
+		fmt.Fprintf(stderr, "at-harbor egress %s: --role is required\n", sub)
+		return 2
+	}
+	var domains []string
+	switch {
+	case sub == "set" && *none && len(pos) > 0:
+		fmt.Fprintln(stderr, "at-harbor egress set: give domains or --none, not both")
+		return 2
+	case sub == "set" && !*none:
+		for _, d := range strings.Split(strings.Join(pos, ","), ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				domains = append(domains, d)
+			}
+		}
+		if len(domains) == 0 {
+			fmt.Fprintln(stderr, "at-harbor egress set: expected a comma-separated domain list, or --none for an empty policy")
+			return 2
+		}
+	case sub != "set" && len(pos) > 0:
+		fmt.Fprintf(stderr, "at-harbor egress %s: unexpected arguments\n", sub)
+		return 2
+	}
+	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "set":
+		if err := c.SetEgress(proj, *role, domains); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "set egress policy for %s/%s; applies at the next raise\n", proj, *role)
+	case "show":
+		v, err := c.ShowEgress(proj, *role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		switch {
+		case !v.Managed:
+			fmt.Fprintln(stdout, "kit default")
+		case len(v.Domains) == 0:
+			fmt.Fprintln(stdout, "none (nothing beyond the sealed base and the kit's infra domains)")
+		default:
+			for _, d := range v.Domains {
+				fmt.Fprintln(stdout, d)
+			}
+		}
+	case "clear":
+		if err := c.ClearEgress(proj, *role); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); applies at the next raise\n", proj, *role)
+	}
+	return 0
+}
+
 func cmdGrant(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return grantCommon(args, stdout, stderr, false)
 }
@@ -1001,6 +1283,11 @@ func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liven
 func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
+// ApplyEgress is a no-op: there is no cove to police (raise ignores egress too).
+func (placeholderLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
+
 // linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
 // engine's ticket-comment capability). It exists here, rather than in
 // internal/harbor, so harbor core never imports internal/dispatch/linear or
@@ -1062,6 +1349,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := cfg.validateDiscord(); err != nil {
+		fmt.Fprintln(stderr, "at-harbor:", err)
+		return 1
+	}
+	if err := cfg.validateWake(); err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
@@ -1131,6 +1422,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			HarborHost: lc.HarborHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
+			Log: log,
 		})
 		log.Info("harbor launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
 	}
@@ -1176,12 +1468,136 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sup.SetTailReader(intercomLog)
 	}
 
-	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below.
-	// It defaults to the broker alone; when a tracker is configured it gains a
-	// /squawks route sharing the same *linear.Client as the resident
-	// dispatcher (built once, used for both).
-	var httpHandler http.Handler = broker
-	if dc := cfg.Runtime.Dispatcher; dc != nil {
+	// The Allocator is harbor's capacity authority, built whenever harbor serves
+	// (not only with a dispatcher): it admits the dispatcher's ephemeral raises and
+	// operators' personal-session requests against
+	// the roster's per-(project, role) policy (`role add --max-ephemeral
+	// --max-personal --max-personal-per-owner`), read live on each grant. The
+	// dispatcher's max-concurrent is the ephemeral fallback for its own
+	// (project, role), seeded only when a dispatcher is configured.
+	//
+	// Ledger cutover (slice 4): with Postgres the allocation event store is the
+	// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-caps)
+	// scoped per-(project, role) Outstanding, and teardown/compensation release the
+	// slot. With the file store there is no pool ⇒ ledger is nil ⇒ ephemeral Grant
+	// falls back to the registry live count (global, slice-1 behavior), personal
+	// Grant fails with ErrNeedsLedger, and RecordRelease is a no-op
+	// (SetReleaser(alloc) stays a harmless no-op).
+	var ledger allocator.Ledger
+	if pgPool != nil {
+		as, err := allocpg.New(context.Background(), pgPool, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		ledger = as
+	}
+	alloc := allocator.New(harbor.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
+	alloc.SetLogger(log)
+	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
+	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
+	// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
+	// resident sweep periodically releases outstanding ephemeral and standing reservations older
+	// than a grace window with no live instance, so the ledger self-heals.
+	// Postgres-only (nil ledger ⇒ Sweep is a no-op, so no loop). Sweep often (a
+	// leaked slot reduces capacity until reclaimed) with a grace window comfortably
+	// beyond a Colima raise so an in-flight raise — instance not yet in the
+	// registry — is never swept.
+	if ledger != nil {
+		const (
+			allocSweepInterval = 1 * time.Minute
+			allocSweepGrace    = 5 * time.Minute
+		)
+		go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
+		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
+	}
+
+	// Standing reconciler: keeps one live cove per standing session declared on a
+	// role (`at-harbor standing add`) — raises a missing or dead one under its
+	// per-name actor id (admitted by the Allocator, released on a failed raise,
+	// with per-name backoff) and tears down one whose name was removed. Resident
+	// whenever harbor serves; with no declarations a tick does nothing.
+	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
+	stdg.SetActors(st) // clear a standing identity left over from an interrupted raise
+	go stdg.Run(context.Background())
+	log.Info("harbor standing reconciler: resident", "interval", standing.DefaultInterval)
+
+	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
+	// the Discord relay — runs whenever harbor has an intercom log, dispatcher or
+	// not: a personal session converses with its owner over it. The tracker, the
+	// dispatcher, the escalation engine and the Linear relay need the tracker, so
+	// they stay in the dispatcher block below.
+	dc := cfg.Runtime.Dispatcher
+
+	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below:
+	// the broker, plus /squawks and /escalate with an intercom log or a dispatcher.
+	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, log)
+
+	// Wake-on engine: watches Waiting instances and Wakes them over the live
+	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
+	// in the message Log addressed to them, pauses them past the warm-timeout,
+	// tears down non-personal ones past wait-max, and runs the personal-session
+	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
+	// of the process. Settings: runtime.wake > runtime.dispatcher > defaults.
+	if intercomLog != nil || dc != nil {
+		// Pass intercomLog as the Inbox only when it's genuinely non-nil (a plain
+		// nil check — no typed-nil hazard).
+		var inbox wakeon.Inbox
+		if intercomLog != nil {
+			inbox = intercomLog
+		} else {
+			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
+		}
+		wcfg := cfg.wakeSettings()
+		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)
+		// Personal-session idle ladder: nag the owner past the role's idle-after
+		// (squawks sent as the cove, delivered by the relay), optionally reclaim
+		// past reclaim-after. No intercom log → no nags, reclaim still runs.
+		var nagger wakeon.Nagger
+		if intercomLog != nil {
+			nagger = intercomNagger{log: intercomLog, roster: st}
+		}
+		eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
+		go eng.Run(context.Background())
+		log.Info("harbor wake-on engine: resident", "wait-max", wcfg.MaxWait)
+	}
+
+	// Relay state shared by the Linear and Discord relay engines (one cursors
+	// file, one markers file, one directory). Every directory field is set
+	// before any engine starts.
+	var (
+		relayCursors *fileCursors
+		relayMarkers *fileMarkers
+		discordTok   string
+	)
+	dir := &directory{store: st}
+	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
+	if intercomLog != nil && (dc != nil || runDiscord) {
+		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
+			return 1
+		}
+		if relayMarkers, err = newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
+			return 1
+		}
+	}
+	var discordReceipts *fileReceipts
+	if runDiscord {
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{cfg.Runtime.Discord.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
+			return 1
+		}
+		discordTok = tokEnv["AT_DISCORD_BOT_TOKEN"]
+		if discordReceipts, err = newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json")); err != nil {
+			fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
+			return 1
+		}
+		dir.receipts = discordReceipts // wires directory.routeDiscord (COV-183): reply→cove lookup
+	}
+
+	if dc != nil {
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
@@ -1197,50 +1613,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
-		disp := dispatcher.New(tracker, sup, st, dispatcher.Config{
-			Role: dc.Role, Project: dc.Project, MaxConcurrent: dc.MaxConcurrent, PollInterval: poll,
+		// The dispatcher's (project, role), normalized the same way as the
+		// Allocator's fallback (see dispatcherProject).
+		project := dispatcherProject(dc)
+		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
+			log.Info("harbor allocator: roster max-ephemeral overrides dispatcher max-concurrent",
+				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
+		}
+		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
+			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
 		go disp.Run(context.Background())
 		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Pass intercomLog as both the reader and the appender only when it's
-		// genuinely non-nil: it is an intercom.Store interface value assigned only
-		// to a real backend (see intercomLog above) or left as a true nil
-		// interface, so this guard is a plain nil check. Unconfigured → nil
-		// reader+appender → GET/POST return a clean 503.
-		var squawksH *harbor.SquawksHandler
-		if intercomLog != nil {
-			squawksH = harbor.NewSquawksHandler(st, intercomLog, intercomLog, log)
-		} else {
-			squawksH = harbor.NewSquawksHandler(st, nil, nil, log)
-		}
-		escH := harbor.NewEscalateHandler(st, sup, log)
-		httpHandler = squawksMux(squawksH, escH, broker)
-		log.Info("harbor messages: mounted", "path", "/squawks")
-		log.Info("harbor escalate: mounted", "path", "/escalate")
-
-		// Wake-on engine: watches Waiting instances and Wakes them over the
-		// live Attach stream (rsrv, the ControlSink) when an external-origin
-		// reply lands in the message Log addressed to them, or tears down
-		// past max-wait. Resident for the lifetime of the process.
-		wpoll, _ := time.ParseDuration(dc.WakePollInterval) // "" or invalid → 0 → engine default
-		wmax, _ := time.ParseDuration(dc.WaitMax)           // "" or invalid → 0 → engine default
-		warm, _ := time.ParseDuration(dc.WarmTimeout)       // "" or invalid → 0 → engine default
-		// Pass intercomLog as the Inbox only when it's genuinely non-nil (same
-		// plain nil check as the squawksH wiring above — no typed-nil hazard).
-		var inbox wakeon.Inbox
-		if intercomLog != nil {
-			inbox = intercomLog
-		} else {
-			log.Warn("harbor wake-on: intercom-log not configured — coves will not wake on replies (teardown/pause only)")
-		}
-		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wakeon.Config{PollInterval: wpoll, MaxWait: wmax, WarmTimeout: warm}, log)
-		go eng.Run(context.Background())
-		log.Info("harbor wake-on engine: resident", "wait-max", wmax)
-
-		// Escalation engine: while a managed cove is Waiting, pings ordered
-		// human tiers of its Project escalation policy on per-tier timers by
-		// @-mentioning them on the cove's own ticket. Reply-detection, waking,
+		// Escalation engine: while a managed cove is Waiting on a ticket, pings
+		// ordered human tiers of its Project escalation policy on per-tier timers
+		// by @-mentioning them on the cove's own ticket. Reply-detection, waking,
 		// and max-wait teardown stay wake-on's job (above); the two engines
 		// share only the Instance.Activity==Waiting gate. Resident for the
 		// lifetime of the process.
@@ -1251,29 +1639,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 		// relay linear engine: polls the team-scoped comments feed and
 		// appends inbound human replies to the intercomLog opened above
-		// (ingress), and now also delivers outbound Log messages to Linear
-		// (egress, COV-176 Task 4) — the old count-based wake-on/escalation
-		// above are untouched; this makes the Log the single source of truth
-		// for both directions. Nil-guarded on intercomLog: without a
-		// configured intercom-log there is nothing to ingest into or deliver
-		// from, so no engine runs.
+		// (ingress), and delivers outbound Log messages to Linear (egress,
+		// COV-176 Task 4) — the Log is the single source of truth for both
+		// directions. Nil-guarded on intercomLog: without a configured
+		// intercom-log there is nothing to ingest into or deliver from, so no
+		// engine runs.
 		if intercomLog != nil {
 			self, err := tracker.Viewer(context.Background())
 			if err != nil {
 				log.Warn("harbor relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
+			dir.project = firstNonEmpty(dc.Project, harbor.DefaultProject)
+			dir.selfIdentity = self
 			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
-			dir := &directory{store: st, project: firstNonEmpty(dc.Project, harbor.DefaultProject), selfIdentity: self}
-			cur, err := newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json"))
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: relay cursors:", err)
-				return 1
-			}
-			markers, err := newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json"))
-			if err != nil {
-				fmt.Fprintln(stderr, "at-harbor: relay markers:", err)
-				return 1
-			}
 			// Seed once: skip everything the 1a dual-write already delivered live,
 			// so turning egress on never re-posts the Log's shadow history.
 			// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
@@ -1282,56 +1660,43 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// is zero, which covers a pre-COV-184 marker file (persisted the
 			// low-water as LastMsg, a string) upgrading in place — see
 			// fileMarkers.needsSeed.
-			if markers.needsSeed("linear") {
-				if err := markers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if relayMarkers.needsSeed("linear") {
+				if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
 					fmt.Fprintln(stderr, "at-harbor: relay egress seed:", err)
 					return 1
 				}
 			}
-			eng := relay.New(surf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
+			eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 			go eng.Run(context.Background())
 			log.Info("harbor relay (linear): resident, egress ON", "self", self != "")
+		}
+	}
 
-			// relay discord engine: a second resident engine over the same Log,
-			// markers file, cursors, and directory — delivers outbound Log messages
-			// to Discord (egress) AND polls each project's discord inbox channels
-			// for human replies, routing a reply back to the cove it answers via
-			// the receipt store (ingress). The engine keys EgressMark by Service(),
-			// so "linear" and "discord" marks live side by side in the one markers
-			// file. Gated on runtime.discord; unset → no Discord engine, unchanged
-			// from before this block existed.
-			if dcfg := cfg.Runtime.Discord; dcfg != nil {
-				tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dcfg.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
-				if err != nil {
-					fmt.Fprintln(stderr, "at-harbor: discord bot-token:", err)
-					return 1
-				}
-				discordTok := tokEnv["AT_DISCORD_BOT_TOKEN"]
-				receipts, err := newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json"))
-				if err != nil {
-					fmt.Fprintln(stderr, "at-harbor: relay receipts:", err)
-					return 1
-				}
-				dir.receipts = receipts // wires directory.routeDiscord (COV-183): reply→cove lookup
-				dsurf := &discordSurface{
-					dial: func(channels []string) discordClient {
-						return switchboard.NewRESTClient(discordTok, channels)
-					},
-					channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
-					receipts:    receipts,
-					log:         log,
-				}
-				if markers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-					if err := markers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
-						fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
-						return 1
-					}
-				}
-				deng := relay.New(dsurf, intercomLog, markers, cur, dir, relay.Config{EgressEnabled: true}, log)
-				go deng.Run(context.Background())
-				log.Info("harbor relay (discord): resident, egress ON")
+	// relay discord engine: a resident engine over the same Log, markers file,
+	// cursors, and directory as the Linear one — delivers outbound Log messages
+	// to Discord (egress) AND polls every discord project's inbox channels for
+	// human replies, routing a reply back to the cove it answers via the receipt
+	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
+	// "discord" marks live side by side in the one markers file. Gated on an
+	// intercom log and runtime.discord; no dispatcher needed.
+	if runDiscord {
+		dsurf := &discordSurface{
+			dial: func(channels []string) discordClient {
+				return switchboard.NewRESTClient(discordTok, channels)
+			},
+			channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
+			receipts:    discordReceipts,
+			log:         log,
+		}
+		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
+			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+				fmt.Fprintln(stderr, "at-harbor: discord egress seed:", err)
+				return 1
 			}
 		}
+		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		go deng.Run(context.Background())
+		log.Info("harbor relay (discord): resident, egress ON")
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
@@ -1395,7 +1760,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := harbor.NewAdminHandler(st, sup, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := harbor.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

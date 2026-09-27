@@ -595,3 +595,50 @@ func TestMigrationLeavesEmptyRoster(t *testing.T) {
 		t.Fatal("expected no roster for absent project")
 	}
 }
+
+// A role's egress policy (nil, set-but-empty, set) survives a reload from disk:
+// roles are JSON docs, so no migration is needed.
+func TestFileStoreRoleEgressPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ids.json")
+	s, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, eg := range map[string]*EgressPolicy{"kit": nil, "none": {Domains: []string{}}, "set": {Domains: []string{"a.com"}}} {
+		if err := s.PutRole("acme", Role{Name: name, Scope: Scope{Egress: eg}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if r, _ := s2.GetRole("acme", "kit"); r.Scope.Egress != nil {
+		t.Fatalf("kit default after reload = %+v, want nil", r.Scope.Egress)
+	}
+	if r, _ := s2.GetRole("acme", "none"); r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 0 {
+		t.Fatalf("empty policy after reload = %+v, want set and empty", r.Scope.Egress)
+	}
+	if r, _ := s2.GetRole("acme", "set"); r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 1 || r.Scope.Egress.Domains[0] != "a.com" {
+		t.Fatalf("set policy after reload = %+v", r.Scope.Egress)
+	}
+}
+
+// An instance's applied-egress fingerprint and failure count survive a reload.
+func TestFileStoreInstanceEgressPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ids.json")
+	s, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutInstance(Instance{ActorID: "w1", Phase: PhaseLive, Egress: "none", EgressFailures: 1}); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got, ok := s2.GetInstance("w1"); !ok || got.Egress != "none" || got.EgressFailures != 1 {
+		t.Fatalf("after reload = %+v, %v", got, ok)
+	}
+}

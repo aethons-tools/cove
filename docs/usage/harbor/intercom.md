@@ -1,10 +1,10 @@
 ---
 summary: The intercom MCP — harbor-brokered read/commit/send/list_targets/escalate tools a managed cove's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in harbor; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
-read_when: You want a raised cove's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating the harbor `/squawks` endpoint and its cove-side MCP delivery.
+read_when: You want a raised cove's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating the harbor `/squawks` endpoint and its cove-side MCP delivery, tuning wake-on (`runtime.wake`), or running the intercom on a harbor with no dispatcher.
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
-prereqs: coves.md for the managed cove a squawk is scoped to; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
+prereqs: coves.md for the managed cove a squawk is scoped to; personal-sessions.md for a ticketless cove that talks to its owner; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 # The intercom MCP
@@ -14,7 +14,7 @@ A managed cove's agent gets **harbor-brokered** tools — `read`, `send`,
 
 ## What the tools do
 
-- **`send(text, to?)`** — appends the squawk to harbor's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it lands on the cove's own ticket (the original, unchanged addressing). With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
+- **`send(text, to?)`** — appends the squawk to harbor's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the cove's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither (e.g. a [standing session](standing-sessions.md#messaging)), the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
 - **`read(anchor?, id?, dir?, limit?)`** — reads the cove's inbox **as a queue**: by default the next unprocessed squawks after the cove's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the cove's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the cove has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
@@ -34,15 +34,15 @@ The cove's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/clau
 
 ## Enabling it
 
-`/squawks` is mounted when harbor has a tracker (Linear) configured — it reuses the same Linear client the [dispatcher](dispatcher.md) uses. With no tracker configured, the endpoint is not mounted (and a cove's `read`/`send` calls simply error).
+`/squawks` (and `/escalate`) are mounted whenever harbor has an `intercom-log:` **or** a [dispatcher](dispatcher.md) — the intercom no longer needs a dispatcher, so a [personal session](personal-sessions.md) can converse on a harbor with none. With neither, the endpoints are not mounted (and a cove's `read`/`send` calls simply error). The Linear relay below still needs the dispatcher's tracker; the Discord relay and wake-on do not.
 
 **Outbound is Log→egress (asynchronous, at-least-once).** A `send` appends the squawk to harbor's durable intercom-log and returns `204`; a resident egress loop then delivers it to Linear (≈ the egress poll interval later). An **intercom-log is required** for sends — without one, `POST /squawks` returns `503`. An append failure returns `502` (the append *is* the delivery). The Log entry — visible in the read-only [admin intercom view](ui.md#intercom) — appears as soon as it's appended, ahead of the Linear post landing.
 
 **Read is Log-backed and tracker-independent.** `GET /squawks` returns the cove's **inbox** — the inbound squawks addressed to it (human replies), from harbor's durable intercom-log — not a live Linear query. It returns squawks sent **to** the cove (not the cove's own sent squawks), and reflects the Log from when ingestion began; pre-Log ticket history is not included. Because wake-on only wakes a cove once a reply is in the Log, the reply is always present by the time the cove reads. A read requires a configured intercom-log (none → `503`).
 
-When `intercom-log:` and a tracker are both configured, harbor also runs a resident **relay linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable squawks (the `send` path above) and posts them to Linear, at-least-once per squawk. Both directions are visible in the admin intercom view. **Wake-on (below) now reads replies from this Log**, so `intercom-log:` is required for a Waiting cove to wake on a reply.
+When `intercom-log:` and a dispatcher (its tracker) are both configured, harbor also runs a resident **relay linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable squawks (the `send` path above) and posts them to Linear, at-least-once per squawk. Both directions are visible in the admin intercom view. **Wake-on (below) now reads replies from this Log**, so `intercom-log:` is required for a Waiting cove to wake on a reply.
 
-**Discord runs as a second, independent relay engine, egress AND ingress,** when `intercom-log:` and `runtime.discord.bot-token` are both configured — see [serve.md](serve.md#the-serve-config) for the config block. It shares the same Log, directory, and cursors/markers file as the linear engine above, keyed separately (`EgressMark` is keyed by `Service()`, so `"linear"` and `"discord"` don't collide). On the outbound side it drains the Log's egressable squawks addressed to a discord-project's human DMs or discord roster channels — see [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) for delivery/addressing semantics; on first enable its egress mark is seeded to the Log's tail so turning it on never redelivers the Log's backlog to Discord. On the inbound side it polls each project's Discord inbox channels and routes a human's **reply** (Discord's own reply-to-message feature) back to the cove whose squawk it replies to, appending it to the Log — see [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) for the reply-loop mechanics, the only-a-reply-routes constraint, and the unpruned-receipts caveat. Wake-on (below) picks up a routed Discord reply exactly like a Linear one.
+**Discord runs as a second, independent relay engine, egress AND ingress,** when `intercom-log:` and `runtime.discord.bot-token` are both configured — with or without a dispatcher — see [serve.md](serve.md#the-serve-config) for the config block. It shares the same Log, directory, and cursors/markers file as the linear engine above, keyed separately (`EgressMark` is keyed by `Service()`, so `"linear"` and `"discord"` don't collide). On the outbound side it drains the Log's egressable squawks addressed to a discord-project's human DMs or discord roster channels — see [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) for delivery/addressing semantics; on first enable its egress mark is seeded to the Log's tail so turning it on never redelivers the Log's backlog to Discord. On the inbound side it polls the Discord inbox channels of **every project whose chat service is `discord`** (plus the dispatcher's project, if any) and routes a human's **reply** (Discord's own reply-to-message feature) back to the cove whose squawk it replies to, appending it to the Log — see [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) for the reply-loop mechanics, the only-a-reply-routes constraint, and the unpruned-receipts caveat. Wake-on (below) picks up a routed Discord reply exactly like a Linear one.
 
 > **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. harbor targets the schema captured during development; if it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**. This can't be exercised in an egress-locked build environment.
 
@@ -88,7 +88,14 @@ Activity `waiting` and blocks instead of ending. Harbor's resident **wake-on eng
 watches the cove's ticket and, when a **new comment** (a reply) arrives, **wakes** it
 over the Attach stream; the cove runs its next turn (`claude --continue`), `read`s the
 reply, and resumes. A **`wait-max`** bounds the wait — a cove with no reply within it is
-torn down (no zombies), paused or not.
+torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
+a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
+after every turn and is never torn down for `wait-max` (it is still paused at
+`warm-timeout` and woken on a reply). A personal session instead climbs the
+[idle ladder](personal-sessions.md#the-idle-ladder) — nags to its owner, and an
+optional reclaim. The owner's `keep`/`release` reply to a nag is acted on by harbor
+and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
+A standing session has no owner, so it gets no nags.
 
 While waiting, a cove doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0
@@ -97,16 +104,21 @@ idle cove whose lease-reaping is suspended (see [coves.md](coves.md) for the pha
 chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
 on a subsequent tick once it's reconnected and reporting Live + `waiting` again.
 
-Configure it under `runtime.dispatcher` (it reuses the tracker + Linear client):
+The engine runs whenever harbor has an `intercom-log:` or a dispatcher. Configure it
+under `runtime.wake`:
 
 ```yaml
 runtime:
-  dispatcher:
-    # …role / max-concurrent / linear as before…
-    wake-poll-interval: 15s   # how often harbor checks a waiting cove's ticket (default 15s)
-    wait-max: 24h             # max a cove may wait for a reply before teardown, paused or not (default 30m)
-    warm-timeout: 5m          # how long a waiting cove stays live before it's paused (empty → default 60s)
+  wake:
+    poll-interval: 15s   # how often harbor checks waiting coves for a reply (default 15s)
+    wait-max: 24h        # max a (non-personal) cove may wait before teardown, paused or not (default 30m)
+    warm-timeout: 5m     # how long a waiting cove stays live before it's paused (default 60s)
 ```
+
+Each field resolves independently: **`runtime.wake` > the matching `runtime.dispatcher`
+field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback for
+existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
+at startup; an invalid dispatcher value still falls back to the default.
 
 The wake trigger is **an external-origin squawk addressed to the cove landing in
 the durable squawk Log** after a `WaitSeq` baseline: on entering Waiting the

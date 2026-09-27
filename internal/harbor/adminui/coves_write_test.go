@@ -27,6 +27,9 @@ func (fakeLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Liveness
 }
 func (fakeLauncher) Pause(_ context.Context, _ harbor.Instance) error   { return nil }
 func (fakeLauncher) Unpause(_ context.Context, _ harbor.Instance) error { return nil }
+func (fakeLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 func newSup(t *testing.T, store harbor.Store) *harbor.Supervisor {
 	t.Helper()

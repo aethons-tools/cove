@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/harbor"
 )
@@ -31,13 +33,16 @@ func (aliveLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Livenes
 }
 func (aliveLauncher) Pause(_ context.Context, _ harbor.Instance) error   { return nil }
 func (aliveLauncher) Unpause(_ context.Context, _ harbor.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -67,7 +72,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -104,7 +109,7 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -196,7 +201,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 
 func TestProjectRosterCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -208,9 +213,12 @@ func TestProjectRosterCommands(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{
 		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-		"--name", "alice", "--handle", "alice.h",
+		"--name", "alice", "--handle", "alice.h", "--login", "auth0|abc",
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project roster add-human: exit=%d stderr=%s", code, errb.String())
+	}
+	if hu, ok := harbor.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
+		t.Fatalf("add-human --login did not link alice: %+v,%v", hu, ok)
 	}
 
 	// project roster add-channel
@@ -229,7 +237,7 @@ func TestProjectRosterCommands(t *testing.T) {
 	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project roster list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "human\talice\thandle=alice.h") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
+	if !strings.Contains(out.String(), "human\talice\thandle=alice.h\tlogin=auth0|abc") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
 		t.Fatalf("project roster list output missing expected fields:\n%s", out.String())
 	}
 
@@ -274,6 +282,77 @@ func TestProjectRosterCommands(t *testing.T) {
 	if !strings.Contains(out.String(), "addressing=human:*,channel:eng-help") {
 		t.Fatalf("role list output missing addressing:\n%s", out.String())
 	}
+	// role add --max-ephemeral sets the role's allocation policy; role list shows it
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "worker", "--max-ephemeral", "4",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --max-ephemeral: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "max-ephemeral=4") {
+		t.Fatalf("role list output missing max-ephemeral:\n%s", out.String())
+	}
+	// role add --max-personal / --max-personal-per-owner set the personal caps
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "pair", "--max-personal", "3", "--max-personal-per-owner", "1",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --max-personal: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, ok := store.GetRole("acme", "pair"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
+		t.Fatalf("stored role = %+v,%v", r, ok)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "max-personal=3\tmax-personal-per-owner=1") {
+		t.Fatalf("role list output missing personal caps:\n%s", out.String())
+	}
+	// role add --idle-after / --nag-every / --reclaim-after set the idle ladder
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"role", "add", "--admin-url", ts.URL, "--project", "acme",
+		"--name", "idler", "--idle-after", "1h", "--nag-every", "2h", "--reclaim-after", "72h",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add --idle-after: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, ok := store.GetRole("acme", "idler"); !ok || r.Allocation.IdleAfter != time.Hour || r.Allocation.NagEvery != 2*time.Hour || r.Allocation.ReclaimAfter != 72*time.Hour {
+		t.Fatalf("stored role = %+v,%v", r, ok)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "idle-after=1h0m0s\tnag-every=2h0m0s\treclaim-after=72h0m0s") {
+		t.Fatalf("role list output missing idle settings:\n%s", out.String())
+	}
+	for _, flagName := range []string{"--idle-after", "--nag-every", "--reclaim-after"} {
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1h"}, getenv, &out, &errb); code != 2 {
+			t.Fatalf("role add %s -1h: exit=%d, want 2", flagName, code)
+		}
+	}
+	for _, flagName := range []string{"--max-personal", "--max-personal-per-owner"} {
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1"}, getenv, &out, &errb); code != 2 {
+			t.Fatalf("role add %s -1: exit=%d, want 2", flagName, code)
+		}
+	}
 }
 
 // TestProjectEscalationCommands exercises `project escalation set|list|clear`
@@ -281,7 +360,7 @@ func TestProjectRosterCommands(t *testing.T) {
 // 'targets@timeout' parse and its missing-'@' error.
 func TestProjectEscalationCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -340,7 +419,7 @@ func TestProjectEscalationCommands(t *testing.T) {
 // then clearing just the category and confirming the default survives.
 func TestProjectEscalationCategoryCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -403,7 +482,7 @@ func TestProjectEscalationCategoryCommands(t *testing.T) {
 // set|show|clear` end-to-end through httptest.Server + FileStore.
 func TestProjectChatServiceCommands(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -470,7 +549,7 @@ func TestProjectChatServiceCommands(t *testing.T) {
 // malformed-input errors.
 func TestProjectRosterAddHumanDelivery(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -552,7 +631,7 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 
 func TestKitCommandsRoundTrip(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -675,7 +754,7 @@ func TestCoveCommandsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := harbor.NewAdminHandler(store, sup, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, sup, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -759,5 +838,278 @@ func TestCoveCommandsRoundTrip(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{"cove", "status", "--admin-url", ts.URL, "--id", "w1"}, getenv, &out, &errb); code != 2 {
 		t.Fatalf("cove status (no --activity): exit=%d, want 2 (stderr=%s)", code, errb.String())
+	}
+}
+
+// grantAllSessions is a harbor.SessionAllocator that admits every personal
+// request (the real one needs Postgres).
+type grantAllSessions struct{}
+
+func (grantAllSessions) GrantPersonal(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+func (grantAllSessions) RecordRelease(context.Context, string, string, string) error { return nil }
+
+// TestSessionCommandsRoundTrip exercises `session request|list|release` end to
+// end. The loopback operator is "local", so alice is linked to that login.
+func TestSessionCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	// Personal sessions are delivered over Discord (request-time check).
+	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatService("acme", "discord"); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	h := harbor.NewAdminHandler(store, sup, grantAllSessions{}, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	promptFile := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(promptFile, []byte("pair with me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"session", "request", "--admin-url", ts.URL, "--project", "acme", "--role", "pair", "--prompt-file", promptFile}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("session request: exit=%d stderr=%s", code, errb.String())
+	}
+	id := strings.TrimSpace(out.String())
+	if !strings.HasPrefix(id, "personal-alice-") || strings.ContainsAny(id, " \t\n") {
+		t.Fatalf("session request must print only the session id, got %q", out.String())
+	}
+	if inst, ok := store.GetInstance(id); !ok || inst.Owner != "alice" || inst.SessionKind != "personal" {
+		t.Fatalf("instance = %+v,%v", inst, ok)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"session", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("session list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), id) || !strings.Contains(out.String(), "role=pair") || !strings.Contains(out.String(), "phase=live") {
+		t.Fatalf("session list output:\n%s", out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"session", "release", "--admin-url", ts.URL, id}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("session release: exit=%d stderr=%s", code, errb.String())
+	}
+	if _, ok := store.GetInstance(id); ok {
+		t.Fatal("instance still present after session release")
+	}
+
+	// required-argument checks
+	for _, args := range [][]string{
+		{"session", "request", "--admin-url", ts.URL, "--project", "acme"},
+		{"session", "release", "--admin-url", ts.URL},
+		{"session"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 2 {
+			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
+		}
+	}
+}
+
+// The allocator adapter maps a personal grant onto allocator.Request and
+// translates the no-ledger error to harbor.ErrNeedsLedger.
+func TestPersonalAllocator_NoLedger(t *testing.T) {
+	a := allocator.New(harbor.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2}}, nil)
+	ok, err := personalAllocator{a}.GrantPersonal(context.Background(), "acme", "pair", "personal-alice-1", "alice")
+	if ok || !errors.Is(err, harbor.ErrNeedsLedger) {
+		t.Fatalf("got %v,%v; want harbor.ErrNeedsLedger", ok, err)
+	}
+}
+
+// capturingLedger records the request and caps a grant reaches the ledger with.
+type capturingLedger struct {
+	req  allocator.Request
+	caps allocator.Caps
+}
+
+func (c *capturingLedger) Record(context.Context, allocator.Event) error { return nil }
+func (c *capturingLedger) Grant(_ context.Context, req allocator.Request, caps allocator.Caps) (bool, error) {
+	c.req, c.caps = req, caps
+	return true, nil
+}
+func (c *capturingLedger) OutstandingReservations(context.Context, time.Time) ([]allocator.Reservation, error) {
+	return nil, nil
+}
+
+// With a ledger, the adapter grants a personal-kind reservation owned by the
+// requester against the role's pool and per-owner caps.
+func TestPersonalAllocator_MapsRequest(t *testing.T) {
+	cl := &capturingLedger{}
+	a := allocator.New(harbor.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2, MaxPersonalPerOwner: 1}}, cl)
+	ok, err := personalAllocator{a}.GrantPersonal(context.Background(), "acme", "pair", "personal-alice-1", "alice")
+	if !ok || err != nil {
+		t.Fatalf("got %v,%v", ok, err)
+	}
+	want := allocator.Request{Project: "acme", Role: "pair", ReservationID: "personal-alice-1", Kind: allocator.SessionPersonal, Owner: "alice"}
+	if cl.req != want || cl.caps != (allocator.Caps{Kind: 2, Owner: 1}) {
+		t.Fatalf("ledger saw %+v %+v", cl.req, cl.caps)
+	}
+}
+
+// `standing add|list|rm` declare, list and dismiss a role's standing sessions;
+// the prompt is read from a file host-side, and the role's other fields are kept.
+func TestStandingCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	promptFile := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(promptFile, []byte("review every PR"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "--name", "alice-bot", "--prompt-file", promptFile}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing add: exit=%d stderr=%s", code, errb.String())
+	}
+	r, _ := store.GetRole("acme", "reviewer")
+	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0] != (harbor.StandingSession{Name: "alice-bot", Prompt: "review every PR"}) {
+		t.Fatalf("standing = %+v", r.Allocation.Standing)
+	}
+	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
+		t.Fatalf("role fields not kept: %+v", r)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), harbor.StandingActorID("acme", "reviewer", "alice-bot")) {
+		t.Fatalf("standing list output:\n%s", out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "rm", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing rm: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, _ := store.GetRole("acme", "reviewer"); len(r.Allocation.Standing) != 0 {
+		t.Fatalf("standing after rm = %+v", r.Allocation.Standing)
+	}
+
+	// a server-side refusal (unknown role) exits 1
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "nobody", "--name", "x", "--prompt-file", promptFile}, getenv, &out, &errb); code != 1 {
+		t.Fatalf("add on unknown role: exit=%d, want 1 (stderr=%s)", code, errb.String())
+	}
+
+	// required-argument checks
+	for _, args := range [][]string{
+		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--prompt-file", promptFile},
+		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--name", "x"},
+		{"standing", "add", "--admin-url", ts.URL, "--name", "x", "--prompt-file", promptFile},
+		{"standing", "rm", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"standing", "list", "--admin-url", ts.URL},
+		{"standing"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 2 {
+			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
+		}
+	}
+}
+
+// `egress set|show|clear` manage a role's egress policy; `role list` shows it
+// (kit default, none, or the list), and the role's other fields are kept.
+func TestEgressCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	runOK := func(args ...string) string {
+		t.Helper()
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit=%d stderr=%s", args, code, errb.String())
+		}
+		return out.String()
+	}
+	flags := []string{"--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}
+
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, "kit default") {
+		t.Fatalf("show (unset) = %q, want kit default", got)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=kit") {
+		t.Fatalf("role list (unset) = %q, want egress=kit", got)
+	}
+
+	runOK(append(append([]string{"egress", "set"}, flags...), "A.com, .b.org")...)
+	r, _ := store.GetRole("acme", "reviewer")
+	if r.Scope.Egress == nil || strings.Join(r.Scope.Egress.Domains, ",") != ".b.org,a.com" {
+		t.Fatalf("egress = %+v", r.Scope.Egress)
+	}
+	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
+		t.Fatalf("role fields not kept: %+v", r)
+	}
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, ".b.org") || !strings.Contains(got, "a.com") {
+		t.Fatalf("show = %q", got)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=.b.org,a.com") {
+		t.Fatalf("role list = %q, want egress=.b.org,a.com", got)
+	}
+
+	runOK(append([]string{"egress", "set", "--none"}, flags...)...)
+	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 0 {
+		t.Fatalf("--none = %+v, want set and empty", r.Scope.Egress)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=none") {
+		t.Fatalf("role list = %q, want egress=none", got)
+	}
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, "none") {
+		t.Fatalf("show (empty) = %q, want none", got)
+	}
+
+	runOK(append([]string{"egress", "clear"}, flags...)...)
+	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress != nil {
+		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
+	}
+
+	// a server-side refusal (bad domain) exits 1 and names the domain
+	out.Reset()
+	errb.Reset()
+	if code := run(append(append([]string{"egress", "set"}, flags...), "https://evil.com"), getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "https://evil.com") {
+		t.Fatalf("bad domain: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// usage errors exit 2
+	for _, args := range [][]string{
+		{"egress"},
+		{"egress", "bogus", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"egress", "show", "--admin-url", ts.URL},
+		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer"},                    // neither list nor --none
+		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer", "--none", "a.com"}, // both
+		{"egress", "clear", "--admin-url", ts.URL, "--role", "reviewer", "extra"},         // stray arg
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 2 {
+			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
+		}
 	}
 }

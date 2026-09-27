@@ -10,6 +10,8 @@
 //	AT_HARBOR_LAUNCH_SECRET  the per-instance launch secret
 //	AT_COVE_WORKDIR          the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 //	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
+//	AT_COVE_RESIDENT         "1"/"true" keeps the agent resident between turns
+//	                         (personal sessions): it waits for a Wake after every turn
 package main
 
 import (
@@ -67,7 +69,8 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 	if err != nil {
 		return agentrun.Config{}, fmt.Errorf("reading AT_COVE_AGENT_PROMPT_FILE: %w", err)
 	}
-	return agentrun.Config{WorkDir: workdir, Prompt: string(prompt)}, nil
+	resident := getenv("AT_COVE_RESIDENT")
+	return agentrun.Config{WorkDir: workdir, Prompt: string(prompt), Resident: resident == "1" || resident == "true"}, nil
 }
 
 func run(getenv func(string) string, stderr *os.File) int {

@@ -76,6 +76,19 @@ func TestBuildAgentConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("resident from AT_COVE_RESIDENT", func(t *testing.T) {
+		for v, want := range map[string]bool{"": false, "0": false, "false": false, "1": true, "true": true} {
+			env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": promptPath, "AT_COVE_RESIDENT": v}
+			cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+			if err != nil {
+				t.Fatalf("buildAgentConfig: %v", err)
+			}
+			if cfg.Resident != want {
+				t.Errorf("AT_COVE_RESIDENT=%q: Resident = %v, want %v", v, cfg.Resident, want)
+			}
+		}
+	})
+
 	t.Run("explicit workdir honored", func(t *testing.T) {
 		env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": promptPath, "AT_COVE_WORKDIR": "/tmp/work"}
 		cfg, err := buildAgentConfig(func(k string) string { return env[k] })

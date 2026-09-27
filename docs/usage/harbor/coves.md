@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed cove through harbor, inspec
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-27
 ---
 
 # Managed coves (the supervisor)
@@ -71,6 +71,24 @@ lifecycle; automated result-handling (commit/push/PR after the agent) comes with
 dispatcher. Without a `runtime.launcher`, `raise` records a placeholder Instance only
 (no real cove).
 
+The raise sequence is: enroll the identity → start the container → wait for sshd →
+**apply the role's egress policy** → start cove-master (and so the agent). The egress
+step runs only for a role with a [policy](roster.md#role-egress) and lands before the
+agent exists. It runs the sealed in-box helper as root, which enforces the kit's
+ceiling. It **fails closed**: if the backend can't apply a policy, or the box refuses
+a domain outside the ceiling, the raise fails (the error names the domain), the
+container is removed and the identity revoked. It never falls back to the wider kit
+default. A role with no policy skips the step and keeps the kit's list.
+
+### Egress drift
+
+Each Instance records the [role egress policy](roster.md#role-egress) it runs under
+(`egress`). Each reconcile pass re-applies the role's current policy to a `live`
+cove whose lease it holds when the two differ (`--kit-default` for a cleared one);
+`idled` coves are skipped and get it on **resume**, before they are `live` again.
+Failures count in `egress_failures`; the teardown rule is in
+[roster.md](roster.md#role-egress). Logs carry domain counts, never lists.
+
 Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `cove raise` verb.
@@ -134,6 +152,7 @@ AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
 AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
+AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
 ```
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
@@ -146,16 +165,32 @@ the `--mcp-config` file is missing** (a stale image without
 tools. On a present config it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the cove down.
-- `needs-input` → a brief `waiting` is reported, then `done` (the dispatcher
-  decides whether to re-dispatch; lingering-and-waking is a later slice).
+- `needs-input` → the client reports `waiting` and blocks until harbor sends a
+  **wake**. The wake resumes the agent with `claude --continue` and a resume
+  prompt, which starts another turn. If no wake arrives within `MaxWait` (30m by
+  default), the unit ends and reports `done`. Harbor's wake-on engine sends the
+  wake when a reply lands; see
+  [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
 - `error` / no result → `done` with the failure logged.
 
-A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
-`SIGKILL` after a grace period. `wake` is a no-op for a one-shot agent.
+(Resident mode, below, replaces all three outcomes with a wait.)
 
-> **Still deferred:** a persistent agent that lingers `waiting` and is woken with
-> *new* input (needs the comms-hub input channel), `blocked`/escalation, and
-> cove-master becoming the image entrypoint under its own non-root account
+A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
+`SIGKILL` after a grace period. A `wake` that arrives while the agent is still
+running is held (at most one), so the next `needs-input` wait resumes at once;
+further wakes are dropped.
+
+**Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
+sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
+own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the
+client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
+— there is no `MaxWait`. A wake resumes the agent with `claude --continue` and a prompt
+to `read` the reply and carry on. The session ends only when a teardown cancels the
+run: the owner's release for a personal session, or the name's removal for a
+standing one. Harbor's wake-on engine never tears a resident session down for
+`wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+
+> **Still deferred:** cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).
 
 Design rationale (the package boundary, the Workload seam, the reconnect model,

@@ -20,13 +20,80 @@ type Scope struct {
 	Repos        []string      `json:"repos"`
 	Addressing   []string      `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
 	TTL          time.Duration `json:"ttl"`
+	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
+	// = the kit's default list. Managed only by the egress endpoints
+	// (`at-harbor egress set|show|clear`); a role re-put keeps it.
+	Egress *EgressPolicy `json:"egress,omitempty"`
+}
+
+// EgressPolicy is a role's raw-egress allow-list, applied to its coves at raise
+// within the kit's ceiling. Domains may be empty (nothing beyond the sealed base
+// and the kit's infra domains).
+type EgressPolicy struct {
+	Domains []string `json:"domains"`
+}
+
+// StandingSession is one operator-declared, named standing session of a role:
+// harbor keeps exactly one cove running per declared name (see internal/standing).
+type StandingSession struct {
+	Name   string `json:"name"`
+	Prompt string `json:"prompt"`
+}
+
+// RoleAllocation is a role's allocation policy: authored on the roster, read live
+// by harbor's Allocator on each grant, by wake-on's personal-session idle ladder,
+// and by the standing reconciler. A later slice adds requester grants.
+type RoleAllocation struct {
+	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
+	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
+	MaxEphemeral int `json:"max_ephemeral,omitempty"`
+	// MaxPersonal caps the role's concurrent personal sessions across all owners
+	// (the pool); 0 = no personal sessions of this role.
+	MaxPersonal int `json:"max_personal,omitempty"`
+	// MaxPersonalPerOwner caps one owner's concurrent personal sessions of this
+	// role; 0 = the pool cap only.
+	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
+	// IdleAfter is how long a personal session may wait on its owner before
+	// harbor first nags them; 0 = the default (DefaultIdleAfter).
+	IdleAfter time.Duration `json:"idle_after,omitempty"`
+	// NagEvery is how often harbor re-nags the owner after the first nag;
+	// 0 = the default (DefaultNagEvery).
+	NagEvery time.Duration `json:"nag_every,omitempty"`
+	// ReclaimAfter is how long a personal session may wait on its owner before
+	// harbor reclaims it; 0 = never.
+	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
+	// Standing is the role's declared standing sessions — the desired state the
+	// standing reconciler keeps running, one cove per name. Managed only by the
+	// standing endpoints (`at-harbor standing add|rm|list`); a role re-put keeps it.
+	Standing []StandingSession `json:"standing,omitempty"`
+}
+
+// The personal-session idle-ladder defaults for unset settings.
+const (
+	DefaultIdleAfter = 4 * time.Hour
+	DefaultNagEvery  = 24 * time.Hour
+)
+
+// PersonalIdle returns the role's personal-session idle ladder with defaults
+// applied: idle-after (DefaultIdleAfter when unset), nag-every
+// (DefaultNagEvery when unset), and reclaim-after (0 = never reclaim).
+func (a RoleAllocation) PersonalIdle() (idleAfter, nagEvery, reclaimAfter time.Duration) {
+	idleAfter, nagEvery = a.IdleAfter, a.NagEvery
+	if idleAfter <= 0 {
+		idleAfter = DefaultIdleAfter
+	}
+	if nagEvery <= 0 {
+		nagEvery = DefaultNagEvery
+	}
+	return idleAfter, nagEvery, max(a.ReclaimAfter, 0)
 }
 
 // Role is a named, reusable security class within a project.
 type Role struct {
-	Name  string `json:"name"`
-	Scope Scope  `json:"scope"`
-	Kit   string `json:"kit,omitempty"` // optional kit name; "" = no kit
+	Name       string         `json:"name"`
+	Scope      Scope          `json:"scope"`
+	Kit        string         `json:"kit,omitempty"`       // optional kit name; "" = no kit
+	Allocation RoleAllocation `json:"allocation,omitzero"` // zero = no role policy
 }
 
 // Kit is one named registry entry: immutable, monotonically-numbered versions of
@@ -66,9 +133,37 @@ type Actor struct {
 
 // Human is a roster member reachable by @-mention on a tracker thread.
 type Human struct {
-	Name     string            `json:"name"`               // roster-local name, e.g. "alice"
-	Handle   string            `json:"handle"`             // tracker @-mention handle
+	Name   string `json:"name"`   // roster-local name, e.g. "alice"
+	Handle string `json:"handle"` // tracker @-mention handle
+	// Login links the human to their admin operator identity (OperatorID: the
+	// OIDC sub, or "local" on loopback). It is how harbor knows which roster
+	// human is behind an admin request, e.g. to own a personal session. "" =
+	// unlinked. At most one human per project may hold a given login.
+	Login    string            `json:"login,omitempty"`
 	Delivery []DeliveryProfile `json:"delivery,omitempty"` // per-service DM delivery targets
+}
+
+// rosterReader is the slice of Store HumanByLogin reads.
+type rosterReader interface {
+	GetRoster(project string) (Roster, bool)
+}
+
+// HumanByLogin returns the roster Human in project whose Login matches login.
+// The empty login never matches, so an unlinked human is never an owner.
+func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
+	if login == "" {
+		return Human{}, false
+	}
+	rr, ok := store.GetRoster(project)
+	if !ok {
+		return Human{}, false
+	}
+	for _, h := range rr.Humans {
+		if h.Login == login {
+			return h, true
+		}
+	}
+	return Human{}, false
 }
 
 // DeliveryProfile is how a Human receives messages on one non-tracker Service.
@@ -87,6 +182,34 @@ func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
 		}
 	}
 	return DeliveryProfile{}, false
+}
+
+// DiscordInboxOwner returns the one roster human whose discord delivery
+// address is channel; ok=false when none or more than one human uses it (a
+// shared inbox), when channel is also a roster discord channel (a shared
+// conduit, not an inbox), or when channel is "". A reply posted in a channel
+// it returns is attributed to that human — the channel, not the Discord
+// display name (which anyone can set), is what proves who sent it.
+func DiscordInboxOwner(r Roster, channel string) (name string, ok bool) {
+	if channel == "" {
+		return "", false
+	}
+	for _, c := range r.Channels {
+		if c.Service == "discord" && c.Ref == channel {
+			return "", false
+		}
+	}
+	for _, h := range r.Humans {
+		p, has := h.DeliveryFor("discord")
+		if !has || p.Address != channel {
+			continue
+		}
+		if ok {
+			return "", false // a second human shares it
+		}
+		name, ok = h.Name, true
+	}
+	return name, ok
 }
 
 // Channel is a named conduit on a Service. C1: Service == "linear", Ref is a

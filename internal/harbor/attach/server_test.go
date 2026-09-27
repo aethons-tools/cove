@@ -32,6 +32,9 @@ func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, e
 }
 func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 // harness raises one instance and starts an in-memory Attach server. Returns the
 // store, supervisor, server, a dial func, and the raised actor's token + launch secret.
@@ -51,7 +54,11 @@ func harness(t *testing.T) (harbor.Store, *harbor.Supervisor, *Server, func() *g
 	sup.SetControlSink(srv)
 
 	lis := bufconn.Listen(1 << 20)
-	gs := grpc.NewServer()
+	// WaitForHandlers: Stop (a t.Cleanup, run before the TempDir removal) must
+	// wait for Attach handlers to return. A handler may still be persisting a
+	// heartbeat to the file store when the test body ends; without the wait,
+	// TempDir's RemoveAll races that write and fails "directory not empty".
+	gs := grpc.NewServer(grpc.WaitForHandlers(true))
 	attachpb.RegisterRuntimeServer(gs, srv)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)

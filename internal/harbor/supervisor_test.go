@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -22,6 +23,8 @@ type fakeLauncher struct {
 	probed      []string
 	paused      []string
 	resumed     []string
+	egressed    []*EgressPolicy // policies passed to ApplyEgress, in order
+	egressErr   error
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
 }
@@ -52,6 +55,10 @@ func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
 func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 	f.resumed = append(f.resumed, inst.ActorID)
 	return nil
+}
+func (f *fakeLauncher) ApplyEgress(_ context.Context, _ Instance, p *EgressPolicy) error {
+	f.egressed = append(f.egressed, p)
+	return f.egressErr
 }
 
 // supTestKit builds a supervisor over a temp store with a guest role, a fixed
@@ -98,6 +105,44 @@ func TestRaiseEnrollsAndRecordsLiveInstance(t *testing.T) {
 	}
 	if f.raised[0] != "w1" {
 		t.Fatalf("launcher not called: %+v", f.raised)
+	}
+}
+
+// A personal raise records its owner and session kind on the Instance (and the
+// launcher sees them on the spec); an ordinary raise leaves both empty.
+func TestRaiseRecordsOwnerAndSessionKind(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Role: "guest", Owner: "alice", SessionKind: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance("p1")
+	if !ok || got.Owner != "alice" || got.SessionKind != "personal" {
+		t.Fatalf("instance = %+v,%v; want owner alice, kind personal", got, ok)
+	}
+	if f.gotSpec.Owner != "alice" || f.gotSpec.SessionKind != "personal" {
+		t.Fatalf("launcher spec = %+v", f.gotSpec)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("w1"); got.Owner != "" || got.SessionKind != "" {
+		t.Fatalf("plain raise instance = %+v; want no owner/kind", got)
+	}
+}
+
+// A standing raise records its name and kind on the Instance; the name is how
+// the standing reconciler matches a cove to its declaration.
+func TestRaiseRecordsStandingName(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	id := StandingActorID("default", "guest", "alice-bot")
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: id, Role: "guest", Name: "alice-bot", SessionKind: SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.GetInstance(id)
+	if !ok || got.Name != "alice-bot" || got.SessionKind != SessionKindStanding || got.Owner != "" {
+		t.Fatalf("instance = %+v,%v; want name alice-bot, kind standing, no owner", got, ok)
 	}
 }
 
@@ -538,6 +583,33 @@ type fakeSink struct {
 func (f *fakeSink) RequestTeardown(id string) { f.teardowns = append(f.teardowns, id) }
 func (f *fakeSink) Wake(id string)            { f.wakes = append(f.wakes, id) }
 
+// fakeReleaser records RecordRelease calls for assertions (the actual-state-out
+// half of the Supervisor↔Allocator seam).
+type fakeReleaser struct{ calls []string }
+
+func (f *fakeReleaser) RecordRelease(_ context.Context, project, role, id string) error {
+	f.calls = append(f.calls, project+"/"+role+"/"+id)
+	return nil
+}
+
+// TestTeardownRecordsRelease proves that tearing a live instance down records a
+// ReservationReleased for its (project, role, actorID) via the releaser — the
+// shadow-ledger release wiring (slice 3).
+func TestTeardownRecordsRelease(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-AET-1", Project: "acme", Role: "worker", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	fr := &fakeReleaser{}
+	sup.SetReleaser(fr)
+	if err := sup.Teardown(context.Background(), "cove-AET-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.calls) != 1 || fr.calls[0] != "acme/worker/cove-AET-1" {
+		t.Fatalf("release calls = %v", fr.calls)
+	}
+}
+
 func TestRaiseMintsLaunchSecret(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	inst, tok, secret, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
@@ -724,5 +796,137 @@ func TestReconcileSkipsIdledInstance(t *testing.T) {
 	}
 	if got.Phase != PhaseIdled {
 		t.Fatalf("phase = %s, want %s (Reconcile must not adopt/change it)", got.Phase, PhaseIdled)
+	}
+}
+
+// A personal raise enrolls the cove with an owner-only addressing override
+// (least privilege: it may message its owner and nobody else); a raise with no
+// owner keeps the role's addressing (no override).
+func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"}); err != nil {
+		t.Fatal(err)
+	}
+	grants := map[string][]Grant{}
+	for _, a := range store.ListActors() {
+		grants[a.ID] = a.Grants
+	}
+	p := grants["p1"]
+	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "human:alice" {
+		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
+	}
+	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
+		t.Fatalf("dispatcher cove grant = %+v; want no override", w)
+	}
+}
+
+// RecordNag stamps the nag time and counts the nag on the instance.
+func TestRecordNagPersists(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := time.Unix(5000, 0).UTC(), time.Unix(9000, 0).UTC()
+	if err := sup.RecordNag("cove-1", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.RecordNag("cove-1", second); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if !got.LastNagAt.Equal(second) || got.Nags != 2 {
+		t.Fatalf("nag state = last %v / nags %d, want %v / 2", got.LastNagAt, got.Nags, second)
+	}
+	if err := sup.RecordNag("absent", first); err == nil {
+		t.Fatal("RecordNag on an absent instance should error")
+	}
+}
+
+// KeepWaiting restarts a Waiting session's idle period without waking it: the
+// wait baseline moves past the owner's "keep" reply and the ladder resets.
+func TestKeepWaitingRestartsIdlePeriod(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseIdled, Activity: ActivityWaiting,
+		WaitSeq: 3, WaitingSince: time.Unix(100, 0), LastNagAt: time.Unix(500, 0), Nags: 2}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(9000, 0).UTC()
+	if err := sup.KeepWaiting("cove-1", 7, at); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.WaitSeq != 7 || !got.WaitingSince.Equal(at) || !got.LastNagAt.IsZero() || got.Nags != 0 {
+		t.Fatalf("after keep: seq %d since %v last %v nags %d", got.WaitSeq, got.WaitingSince, got.LastNagAt, got.Nags)
+	}
+	if got.Phase != PhaseIdled || got.Activity != ActivityWaiting {
+		t.Fatalf("keep must not wake or resume: phase %v activity %v", got.Phase, got.Activity)
+	}
+	if err := sup.KeepWaiting("absent", 7, at); err == nil {
+		t.Fatal("KeepWaiting on an absent instance should error")
+	}
+	if err := store.PutInstance(Instance{ActorID: "running", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.KeepWaiting("running", 7, at); err == nil {
+		t.Fatal("KeepWaiting on a non-Waiting instance should error")
+	}
+	if err := store.PutInstance(Instance{ActorID: "gone", Phase: PhaseGone, Activity: ActivityWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.KeepWaiting("gone", 7, at); err == nil {
+		t.Fatal("KeepWaiting on a gone instance should error")
+	}
+}
+
+// A reply runs another turn; the cove's next Waiting period starts a fresh idle
+// ladder, so entering Waiting clears the nag state.
+func TestReportResetsNagsOnEnteringWaiting(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning, LastNagAt: time.Unix(500, 0), Nags: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if !got.LastNagAt.IsZero() || got.Nags != 0 {
+		t.Fatalf("entering Waiting must reset nags: last %v / nags %d", got.LastNagAt, got.Nags)
+	}
+	// Staying Waiting (a repeat report) must not clear nags recorded since.
+	if err := sup.RecordNag("cove-1", time.Unix(1500, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "cove-1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("cove-1"); got.Nags != 1 {
+		t.Fatalf("repeat Waiting report cleared nags: %d", got.Nags)
+	}
+}
+
+// Raise fills the spec's egress policy from the role (after enrolling),
+// overriding anything the caller set: a role with a policy yields a spec carrying
+// it, a role without one yields nil (the kit default).
+func TestRaiseCarriesRoleEgress(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if err := store.PutRole("default", Role{Name: "fenced", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour, Egress: &EgressPolicy{Domains: []string{".b.org", "a.com"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "e1", Role: "fenced"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.gotSpec.Egress == nil || !reflect.DeepEqual(f.gotSpec.Egress.Domains, []string{".b.org", "a.com"}) {
+		t.Fatalf("launcher spec egress = %+v, want the role's policy", f.gotSpec.Egress)
+	}
+	// A caller-set policy never survives: the role (kit default here) wins.
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "e2", Role: "guest", Egress: &EgressPolicy{Domains: []string{"evil.example"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.gotSpec.Egress != nil {
+		t.Fatalf("launcher spec egress = %+v, want nil (role has no policy)", f.gotSpec.Egress)
 	}
 }

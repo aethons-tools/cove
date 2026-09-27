@@ -4,7 +4,7 @@ read_when: A kit edit was rejected at build, or you are about to try changing th
 owns: the hardening security boundary, the list of base-owned settings the kit cannot override, the escalation path for hardening changes
 prereqs: SANDBOX.md
 tier: leaf
-updated: 2026-07-01
+updated: 2026-09-27
 ---
 
 # What you cannot change from inside (or via the kit)
@@ -14,7 +14,11 @@ block is additive only (see `/agent-data/reference/sandbox-kit-changes.md`); it
 cannot alter any of the following:
 
 - **The egress proxy and `nftables` rules.** You can *add* allowed domains via
-  `image.allowed-domains`, never disable the gate.
+  `image.allowed-domains`, never disable the gate. In a harbor-managed cove your
+  role's egress list is applied as root before you start, and harbor may re-apply
+  it while you run if an operator changes the role's policy; you cannot change it
+  from inside, and it can never exceed the kit's `image.allowed-domains` (see
+  `/agent-data/reference/sandbox-kit-changes.md`).
 - **`sshd`, the entrypoint, and the git credential helper.**
 - **The base-owned environment variables** `PATH`, `CLAUDE_CONFIG_DIR`, and the
   proxy vars (`http_proxy` / `https_proxy` / `no_proxy` and their uppercase forms).

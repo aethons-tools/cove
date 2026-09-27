@@ -45,8 +45,11 @@ type Instance struct {
 	Project            string    `json:"project"`
 	Role               string    `json:"role"`
 	Unit               string    `json:"unit,omitempty"`
-	Backend            string    `json:"backend,omitempty"`  // populated by the real launcher (later slice)
-	Location           string    `json:"location,omitempty"` // opaque handle from Launcher.Raise
+	Owner              string    `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
+	Name               string    `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
+	SessionKind        string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: harbor does not import allocator)
+	Backend            string    `json:"backend,omitempty"`      // populated by the real launcher (later slice)
+	Location           string    `json:"location,omitempty"`     // opaque handle from Launcher.Raise
 	Phase              Phase     `json:"phase"`
 	Activity           Activity  `json:"activity,omitempty"`
 	Lease              Lease     `json:"lease"`
@@ -60,4 +63,34 @@ type Instance struct {
 	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
 	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
+	LastNagAt          time.Time `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
+	Nags               int       `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
+	Egress             string    `json:"egress,omitempty"`              // EgressFingerprint of the egress policy the cove is running under; "" = unknown (raised before this was recorded) — the supervisor re-applies once
+	EgressFailures     int       `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
+}
+
+// InstanceCounter counts live instances in a Store — the slice-1 capacity signal
+// consumed by the Allocator. It counts globally (all non-Gone instances),
+// preserving the dispatcher's prior max-concurrent semantics; per-(project, role)
+// counting is a deliberate later change. Its method set structurally satisfies
+// allocator.Counter without importing that package.
+type InstanceCounter struct{ Store Store }
+
+func (c InstanceCounter) LiveCount(project, role string) int {
+	n := 0
+	for _, i := range c.Store.ListInstances() {
+		if i.Phase != PhaseGone {
+			n++
+		}
+	}
+	return n
+}
+
+// IsLive reports whether a specific actor currently holds a live instance — used
+// by the Allocator's reconcile sweep to tell a real session from a leaked
+// (dangling) reservation. Live iff the instance exists and is not PhaseGone
+// (reservationID == actorID).
+func (c InstanceCounter) IsLive(actorID string) bool {
+	i, ok := c.Store.GetInstance(actorID)
+	return ok && i.Phase != PhaseGone
 }

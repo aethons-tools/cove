@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -123,14 +125,15 @@ func TestDirectoryRoute(t *testing.T) {
 func TestRouteDiscord(t *testing.T) {
 	st := newTestStore(t)
 	rec := mustReceipts(t)
-	if err := rec.Record("D1", "cove-1"); err != nil {
+	if err := rec.Record("D1", "cove-1", "M1"); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	dir := &directory{store: st, project: "acme", receipts: rec}
 
-	// reply to a known receipt → routes to the cove
+	// reply to a known receipt → routes to the cove, replying to the message
+	// the receipt names
 	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D1", ForeignID: "m2"})
-	if !ok || from.Ref != "alice" || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "cove-1"}) || replyTo != "in:discord:D1" {
+	if !ok || from.Ref != "alice" || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "cove-1"}) || replyTo != "M1" {
 		t.Fatalf("routeDiscord reply: from=%+v to=%+v replyTo=%q ok=%v", from, to, replyTo, ok)
 	}
 	// not a reply → drop
@@ -140,6 +143,89 @@ func TestRouteDiscord(t *testing.T) {
 	// reply to unknown id → drop
 	if _, _, _, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D9"}); ok {
 		t.Fatal("unknown-ref must drop")
+	}
+}
+
+// A reply posted in an inbox channel that is exactly one roster human's
+// discord delivery address is attributed to that human (by roster name, not
+// the Discord display name); a reply in a shared channel keeps the display
+// name.
+func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
+	st := newTestStore(t)
+	for _, h := range []harbor.Human{
+		{Name: "alice", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
+		{Name: "bob", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+		{Name: "carol", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+	} {
+		if err := st.AddHuman("acme", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1", "M1"); err != nil {
+		t.Fatal(err)
+	}
+	dir := &directory{store: st, receipts: rec}
+
+	from, _, _, ok := dir.Route("discord", "acme", relay.Event{Author: "Alice Display", Surface: "inbox-A", ReplyToForeign: "D1", ForeignID: "m2"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "alice"}) {
+		t.Fatalf("inbox reply from = %+v ok=%v, want human:alice", from, ok)
+	}
+	from, _, _, ok = dir.Route("discord", "acme", relay.Event{Author: "Bob Display", Surface: "shared", ReplyToForeign: "D1", ForeignID: "m3"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "Bob Display"}) {
+		t.Fatalf("shared-channel reply from = %+v ok=%v, want the display name", from, ok)
+	}
+	// the inbox belongs to alice in acme only: another project's reply there
+	// is not attributed to her.
+	from, _, _, ok = dir.Route("discord", "other", relay.Event{Author: "Mallory", Surface: "inbox-A", ReplyToForeign: "D1", ForeignID: "m4"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "Mallory"}) {
+		t.Fatalf("other-project reply from = %+v ok=%v", from, ok)
+	}
+}
+
+// A legacy receipt (no message id) still routes to its cove, with the old
+// opaque in:discord:<id> ReplyTo.
+func TestRouteDiscordLegacyReceipt(t *testing.T) {
+	st := newTestStore(t)
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1", ""); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	dir := &directory{store: st, project: "acme", receipts: rec}
+	_, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D1", ForeignID: "m2"})
+	if !ok || len(to) != 1 || to[0].Ref != "cove-1" || replyTo != "in:discord:D1" {
+		t.Fatalf("legacy route: to=%+v replyTo=%q ok=%v", to, replyTo, ok)
+	}
+}
+
+// A Discord reply to a cove's message joins that message's thread: delivering
+// the squawk records its id in the receipt, and the routed reply's ReplyTo is
+// that id, so ReadThread(root) returns both.
+func TestDiscordReplyJoinsThread(t *testing.T) {
+	st := newTestStore(t)
+	lg := openTestLog(t)
+	rec := mustReceipts(t)
+	dir := &directory{store: st, project: "acme", receipts: rec}
+	client := &fakeDiscordClient{postID: "D-root"}
+	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
+
+	root, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}}, Body: "question?", Project: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := surf.Deliver(context.Background(), relay.Delivery{Address: "inbox-A"}, root); err != nil {
+		t.Fatal(err)
+	}
+	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D-root", ForeignID: "D-reply", Body: "answer"})
+	if !ok {
+		t.Fatal("reply not routed")
+	}
+	if _, err := lg.Append(intercom.Squawk{ID: "in:discord:D-reply", From: from, To: to, Body: "answer", Project: "acme", ReplyTo: replyTo}); err != nil {
+		t.Fatal(err)
+	}
+	th := lg.ReadThread(root.ID)
+	if len(th) != 2 || th[0].ID != root.ID || th[1].Body != "answer" {
+		t.Fatalf("thread = %+v, want root + reply", th)
 	}
 }
 
@@ -164,6 +250,15 @@ func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
 func (f *fakeStore) GetProject(name string) (harbor.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
+}
+
+// ListProjects returns the seeded project names (Directory.Projects("discord")).
+func (f *fakeStore) ListProjects() []string {
+	out := make([]string, 0, len(f.projects))
+	for n := range f.projects {
+		out = append(out, n)
+	}
+	return out
 }
 
 // newRosterStore builds a fakeStore with a single Instance and the project's
@@ -553,5 +648,33 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 	got3 := m.Egress("x")
 	if !got3.Pending["m1"]["t1"] {
 		t.Fatalf("store mutated via caller's map after SetEgress: got3 = %+v", got3)
+	}
+}
+
+// Discord ingress covers every project whose chat service is discord (not just
+// a dispatcher's project), plus the dispatcher's project for back-compat;
+// Linear keeps its single dispatcher project.
+func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
+	st := newTestStore(t)
+	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": "", "delta": "slack"} {
+		if err := st.SetChatService(p, svc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sorted := func(ss []string) []string { out := append([]string(nil), ss...); sort.Strings(out); return out }
+
+	noDispatcher := &directory{store: st}
+	if got := sorted(noDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta"}) {
+		t.Fatalf("discord projects (no dispatcher) = %v, want [acme beta]", got)
+	}
+	withDispatcher := &directory{store: st, project: "gamma"}
+	if got := sorted(withDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta", "gamma"}) {
+		t.Fatalf("discord projects (dispatcher on gamma) = %v, want [acme beta gamma]", got)
+	}
+	if got := (&directory{store: st, project: "acme"}).Projects("discord"); len(got) != 2 {
+		t.Fatalf("dispatcher project already discord must not repeat: %v", got)
+	}
+	if got := withDispatcher.Projects("linear"); !reflect.DeepEqual(got, []string{"gamma"}) {
+		t.Fatalf("linear projects = %v, want [gamma]", got)
 	}
 }

@@ -388,3 +388,116 @@ func TestRunCtxCancelWhileWaiting(t *testing.T) {
 		t.Fatal("Run did not return after ctx cancel")
 	}
 }
+
+// residentWL builds a resident Workload over a scriptedSpawner.
+func residentWL(t *testing.T, dir string, f *scriptedSpawner, maxWait time.Duration) *Workload {
+	t.Helper()
+	return New(Config{WorkDir: dir, Prompt: "p", Resident: true, MaxWait: maxWait, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+}
+
+// runAsync starts Run in a goroutine and returns its result channel.
+func runAsync(ctx context.Context, w *Workload, h covemaster.Handle) chan error {
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx, h) }()
+	return done
+}
+
+// assertBlocked fails if Run returns within d.
+func assertBlocked(t *testing.T, done chan error, d time.Duration) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("resident Run returned early (%v); it must keep waiting", err)
+	case <-time.After(d):
+	}
+}
+
+// TestResidentWaitsAfterEveryOutcome: in resident mode an ok, error, or
+// missing worker-result turn reports Waiting and keeps waiting (no Done), even
+// past a short MaxWait.
+func TestResidentWaitsAfterEveryOutcome(t *testing.T) {
+	for name, result := range map[string]string{
+		"ok":          `{"status":{"ok":{}}}`,
+		"needs-input": `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`,
+		"error":       `{"status":{"error":{"message":"boom"}}}`,
+		"unparseable": `{"status":{}}`,
+		"missing":     "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			f := &scriptedSpawner{dir: dir}
+			if result != "" {
+				f.results = []string{result}
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			w := residentWL(t, dir, f, 20*time.Millisecond)
+			h := &recordHandle{}
+			done := runAsync(ctx, w, h)
+			waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+			assertBlocked(t, done, 150*time.Millisecond) // well past MaxWait
+			cancel()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("Run: want ctx error on shutdown, got nil")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Run did not return after ctx cancel")
+			}
+		})
+	}
+}
+
+// TestResidentResumesOnWake: each Wake resumes with --continue and the
+// resident resume prompt; the loop keeps going after an ok turn.
+func TestResidentResumesOnWake(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{
+		results: []string{`{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`},
+		dir:     dir,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := residentWL(t, dir, f, time.Minute)
+	h := &recordHandle{}
+	done := runAsync(ctx, w, h)
+	for i := 1; i <= 2; i++ {
+		waitFor(t, func() bool { return h.count(covemaster.Waiting) == i })
+		w.Control(covemaster.Control{Kind: covemaster.Wake})
+	}
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 3 })
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 3 {
+		t.Fatalf("want 3 spawns, got %d", len(f.calls))
+	}
+	if hasArg(f.calls[0].args, "--continue") || f.calls[0].args[len(f.calls[0].args)-1] != "p" {
+		t.Fatalf("1st turn: want the original prompt without --continue, got %v", f.calls[0].args)
+	}
+	for _, c := range f.calls[1:] {
+		if !hasArg(c.args, "--continue") {
+			t.Fatalf("resumed turn missing --continue: %v", c.args)
+		}
+		if got := c.args[len(c.args)-1]; got != residentResumePrompt {
+			t.Fatalf("resumed turn prompt = %q; want residentResumePrompt", got)
+		}
+	}
+}
+
+// TestNonResidentOKStillEnds guards that Resident defaults off: an ok turn
+// ends the unit with no Waiting.
+func TestNonResidentOKStillEnds(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if h.count(covemaster.Waiting) != 0 {
+		t.Fatalf("non-resident ok must not wait; got %v", h.got)
+	}
+}

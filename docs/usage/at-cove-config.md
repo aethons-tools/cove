@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, harbor, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-09-01
+updated: 2026-09-27
 ---
 
 # at-cove `config.yml`
@@ -85,9 +85,9 @@ source-control:
 
 The GitLab instance the project lives on — a bare hostname, no scheme or path
 (self-hosted supported, e.g. `gitlab.example.com`). A self-hosted `host`
-**auto-widens the kit-root egress allow-list** at `install` time — no manual
+**auto-widens the kit's always-on infra egress list** (`allowed_domains.infra.txt`) at `install` time — no manual
 [`image.allowed-domains`](#imageallowed-domains) entry needed; see
-[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped). `gitlab.com`
+[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling). `gitlab.com`
 is already in the sealed base, so the common case needs no egress change at all.
 
 The resolved `host` is also defaulted into the interactive in-VM agent session as
@@ -353,9 +353,9 @@ can *configure* the provider but can never shadow a sealed-owned or
 security-relevant variable.
 
 **Egress is auto-derived, not hand-listed.** When `model-provider.vertex` is
-present, `install` widens the kit-root allow-list with the GCP hosts Vertex needs
+present, `install` widens the always-on infra list with the GCP hosts Vertex needs
 — derived from the block, not hand-maintained — see
-[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped).
+[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling).
 
 ```yaml
 model-provider:
@@ -377,7 +377,7 @@ host-side and seeded as a file; see
 Setting `harbor:` makes a hardened cove reach a [harbor](harbor/INDEX.md)
 broker from **inside** the sandbox, so the agent's `claude` and `git` use harbor's
 credential connectors while the cove holds only its identity token. Enabling it does
-three things automatically: folds `host` into the egress allow-list, adds a
+three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
 the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
 helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
@@ -517,7 +517,7 @@ resolves this delta from the current `install.json` (never a live `config.yml`) 
 applies it to the running container **before the agent step** via `ApplySessionEgress`
 (a privileged `docker exec` of the sealed `apply-session-domains.sh` + `squid -k
 reconfigure`), so squid reaches only `root ∪ <common> ∪ class` for that run — see the
-[three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
+[four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
 and [the work interface](../orchestration/at-cove-work-interface.md).
 
 ```yaml
@@ -836,8 +836,17 @@ entry must be non-empty. It is the base term of the per-class union: a class's
 effective egress is **`image.allowed-domains ∪ workers.<common> ∪ workers.<class>`**
 (and likewise for `collaborators`), where only the `<common> ∪ class` delta is
 delivered per session — see [`workers.*class*.allowed-domains`](#workersclassallowed-domains)
-and the [three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
-model. When a dispatched run is blocked by the allow-list, at-cove ends the issue in
+and the [four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
+model. Provider, self-hosted GitLab and `harbor.host` domains are *not* part of this
+list: they are derived into the separate, always-on infra list.
+
+It is also the **egress ceiling for harbor roles**: `install` bakes an immutable copy
+(`egress_ceiling.txt`), and a harbor-managed cove whose role has an egress policy gets
+that role's list *in place of* this one — only if every role domain is covered by it
+(see [role egress](harbor/roster.md#role-egress)). So a domain a role needs must be
+listed here first (a leading-dot entry covers the domain and its subdomains).
+
+When a dispatched run is blocked by the allow-list, at-cove ends the issue in
 **NEEDS INPUT** naming the blocked host(s) and pointing back to this key as the remedy
 — see [at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
 

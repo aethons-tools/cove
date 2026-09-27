@@ -122,7 +122,7 @@ integration-docker:
 
 # harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
 integration-harbor:
-    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/...
+    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/... ./internal/allocator/...
 
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip

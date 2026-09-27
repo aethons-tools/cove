@@ -104,18 +104,43 @@ type instanceRoster interface {
 	ListInstances() []harbor.Instance
 	GetRoster(project string) (harbor.Roster, bool)
 	GetProject(name string) (harbor.Project, bool)
+	ListProjects() []string
 }
 
-// directory is the concrete relay.Directory mapping the Linear feed into
-// the actor model, over harbor.Store (narrowed to instanceRoster).
+// directory is the concrete relay.Directory mapping the Linear feed and
+// Discord replies into the actor model, over harbor.Store (narrowed to
+// instanceRoster). project and selfIdentity are the dispatcher's (Linear
+// routing only runs with a dispatcher); both are "" without one, and the
+// Discord path needs neither.
 type directory struct {
 	store        instanceRoster
 	project      string
 	selfIdentity string        // harbor's Linear viewer displayName (self-post filter)
-	receipts     *fileReceipts // discord-msg-id → actorID (nil when discord unconfigured; routeLinear never touches it)
+	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
 }
 
-func (d *directory) Projects(service string) []string { return []string{d.project} }
+// Projects lists the projects a relay engine polls. Discord covers every store
+// project whose chat service is discord — personal sessions live in any such
+// project, with or without a dispatcher — plus the dispatcher's project (whose
+// roster discord channels were always polled). Linear keeps the dispatcher's
+// single project.
+func (d *directory) Projects(service string) []string {
+	if service != "discord" {
+		return []string{d.project}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range d.store.ListProjects() {
+		if p, ok := d.store.GetProject(name); ok && p.ChatService == "discord" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	if d.project != "" && !seen[d.project] {
+		out = append(out, d.project)
+	}
+	return out
+}
 
 // Route dispatches to the service-appropriate routing logic: discord replies
 // route via the receipt store (routeDiscord); everything else preserves the
@@ -123,7 +148,7 @@ func (d *directory) Projects(service string) []string { return []string{d.projec
 // Route became service-aware.
 func (d *directory) Route(service, project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if service == "discord" {
-		return d.routeDiscord(e)
+		return d.routeDiscord(project, e)
 	}
 	return d.routeLinear(project, e)
 }
@@ -131,18 +156,33 @@ func (d *directory) Route(service, project string, e relay.Event) (from intercom
 // routeDiscord maps a human's Discord reply to the cove it replies to, via
 // the receipt store. A message that is NOT a reply, or replies to an unknown
 // id (not a receipt), is unroutable and dropped — which also drops harbor's
-// own non-reply posts (the self-post filter).
-func (d *directory) routeDiscord(e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
+// own non-reply posts (the self-post filter). The reply's ReplyTo is the id of
+// the squawk it answers (so threads work); a legacy receipt carries no squawk
+// id and keeps the opaque in:discord:<id>.
+//
+// The sender is the roster human whose inbox the reply was posted in, when
+// that channel is exactly one human's discord inbox in project
+// (harbor.DiscordInboxOwner) — the channel, never the spoofable display name,
+// proves the owner. Otherwise it is human:<Discord display name>, as before.
+func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if e.ReplyToForeign == "" {
 		return intercom.Target{}, nil, "", false
 	}
-	actorID, ok := d.receipts.Lookup(e.ReplyToForeign)
+	rc, ok := d.receipts.Lookup(e.ReplyToForeign)
 	if !ok {
 		return intercom.Target{}, nil, "", false
 	}
-	return intercom.Target{Kind: "human", Ref: e.Author},
-		[]intercom.Target{{Kind: "actor", Ref: actorID}},
-		"in:discord:" + e.ReplyToForeign, true
+	replyTo = rc.Message
+	if replyTo == "" {
+		replyTo = "in:discord:" + e.ReplyToForeign
+	}
+	from = intercom.Target{Kind: "human", Ref: e.Author}
+	if r, ok := d.store.GetRoster(project); ok {
+		if name, ok := harbor.DiscordInboxOwner(r, e.Surface); ok {
+			from.Ref = name
+		}
+	}
+	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
 }
 
 // routeLinear drops any comment authored by harbor's own Linear identity (a
@@ -221,7 +261,9 @@ func findHuman(r harbor.Roster, name string) (harbor.Human, bool) {
 
 // resolveHuman picks the service the project uses for human DMs, falling
 // back to a Linear @-mention on the sender's own ticket (the pre-cutover
-// behavior, preserved byte-for-byte).
+// behavior, preserved byte-for-byte). The Discord DM path resolves from the
+// squawk's project alone — never the sender's live Instance — so a personal
+// session's reclaim notice is still delivered after the cove is torn down.
 func (d *directory) resolveHuman(service, project string, to, from intercom.Target) (relay.Delivery, bool) {
 	self, haveSelf := d.instanceOf(from)
 	r, _ := d.store.GetRoster(project)
