@@ -17,8 +17,12 @@ const (
 type Message struct {
 	ID      string
 	Channel string
-	Author  string
+	Author  string // display name (global_name, else username) — user-editable, never an identity
 	Content string
+	// AuthorID is Discord's immutable author user id (snowflake); "" if absent.
+	AuthorID string
+	// AuthorBot is true when the author is a bot (Discord's author.bot).
+	AuthorBot bool
 	// ReferencedID is the id of the message this replies to; empty if not a reply.
 	ReferencedID string
 }
