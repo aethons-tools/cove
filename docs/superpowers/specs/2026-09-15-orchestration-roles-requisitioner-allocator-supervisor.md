@@ -509,7 +509,8 @@ Golden-age-of-computing style: plain, functional, no theme.
 **None** — all resolved above (see *Settled during design*). One carry-forward is an
 *implementation* concern, not a design question: the **egress-policy delivery at
 raise** hardening-layer change (preserving "sealed from inside"), to be worked when
-the security slice is planned — not a blocker for the first slice.
+the security slice is planned — not a blocker for the first slice. *Planned in
+[`../plans/2026-09-27-role-egress-at-raise.md`](../plans/2026-09-27-role-egress-at-raise.md).*
 
 ## Non-goals / out of scope (for now)
 
