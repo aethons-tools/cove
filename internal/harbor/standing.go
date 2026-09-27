@@ -16,6 +16,21 @@ func StandingActorID(project, role, name string) string {
 	return "standing-" + safeIDPart(project) + "-" + safeIDPart(role) + "-" + safeIDPart(name)
 }
 
+// standingIDHolder returns "project/role/name" of the declared standing session
+// whose actor id is id, if any.
+func standingIDHolder(store Store, id string) (string, bool) {
+	for _, p := range store.ListProjects() {
+		for _, ro := range store.ListRoles(p) {
+			for _, s := range ro.Allocation.Standing {
+				if StandingActorID(p, ro.Name, s.Name) == id {
+					return p + "/" + ro.Name + "/" + s.Name, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
 // registerStanding mounts the standing-declaration routes. Each write is a
 // read-modify-write of the Role that keeps every other field; mu serializes
 // them so two concurrent declarations can't drop one another.
@@ -58,10 +73,12 @@ func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger) {
 				http.Error(w, fmt.Sprintf("standing session %q is already declared on %s/%s", b.Name, project, roleName), http.StatusBadRequest)
 				return
 			}
-			if StandingActorID(project, roleName, s.Name) == id {
-				http.Error(w, fmt.Sprintf("standing session %q would share actor id %s with declared %q; pick a name that differs in [A-Za-z0-9._-]", b.Name, id, s.Name), http.StatusBadRequest)
-				return
-			}
+		}
+		// The reconciler keys each cove on its actor id, so it must be unique across
+		// every declaration, in any role or project.
+		if owner, ok := standingIDHolder(store, id); ok {
+			http.Error(w, fmt.Sprintf("standing session %q would share actor id %s with declared %s; pick a name that differs in [A-Za-z0-9._-]", b.Name, id, owner), http.StatusBadRequest)
+			return
 		}
 		// A fresh slice, so the stored role never aliases the one we read.
 		role.Allocation.Standing = append(slices.Clone(role.Allocation.Standing), b)

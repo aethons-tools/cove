@@ -257,14 +257,18 @@ func (a *Allocator) SetLogger(log *slog.Logger) {
 	}
 }
 
-// Sweep reclaims leaked slots: it releases outstanding ephemeral reservations
+// Sweep reclaims leaked slots: it releases outstanding ephemeral and standing reservations
 // (whose latest grant is older than grace) whose actor has no live instance — the
 // crash-between-grant-and-raise gap Slice 4 left open. No ledger (file-store dev)
 // ⇒ nothing to sweep. Best-effort and idempotent: a per-reservation release
 // failure is logged and skipped (the next tick retries), and releasing an
 // already-live or already-released reservation is harmless (the net-count query
-// excludes it next pass). Standing and personal reservations own their lifecycles
-// (resurrection, owner release) and are never swept. Returns the number swept.
+// excludes it next pass). Standing reservations are swept too: a standing cove's
+// teardown releases its reservation and the standing reconciler grants right
+// before it raises, so an old one with no live cove was leaked the same way (and
+// would otherwise block that name's re-grant at the declared-name cap). Personal
+// reservations own their lifecycle (owner release) and are never swept. Returns
+// the number swept.
 func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error) {
 	if a.ledger == nil {
 		return 0, nil
@@ -275,8 +279,8 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 	}
 	swept := 0
 	for _, r := range outstanding {
-		if r.SessionKind != "" && r.SessionKind != SessionEphemeral {
-			continue // standing/personal — not the sweep's to release
+		if r.SessionKind == SessionPersonal {
+			continue // personal — not the sweep's to release
 		}
 		if a.counter.IsLive(r.ReservationID) {
 			continue // a real session — leave it

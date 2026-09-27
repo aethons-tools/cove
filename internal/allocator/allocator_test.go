@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -192,9 +193,11 @@ func TestGrant_UnsupportedKind_FailsClosed(t *testing.T) {
 	}
 }
 
-// The sweep releases only ephemeral reservations (an empty kind is legacy ⇒
-// ephemeral); standing and personal own their lifecycles.
-func TestSweep_SkipsNonEphemeral(t *testing.T) {
+// The sweep releases leaked ephemeral (an empty kind is legacy ⇒ ephemeral) and
+// standing reservations — a standing cove's teardown releases, and the standing
+// reconciler grants right before it raises, so an old one with no live cove was
+// leaked by a crash in between. Personal reservations own their lifecycle.
+func TestSweep_SkipsPersonal(t *testing.T) {
 	fl := &fakeLedger{outstanding: []Reservation{
 		{Project: "acme", Role: "worker", ReservationID: "e", SessionKind: SessionEphemeral},
 		{Project: "acme", Role: "worker", ReservationID: "legacy"},
@@ -203,8 +206,12 @@ func TestSweep_SkipsNonEphemeral(t *testing.T) {
 	}}
 	a := New(fakeCounter{live: map[string]bool{}}, StaticPolicy{}, fl) // nothing live
 	n, err := a.Sweep(context.Background(), time.Minute)
-	if err != nil || n != 2 || len(fl.records) != 2 || fl.records[0].ReservationID != "e" || fl.records[1].ReservationID != "legacy" {
-		t.Fatalf("swept %d (%v), records %+v — only the ephemeral (and legacy) should be swept", n, err, fl.records)
+	var ids []string
+	for _, r := range fl.records {
+		ids = append(ids, r.ReservationID)
+	}
+	if err != nil || n != 3 || strings.Join(ids, ",") != "e,legacy,s" {
+		t.Fatalf("swept %d (%v), released %v — want e, legacy and s (not the personal p)", n, err, ids)
 	}
 }
 

@@ -125,3 +125,20 @@ func TestAdminRolePutKeepsStanding(t *testing.T) {
 		t.Fatalf("role after re-put = %+v, want max-ephemeral 5 and alice-bot kept", got.Allocation)
 	}
 }
+
+// Actor ids are unique across every role and project, not just within one: a
+// name whose StandingActorID another role's declaration already holds is 400.
+func TestAdminStandingRejectsCrossRoleIDCollision(t *testing.T) {
+	h, store := newTestAdmin(t)
+	for _, r := range []string{"a-b", "a"} {
+		if err := store.PutRole("acme", Role{Name: r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a-b/standing", StandingSession{Name: "c", Prompt: "p"}); rec.Code != http.StatusCreated {
+		t.Fatalf("seed = %d", rec.Code)
+	}
+	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a/standing", StandingSession{Name: "b-c", Prompt: "p"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("colliding id standing-acme-a-b-c = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}

@@ -47,6 +47,7 @@ import (
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -1387,7 +1388,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
 	// Grant and its raise leaves a dangling ReservationGranted (a leaked slot). The
-	// resident sweep periodically releases outstanding ephemeral reservations older
+	// resident sweep periodically releases outstanding ephemeral and standing reservations older
 	// than a grace window with no live instance, so the ledger self-heals.
 	// Postgres-only (nil ledger ⇒ Sweep is a no-op, so no loop). Sweep often (a
 	// leaked slot reduces capacity until reclaimed) with a grace window comfortably
@@ -1401,6 +1402,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go alloc.SweepLoop(context.Background(), allocSweepInterval, allocSweepGrace)
 		log.Info("harbor allocator: reconcile sweep resident", "interval", allocSweepInterval, "grace", allocSweepGrace)
 	}
+
+	// Standing reconciler: keeps one live cove per standing session declared on a
+	// role (`at-harbor standing add`) — raises a missing or dead one under its
+	// per-name actor id (admitted by the Allocator, released on a failed raise,
+	// with per-name backoff) and tears down one whose name was removed. Resident
+	// whenever harbor serves; with no declarations a tick does nothing.
+	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
+	go stdg.Run(context.Background())
+	log.Info("harbor standing reconciler: resident", "interval", standing.DefaultInterval)
 
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
 	// the Discord relay — runs whenever harbor has an intercom log, dispatcher or
