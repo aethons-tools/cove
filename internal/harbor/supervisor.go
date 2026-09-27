@@ -60,6 +60,8 @@ type Launcher interface {
 	Probe(ctx context.Context, inst Instance) (Liveness, error)
 	Pause(ctx context.Context, inst Instance) error
 	Unpause(ctx context.Context, inst Instance) error
+	// ApplyEgress sets a running cove's egress to p (nil = the kit default).
+	ApplyEgress(ctx context.Context, inst Instance, p *EgressPolicy) error
 }
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the

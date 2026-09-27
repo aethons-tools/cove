@@ -143,3 +143,36 @@ func TestApplyRoleEgressErrorNamesDomain(t *testing.T) {
 		t.Fatalf("err = %v; want it to carry the helper's message", err)
 	}
 }
+
+// The reset op execs the sealed helper as root in --kit-default mode with empty
+// stdin: the flag is the only argument, no domains anywhere.
+func TestResetRoleEgressExecsKitDefault(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+
+	var egress backend.RoleEgress = c
+	if err := egress.ResetRoleEgress("cove-1"); err != nil {
+		t.Fatalf("ResetRoleEgress: %v", err)
+	}
+	call := f.Calls[len(f.Calls)-1]
+	if call.Name != "docker" {
+		t.Fatalf("exec via %q; want docker", call.Name)
+	}
+	got := strings.Join(call.Args, " ")
+	if !strings.HasSuffix(got, "exec -i -u root cove-1 /usr/local/lib/cove/apply-role-egress.sh --kit-default") {
+		t.Errorf("exec args = %s; want docker exec -i -u root cove-1 <helper> --kit-default", got)
+	}
+	if call.Stdin != "" {
+		t.Errorf("stdin = %q; want empty", call.Stdin)
+	}
+}
+
+// A failed reset carries the helper's output in the error.
+func TestResetRoleEgressErrorCarriesHelperOutput(t *testing.T) {
+	r := stderrRunner{Fake: &runner.Fake{}, stderr: "apply-role-egress: egress ceiling /etc/squid/egress_ceiling.txt is missing\n"}
+	c := New(r).(*Colima)
+	err := c.ResetRoleEgress("cove-1")
+	if err == nil || !strings.Contains(err.Error(), "egress ceiling /etc/squid/egress_ceiling.txt is missing") {
+		t.Fatalf("err = %v; want it to carry the helper's message", err)
+	}
+}

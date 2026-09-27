@@ -196,10 +196,16 @@ type egressOps struct {
 	domains    []string
 	callsAtApp int
 	err        error
+	reset      string // container passed to ResetRoleEgress
 }
 
 func (e *egressOps) ApplyRoleEgress(container string, domains []string) error {
 	e.applied, e.container, e.domains, e.callsAtApp = true, container, domains, len(e.r.Calls)
+	return e.err
+}
+
+func (e *egressOps) ResetRoleEgress(container string) error {
+	e.reset = container
 	return e.err
 }
 
@@ -321,6 +327,67 @@ func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
 	for _, c := range r.Calls {
 		if isCoveMasterLaunch(c) {
 			t.Fatal("cove-master launched without the role egress")
+		}
+	}
+}
+
+// ApplyEgress on a running cove: a policy goes to ApplyRoleEgress on the cove's
+// location with its domains; the log carries the count, not the list.
+func TestApplyEgressPolicy(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	var logs bytes.Buffer
+	l := newEgressLauncher(ops, r, &logs)
+	inst := harbor.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	domains := []string{".b.org", "a.com"}
+	if err := l.ApplyEgress(context.Background(), inst, &harbor.EgressPolicy{Domains: domains}); err != nil {
+		t.Fatal(err)
+	}
+	if !ops.applied || ops.container != "atcove-cove-w1" || !slices.Equal(ops.domains, domains) {
+		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v", ops.applied, ops.container, ops.domains)
+	}
+	if ops.reset != "" {
+		t.Fatal("a policy must not reset to the kit default")
+	}
+	if out := logs.String(); !strings.Contains(out, `"domains":2`) || strings.Contains(out, "a.com") {
+		t.Fatalf("log = %s; want the count, never the list", out)
+	}
+}
+
+// ApplyEgress with a nil policy restores the kit default via ResetRoleEgress.
+func TestApplyEgressNilResets(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	l := newEgressLauncher(ops, r, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	if err := l.ApplyEgress(context.Background(), inst, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ops.reset != "atcove-cove-w1" || ops.applied {
+		t.Fatalf("reset=%q applied=%v; want a reset of atcove-cove-w1 only", ops.reset, ops.applied)
+	}
+}
+
+// ApplyEgress surfaces the backend's error.
+func TestApplyEgressError(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("exit status 3: evil.example is outside")}
+	l := newEgressLauncher(ops, r, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	for _, p := range []*harbor.EgressPolicy{nil, {Domains: []string{"evil.example"}}} {
+		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "exit status 3") {
+			t.Fatalf("policy %v: err = %v; want the backend error", p, err)
+		}
+	}
+}
+
+// A backend without RoleEgress can't re-apply or reset: an error, never a silent no-op.
+func TestApplyEgressWithoutOpErrors(t *testing.T) {
+	l := newEgressLauncher(&fakeOps{}, &runner.Fake{}, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	for _, p := range []*harbor.EgressPolicy{nil, {Domains: []string{"a.com"}}} {
+		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "backend does not support role egress") {
+			t.Fatalf("policy %v: err = %v; want fail-closed", p, err)
 		}
 	}
 }
