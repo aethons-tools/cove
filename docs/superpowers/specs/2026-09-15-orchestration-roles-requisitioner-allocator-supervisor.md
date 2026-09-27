@@ -465,6 +465,19 @@ Golden-age-of-computing style: plain, functional, no theme.
     `at-cove`, and existing code and docs (`coves.md`, `cove-master`, `.at-cove/`,
     the `github.com/aethons-tools/cove` module) keep "cove" — migrate the entity
     usage as we go. So: "`at-cove` raises a Studio."
+  - **UI scope (2026-09-27):** Studio now also names the entity in everything
+    users see — the admin UI, the `at-jam` CLI (`at-jam studio …`, with `cove` kept
+    as a deprecated alias) and the user docs. Internal names stay Cove: Go
+    identifiers, JSON fields, admin API routes (`/admin/coves…`), `cove-master`,
+    `.at-cove/`, `at-cove`, and `coves.md`'s file name.
+- **Jam** = the central service (was **Harbor**) — the credential broker, control
+  plane and home of the Requisitioner, Allocator and Supervisor. A full rename
+  (2026-09-27): binary `at-jam`, package `internal/jam`, docs, config keys,
+  environment variables and cookies. Every name a user, a kit or a running cove
+  depends on keeps working for one release as a deprecated alias; the list is
+  [`docs/usage/jam/renamed-from-harbor.md`](../../usage/jam/renamed-from-harbor.md).
+  Deliberately unchanged: the Postgres migration advisory-lock key, the Attach
+  gRPC wire name `harbor.attach.v1`, and the historical docs under `docs/superpowers/`.
 - **Instance** = retired as a stored noun; it is the Studio's tracked-state projection
   (Phase + Activity facets).
 - **Kept:** Actor, Kit, Role, Project, reservation, launcher.
