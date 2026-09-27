@@ -9,7 +9,7 @@ proven recipe it must build to.
 **Date:** 2026-08-08 · **Attended** (a human drove a live colima VM).
 **Related:** the hardening layer (`internal/assemble/hardening/`), the colima backend
 (`internal/backend/colima/`), the egress model
-(`docs/OVERVIEW.md#egress-three-additive-allow-lists-session-scoped`), and the rootless
+(`docs/OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling`), and the rootless
 design + its escalation (link above).
 
 ## Verdict

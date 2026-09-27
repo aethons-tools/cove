@@ -465,6 +465,9 @@ func TestParseConfigTrackerDispatchCollaborators(t *testing.T) {
 	if cfg.Tracker.Linear.ClassLabelPrefix != "class:" { // default
 		t.Fatalf("class-label-prefix default = %q; want class:", cfg.Tracker.Linear.ClassLabelPrefix)
 	}
+	if cfg.Tracker.Linear.DispatchLabelPrefix != "dispatch:" { // default
+		t.Fatalf("dispatch-label-prefix default = %q; want dispatch:", cfg.Tracker.Linear.DispatchLabelPrefix)
+	}
 	if cfg.Dispatch == nil || cfg.Dispatch.DispatchOverhead != "15m" { // default
 		t.Fatalf("dispatch-overhead default = %+v; want 15m", cfg.Dispatch)
 	}
@@ -1467,5 +1470,54 @@ func TestResolvedCollaboratorKeepsShadowDirs(t *testing.T) {
 	}
 	if len(col.ShadowDirs) != 2 || col.ShadowDirs[0] != ".venv" || col.ShadowDirs[1] != "node_modules" {
 		t.Fatalf("shadow-dirs not preserved: %+v", col.ShadowDirs)
+	}
+}
+
+// InfraDomains is the mechanism half of the old RootDomains: provider, self-hosted
+// GitLab and harbor hosts — always on, never replaced by a role's egress policy.
+func TestInfraDomains(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+image:
+  allowed-domains: [policy.example, .wild.example]
+model-provider:
+  vertex:
+    env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+source-control:
+  gitlab:
+    host: gitlab.example.com
+    project: g/app
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	infra := InfraDomains(cfg)
+	want := unionDomains(ProviderDomains(cfg), []string{"gitlab.example.com"})
+	if strings.Join(infra, ",") != strings.Join(want, ",") {
+		t.Fatalf("InfraDomains = %v, want %v", infra, want)
+	}
+	if containsStr(infra, "policy.example") || containsStr(infra, ".wild.example") {
+		t.Fatalf("InfraDomains must not include image.allowed-domains: %v", infra)
+	}
+	// RootDomains stays the full union (policy ∪ infra).
+	root := RootDomains(cfg)
+	if strings.Join(root, ",") != strings.Join(unionDomains(cfg.Image.AllowedDomains, infra), ",") {
+		t.Fatalf("RootDomains = %v, want image.allowed-domains ∪ InfraDomains", root)
+	}
+	// harbor and model-provider are mutually exclusive, so the harbor host is
+	// checked on its own kit.
+	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\nharbor:\n  host: harbor.example\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := InfraDomains(hb); len(got) != 1 || got[0] != "harbor.example" {
+		t.Fatalf("InfraDomains(harbor kit) = %v, want [harbor.example]", got)
+	}
+	// No provider/gitlab/harbor → empty.
+	bare, _ := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [only.example]\n"))
+	if got := InfraDomains(bare); len(got) != 0 {
+		t.Fatalf("InfraDomains(bare) = %v, want empty", got)
 	}
 }

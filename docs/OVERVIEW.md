@@ -25,7 +25,7 @@ or touch files it shouldn't.
    with `nftables` dropping everything else.
    The allow-list is **additive across three tiers** — a sealed base, the kit's
    baked root list, and a per-session, per-class delta applied at session start
-   (see [Egress: three additive allow-lists](#egress-three-additive-allow-lists-session-scoped)) —
+   (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)) —
    so a kit can *widen* egress for one worker or collaborator class without ever
    weakening the sealed base. A user's own kit files can never weaken this.
 2. **Secrets never touch disk or the host process table** —
@@ -132,7 +132,7 @@ the image; only `uninstall` removes the image.
 
 | Command | Behavior |
 |---|---|
-| `at-cove install [--project-dir DIR] [--allow-unverified-base] [--assemble-only]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--assemble-only` materializes `<kit>/.build/` for inspection and stops (no docker, no manifest — the old `build`'s assemble+inspect use). `--dry-run` is a pure preview: it assembles nothing and touches no docker/keys/manifest. |
+| `at-cove install [--project-dir DIR] [--allow-unverified-base] [--assemble-only] [--no-cache]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--assemble-only` materializes `<kit>/.build/` for inspection and stops (no docker, no manifest — the old `build`'s assemble+inspect use). `--dry-run` is a pure preview: it assembles nothing and touches no docker/keys/manifest. `--no-cache` bypasses docker's layer cache for the build, forcing the build-time `claude`/plugin install to re-run (use it to pick up a newer Claude Code without other kit changes). |
 | `at-cove create [collaborator] [--project-dir DIR]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. The selected collaborator's [`share-repo-dir`](usage/at-cove-config.md#collaborators) picks Shared (bind-mount of the kit repo dir) vs Isolated — see [Workspace and state volumes](#workspace-and-state-volumes). |
 | `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
 | `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
@@ -318,7 +318,7 @@ anymore:
 
 1. **Non-overridable hardening** (embedded) —
    `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
-2. **Generated** — the kit's **root** egress allow-list (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: three additive allow-lists](#egress-three-additive-allow-lists-session-scoped)).
+2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/harbor hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
 for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
@@ -408,28 +408,51 @@ sessions — no separate fragment to keep in sync. The egress proxy vars and
 `CLAUDE_CONFIG_DIR` are the exception: the sealed layer writes them itself (never
 image `ENV`, which would poison the build), last, so they always win.
 
-### Egress: three additive allow-lists, session-scoped
+### Egress: four additive allow-lists and a ceiling
 
-The sealed `squid.conf` is default-deny with **three additive allow-list ACLs** — a
+The sealed `squid.conf` is default-deny with **four additive allow-list ACLs** — a
 request passes if it matches **any**, so a kit can only *widen* egress, never bypass
 the sealed base or the `nftables` lock:
 
 | file | source | when | scope |
 |---|---|---|---|
 | `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
-| `allowed_domains.kit.txt` | `config.yml image.allowed-domains` (root) | baked at `install` | every session |
+| `allowed_domains.infra.txt` | provider, self-hosted GitLab and `harbor.host` hosts, derived from `config.yml` | baked at `install` | every session; a role can't remove it |
+| `allowed_domains.kit.txt` | the **active policy list**: `config.yml image.allowed-domains` by default | baked at `install`; replaced at raise for a harbor role with a policy | every session |
 | `allowed_domains.session.txt` | `<common> ∪ class` **delta** | delivered per session | this session's handler class |
 
-So a class's effective egress is the union **`root ∪ <common> ∪ class`**: root is
-baked into *every* session, and only the per-class *delta* is delivered at session
-start, so no domain is written twice. The session file is **baked empty** (header-only)
-by the hardening layer, so the ACL never dangles and a no-class session (`create`)
-simply stays root-only. See [`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains)
-for the config shape and union semantics.
+A fifth file, **`egress_ceiling.txt`**, is an immutable baked copy of
+`image.allowed-domains`. Squid never reads it; it is the bound a harbor role's list
+must fit inside (below). Every list and the ceiling are root-owned `0644`.
+
+So a class's effective egress is the union **`base ∪ infra ∪ root ∪ <common> ∪ class`**
+(`infra ∪ kit` is exactly the single kit list baked before the split, so a dev sandbox
+and `work`/`dispatch` are unchanged). Root is baked into *every* session, and only the
+per-class *delta* is delivered at session start, so no domain is written twice. The
+session file is **baked empty** (header-only) by the hardening layer, so the ACL never
+dangles and a no-class session (`create`) simply stays root-only. See
+[`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains) for the config
+shape and union semantics.
+
+**A harbor role's egress replaces the policy list, within the ceiling, at raise.**
+When harbor raises a cove for a role with an egress policy
+([`at-harbor egress set`](usage/harbor/roster.md#role-egress)), the launcher runs the
+sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
+answers and **before cove-master (and so the agent) starts**. It reads the role's
+domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
+(a leading-dot ceiling entry covers its apex and subdomains; an exact entry covers
+only itself), then overwrites `allowed_domains.kit.txt`, clears the session file, and
+runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
+keeps the kit default; a failed apply fails the raise
+([coves](usage/harbor/coves.md#raising-a-real-managed-cove)). When the role's policy
+later changes, harbor re-applies it to the role's running coves the same way
+(`apply-role-egress.sh --kit-default` restores the ceiling's list when the policy is
+cleared; that mode takes no domains) —
+see [egress drift](usage/harbor/coves.md#egress-drift).
 
 **Vertex kits auto-gain their GCP hosts.** A kit with a
 [`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its
-GCP endpoints folded into `allowed_domains.kit.txt` at `install` time — derived
+GCP endpoints folded into `allowed_domains.infra.txt` at `install` time — derived
 from the block's `CLOUD_ML_REGION`, not hand-listed. The global inference host
 `aiplatform.googleapis.com` is always included, plus one region-specific host
 depending on `CLOUD_ML_REGION`: unset/`global` adds nothing more (the global
@@ -438,15 +461,16 @@ host already covers it); the multi-region values `us`/`eu` add the distinct
 any other value is taken as a specific region and adds
 `<region>-aiplatform.googleapis.com`. Always added alongside: the auth hosts
 `oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
-This only *widens* the kit-root tier, exactly like a hand-written
-`image.allowed-domains` entry — the sealed base and `nftables` are unchanged.
+This only *widens* the always-on infra tier (a harbor role's policy can't remove
+it) — the sealed base and `nftables` are unchanged.
 
 **GitLab kits reach their host too.** `gitlab.com` is already in the sealed base
 (alongside `github.com`), so the common case needs no widening at all. A self-hosted
 [`source-control.gitlab.host`](usage/at-cove-config.md#source-controlgitlabhost) is
-folded into `allowed_domains.kit.txt` at `install` time — derived from the config, not
-hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above. This
-only *widens* the kit-root tier; the sealed base and `nftables` are unchanged.
+folded into `allowed_domains.infra.txt` at `install` time — derived from the config, not
+hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above (as is the
+kit's `harbor.host`). This only *widens* the infra tier; the sealed base and `nftables`
+are unchanged.
 
 **Nested-container egress is contained too.** The `nftables` `output` chain locks the
 agent's *direct* egress (only the `proxy` user reaches the network); a `forward` chain
@@ -749,6 +773,9 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   [the work interface](orchestration/at-cove-work-interface.md)); the persistent
   (`chat`) path applies the selected collaborator's delta on start and clears it
   on exit (see [The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
+  It also implements `backend.RoleEgress` — `ApplyRoleEgress` `docker exec`s the sealed
+  `apply-role-egress.sh` the same way, for harbor's launcher to apply a role's egress
+  at raise (see [the egress model](#egress-four-additive-allow-lists-and-a-ceiling)).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.

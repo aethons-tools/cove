@@ -1,10 +1,10 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a cove's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a cove may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /messages/targets + list_targets, and the project/role --addressing operator commands
-prereqs: messaging.md for the /messages endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
+owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 # Comms addressing (target space & access-graph)
@@ -31,9 +31,11 @@ both.
 A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.md))
 owns a **Roster** of addressable members:
 
-- **Human** — `{Name, Handle}`. `Name` is the roster-local target name
+- **Human** — `{Name, Handle, Login}`. `Name` is the roster-local target name
   (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver to
-  them.
+  them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
+  `local` on loopback), so harbor knows who is behind an admin request, e.g. to
+  own a [personal session](personal-sessions.md). One human per login per project.
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
@@ -44,7 +46,7 @@ that get `@`-mentioned while a cove is Waiting; see [escalation.md](escalation.m
 Manage a roster with `at-harbor project`:
 
 ```
-at-harbor project roster add-human   <project> --name alice --handle alice.h
+at-harbor project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123']
 at-harbor project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-harbor project roster list        <project>
 at-harbor project roster rm-human    <project> <name>
@@ -65,31 +67,34 @@ roster channel's own `Ref` when the channel's `Service` is `discord`. Every
 Discord post is prefixed `"<cove>: "` (the sending cove's identity —
 `Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
 username/avatar is a future polish). Delivery is exactly-once (the resident
-Discord msgport engine's own `EgressMark`, seeded to the Log tail on first
+Discord relay engine's own `EgressMark`, seeded to the Log tail on first
 enable so turning it on never redelivers the backlog) — see
-[messaging.md](messaging.md#enabling-it) for the engine and
+[intercom.md](intercom.md#enabling-it) for the engine and
 [serve.md](serve.md) for the `runtime.discord.bot-token` config that enables
-it (requires a message-log; without one the engine doesn't run).
+it (requires an intercom-log; without one the engine doesn't run).
 
 **The reply loop:** when a human **replies** (Discord's own reply-to-message
 feature, not a bare follow-up post) to a cove's Discord post, harbor routes
-that reply back to the cove that sent the original message — the same
-[wake-on](messaging.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
+that reply back to the cove that sent the original squawk — the same
+[wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
 so a Waiting cove resumes with the reply already in its inbox. Routing works
-by a small **receipt**: on every Discord post the engine records the posted
-message's id against the sending cove (`discord-msg-id → actor`); an inbound
-message is matched to that receipt by the id it *replies to*. Two
-consequences follow directly from that mechanism:
+by a **receipt** recorded on every Discord post (`discord-msg-id → {actor,
+message}`: the sending cove and the squawk's Log id). An inbound reply is
+matched by the id it *replies to*; its `reply_to` is the answered squawk's id,
+so it joins that squawk's thread. An older receipt (no squawk id) still routes,
+with `reply_to` `in:discord:<id>`.
+A reply in an inbox channel that is the `discord` address of **exactly one**
+roster human (not also a roster channel) is from `human:<roster name>` — the
+channel, not the spoofable display name, proves the sender; any other is from
+`human:<Discord display name>`. Consequences:
 
-- **Only a reply routes.** A bare (non-reply) message posted into a shared
+- **Only a reply routes.** A bare (non-reply) squawk posted into a shared
   inbox channel carries no id to look up against, so it can't be attributed
   to any cove — it is silently dropped, by construction (this also means
   harbor's own outbound Discord posts, echoed back on the same channel,
   never mis-route to themselves; no separate self-post filter is needed).
-- **Receipts are currently unpruned.** The receipt store grows by one entry
-  per Discord post and is never garbage-collected — a known follow-up, not a
-  correctness issue today (an unbounded map on local disk, not a leak
-  visible to any cove).
+- **Receipts are currently unpruned** — one entry per post on local disk,
+  never collected (a known follow-up, not a correctness issue).
 
 A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
 non-tracker service the human can be reached on. For `Service: "discord"`,
@@ -158,7 +163,7 @@ ordering means a 403 never reveals whether a target would otherwise exist.
 | `to` | Delivery | Reply |
 |---|---|---|
 | *(empty)* | own ticket (unchanged self-scoped `send`) | own ticket → existing wake-on |
-| `human:<name>` | `@<handle>` mention posted on the cove's **own ticket** | own ticket → existing [wake-on](messaging.md#waiting-for-a-reply-wake-on) — **two-way, free** |
+| `human:<name>` | `@<handle>` mention posted on the cove's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
 | `channel:<name>` | comment posted on the channel's own thread (`Channel.Ref`) | **none in C1 — post-only** |
 
 A human target is delivered as an `@`-mention so the reply lands where the cove is
@@ -166,9 +171,9 @@ already listening — no new tracker method or wake-on wiring needed. A channel
 target posts to a different ticket than the cove's own; C1 does not route replies
 back (that's a later comms slice — see below).
 
-## Discovering targets: `GET /messages/targets` / `list_targets`
+## Discovering targets: `GET /squawks/targets` / `list_targets`
 
-An agent doesn't need to know its addressing in advance. `GET /messages/targets`
+An agent doesn't need to know its addressing in advance. `GET /squawks/targets`
 (brokered, self-derived from the caller's identity — no parameters) returns the
 actor's authorized-**and**-resolvable targets:
 
@@ -179,7 +184,7 @@ actor's authorized-**and**-resolvable targets:
 Handles are deliberately omitted — the agent addresses by `human:<name>`, not by
 handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
-[messaging.md](messaging.md#what-the-tools-do) for the tool surface.
+[intercom.md](intercom.md#what-the-tools-do) for the tool surface.
 
 ## Not yet (later comms slices)
 
@@ -187,9 +192,6 @@ alongside `send`'s now-optional `to` argument; see
   channel-sends two-way, and generalizing `read` into a merged, tagged
   multi-source inbox. (Discord already routes replies regardless of target
   kind — see the reply loop above.)
-- **Discord receipt pruning:** the discord-msg-id→cove receipt store (above)
-  is currently unpruned — an unbounded, never-garbage-collected map on local
-  disk.
 - **Actor/role-to-actor addressing:** addressing another managed cove or Manager
   directly (waits on the Manager pillar).
 

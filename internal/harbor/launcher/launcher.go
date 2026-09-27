@@ -40,8 +40,8 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
-	WorkDir       string // AT_COVE_WORKDIR; default /home/agent/workspace
-	log           *slog.Logger
+	WorkDir       string              // AT_COVE_WORKDIR; default /home/agent/workspace
+	Log           *slog.Logger        // nil → discard
 	sleep         func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
 }
 
@@ -56,8 +56,8 @@ func New(cfg Config) *Launcher {
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = "/home/agent/workspace"
 	}
-	if cfg.log == nil {
-		cfg.log = slog.New(slog.NewTextHandler(discard{}, nil))
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
 	return &Launcher{cfg: cfg}
 }
@@ -82,19 +82,70 @@ func (l *Launcher) Raise(ctx context.Context, spec harbor.RaiseSpec, creds harbo
 		if err := l.waitForSSH(tgt); err != nil {
 			return fmt.Errorf("wait for sshd: %w", err)
 		}
+		// The role's egress policy lands before cove-master (and so the agent)
+		// starts, so the agent never runs under the wider kit default.
+		if err := l.applyRoleEgress(name, spec); err != nil {
+			return err
+		}
 		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
 			Target: tgt, HarborHost: l.cfg.HarborHost, RuntimeAddr: l.cfg.RuntimeAddr,
 			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
 			WorkDir: l.cfg.WorkDir, Prompt: spec.Prompt,
+			// A personal session is a long-lived conversation: its agent stays
+			// resident, waiting for its owner's reply after every turn.
+			Resident: harbor.IsResident(spec.SessionKind),
 		})
 	}
 	if err := launch(); err != nil {
 		if rmErr := l.cfg.Ops.RemoveContainer(name); rmErr != nil {
-			l.cfg.log.Warn("raise cleanup: remove container failed", "name", name, "error", rmErr)
+			l.cfg.Log.Warn("raise cleanup: remove container failed", "name", name, "error", rmErr)
 		}
 		return "", fmt.Errorf("raise %s: %w", name, err)
 	}
 	return name, nil
+}
+
+// applyRoleEgress pushes spec's role egress policy into the raised container. A
+// nil policy is the kit default, which the image already boots with: nothing to
+// apply at raise. Fail closed: a policy the backend can't apply fails the raise
+// rather than falling back to the wider kit default.
+func (l *Launcher) applyRoleEgress(name string, spec harbor.RaiseSpec) error {
+	if spec.Egress == nil {
+		return nil
+	}
+	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
+}
+
+// ApplyEgress sets a running cove's egress to p (nil = the kit default), via the
+// same privileged backend op the raise uses; the sealed in-box helper enforces
+// the kit's ceiling. Harbor's supervisor calls it when the role's policy drifts
+// from the one the cove is running under.
+func (l *Launcher) ApplyEgress(ctx context.Context, inst harbor.Instance, p *harbor.EgressPolicy) error {
+	return l.applyEgress(inst.Location, inst.ActorID, inst.Project, inst.Role, p)
+}
+
+// applyEgress applies p (nil = reset to the kit default) to container via the
+// backend's RoleEgress op. A backend without the op errors — never a silent no-op.
+func (l *Launcher) applyEgress(container, actorID, project, role string, p *harbor.EgressPolicy) error {
+	if project == "" {
+		project = harbor.DefaultProject
+	}
+	re, ok := l.cfg.Ops.(backend.RoleEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support role egress (required for role %s/%s)", project, role)
+	}
+	if p == nil {
+		if err := re.ResetRoleEgress(container); err != nil {
+			return fmt.Errorf("reset role egress: %w", err)
+		}
+		l.cfg.Log.Info("role egress reset to kit default", "id", actorID, "project", project, "role", role)
+		return nil
+	}
+	if err := re.ApplyRoleEgress(container, p.Domains); err != nil {
+		return fmt.Errorf("apply role egress: %w", err)
+	}
+	l.cfg.Log.Info("role egress applied", "id", actorID, "project", project, "role", role, "domains", len(p.Domains))
+	return nil
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst harbor.Instance) error {

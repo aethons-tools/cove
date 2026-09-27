@@ -7,6 +7,7 @@ tracker:
       AT_DISPATCH_TRACKER_TOKEN: {}
       AT_DISPATCH_WEBHOOK_SECRET: {}
     poll-interval: 60s
+    dispatch-label-prefix: "dispatch:"
     states:
       ready: Todo
       in-progress: In Progress
@@ -44,6 +45,9 @@ collaborators:
       Work with the user to intake and plan work from the Linear board.
       The workspace is shared with the user.
     share-repo-dir: true
+    shadow-dirs:
+      - .gopath
+      - dist
   reviewer:
     prompt: |
       Watch the Linear board COV team for "In Review" tickets labeled "class:implementor".
@@ -84,3 +88,7 @@ image:
     # base adoption (see cmd/adopt-base) and ad-hoc manifest inspection. Manifest
     # lookups only; a full image pull would also need the blob CDN host + Docker.
     - ghcr.io
+    # the project's at-harbor domain, so a collaborator sandbox can reach it.
+    - .local.aethons.tools
+    # Javascript dependencies
+    - cdnjs.cloudflare.com

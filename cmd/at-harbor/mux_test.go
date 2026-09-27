@@ -9,12 +9,17 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/intercom"
 
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -23,9 +28,9 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func TestMessagesMuxRouting(t *testing.T) {
-	msgH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "messages")
+func TestSquawksMuxRouting(t *testing.T) {
+	squawksH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "squawks")
 	})
 	escH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "escalate")
@@ -33,19 +38,19 @@ func TestMessagesMuxRouting(t *testing.T) {
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "broker")
 	})
-	mux := messagesMux(msgH, escH, broker)
+	mux := squawksMux(squawksH, escH, broker)
 
 	for _, tc := range []struct {
 		path string
 		want string
 	}{
-		{"/messages", "messages"},
-		{"/messages/targets", "messages"},
-		{"/messages/commit", "messages"},
+		{"/squawks", "squawks"},
+		{"/squawks/targets", "squawks"},
+		{"/squawks/commit", "squawks"},
 		{"/escalate", "escalate"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},
-		{"/messages/extra", "broker"}, // exact-match only, not a prefix route
+		{"/squawks/extra", "broker"},  // exact-match only, not a prefix route
 		{"/escalate/extra", "broker"}, // exact-match only, not a prefix route
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -154,5 +159,52 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 	b2, _ := io.ReadAll(hr2.Body)
 	if string(b2) != brokerBody {
 		t.Fatalf("h2 broker body = %q, want %q", b2, brokerBody)
+	}
+}
+
+// coveHTTPHandler mounts /squawks (and /escalate) whenever harbor has an
+// intercom log — with or without a dispatcher — and leaves the broker alone
+// when there is neither.
+func TestCoveHTTPHandlerMountsSquawksWithoutDispatcher(t *testing.T) {
+	st, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lg.Close()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := harbor.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
+	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
+
+	get := func(h http.Handler, path string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec.Code
+	}
+	for _, tc := range []struct {
+		name       string
+		lg         intercom.Store
+		dispatcher bool
+		mounted    bool
+	}{
+		{"log, no dispatcher", lg, false, true},
+		{"log + dispatcher", lg, true, true},
+		{"dispatcher, no log", nil, true, true},
+		{"neither", nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := coveHTTPHandler(broker, st, sup, tc.lg, tc.dispatcher, log)
+			for _, p := range []string{"/squawks", "/escalate"} {
+				if got := get(h, p) != http.StatusTeapot; got != tc.mounted {
+					t.Fatalf("%s mounted = %v, want %v", p, got, tc.mounted)
+				}
+			}
+			if get(h, "/anthropic/v1/messages") != http.StatusTeapot {
+				t.Fatal("other paths must still reach the broker")
+			}
+		})
 	}
 }

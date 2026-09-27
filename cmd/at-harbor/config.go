@@ -14,6 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harbor/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/secret"
+	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,10 +43,10 @@ type serveConfig struct {
 		Key  string `yaml:"key"`
 	} `yaml:"admin-tls"`
 	Store string `yaml:"store"`
-	// MessageLog is an optional path to the durable msglog JSONL file. When set,
-	// `serve` opens it and the admin UI serves the read-only Messages view
-	// (/ui/messages). Created on first open. Empty disables the view.
-	MessageLog string `yaml:"message-log"`
+	// IntercomLog is an optional path to the durable intercom JSONL log file. When set,
+	// `serve` opens it and the admin UI serves the read-only Intercom view
+	// (/ui/intercom). Created on first open. Empty disables the view.
+	IntercomLog string `yaml:"intercom-log"`
 	// StorePostgres, when set, selects the Postgres store backend and takes
 	// precedence over the file `store`. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
@@ -69,10 +70,63 @@ type serveConfig struct {
 		Launcher          *launcherConfig   `yaml:"launcher"`
 		Dispatcher        *dispatcherConfig `yaml:"dispatcher"`
 		Discord           *discordConfig    `yaml:"discord"`
+		Wake              *wakeConfig       `yaml:"wake"`
 	} `yaml:"runtime"`
 }
 
-// discordConfig enables the resident Discord msgport engine (egress this slice).
+// wakeConfig configures the resident wake-on engine (internal/wakeon), which
+// runs whenever harbor has an intercom log or a dispatcher. Each field is
+// optional and resolves runtime.wake > the matching runtime.dispatcher field
+// (wake-poll-interval / wait-max / warm-timeout) > the engine default.
+type wakeConfig struct {
+	PollInterval string `yaml:"poll-interval"`
+	WaitMax      string `yaml:"wait-max"`
+	WarmTimeout  string `yaml:"warm-timeout"`
+}
+
+// wakeSettings resolves the wake-on engine's settings, per field:
+// runtime.wake if set, else the runtime.dispatcher field, else zero (the
+// engine's default). An invalid dispatcher value also falls back to the
+// default (its long-standing lenient behavior); runtime.wake values are
+// checked by validateWake.
+func (c serveConfig) wakeSettings() wakeon.Config {
+	var w wakeConfig
+	if c.Runtime.Wake != nil {
+		w = *c.Runtime.Wake
+	}
+	var d dispatcherConfig
+	if c.Runtime.Dispatcher != nil {
+		d = *c.Runtime.Dispatcher
+	}
+	dur := func(s string) time.Duration {
+		v, _ := time.ParseDuration(s) // "" or invalid → 0 → engine default
+		return v
+	}
+	return wakeon.Config{
+		PollInterval: dur(firstNonEmpty(w.PollInterval, d.WakePollInterval)),
+		MaxWait:      dur(firstNonEmpty(w.WaitMax, d.WaitMax)),
+		WarmTimeout:  dur(firstNonEmpty(w.WarmTimeout, d.WarmTimeout)),
+	}
+}
+
+// validateWake checks runtime.wake's durations parse. A no-op when unset.
+func (c serveConfig) validateWake() error {
+	w := c.Runtime.Wake
+	if w == nil {
+		return nil
+	}
+	for name, v := range map[string]string{"poll-interval": w.PollInterval, "wait-max": w.WaitMax, "warm-timeout": w.WarmTimeout} {
+		if v == "" {
+			continue
+		}
+		if _, err := time.ParseDuration(v); err != nil {
+			return fmt.Errorf("runtime.wake.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
 	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
 }
@@ -141,8 +195,9 @@ type dispatcherConfig struct {
 
 	// WakePollInterval, WaitMax, and WarmTimeout configure the resident wake-on
 	// engine (internal/wakeon), which watches Waiting instances' tickets and
-	// wakes, idles (pauses), or tears them down. All optional; empty ⇒ the
-	// engine's own defaults. EscalationPollInterval configures the resident
+	// wakes, idles (pauses), or tears them down. All optional, and now a
+	// fallback: the matching runtime.wake field wins when set (see
+	// wakeSettings); both empty ⇒ the engine's own defaults. EscalationPollInterval configures the resident
 	// escalation engine (internal/escalate), which pings ordered human tiers of
 	// a Waiting instance's Project escalation policy on per-tier timers. Also
 	// optional; empty ⇒ the engine's own default.
@@ -213,7 +268,7 @@ func (c serveConfig) validateDispatcher() error {
 
 // validateDiscord checks runtime.discord when present (required: a non-empty
 // bot-token, as a command or a literal value). A no-op when runtime.discord is
-// unset — the resident Discord msgport engine stays disabled.
+// unset — the resident Discord relay engine stays disabled.
 func (c serveConfig) validateDiscord() error {
 	d := c.Runtime.Discord
 	if d == nil {
@@ -326,8 +381,18 @@ func isLoopbackAddr(addr string) bool {
 // serveConfigKeys is the set of recognized top-level YAML keys, derived from
 // serveConfig's yaml tags so it can't drift as fields are added.
 func serveConfigKeys() map[string]bool {
+	return yamlKeys(reflect.TypeOf(serveConfig{}))
+}
+
+// runtimeConfigKeys is the set of recognized keys under `runtime:`.
+func runtimeConfigKeys() map[string]bool {
+	f, _ := reflect.TypeOf(serveConfig{}).FieldByName("Runtime")
+	return yamlKeys(f.Type)
+}
+
+// yamlKeys returns the yaml tag names of struct type t's fields.
+func yamlKeys(t reflect.Type) map[string]bool {
 	keys := map[string]bool{}
-	t := reflect.TypeOf(serveConfig{})
 	for i := 0; i < t.NumField(); i++ {
 		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); name != "" && name != "-" {
 			keys[name] = true
@@ -350,6 +415,16 @@ func unknownServeKeys(data []byte) []string {
 	for k := range m {
 		if !known[k] {
 			out = append(out, k)
+		}
+	}
+	// One level into runtime: too (reported dotted), so a typo'd runtime block
+	// such as `runtime.wak` is flagged rather than silently ignored.
+	if rt, ok := m["runtime"].(map[string]any); ok {
+		rknown := runtimeConfigKeys()
+		for k := range rt {
+			if !rknown[k] {
+				out = append(out, "runtime."+k)
+			}
 		}
 	}
 	sort.Strings(out)
@@ -390,11 +465,10 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 func (c serveConfig) credSpecs() map[string]secret.Spec {
 	out := make(map[string]secret.Spec, len(c.Credentials))
 	for name, cs := range c.Credentials {
-		if cs.Value != "" {
-			out[name] = secret.Spec{Value: cs.Value, Literal: true}
-		} else {
-			out[name] = secret.Spec{Command: cs.Command}
-		}
+		// toSpec sets Name, which secret.Resolve keys its output map by; callers
+		// that index the resolved map by credential name (e.g. the store-postgres
+		// password path) get an empty value if Name is unset.
+		out[name] = cs.toSpec(name)
 	}
 	return out
 }

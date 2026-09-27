@@ -6,7 +6,7 @@ the productionized approach below (parts 2–5) is **blocked** pending a re-scop
 the Sysbox runtime. See [Spike findings (COV-115)](#spike-findings-cov-115--verdict-escalate).
 **Date:** 2026-08-07 (spike appended 2026-08-08)
 **Related:** the hardening layer (`internal/assemble/hardening/`), the colima backend
-(`internal/backend/colima/`), the egress model (`docs/OVERVIEW.md#egress-three-additive-allow-lists-session-scoped`),
+(`internal/backend/colima/`), the egress model (`docs/OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling`),
 the base/toolchain images (`docs/superpowers/specs/2026-07-16-shared-base-image-design.md`).
 
 ## Goal

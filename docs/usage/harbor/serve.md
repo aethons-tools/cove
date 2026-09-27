@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -57,6 +57,8 @@ runtime:                            # optional — supervisor lease/reconcile ti
     known-hosts-dir: /var/lib/harbor/known_hosts.d
     dns: []
     docker: false
+  wake:                             # optional — wake-on engine timing (see intercom.md)
+    wait-max: 24h
 ```
 
 The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and the
@@ -75,14 +77,15 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
-| `message-log` | no | Filesystem path to harbor's durable message Log (JSONL). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Messages view at `/ui/messages`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#messages](ui.md#messages). |
+| `intercom-log` | no | Filesystem path to harbor's durable squawk Log (JSONL). With a Log (file or `store-postgres`), harbor runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a dispatcher; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `harbor-host`; `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
 | `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
-| `runtime.discord` | no | Enables the resident Discord msgport engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `message-log`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [messaging.md](messaging.md#enabling-it). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no dispatcher needed. Polls every project whose chat service is `discord`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.dispatcher` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store backend (`store-postgres`)
 
@@ -121,12 +124,53 @@ no importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
 after switching; a deployment needing its roster preserved should stay on the
 file backend until it re-enrolls.
 
-**The message log follows the store backend.** `store-postgres` also makes the
-durable message Log ([`message-log`](#the-serve-config) above,
-[ui.md#messages](ui.md#messages)) Postgres-backed, on the same database and
-pool (tables auto-created; `message-log:` is ignored) — effectively always-on.
-Without `store-postgres`, the file `message-log` path is used as before.
+**The squawk Log follows the store backend.** `store-postgres` also makes the
+durable squawk Log ([`intercom-log`](#the-serve-config) above,
+[ui.md#intercom](ui.md#intercom)) Postgres-backed, on the same database and
+pool (tables auto-created; `intercom-log:` is ignored) — effectively always-on.
+Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
+
+**The allocation event store follows the store backend too, and with
+`store-postgres` it is now AUTHORITATIVE for the cap.** Harbor always runs an
+Allocator (its capacity authority), with or without a dispatcher. With
+`store-postgres`, it admits each raise through an
+**atomic optimistic-concurrency grant** on an allocation event store on the same
+database and pool (its `alloc_events` table is auto-created): a single conditional
+append that writes a `reservation_granted` *iff* the stream's outstanding count
+(`granted − released`) is below budget, gated by `UNIQUE(stream_id,
+stream_revision)`. The grant happens **before** the raise (it reserves the slot,
+so admission cannot overshoot the budget under concurrency), and a
+`reservation_released` is written on teardown **and** as compensation if the
+claim/prompt/raise fails after a grant. The cap is therefore per-normalized-`(project,
+role)` `Outstanding`, not a global instance count. **Without `store-postgres`
+(file backend)** there is no ledger, so the Allocator falls back to the **registry
+live instance count vs budget** (the earlier global behavior) and releases are
+no-ops. A crash *between* a grant and the raise leaves a dangling
+`reservation_granted` (a leaked slot); with Postgres a resident **reconcile sweep**
+reclaims it, so the ledger self-heals. Every minute the Allocator releases each
+outstanding reservation (net `granted − released > 0`) whose latest grant is older
+than a ~5-minute grace window **and** whose actor has no live instance — the grace
+window keeps an in-flight raise (instance not yet in the registry) from being
+swept. The sweep is best-effort (a per-reservation release failure is logged and
+retried on the next tick) and Postgres-only (no ledger ⇒ no sweep). The cap stays
+≤ budget throughout, so an unreclaimed slot is only a transient availability
+nuisance, not a correctness break.
+
+Each reservation event also records its **session kind** (`session_kind`, plus a
+standing session's name and a personal session's owner), and the grant counts
+outstanding reservations **of the requested kind only**, so kinds never consume
+each other's capacity; a release inherits the kind of the reservation's latest
+grant. All three kinds are admitted: `ephemeral` (dispatcher) sessions,
+`personal` sessions ([personal-sessions.md](personal-sessions.md)), and
+`standing` sessions ([standing-sessions.md](standing-sessions.md#admission)).
+Pre-existing rows are tagged `ephemeral`. The reconcile sweep releases leaked
+ephemeral and standing reservations, never personal ones. The ephemeral budget is the role's roster `max-ephemeral`, falling
+back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)). A
+personal grant checks two caps in the same atomic append: the role's
+`max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
+Personal sessions **require** `store-postgres`: the file backend has no
+fallback for them.
 
 ### The launcher (`runtime.launcher`)
 

@@ -115,8 +115,14 @@ func (c *Client) PutRole(project string, r harbor.Role) error {
 	return c.do("POST", "/admin/roles", harbor.RoleBody{
 		Project: project, Name: r.Name,
 		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos, Addressing: r.Scope.Addressing,
-		TTLSeconds: int64(r.Scope.TTL / time.Second),
-		Kit:        r.Kit,
+		TTLSeconds:          int64(r.Scope.TTL / time.Second),
+		Kit:                 r.Kit,
+		MaxEphemeral:        r.Allocation.MaxEphemeral,
+		MaxPersonal:         r.Allocation.MaxPersonal,
+		MaxPersonalPerOwner: r.Allocation.MaxPersonalPerOwner,
+		IdleAfterSeconds:    int64(r.Allocation.IdleAfter / time.Second),
+		NagEverySeconds:     int64(r.Allocation.NagEvery / time.Second),
+		ReclaimAfterSeconds: int64(r.Allocation.ReclaimAfter / time.Second),
 	}, nil)
 }
 
@@ -134,7 +140,13 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 	for _, rs := range out {
 		roles = append(roles, harbor.Role{Name: rs.Name, Kit: rs.Kit, Scope: harbor.Scope{
 			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
+		}, Allocation: harbor.RoleAllocation{
+			MaxEphemeral: rs.MaxEphemeral, MaxPersonal: rs.MaxPersonal, MaxPersonalPerOwner: rs.MaxPersonalPerOwner,
+			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,
+			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
+			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
 		}})
+		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil
 }
@@ -312,4 +324,83 @@ func (c *Client) ReportCoveStatus(id, activity string) error {
 // TeardownCove tears a managed cove down and deregisters it.
 func (c *Client) TeardownCove(id string) error {
 	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
+}
+
+// RequestPersonalSession asks harbor for a personal session of role in project
+// ("" = the default project), owned by the roster human linked to the caller's
+// login. The prompt travels in the request body, never on argv.
+func (c *Client) RequestPersonalSession(project, role, prompt string) (harbor.PersonalSessionResult, error) {
+	var res harbor.PersonalSessionResult
+	err := c.do("POST", "/admin/sessions/personal", harbor.PersonalSessionBody{Project: project, Role: role, Prompt: prompt}, &res)
+	return res, err
+}
+
+// ListPersonalSessions lists the caller's own personal sessions in project
+// ("" = the default project).
+func (c *Client) ListPersonalSessions(project string) ([]harbor.PersonalSessionSummary, error) {
+	var out []harbor.PersonalSessionSummary
+	path := "/admin/sessions/personal"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	err := c.do("GET", path, nil, &out)
+	return out, err
+}
+
+// ReleasePersonalSession releases (tears down) one of the caller's personal
+// sessions; only its owner may.
+func (c *Client) ReleasePersonalSession(id string) error {
+	return c.do("DELETE", "/admin/sessions/personal/"+url.PathEscape(id), nil, nil)
+}
+
+func standingPath(project, role string) string {
+	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/standing"
+}
+
+// AddStanding declares a named standing session on project's role; harbor then
+// keeps one cove running for it. The prompt travels in the request body, never
+// on argv.
+func (c *Client) AddStanding(project, role string, s harbor.StandingSession) error {
+	return c.do("POST", standingPath(project, role), s, nil)
+}
+
+// ListStanding lists the standing sessions declared on project's role, prompts
+// included.
+func (c *Client) ListStanding(project, role string) ([]harbor.StandingSession, error) {
+	var out []harbor.StandingSession
+	err := c.do("GET", standingPath(project, role), nil, &out)
+	return out, err
+}
+
+// RemoveStanding dismisses a standing session; harbor tears its cove down.
+func (c *Client) RemoveStanding(project, role, name string) error {
+	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
+}
+
+func egressPath(project, role string) string {
+	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/egress"
+}
+
+// SetEgress sets project's role's egress policy to domains (nil or empty = a
+// set-but-empty policy: nothing beyond the sealed base + the kit's infra
+// domains). Harbor normalizes the list; a bad domain is a 400 naming it. It takes
+// effect at the role's next raise.
+func (c *Client) SetEgress(project, role string, domains []string) error {
+	if domains == nil {
+		domains = []string{}
+	}
+	return c.do("PUT", egressPath(project, role), harbor.EgressPolicy{Domains: domains}, nil)
+}
+
+// ShowEgress returns project's role's egress policy; Managed false means the
+// kit's default list.
+func (c *Client) ShowEgress(project, role string) (harbor.EgressView, error) {
+	var out harbor.EgressView
+	err := c.do("GET", egressPath(project, role), nil, &out)
+	return out, err
+}
+
+// ClearEgress reverts project's role to the kit's default egress list.
+func (c *Client) ClearEgress(project, role string) error {
+	return c.do("DELETE", egressPath(project, role), nil, nil)
 }

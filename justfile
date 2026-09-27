@@ -24,6 +24,11 @@ run *ARGS: build
 run-dispatch *ARGS: build
     "dist/$(go env GOOS)-$(go env GOARCH)/at-dispatch" {{ARGS}}
 
+# Run the at-harbor binary, forwarding ARGS (uses the last `just build` output —
+# run `just build` first). e.g. `just harbor destination list`  or  `just harbor version`
+harbor *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" {{ARGS}}
+
 # install the host binaries (at-cove, at-dispatch) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
@@ -88,6 +93,12 @@ dev-up:
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 
+# Run at-harbor serve against the local dev config (uses the last `just build`
+# output — run `just build` + `just dev-cert` + `just dev-up` first). Binding a
+# privileged port (e.g. :443) needs root — sudo the built binary directly for that.
+dev-serve *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" serve --config dev/harbor.dev.yml {{ARGS}}
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
@@ -111,7 +122,7 @@ integration-docker:
 
 # harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
 integration-harbor:
-    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/...
+    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/... ./internal/allocator/...
 
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip

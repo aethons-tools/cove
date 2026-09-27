@@ -1,9 +1,13 @@
 package launcher
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +156,238 @@ func TestProbeMapsState(t *testing.T) {
 		got, _ := newLauncher(ops).Probe(context.Background(), harbor.Instance{Location: "x"})
 		if got != c.want {
 			t.Fatalf("state %v err %v → %v, want %v", c.st, c.err, got, c.want)
+		}
+	}
+}
+
+// TestRaiseResidentKinds: the launcher asks cove-master for resident mode
+// (AT_COVE_RESIDENT=1) only for resident kinds — personal and standing.
+func TestRaiseResidentKinds(t *testing.T) {
+	for kind, want := range map[string]bool{"": false, "ephemeral": false, harbor.SessionKindPersonal: true, harbor.SessionKindStanding: true} {
+		ops := &fakeOps{}
+		r := &runner.Fake{}
+		l := New(Config{
+			Ops: ops, Runner: r, Image: "img", HarborHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+			sleep: func(time.Duration) {},
+		})
+		if _, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Prompt: "go", SessionKind: kind}, harbor.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+			t.Fatal(err)
+		}
+		got := false
+		for _, c := range r.Calls {
+			if strings.Contains(c.Stdin, "AT_COVE_RESIDENT=1") {
+				got = true
+			}
+		}
+		if got != want {
+			t.Fatalf("kind %q: AT_COVE_RESIDENT set = %v, want %v", kind, got, want)
+		}
+	}
+}
+
+// egressOps is a fakeOps that also implements backend.RoleEgress, recording the
+// domains it was given and how many runner calls had happened by then (so a
+// test can prove the policy lands before cove-master launches).
+type egressOps struct {
+	*fakeOps
+	r          *runner.Fake
+	applied    bool
+	container  string
+	domains    []string
+	callsAtApp int
+	err        error
+	reset      string // container passed to ResetRoleEgress
+}
+
+func (e *egressOps) ApplyRoleEgress(container string, domains []string) error {
+	e.applied, e.container, e.domains, e.callsAtApp = true, container, domains, len(e.r.Calls)
+	return e.err
+}
+
+func (e *egressOps) ResetRoleEgress(container string) error {
+	e.reset = container
+	return e.err
+}
+
+var _ backend.RoleEgress = (*egressOps)(nil)
+
+func newEgressLauncher(ops Backend, r *runner.Fake, logw io.Writer) *Launcher {
+	return New(Config{
+		Ops: ops, Runner: r, Image: "img", HarborHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Log:   slog.New(slog.NewJSONHandler(logw, nil)),
+		sleep: func(time.Duration) {},
+	})
+}
+
+// isCoveMasterLaunch reports whether a runner call is part of the cove-master
+// bootstrap (staging its env/prompt on stdin, or starting it), not the sshd probe.
+func isCoveMasterLaunch(c runner.Call) bool {
+	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "cove-master")
+}
+
+// A role's policy is applied in-box after sshd answers and before cove-master
+// (and so the agent) starts; the domains reach the op unchanged; the info log
+// carries the count, never the list.
+func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	var logs bytes.Buffer
+	l := newEgressLauncher(ops, r, &logs)
+	domains := []string{".b.org", "a.com"}
+	spec := harbor.RaiseSpec{ActorID: "w1", Project: "acme", Role: "fenced", Prompt: "go", Egress: &harbor.EgressPolicy{Domains: domains}}
+	if _, err := l.Raise(context.Background(), spec, harbor.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if !ops.applied || ops.container != "atcove-cove-w1" || !slices.Equal(ops.domains, domains) {
+		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v; want atcove-cove-w1 with %v", ops.applied, ops.container, ops.domains, domains)
+	}
+	if ops.callsAtApp == 0 {
+		t.Fatal("egress applied before sshd answered")
+	}
+	for _, c := range r.Calls[:ops.callsAtApp] {
+		if isCoveMasterLaunch(c) {
+			t.Fatal("cove-master launched before the role egress was applied")
+		}
+	}
+	launched := false
+	for _, c := range r.Calls[ops.callsAtApp:] {
+		launched = launched || isCoveMasterLaunch(c)
+	}
+	if !launched {
+		t.Fatal("cove-master never launched after the egress apply")
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"msg":"role egress applied"`) || !strings.Contains(out, `"domains":2`) {
+		t.Fatalf("log = %s; want role egress applied with domains=2", out)
+	}
+	if strings.Contains(out, "a.com") {
+		t.Fatalf("log must carry the count, not the list: %s", out)
+	}
+}
+
+// No policy (the kit default): no egress call at all.
+func TestRaiseNilEgressSkipsApply(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	l := newEgressLauncher(ops, r, io.Discard)
+	if _, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Role: "guest", Prompt: "go"}, harbor.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.applied {
+		t.Fatal("ApplyRoleEgress called for a role with no policy")
+	}
+}
+
+// An empty (set) policy is still applied — it narrows to base + infra.
+func TestRaiseEmptyEgressStillApplies(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	l := newEgressLauncher(ops, r, io.Discard)
+	if _, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Role: "r", Egress: &harbor.EgressPolicy{Domains: []string{}}}, harbor.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if !ops.applied || len(ops.domains) != 0 {
+		t.Fatalf("empty policy: applied=%v domains=%v", ops.applied, ops.domains)
+	}
+}
+
+// A failed apply (e.g. a domain outside the kit's ceiling) fails the raise,
+// never launches cove-master, and removes the container.
+func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("apply-role-egress: evil.example is outside the kit's egress ceiling")}
+	l := newEgressLauncher(ops, r, io.Discard)
+	_, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Role: "r", Egress: &harbor.EgressPolicy{Domains: []string{"evil.example"}}}, harbor.LaunchCreds{})
+	if err == nil || !strings.Contains(err.Error(), "apply role egress") || !strings.Contains(err.Error(), "evil.example") {
+		t.Fatalf("err = %v; want apply role egress naming the domain", err)
+	}
+	if ops.removed != "atcove-cove-w1" {
+		t.Fatalf("container not removed on egress failure: removed=%q", ops.removed)
+	}
+	for _, c := range r.Calls {
+		if isCoveMasterLaunch(c) {
+			t.Fatal("cove-master launched despite the egress failure")
+		}
+	}
+}
+
+// A backend without RoleEgress fails closed for a role with a policy: never
+// falls back to the wider kit default.
+func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &fakeOps{}
+	l := newEgressLauncher(ops, r, io.Discard)
+	_, err := l.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Project: "acme", Role: "fenced", Egress: &harbor.EgressPolicy{Domains: []string{"a.com"}}}, harbor.LaunchCreds{})
+	if err == nil || !strings.Contains(err.Error(), "backend does not support role egress (required for role acme/fenced)") {
+		t.Fatalf("err = %v; want fail-closed", err)
+	}
+	if ops.removed != "atcove-cove-w1" {
+		t.Fatalf("container not removed: removed=%q", ops.removed)
+	}
+	for _, c := range r.Calls {
+		if isCoveMasterLaunch(c) {
+			t.Fatal("cove-master launched without the role egress")
+		}
+	}
+}
+
+// ApplyEgress on a running cove: a policy goes to ApplyRoleEgress on the cove's
+// location with its domains; the log carries the count, not the list.
+func TestApplyEgressPolicy(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	var logs bytes.Buffer
+	l := newEgressLauncher(ops, r, &logs)
+	inst := harbor.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	domains := []string{".b.org", "a.com"}
+	if err := l.ApplyEgress(context.Background(), inst, &harbor.EgressPolicy{Domains: domains}); err != nil {
+		t.Fatal(err)
+	}
+	if !ops.applied || ops.container != "atcove-cove-w1" || !slices.Equal(ops.domains, domains) {
+		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v", ops.applied, ops.container, ops.domains)
+	}
+	if ops.reset != "" {
+		t.Fatal("a policy must not reset to the kit default")
+	}
+	if out := logs.String(); !strings.Contains(out, `"domains":2`) || strings.Contains(out, "a.com") {
+		t.Fatalf("log = %s; want the count, never the list", out)
+	}
+}
+
+// ApplyEgress with a nil policy restores the kit default via ResetRoleEgress.
+func TestApplyEgressNilResets(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
+	l := newEgressLauncher(ops, r, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	if err := l.ApplyEgress(context.Background(), inst, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ops.reset != "atcove-cove-w1" || ops.applied {
+		t.Fatalf("reset=%q applied=%v; want a reset of atcove-cove-w1 only", ops.reset, ops.applied)
+	}
+}
+
+// ApplyEgress surfaces the backend's error.
+func TestApplyEgressError(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("exit status 3: evil.example is outside")}
+	l := newEgressLauncher(ops, r, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	for _, p := range []*harbor.EgressPolicy{nil, {Domains: []string{"evil.example"}}} {
+		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "exit status 3") {
+			t.Fatalf("policy %v: err = %v; want the backend error", p, err)
+		}
+	}
+}
+
+// A backend without RoleEgress can't re-apply or reset: an error, never a silent no-op.
+func TestApplyEgressWithoutOpErrors(t *testing.T) {
+	l := newEgressLauncher(&fakeOps{}, &runner.Fake{}, io.Discard)
+	inst := harbor.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	for _, p := range []*harbor.EgressPolicy{nil, {Domains: []string{"a.com"}}} {
+		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "backend does not support role egress") {
+			t.Fatalf("policy %v: err = %v; want fail-closed", p, err)
 		}
 	}
 }

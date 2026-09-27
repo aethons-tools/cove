@@ -4,9 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/harbor/adminui"
@@ -118,6 +120,63 @@ func TestRevokeActor(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "spider-2") {
 		t.Error("returned roster fragment should not list the revoked actor")
+	}
+}
+
+// The UI role form doesn't edit the allocation policy, so saving a role from the
+// UI must keep the policy the role already has (set via `role add --max-ephemeral`)
+// rather than resetting it to zero.
+func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
+	store := newStore(t)
+	alloc := harbor.RoleAllocation{
+		MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour,
+		Standing: []harbor.StandingSession{{Name: "alice-bot", Prompt: "review PRs"}},
+	}
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: alloc}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit role = %d, want 200", rec.Code)
+	}
+	got, ok := store.GetRole("acme", "worker")
+	if !ok {
+		t.Fatal("role acme/worker missing after edit")
+	}
+	if !reflect.DeepEqual(got.Allocation, alloc) {
+		t.Fatalf("allocation after UI edit = %+v, want %+v (kept, standing declarations included)", got.Allocation, alloc)
+	}
+	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
+		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
+	}
+}
+
+// The UI role form edits neither the egress policy nor the addressing allow-list,
+// so saving a role from the UI must keep both rather than wiping them.
+func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
+	store := newStore(t)
+	egress := &harbor.EgressPolicy{Domains: []string{".b.org", "a.com"}}
+	addressing := []string{"human:*", "channel:ops"}
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Scope: harbor.Scope{Addressing: addressing, Egress: egress}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit role = %d, want 200", rec.Code)
+	}
+	got, _ := store.GetRole("acme", "worker")
+	if !reflect.DeepEqual(got.Scope.Egress, egress) {
+		t.Fatalf("egress after UI edit = %+v, want %+v (kept)", got.Scope.Egress, egress)
+	}
+	if !reflect.DeepEqual(got.Scope.Addressing, addressing) {
+		t.Fatalf("addressing after UI edit = %v, want %v (kept)", got.Scope.Addressing, addressing)
+	}
+	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
+		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
 	}
 }
 

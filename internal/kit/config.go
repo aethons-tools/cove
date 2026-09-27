@@ -248,11 +248,15 @@ func (t *Tracker) PollInterval() string {
 
 // LinearTracker wires the scheduler to one Linear team.
 type LinearTracker struct {
-	Team             string                  `yaml:"team"`
-	PollInterval     string                  `yaml:"poll-interval"`
-	ClassLabelPrefix string                  `yaml:"class-label-prefix"`
-	States           StateMap                `yaml:"states"`
-	Secrets          map[string]SecretConfig `yaml:"secrets"`
+	Team             string `yaml:"team"`
+	PollInterval     string `yaml:"poll-interval"`
+	ClassLabelPrefix string `yaml:"class-label-prefix"`
+	// DispatchLabelPrefix gates which ready issues harbor's resident dispatcher
+	// raises a cove for: only issues carrying a label with this prefix. Defaults
+	// to "dispatch:" (presence-only; the value after the prefix is unused).
+	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`
+	States              StateMap                `yaml:"states"`
+	Secrets             map[string]SecretConfig `yaml:"secrets"`
 }
 
 // GitHubTracker wires the scheduler to one GitHub repo's Issues. Unlike Linear,
@@ -667,6 +671,9 @@ func ParseConfig(data []byte) (Config, error) {
 			}
 			if lt.ClassLabelPrefix == "" {
 				lt.ClassLabelPrefix = "class:"
+			}
+			if lt.DispatchLabelPrefix == "" {
+				lt.DispatchLabelPrefix = "dispatch:"
 			}
 			states := map[string]string{
 				"ready": lt.States.Ready, "in-progress": lt.States.InProgress,
@@ -1198,15 +1205,24 @@ func SourceControlDomains(c Config) []string {
 	return []string{host}
 }
 
-// RootDomains is the kit's effective baked egress allow-list: the kit's own
-// image.allowed-domains unioned with any provider-derived domains. Assemble bakes
-// this into allowed_domains.kit.txt.
-func RootDomains(c Config) []string {
+// InfraDomains is the infrastructure half of the kit's baked egress: the
+// provider-derived, self-hosted GitLab and harbor hosts the kit needs to work at
+// all. Assemble bakes it into allowed_domains.infra.txt, which is always on — a
+// harbor role's egress policy replaces only the kit's policy list, never this.
+func InfraDomains(c Config) []string {
 	var harbor []string
 	if c.Harbor != nil && c.Harbor.Host != "" {
 		harbor = []string{c.Harbor.Host}
 	}
-	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c), harbor)
+	return unionDomains(ProviderDomains(c), SourceControlDomains(c), harbor)
+}
+
+// RootDomains is the kit's effective baked egress allow-list beyond the sealed
+// base: the kit's own image.allowed-domains (the policy list) unioned with
+// InfraDomains. Assemble bakes the two halves into separate files
+// (allowed_domains.kit.txt and allowed_domains.infra.txt); their union is this.
+func RootDomains(c Config) []string {
+	return unionDomains(c.Image.AllowedDomains, InfraDomains(c))
 }
 
 // validateModelProvider enforces the provider union, required keys, and the

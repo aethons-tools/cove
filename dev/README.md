@@ -39,8 +39,15 @@ self-signed cert for that name (`just dev-cert`, written to the gitignored
 ```sh
 just dev-cert          # writes dev/tls/{cert,key}.pem (CN=harbor.local.aethons.tools)
 just dev-up
-at-harbor serve --config dev/harbor.dev.yml
+just build             # (re)build dist/<os>-<arch>/at-harbor
+just dev-serve         # runs the built at-harbor serve --config dev/harbor.dev.yml
 ```
+
+`just dev-serve` runs the **last-built** `dist/<os>-<arch>/at-harbor` (run `just
+build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
+--config path/to/other.yml`). For arbitrary subcommands there is also `just
+harbor …` (e.g. `just harbor destination list`). Binding a privileged port such
+as `:443` needs root — run the built binary under `sudo` directly for that.
 
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and

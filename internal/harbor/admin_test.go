@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store
 }
 
@@ -155,7 +156,7 @@ func TestAdminHandlerMountsUI(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("UI:" + r.URL.Path))
 	})
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
 
 	// Root redirects to /ui/.
 	rec := httptest.NewRecorder()
@@ -201,7 +202,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
+	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -275,7 +276,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := NewAdminHandler(store, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -466,6 +467,78 @@ func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	}
 }
 
+// A role's max-ephemeral allocation policy round-trips through POST/GET
+// /admin/roles; a negative cap is rejected.
+func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", Destinations: []string{"anthropic"}, MaxEphemeral: 4})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].MaxEphemeral != 4 {
+		t.Fatalf("roles = %+v, want max_ephemeral 4", roles)
+	}
+	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxEphemeral != 4 {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "bad", MaxEphemeral: -1}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative max_ephemeral = %d, want 400", rec.Code)
+	}
+}
+
+// A role's personal caps round-trip through POST/GET /admin/roles; a negative
+// cap is rejected.
+func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", MaxPersonal: 3, MaxPersonalPerOwner: 1})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].MaxPersonal != 3 || roles[0].MaxPersonalPerOwner != 1 {
+		t.Fatalf("roles = %+v, want max_personal 3 / per-owner 1", roles)
+	}
+	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	for _, b := range []RoleBody{{Project: "acme", Name: "bad", MaxPersonal: -1}, {Project: "acme", Name: "bad", MaxPersonalPerOwner: -1}} {
+		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
+			t.Fatalf("negative personal cap %+v = %d, want 400", b, rec.Code)
+		}
+	}
+}
+
+// A role's personal idle settings round-trip through POST/GET /admin/roles as
+// seconds; a negative setting is rejected.
+func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", IdleAfterSeconds: 3600, NagEverySeconds: 7200, ReclaimAfterSeconds: 259200})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].IdleAfterSeconds != 3600 || roles[0].NagEverySeconds != 7200 || roles[0].ReclaimAfterSeconds != 259200 {
+		t.Fatalf("roles = %+v, want idle 3600 / nag 7200 / reclaim 259200", roles)
+	}
+	want := RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}
+	if r, ok := store.GetRole("acme", "pair"); !ok || !reflect.DeepEqual(r.Allocation, want) {
+		t.Fatalf("stored role = %+v, %v; want allocation %+v", r, ok, want)
+	}
+	for _, b := range []RoleBody{
+		{Project: "acme", Name: "bad", IdleAfterSeconds: -1},
+		{Project: "acme", Name: "bad", NagEverySeconds: -1},
+		{Project: "acme", Name: "bad", ReclaimAfterSeconds: -1},
+	} {
+		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
+			t.Fatalf("negative idle setting %+v = %d, want 400", b, rec.Code)
+		}
+	}
+}
+
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
 	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
@@ -598,7 +671,7 @@ func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *
 	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
-	h := NewAdminHandler(store, sup, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store, sup, launcher
 }
 
@@ -671,4 +744,30 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// A roster human's login (the admin operator identity) round-trips through the
+// roster routes, and a login may link at most one human per project.
+func TestAdminRosterHumanLogin(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("POST human = %d %s", rec.Code, rec.Body.String())
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if len(rr.Humans) != 1 || rr.Humans[0].Login != "auth0|abc" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	// Re-upserting the same human with the same login is fine.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice2", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("re-upsert alice = %d %s", rec.Code, rec.Body.String())
+	}
+	// A different human claiming the same login in the same project is rejected.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate login = %d, want 400", rec.Code)
+	}
+	// ...but the same login may link a human in another project.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("same login in another project = %d %s", rec.Code, rec.Body.String())
+	}
 }

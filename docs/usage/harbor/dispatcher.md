@@ -4,7 +4,7 @@ read_when: You are enabling or operating harbor's automatic intake — having it
 owns: the operator-facing resident-dispatcher story — the poll→claim→raise flow, the `runtime.dispatcher` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed cove does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised cove needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-09-13
+updated: 2026-09-26
 ---
 
 # The resident dispatcher
@@ -18,16 +18,23 @@ raise (run → report → teardown).
 ## The flow (per poll)
 
 1. **List ready** — poll the tracker for issues in its READY state.
-2. **Dedup** — skip any issue that already has a live Instance in the registry
+2. **Gate on the dispatch label** — skip any issue that does *not* carry a label
+   matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
+   explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
+   alone. Presence-only — the value after the prefix is unused.
+3. **Dedup** — skip any issue that already has a live Instance in the registry
    (its cove is `cove-<identifier>`), so a ticket is never raised twice.
-3. **Cap** — stop raising once the number of live Instances reaches
-   `max-concurrent`; the rest wait for the next poll. The count is read from the
-   **durable Instance registry** each pass, so the cap holds across a harbor
-   restart (and is the hook for a future multi-instance dispatcher).
-4. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
+4. **Cap** — ask harbor's Allocator for an ephemeral reservation; stop raising
+   once it denies (the role's ephemeral cap is reached); the rest wait for the
+   next poll. The cap is the role's roster `max-ephemeral`
+   ([roster.md](roster.md#roles)), falling back to `max-concurrent` when the role
+   sets none. The count is durable (the Postgres allocation ledger, else the
+   Instance registry — see [serve.md](serve.md)), so the cap holds across a
+   harbor restart.
+5. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
-5. **Raise** — build the prompt (the issue brief + a result protocol asking the
+6. **Raise** — build the prompt (the issue brief + a result protocol asking the
    agent to write `.at-task/worker-result.json`) and call the supervisor's raise
    with `role`/`project` from config and `unit = <identifier>`. On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
@@ -52,18 +59,33 @@ runtime:
   dispatcher:
     role: worker              # required — role raised coves get (must grant anthropic + git)
     project: acme             # optional
-    max-concurrent: 5         # required, > 0 — the backpressure cap
+    max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
     tracker-token:            # harbor's own secret to call the tracker API (never injected into a cove)
       command: ["op", "read", "op://harbor/linear/token"]
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
+      dispatch-label-prefix: "dispatch:"   # only issues carrying a dispatch:* label are raised (default: dispatch:)
       states: { ready: "Ready", in-progress: "In Progress", in-review: "In Review", done: "Done", needs-input: "Needs Input", blocked: "Blocked" }
 ```
 
+The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
+wake-on engine) and `escalation-poll-interval` (the escalation engine). The three wake
+fields are now a **fallback**: the matching `runtime.wake` field wins when set — see
+[intercom.md](intercom.md#waiting-for-a-reply-wake-on). The dispatcher also brings the
+escalation engine and the Linear relay, both of which need its tracker; the intercom
+itself (`/squawks`, wake-on, the Discord relay) runs without a dispatcher.
+
 The role must grant the `anthropic` and `git` destinations so the raised cove's
 agent can reach them ([roster.md](roster.md)).
+
+**Dispatch is opt-in per ticket.** Only issues in the READY state that *also*
+carry a label matching `dispatch-label-prefix` (default `dispatch:`) are raised —
+so pointing `states.ready` at a shared column (e.g. "Todo") does not sweep the
+whole backlog into coves; tag the specific tickets with `dispatch:*`. The gate is
+presence-only (any `dispatch:<anything>` counts). It is distinct from
+`class-label-prefix`, which parses a handler *class* but does not gate.
 
 ## Not yet (deferred)
 

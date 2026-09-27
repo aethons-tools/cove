@@ -2,11 +2,13 @@ package adminclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +30,9 @@ func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, e
 }
 func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 	t.Helper()
@@ -39,7 +44,7 @@ func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 		t.Fatal(err)
 	}
 	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := harbor.NewAdminHandler(store, sup, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, sup, nil, harbor.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -93,7 +98,7 @@ func TestClientLoginConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &harbor.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://harbor.acme/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -245,6 +250,23 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
+	}
+	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
+	if err := c.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	roles, err = c.ListRoles("acme")
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	var alloc harbor.RoleAllocation
+	for _, r := range roles {
+		if r.Name == "worker" {
+			alloc = r.Allocation
+		}
+	}
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); !reflect.DeepEqual(alloc, want) {
+		t.Fatalf("role allocation = %+v, want %+v; roles=%+v", alloc, want, roles)
 	}
 }
 
@@ -481,5 +503,138 @@ func TestCoveClientRoundTrip(t *testing.T) {
 	}
 	if _, ok := store.GetInstance("w1"); ok {
 		t.Fatal("instance present after teardown")
+	}
+}
+
+// grantAll is a harbor.SessionAllocator that admits every personal request.
+type grantAll struct{ releases int }
+
+func (*grantAll) GrantPersonal(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+func (g *grantAll) RecordRelease(context.Context, string, string, string) error {
+	g.releases++
+	return nil
+}
+
+// TestClientPersonalSessionRoundTrip requests, lists and releases a personal
+// session through the client against a real admin handler. The loopback
+// operator is "local", so the roster human is linked to that login.
+func TestClientPersonalSessionRoundTrip(t *testing.T) {
+	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	// A personal session is delivered over Discord: the project's chat service
+	// and the owner's delivery profile must both be set.
+	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatService("acme", "discord"); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	h := harbor.NewAdminHandler(store, sup, &grantAll{}, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	c := New(ts.URL, "")
+
+	res, err := c.RequestPersonalSession("acme", "pair", "help me")
+	if err != nil {
+		t.Fatalf("RequestPersonalSession: %v", err)
+	}
+	if !strings.HasPrefix(res.ID, "personal-alice-") || res.Owner != "alice" {
+		t.Fatalf("result = %+v", res)
+	}
+	list, err := c.ListPersonalSessions("acme")
+	if err != nil || len(list) != 1 || list[0].ID != res.ID {
+		t.Fatalf("ListPersonalSessions = %+v, %v", list, err)
+	}
+	if err := c.ReleasePersonalSession(res.ID); err != nil {
+		t.Fatalf("ReleasePersonalSession: %v", err)
+	}
+	if list, err := c.ListPersonalSessions("acme"); err != nil || len(list) != 0 {
+		t.Fatalf("after release = %+v, %v", list, err)
+	}
+	if err := c.ReleasePersonalSession(res.ID); err == nil {
+		t.Fatal("releasing a released session must error (404)")
+	}
+}
+
+// TestClientStandingRoundTrip declares, lists and dismisses standing sessions
+// through the client; the role's other fields survive.
+func TestClientStandingRoundTrip(t *testing.T) {
+	ts, store := newServer(t)
+	c := New(ts.URL, "")
+
+	if err := c.AddStanding(harbor.DefaultProject, "guest", harbor.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+		t.Fatalf("AddStanding: %v", err)
+	}
+	if err := c.AddStanding(harbor.DefaultProject, "guest", harbor.StandingSession{Name: "alice-bot", Prompt: "again"}); err == nil {
+		t.Fatal("a duplicate name must error (400)")
+	}
+	list, err := c.ListStanding(harbor.DefaultProject, "guest")
+	if err != nil || len(list) != 1 || list[0] != (harbor.StandingSession{Name: "alice-bot", Prompt: "review PRs"}) {
+		t.Fatalf("ListStanding = %+v, %v", list, err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
+		t.Fatalf("role scope not kept: %+v", r.Scope)
+	}
+	if err := c.RemoveStanding(harbor.DefaultProject, "guest", "alice-bot"); err != nil {
+		t.Fatalf("RemoveStanding: %v", err)
+	}
+	if list, err := c.ListStanding(harbor.DefaultProject, "guest"); err != nil || len(list) != 0 {
+		t.Fatalf("after rm = %+v, %v", list, err)
+	}
+	if _, err := c.ListStanding(harbor.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown role = %v, want ErrNotFound", err)
+	}
+}
+
+// TestClientEgressRoundTrip sets, shows and clears a role's egress policy
+// through the client; ListRoles carries it; a bad domain surfaces the 400.
+func TestClientEgressRoundTrip(t *testing.T) {
+	ts, store := newServer(t)
+	c := New(ts.URL, "")
+
+	view, err := c.ShowEgress(harbor.DefaultProject, "guest")
+	if err != nil || view.Managed || len(view.Domains) != 0 {
+		t.Fatalf("ShowEgress (unset) = %+v, %v", view, err)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
+		t.Fatalf("SetEgress: %v", err)
+	}
+	view, err = c.ShowEgress(harbor.DefaultProject, "guest")
+	if err != nil || !view.Managed || strings.Join(view.Domains, ",") != "a.com,b.org" {
+		t.Fatalf("ShowEgress = %+v, %v", view, err)
+	}
+	roles, err := c.ListRoles(harbor.DefaultProject)
+	if err != nil || len(roles) != 1 || roles[0].Scope.Egress == nil || len(roles[0].Scope.Egress.Domains) != 2 {
+		t.Fatalf("ListRoles egress = %+v, %v", roles, err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
+		t.Fatalf("role scope not kept: %+v", r.Scope)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", []string{"https://evil.com"}); err == nil || !strings.Contains(err.Error(), "https://evil.com") {
+		t.Fatalf("bad domain err = %v, want it to name the domain", err)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", nil); err != nil {
+		t.Fatalf("SetEgress(empty): %v", err)
+	}
+	if view, _ := c.ShowEgress(harbor.DefaultProject, "guest"); !view.Managed || len(view.Domains) != 0 {
+		t.Fatalf("empty policy view = %+v", view)
+	}
+	if err := c.ClearEgress(harbor.DefaultProject, "guest"); err != nil {
+		t.Fatalf("ClearEgress: %v", err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); r.Scope.Egress != nil {
+		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
+	}
+	if _, err := c.ShowEgress(harbor.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown role = %v, want ErrNotFound", err)
 	}
 }

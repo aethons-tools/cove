@@ -52,7 +52,7 @@ func (h *EscalateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fail closed: an unrecognized token hash denies. Same lookup primitive as
-	// /messages (internal/harbor/proxy.go) — a hash-map lookup, never a manual
+	// /squawks (internal/harbor/proxy.go) — a hash-map lookup, never a manual
 	// token comparison.
 	actor, ok := h.store.Lookup(HashToken(tok))
 	if !ok {

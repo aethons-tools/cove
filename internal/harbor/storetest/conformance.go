@@ -5,6 +5,7 @@
 package storetest
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,36 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 		if err := s.RemoveRole("acme", "worker"); err == nil {
 			t.Fatal("RemoveRole of an absent role must error")
+		}
+	})
+
+	// A role's egress policy distinguishes nil (the kit default), set-but-empty
+	// (nothing beyond base + infra) and a set list; all three must round-trip.
+	t.Run("role_egress_policy_round_trip", func(t *testing.T) {
+		s := newStore(t)
+		cases := map[string]*harbor.EgressPolicy{
+			"kit-default": nil,
+			"empty":       {Domains: []string{}},
+			"set":         {Domains: []string{".b.org", "a.com"}},
+		}
+		for name, eg := range cases {
+			if err := s.PutRole("acme", harbor.Role{Name: name, Scope: harbor.Scope{Egress: eg}}); err != nil {
+				t.Fatalf("PutRole %s: %v", name, err)
+			}
+		}
+		for name, want := range cases {
+			r, ok := s.GetRole("acme", name)
+			if !ok {
+				t.Fatalf("GetRole %s missing", name)
+			}
+			switch {
+			case want == nil && r.Scope.Egress != nil:
+				t.Fatalf("%s: egress = %+v, want nil", name, r.Scope.Egress)
+			case want != nil && (r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != len(want.Domains)):
+				t.Fatalf("%s: egress = %+v, want %+v", name, r.Scope.Egress, want)
+			case want != nil && len(want.Domains) > 0 && strings.Join(r.Scope.Egress.Domains, ",") != strings.Join(want.Domains, ","):
+				t.Fatalf("%s: egress = %+v, want %+v", name, r.Scope.Egress, want)
+			}
 		}
 	})
 
@@ -188,6 +219,18 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 		if err := s.RemoveInstance("cove-1"); err == nil {
 			t.Fatal("RemoveInstance of an absent instance must error")
+		}
+	})
+
+	t.Run("instance_egress_fields", func(t *testing.T) {
+		s := newStore(t)
+		inst := harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive, Egress: "d:.b.org,a.com", EgressFailures: 2}
+		if err := s.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := s.GetInstance("cove-1")
+		if !ok || got.Egress != "d:.b.org,a.com" || got.EgressFailures != 2 {
+			t.Fatalf("GetInstance = %+v, %v; want the egress fingerprint and failure count kept", got, ok)
 		}
 	})
 
@@ -299,7 +342,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 			t.Fatal("RemoveHuman on an absent project must error")
 		}
 		// delivery profile round-trips through AddHuman (upsert by name)
-		if err := s.AddHuman("acme", harbor.Human{Name: "dave", Handle: "@dave", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		if err := s.AddHuman("acme", harbor.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
 			t.Fatalf("AddHuman with delivery: %v", err)
 		}
 		if r, ok := s.GetRoster("acme"); !ok {
@@ -313,6 +356,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 			}
 			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
 				t.Fatalf("dave delivery = %+v,%v", d, ok)
+			}
+			if dave.Login != "auth0|dave" {
+				t.Fatalf("dave login = %q, want auth0|dave", dave.Login)
 			}
 		}
 		// chat-service set + clear round-trips through GetProject

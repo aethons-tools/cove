@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
@@ -27,6 +28,12 @@ const mcpConfigPath = "/etc/claude-code/mcp.json"
 // once a Wake has broken the unit out of a needs-input wait.
 const resumePrompt = "New input may have arrived on your ticket — use the messaging `read` tool to fetch it, then continue the task. When finished, write .at-task/worker-result.json as before."
 
+// residentResumePrompt is passed (with --continue) on every turn after the
+// first in resident mode (a personal session), once a Wake — typically the
+// owner replying — has broken the cove out of its wait.
+const residentResumePrompt = "Your owner may have replied — use the intercom `read` tool to fetch new messages, then continue. " +
+	"Use `send` to message your owner when you have results or need input."
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
@@ -34,6 +41,14 @@ type Config struct {
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
 	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
 	Spawner Spawner       // nil → the real execSpawner
+	// MCPConfigPath is the --mcp-config file passed to claude; empty defaults to
+	// mcpConfigPath. Run refuses to start the agent if it is missing/unreadable
+	// (COV-190) so a stale image never yields a silently toolless agent.
+	MCPConfigPath string
+	// Resident keeps the cove alive between turns (personal sessions): after
+	// every turn, whatever its outcome, Run reports Waiting and blocks until a
+	// Wake (resume with --continue) or shutdown — never MaxWait.
+	Resident bool
 }
 
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
@@ -56,6 +71,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.MaxWait <= 0 {
 		cfg.MaxWait = defaultMaxWait
 	}
+	if cfg.MCPConfigPath == "" {
+		cfg.MCPConfigPath = mcpConfigPath
+	}
 	sp := cfg.Spawner
 	if sp == nil {
 		sp = execSpawner{grace: cfg.Grace}
@@ -73,7 +91,7 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 	if continued {
 		args = append(args, "--continue")
 	}
-	return append(args, "--dangerously-skip-permissions", "--mcp-config", mcpConfigPath, "--strict-mcp-config", prompt)
+	return append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config", prompt)
 }
 
 // Run spawns claude -p in a turn loop and maps each turn's worker-result to
@@ -81,8 +99,18 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 // Wake resumes it (with --continue on the resume prompt) or MaxWait elapses
 // (Run then returns nil, ending the unit). Returning nil or an error both
 // lead the client to report Done; a nil error means the unit ended cleanly
-// (completed, or gave up waiting).
+// (completed, or gave up waiting). In resident mode (personal sessions) every
+// turn ends in Waiting and only a Wake or ctx cancel moves the loop on.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
+	// Fail loud if the MCP config is missing rather than launch a silently
+	// toolless agent (COV-190): claude with --mcp-config pointing at a
+	// nonexistent file registers no servers, so the agent would have no intercom
+	// read/send tools and flail. A stale image (built before mcp.json shipped in
+	// the hardening layer) is the typical cause.
+	if _, err := os.Stat(w.cfg.MCPConfigPath); err != nil {
+		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
+		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
+	}
 	prompt := w.cfg.Prompt
 	continued := false
 	for {
@@ -100,6 +128,18 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			// not meaningful. The client's Done/exit path owns the ctx error.
 			w.log.Info("agentrun: agent interrupted by context cancel", "err", ctx.Err())
 			return ctx.Err()
+		}
+
+		if w.cfg.Resident {
+			w.logResidentTurn(waitErr)
+			h.Report(covemaster.Waiting)
+			select {
+			case <-w.wake:
+				prompt, continued = residentResumePrompt, true
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 
 		wr, _, ok, rerr := worker.ReadWorkerResult(w.cfg.WorkDir)
@@ -139,6 +179,26 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		default:
 			return fmt.Errorf("agentrun: unexpected worker status %q", status)
 		}
+	}
+}
+
+// logResidentTurn logs a resident turn's outcome. In resident mode no outcome
+// ends the session — an ok, error, or missing worker-result is only reported —
+// so the owner can reply and the cove carries on.
+func (w *Workload) logResidentTurn(waitErr error) {
+	wr, _, ok, rerr := worker.ReadWorkerResult(w.cfg.WorkDir)
+	switch {
+	case rerr != nil:
+		w.log.Warn("agentrun: resident turn: unreadable worker-result; waiting for the owner", "err", rerr.Error())
+	case !ok:
+		w.log.Info("agentrun: resident turn ended without a worker-result; waiting for the owner", "exit", fmt.Sprint(waitErr))
+	default:
+		status, serr := wr.Status.Active()
+		if serr != nil {
+			w.log.Warn("agentrun: resident turn: invalid worker status; waiting for the owner", "err", serr.Error())
+			return
+		}
+		w.log.Info("agentrun: resident turn ended; waiting for the owner", "status", status)
 	}
 }
 

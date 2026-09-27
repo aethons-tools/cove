@@ -147,7 +147,7 @@ func (c *Colima) preflight() error {
 // build through here, so `docker build` appears in exactly one place and the gate
 // can never be bypassed. The run paths never build — create/recreate, chat, and
 // work/dispatch all run the image Install already produced.
-func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resolvedBase, digest string, err error) {
+func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCache bool) (resolvedBase, digest string, err error) {
 	if err := c.preflight(); err != nil {
 		return "", "", err
 	}
@@ -155,11 +155,15 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec) (resol
 	if err != nil {
 		return "", "", err
 	}
-	// --progress=plain: line-by-line build output. BuildKit's default TTY progress
-	// renderer right-aligns each step's duration and pads to a width that can
-	// overflow the terminal by a column, wrapping the trailing "s" of "0.0s" onto
-	// its own line. Plain output avoids that artifact.
-	if err := c.r.Run("docker", dargs("build", "--progress=plain", "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)...); err != nil {
+	// --progress=plain: line-by-line build output (BuildKit's TTY renderer can
+	// overflow the terminal by a column). --no-cache: rebuild every layer so the
+	// build-time `claude`/plugin install re-runs instead of reusing cached layers.
+	buildArgs := []string{"build", "--progress=plain"}
+	if noCache {
+		buildArgs = append(buildArgs, "--no-cache")
+	}
+	buildArgs = append(buildArgs, "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)
+	if err := c.r.Run("docker", dargs(buildArgs...)...); err != nil {
 		return "", "", err
 	}
 	// Capture the built image's OWN sha256 (its image ID) so runs can pin it
@@ -188,7 +192,7 @@ func runImage(tag, digest string) string {
 // is resolved and the provenance gate runs exactly here.
 func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, error) {
 	img := naming.Image(ctx.Kit)
-	base, digest, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base)
+	base, digest, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base, ctx.NoCache)
 	if err != nil {
 		return backend.InstalledImage{}, err
 	}
