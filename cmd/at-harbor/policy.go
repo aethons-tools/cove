@@ -18,8 +18,8 @@ type roleReader interface {
 // takes effect on the next grant with no restart); the dispatcher's
 // max-concurrent is the fallback ephemeral cap for its own (project, role) when
 // the Role sets no max-ephemeral (fallback is empty when harbor serves without a
-// dispatcher). The personal caps come only from the Role. No role and no
-// fallback ⇒ no policy ⇒ fail closed.
+// dispatcher). The personal caps and the standing names come only from the
+// Role. No role and no fallback ⇒ no policy ⇒ fail closed.
 type rosterPolicy struct {
 	store    roleReader
 	fallback allocator.StaticPolicy
@@ -40,10 +40,13 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 		MaxPersonal:         a.MaxPersonal,
 		MaxPersonalPerOwner: a.MaxPersonalPerOwner,
 	}
+	for _, s := range a.Standing {
+		pol.StandingNames = append(pol.StandingNames, s.Name)
+	}
 	if pol.MaxEphemeral <= 0 {
 		pol.MaxEphemeral = fb.MaxEphemeral // dispatcher fallback (0 without one)
 	}
-	if pol == (allocator.Policy{}) {
+	if pol.MaxEphemeral <= 0 && pol.MaxPersonal <= 0 && pol.MaxPersonalPerOwner <= 0 && len(pol.StandingNames) == 0 {
 		return pol, false // the role sets nothing and there is no fallback
 	}
 	return pol, true

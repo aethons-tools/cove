@@ -176,12 +176,12 @@ func TestGrant_Personal_NoCap_FailsClosed(t *testing.T) {
 	}
 }
 
-// Standing admission lands in a later slice: until then it (and any unknown
-// kind) fails closed with ErrUnsupportedKind and never reaches the ledger.
+// An unknown kind fails closed with ErrUnsupportedKind and never reaches the
+// ledger.
 func TestGrant_UnsupportedKind_FailsClosed(t *testing.T) {
 	fl := &fakeLedger{grantResult: true}
 	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 3}}, fl)
-	for _, k := range []SessionKind{SessionStanding, "bogus"} {
+	for _, k := range []SessionKind{"bogus"} {
 		ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "worker", ReservationID: "x", Kind: k})
 		if ok || !errors.Is(err, ErrUnsupportedKind) {
 			t.Fatalf("kind %s: got %v,%v", k, ok, err)
@@ -286,5 +286,55 @@ func TestSweep_NilLedger_NoOp(t *testing.T) {
 	a := New(fakeCounter{}, StaticPolicy{}, nil)
 	if n, err := a.Sweep(context.Background(), time.Minute); err != nil || n != 0 {
 		t.Fatalf("nil ledger sweep = %d,%v", n, err)
+	}
+}
+
+// A declared standing name is granted by the ledger, capped at the number of
+// declared names (so no other kind can take a dead name's slot).
+func TestGrant_Standing_DeclaredName_CapIsNameCount(t *testing.T) {
+	fl := &fakeLedger{grantResult: true}
+	a := New(fakeCounter{}, StaticPolicy{{Project: "acme", Role: "reviewer"}: {StandingNames: []string{"alice-bot", "bob-bot", "carol-bot"}}}, fl)
+	req := Request{Project: "acme", Role: "reviewer", ReservationID: "standing-acme-reviewer-bob-bot", Kind: SessionStanding, Name: "bob-bot"}
+	ok, err := a.Grant(context.Background(), req)
+	if err != nil || !ok {
+		t.Fatalf("got %v,%v; want granted", ok, err)
+	}
+	if fl.grantCaps != (Caps{Kind: 3}) || fl.grantReq != req {
+		t.Fatalf("ledger saw caps=%+v req=%+v; want Kind 3 and %+v", fl.grantCaps, fl.grantReq, req)
+	}
+	fl.grantResult = false
+	if ok, err := a.Grant(context.Background(), req); ok || err != nil {
+		t.Fatalf("ledger denial: got %v,%v; want false,nil", ok, err)
+	}
+}
+
+// An undeclared name (or a role with no policy / no declarations) is denied
+// without touching the ledger.
+func TestGrant_Standing_UndeclaredDenied(t *testing.T) {
+	for name, pol := range map[string]StaticPolicy{
+		"no policy":       {},
+		"no declarations": {{Project: "acme", Role: "reviewer"}: {MaxEphemeral: 5}},
+		"other names":     {{Project: "acme", Role: "reviewer"}: {StandingNames: []string{"alice-bot"}}},
+	} {
+		for _, ledger := range []Ledger{&fakeLedger{grantResult: true}, nil} {
+			a := New(fakeCounter{}, pol, ledger)
+			ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "reviewer", ReservationID: "s", Kind: SessionStanding, Name: "bob-bot"})
+			if ok || err != nil {
+				t.Fatalf("%s (ledger %v): got %v,%v; want false,nil", name, ledger != nil, ok, err)
+			}
+			if fl, _ := ledger.(*fakeLedger); fl != nil && fl.grantCalls != 0 {
+				t.Fatalf("%s: undeclared name reached the ledger", name)
+			}
+		}
+	}
+}
+
+// Without a ledger (file-store dev) a declared name is admitted by the
+// declaration alone: the per-name actor id keeps it to one cove.
+func TestGrant_Standing_NilLedger_Granted(t *testing.T) {
+	a := New(fakeCounter{n: 1000}, StaticPolicy{{Project: "acme", Role: "reviewer"}: {StandingNames: []string{"alice-bot"}}}, nil)
+	ok, err := a.Grant(context.Background(), Request{Project: "acme", Role: "reviewer", ReservationID: "s", Kind: SessionStanding, Name: "alice-bot"})
+	if err != nil || !ok {
+		t.Fatalf("got %v,%v; want granted", ok, err)
 	}
 }

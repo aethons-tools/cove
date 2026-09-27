@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/allocator"
@@ -57,14 +58,14 @@ func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	}
 	p := rosterPolicy{store: st, fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
 	want := allocator.Policy{MaxEphemeral: 2, MaxPersonal: 3, MaxPersonalPerOwner: 1}
-	if pol, ok := p.Policy("acme", "worker"); !ok || pol != want {
+	if pol, ok := p.Policy("acme", "worker"); !ok || !reflect.DeepEqual(pol, want) {
 		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
 	}
 	// With no dispatcher fallback (harbor serving without a dispatcher), a role
 	// with only personal caps still has a policy — its ephemeral cap is 0.
 	p = rosterPolicy{store: st}
 	want = allocator.Policy{MaxPersonal: 3, MaxPersonalPerOwner: 1}
-	if pol, ok := p.Policy("acme", "worker"); !ok || pol != want {
+	if pol, ok := p.Policy("acme", "worker"); !ok || !reflect.DeepEqual(pol, want) {
 		t.Fatalf("Policy (no fallback) = %+v,%v; want %+v", pol, ok, want)
 	}
 }
@@ -89,5 +90,19 @@ func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
 	p := newRosterPolicy(st, &dispatcherConfig{Role: "worker", MaxConcurrent: 2})
 	if pol, ok := p.Policy(harbor.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
 		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, harbor.DefaultProject)
+	}
+}
+
+// The role's declared standing names pass through to the policy, and a role
+// that declares only standing sessions still has a policy.
+func TestRosterPolicy_StandingNames(t *testing.T) {
+	st := newPolicyStore(t)
+	if err := st.PutRole("acme", harbor.Role{Name: "reviewer", Allocation: harbor.RoleAllocation{Standing: []harbor.StandingSession{{Name: "alice-bot", Prompt: "p"}, {Name: "bob-bot", Prompt: "q"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	p := rosterPolicy{store: st}
+	want := allocator.Policy{StandingNames: []string{"alice-bot", "bob-bot"}}
+	if pol, ok := p.Policy("acme", "reviewer"); !ok || !reflect.DeepEqual(pol, want) {
+		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
 	}
 }
