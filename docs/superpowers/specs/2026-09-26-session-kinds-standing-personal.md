@@ -1,0 +1,173 @@
+# Session kinds: ephemeral, standing, personal
+
+**Status:** design agreed; **pre-plan**. Builds on the orchestration-roles design
+([`2026-09-15-orchestration-roles-requisitioner-allocator-supervisor.md`](2026-09-15-orchestration-roles-requisitioner-allocator-supervisor.md))
+and Slices 1–5 (the Allocator, the authoritative OCC ledger, release on teardown,
+the reconcile sweep).
+**Motivation:** today the Allocator only knows one kind of session — **ephemeral**,
+raised by the dispatcher for one ticket. Two more kinds are needed: **standing**
+sessions (named, long-lived teammates) and **personal** sessions (ad-hoc sessions
+a *human* asks for to do their own work). The immediate need is personal.
+**Touches (eventual):** the reservation/event model (`internal/allocator`,
+`allocpg`), the per-`(project, role)` allocation policy (authored in roster), the
+Supervisor's reconcile loop, a new operator request surface (CLI/UI), and the
+escalation engine (for idle nags). Nothing here is built yet.
+
+## The three kinds
+
+The axis that separates them is **who requests the session** and **what ends it**:
+
+| Kind | Requester | Ends when |
+|---|---|---|
+| **ephemeral** | the dispatcher (a tracker ticket) | its unit of work completes |
+| **standing** | an operator (declared, **named**) | it is **dismissed** |
+| **personal** | **a human**, ad hoc | the **owner releases it** (with an idle backstop) |
+
+All three remain **reservations** — the reservation is still the only currency
+between requesters, the Allocator, and the Supervisor. The reservation grows:
+
+- `kind` — `ephemeral | standing | personal`
+- `name` — standing only: a stable identity (addressable, shows in the roster,
+  resurrects under the same name)
+- `owner` — personal only: the requesting human's Actor id
+
+Humans are already Actors in the RBAC plane, so "owner" needs no new identity
+concept.
+
+## The per-(project, role) allocation policy
+
+The budget generalizes from one ephemeral cap to a policy per `(project, role)`:
+
+| Setting | Meaning |
+|---|---|
+| `max-ephemeral` | cap on concurrent ephemeral sessions (today's `max-concurrent`) |
+| `standing` | the **named set** of standing sessions (a list of names, not a count) |
+| `max-personal` | pool cap on concurrent personal sessions of this role, across all requesters |
+| `idle` settings | the personal-session idle ladder (below) |
+
+Plus a **requester-side grant**: a role may be granted the ability to request
+personal sessions of other roles, with a per-requester count — e.g. a human
+holding `engineer` in `acme` *may request* up to 2 personal `worker` sessions.
+
+- The **type** ("which roles may I request") is **authorization** → a grant on the
+  requester's Role, in the RBAC plane, like destinations.
+- The **counts** are **capacity** → enforced by the Allocator: the per-requester
+  count from the grant, and the pool cap (`max-personal`) on the target role.
+  Two caps; a personal request must satisfy both.
+
+**Where it lives:** the policy is administration, so — exactly like the budget
+decision in the orchestration design — the **roster/control-plane store is the
+source of truth**, as fields on the `(project, role)` Role. The Allocator reads it
+**live from the memory-cached store on each grant** and passes the cap into the
+ledger's single atomic grant insert. (This refines the orchestration design's
+"materialize the budget onto the ledger": since the cap is a parameter of the
+atomic insert, a live read gives the same eventual consistency with no extra
+event.) Capacity tolerates eventual consistency; the *type* grant is
+authorization and is checked live as well.
+
+## Personal sessions (the immediate need)
+
+A personal session is, in effect, a **governed `at-harbor cove raise`**: today a
+human can already raise a cove by hand, but it is ungoverned, not tracked against a
+budget, and not owned. Personal sessions put that under the Allocator.
+
+- **Request.** A human asks through an operator surface (CLI verb; UI later),
+  authenticated by harbor's existing operator auth. The requester's identity is the
+  **owner**. No in-cove API is involved.
+- **Admission.** The Allocator checks the requester's grant (type, live) and both
+  caps (per-requester count, `max-personal` pool) and grants via the same OCC
+  append the ledger already uses (`kind: personal`, `owner`).
+- **Lifetime.** Undetermined — the session lives until the **owner releases it**.
+  Release is explicit (CLI/UI).
+- **Idle ladder (the backstop).** Humans forget, so an idle personal session is
+  handled humanely rather than silently killed. Because idle is nearly free and
+  activity is expensive:
+  1. **idle → pause.** After `idle-after`, the Studio is paused (cheap; the
+     Session's context is preserved).
+  2. **pester.** The owner is **squawked via the intercom** (`human:<owner>`) —
+     "your personal session *X* has been idle for *N*; keep it or release it" — and
+     re-nagged every `nag-every`.
+  3. **reclaim.** After an optional final `reclaim-after`, the session is released
+     (the Slice-5 sweep can carry this).
+
+  All three thresholds are **settings** in the `(project, role)` policy
+  (`reclaim-after` may be unset = never auto-reclaim). The nag mechanism **reuses
+  the escalation engine**, which already pings humans over the intercom on
+  per-tier timers — a personal-idle nag is a single-tier escalation to the owner.
+  v1: the nag is a notification; the owner keeps or releases via CLI/UI.
+  Replying to the squawk to act ("keep"/"release") is deferred.
+
+## Standing sessions
+
+- **Declaration.** An operator declares named standing sessions per
+  `(project, role)` (roster/admin surface; a config block may seed it). Each name
+  is a reservation with **no unit and no expiry**.
+- **Keep-alive = the Supervisor reconciles the ledger.** This is the first place
+  the design's "Supervisor reconciles desired reservations" is built directly
+  (ephemeral is dispatcher-driven). Each pass: a standing reservation with no live
+  Session → **raise** it; a standing Session that died → its reservation
+  **persisted**, so the next pass **resurrects** it under the same name.
+- **Teardown ≠ release** for standing. A standing Studio dying must not release its
+  reservation (else it would not be resurrected). A standing reservation releases
+  **only on dismissal** — the name is removed — after which the Supervisor tears it
+  down and releases.
+
+  *As built (Slice 5):* the durable desired state is the **declaration on the
+  role**, not a persisted reservation. A dying standing Studio's teardown releases
+  its reservation like any other, and the reconciler re-grants and raises the name
+  on its next pass. The standing cap is the number of declared names, so a freed
+  slot can't be taken by another kind. Raise failures back off per name (30s,
+  doubling to 30m).
+
+## Deferred (not in this design)
+
+- **Session-requested personal sessions** (a cove asking harbor for a helper).
+  Introduces an in-cove request API, a spawn-privilege boundary, ownership cascade
+  on owner-death, and a recursion bound — needs its own design.
+- **Reply-to-act on nags** (answer the squawk to keep/release) — builds on
+  intercom reply routing. *Planned in
+  [`../plans/2026-09-27-reply-to-act-on-nags.md`](../plans/2026-09-27-reply-to-act-on-nags.md).*
+- The warm/assignable reuse kind (still deferred from the orchestration design).
+
+## Resolved: what "idle" means for a personal session
+
+Personal sessions are conversations over the intercom (see the decisions below),
+so there is no attached human to observe. A personal session is **idle while it is
+Waiting on its owner**, measured from `Instance.WaitingSince`, which resets each
+time the owner replies and the cove runs another turn. The idle ladder (Slice 4)
+runs in the wake-on engine rather than the escalation engine, because escalation
+delivers through tracker tickets and personal sessions have none. Nags are sent as
+the cove, so replying to one wakes the session.
+
+## Personal-session decisions (from Slice 2 review)
+
+- **How a human works in one:** over the intercom. A personal session is a
+  long-lived agent the owner converses with — the cove messages its owner, the
+  owner replies (Discord), the reply wakes it and it continues with
+  `claude --continue`. (Direct shell/SSH attach is not in scope.) v1 limit: the
+  owner can only reply to the cove's messages, not start a thread.
+- **Owner identity:** roster Humans gain a `Login` (the admin operator identity:
+  OIDC `sub`, or `"local"` on loopback); the owner is the Human whose `Login`
+  matches the caller.
+- **Authorization for v1:** caps only — `max-personal` (pool) and
+  `max-personal-per-owner`. The "which roles may I request" grant is deferred.
+- **Personal sessions require the allocation ledger** (Postgres).
+
+## Slice sequence
+
+Personal first, since it is the immediate need; standing after.
+
+1. **Generalize the reservation + policy** *(done)*. `SessionKind`/name/owner on
+   reservations; per-kind caps; the roster `max-ephemeral` policy.
+2. **Personal: request + ownership.** Login-linked Humans, pool + per-owner caps,
+   the Allocator built without a dispatcher, owner on raised coves, and
+   `session request|list|release` with owner-only release. Sessions run their
+   prompt once.
+3. **Personal: long-lived conversation.** A resident cove loop (wait for the
+   owner's reply instead of ending), wake-on and escalation exemptions, send
+   defaults and owner-only addressing, and the intercom machinery running
+   without a dispatcher.
+4. **Personal: idle ladder.** Idle → pause, intercom pestering via the escalation
+   engine, optional reclaim via the sweep.
+5. **Standing.** Named declarations, keep-alive/resurrect reconcile,
+   dismissal-only release.
