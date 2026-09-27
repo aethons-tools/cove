@@ -159,3 +159,46 @@ func TestAdminTokenOldEnvAloneWorksAndWarns(t *testing.T) {
 		t.Fatalf("the token value must never be logged; stderr=%q", errb.String())
 	}
 }
+
+// runtime.launcher.harbor-host is the deprecated name for jam-host.
+func TestServeConfigHarborHostAlias(t *testing.T) {
+	c, err := parseServeConfig([]byte("runtime:\n  launcher:\n    jam-host: j.example\n"))
+	if err != nil || c.Runtime.Launcher.JamHost != "j.example" || len(c.deprecated) != 0 {
+		t.Fatalf("jam-host: cfg=%+v deprecated=%v err=%v", c.Runtime.Launcher, c.deprecated, err)
+	}
+
+	c, err = parseServeConfig([]byte("runtime:\n  launcher:\n    harbor-host: h.example\n"))
+	if err != nil {
+		t.Fatalf("harbor-host must still parse: %v", err)
+	}
+	if c.Runtime.Launcher.JamHost != "h.example" || c.Runtime.Launcher.DeprecatedHarborHost != "" {
+		t.Fatalf("harbor-host must fold into JamHost: %+v", c.Runtime.Launcher)
+	}
+	if len(c.deprecated) != 1 || c.deprecated[0] != [2]string{"runtime.launcher.harbor-host", "runtime.launcher.jam-host"} {
+		t.Fatalf("deprecated = %v", c.deprecated)
+	}
+
+	if _, err := parseServeConfig([]byte("runtime:\n  launcher:\n    jam-host: a\n    harbor-host: b\n")); err == nil ||
+		!strings.Contains(err.Error(), "jam-host") || !strings.Contains(err.Error(), "harbor-host") {
+		t.Fatalf("both present must be an error naming both; got %v", err)
+	}
+}
+
+// serve logs one deprecation warning per aliased key, before anything else.
+func TestServeWarnsOnDeprecatedKeys(t *testing.T) {
+	logging.ResetDeprecations()
+	t.Cleanup(logging.ResetDeprecations)
+	cfg := filepath.Join(t.TempDir(), "jam.yml")
+	// The launcher block is incomplete, so serve fails fast right after the
+	// warnings — no listeners are started.
+	if err := os.WriteFile(cfg, []byte("runtime:\n  launcher:\n    harbor-host: h.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"serve", "--config", cfg}, os.Getenv, &out, &errb); code == 0 {
+		t.Fatal("an incomplete launcher block must fail")
+	}
+	if !strings.Contains(errb.String(), "runtime.launcher.harbor-host") || !strings.Contains(errb.String(), "runtime.launcher.jam-host") {
+		t.Fatalf("want a deprecation warning for harbor-host; stderr=%q", errb.String())
+	}
+}

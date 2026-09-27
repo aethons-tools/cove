@@ -2,7 +2,7 @@
 summary: End-to-end runbook for standing up harbor's Linear-driven dispatch on a single Colima host — the ordered procedure (serve → destinations → role → dispatch-label gate) plus the field gotchas that bite a first real run (egress, cert-name, flat-vs-grouped labels).
 read_when: You are bringing up a real harbor dispatch loop for the first time (or reproducing one) and want the ordered steps and the traps, not the per-field reference.
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
-prereqs: serve.md, roster.md, dispatcher.md, coves.md, ../at-cove-config.md#harbor — this runbook orders them, it does not replace them
+prereqs: serve.md, roster.md, dispatcher.md, coves.md, ../at-cove-config.md#jam — this runbook orders them, it does not replace them
 tier: leaf
 updated: 2026-09-15
 ---
@@ -58,10 +58,10 @@ doc that owns the detail; this runbook only owns the **order** and the
   so the gate never matches and nothing raises. Create a flat label named literally
   `dispatch:go` — same shape as `class:attended`.
 - **Cove egress must allow the harbor host.** The raised cove reaches harbor
-  through its own squid proxy; if `harbor-host` isn't on the cove's egress
+  through its own squid proxy; if `jam-host` isn't on the cove's egress
   allow-list, every brokered call (and the Attach stream) dies and the cove does
   nothing. Widen egress in the kit/image.
-- **The dialed name must match the TLS cert.** `runtime.launcher.harbor-host` /
+- **The dialed name must match the TLS cert.** `runtime.launcher.jam-host` /
   `runtime-addr` must be a name the broker cert's SAN covers — the cove validates
   harbor's cert against its system trust store (the launcher injects no CA). A
   cert for `local.aethons.tools` will not satisfy a cove told to dial

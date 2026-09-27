@@ -13,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -72,6 +73,11 @@ type serveConfig struct {
 		Discord           *discordConfig    `yaml:"discord"`
 		Wake              *wakeConfig       `yaml:"wake"`
 	} `yaml:"runtime"`
+
+	// deprecated lists the {old, new} key pairs parseServeConfig folded from a
+	// deprecated alias (Harbor → Jam rename); serve warns once for each. See
+	// docs/usage/jam/renamed-from-harbor.md.
+	deprecated [][2]string
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
@@ -138,13 +144,17 @@ type launcherConfig struct {
 	// InstallManifest is the host path to the at-cove install manifest
 	// (install.Manifest JSON) whose Image/ImageDigest the launcher raises.
 	InstallManifest string `yaml:"install-manifest"`
-	// RuntimeAddr is the harbor Attach-gRPC address a raised cove's cove-master
-	// dials (AT_HARBOR_RUNTIME_ADDR), typically "<harbor-host>:443".
+	// RuntimeAddr is the Jam Attach-gRPC address a raised cove's cove-master
+	// dials (AT_JAM_RUNTIME_ADDR), typically "<jam-host>:443".
 	RuntimeAddr string `yaml:"runtime-addr"`
 	// JamHost is the broker hostname injected as the connector base and
-	// docker --add-host target, so a raised cove can reach harbor by name.
-	JamHost string `yaml:"harbor-host"`
-	// IdentityFile/KnownHostsDir are the SSH identity harbor uses to reach a
+	// docker --add-host target, so a raised cove can reach Jam by name.
+	JamHost string `yaml:"jam-host"`
+	// DeprecatedHarborHost is jam-host's pre-rename name, accepted for one
+	// release with a warning (both set is an error); parseServeConfig folds it
+	// into JamHost and clears it.
+	DeprecatedHarborHost string `yaml:"harbor-host"`
+	// IdentityFile/KnownHostsDir are the SSH identity Jam uses to reach a
 	// raised cove. They must be the same key `at-cove install` baked into the
 	// image's authorized_keys. Default to the at-cove config dir's
 	// id_ed25519 / known_hosts.d when empty, so a harbor host colocated with
@@ -156,7 +166,7 @@ type launcherConfig struct {
 }
 
 // validateLauncher checks runtime.launcher when present (required fields:
-// install-manifest, runtime-addr, harbor-host) and defaults identity-file /
+// install-manifest, runtime-addr, jam-host) and defaults identity-file /
 // known-hosts-dir to the at-cove config dir's id_ed25519 / known_hosts.d.
 // A no-op when runtime.launcher is unset — the placeholder launcher stays in
 // effect, unchanged from before this block existed.
@@ -172,7 +182,7 @@ func (c serveConfig) validateLauncher() error {
 		return fmt.Errorf("runtime.launcher.runtime-addr is required")
 	}
 	if lc.JamHost == "" {
-		return fmt.Errorf("runtime.launcher.harbor-host is required")
+		return fmt.Errorf("runtime.launcher.jam-host is required")
 	}
 	if lc.IdentityFile == "" {
 		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")
@@ -452,11 +462,20 @@ func (c serveConfig) runtimeDurations() (ttl, reconcile time.Duration, err error
 	return ttl, reconcile, nil
 }
 
-// parseServeConfig parses the serve config YAML.
+// parseServeConfig parses the serve config YAML, folding deprecated key
+// aliases into their new names (recorded in c.deprecated for serve to warn
+// about). A key set under both its old and new name is an error.
 func parseServeConfig(data []byte) (serveConfig, error) {
 	var c serveConfig
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		return serveConfig{}, err
+	}
+	if lc := c.Runtime.Launcher; lc != nil && lc.DeprecatedHarborHost != "" {
+		if lc.JamHost != "" {
+			return serveConfig{}, fmt.Errorf("runtime.launcher: both jam-host and harbor-host are set; harbor-host is the deprecated name for jam-host — keep only jam-host (see %s)", logging.RenameDoc)
+		}
+		lc.JamHost, lc.DeprecatedHarborHost = lc.DeprecatedHarborHost, ""
+		c.deprecated = append(c.deprecated, [2]string{"runtime.launcher.harbor-host", "runtime.launcher.jam-host"})
 	}
 	return c, nil
 }

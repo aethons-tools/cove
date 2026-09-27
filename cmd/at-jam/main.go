@@ -1325,6 +1325,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	for _, d := range cfg.deprecated {
+		logging.Deprecated(stderr, d[0], d[1])
+	}
 	if unknown := unknownServeKeys(data); len(unknown) > 0 {
 		fmt.Fprintf(stderr, "at-jam: warning: ignoring unknown harbor.yml key(s): %s\n", strings.Join(unknown, ", "))
 		for _, k := range unknown {

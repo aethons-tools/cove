@@ -232,11 +232,11 @@ func TestRuntimeLauncherParsed(t *testing.T) {
 	c, err := parseServeConfig([]byte(`
 runtime:
   launcher:
-    install-manifest: /var/lib/harbor/install.json
-    runtime-addr: harbor.example.com:443
-    harbor-host: harbor.example.com
-    identity-file: /etc/harbor/id_ed25519
-    known-hosts-dir: /etc/harbor/known_hosts.d
+    install-manifest: /var/lib/jam/install.json
+    runtime-addr: jam.example.com:443
+    jam-host: jam.example.com
+    identity-file: /etc/jam/id_ed25519
+    known-hosts-dir: /etc/jam/known_hosts.d
     dns: ["1.1.1.1", "8.8.8.8"]
     docker: true
 `))
@@ -247,17 +247,17 @@ runtime:
 	if lc == nil {
 		t.Fatal("runtime.launcher did not parse")
 	}
-	if lc.InstallManifest != "/var/lib/harbor/install.json" ||
-		lc.RuntimeAddr != "harbor.example.com:443" ||
-		lc.JamHost != "harbor.example.com" ||
-		lc.IdentityFile != "/etc/harbor/id_ed25519" ||
-		lc.KnownHostsDir != "/etc/harbor/known_hosts.d" ||
+	if lc.InstallManifest != "/var/lib/jam/install.json" ||
+		lc.RuntimeAddr != "jam.example.com:443" ||
+		lc.JamHost != "jam.example.com" ||
+		lc.IdentityFile != "/etc/jam/id_ed25519" ||
+		lc.KnownHostsDir != "/etc/jam/known_hosts.d" ||
 		!lc.Docker ||
 		len(lc.DNS) != 2 || lc.DNS[0] != "1.1.1.1" || lc.DNS[1] != "8.8.8.8" {
 		t.Fatalf("launcher config = %+v", lc)
 	}
 	// runtime.launcher is a known key (no unknown-key warning).
-	if got := unknownServeKeys([]byte("runtime:\n  launcher:\n    harbor-host: h\n")); len(got) != 0 {
+	if got := unknownServeKeys([]byte("runtime:\n  launcher:\n    jam-host: h\n")); len(got) != 0 {
 		t.Fatalf("unknown keys = %v", got)
 	}
 }
@@ -287,7 +287,7 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 	for field, mutate := range map[string]func(*launcherConfig){
 		"install-manifest": func(l *launcherConfig) { l.InstallManifest = "" },
 		"runtime-addr":     func(l *launcherConfig) { l.RuntimeAddr = "" },
-		"harbor-host":      func(l *launcherConfig) { l.JamHost = "" },
+		"jam-host":         func(l *launcherConfig) { l.JamHost = "" },
 	} {
 		bad := serveConfig{}
 		bad.Runtime.Launcher = base()

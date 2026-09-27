@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"path"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/naming"
 	"gopkg.in/yaml.v3"
 )
@@ -525,7 +528,12 @@ type Config struct {
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
 	Teammates     map[string]Teammate     `yaml:"teammates,omitempty"`
 	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
-	Jam           *JamConfig              `yaml:"harbor,omitempty"`
+	Jam           *JamConfig              `yaml:"jam,omitempty"`
+	// DeprecatedHarbor is the pre-rename name of the jam: block, accepted for
+	// one release with a warning (both present is an error). ParseConfig folds
+	// it into Jam and clears it, so nothing else ever reads it. See
+	// docs/usage/jam/renamed-from-harbor.md.
+	DeprecatedHarbor *JamConfig `yaml:"harbor,omitempty"`
 	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
 	// When true, the colima backend runs the sandbox container under
 	// --runtime=sysbox-runc with a persistent /var/lib/docker cache volume, so a
@@ -534,6 +542,10 @@ type Config struct {
 	// bool, a non-bool value is rejected by the strict decoder.
 	Docker bool `yaml:"docker,omitempty"`
 }
+
+// deprecationOut receives deprecated-name warnings from ParseConfig (stderr; a
+// test swaps it to assert on them).
+var deprecationOut io.Writer = os.Stderr
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
 // rejected to catch typos early.
@@ -546,6 +558,13 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
+	}
+	if cfg.DeprecatedHarbor != nil {
+		if cfg.Jam != nil {
+			return Config{}, fmt.Errorf("config.yml: both jam: and harbor: are set; harbor: is the deprecated name for jam: — keep only jam: (see %s)", logging.RenameDoc)
+		}
+		logging.Deprecated(deprecationOut, "config.yml harbor:", "jam:")
+		cfg.Jam, cfg.DeprecatedHarbor = cfg.DeprecatedHarbor, nil
 	}
 	if err := validateSecretNames("secrets", cfg.Secrets, false); err != nil {
 		return Config{}, err
@@ -837,7 +856,7 @@ func ParseConfig(data []byte) (Config, error) {
 	// a model provider (which would set an incoherent CLAUDE_CODE_USE_VERTEX pointed
 	// at harbor's base URL with no GCP creds).
 	if cfg.Jam != nil && cfg.ModelProvider != nil {
-		return Config{}, fmt.Errorf("config.yml: harbor and model-provider are mutually exclusive (harbor supersedes the agent's Anthropic auth)")
+		return Config{}, fmt.Errorf("config.yml: jam and model-provider are mutually exclusive (jam supersedes the agent's Anthropic auth)")
 	}
 	return cfg, nil
 }
@@ -851,7 +870,7 @@ func validateJam(h *JamConfig) error {
 	}
 	host := strings.TrimSpace(h.Host)
 	if host == "" {
-		return fmt.Errorf("config.yml: harbor.host is required")
+		return fmt.Errorf("config.yml: jam.host is required")
 	}
 	// Strict hostname charset: harbor.host flows into the squid allow-list file and
 	// an sh-interpreted `git config` script, so reject anything that could inject a
@@ -860,7 +879,7 @@ func validateJam(h *JamConfig) error {
 	for _, r := range host {
 		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
 		if !ok {
-			return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
+			return fmt.Errorf("config.yml: jam.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
 		}
 	}
 	// harbor.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted

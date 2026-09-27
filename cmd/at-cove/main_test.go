@@ -959,7 +959,7 @@ func TestCreateJamAddsHost(t *testing.T) {
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nharbor:\n  host: harbor.local.aethons.tools\n  identity: harbor-id\n"
+	yml := "name: box\njam:\n  host: jam.local.aethons.tools\n  identity: jam-id\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -973,8 +973,8 @@ func TestCreateJamAddsHost(t *testing.T) {
 	if idx == -1 {
 		t.Fatalf("no docker run call; calls=%+v", f.Calls)
 	}
-	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
-		t.Fatalf("create must map the harbor host to the gateway:\n%s", got)
+	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host jam.local.aethons.tools:host-gateway") {
+		t.Fatalf("create must map the jam host to the gateway:\n%s", got)
 	}
 }
 

@@ -334,7 +334,7 @@ source-control:
     host: gitlab.example.com
     project: g/app
 `,
-		"harbor+gitlab": `
+		"jam+gitlab": `
 name: k
 image:
   allowed-domains: [pkg.go.dev, .example.com]
@@ -342,8 +342,8 @@ source-control:
   gitlab:
     host: gitlab.example.com
     project: g/app
-harbor:
-  host: harbor.example
+jam:
+  host: jam.example
 `,
 	} {
 		t.Run(name, func(t *testing.T) {

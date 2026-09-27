@@ -1,0 +1,32 @@
+---
+summary: The Harbor → Jam rename — every old name (binary, config keys, environment variables, directories, cookies, docs paths), its new name, and whether the old one is still accepted.
+read_when: You have a kit, serve config, script, environment or bookmark that still says "harbor", or you saw a "deprecated name" warning, and need to know what to change it to and how long the old name keeps working.
+owns: the Harbor → Jam old→new name table, which old names are deprecated aliases, and the alias removal policy
+prereqs: none
+tier: leaf
+updated: 2026-09-27
+---
+
+# Renamed from Harbor
+
+The central service used to be called **Harbor**; it is now **Jam**. Most names a
+user, a kit or a running cove depends on keep working **for one release** as a
+**deprecated alias**: using one logs a `deprecated name` warning on stderr (once per
+process) that names the old and new name and points here. The aliases are
+**removed in a later release** — switch to the new names now.
+
+| Old | New | Old name still accepted? |
+|---|---|---|
+| `at-harbor` binary | `at-jam` | Yes. `at-harbor` ships as a copy of `at-jam`; run under that name it works and warns. `at-cove` looks for `at-jam` first, then `at-harbor`. |
+| `~/.config/at-harbor/` (settings, cached login tokens) | `~/.config/at-jam/` | Copied across once: if `at-jam/` is missing and `at-harbor/` exists, the first `at-jam` run copies it (with a notice) and leaves the old one in place. |
+| `AT_HARBOR_ADMIN_TOKEN` | `AT_JAM_ADMIN_TOKEN` | Yes, read when the new one is unset, with a warning. |
+| kit `config.yml` `harbor:` block | `jam:` | Yes, with a warning. Setting both is a validation error. |
+| serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host` | Yes, with a warning. Setting both is an error. |
+| `just harbor`, `just integration-harbor` | `just jam`, `just integration-jam` | No. |
+| Go package `internal/harbor` | `internal/jam` | No (internal). |
+
+**Deliberately unchanged:** the Postgres migration advisory-lock key (it spells
+"harbor"; changing it would let an old and a new binary migrate one database
+concurrently during a rollout) and the Attach gRPC service name
+`harbor.attach.v1.Runtime` (the wire name cove-master in already-built images
+dials).

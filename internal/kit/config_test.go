@@ -62,26 +62,26 @@ func TestParseConfigRejectsUnknownField(t *testing.T) {
 func TestJamConfig(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k
-harbor:
-  host: harbor.local.aethons.tools
-  identity: harbor-id
+jam:
+  host: jam.local.aethons.tools
+  identity: jam-id
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.Jam == nil || cfg.Jam.Host != "harbor.local.aethons.tools" || cfg.Jam.Identity != "harbor-id" {
-		t.Fatalf("harbor = %+v", cfg.Jam)
+	if cfg.Jam == nil || cfg.Jam.Host != "jam.local.aethons.tools" || cfg.Jam.Identity != "jam-id" {
+		t.Fatalf("jam = %+v", cfg.Jam)
 	}
 	if !cfg.Jam.HostGateway() {
 		t.Fatal("via-host-gateway must default to true")
 	}
 	// host is folded into the baked allow-list
-	if !contains(RootDomains(cfg), "harbor.local.aethons.tools") {
-		t.Fatalf("RootDomains missing harbor host: %v", RootDomains(cfg))
+	if !contains(RootDomains(cfg), "jam.local.aethons.tools") {
+		t.Fatalf("RootDomains missing jam host: %v", RootDomains(cfg))
 	}
 
 	// via-host-gateway: false is honored
-	off, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n  identity: i\n  via-host-gateway: false\n"))
+	off, err := ParseConfig([]byte("name: k\njam:\n  host: h.example\n  identity: i\n  via-host-gateway: false\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,32 +89,32 @@ harbor:
 		t.Fatal("via-host-gateway: false must disable host-gateway")
 	}
 
-	// identity is optional: a harbor block without it parses (auto-enroll mode).
-	auto, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n"))
+	// identity is optional: a jam block without it parses (auto-enroll mode).
+	auto, err := ParseConfig([]byte("name: k\njam:\n  host: h.example\n"))
 	if err != nil || auto.Jam == nil || auto.Jam.Identity != "" {
-		t.Fatalf("harbor without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Jam, err)
+		t.Fatalf("jam without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Jam, err)
 	}
 
-	// no harbor block → no harbor host in RootDomains
+	// no jam block → no jam host in RootDomains
 	none, _ := ParseConfig([]byte("name: k\n"))
 	if none.Jam != nil {
-		t.Fatal("Harbor should be nil when absent")
+		t.Fatal("Jam should be nil when absent")
 	}
-	if contains(RootDomains(none), "harbor.local.aethons.tools") {
-		t.Fatal("RootDomains should not contain a harbor host when absent")
+	if contains(RootDomains(none), "jam.local.aethons.tools") {
+		t.Fatal("RootDomains should not contain a jam host when absent")
 	}
 }
 
 func TestJamConfigValidation(t *testing.T) {
 	bad := map[string]string{
-		"empty host":       "name: k\nharbor:\n  identity: i\n",
-		"host w/ scheme":   "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
-		"host w/ port":     "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
-		"host w/ path":     "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",
-		"host w/ space":    "name: k\nharbor:\n  host: \"h.example evil\"\n  identity: i\n",
-		"host w/ cmdsubst": "name: k\nharbor:\n  host: \"x$(id)\"\n  identity: i\n",
-		"host w/ newline":  "name: k\nharbor:\n  host: \"a\\nevil.com\"\n  identity: i\n",
-		"harbor+provider":  "name: k\nharbor:\n  host: h.example\n  identity: i\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
+		"empty host":       "name: k\njam:\n  identity: i\n",
+		"host w/ scheme":   "name: k\njam:\n  host: https://h.example\n  identity: i\n",
+		"host w/ port":     "name: k\njam:\n  host: h.example:8443\n  identity: i\n",
+		"host w/ path":     "name: k\njam:\n  host: h.example/x\n  identity: i\n",
+		"host w/ space":    "name: k\njam:\n  host: \"h.example evil\"\n  identity: i\n",
+		"host w/ cmdsubst": "name: k\njam:\n  host: \"x$(id)\"\n  identity: i\n",
+		"host w/ newline":  "name: k\njam:\n  host: \"a\\nevil.com\"\n  identity: i\n",
+		"jam+provider":     "name: k\njam:\n  host: h.example\n  identity: i\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
 	}
 	for label, data := range bad {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -1508,7 +1508,7 @@ source-control:
 	}
 	// harbor and model-provider are mutually exclusive, so the harbor host is
 	// checked on its own kit.
-	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\nharbor:\n  host: harbor.example\n"))
+	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\njam:\n  host: harbor.example\n"))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}

@@ -2,7 +2,7 @@
 summary: Section index for operating `at-jam` — the durable central service that brokers a cove's credentials/egress, holds the actor roster (RBAC), and serves the kit registry.
 read_when: You are running or administering a harbor service — standing it up, signing an operator in, deciding who can reach what, or registering kits — and need the map of its operator docs.
 owns: the map of the at-jam operator/usage docs and how they relate
-prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#harbor for the cove side of the connection
+prereqs: ../../OVERVIEW.md for what at-cove/harbor is; ../at-cove-config.md#jam for the cove side of the connection
 tier: section
 updated: 2026-09-27
 ---
@@ -21,7 +21,7 @@ coves points at. It does three things for the coves it serves:
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
 This is the *how to run and administer it* layer. For the cove side — making a
-sandbox use a harbor — see [`../at-cove-config.md#harbor`](../at-cove-config.md).
+sandbox use a harbor — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 For *why* it's built this way (threat model, the broker's boundary relocation, the
 five pillars), see the design history:
 [`../../superpowers/specs/2026-09-10-harbor-design.md`](../../superpowers/specs/2026-09-10-harbor-design.md).
@@ -42,6 +42,7 @@ five pillars), see the design history:
 | [ui.md](ui.md) | You want to watch a running harbor in a browser — the live coves and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), edit kits/destinations, or raise/tear down a managed cove, from the browser instead of the CLI. |
 | [intercom.md](intercom.md) | You want a raised cove's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `cove-master mcp` delivery, wake-on (`runtime.wake`), or running the intercom without a dispatcher. |
 | [comms-addressing.md](comms-addressing.md) | You want a cove's agent to send to a named human or channel instead of only its own ticket — the target space, the Project roster, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |
+| [renamed-from-harbor.md](renamed-from-harbor.md) | You have a kit, config, script or env var that still says "harbor", or saw a "deprecated name" warning, and need the new name and how long the old one keeps working. |
 | [escalation.md](escalation.md) | You want a Waiting cove to actively nudge people instead of passively waiting — configuring a Project's ordered, category-keyed human escalation tiers + per-tier timeouts, the cove-declared `escalate(category)` tool, and operating the resident escalation engine. |
 
 ## The shape of a working harbor

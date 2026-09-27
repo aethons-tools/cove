@@ -55,7 +55,7 @@ func TestTeammate_JamRequiresIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	// teammate kit + a harbor block WITHOUT identity (parses; auto-enroll intent).
-	yml := teammateKitYAML + "harbor:\n  host: harbor.local.aethons.tools\n"
+	yml := teammateKitYAML + "jam:\n  host: jam.local.aethons.tools\n"
 	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}

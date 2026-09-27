@@ -168,7 +168,7 @@ at-jam revoke --id spider-18                                    # removes the wh
 - `--base-url` (or the app profile's `base-url`) sets the broker base in the
   printed snippet; `--json` needs no base URL.
 - Hardened coves usually **auto-enroll** themselves at session start rather than
-  using a hand-run snippet — see [`../at-cove-config.md#harbor`](../at-cove-config.md).
+  using a hand-run snippet — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 
 ## The roster
 
