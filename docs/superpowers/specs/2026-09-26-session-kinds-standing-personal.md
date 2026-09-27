@@ -125,7 +125,8 @@ budget, and not owned. Personal sessions put that under the Allocator.
   Introduces an in-cove request API, a spawn-privilege boundary, ownership cascade
   on owner-death, and a recursion bound — needs its own design.
 - **Reply-to-act on nags** (answer the squawk to keep/release) — builds on
-  intercom reply routing.
+  intercom reply routing. *Planned in
+  [`../plans/2026-09-27-reply-to-act-on-nags.md`](../plans/2026-09-27-reply-to-act-on-nags.md).*
 - The warm/assignable reuse kind (still deferred from the orchestration design).
 
 ## Resolved: what "idle" means for a personal session
