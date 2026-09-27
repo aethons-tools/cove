@@ -642,3 +642,19 @@ func TestFileStoreInstanceEgressPersists(t *testing.T) {
 		t.Fatalf("after reload = %+v, %v", got, ok)
 	}
 }
+
+func TestRosterDiscordUserIDRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	fs, _ := NewFileStore(path)
+	if err := fs.AddHuman("acme", Human{Name: "dave", Handle: "@dave", Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}}); err != nil {
+		t.Fatal(err)
+	}
+	fs2, err := NewFileStore(path) // reload
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr, _ := fs2.GetRoster("acme")
+	if d, ok := rr.Humans[0].DeliveryFor("discord"); !ok || d.UserID != "123456789" || d.Address != "chan-9" {
+		t.Fatalf("discord user id not persisted: %+v", rr.Humans[0].Delivery)
+	}
+}

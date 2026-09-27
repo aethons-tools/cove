@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"time"
 )
 
@@ -172,6 +173,80 @@ func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
 type DeliveryProfile struct {
 	Service string `json:"service"`
 	Address string `json:"address"`
+	// UserID binds the human to their account on the service: for "discord",
+	// the human's Discord user id (a snowflake). "" = unbound. A bound human's
+	// Discord replies are attributed by this id alone (see DiscordAuthor). At
+	// most one human per project may hold a given id.
+	UserID string `json:"user_id,omitempty"`
+}
+
+// ValidDiscordUserID reports whether id is shaped like a Discord user id: a
+// snowflake, i.e. 1–20 ASCII digits.
+func ValidDiscordUserID(id string) bool {
+	if id == "" || len(id) > 20 {
+		return false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidateDelivery checks a human's delivery profiles: a user id may be given
+// only on a discord profile, and must be a snowflake.
+func ValidateDelivery(ps []DeliveryProfile) error {
+	for _, p := range ps {
+		if p.UserID == "" {
+			continue
+		}
+		if p.Service != "discord" {
+			return fmt.Errorf("a user id is only supported for discord delivery, not %q", p.Service)
+		}
+		if !ValidDiscordUserID(p.UserID) {
+			return fmt.Errorf("discord user id %q is not a Discord user id (want digits only)", p.UserID)
+		}
+	}
+	return nil
+}
+
+// discordUserIDs returns the Discord user ids h is bound to (normally at most one).
+func (h Human) discordUserIDs() []string {
+	var ids []string
+	for _, d := range h.Delivery {
+		if d.Service == "discord" && d.UserID != "" {
+			ids = append(ids, d.UserID)
+		}
+	}
+	return ids
+}
+
+// DiscordBound reports whether h is bound to a Discord user id.
+func (h Human) DiscordBound() bool { return len(h.discordUserIDs()) > 0 }
+
+// HumanByDiscordUser returns the one roster human bound to the Discord user id
+// userID. The empty id never matches, and an id somehow held by more than one
+// human matches nobody (fail closed: never guess an identity).
+func HumanByDiscordUser(r Roster, userID string) (Human, bool) {
+	if userID == "" {
+		return Human{}, false
+	}
+	var found Human
+	n := 0
+	for _, h := range r.Humans {
+		for _, id := range h.discordUserIDs() {
+			if id == userID {
+				found = h
+				n++
+				break
+			}
+		}
+	}
+	if n != 1 {
+		return Human{}, false
+	}
+	return found, true
 }
 
 // DeliveryFor returns the human's profile for service, if present.

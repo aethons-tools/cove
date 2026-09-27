@@ -604,6 +604,67 @@ func TestProjectRosterAddHumanDelivery(t *testing.T) {
 	}
 }
 
+// TestProjectRosterAddHumanDiscordUser exercises `--delivery
+// discord:<channel>:<user-id>`: the optional third part binds the human's
+// Discord user id; it must be all digits, and only discord accepts it. `roster
+// list` shows the binding.
+func TestProjectRosterAddHumanDiscordUser(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	add := func(name, delivery string) int {
+		out.Reset()
+		errb.Reset()
+		return run([]string{
+			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+			"--name", name, "--handle", name + ".h", "--delivery", delivery,
+		}, getenv, &out, &errb)
+	}
+	if code := add("dave", "discord:chan-9:123456789"); code != 0 {
+		t.Fatalf("discord:C:U exit=%d stderr=%s", code, errb.String())
+	}
+	if code := add("erin", "discord:chan-8"); code != 0 {
+		t.Fatalf("discord:C exit=%d stderr=%s", code, errb.String())
+	}
+	rr, _ := store.GetRoster("acme")
+	got := map[string]jam.DeliveryProfile{}
+	for _, hu := range rr.Humans {
+		got[hu.Name], _ = hu.DeliveryFor("discord")
+	}
+	if got["dave"].Address != "chan-9" || got["dave"].UserID != "123456789" {
+		t.Fatalf("dave = %+v", got["dave"])
+	}
+	if got["erin"].Address != "chan-8" || got["erin"].UserID != "" {
+		t.Fatalf("erin = %+v", got["erin"])
+	}
+	for _, bad := range []string{"discord:C:abc", "discord:C:", "discord:C:1:2", "linear:X:123"} {
+		if code := add("frank", bad); code != 2 {
+			t.Fatalf("--delivery %q exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
+		}
+	}
+	rr, _ = store.GetRoster("acme")
+	for _, hu := range rr.Humans {
+		if hu.Name == "frank" {
+			t.Fatalf("frank should not have been added: %+v", hu)
+		}
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("roster list exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "human\tdave\thandle=dave.h\tdiscord-user=123456789") {
+		t.Fatalf("roster list does not show the binding:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "erin.h\tdiscord-user") {
+		t.Fatalf("roster list shows a binding for unbound erin:\n%s", out.String())
+	}
+}
+
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {

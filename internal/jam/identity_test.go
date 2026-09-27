@@ -110,3 +110,29 @@ func TestDiscordInboxOwner(t *testing.T) {
 		}
 	}
 }
+
+func TestHumanByDiscordUser(t *testing.T) {
+	r := Roster{Humans: []Human{
+		{Name: "alice", Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}},
+		{Name: "bob", Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-b"}}}, // unbound
+		{Name: "carol", Delivery: []DeliveryProfile{{Service: "slack", Address: "x", UserID: "333"}}},
+	}}
+	if h, ok := HumanByDiscordUser(r, "111"); !ok || h.Name != "alice" {
+		t.Fatalf("HumanByDiscordUser(111) = %+v,%v; want alice", h, ok)
+	}
+	if _, ok := HumanByDiscordUser(r, "999"); ok {
+		t.Fatal("an unbound id must not match")
+	}
+	if _, ok := HumanByDiscordUser(r, ""); ok {
+		t.Fatal("the empty id must never match (bob is unbound)")
+	}
+	if _, ok := HumanByDiscordUser(r, "333"); ok {
+		t.Fatal("only a discord profile's user id binds")
+	}
+	// Two humans holding one id (never admitted by the admin route, but fail
+	// closed if a roster somehow carries it): nobody matches.
+	r.Humans = append(r.Humans, Human{Name: "mallory", Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-m", UserID: "111"}}})
+	if _, ok := HumanByDiscordUser(r, "111"); ok {
+		t.Fatal("an id bound to two humans must match nobody")
+	}
+}

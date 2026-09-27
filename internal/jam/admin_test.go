@@ -771,3 +771,48 @@ func TestAdminRosterHumanLogin(t *testing.T) {
 		t.Fatalf("same login in another project = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A roster human's Discord user id binds at most one human per project, must be
+// a snowflake (all digits), and only a discord profile may carry one.
+func TestAdminRosterHumanDiscordUser(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	bound := func(name, ch, uid string) Human {
+		return Human{Name: name, Handle: name + ".h", Delivery: []DeliveryProfile{{Service: "discord", Address: ch, UserID: uid}}}
+	}
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", bound("alice", "inbox-a", "111")); rec.Code != http.StatusCreated {
+		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if d, ok := rr.Humans[0].DeliveryFor("discord"); !ok || d.UserID != "111" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	// Re-adding the same human with the same id is fine.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", bound("alice", "inbox-a2", "111")); rec.Code != http.StatusCreated {
+		t.Fatalf("re-upsert alice = %d %s", rec.Code, rec.Body.String())
+	}
+	// A different human claiming the same id in the same project is rejected.
+	rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", bound("bob", "inbox-b", "111"))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"alice"`) {
+		t.Fatalf("duplicate discord user = %d %s, want 400 naming alice", rec.Code, rec.Body.String())
+	}
+	// ...but the same id may bind a human in another project.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", bound("bob", "inbox-b", "111")); rec.Code != http.StatusCreated {
+		t.Fatalf("same id in another project = %d %s", rec.Code, rec.Body.String())
+	}
+	// A non-snowflake id is rejected.
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", bound("carol", "inbox-c", "abc")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-digit id = %d, want 400", rec.Code)
+	}
+	// A user id on a non-discord profile is rejected.
+	nd := Human{Name: "dan", Handle: "dan.h", Delivery: []DeliveryProfile{{Service: "linear", Address: "x", UserID: "222"}}}
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", nd); rec.Code != http.StatusBadRequest {
+		t.Fatalf("user id on linear profile = %d, want 400", rec.Code)
+	}
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	for _, hu := range rr.Humans {
+		if hu.Name != "alice" {
+			t.Fatalf("a rejected human was added: %+v", hu)
+		}
+	}
+}
