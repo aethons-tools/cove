@@ -188,6 +188,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		LaunchSecretHash: HashToken(secret),
 		RaisedAt:         now, LastSeen: now,
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
+		Egress:    EgressFingerprint(spec.Egress),
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -348,7 +349,10 @@ func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
 
 // Resume unpauses a previously Idled cove (Launcher.Unpause) and marks it
 // PhaseLive again, resetting WaitingSince to now so the wake-on engine's
-// retry-wake window starts fresh.
+// retry-wake window starts fresh. If the role's egress policy changed while the
+// cove was paused, it is applied after unpausing and before the cove is Live
+// (the wake comes on a later tick, so the agent never runs a turn under the
+// stale policy); a failed apply tears the cove down at once and errors.
 func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok || inst.Phase == PhaseGone {
@@ -356,6 +360,17 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 	}
 	if err := s.launcher.Unpause(ctx, inst); err != nil {
 		return err
+	}
+	if want := s.roleEgress(inst); EgressFingerprint(want) != inst.Egress {
+		if err := s.launcher.ApplyEgress(ctx, inst, want); err != nil {
+			s.warn("torn down: egress re-apply failed", "id", actorID, "project", inst.Project, "role", inst.Role, "on", "resume", "err", err.Error())
+			if tdErr := s.Teardown(ctx, actorID); tdErr != nil {
+				return fmt.Errorf("resume %s: egress re-apply: %w (teardown also failed: %v)", actorID, err, tdErr)
+			}
+			return fmt.Errorf("resume %s: egress re-apply failed, torn down: %w", actorID, err)
+		}
+		inst.Egress, inst.EgressFailures = EgressFingerprint(want), 0
+		s.logEgressApplied(inst, want)
 	}
 	inst.Phase = PhaseLive
 	inst.WaitingSince = s.now()
@@ -426,6 +441,8 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 			if inst.Lease.Holder == s.holder {
 				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease
 				_ = s.store.PutInstance(inst)
+				// Only the lease holder re-applies, so two harbors never both exec in.
+				s.reconcileEgress(ctx, inst)
 			}
 			continue // someone else's live lease: not ours to touch
 		}
@@ -445,6 +462,98 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		// LivenessUnknown: leave for the next tick.
 	}
 	return nil
+}
+
+// egressMaxFailures is how many consecutive failed egress re-applies a Live cove
+// survives before it is torn down: a short grace for a transient exec or squid
+// reload failure, never an indefinite run under a policy other than its role's.
+const egressMaxFailures = 3
+
+// roleEgress is the egress policy inst's role currently wants (a copy); nil — the
+// kit default — when the role has none or no longer exists.
+func (s *Supervisor) roleEgress(inst Instance) *EgressPolicy {
+	role, ok := s.store.GetRole(inst.Project, inst.Role)
+	if !ok || role.Scope.Egress == nil {
+		return nil
+	}
+	return &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
+}
+
+// reconcileEgress re-applies inst's role egress policy when it has drifted from
+// the one the cove is running under (inst.Egress). Success records the new
+// fingerprint; a failure is counted and retried next pass, and the
+// egressMaxFailures-th consecutive one tears the cove down (fail closed — a
+// standing session is raised again under the new policy by its reconciler).
+//
+// The exec can take a while, so the outcome is patched onto a fresh read of the
+// instance rather than written from inst, which would clobber a report or
+// heartbeat that landed meanwhile.
+func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
+	want := s.roleEgress(inst)
+	fp := EgressFingerprint(want)
+	if fp == inst.Egress {
+		if inst.EgressFailures != 0 { // the role changed back before a re-apply landed
+			s.patchEgress(inst.ActorID, func(cur *Instance) { cur.EgressFailures = 0 })
+		}
+		return
+	}
+	err := s.launcher.ApplyEgress(ctx, inst, want)
+	if err == nil {
+		s.patchEgress(inst.ActorID, func(cur *Instance) { cur.Egress, cur.EgressFailures = fp, 0 })
+		s.logEgressApplied(inst, want)
+		return
+	}
+	failures := 0
+	counted := s.patchEgress(inst.ActorID, func(cur *Instance) {
+		cur.EgressFailures++
+		failures = cur.EgressFailures
+	})
+	if !counted {
+		return // torn down or paused meanwhile: the exec failing says nothing about the policy
+	}
+	s.warn("egress re-apply failed", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "failures", failures, "err", err.Error())
+	if failures < egressMaxFailures {
+		return
+	}
+	s.warn("torn down: egress re-apply failed", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "failures", failures)
+	if tdErr := s.Teardown(ctx, inst.ActorID); tdErr != nil {
+		s.warn("egress teardown failed", "id", inst.ActorID, "err", tdErr.Error())
+	}
+}
+
+// patchEgress applies fn to a fresh read of the instance and writes it back,
+// only while it is still Live (a torn-down or paused cove is left alone; Resume
+// re-checks a paused one). It reports whether it wrote.
+func (s *Supervisor) patchEgress(actorID string, fn func(*Instance)) bool {
+	cur, ok := s.store.GetInstance(actorID)
+	if !ok || cur.Phase != PhaseLive {
+		return false
+	}
+	fn(&cur)
+	if err := s.store.PutInstance(cur); err != nil {
+		s.warn("egress: record instance failed", "id", actorID, "err", err.Error())
+		return false
+	}
+	return true
+}
+
+// logEgressApplied logs a landed re-apply: the policy's kind and domain count,
+// never the list.
+func (s *Supervisor) logEgressApplied(inst Instance, p *EgressPolicy) {
+	if s.log == nil {
+		return
+	}
+	if p == nil {
+		s.log.Info("egress re-applied", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "policy", "kit")
+		return
+	}
+	s.log.Info("egress re-applied", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "policy", "role", "domains", len(p.Domains))
+}
+
+func (s *Supervisor) warn(msg string, args ...any) {
+	if s.log != nil {
+		s.log.Warn(msg, args...)
+	}
 }
 
 // Run drives the reconciler: one startup pass (restart re-adoption) then a tick

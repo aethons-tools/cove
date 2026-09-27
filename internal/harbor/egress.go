@@ -61,9 +61,26 @@ func EgressCovers(c, r string) bool {
 	return strings.HasPrefix(c, ".") && (r == c[1:] || strings.HasSuffix(r, c))
 }
 
+// EgressFingerprint canonically names an egress policy, so the supervisor can
+// tell whether a cove runs under its role's current one: "kit" for the kit
+// default (nil), "none" for a set-but-empty policy, else "d:" + the domains
+// joined by commas (already normalized and sorted by NormalizeEgress). It holds
+// the domain list, so it is never logged.
+func EgressFingerprint(p *EgressPolicy) string {
+	if p == nil {
+		return "kit"
+	}
+	if len(p.Domains) == 0 {
+		return "none"
+	}
+	return "d:" + strings.Join(p.Domains, ",")
+}
+
 // registerEgress mounts a role's egress-policy routes. Each write is a
 // read-modify-write of the Role that keeps every other field, under mu (shared
-// with the standing routes). A change takes effect at the role's next raise.
+// with the standing routes). The routes only write the Role: the supervisor's
+// reconcile pass notices the drift and re-applies it to the role's running coves
+// (a paused cove gets it when it resumes).
 func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger, mu *sync.Mutex) {
 	notFound := func(w http.ResponseWriter, project, role string) {
 		http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, role), http.StatusNotFound)

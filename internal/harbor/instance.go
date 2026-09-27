@@ -65,6 +65,8 @@ type Instance struct {
 	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
 	LastNagAt          time.Time `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
 	Nags               int       `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
+	Egress             string    `json:"egress,omitempty"`              // EgressFingerprint of the egress policy the cove is running under; "" = unknown (raised before this was recorded) — the supervisor re-applies once
+	EgressFailures     int       `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal
