@@ -23,6 +23,8 @@ type fakeLauncher struct {
 	probed      []string
 	paused      []string
 	resumed     []string
+	egressed    []*EgressPolicy // policies passed to ApplyEgress, in order
+	egressErr   error
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
 }
@@ -53,6 +55,10 @@ func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
 func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 	f.resumed = append(f.resumed, inst.ActorID)
 	return nil
+}
+func (f *fakeLauncher) ApplyEgress(_ context.Context, _ Instance, p *EgressPolicy) error {
+	f.egressed = append(f.egressed, p)
+	return f.egressErr
 }
 
 // supTestKit builds a supervisor over a temp store with a guest role, a fixed

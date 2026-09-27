@@ -1283,6 +1283,11 @@ func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liven
 func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
 
+// ApplyEgress is a no-op: there is no cove to police (raise ignores egress too).
+func (placeholderLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
+
 // linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
 // engine's ticket-comment capability). It exists here, rather than in
 // internal/harbor, so harbor core never imports internal/dispatch/linear or

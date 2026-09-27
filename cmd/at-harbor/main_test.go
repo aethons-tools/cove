@@ -33,6 +33,9 @@ func (aliveLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Livenes
 }
 func (aliveLauncher) Pause(_ context.Context, _ harbor.Instance) error   { return nil }
 func (aliveLauncher) Unpause(_ context.Context, _ harbor.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))

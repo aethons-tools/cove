@@ -184,13 +184,18 @@ type SessionEgress interface {
 // RoleEgress replaces a running container's active egress policy list with a
 // role's domains, which must fit the kit's baked ceiling (enforced in-box by the
 // sealed apply-role-egress.sh). Privileged: host docker exec as root; domains on
-// stdin only. Harbor's launcher applies it at raise, before the agent starts.
+// stdin only. Harbor's launcher applies it at raise, before the agent starts, and
+// again on a running cove when the role's policy changes.
 type RoleEgress interface {
 	// ApplyRoleEgress execs the sealed helper inside container (as root) with
 	// domains piped on stdin, one per line. An empty domains is a set-but-empty
 	// policy (nothing beyond the sealed base + the kit's infra domains). The
 	// helper rejects — changing nothing — any domain outside the ceiling.
 	ApplyRoleEgress(container string, domains []string) error
+	// ResetRoleEgress execs the sealed helper inside container (as root) in its
+	// --kit-default mode, with empty stdin: the active list reverts to the kit's
+	// baked default (its ceiling). Used when a role's policy is cleared.
+	ResetRoleEgress(container string) error
 }
 
 // Factory constructs a Backend bound to a Runner.

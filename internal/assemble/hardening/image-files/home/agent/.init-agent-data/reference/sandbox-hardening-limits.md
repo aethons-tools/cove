@@ -15,7 +15,8 @@ cannot alter any of the following:
 
 - **The egress proxy and `nftables` rules.** You can *add* allowed domains via
   `image.allowed-domains`, never disable the gate. In a harbor-managed cove your
-  role's egress list is applied as root before you start; you cannot change it
+  role's egress list is applied as root before you start, and harbor may re-apply
+  it while you run if an operator changes the role's policy; you cannot change it
   from inside, and it can never exceed the kit's `image.allowed-domains` (see
   `/agent-data/reference/sandbox-kit-changes.md`).
 - **`sshd`, the entrypoint, and the git credential helper.**

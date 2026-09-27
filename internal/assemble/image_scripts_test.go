@@ -108,7 +108,13 @@ func writeFile(t *testing.T, p, content string, mode os.FileMode) {
 // run feeds stdin to the helper; it returns the exit code and combined output.
 func (e roleEgressEnv) run(t *testing.T, stdin string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/apply-role-egress.sh")
+	return e.runArgs(t, stdin)
+}
+
+// runArgs is run with argv for the helper (e.g. --kit-default).
+func (e roleEgressEnv) runArgs(t *testing.T, stdin string, args ...string) (int, string) {
+	t.Helper()
+	cmd := exec.Command("bash", append([]string{"hardening/image-files/usr/local/lib/cove/apply-role-egress.sh"}, args...)...)
 	cmd.Env = []string{
 		"PATH=" + filepath.Join(e.dir, "bin") + ":/usr/bin:/bin",
 		"COVE_KIT_DOMAINS_FILE=" + e.kit,
@@ -288,4 +294,86 @@ func TestApplyRoleEgress_FileMode(t *testing.T) {
 			t.Errorf("%s mode = %v, want 0644", filepath.Base(p), fi.Mode().Perm())
 		}
 	}
+}
+
+// --kit-default restores the baked kit default: the active list becomes the
+// ceiling's entries (the ceiling IS the kit's image.allowed-domains) under a
+// header naming it the kit default; the session delta is cleared; squid reloads.
+func TestApplyRoleEgress_KitDefault(t *testing.T) {
+	e := newRoleEgressEnv(t, roleEgressCeiling)
+	code, out := e.runArgs(t, "", "--kit-default")
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	kitFile := read(t, e.kit)
+	if !strings.HasPrefix(kitFile, "#") || !strings.Contains(kitFile, "kit default") {
+		t.Fatalf("kit file must carry a kit-default header:\n%s", kitFile)
+	}
+	if got := strings.Join(domainLines(kitFile), ","); got != ".x.com,exact.org,pkg.go.dev" {
+		t.Fatalf("kit file domains = %q, want the ceiling's entries", got)
+	}
+	sess := read(t, e.session)
+	if !strings.HasPrefix(sess, "#") || len(domainLines(sess)) != 0 {
+		t.Fatalf("session file must be cleared to its header:\n%s", sess)
+	}
+	if got := strings.TrimSpace(e.squidCalls(t)); got != "-k reconfigure" {
+		t.Fatalf("squid calls = %q, want -k reconfigure", got)
+	}
+	for _, p := range []string{e.kit, e.session} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o644 {
+			t.Errorf("%s mode = %v, want 0644", filepath.Base(p), fi.Mode().Perm())
+		}
+	}
+}
+
+// --kit-default takes no domains: any stdin is refused before anything changes.
+func TestApplyRoleEgress_KitDefaultRejectsStdin(t *testing.T) {
+	e := newRoleEgressEnv(t, roleEgressCeiling)
+	code, out := e.runArgs(t, "pkg.go.dev\n", "--kit-default")
+	if code != 2 {
+		t.Fatalf("exit %d, want 2:\n%s", code, out)
+	}
+	e.assertUnchanged(t)
+}
+
+// Unknown or extra arguments are refused before anything changes.
+func TestApplyRoleEgress_BadArgs(t *testing.T) {
+	for _, args := range [][]string{{"--nope"}, {"pkg.go.dev"}, {"--kit-default", "evil.example"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e := newRoleEgressEnv(t, roleEgressCeiling)
+			code, out := e.runArgs(t, "", args...)
+			if code != 2 {
+				t.Fatalf("exit %d, want 2:\n%s", code, out)
+			}
+			e.assertUnchanged(t)
+		})
+	}
+}
+
+// A missing ceiling fails closed in --kit-default mode too.
+func TestApplyRoleEgress_KitDefaultMissingCeiling(t *testing.T) {
+	e := newRoleEgressEnv(t, roleEgressCeiling)
+	if err := os.Remove(e.ceiling); err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.runArgs(t, "", "--kit-default")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1:\n%s", code, out)
+	}
+	e.assertUnchanged(t)
+}
+
+// --kit-default is root-only like the rest of the helper.
+func TestApplyRoleEgress_KitDefaultNonRootRefused(t *testing.T) {
+	e := newRoleEgressEnv(t, roleEgressCeiling)
+	writeFile(t, e.uid, "1000\n", 0o644)
+	code, out := e.runArgs(t, "", "--kit-default")
+	if code == 0 {
+		t.Fatalf("non-root run must fail:\n%s", out)
+	}
+	e.assertUnchanged(t)
 }

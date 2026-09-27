@@ -444,7 +444,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `allowed_domains.kit.txt`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-([coves](usage/harbor/coves.md#raising-a-real-managed-cove)).
+([coves](usage/harbor/coves.md#raising-a-real-managed-cove)). When the role's policy
+later changes, harbor re-applies it to the role's running coves the same way
+(`apply-role-egress.sh --kit-default` restores the ceiling's list when the policy is
+cleared; that mode takes no domains) —
+see [egress drift](usage/harbor/coves.md#egress-drift).
 
 **Vertex kits auto-gain their GCP hosts.** A kit with a
 [`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its

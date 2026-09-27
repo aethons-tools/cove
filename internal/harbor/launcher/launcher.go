@@ -105,27 +105,46 @@ func (l *Launcher) Raise(ctx context.Context, spec harbor.RaiseSpec, creds harbo
 	return name, nil
 }
 
-// applyRoleEgress pushes spec's role egress policy into the raised container via
-// the backend's privileged RoleEgress op (the sealed in-box helper enforces the
-// kit's ceiling). A nil policy is the kit default: nothing to apply. Fail closed:
-// a policy the backend can't apply fails the raise rather than falling back to
-// the wider kit default.
+// applyRoleEgress pushes spec's role egress policy into the raised container. A
+// nil policy is the kit default, which the image already boots with: nothing to
+// apply at raise. Fail closed: a policy the backend can't apply fails the raise
+// rather than falling back to the wider kit default.
 func (l *Launcher) applyRoleEgress(name string, spec harbor.RaiseSpec) error {
 	if spec.Egress == nil {
 		return nil
 	}
-	project := spec.Project
+	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
+}
+
+// ApplyEgress sets a running cove's egress to p (nil = the kit default), via the
+// same privileged backend op the raise uses; the sealed in-box helper enforces
+// the kit's ceiling. Harbor's supervisor calls it when the role's policy drifts
+// from the one the cove is running under.
+func (l *Launcher) ApplyEgress(ctx context.Context, inst harbor.Instance, p *harbor.EgressPolicy) error {
+	return l.applyEgress(inst.Location, inst.ActorID, inst.Project, inst.Role, p)
+}
+
+// applyEgress applies p (nil = reset to the kit default) to container via the
+// backend's RoleEgress op. A backend without the op errors — never a silent no-op.
+func (l *Launcher) applyEgress(container, actorID, project, role string, p *harbor.EgressPolicy) error {
 	if project == "" {
 		project = harbor.DefaultProject
 	}
 	re, ok := l.cfg.Ops.(backend.RoleEgress)
 	if !ok {
-		return fmt.Errorf("backend does not support role egress (required for role %s/%s)", project, spec.Role)
+		return fmt.Errorf("backend does not support role egress (required for role %s/%s)", project, role)
 	}
-	if err := re.ApplyRoleEgress(name, spec.Egress.Domains); err != nil {
+	if p == nil {
+		if err := re.ResetRoleEgress(container); err != nil {
+			return fmt.Errorf("reset role egress: %w", err)
+		}
+		l.cfg.Log.Info("role egress reset to kit default", "id", actorID, "project", project, "role", role)
+		return nil
+	}
+	if err := re.ApplyRoleEgress(container, p.Domains); err != nil {
 		return fmt.Errorf("apply role egress: %w", err)
 	}
-	l.cfg.Log.Info("role egress applied", "id", spec.ActorID, "project", project, "role", spec.Role, "domains", len(spec.Egress.Domains))
+	l.cfg.Log.Info("role egress applied", "id", actorID, "project", project, "role", role, "domains", len(p.Domains))
 	return nil
 }
 

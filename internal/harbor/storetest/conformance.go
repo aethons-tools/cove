@@ -222,6 +222,18 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 	})
 
+	t.Run("instance_egress_fields", func(t *testing.T) {
+		s := newStore(t)
+		inst := harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive, Egress: "d:.b.org,a.com", EgressFailures: 2}
+		if err := s.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := s.GetInstance("cove-1")
+		if !ok || got.Egress != "d:.b.org,a.com" || got.EgressFailures != 2 {
+			t.Fatalf("GetInstance = %+v, %v; want the egress fingerprint and failure count kept", got, ok)
+		}
+	})
+
 	t.Run("advance_commit_cursor", func(t *testing.T) {
 		s := newStore(t)
 		if err := s.PutInstance(harbor.Instance{ActorID: "cove-1", Phase: harbor.PhaseLive}); err != nil {

@@ -30,6 +30,9 @@ func (aliveLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, e
 }
 func (aliveLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
 func (aliveLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+	return nil
+}
 
 func newServer(t *testing.T) (*httptest.Server, harbor.Store) {
 	t.Helper()

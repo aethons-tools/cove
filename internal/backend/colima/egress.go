@@ -48,13 +48,25 @@ func (c *Colima) ApplySessionEgress(container string, domains []string) error {
 // per line (never argv). The helper enforces the kit's ceiling and fails —
 // changing nothing — on a domain outside it; that error surfaces here.
 func (c *Colima) ApplyRoleEgress(container string, domains []string) error {
+	return c.runRoleEgress(domainsStdin(domains), helperArgs(container, roleEgressHelper))
+}
+
+// ResetRoleEgress restores a running container's kit-default egress by execing
+// the sealed apply-role-egress.sh as root with --kit-default (its only argument)
+// and empty stdin. The helper copies the baked ceiling back into the active list.
+func (c *Colima) ResetRoleEgress(container string) error {
+	return c.runRoleEgress(strings.NewReader(""), append(helperArgs(container, roleEgressHelper), "--kit-default"))
+}
+
+// runRoleEgress runs one privileged apply-role-egress.sh exec.
+func (c *Colima) runRoleEgress(stdin io.Reader, args []string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
 	// Capture the helper's output rather than inheriting harbor's own stdio: its
 	// rejection message names the offending domain, so it belongs in the error.
 	var out bytes.Buffer
-	if err := c.r.RunIO(domainsStdin(domains), &out, &out, "docker", helperArgs(container, roleEgressHelper)...); err != nil {
+	if err := c.r.RunIO(stdin, &out, &out, "docker", args...); err != nil {
 		if msg := strings.TrimSpace(out.String()); msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
 		}

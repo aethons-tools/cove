@@ -80,6 +80,15 @@ a domain outside the ceiling, the raise fails (the error names the domain), the
 container is removed and the identity revoked. It never falls back to the wider kit
 default. A role with no policy skips the step and keeps the kit's list.
 
+### Egress drift
+
+Each Instance records the [role egress policy](roster.md#role-egress) it runs under
+(`egress`). Each reconcile pass re-applies the role's current policy to a `live`
+cove whose lease it holds when the two differ (`--kit-default` for a cleared one);
+`idled` coves are skipped and get it on **resume**, before they are `live` again.
+Failures count in `egress_failures`; the teardown rule is in
+[roster.md](roster.md#role-egress). Logs carry domain counts, never lists.
+
 Managed coves are also raised **automatically** by the [resident
 dispatcher](dispatcher.md) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `cove raise` verb.
