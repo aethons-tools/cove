@@ -63,6 +63,9 @@ wake-on engine walks it up a ladder set by the role:
      display name ([comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service)).
      A **shared inbox** (or one that is also a roster channel) gets no
      `keep`/`release` hint in the nag, and its replies are ordinary replies.
+     Harbor can't see Discord permissions, so this relies on your setup: **only
+     you (and harbor's bot) may post in your inbox channel.** Anyone who can post
+     there can release your session (and could already steer it by replying).
    - **Only a reply to a nag.** A `keep` replying to the agent's own message is
      your answer to the agent; it wakes the session.
    - **Anything else wakes.** Someone else's `keep`/`release`, or a word in a
