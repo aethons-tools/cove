@@ -74,18 +74,18 @@ buf-gen:
 adopt-base *ARGS:
     go run ./cmd/adopt-base {{ARGS}}
 
-# generate a self-signed dev broker cert for harbor.local.aethons.tools into dev/tls/ (gitignored)
+# generate a self-signed dev broker cert for jam.local.aethons.tools into dev/tls/ (gitignored)
 dev-cert:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dev/tls
     openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-      -subj "/CN=harbor.local.aethons.tools" \
-      -addext "subjectAltName=DNS:harbor.local.aethons.tools" \
+      -subj "/CN=jam.local.aethons.tools" \
+      -addext "subjectAltName=DNS:jam.local.aethons.tools" \
       -keyout dev/tls/key.pem -out dev/tls/cert.pem
-    echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=harbor.local.aethons.tools)"
+    echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=jam.local.aethons.tools)"
 
-# raise the local dev Postgres for harbor (host port 15432; see dev/README.md)
+# raise the local dev Postgres for Jam (host port 15432; see dev/README.md)
 dev-up:
     docker compose -f dev/docker-compose.yml up -d
 
@@ -97,7 +97,7 @@ dev-down *ARGS:
 # output — run `just build` + `just dev-cert` + `just dev-up` first). Binding a
 # privileged port (e.g. :443) needs root — sudo the built binary directly for that.
 dev-serve *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/harbor.dev.yml {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
 
 # hermetic unit tests (no docker/network/ssh)
 test:

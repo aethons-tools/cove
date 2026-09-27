@@ -3,12 +3,12 @@ package browserauth
 import "net/http"
 
 // SessionCookie holds the API access token for a logged-in browser session.
-const SessionCookie = "harbor_session"
+const SessionCookie = "jam_session"
 
 const (
-	stateCookie = "harbor_oauth_state"
-	nonceCookie = "harbor_oauth_nonce"
-	pkceCookie  = "harbor_oauth_pkce"
+	stateCookie = "jam_oauth_state"
+	nonceCookie = "jam_oauth_nonce"
+	pkceCookie  = "jam_oauth_pkce"
 )
 
 func setSession(w http.ResponseWriter, token string, secure bool) {

@@ -46,13 +46,13 @@ func (s *Store) events(ctx context.Context, streamID string) ([]row, error) {
 	return out, rows.Err()
 }
 
-// newTestStore opens a pool from HARBOR_TEST_POSTGRES_DSN (skipping when unset),
+// newTestStore opens a pool from JAM_TEST_POSTGRES_DSN (skipping when unset),
 // applies migrations via New, and truncates alloc_events for a clean case.
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	dsn := os.Getenv("HARBOR_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("set HARBOR_TEST_POSTGRES_DSN to run the allocpg event-store integration tests")
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the allocpg event-store integration tests")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

@@ -174,8 +174,8 @@ func TestBrokerChallengesBasicAuth(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
-	if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, "Basic") {
-		t.Fatalf("WWW-Authenticate = %q, want a Basic challenge (git won't send credentials without it)", got)
+	if got := rec.Header().Get("WWW-Authenticate"); got != `Basic realm="jam"` {
+		t.Fatalf("WWW-Authenticate = %q, want Basic realm=\"jam\" (git won't send credentials without it)", got)
 	}
 }
 

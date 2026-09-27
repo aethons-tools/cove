@@ -35,7 +35,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Basic-auth clients (git) send credentials only after a challenge; without
 		// this header git reports "Authentication failed" and never presents the token.
 		if dest.IdentityIn == ApplyBasicPassword {
-			w.Header().Set("WWW-Authenticate", `Basic realm="harbor"`)
+			w.Header().Set("WWW-Authenticate", `Basic realm="jam"`)
 		}
 		http.Error(w, "missing identity", http.StatusUnauthorized)
 		return

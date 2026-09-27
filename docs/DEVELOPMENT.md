@@ -83,12 +83,12 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 - `go test -tags integration ./internal/baseimage/` proves the provenance gate against
   **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
   `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
-- `HARBOR_TEST_POSTGRES_DSN=… go test -tags integration ./internal/jam/... ./internal/intercom/...`
+- `JAM_TEST_POSTGRES_DSN=… go test -tags integration ./internal/jam/... ./internal/intercom/...`
   runs the **Postgres store** conformance + fail-closed suite (`PostgresStore`)
   and the **Postgres squawk log** (`intercompg`) conformance suite against a real
-  Postgres; both **skip** when `HARBOR_TEST_POSTGRES_DSN` is unset (so the hermetic
+  Postgres; both **skip** when `JAM_TEST_POSTGRES_DSN` is unset (so the hermetic
   `go test ./...` is unaffected). Example DSN:
-  `host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable`.
+  `host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable`.
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
@@ -142,7 +142,7 @@ loop cannot drift.
 
 [`.github/workflows/store-integration.yml`](../.github/workflows/store-integration.yml)
 runs `go test -tags integration ./internal/jam/... ./internal/intercom/...`
-against a Postgres **service container**, with `HARBOR_TEST_POSTGRES_DSN`
+against a Postgres **service container**, with `JAM_TEST_POSTGRES_DSN`
 pointing at it — the Postgres-backed `harbor.Store` conformance suite and the
 Postgres squawk log (`intercompg`) conformance suite, both behind the
 `//go:build integration` tag. It is a **separate** workflow from `gate.yml` on

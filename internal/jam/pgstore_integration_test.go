@@ -12,12 +12,12 @@ import (
 )
 
 // TestPostgresStoreConformance runs the shared Store conformance suite against a
-// real Postgres. Set HARBOR_TEST_POSTGRES_DSN (e.g.
-// "host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable").
+// real Postgres. Set JAM_TEST_POSTGRES_DSN (e.g.
+// "host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable").
 func TestPostgresStoreConformance(t *testing.T) {
-	dsn := os.Getenv("HARBOR_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("set HARBOR_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
 	}
 	storetest.RunConformance(t, func(t *testing.T) jam.Store {
 		s, err := jam.NewPostgresStore(context.Background(), dsn, nil)
@@ -35,7 +35,7 @@ func TestPostgresStoreConformance(t *testing.T) {
 // TestPostgresStoreFailsClosedOnBadDSN asserts the fail-closed startup invariant:
 // an unreachable DSN yields an error, not a usable store.
 func TestPostgresStoreFailsClosedOnBadDSN(t *testing.T) {
-	if os.Getenv("HARBOR_TEST_POSTGRES_DSN") == "" {
+	if os.Getenv("JAM_TEST_POSTGRES_DSN") == "" {
 		t.Skip("integration only")
 	}
 	if _, err := jam.NewPostgresStore(context.Background(),
