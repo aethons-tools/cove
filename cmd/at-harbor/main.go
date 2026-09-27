@@ -74,6 +74,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list or dismiss a role's named standing sessions (add|list|rm) via the admin API", Run: cmdStanding},
+			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
@@ -423,7 +424,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter)
+			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1082,6 +1083,108 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintln(stderr, "at-harbor standing: unknown subcommand", sub)
 		return 2
+	}
+	return 0
+}
+
+// egressState renders a role's egress policy for listings: "kit" (no policy:
+// the kit's default list), "none" (set but empty) or the comma-joined list.
+func egressState(p *harbor.EgressPolicy) string {
+	switch {
+	case p == nil:
+		return "kit"
+	case len(p.Domains) == 0:
+		return "none"
+	default:
+		return strings.Join(p.Domains, ",")
+	}
+}
+
+// cmdEgress manages a role's raw-egress policy: the list harbor pushes into each
+// cove of the role at raise, replacing the kit's policy list within the kit's
+// ceiling. A change takes effect at the role's next raise.
+func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor egress: expected set|show|clear")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role whose egress policy to manage")
+	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor egress:", err)
+		return 2
+	}
+	switch sub {
+	case "set", "show", "clear":
+	default:
+		fmt.Fprintln(stderr, "at-harbor egress: unknown subcommand", sub)
+		return 2
+	}
+	if *role == "" {
+		fmt.Fprintf(stderr, "at-harbor egress %s: --role is required\n", sub)
+		return 2
+	}
+	var domains []string
+	switch {
+	case sub == "set" && *none && len(pos) > 0:
+		fmt.Fprintln(stderr, "at-harbor egress set: give domains or --none, not both")
+		return 2
+	case sub == "set" && !*none:
+		for _, d := range strings.Split(strings.Join(pos, ","), ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				domains = append(domains, d)
+			}
+		}
+		if len(domains) == 0 {
+			fmt.Fprintln(stderr, "at-harbor egress set: expected a comma-separated domain list, or --none for an empty policy")
+			return 2
+		}
+	case sub != "set" && len(pos) > 0:
+		fmt.Fprintf(stderr, "at-harbor egress %s: unexpected arguments\n", sub)
+		return 2
+	}
+	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "set":
+		if err := c.SetEgress(proj, *role, domains); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "set egress policy for %s/%s; applies at the next raise\n", proj, *role)
+	case "show":
+		v, err := c.ShowEgress(proj, *role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		switch {
+		case !v.Managed:
+			fmt.Fprintln(stdout, "kit default")
+		case len(v.Domains) == 0:
+			fmt.Fprintln(stdout, "none (nothing beyond the sealed base and the kit's infra domains)")
+		default:
+			for _, d := range v.Domains {
+				fmt.Fprintln(stdout, d)
+			}
+		}
+	case "clear":
+		if err := c.ClearEgress(proj, *role); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); applies at the next raise\n", proj, *role)
 	}
 	return 0
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -107,6 +108,8 @@ type RoleSummary struct {
 	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
 	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
 	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
+	// Egress is the role's egress policy; nil = the kit's default list.
+	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
 // KitBody is the POST /admin/kits request.
@@ -345,6 +348,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				IdleAfterSeconds:    int64(ro.Allocation.IdleAfter / time.Second),
 				NagEverySeconds:     int64(ro.Allocation.NagEvery / time.Second),
 				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
+				Egress:              ro.Scope.Egress,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -384,10 +388,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
 		}
-		// Standing declarations are managed by the standing routes, not this body:
-		// re-putting a role keeps them.
+		// Standing declarations and the egress policy are managed by their own
+		// routes, not this body: re-putting a role keeps them.
 		if existing, ok := store.GetRole(b.Project, b.Name); ok {
 			role.Allocation.Standing = existing.Allocation.Standing
+			role.Scope.Egress = existing.Scope.Egress
 		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -659,7 +664,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	registerStanding(mux, store, log)
+	// Standing and egress writes both read-modify-write the Role; one lock
+	// serializes them so neither can drop the other's change.
+	var roleMu sync.Mutex
+	registerStanding(mux, store, log, &roleMu)
+	registerEgress(mux, store, log, &roleMu)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil {

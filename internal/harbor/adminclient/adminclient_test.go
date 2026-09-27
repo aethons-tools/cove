@@ -591,3 +591,47 @@ func TestClientStandingRoundTrip(t *testing.T) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
 	}
 }
+
+// TestClientEgressRoundTrip sets, shows and clears a role's egress policy
+// through the client; ListRoles carries it; a bad domain surfaces the 400.
+func TestClientEgressRoundTrip(t *testing.T) {
+	ts, store := newServer(t)
+	c := New(ts.URL, "")
+
+	view, err := c.ShowEgress(harbor.DefaultProject, "guest")
+	if err != nil || view.Managed || len(view.Domains) != 0 {
+		t.Fatalf("ShowEgress (unset) = %+v, %v", view, err)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
+		t.Fatalf("SetEgress: %v", err)
+	}
+	view, err = c.ShowEgress(harbor.DefaultProject, "guest")
+	if err != nil || !view.Managed || strings.Join(view.Domains, ",") != "a.com,b.org" {
+		t.Fatalf("ShowEgress = %+v, %v", view, err)
+	}
+	roles, err := c.ListRoles(harbor.DefaultProject)
+	if err != nil || len(roles) != 1 || roles[0].Scope.Egress == nil || len(roles[0].Scope.Egress.Domains) != 2 {
+		t.Fatalf("ListRoles egress = %+v, %v", roles, err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
+		t.Fatalf("role scope not kept: %+v", r.Scope)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", []string{"https://evil.com"}); err == nil || !strings.Contains(err.Error(), "https://evil.com") {
+		t.Fatalf("bad domain err = %v, want it to name the domain", err)
+	}
+	if err := c.SetEgress(harbor.DefaultProject, "guest", nil); err != nil {
+		t.Fatalf("SetEgress(empty): %v", err)
+	}
+	if view, _ := c.ShowEgress(harbor.DefaultProject, "guest"); !view.Managed || len(view.Domains) != 0 {
+		t.Fatalf("empty policy view = %+v", view)
+	}
+	if err := c.ClearEgress(harbor.DefaultProject, "guest"); err != nil {
+		t.Fatalf("ClearEgress: %v", err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); r.Scope.Egress != nil {
+		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
+	}
+	if _, err := c.ShowEgress(harbor.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown role = %v, want ErrNotFound", err)
+	}
+}

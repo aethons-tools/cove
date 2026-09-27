@@ -1025,3 +1025,88 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// `egress set|show|clear` manage a role's egress policy; `role list` shows it
+// (kit default, none, or the list), and the role's other fields are kept.
+func TestEgressCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	runOK := func(args ...string) string {
+		t.Helper()
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit=%d stderr=%s", args, code, errb.String())
+		}
+		return out.String()
+	}
+	flags := []string{"--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}
+
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, "kit default") {
+		t.Fatalf("show (unset) = %q, want kit default", got)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=kit") {
+		t.Fatalf("role list (unset) = %q, want egress=kit", got)
+	}
+
+	runOK(append(append([]string{"egress", "set"}, flags...), "A.com, .b.org")...)
+	r, _ := store.GetRole("acme", "reviewer")
+	if r.Scope.Egress == nil || strings.Join(r.Scope.Egress.Domains, ",") != ".b.org,a.com" {
+		t.Fatalf("egress = %+v", r.Scope.Egress)
+	}
+	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
+		t.Fatalf("role fields not kept: %+v", r)
+	}
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, ".b.org") || !strings.Contains(got, "a.com") {
+		t.Fatalf("show = %q", got)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=.b.org,a.com") {
+		t.Fatalf("role list = %q, want egress=.b.org,a.com", got)
+	}
+
+	runOK(append([]string{"egress", "set", "--none"}, flags...)...)
+	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 0 {
+		t.Fatalf("--none = %+v, want set and empty", r.Scope.Egress)
+	}
+	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=none") {
+		t.Fatalf("role list = %q, want egress=none", got)
+	}
+	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, "none") {
+		t.Fatalf("show (empty) = %q, want none", got)
+	}
+
+	runOK(append([]string{"egress", "clear"}, flags...)...)
+	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress != nil {
+		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
+	}
+
+	// a server-side refusal (bad domain) exits 1 and names the domain
+	out.Reset()
+	errb.Reset()
+	if code := run(append(append([]string{"egress", "set"}, flags...), "https://evil.com"), getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "https://evil.com") {
+		t.Fatalf("bad domain: exit=%d stderr=%s", code, errb.String())
+	}
+
+	// usage errors exit 2
+	for _, args := range [][]string{
+		{"egress"},
+		{"egress", "bogus", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"egress", "show", "--admin-url", ts.URL},
+		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer"},                    // neither list nor --none
+		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer", "--none", "a.com"}, // both
+		{"egress", "clear", "--admin-url", ts.URL, "--role", "reviewer", "extra"},         // stray arg
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 2 {
+			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
+		}
+	}
+}

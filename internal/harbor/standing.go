@@ -33,9 +33,9 @@ func standingIDHolder(store Store, id string) (string, bool) {
 
 // registerStanding mounts the standing-declaration routes. Each write is a
 // read-modify-write of the Role that keeps every other field; mu serializes
-// them so two concurrent declarations can't drop one another.
-func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger) {
-	var mu sync.Mutex
+// them (shared with the other role read-modify-write routes) so two concurrent
+// writes can't drop one another.
+func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger, mu *sync.Mutex) {
 
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/standing", func(w http.ResponseWriter, r *http.Request) {
 		role, ok := store.GetRole(r.PathValue("project"), r.PathValue("role"))

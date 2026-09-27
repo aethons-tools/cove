@@ -5,6 +5,7 @@
 package storetest
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,36 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) harbor.Store) {
 		}
 		if err := s.RemoveRole("acme", "worker"); err == nil {
 			t.Fatal("RemoveRole of an absent role must error")
+		}
+	})
+
+	// A role's egress policy distinguishes nil (the kit default), set-but-empty
+	// (nothing beyond base + infra) and a set list; all three must round-trip.
+	t.Run("role_egress_policy_round_trip", func(t *testing.T) {
+		s := newStore(t)
+		cases := map[string]*harbor.EgressPolicy{
+			"kit-default": nil,
+			"empty":       {Domains: []string{}},
+			"set":         {Domains: []string{".b.org", "a.com"}},
+		}
+		for name, eg := range cases {
+			if err := s.PutRole("acme", harbor.Role{Name: name, Scope: harbor.Scope{Egress: eg}}); err != nil {
+				t.Fatalf("PutRole %s: %v", name, err)
+			}
+		}
+		for name, want := range cases {
+			r, ok := s.GetRole("acme", name)
+			if !ok {
+				t.Fatalf("GetRole %s missing", name)
+			}
+			switch {
+			case want == nil && r.Scope.Egress != nil:
+				t.Fatalf("%s: egress = %+v, want nil", name, r.Scope.Egress)
+			case want != nil && (r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != len(want.Domains)):
+				t.Fatalf("%s: egress = %+v, want %+v", name, r.Scope.Egress, want)
+			case want != nil && len(want.Domains) > 0 && strings.Join(r.Scope.Egress.Domains, ",") != strings.Join(want.Domains, ","):
+				t.Fatalf("%s: egress = %+v, want %+v", name, r.Scope.Egress, want)
+			}
 		}
 	})
 
