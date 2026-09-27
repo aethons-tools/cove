@@ -249,6 +249,9 @@ func RosterSummaries(store Store) []ActorSummary {
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	// Every read-modify-write of a Role (role put, standing, egress) takes this
+	// lock, so no writer can drop another's change.
+	var roleMu sync.Mutex
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -390,6 +393,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
+		roleMu.Lock()
+		defer roleMu.Unlock()
 		if existing, ok := store.GetRole(b.Project, b.Name); ok {
 			role.Allocation.Standing = existing.Allocation.Standing
 			role.Scope.Egress = existing.Scope.Egress
@@ -664,9 +669,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	// Standing and egress writes both read-modify-write the Role; one lock
-	// serializes them so neither can drop the other's change.
-	var roleMu sync.Mutex
 	registerStanding(mux, store, log, &roleMu)
 	registerEgress(mux, store, log, &roleMu)
 
