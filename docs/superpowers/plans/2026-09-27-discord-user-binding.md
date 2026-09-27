@@ -1,6 +1,8 @@
 ---
 summary: Plan — bind a roster human to their Discord user id so a Discord reply is attributed by who sent it (Discord's immutable author id), not by which inbox channel it landed in; lifts reply-to-act's unique-inbox limit and closes the "anyone who can post in the inbox" gap.
 read_when: Implementing or reviewing Discord user binding, or reply-to-act attribution.
+owns: the Discord user binding implementation plan (tasks, decisions, out-of-scope)
+prereqs: docs/usage/jam/discord.md for the shipped attribution rules
 tier: plan
 updated: 2026-09-27
 ---
