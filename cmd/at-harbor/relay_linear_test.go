@@ -125,14 +125,15 @@ func TestDirectoryRoute(t *testing.T) {
 func TestRouteDiscord(t *testing.T) {
 	st := newTestStore(t)
 	rec := mustReceipts(t)
-	if err := rec.Record("D1", "cove-1"); err != nil {
+	if err := rec.Record("D1", "cove-1", "M1"); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	dir := &directory{store: st, project: "acme", receipts: rec}
 
-	// reply to a known receipt → routes to the cove
+	// reply to a known receipt → routes to the cove, replying to the message
+	// the receipt names
 	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D1", ForeignID: "m2"})
-	if !ok || from.Ref != "alice" || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "cove-1"}) || replyTo != "in:discord:D1" {
+	if !ok || from.Ref != "alice" || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "cove-1"}) || replyTo != "M1" {
 		t.Fatalf("routeDiscord reply: from=%+v to=%+v replyTo=%q ok=%v", from, to, replyTo, ok)
 	}
 	// not a reply → drop
@@ -142,6 +143,52 @@ func TestRouteDiscord(t *testing.T) {
 	// reply to unknown id → drop
 	if _, _, _, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D9"}); ok {
 		t.Fatal("unknown-ref must drop")
+	}
+}
+
+// A legacy receipt (no message id) still routes to its cove, with the old
+// opaque in:discord:<id> ReplyTo.
+func TestRouteDiscordLegacyReceipt(t *testing.T) {
+	st := newTestStore(t)
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1", ""); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	dir := &directory{store: st, project: "acme", receipts: rec}
+	_, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D1", ForeignID: "m2"})
+	if !ok || len(to) != 1 || to[0].Ref != "cove-1" || replyTo != "in:discord:D1" {
+		t.Fatalf("legacy route: to=%+v replyTo=%q ok=%v", to, replyTo, ok)
+	}
+}
+
+// A Discord reply to a cove's message joins that message's thread: delivering
+// the squawk records its id in the receipt, and the routed reply's ReplyTo is
+// that id, so ReadThread(root) returns both.
+func TestDiscordReplyJoinsThread(t *testing.T) {
+	st := newTestStore(t)
+	lg := openTestLog(t)
+	rec := mustReceipts(t)
+	dir := &directory{store: st, project: "acme", receipts: rec}
+	client := &fakeDiscordClient{postID: "D-root"}
+	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
+
+	root, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}}, Body: "question?", Project: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := surf.Deliver(context.Background(), relay.Delivery{Address: "inbox-A"}, root); err != nil {
+		t.Fatal(err)
+	}
+	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "alice", ReplyToForeign: "D-root", ForeignID: "D-reply", Body: "answer"})
+	if !ok {
+		t.Fatal("reply not routed")
+	}
+	if _, err := lg.Append(intercom.Squawk{ID: "in:discord:D-reply", From: from, To: to, Body: "answer", Project: "acme", ReplyTo: replyTo}); err != nil {
+		t.Fatal(err)
+	}
+	th := lg.ReadThread(root.ID)
+	if len(th) != 2 || th[0].ID != root.ID || th[1].Body != "answer" {
+		t.Fatalf("thread = %+v, want root + reply", th)
 	}
 }
 
