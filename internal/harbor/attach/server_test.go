@@ -51,7 +51,11 @@ func harness(t *testing.T) (harbor.Store, *harbor.Supervisor, *Server, func() *g
 	sup.SetControlSink(srv)
 
 	lis := bufconn.Listen(1 << 20)
-	gs := grpc.NewServer()
+	// WaitForHandlers: Stop (a t.Cleanup, run before the TempDir removal) must
+	// wait for Attach handlers to return. A handler may still be persisting a
+	// heartbeat to the file store when the test body ends; without the wait,
+	// TempDir's RemoveAll races that write and fails "directory not empty".
+	gs := grpc.NewServer(grpc.WaitForHandlers(true))
 	attachpb.RegisterRuntimeServer(gs, srv)
 	go gs.Serve(lis)
 	t.Cleanup(gs.Stop)
