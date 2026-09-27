@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -127,7 +128,11 @@ func TestRevokeActor(t *testing.T) {
 // rather than resetting it to zero.
 func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	store := newStore(t)
-	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
+	alloc := harbor.RoleAllocation{
+		MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour,
+		Standing: []harbor.StandingSession{{Name: "alice-bot", Prompt: "review PRs"}},
+	}
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Allocation: alloc}); err != nil {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
@@ -140,8 +145,8 @@ func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("role acme/worker missing after edit")
 	}
-	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); got.Allocation != want {
-		t.Fatalf("allocation after UI edit = %+v, want %+v (kept)", got.Allocation, want)
+	if !reflect.DeepEqual(got.Allocation, alloc) {
+		t.Fatalf("allocation after UI edit = %+v, want %+v (kept, standing declarations included)", got.Allocation, alloc)
 	}
 	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
 		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)

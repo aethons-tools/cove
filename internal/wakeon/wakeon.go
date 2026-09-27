@@ -122,10 +122,11 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity != harbor.ActivityWaiting {
 			continue
 		}
-		// A personal session waits on its owner for as long as it takes: it is
-		// never reaped for waiting (it is still idled and woken below). Its
-		// lifetime ends when the owner releases it.
-		if inst.SessionKind != harbor.SessionKindPersonal &&
+		// A resident session (personal or standing) waits for as long as it
+		// takes: it is never reaped for waiting (it is still idled and woken
+		// below). A personal one ends when its owner releases it, a standing one
+		// when an operator dismisses it.
+		if !harbor.IsResident(inst.SessionKind) &&
 			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
@@ -144,7 +145,8 @@ func (e *Engine) tick(ctx context.Context) {
 			e.wake.Wake(inst.ActorID)
 			continue
 		}
-		// no reply
+		// no reply. The idle ladder is personal-only: a standing session has no
+		// owner to nag.
 		if inst.SessionKind == harbor.SessionKindPersonal && e.idleLadder(ctx, inst) {
 			continue // reclaimed
 		}

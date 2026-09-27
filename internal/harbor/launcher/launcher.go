@@ -88,7 +88,7 @@ func (l *Launcher) Raise(ctx context.Context, spec harbor.RaiseSpec, creds harbo
 			WorkDir: l.cfg.WorkDir, Prompt: spec.Prompt,
 			// A personal session is a long-lived conversation: its agent stays
 			// resident, waiting for its owner's reply after every turn.
-			Resident: spec.SessionKind == harbor.SessionKindPersonal,
+			Resident: harbor.IsResident(spec.SessionKind),
 		})
 	}
 	if err := launch(); err != nil {

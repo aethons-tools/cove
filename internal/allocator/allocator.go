@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"time"
 )
 
@@ -35,7 +36,7 @@ const (
 	// SessionEphemeral is a dispatcher-raised session for one unit of work.
 	SessionEphemeral SessionKind = "ephemeral"
 	// SessionStanding is an operator-declared, named session that lives until
-	// dismissed (admitted in a later slice).
+	// dismissed. Admitted only for a declared name (Policy.StandingNames).
 	SessionStanding SessionKind = "standing"
 	// SessionPersonal is a human's ad-hoc session that lives until its owner
 	// releases it. Admitted only with the ledger (see ErrNeedsLedger).
@@ -59,8 +60,8 @@ type Request struct {
 	Owner         string
 }
 
-// Policy is a (project, role)'s allocation policy. Later slices add the
-// standing name set, idle settings, and requester grants.
+// Policy is a (project, role)'s allocation policy. A later slice adds requester
+// grants.
 type Policy struct {
 	// MaxEphemeral caps concurrent ephemeral sessions; <= 0 admits none.
 	MaxEphemeral int
@@ -70,6 +71,9 @@ type Policy struct {
 	// MaxPersonalPerOwner caps one owner's concurrent personal sessions; <= 0
 	// means the pool cap only.
 	MaxPersonalPerOwner int
+	// StandingNames are the role's declared standing sessions; a standing grant
+	// must name one, and their count caps the role's standing reservations.
+	StandingNames []string
 }
 
 // Caps are the limits a ledger grant must satisfy atomically: Kind caps the
@@ -180,7 +184,7 @@ func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 }
 
 // Grant admits (and reserves) a session for req's (project, role). An empty Kind
-// means ephemeral; standing fails closed with ErrUnsupportedKind.
+// means ephemeral; an unknown kind fails closed with ErrUnsupportedKind.
 //
 // Ephemeral: the cap is the policy's MaxEphemeral. With a ledger it is the
 // authoritative OCC admission — an atomic append that grants iff the stream's
@@ -192,6 +196,11 @@ func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 // file-store fallback). The ledger grants iff the pool (MaxPersonal) and, when
 // set, the owner's share (MaxPersonalPerOwner) are both below their caps, in
 // one atomic step.
+//
+// Standing: req.Name must be one of the policy's StandingNames (else denied).
+// With a ledger the grant is capped at the number of declared names; without
+// one it is admitted by the declaration alone — the standing reconciler raises
+// each name under one actor id, so there is never more than one per name.
 //
 // Fail-closed when no policy (or no cap for the kind) is configured.
 //
@@ -225,6 +234,15 @@ func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
 			return false, nil // no personal pool ⇒ fail closed
 		}
 		return a.ledger.Grant(ctx, req, Caps{Kind: pol.MaxPersonal, Owner: pol.MaxPersonalPerOwner})
+	case SessionStanding:
+		pol, ok := a.policy.Policy(req.Project, req.Role)
+		if !ok || req.Name == "" || !slices.Contains(pol.StandingNames, req.Name) {
+			return false, nil // not a declared name ⇒ fail closed
+		}
+		if a.ledger == nil {
+			return true, nil
+		}
+		return a.ledger.Grant(ctx, req, Caps{Kind: len(pol.StandingNames)})
 	default:
 		return false, fmt.Errorf("%w: %s", ErrUnsupportedKind, req.Kind)
 	}
@@ -239,14 +257,18 @@ func (a *Allocator) SetLogger(log *slog.Logger) {
 	}
 }
 
-// Sweep reclaims leaked slots: it releases outstanding ephemeral reservations
+// Sweep reclaims leaked slots: it releases outstanding ephemeral and standing reservations
 // (whose latest grant is older than grace) whose actor has no live instance — the
 // crash-between-grant-and-raise gap Slice 4 left open. No ledger (file-store dev)
 // ⇒ nothing to sweep. Best-effort and idempotent: a per-reservation release
 // failure is logged and skipped (the next tick retries), and releasing an
 // already-live or already-released reservation is harmless (the net-count query
-// excludes it next pass). Standing and personal reservations own their lifecycles
-// (resurrection, owner release) and are never swept. Returns the number swept.
+// excludes it next pass). Standing reservations are swept too: a standing cove's
+// teardown releases its reservation and the standing reconciler grants right
+// before it raises, so an old one with no live cove was leaked the same way (and
+// would otherwise block that name's re-grant at the declared-name cap). Personal
+// reservations own their lifecycle (owner release) and are never swept. Returns
+// the number swept.
 func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error) {
 	if a.ledger == nil {
 		return 0, nil
@@ -257,8 +279,8 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 	}
 	swept := 0
 	for _, r := range outstanding {
-		if r.SessionKind != "" && r.SessionKind != SessionEphemeral {
-			continue // standing/personal — not the sweep's to release
+		if r.SessionKind == SessionPersonal {
+			continue // personal — not the sweep's to release
 		}
 		if a.counter.IsLive(r.ReservationID) {
 			continue // a real session — leave it

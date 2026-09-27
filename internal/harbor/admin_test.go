@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -524,7 +525,7 @@ func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("roles = %+v, want idle 3600 / nag 7200 / reclaim 259200", roles)
 	}
 	want := RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}
-	if r, ok := store.GetRole("acme", "pair"); !ok || r.Allocation != want {
+	if r, ok := store.GetRole("acme", "pair"); !ok || !reflect.DeepEqual(r.Allocation, want) {
 		t.Fatalf("stored role = %+v, %v; want allocation %+v", r, ok, want)
 	}
 	for _, b := range []RoleBody{

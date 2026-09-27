@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed cove through harbor, inspec
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `cove` verbs, the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a cove is raised for
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Managed coves (the supervisor)
@@ -134,7 +134,7 @@ AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
 AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
-AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal sessions only)
+AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
 ```
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
@@ -162,14 +162,15 @@ A harbor **teardown** cancels the run, which sends the agent `SIGTERM` and then
 running is held (at most one), so the next `needs-input` wait resumes at once;
 further wakes are dropped.
 
-**Resident mode (personal sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
-sets only for a [personal session](personal-sessions.md) — the agent never ends on its
+**Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
+sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
 own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the
 client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
 — there is no `MaxWait`. A wake resumes the agent with `claude --continue` and a prompt
-to `read` its owner's reply and carry on. The session ends only when a teardown (the
-owner's release) cancels the run. Harbor's wake-on engine never tears a personal
-session down for `wait-max`; only its optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+to `read` the reply and carry on. The session ends only when a teardown cancels the
+run: the owner's release for a personal session, or the name's removal for a
+standing one. Harbor's wake-on engine never tears a resident session down for
+`wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
 
 > **Still deferred:** cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).

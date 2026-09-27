@@ -384,6 +384,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
 		}
+		// Standing declarations are managed by the standing routes, not this body:
+		// re-putting a role keeps them.
+		if existing, ok := store.GetRole(b.Project, b.Name); ok {
+			role.Allocation.Standing = existing.Allocation.Standing
+		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -654,6 +659,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
+	registerStanding(mux, store, log)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil {

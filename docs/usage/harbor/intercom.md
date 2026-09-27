@@ -4,7 +4,7 @@ read_when: You want a raised cove's agent to be able to read and post comments o
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed cove a squawk is scoped to; personal-sessions.md for a ticketless cove that talks to its owner; dispatcher.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the cove's own ticket
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # The intercom MCP
@@ -14,7 +14,7 @@ A managed cove's agent gets **harbor-brokered** tools — `read`, `send`,
 
 ## What the tools do
 
-- **`send(text, to?)`** — appends the squawk to harbor's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the cove's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither, the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
+- **`send(text, to?)`** — appends the squawk to harbor's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the cove's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither (e.g. a [standing session](standing-sessions.md#messaging)), the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is harbor's brokered identity (the agent can't spoof it).
 - **`read(anchor?, id?, dir?, limit?)`** — reads the cove's inbox **as a queue**: by default the next unprocessed squawks after the cove's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the cove's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the cove has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the humans/channels this cove is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
@@ -88,11 +88,12 @@ Activity `waiting` and blocks instead of ending. Harbor's resident **wake-on eng
 watches the cove's ticket and, when a **new comment** (a reply) arrives, **wakes** it
 over the Attach stream; the cove runs its next turn (`claude --continue`), `read`s the
 reply, and resumes. A **`wait-max`** bounds the wait — a cove with no reply within it is
-torn down (no zombies), paused or not. **Personal sessions are exempt from `wait-max`:**
-a [personal session](personal-sessions.md) waits on its owner after every turn and is
-never torn down for `wait-max` (it is still paused at `warm-timeout` and woken on a reply);
-instead it climbs the [idle ladder](personal-sessions.md#the-idle-ladder) — nags to its
-owner, and an optional reclaim.
+torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
+a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
+after every turn and is never torn down for `wait-max` (it is still paused at
+`warm-timeout` and woken on a reply). A personal session instead climbs the
+[idle ladder](personal-sessions.md#the-idle-ladder) — nags to its owner, and an
+optional reclaim. A standing session has no owner, so it gets no nags.
 
 While waiting, a cove doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0

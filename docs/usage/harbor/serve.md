@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a harbor service — writing its s
 owns: the `at-harbor serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Running harbor (`at-harbor serve`)
@@ -161,10 +161,11 @@ Each reservation event also records its **session kind** (`session_kind`, plus a
 standing session's name and a personal session's owner), and the grant counts
 outstanding reservations **of the requested kind only**, so kinds never consume
 each other's capacity; a release inherits the kind of the reservation's latest
-grant. Two kinds are admitted today: `ephemeral` (dispatcher) sessions, and
-`personal` sessions ([personal-sessions.md](personal-sessions.md)). Pre-existing
-rows are tagged `ephemeral`, and the reconcile sweep releases only ephemeral
-reservations. The ephemeral budget is the role's roster `max-ephemeral`, falling
+grant. All three kinds are admitted: `ephemeral` (dispatcher) sessions,
+`personal` sessions ([personal-sessions.md](personal-sessions.md)), and
+`standing` sessions ([standing-sessions.md](standing-sessions.md#admission)).
+Pre-existing rows are tagged `ephemeral`. The reconcile sweep releases leaked
+ephemeral and standing reservations, never personal ones. The ephemeral budget is the role's roster `max-ephemeral`, falling
 back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)). A
 personal grant checks two caps in the same atomic append: the role's
 `max-personal` pool and, when set, the owner's `max-personal-per-owner` share.

@@ -16,6 +16,17 @@ import (
 // (mirrors allocator.SessionPersonal; harbor does not import allocator).
 const SessionKindPersonal = "personal"
 
+// SessionKindStanding is Instance.SessionKind for an operator-declared, named
+// standing session (mirrors allocator.SessionStanding).
+const SessionKindStanding = "standing"
+
+// IsResident reports whether a session kind is resident: its cove waits after
+// every turn (instead of ending) and is never reaped for waiting. Personal and
+// standing sessions are resident; ephemeral ones are not.
+func IsResident(kind string) bool {
+	return kind == SessionKindPersonal || kind == SessionKindStanding
+}
+
 // ErrNeedsLedger is returned (possibly wrapped) by a SessionAllocator when
 // personal sessions cannot be admitted because harbor has no allocation ledger
 // (it runs on the file store, not store-postgres).
@@ -211,13 +222,18 @@ func personalSessionID(owner string) (string, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	safe := strings.Map(func(r rune) rune {
+	return "personal-" + safeIDPart(owner) + "-" + hex.EncodeToString(b[:]), nil
+}
+
+// safeIDPart maps characters outside [A-Za-z0-9._-] to '-', so s can be part of
+// an actor id (used in URL paths).
+func safeIDPart(s string) string {
+	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
 			return r
 		default:
 			return '-'
 		}
-	}, owner)
-	return "personal-" + safe + "-" + hex.EncodeToString(b[:]), nil
+	}, s)
 }
