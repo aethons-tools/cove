@@ -1205,15 +1205,24 @@ func SourceControlDomains(c Config) []string {
 	return []string{host}
 }
 
-// RootDomains is the kit's effective baked egress allow-list: the kit's own
-// image.allowed-domains unioned with any provider-derived domains. Assemble bakes
-// this into allowed_domains.kit.txt.
-func RootDomains(c Config) []string {
+// InfraDomains is the infrastructure half of the kit's baked egress: the
+// provider-derived, self-hosted GitLab and harbor hosts the kit needs to work at
+// all. Assemble bakes it into allowed_domains.infra.txt, which is always on — a
+// harbor role's egress policy replaces only the kit's policy list, never this.
+func InfraDomains(c Config) []string {
 	var harbor []string
 	if c.Harbor != nil && c.Harbor.Host != "" {
 		harbor = []string{c.Harbor.Host}
 	}
-	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c), harbor)
+	return unionDomains(ProviderDomains(c), SourceControlDomains(c), harbor)
+}
+
+// RootDomains is the kit's effective baked egress allow-list beyond the sealed
+// base: the kit's own image.allowed-domains (the policy list) unioned with
+// InfraDomains. Assemble bakes the two halves into separate files
+// (allowed_domains.kit.txt and allowed_domains.infra.txt); their union is this.
+func RootDomains(c Config) []string {
+	return unionDomains(c.Image.AllowedDomains, InfraDomains(c))
 }
 
 // validateModelProvider enforces the provider union, required keys, and the
