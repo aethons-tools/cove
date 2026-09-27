@@ -346,3 +346,26 @@ func TestIsResident(t *testing.T) {
 		}
 	}
 }
+
+func TestNagMessageID(t *testing.T) {
+	at := time.Unix(1700000000, 123)
+	id := NagMessageID("p-a", at)
+	if id != "nag:p-a:1700000000000000123" {
+		t.Fatalf("NagMessageID = %q", id)
+	}
+	if !IsNagReply(id, "p-a") {
+		t.Fatal("a nag's own id must be recognized as that actor's nag")
+	}
+	// actors whose ids share a prefix must not match each other's nags
+	if IsNagReply(id, "p-ab") || IsNagReply(NagMessageID("p-ab", at), "p-a") {
+		t.Fatal("nag ids must not match across actors sharing a prefix")
+	}
+	for _, replyTo := range []string{"", "nag:", "nag:p-a", "in:discord:D1", "00000000-abc", "xnag:p-a:1"} {
+		if IsNagReply(replyTo, "p-a") {
+			t.Fatalf("IsNagReply(%q) must be false", replyTo)
+		}
+	}
+	if IsNagReply("nag::1", "") {
+		t.Fatal("an empty actor id never matches")
+	}
+}

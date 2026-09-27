@@ -79,3 +79,34 @@ func TestRoleAllocationPersonalIdleDefaults(t *testing.T) {
 		t.Fatalf("set = %v, %v, %v; want 1h, 2h, 72h", idle, nag, reclaim)
 	}
 }
+
+func TestDiscordInboxOwner(t *testing.T) {
+	disc := func(addr string) []DeliveryProfile { return []DeliveryProfile{{Service: "discord", Address: addr}} }
+	r := Roster{
+		Humans: []Human{
+			{Name: "alice", Delivery: disc("inbox-A")},
+			{Name: "bob", Delivery: disc("shared")},
+			{Name: "carol", Delivery: disc("shared")},
+			{Name: "dave", Delivery: []DeliveryProfile{{Service: "slack", Address: "inbox-D"}}},
+			{Name: "erin", Delivery: disc("inbox-E")},
+			{Name: "noaddr", Delivery: disc("")},
+		},
+		Channels: []Channel{{Name: "team", Service: "discord", Ref: "inbox-E"}},
+	}
+	for _, tc := range []struct {
+		channel, want string
+		ok            bool
+	}{
+		{"inbox-A", "alice", true}, // unique owner
+		{"nobody", "", false},      // no owner
+		{"shared", "", false},      // two humans share it
+		{"inbox-D", "", false},     // only a non-discord profile uses it
+		{"inbox-E", "", false},     // also a roster channel: shared, not an inbox
+		{"", "", false},            // the empty channel never matches
+	} {
+		got, ok := DiscordInboxOwner(r, tc.channel)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("DiscordInboxOwner(%q) = %q,%v, want %q,%v", tc.channel, got, ok, tc.want, tc.ok)
+		}
+	}
+}

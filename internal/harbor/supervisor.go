@@ -294,6 +294,26 @@ func (s *Supervisor) RecordNag(actorID string, at time.Time) error {
 	return s.store.PutInstance(inst)
 }
 
+// KeepWaiting restarts a Waiting personal session's idle period without waking
+// it — the owner replied "keep" to a nag: WaitSeq = afterSeq (past the reply,
+// so it is not seen again), WaitingSince = at, and the idle ladder resets
+// (LastNagAt zero, Nags 0). Phase is untouched: an Idled cove stays paused.
+// Errors if the instance is gone or not Waiting.
+func (s *Supervisor) KeepWaiting(actorID string, afterSeq int64, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("keep waiting: no live instance for %q", actorID)
+	}
+	if inst.Activity != ActivityWaiting {
+		return fmt.Errorf("keep waiting: instance %q is not waiting", actorID)
+	}
+	inst.WaitSeq = afterSeq
+	inst.WaitingSince = at
+	inst.LastNagAt = time.Time{}
+	inst.Nags = 0
+	return s.store.PutInstance(inst)
+}
+
 // Idle pauses a live cove (Launcher.Pause — e.g. docker pause) and marks it
 // PhaseIdled. A paused cove can't heartbeat or be probed, so Reconcile must
 // skip Idled instances (see Reconcile) rather than treating the now-frozen

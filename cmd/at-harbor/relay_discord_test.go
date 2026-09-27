@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,15 +54,15 @@ func TestDiscordDeliverRecordsReceipt(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
 	if err != nil || id != "D1" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
 	if len(fc.posts) != 1 || fc.posts[0].channel != "inbox-A" || fc.posts[0].content != "cove-1: hi" {
 		t.Fatalf("post = %+v", fc.posts)
 	}
-	if a, ok := rec.Lookup("D1"); !ok || a != "cove-1" {
-		t.Fatalf("receipt = %q,%v", a, ok)
+	if a, ok := rec.Lookup("D1"); !ok || a != (receipt{Actor: "cove-1", Message: "M1"}) {
+		t.Fatalf("receipt = %+v,%v", a, ok)
 	}
 }
 
@@ -200,18 +201,66 @@ func TestFileReceiptsRoundTrip(t *testing.T) {
 	if _, ok := r.Lookup("D1"); ok {
 		t.Fatal("empty lookup should miss")
 	}
-	if err := r.Record("D1", "cove-1"); err != nil {
+	if err := r.Record("D1", "cove-1", "M1"); err != nil {
 		t.Fatal(err)
 	}
-	if a, ok := r.Lookup("D1"); !ok || a != "cove-1" {
-		t.Fatalf("lookup = %q,%v", a, ok)
+	want := receipt{Actor: "cove-1", Message: "M1"}
+	if a, ok := r.Lookup("D1"); !ok || a != want {
+		t.Fatalf("lookup = %+v,%v", a, ok)
 	}
 	r2, err := newFileReceipts(p) // reload
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a, ok := r2.Lookup("D1"); !ok || a != "cove-1" {
-		t.Fatalf("reload = %q,%v", a, ok)
+	if a, ok := r2.Lookup("D1"); !ok || a != want {
+		t.Fatalf("reload = %+v,%v", a, ok)
+	}
+}
+
+// A receipts file written before receipts carried the message id is a flat
+// map[discord-msg-id]actorID; it still loads, as receipts with no message id.
+func TestFileReceiptsLegacyFormat(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "r.json")
+	if err := os.WriteFile(p, []byte(`{"D1":"actor-x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
+		t.Fatalf("legacy lookup = %+v,%v", a, ok)
+	}
+	// a new Record alongside the legacy entry persists both in the new shape
+	if err := r.Record("D2", "actor-y", "M2"); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r2.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
+		t.Fatalf("legacy after rewrite = %+v,%v", a, ok)
+	}
+	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2"}) {
+		t.Fatalf("new after rewrite = %+v,%v", a, ok)
+	}
+}
+
+// A torn or corrupt receipts file loads empty rather than failing.
+func TestFileReceiptsCorruptFile(t *testing.T) {
+	for _, body := range []string{`{"D1":"act`, `not json`, `{"D1":42}`} {
+		p := filepath.Join(t.TempDir(), "r.json")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r, err := newFileReceipts(p)
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		if _, ok := r.Lookup("D1"); ok {
+			t.Fatalf("%q: corrupt file must load empty", body)
+		}
 	}
 }
 

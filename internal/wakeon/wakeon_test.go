@@ -430,7 +430,29 @@ func (f fakeRoles) GetRole(project, name string) (harbor.Role, bool) {
 
 type fakeNagRecorder struct {
 	at   map[string][]time.Time
-	regs *fakeReg // when set, RecordNag also updates the registry's instance (as the real store would)
+	kept []keepCall
+	regs *fakeReg // when set, RecordNag/KeepWaiting also update the registry's instance (as the real store would)
+}
+
+type keepCall struct {
+	actor    string
+	afterSeq int64
+	at       time.Time
+}
+
+func (f *fakeNagRecorder) KeepWaiting(actorID string, afterSeq int64, at time.Time) error {
+	f.kept = append(f.kept, keepCall{actorID, afterSeq, at})
+	if f.regs != nil {
+		for i := range f.regs.insts {
+			if f.regs.insts[i].ActorID == actorID {
+				f.regs.insts[i].WaitSeq = afterSeq
+				f.regs.insts[i].WaitingSince = at
+				f.regs.insts[i].LastNagAt = time.Time{}
+				f.regs.insts[i].Nags = 0
+			}
+		}
+	}
+	return nil
 }
 
 func (f *fakeNagRecorder) RecordNag(actorID string, at time.Time) error {
@@ -450,7 +472,7 @@ func (f *fakeNagRecorder) RecordNag(actorID string, at time.Time) error {
 }
 
 type nagCall struct {
-	kind  string // "nag" | "reclaimed"
+	kind  string // "nag" | "reclaimed" | "kept" | "released"
 	actor string
 	idle  time.Duration
 }
@@ -476,6 +498,25 @@ func (f *fakeNagger) NotifyReclaimed(_ context.Context, inst harbor.Instance, id
 	f.calls = append(f.calls, nagCall{"reclaimed", inst.ActorID, idle})
 	if f.log != nil {
 		*f.log = append(*f.log, "notice:"+inst.ActorID)
+	}
+	return nil
+}
+
+func (f *fakeNagger) NotifyKept(_ context.Context, inst harbor.Instance, next time.Duration) error {
+	if f.fail != nil {
+		return f.fail
+	}
+	f.calls = append(f.calls, nagCall{"kept", inst.ActorID, next})
+	return nil
+}
+
+func (f *fakeNagger) NotifyReleased(_ context.Context, inst harbor.Instance) error {
+	if f.fail != nil {
+		return f.fail
+	}
+	f.calls = append(f.calls, nagCall{"released", inst.ActorID, 0})
+	if f.log != nil {
+		*f.log = append(*f.log, "released:"+inst.ActorID)
 	}
 	return nil
 }
@@ -735,5 +776,259 @@ func TestTick_StandingSessionResident_NoLadder(t *testing.T) {
 	}
 	if !contains(idler.idled, st.ActorID) {
 		t.Fatalf("standing session past warm-timeout must still be idled; idled=%v", idler.idled)
+	}
+}
+
+// --- reply-to-act on nags: an owner's keep/release reply to a nag ---
+
+// nagID is the id of one of actor's nags (as the nagger stamps it).
+func nagID(actor string) string { return harbor.NagMessageID(actor, time.Unix(50_000, 7)) }
+
+// reply is an external reply from `from` to cove, replying to replyTo.
+func reply(cove string, seq int64, from, replyTo, body string) intercom.Squawk {
+	return intercom.Squawk{
+		Seq: seq, ID: "in:discord:r" + body, ReplyTo: replyTo, Body: body,
+		From: intercom.Target{Kind: "human", Ref: from},
+		To:   []intercom.Target{{Kind: "actor", Ref: cove}},
+	}
+}
+
+// failingReaper fails the first `fails` teardowns, then succeeds.
+type failingReaper struct {
+	fakeReaper
+	fails, calls int
+}
+
+func (f *failingReaper) Teardown(ctx context.Context, a string) error {
+	f.calls++
+	if f.calls <= f.fails {
+		return errors.New("launcher unavailable")
+	}
+	return f.fakeReaper.Teardown(ctx, a)
+}
+
+// cmdKit wires a ladder engine holding one Waiting personal session p1 (owner
+// alice, WaitSeq 5, Idled unless phase says otherwise) whose inbox holds msgs.
+type cmdKit struct {
+	e     *Engine
+	reg   *fakeReg
+	rec   *fakeNagRecorder
+	n     *fakeNagger
+	wake  *fakeWaker
+	idler *fakeIdler
+	inbox *fakeInbox
+	now   time.Time
+}
+
+func newCmdKit(t *testing.T, reap Reaper, inst harbor.Instance, msgs ...intercom.Squawk) *cmdKit {
+	t.Helper()
+	k := &cmdKit{n: &fakeNagger{}, wake: &fakeWaker{}, idler: &fakeIdler{}, now: time.Unix(200_000, 0)}
+	k.e, k.reg, k.rec, _ = ladderKit(harbor.RoleAllocation{IdleAfter: 2 * time.Hour, NagEvery: time.Hour}, k.n, reap, inst)
+	k.inbox = &fakeInbox{byActor: map[string][]intercom.Squawk{inst.ActorID: msgs}}
+	k.e.inbox, k.e.wake, k.e.idler = k.inbox, k.wake, k.idler
+	k.e.now = func() time.Time { return k.now }
+	return k
+}
+
+func waitingPersonal() harbor.Instance {
+	inst := personal("p1", time.Unix(199_000, 0)) // idle 1000s: under idle-after, so no nag this tick
+	inst.WaitSeq = 5
+	inst.LastNagAt = time.Unix(199_500, 0)
+	inst.Nags = 1
+	return inst
+}
+
+// woke reports whether the cove was woken this tick (a Live cove is woken, an
+// Idled one resumed).
+func (k *cmdKit) woke(id string) bool {
+	return contains(k.wake.woke, id) || contains(k.idler.resumed, id)
+}
+
+func TestReplyToAct_OwnerReleaseTearsDownAndNotifies(t *testing.T) {
+	var events []string
+	reap := &orderedReaper{log: &events}
+	k := newCmdKit(t, reap, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "release"))
+	k.n.log = &events
+	k.e.tick(context.Background())
+	if len(events) != 2 || events[0] != "teardown:p1" || events[1] != "released:p1" {
+		t.Fatalf("want teardown then the released notice; events=%v", events)
+	}
+	if k.woke("p1") || len(k.rec.kept) != 0 {
+		t.Fatalf("release must not wake or keep: woke=%v resumed=%v kept=%+v", k.wake.woke, k.idler.resumed, k.rec.kept)
+	}
+}
+
+func TestReplyToAct_CommandWordsNormalized(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		cmd  string // "release" | "keep"
+	}{
+		{"Release!", "release"}, {" keep. ", "keep"}, {"KEEP", "keep"}, {"release\n", "release"}, {"Keep!!", "keep"},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			reap := &fakeReaper{}
+			k := newCmdKit(t, reap, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), tc.body))
+			k.e.tick(context.Background())
+			if k.woke("p1") {
+				t.Fatalf("%q must be a command, not wake", tc.body)
+			}
+			if got := contains(reap.down, "p1"); got != (tc.cmd == "release") {
+				t.Fatalf("%q: torn down = %v", tc.body, got)
+			}
+			if got := len(k.rec.kept) == 1; got != (tc.cmd == "keep") {
+				t.Fatalf("%q: kept = %+v", tc.body, k.rec.kept)
+			}
+		})
+	}
+}
+
+func TestReplyToAct_KeepRestartsIdleClockWithoutWaking(t *testing.T) {
+	reap := &fakeReaper{}
+	k := newCmdKit(t, reap, waitingPersonal(),
+		reply("p1", 6, "alice", nagID("p1"), "keep"),
+		reply("p1", 8, "alice", nagID("p1"), "keep"))
+	k.e.tick(context.Background())
+	if len(k.rec.kept) != 1 || k.rec.kept[0] != (keepCall{"p1", 8, k.now}) {
+		t.Fatalf("want KeepWaiting(p1, 8, now); kept=%+v", k.rec.kept)
+	}
+	got := k.reg.insts[0]
+	if got.WaitSeq != 8 || !got.WaitingSince.Equal(k.now) || got.Nags != 0 || !got.LastNagAt.IsZero() {
+		t.Fatalf("ladder not reset: %+v", got)
+	}
+	if len(k.n.calls) != 1 || k.n.calls[0] != (nagCall{"kept", "p1", 2 * time.Hour}) {
+		t.Fatalf("want one kept notice naming the next reminder (idle-after); calls=%+v", k.n.calls)
+	}
+	if k.woke("p1") || len(reap.down) != 0 {
+		t.Fatalf("keep must not wake or tear down: woke=%v resumed=%v down=%v", k.wake.woke, k.idler.resumed, reap.down)
+	}
+	if got.Phase != harbor.PhaseIdled {
+		t.Fatalf("an Idled session stays paused after keep: %v", got.Phase)
+	}
+}
+
+func TestReplyToAct_KeepNotRetriggeredNextTick(t *testing.T) {
+	k := newCmdKit(t, &fakeReaper{}, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "keep"))
+	k.e.tick(context.Background())
+	k.now = k.now.Add(time.Minute)
+	k.e.tick(context.Background())
+	if len(k.rec.kept) != 1 || len(k.n.calls) != 1 || k.woke("p1") {
+		t.Fatalf("keep processed more than once: kept=%+v calls=%+v woke=%v", k.rec.kept, k.n.calls, k.wake.woke)
+	}
+}
+
+func TestReplyToAct_KeepThenNextNagAfterIdleAfter(t *testing.T) {
+	k := newCmdKit(t, &fakeReaper{}, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "keep"))
+	k.e.tick(context.Background())
+	kept := k.now
+	k.now = kept.Add(2*time.Hour - time.Second)
+	k.e.tick(context.Background())
+	if kinds(k.n.calls)[len(k.n.calls)-1] != "kept" {
+		t.Fatalf("nagged before idle-after from the keep: %+v", k.n.calls)
+	}
+	k.now = kept.Add(2 * time.Hour)
+	k.e.tick(context.Background())
+	if last := k.n.calls[len(k.n.calls)-1]; last != (nagCall{"nag", "p1", 2 * time.Hour}) {
+		t.Fatalf("want the next nag idle-after from the keep; calls=%+v", k.n.calls)
+	}
+}
+
+func TestReplyToAct_NotACommand_Wakes(t *testing.T) {
+	for name, m := range map[string]intercom.Squawk{
+		"keep not replying to a nag":      reply("p1", 6, "alice", "00000000-some-cove-msg", "keep"),
+		"keep replying to nothing":        reply("p1", 6, "alice", "", "keep"),
+		"release from a non-owner":        reply("p1", 6, "mallory", nagID("p1"), "release"),
+		"release by display name only":    reply("p1", 6, "Alice", nagID("p1"), "release"),
+		"release replying to another nag": reply("p1", 6, "alice", nagID("p1x"), "release"),
+		"release in a sentence":           reply("p1", 6, "alice", nagID("p1"), "release it please"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			reap := &fakeReaper{}
+			k := newCmdKit(t, reap, waitingPersonal(), m)
+			k.e.tick(context.Background())
+			if !k.woke("p1") {
+				t.Fatal("an ordinary reply must wake")
+			}
+			if len(reap.down) != 0 || len(k.rec.kept) != 0 || len(k.n.calls) != 0 {
+				t.Fatalf("an ordinary reply must not act: down=%v kept=%+v calls=%+v", reap.down, k.rec.kept, k.n.calls)
+			}
+		})
+	}
+}
+
+func TestReplyToAct_KeepWithOtherTextWakes(t *testing.T) {
+	reap := &fakeReaper{}
+	k := newCmdKit(t, reap, waitingPersonal(),
+		reply("p1", 6, "alice", nagID("p1"), "keep"),
+		reply("p1", 7, "alice", "", "actually, try the other branch"))
+	k.e.tick(context.Background())
+	if !k.woke("p1") || len(k.rec.kept) != 0 || len(reap.down) != 0 {
+		t.Fatalf("keep + other text must wake only: woke=%v kept=%+v down=%v", k.woke("p1"), k.rec.kept, reap.down)
+	}
+}
+
+func TestReplyToAct_ReleaseWinsOverOtherText(t *testing.T) {
+	reap := &fakeReaper{}
+	k := newCmdKit(t, reap, waitingPersonal(),
+		reply("p1", 6, "alice", "", "one more thing"),
+		reply("p1", 7, "alice", nagID("p1"), "keep"),
+		reply("p1", 8, "alice", nagID("p1"), "release"))
+	k.e.tick(context.Background())
+	if !contains(reap.down, "p1") || k.woke("p1") || len(k.rec.kept) != 0 {
+		t.Fatalf("release + other text must release: down=%v woke=%v kept=%+v", reap.down, k.woke("p1"), k.rec.kept)
+	}
+}
+
+func TestReplyToAct_FailedTeardownRetriedNextTick(t *testing.T) {
+	reap := &failingReaper{fails: 1}
+	k := newCmdKit(t, reap, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "release"))
+	k.e.tick(context.Background())
+	if len(reap.down) != 0 || k.woke("p1") || len(k.n.calls) != 0 {
+		t.Fatalf("a failed teardown must not wake or notify: down=%v woke=%v calls=%+v", reap.down, k.woke("p1"), k.n.calls)
+	}
+	k.e.tick(context.Background())
+	if !contains(reap.down, "p1") || len(k.n.calls) != 1 || k.n.calls[0].kind != "released" {
+		t.Fatalf("want the release retried next tick; down=%v calls=%+v", reap.down, k.n.calls)
+	}
+}
+
+func TestReplyToAct_FailedNotifyDoesNotUndo(t *testing.T) {
+	t.Run("release", func(t *testing.T) {
+		reap := &fakeReaper{}
+		k := newCmdKit(t, reap, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "release"))
+		k.n.fail = errors.New("log unavailable")
+		k.e.tick(context.Background())
+		if !contains(reap.down, "p1") || k.woke("p1") {
+			t.Fatalf("release stands despite a failed notice: down=%v woke=%v", reap.down, k.woke("p1"))
+		}
+	})
+	t.Run("keep", func(t *testing.T) {
+		k := newCmdKit(t, &fakeReaper{}, waitingPersonal(), reply("p1", 6, "alice", nagID("p1"), "keep"))
+		k.n.fail = errors.New("log unavailable")
+		k.e.tick(context.Background())
+		if len(k.rec.kept) != 1 || k.woke("p1") {
+			t.Fatalf("keep stands despite a failed notice: kept=%+v woke=%v", k.rec.kept, k.woke("p1"))
+		}
+		k.e.tick(context.Background())
+		if len(k.rec.kept) != 1 {
+			t.Fatalf("a failed notice must not re-run keep: kept=%+v", k.rec.kept)
+		}
+	})
+}
+
+// Only personal sessions act on commands: a standing or ephemeral session's
+// "release" (even one shaped like a reply to its nag) wakes it as today.
+func TestReplyToAct_NonPersonalWakes(t *testing.T) {
+	for _, kind := range []string{harbor.SessionKindStanding, ""} {
+		t.Run("kind="+kind, func(t *testing.T) {
+			inst := waitingPersonal()
+			inst.SessionKind = kind
+			reap := &fakeReaper{}
+			k := newCmdKit(t, reap, inst, reply("p1", 6, "alice", nagID("p1"), "release"))
+			k.e.cfg.MaxWait = 1000 * time.Hour
+			k.e.tick(context.Background())
+			if !k.woke("p1") || len(reap.down) != 0 || len(k.rec.kept) != 0 {
+				t.Fatalf("want wake only: woke=%v down=%v kept=%+v", k.woke("p1"), reap.down, k.rec.kept)
+			}
+		})
 	}
 }

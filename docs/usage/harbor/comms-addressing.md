@@ -4,7 +4,7 @@ read_when: You want a cove's agent to send to someone other than its own ticket 
 owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Comms addressing (target space & access-graph)
@@ -78,20 +78,23 @@ feature, not a bare follow-up post) to a cove's Discord post, harbor routes
 that reply back to the cove that sent the original squawk — the same
 [wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
 so a Waiting cove resumes with the reply already in its inbox. Routing works
-by a small **receipt**: on every Discord post the engine records the posted
-squawk's id against the sending cove (`discord-msg-id → actor`); an inbound
-squawk is matched to that receipt by the id it *replies to*. Two
-consequences follow directly from that mechanism:
+by a **receipt** recorded on every Discord post (`discord-msg-id → {actor,
+message}`: the sending cove and the squawk's Log id). An inbound reply is
+matched by the id it *replies to*; its `reply_to` is the answered squawk's id,
+so it joins that squawk's thread. An older receipt (no squawk id) still routes,
+with `reply_to` `in:discord:<id>`.
+A reply in an inbox channel that is the `discord` address of **exactly one**
+roster human (not also a roster channel) is from `human:<roster name>` — the
+channel, not the spoofable display name, proves the sender; any other is from
+`human:<Discord display name>`. Consequences:
 
 - **Only a reply routes.** A bare (non-reply) squawk posted into a shared
   inbox channel carries no id to look up against, so it can't be attributed
   to any cove — it is silently dropped, by construction (this also means
   harbor's own outbound Discord posts, echoed back on the same channel,
   never mis-route to themselves; no separate self-post filter is needed).
-- **Receipts are currently unpruned.** The receipt store grows by one entry
-  per Discord post and is never garbage-collected — a known follow-up, not a
-  correctness issue today (an unbounded map on local disk, not a leak
-  visible to any cove).
+- **Receipts are currently unpruned** — one entry per post on local disk,
+  never collected (a known follow-up, not a correctness issue).
 
 A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
 non-tracker service the human can be reached on. For `Service: "discord"`,
@@ -189,9 +192,6 @@ alongside `send`'s now-optional `to` argument; see
   channel-sends two-way, and generalizing `read` into a merged, tagged
   multi-source inbox. (Discord already routes replies regardless of target
   kind — see the reply loop above.)
-- **Discord receipt pruning:** the discord-msg-id→cove receipt store (above)
-  is currently unpruned — an unbounded, never-garbage-collected map on local
-  disk.
 - **Actor/role-to-actor addressing:** addressing another managed cove or Manager
   directly (waits on the Manager pillar).
 
