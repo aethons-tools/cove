@@ -361,9 +361,14 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 	if err := s.launcher.Unpause(ctx, inst); err != nil {
 		return err
 	}
-	if want := s.roleEgress(inst); EgressFingerprint(want) != inst.Egress {
+	if want, ok := s.roleEgress(inst); ok && EgressFingerprint(want) != inst.Egress {
 		if err := s.launcher.ApplyEgress(ctx, inst, want); err != nil {
 			s.warn("torn down: egress re-apply failed", "id", actorID, "project", inst.Project, "role", inst.Role, "on", "resume", "err", err.Error())
+			// Freeze it again first, so a failed teardown leaves the cove paused
+			// rather than running under the stale policy until the next pass.
+			if pErr := s.launcher.Pause(ctx, inst); pErr != nil {
+				s.warn("egress: re-pause before teardown failed", "id", actorID, "err", pErr.Error())
+			}
 			if tdErr := s.Teardown(ctx, actorID); tdErr != nil {
 				return fmt.Errorf("resume %s: egress re-apply: %w (teardown also failed: %v)", actorID, err, tdErr)
 			}
@@ -469,14 +474,18 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 // reload failure, never an indefinite run under a policy other than its role's.
 const egressMaxFailures = 3
 
-// roleEgress is the egress policy inst's role currently wants (a copy); nil — the
-// kit default — when the role has none or no longer exists.
-func (s *Supervisor) roleEgress(inst Instance) *EgressPolicy {
+// roleEgress is the egress policy inst's role currently wants (a copy); nil is
+// the kit default. ok=false when the role no longer exists: callers then leave
+// the cove's egress as is, since the kit default could be wider.
+func (s *Supervisor) roleEgress(inst Instance) (*EgressPolicy, bool) {
 	role, ok := s.store.GetRole(inst.Project, inst.Role)
-	if !ok || role.Scope.Egress == nil {
-		return nil
+	if !ok {
+		return nil, false
 	}
-	return &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
+	if role.Scope.Egress == nil {
+		return nil, true
+	}
+	return &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}, true
 }
 
 // reconcileEgress re-applies inst's role egress policy when it has drifted from
@@ -489,7 +498,10 @@ func (s *Supervisor) roleEgress(inst Instance) *EgressPolicy {
 // instance rather than written from inst, which would clobber a report or
 // heartbeat that landed meanwhile.
 func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
-	want := s.roleEgress(inst)
+	want, ok := s.roleEgress(inst)
+	if !ok {
+		return // role gone: leave egress as is (the kit default could be wider)
+	}
 	fp := EgressFingerprint(want)
 	if fp == inst.Egress {
 		if inst.EgressFailures != 0 { // the role changed back before a re-apply landed

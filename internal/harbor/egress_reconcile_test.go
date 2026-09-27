@@ -139,19 +139,20 @@ func TestReconcileEgressLegacyAppliedOnce(t *testing.T) {
 	}
 }
 
-// A missing role means the kit default.
-func TestReconcileEgressMissingRoleIsKit(t *testing.T) {
+// A missing role leaves the cove's egress alone: resetting to the kit default
+// would widen a cove whose role (and so whose grant) has just been removed.
+func TestReconcileEgressMissingRoleLeavesEgress(t *testing.T) {
 	sup, store, f, _ := egressKit(t)
 	if err := store.PutInstance(Instance{ActorID: "o1", Project: "default", Role: "nope", Phase: PhaseLive, Egress: "none",
 		Lease: Lease{Holder: "holder-A", Expiry: time.Unix(2000, 0).UTC()}}); err != nil {
 		t.Fatal(err)
 	}
 	reconcileOrFail(t, sup)
-	if len(f.egressed) != 1 || f.egressed[0] != nil {
-		t.Fatalf("applied %+v, want ApplyEgress(nil)", f.egressed)
+	if len(f.egressed) != 0 {
+		t.Fatalf("applied %+v for a missing role, want nothing", f.egressed)
 	}
-	if got, _ := store.GetInstance("o1"); got.Egress != "kit" {
-		t.Fatalf("recorded egress = %q, want kit", got.Egress)
+	if got, _ := store.GetInstance("o1"); got.Egress != "none" {
+		t.Fatalf("recorded egress = %q, want none (unchanged)", got.Egress)
 	}
 }
 
@@ -294,6 +295,10 @@ func TestResumeEgressFailureTearsDown(t *testing.T) {
 	}
 	if len(f.tornDown) != 1 {
 		t.Fatalf("teardown calls = %d, want 1", len(f.tornDown))
+	}
+	// Re-paused before teardown, so a failed teardown leaves it frozen.
+	if len(f.paused) != 2 {
+		t.Fatalf("pause calls = %d, want 2 (idle, then re-pause on the failed apply)", len(f.paused))
 	}
 	if !strings.Contains(logs.String(), "torn down: egress re-apply failed") {
 		t.Fatalf("teardown must be logged: %s", logs.String())
