@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/atswitchboard"
@@ -12,12 +13,28 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
+// Egress is the kit's baked egress beyond the sealed base, split by purpose.
+// Policy is image.allowed-domains: baked as the active policy list
+// (allowed_domains.kit.txt, which a harbor role's list replaces at raise) and as
+// the immutable ceiling that role list must fit inside (egress_ceiling.txt).
+// Infra is kit.InfraDomains (provider, self-hosted GitLab, harbor hosts): always
+// on, baked into allowed_domains.infra.txt.
+type Egress struct {
+	Policy []string
+	Infra  []string
+}
+
+// EgressFor derives a kit config's baked Egress.
+func EgressFor(c kit.Config) Egress {
+	return Egress{Policy: c.Image.AllowedDomains, Infra: kit.InfraDomains(c)}
+}
+
 // Assemble builds the context in buildDir: the sealed hardening layer, the
-// injected at-task, the kit's egress allow-list, the per-kit GitLab gitconfig, and
+// injected at-task, the kit's egress lists, the per-kit GitLab gitconfig, and
 // the managed public key. The kit's image/ is the Dockerfile build context
 // (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
 // source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
-func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabHost string) error {
+func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string) error {
 	// Any path that assembles a build context (build/create/work) keeps the kit's
 	// .gitignore current, so generated .build/.state artifacts never leak into git.
 	if err := kit.EnsureGitignore(kitDir); err != nil {
@@ -33,7 +50,7 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
 	// not overlaid, and the overridable defaults ship in cove-base-image. So the
 	// build context is the sealed hardening layer plus the injected at-task, the
-	// kit's egress allow-list, and the managed key.
+	// kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
 		return err
 	}
@@ -50,7 +67,7 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 		return err
 	}
 
-	if err := writeAllowedDomains(buildDir, rootDomains); err != nil {
+	if err := writeEgressLists(buildDir, egress); err != nil {
 		return err
 	}
 
@@ -143,7 +160,7 @@ func writeCoveMaster(buildDir string) error {
 // git:// remotes must be rewritten — the same treatment github.com gets statically)
 // and scopes the credential helper to that host so an interactive collaborator git
 // authenticates with GITLAB_TOKEN. Always written (header-only when host is "") so
-// the include never dangles — mirroring writeAllowedDomains.
+// the include never dangles — mirroring writeEgressLists.
 func writeGitLabGitConfig(buildDir, host string) error {
 	dst := filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc")
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -194,20 +211,57 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 	})
 }
 
-// writeAllowedDomains writes the kit's additive squid allow-list. Always written
-// (empty list → header only) so the sealed squid.conf can reference it
-// unconditionally without squid erroring on a missing ACL file.
-func writeAllowedDomains(buildDir string, domains []string) error {
-	dst := filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt")
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+// writeEgressLists writes the kit's baked squid lists: the active policy list
+// (kit.txt), the always-on infra list (infra.txt), and the ceiling a harbor role's
+// policy must fit inside (egress_ceiling.txt — read only by the sealed
+// apply-role-egress.sh, never by squid). Each is always written (empty → header
+// only) so the sealed squid.conf never references a missing ACL file.
+func writeEgressLists(buildDir string, e Egress) error {
+	policy := sortedUnique(e.Policy)
+	files := []struct {
+		name    string
+		header  []string
+		domains []string
+	}{
+		{"allowed_domains.kit.txt", []string{
+			"# Active egress policy list: the kit's image.allowed-domains by default;",
+			"# replaced (root-only) by a harbor role's list at raise, within egress_ceiling.txt.",
+			"# Additive to the sealed base + infra lists; leading dot = subdomains.",
+		}, policy},
+		{"allowed_domains.infra.txt", []string{
+			"# Kit infrastructure egress domains (model provider, self-hosted GitLab, harbor).",
+			"# Always on; a harbor role's egress policy cannot remove these.",
+		}, sortedUnique(e.Infra)},
+		{"egress_ceiling.txt", []string{
+			"# Egress ceiling: the kit's image.allowed-domains, baked immutable.",
+			"# NOT an allow-list (squid never reads it). apply-role-egress.sh refuses any",
+			"# role domain this list does not cover; leading dot = subdomains.",
+		}, policy},
+	}
+	dir := filepath.Join(buildDir, "image-files/etc/squid")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	var b strings.Builder
-	b.WriteString("# Kit-declared egress domains (config.yml image.allowed-domains).\n")
-	b.WriteString("# Additive to the sealed base allowed_domains.txt; leading dot = subdomains.\n")
-	for _, d := range domains {
-		b.WriteString(d)
-		b.WriteString("\n")
+	for _, f := range files {
+		var b strings.Builder
+		for _, h := range f.header {
+			b.WriteString(h)
+			b.WriteString("\n")
+		}
+		for _, d := range f.domains {
+			b.WriteString(d)
+			b.WriteString("\n")
+		}
+		if err := os.WriteFile(filepath.Join(dir, f.name), []byte(b.String()), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(dst, []byte(b.String()), 0o644)
+	return nil
+}
+
+// sortedUnique returns the deduped, sorted copy of domains.
+func sortedUnique(domains []string) []string {
+	out := slices.Clone(domains)
+	slices.Sort(out)
+	return slices.Compact(out)
 }

@@ -153,6 +153,33 @@ func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	}
 }
 
+// The UI role form edits neither the egress policy nor the addressing allow-list,
+// so saving a role from the UI must keep both rather than wiping them.
+func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
+	store := newStore(t)
+	egress := &harbor.EgressPolicy{Domains: []string{".b.org", "a.com"}}
+	addressing := []string{"human:*", "channel:ops"}
+	if err := store.PutRole("acme", harbor.Role{Name: "worker", Scope: harbor.Scope{Addressing: addressing, Egress: egress}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit role = %d, want 200", rec.Code)
+	}
+	got, _ := store.GetRole("acme", "worker")
+	if !reflect.DeepEqual(got.Scope.Egress, egress) {
+		t.Fatalf("egress after UI edit = %+v, want %+v (kept)", got.Scope.Egress, egress)
+	}
+	if !reflect.DeepEqual(got.Scope.Addressing, addressing) {
+		t.Fatalf("addressing after UI edit = %v, want %v (kept)", got.Scope.Addressing, addressing)
+	}
+	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
+		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
+	}
+}
+
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)

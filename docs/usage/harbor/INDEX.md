@@ -33,7 +33,7 @@ five pillars), see the design history:
 | [dispatch-runbook.md](dispatch-runbook.md) | You are standing up (or reproducing) a real Linear→cove dispatch loop end to end and want the ordered steps + the field gotchas (egress, cert-name, flat-vs-grouped labels), not the per-field reference. |
 | [serve.md](serve.md) | Standing up the service: `at-harbor serve`, the serve-config YAML (listen, TLS, store, credentials), the broker + destinations, and the off-loopback exposure rule. |
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
-| [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice. |
+| [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
 | [coves.md](coves.md) | You are raising/tearing down a managed cove, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (cove-master). |
 | [personal-sessions.md](personal-sessions.md) | You (a human operator) want your own session of a role: linking your login to the roster, the role's personal caps, `session request\|list\|release`, talking to it over Discord until you release it, its idle ladder (nags, replying `keep`/`release` to one, optional reclaim), and why it needs `store-postgres` and a Discord inbox. |

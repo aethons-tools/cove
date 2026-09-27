@@ -20,6 +20,17 @@ type Scope struct {
 	Repos        []string      `json:"repos"`
 	Addressing   []string      `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
 	TTL          time.Duration `json:"ttl"`
+	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
+	// = the kit's default list. Managed only by the egress endpoints
+	// (`at-harbor egress set|show|clear`); a role re-put keeps it.
+	Egress *EgressPolicy `json:"egress,omitempty"`
+}
+
+// EgressPolicy is a role's raw-egress allow-list, applied to its coves at raise
+// within the kit's ceiling. Domains may be empty (nothing beyond the sealed base
+// and the kit's infra domains).
+type EgressPolicy struct {
+	Domains []string `json:"domains"`
 }
 
 // StandingSession is one operator-declared, named standing session of a role:

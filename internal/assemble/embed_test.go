@@ -17,6 +17,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/squid/squid.conf",
 		"hardening/image-files/etc/squid/allowed_domains.session.txt",
 		"hardening/image-files/usr/local/lib/cove/apply-session-domains.sh",
+		"hardening/image-files/usr/local/lib/cove/apply-role-egress.sh",
 		"hardening/image-files/etc/systemd/system/cove-egress.service",
 		"hardening/image-files/etc/systemd/system/squid.service.d/cove-egress.conf",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",

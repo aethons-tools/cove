@@ -75,6 +75,9 @@ that name again: 30s, then doubling (1m, 2m, …) up to 30m. The backoff is per 
 so one failing name doesn't delay another. It resets once the name has a live
 cove, and it is kept in memory, so a harbor restart retries at once. A denied or
 failed *grant* is logged and retried on the next pass, without backoff.
+A role whose [egress policy](roster.md#role-egress) asks for a domain outside the
+kit's ceiling fails every raise this way, so its standing sessions back off (each
+failure logged, naming the domain) until the policy or the kit is fixed.
 
 If harbor stops partway through raising a standing session — after creating its
 identity but before recording the cove — the identity is left behind with no cove.

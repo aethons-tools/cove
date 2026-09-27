@@ -40,8 +40,8 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
-	WorkDir       string // AT_COVE_WORKDIR; default /home/agent/workspace
-	log           *slog.Logger
+	WorkDir       string              // AT_COVE_WORKDIR; default /home/agent/workspace
+	Log           *slog.Logger        // nil → discard
 	sleep         func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
 }
 
@@ -56,8 +56,8 @@ func New(cfg Config) *Launcher {
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = "/home/agent/workspace"
 	}
-	if cfg.log == nil {
-		cfg.log = slog.New(slog.NewTextHandler(discard{}, nil))
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
 	return &Launcher{cfg: cfg}
 }
@@ -82,6 +82,11 @@ func (l *Launcher) Raise(ctx context.Context, spec harbor.RaiseSpec, creds harbo
 		if err := l.waitForSSH(tgt); err != nil {
 			return fmt.Errorf("wait for sshd: %w", err)
 		}
+		// The role's egress policy lands before cove-master (and so the agent)
+		// starts, so the agent never runs under the wider kit default.
+		if err := l.applyRoleEgress(name, spec); err != nil {
+			return err
+		}
 		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
 			Target: tgt, HarborHost: l.cfg.HarborHost, RuntimeAddr: l.cfg.RuntimeAddr,
 			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
@@ -93,11 +98,35 @@ func (l *Launcher) Raise(ctx context.Context, spec harbor.RaiseSpec, creds harbo
 	}
 	if err := launch(); err != nil {
 		if rmErr := l.cfg.Ops.RemoveContainer(name); rmErr != nil {
-			l.cfg.log.Warn("raise cleanup: remove container failed", "name", name, "error", rmErr)
+			l.cfg.Log.Warn("raise cleanup: remove container failed", "name", name, "error", rmErr)
 		}
 		return "", fmt.Errorf("raise %s: %w", name, err)
 	}
 	return name, nil
+}
+
+// applyRoleEgress pushes spec's role egress policy into the raised container via
+// the backend's privileged RoleEgress op (the sealed in-box helper enforces the
+// kit's ceiling). A nil policy is the kit default: nothing to apply. Fail closed:
+// a policy the backend can't apply fails the raise rather than falling back to
+// the wider kit default.
+func (l *Launcher) applyRoleEgress(name string, spec harbor.RaiseSpec) error {
+	if spec.Egress == nil {
+		return nil
+	}
+	project := spec.Project
+	if project == "" {
+		project = harbor.DefaultProject
+	}
+	re, ok := l.cfg.Ops.(backend.RoleEgress)
+	if !ok {
+		return fmt.Errorf("backend does not support role egress (required for role %s/%s)", project, spec.Role)
+	}
+	if err := re.ApplyRoleEgress(name, spec.Egress.Domains); err != nil {
+		return fmt.Errorf("apply role egress: %w", err)
+	}
+	l.cfg.Log.Info("role egress applied", "id", spec.ActorID, "project", project, "role", spec.Role, "domains", len(spec.Egress.Domains))
+	return nil
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst harbor.Instance) error {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -107,6 +108,8 @@ type RoleSummary struct {
 	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
 	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
 	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
+	// Egress is the role's egress policy; nil = the kit's default list.
+	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
 // KitBody is the POST /admin/kits request.
@@ -246,6 +249,9 @@ func RosterSummaries(store Store) []ActorSummary {
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	// Every read-modify-write of a Role (role put, standing, egress) takes this
+	// lock, so no writer can drop another's change.
+	var roleMu sync.Mutex
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -345,6 +351,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				IdleAfterSeconds:    int64(ro.Allocation.IdleAfter / time.Second),
 				NagEverySeconds:     int64(ro.Allocation.NagEvery / time.Second),
 				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
+				Egress:              ro.Scope.Egress,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -384,10 +391,13 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
 		}
-		// Standing declarations are managed by the standing routes, not this body:
-		// re-putting a role keeps them.
+		// Standing declarations and the egress policy are managed by their own
+		// routes, not this body: re-putting a role keeps them.
+		roleMu.Lock()
+		defer roleMu.Unlock()
 		if existing, ok := store.GetRole(b.Project, b.Name); ok {
 			role.Allocation.Standing = existing.Allocation.Standing
+			role.Scope.Egress = existing.Scope.Egress
 		}
 		if err := store.PutRole(b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -659,7 +669,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	registerStanding(mux, store, log)
+	registerStanding(mux, store, log, &roleMu)
+	registerEgress(mux, store, log, &roleMu)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil {

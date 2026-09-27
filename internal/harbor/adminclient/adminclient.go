@@ -146,6 +146,7 @@ func (c *Client) ListRoles(project string) ([]harbor.Role, error) {
 			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
 			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
 		}})
+		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil
 }
@@ -374,4 +375,32 @@ func (c *Client) ListStanding(project, role string) ([]harbor.StandingSession, e
 // RemoveStanding dismisses a standing session; harbor tears its cove down.
 func (c *Client) RemoveStanding(project, role, name string) error {
 	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
+}
+
+func egressPath(project, role string) string {
+	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/egress"
+}
+
+// SetEgress sets project's role's egress policy to domains (nil or empty = a
+// set-but-empty policy: nothing beyond the sealed base + the kit's infra
+// domains). Harbor normalizes the list; a bad domain is a 400 naming it. It takes
+// effect at the role's next raise.
+func (c *Client) SetEgress(project, role string, domains []string) error {
+	if domains == nil {
+		domains = []string{}
+	}
+	return c.do("PUT", egressPath(project, role), harbor.EgressPolicy{Domains: domains}, nil)
+}
+
+// ShowEgress returns project's role's egress policy; Managed false means the
+// kit's default list.
+func (c *Client) ShowEgress(project, role string) (harbor.EgressView, error) {
+	var out harbor.EgressView
+	err := c.do("GET", egressPath(project, role), nil, &out)
+	return out, err
+}
+
+// ClearEgress reverts project's role to the kit's default egress list.
+func (c *Client) ClearEgress(project, role string) error {
+	return c.do("DELETE", egressPath(project, role), nil, nil)
 }

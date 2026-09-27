@@ -443,7 +443,7 @@ func assembleContext(kitDir string, r runner.Runner) error {
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
 	gitlabHost, _ := cfg.GitLabHost() // "" for a non-GitLab kit → header-only include
-	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, kit.RootDomains(cfg), gitlabHost)
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, assemble.EgressFor(cfg), gitlabHost)
 }
 
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
