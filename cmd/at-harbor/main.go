@@ -72,6 +72,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "cove", Brief: "manage managed coves (raise|list|status|teardown) via the admin API", Run: cmdCove},
+			{Name: "standing", Brief: "declare, list or dismiss a role's named standing sessions (add|list|rm) via the admin API", Run: cmdStanding},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
@@ -1005,6 +1006,80 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "released", pos[0])
 	default:
 		fmt.Fprintln(stderr, "at-harbor session: unknown subcommand", sub)
+		return 2
+	}
+	return 0
+}
+
+// cmdStanding manages a role's standing-session declarations: harbor keeps one
+// cove running per declared name, restarts it if it dies, and tears it down once
+// the name is removed.
+func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-harbor standing: expected add|list|rm")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
+	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
+	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	role := fs.String("role", "", "role the standing session belongs to")
+	name := fs.String("name", "", "standing session name, unique within the role (add only)")
+	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-harbor standing:", err)
+		return 2
+	}
+	if *role == "" && (sub == "add" || sub == "list" || sub == "rm") {
+		fmt.Fprintf(stderr, "at-harbor standing %s: --role is required\n", sub)
+		return 2
+	}
+	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "add":
+		if *name == "" || *promptFile == "" {
+			fmt.Fprintln(stderr, "at-harbor standing add: --name and --prompt-file are required")
+			return 2
+		}
+		b, err := os.ReadFile(*promptFile)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor standing add: --prompt-file:", err)
+			return 1
+		}
+		if err := c.AddStanding(proj, *role, harbor.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, harbor.StandingActorID(proj, *role, *name))
+	case "list":
+		list, err := c.ListStanding(proj, *role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		for _, s := range list {
+			fmt.Fprintf(stdout, "%s\tid=%s\n", s.Name, harbor.StandingActorID(proj, *role, s.Name))
+		}
+	case "rm":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-harbor standing rm: expected one standing session name")
+			return 2
+		}
+		if err := c.RemoveStanding(proj, *role, pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-harbor:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-harbor standing: unknown subcommand", sub)
 		return 2
 	}
 	return 0

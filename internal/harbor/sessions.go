@@ -211,13 +211,18 @@ func personalSessionID(owner string) (string, error) {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	safe := strings.Map(func(r rune) rune {
+	return "personal-" + safeIDPart(owner) + "-" + hex.EncodeToString(b[:]), nil
+}
+
+// safeIDPart maps characters outside [A-Za-z0-9._-] to '-', so s can be part of
+// an actor id (used in URL paths).
+func safeIDPart(s string) string {
+	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
 			return r
 		default:
 			return '-'
 		}
-	}, owner)
-	return "personal-" + safe + "-" + hex.EncodeToString(b[:]), nil
+	}, s)
 }

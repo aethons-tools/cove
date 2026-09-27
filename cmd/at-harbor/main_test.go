@@ -955,3 +955,73 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 		t.Fatalf("ledger saw %+v %+v", cl.req, cl.caps)
 	}
 }
+
+// `standing add|list|rm` declare, list and dismiss a role's standing sessions;
+// the prompt is read from a file host-side, and the role's other fields are kept.
+func TestStandingCommandsRoundTrip(t *testing.T) {
+	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	promptFile := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(promptFile, []byte("review every PR"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "--name", "alice-bot", "--prompt-file", promptFile}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing add: exit=%d stderr=%s", code, errb.String())
+	}
+	r, _ := store.GetRole("acme", "reviewer")
+	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0] != (harbor.StandingSession{Name: "alice-bot", Prompt: "review every PR"}) {
+		t.Fatalf("standing = %+v", r.Allocation.Standing)
+	}
+	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
+		t.Fatalf("role fields not kept: %+v", r)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), harbor.StandingActorID("acme", "reviewer", "alice-bot")) {
+		t.Fatalf("standing list output:\n%s", out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "rm", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing rm: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, _ := store.GetRole("acme", "reviewer"); len(r.Allocation.Standing) != 0 {
+		t.Fatalf("standing after rm = %+v", r.Allocation.Standing)
+	}
+
+	// a server-side refusal (unknown role) exits 1
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "nobody", "--name", "x", "--prompt-file", promptFile}, getenv, &out, &errb); code != 1 {
+		t.Fatalf("add on unknown role: exit=%d, want 1 (stderr=%s)", code, errb.String())
+	}
+
+	// required-argument checks
+	for _, args := range [][]string{
+		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--prompt-file", promptFile},
+		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--name", "x"},
+		{"standing", "add", "--admin-url", ts.URL, "--name", "x", "--prompt-file", promptFile},
+		{"standing", "rm", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"standing", "list", "--admin-url", ts.URL},
+		{"standing"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(args, getenv, &out, &errb); code != 2 {
+			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
+		}
+	}
+}

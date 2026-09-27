@@ -351,3 +351,27 @@ func (c *Client) ListPersonalSessions(project string) ([]harbor.PersonalSessionS
 func (c *Client) ReleasePersonalSession(id string) error {
 	return c.do("DELETE", "/admin/sessions/personal/"+url.PathEscape(id), nil, nil)
 }
+
+func standingPath(project, role string) string {
+	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/standing"
+}
+
+// AddStanding declares a named standing session on project's role; harbor then
+// keeps one cove running for it. The prompt travels in the request body, never
+// on argv.
+func (c *Client) AddStanding(project, role string, s harbor.StandingSession) error {
+	return c.do("POST", standingPath(project, role), s, nil)
+}
+
+// ListStanding lists the standing sessions declared on project's role, prompts
+// included.
+func (c *Client) ListStanding(project, role string) ([]harbor.StandingSession, error) {
+	var out []harbor.StandingSession
+	err := c.do("GET", standingPath(project, role), nil, &out)
+	return out, err
+}
+
+// RemoveStanding dismisses a standing session; harbor tears its cove down.
+func (c *Client) RemoveStanding(project, role, name string) error {
+	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
+}

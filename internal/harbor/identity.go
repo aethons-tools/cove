@@ -22,9 +22,16 @@ type Scope struct {
 	TTL          time.Duration `json:"ttl"`
 }
 
+// StandingSession is one operator-declared, named standing session of a role:
+// harbor keeps exactly one cove running per declared name (see internal/standing).
+type StandingSession struct {
+	Name   string `json:"name"`
+	Prompt string `json:"prompt"`
+}
+
 // RoleAllocation is a role's allocation policy: authored on the roster, read live
-// by harbor's Allocator on each grant, and by wake-on's personal-session idle
-// ladder. Later slices add the standing session set and requester grants.
+// by harbor's Allocator on each grant, by wake-on's personal-session idle ladder,
+// and by the standing reconciler. A later slice adds requester grants.
 type RoleAllocation struct {
 	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
 	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
@@ -44,6 +51,10 @@ type RoleAllocation struct {
 	// ReclaimAfter is how long a personal session may wait on its owner before
 	// harbor reclaims it; 0 = never.
 	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
+	// Standing is the role's declared standing sessions — the desired state the
+	// standing reconciler keeps running, one cove per name. Managed only by the
+	// standing endpoints (`at-harbor standing add|rm|list`); a role re-put keeps it.
+	Standing []StandingSession `json:"standing,omitempty"`
 }
 
 // The personal-session idle-ladder defaults for unset settings.

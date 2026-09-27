@@ -2,11 +2,13 @@ package adminclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -260,7 +262,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 			alloc = r.Allocation
 		}
 	}
-	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); alloc != want {
+	if want := (harbor.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}); !reflect.DeepEqual(alloc, want) {
 		t.Fatalf("role allocation = %+v, want %+v; roles=%+v", alloc, want, roles)
 	}
 }
@@ -557,5 +559,35 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 	if err := c.ReleasePersonalSession(res.ID); err == nil {
 		t.Fatal("releasing a released session must error (404)")
+	}
+}
+
+// TestClientStandingRoundTrip declares, lists and dismisses standing sessions
+// through the client; the role's other fields survive.
+func TestClientStandingRoundTrip(t *testing.T) {
+	ts, store := newServer(t)
+	c := New(ts.URL, "")
+
+	if err := c.AddStanding(harbor.DefaultProject, "guest", harbor.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+		t.Fatalf("AddStanding: %v", err)
+	}
+	if err := c.AddStanding(harbor.DefaultProject, "guest", harbor.StandingSession{Name: "alice-bot", Prompt: "again"}); err == nil {
+		t.Fatal("a duplicate name must error (400)")
+	}
+	list, err := c.ListStanding(harbor.DefaultProject, "guest")
+	if err != nil || len(list) != 1 || list[0] != (harbor.StandingSession{Name: "alice-bot", Prompt: "review PRs"}) {
+		t.Fatalf("ListStanding = %+v, %v", list, err)
+	}
+	if r, _ := store.GetRole(harbor.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
+		t.Fatalf("role scope not kept: %+v", r.Scope)
+	}
+	if err := c.RemoveStanding(harbor.DefaultProject, "guest", "alice-bot"); err != nil {
+		t.Fatalf("RemoveStanding: %v", err)
+	}
+	if list, err := c.ListStanding(harbor.DefaultProject, "guest"); err != nil || len(list) != 0 {
+		t.Fatalf("after rm = %+v, %v", list, err)
+	}
+	if _, err := c.ListStanding(harbor.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown role = %v, want ErrNotFound", err)
 	}
 }
