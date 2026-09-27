@@ -2,7 +2,7 @@
 summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again if it dies, and tears it down when the name is removed. Covers declaring, the `standing add|list|rm` verbs and admin routes, keep-alive with backoff, dismissal, admission, and messaging.
 read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing one, or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
-prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets, a role's addressing, and the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
+prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-09-27
 ---
@@ -122,7 +122,8 @@ project roster), or it answers `400 no default recipient: pass "to"`
 ([intercom.md](intercom.md)). What it may address is limited by its role's
 `--addressing`, like any studio. Its preamble tells it this. A reply to one of its
 messages wakes it, and it `read`s the reply. See
-[comms-addressing.md](comms-addressing.md) for the targets and the reply loop.
+[comms-addressing.md](comms-addressing.md) for the targets and
+[discord.md](discord.md#egress-the-reply-loop) for the reply loop.
 
 A standing studio also appears in `studio list`. Its Instance records `name` and
 `session_kind: standing`.
