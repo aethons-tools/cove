@@ -136,3 +136,48 @@ func TestHumanByDiscordUser(t *testing.T) {
 		t.Fatal("an id bound to two humans must match nobody")
 	}
 }
+
+// DiscordAuthor attributes a Discord message to a roster human: never a bot;
+// a bound author id in any channel; else a unique inbox whose owner is not
+// bound; else nobody (the caller falls back to the display name).
+func TestDiscordAuthor(t *testing.T) {
+	disc := func(addr, uid string) []DeliveryProfile {
+		return []DeliveryProfile{{Service: "discord", Address: addr, UserID: uid}}
+	}
+	r := Roster{
+		Humans: []Human{
+			{Name: "alice", Delivery: disc("inbox-A", "111")}, // bound, own inbox
+			{Name: "bob", Delivery: disc("inbox-B", "")},      // unbound, own inbox
+			{Name: "carol", Delivery: disc("shared", "333")},  // bound, shared inbox
+			{Name: "dave", Delivery: disc("shared", "")},      // unbound, shared inbox
+		},
+		Channels: []Channel{{Name: "team", Service: "discord", Ref: "team-ch"}},
+	}
+	for _, tc := range []struct {
+		name, channel, authorID string
+		bot                     bool
+		want, by                string
+		ok                      bool
+	}{
+		{"bot with a bound id", "inbox-A", "111", true, "", "", false},
+		{"bot in an unbound owner's inbox", "inbox-B", "", true, "", "", false},
+		{"bound id in own inbox", "inbox-A", "111", false, "alice", "id", true},
+		{"bound id in a shared inbox", "shared", "333", false, "carol", "id", true},
+		{"bound id in another human's inbox", "inbox-B", "111", false, "alice", "id", true},
+		{"bound id in a roster channel", "team-ch", "333", false, "carol", "id", true},
+		{"unique inbox, unbound owner", "inbox-B", "999", false, "bob", "channel", true},
+		{"unique inbox, bound owner, other author", "inbox-A", "999", false, "", "", false},
+		{"unique inbox, bound owner, empty author id", "inbox-A", "", false, "", "", false},
+		{"empty author id, unbound owner (older events)", "inbox-B", "", false, "bob", "channel", true},
+		{"unbound author in a shared inbox", "shared", "999", false, "", "", false},
+		{"id bound in another project only", "shared", "555", false, "", "", false},
+		{"unknown channel, unknown id", "nowhere", "999", false, "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, by, ok := DiscordAuthor(r, tc.channel, tc.authorID, tc.bot)
+			if got != tc.want || by != tc.by || ok != tc.ok {
+				t.Fatalf("DiscordAuthor(%q, %q, bot=%v) = %q,%q,%v; want %q,%q,%v", tc.channel, tc.authorID, tc.bot, got, by, ok, tc.want, tc.by, tc.ok)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -117,6 +118,7 @@ type directory struct {
 	project      string
 	selfIdentity string        // Jam's Linear viewer displayName (self-post filter)
 	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
+	log          *slog.Logger  // optional (nil = silent): debug attribution notes
 }
 
 // Projects lists the projects a relay engine polls. Discord covers every store
@@ -160,10 +162,10 @@ func (d *directory) Route(service, project string, e relay.Event) (from intercom
 // the squawk it answers (so threads work); a legacy receipt carries no squawk
 // id and keeps the opaque in:discord:<id>.
 //
-// The sender is the roster human whose inbox the reply was posted in, when
-// that channel is exactly one human's discord inbox in project
-// (jam.DiscordInboxOwner) — the channel, never the spoofable display name,
-// proves the owner. Otherwise it is human:<Discord display name>, as before.
+// The sender is the roster human jam.DiscordAuthor attributes the reply to —
+// by its immutable author id when bound, else by an unbound owner's own inbox
+// channel; never a bot, never by the spoofable display name. Otherwise it is
+// human:<Discord display name>, an ordinary reply.
 func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if e.ReplyToForeign == "" {
 		return intercom.Target{}, nil, "", false
@@ -178,8 +180,11 @@ func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.T
 	}
 	from = intercom.Target{Kind: "human", Ref: e.Author}
 	if r, ok := d.store.GetRoster(project); ok {
-		if name, ok := jam.DiscordInboxOwner(r, e.Surface); ok {
+		if name, by, ok := jam.DiscordAuthor(r, e.Surface, e.AuthorID, e.AuthorBot); ok {
 			from.Ref = name
+			if d.log != nil { // ids and names only — never the body
+				d.log.Debug("relay: discord reply attributed", "project", project, "human", name, "by", by)
+			}
 		}
 	}
 	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true

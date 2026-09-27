@@ -262,9 +262,10 @@ func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
 // DiscordInboxOwner returns the one roster human whose discord delivery
 // address is channel; ok=false when none or more than one human uses it (a
 // shared inbox), when channel is also a roster discord channel (a shared
-// conduit, not an inbox), or when channel is "". A reply posted in a channel
-// it returns is attributed to that human — the channel, not the Discord
-// display name (which anyone can set), is what proves who sent it.
+// conduit, not an inbox), or when channel is "". It is DiscordAuthor's channel
+// rule: a reply posted there is attributed to that human while they are not
+// bound to a Discord user id — the channel, not the Discord display name
+// (which anyone can set), is what proves who sent it.
 func DiscordInboxOwner(r Roster, channel string) (name string, ok bool) {
 	if channel == "" {
 		return "", false
@@ -285,6 +286,39 @@ func DiscordInboxOwner(r Roster, channel string) (name string, ok bool) {
 		name, ok = h.Name, true
 	}
 	return name, ok
+}
+
+// DiscordAuthor returns the roster human a Discord message in project roster r
+// is from, and how it was decided (by "id" or by "channel"). ok=false means
+// nobody: the caller falls back to the display name, so the message is an
+// ordinary reply. In order:
+//
+//  1. a bot author is never a roster human;
+//  2. an author id bound to exactly one human (HumanByDiscordUser) is that
+//     human, whatever the channel;
+//  3. a channel that is uniquely one human's inbox (DiscordInboxOwner) is that
+//     human — but only while they are NOT bound: once bound, only their own
+//     Discord account counts as them, so a stranger in their inbox is not;
+//  4. otherwise nobody.
+//
+// Every doubt fails toward nobody, never toward an owner.
+func DiscordAuthor(r Roster, channel, authorID string, isBot bool) (name, by string, ok bool) {
+	if isBot {
+		return "", "", false
+	}
+	if h, ok := HumanByDiscordUser(r, authorID); ok {
+		return h.Name, "id", true
+	}
+	owner, ok := DiscordInboxOwner(r, channel)
+	if !ok {
+		return "", "", false
+	}
+	for _, h := range r.Humans {
+		if h.Name == owner && h.DiscordBound() {
+			return "", "", false
+		}
+	}
+	return owner, "channel", true
 }
 
 // Channel is a named conduit on a Service. C1: Service == "linear", Ref is a

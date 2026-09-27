@@ -1609,7 +1609,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st}
+	dir := &directory{store: st, log: log}
 	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
 	if intercomLog != nil && (dc != nil || runDiscord) {
 		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {

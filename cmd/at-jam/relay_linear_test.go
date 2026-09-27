@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,6 +183,57 @@ func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
 	from, _, _, ok = dir.Route("discord", "other", relay.Event{Author: "Mallory", Surface: "inbox-A", ReplyToForeign: "D1", ForeignID: "m4"})
 	if !ok || from != (intercom.Target{Kind: "human", Ref: "Mallory"}) {
 		t.Fatalf("other-project reply from = %+v ok=%v", from, ok)
+	}
+}
+
+// Once a human is bound to a Discord user id, a reply is attributed by its
+// author id: the bound human from any channel (even a shared one), and never
+// someone else posting in the bound human's inbox. A bot is never a roster
+// human.
+func TestRouteDiscordAttributesByAuthorID(t *testing.T) {
+	st := newTestStore(t)
+	for _, h := range []jam.Human{
+		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A", UserID: "111"}}},
+		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "222"}}},
+		{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+		{Name: "dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-D"}}},
+	} {
+		if err := st.AddHuman("acme", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1", "M1"); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	dir := &directory{store: st, receipts: rec, log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+	route := func(ev relay.Event) intercom.Target {
+		t.Helper()
+		ev.ReplyToForeign, ev.ForeignID = "D1", "m-"+ev.AuthorID
+		from, _, _, ok := dir.Route("discord", "acme", ev)
+		if !ok {
+			t.Fatalf("route %+v dropped", ev)
+		}
+		return from
+	}
+	if got := route(relay.Event{Author: "Bob D.", AuthorID: "222", Surface: "shared", Body: "release"}); got != (intercom.Target{Kind: "human", Ref: "bob"}) {
+		t.Fatalf("bound author in a shared inbox = %+v, want human:bob", got)
+	}
+	if got := route(relay.Event{Author: "Mallory", AuthorID: "999", Surface: "inbox-A"}); got != (intercom.Target{Kind: "human", Ref: "Mallory"}) {
+		t.Fatalf("stranger in bound alice's inbox = %+v, want the display name", got)
+	}
+	if got := route(relay.Event{Author: "SomeBot", AuthorID: "111", AuthorBot: true, Surface: "inbox-A"}); got != (intercom.Target{Kind: "human", Ref: "SomeBot"}) {
+		t.Fatalf("bot = %+v, want the display name", got)
+	}
+	if got := route(relay.Event{Author: "Dave D.", AuthorID: "444", Surface: "inbox-D"}); got != (intercom.Target{Kind: "human", Ref: "dave"}) {
+		t.Fatalf("unbound owner's own inbox = %+v, want human:dave", got)
+	}
+	if !strings.Contains(logs.String(), "by=id") || !strings.Contains(logs.String(), "by=channel") {
+		t.Fatalf("debug log lacks by=id:\n%s", logs.String())
+	}
+	if strings.Contains(logs.String(), "release") {
+		t.Fatalf("debug log carries the message body:\n%s", logs.String())
 	}
 }
 
