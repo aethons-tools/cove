@@ -116,7 +116,7 @@ type directory struct {
 	store        instanceRoster
 	project      string
 	selfIdentity string        // harbor's Linear viewer displayName (self-post filter)
-	receipts     *fileReceipts // discord-msg-id → actorID (nil when discord unconfigured; routeLinear never touches it)
+	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
 }
 
 // Projects lists the projects a relay engine polls. Discord covers every store
@@ -148,7 +148,7 @@ func (d *directory) Projects(service string) []string {
 // Route became service-aware.
 func (d *directory) Route(service, project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if service == "discord" {
-		return d.routeDiscord(e)
+		return d.routeDiscord(project, e)
 	}
 	return d.routeLinear(project, e)
 }
@@ -156,18 +156,33 @@ func (d *directory) Route(service, project string, e relay.Event) (from intercom
 // routeDiscord maps a human's Discord reply to the cove it replies to, via
 // the receipt store. A message that is NOT a reply, or replies to an unknown
 // id (not a receipt), is unroutable and dropped — which also drops harbor's
-// own non-reply posts (the self-post filter).
-func (d *directory) routeDiscord(e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
+// own non-reply posts (the self-post filter). The reply's ReplyTo is the id of
+// the squawk it answers (so threads work); a legacy receipt carries no squawk
+// id and keeps the opaque in:discord:<id>.
+//
+// The sender is the roster human whose inbox the reply was posted in, when
+// that channel is exactly one human's discord inbox in project
+// (harbor.DiscordInboxOwner) — the channel, never the spoofable display name,
+// proves the owner. Otherwise it is human:<Discord display name>, as before.
+func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if e.ReplyToForeign == "" {
 		return intercom.Target{}, nil, "", false
 	}
-	actorID, ok := d.receipts.Lookup(e.ReplyToForeign)
+	rc, ok := d.receipts.Lookup(e.ReplyToForeign)
 	if !ok {
 		return intercom.Target{}, nil, "", false
 	}
-	return intercom.Target{Kind: "human", Ref: e.Author},
-		[]intercom.Target{{Kind: "actor", Ref: actorID}},
-		"in:discord:" + e.ReplyToForeign, true
+	replyTo = rc.Message
+	if replyTo == "" {
+		replyTo = "in:discord:" + e.ReplyToForeign
+	}
+	from = intercom.Target{Kind: "human", Ref: e.Author}
+	if r, ok := d.store.GetRoster(project); ok {
+		if name, ok := harbor.DiscordInboxOwner(r, e.Surface); ok {
+			from.Ref = name
+		}
+	}
+	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
 }
 
 // routeLinear drops any comment authored by harbor's own Linear identity (a

@@ -22,7 +22,7 @@ type discordClient interface {
 }
 
 // discordSurface is the concrete relay.Surface over Discord: egress posts
-// AND records a receipt (discord message id → sender actor ref) so a later
+// AND records a receipt (discord message id → sender actor ref + squawk id) so a later
 // reply can be routed back; ingress polls the project's discord inbox
 // channels and maps each message to an Event carrying the replied-to id.
 type discordSurface struct {
@@ -36,8 +36,9 @@ func (s *discordSurface) Service() string { return "discord" }
 
 // Deliver posts BodyPrefix+m.Body to the Discord channel d.Address (the
 // human's inbox channel, or a roster discord channel), then records a
-// receipt mapping the created message's id to the sender's actor ref so a
-// reply lands back on the right cove. A receipt-write failure is swallowed
+// receipt mapping the created message's id to the sender's actor ref and the
+// squawk's id, so a reply lands back on the right cove as a reply to that
+// squawk. A receipt-write failure is swallowed
 // (warn only): the post already happened, so returning an error here would
 // make the engine retry and DOUBLE-POST. An empty id (PostID returns "" on
 // an empty response body — a known behavior) is never recorded, since an
@@ -48,7 +49,7 @@ func (s *discordSurface) Deliver(ctx context.Context, d relay.Delivery, m interc
 		return "", fmt.Errorf("discord deliver: post to %q: %w", d.Address, err)
 	}
 	if id != "" {
-		if err := s.receipts.Record(id, m.From.Ref); err != nil {
+		if err := s.receipts.Record(id, m.From.Ref, m.ID); err != nil {
 			// warn only (no body/token); a lost receipt only means a future
 			// reply to THIS message won't route — never a double-post.
 			if s.log != nil {
@@ -151,20 +152,47 @@ func discordPolledChannels(store instanceRoster, project string) []string {
 	return out
 }
 
-// fileReceipts is a small file-backed store: a JSON map[discord-msg-id]actorID,
-// mutex-guarded, loaded at open, saved on every Record. Values are plain
-// immutable strings (unlike fileMarkers' EgressMark), so there's no
-// deep-copy concern on read or write.
+// receipt is what harbor remembers about one message it posted to Discord:
+// the sending cove (so a reply routes back to it) and the posted squawk's id
+// (so the reply's ReplyTo names the message it answers). Message is "" for a
+// legacy receipt written before receipts carried it.
+type receipt struct {
+	Actor   string `json:"actor"`
+	Message string `json:"message,omitempty"`
+}
+
+// UnmarshalJSON accepts both the current object form and the legacy bare
+// actor-id string (the old map[discord-msg-id]actorID file format).
+func (r *receipt) UnmarshalJSON(data []byte) error {
+	var actor string
+	if err := json.Unmarshal(data, &actor); err == nil {
+		*r = receipt{Actor: actor}
+		return nil
+	}
+	type plain receipt
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	*r = receipt(p)
+	return nil
+}
+
+// fileReceipts is a small file-backed store: a JSON
+// map[discord-msg-id]receipt, mutex-guarded, loaded at open, saved on every
+// Record. Values are plain comparable structs (unlike fileMarkers'
+// EgressMark), so there's no deep-copy concern on read or write.
 type fileReceipts struct {
 	path string
 	mu   sync.Mutex
-	m    map[string]string // discord-msg-id → actorID
+	m    map[string]receipt // discord-msg-id → receipt
 }
 
 // newFileReceipts loads path (tolerating a missing or corrupt/torn file —
-// either starts empty rather than failing).
+// either starts empty rather than failing). A file in the legacy
+// map[discord-msg-id]actorID format loads as receipts with no message id.
 func newFileReceipts(path string) (*fileReceipts, error) {
-	r := &fileReceipts{path: path, m: map[string]string{}}
+	r := &fileReceipts{path: path, m: map[string]receipt{}}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -175,8 +203,8 @@ func newFileReceipts(path string) (*fileReceipts, error) {
 	if len(data) == 0 {
 		return r, nil
 	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil {
+	var m map[string]receipt
+	if err := json.Unmarshal(data, &m); err != nil || m == nil {
 		// torn/corrupt file: tolerate, start empty.
 		return r, nil
 	}
@@ -184,11 +212,12 @@ func newFileReceipts(path string) (*fileReceipts, error) {
 	return r, nil
 }
 
-// Record associates discordMsgID with actorID and persists the store.
-func (r *fileReceipts) Record(discordMsgID, actorID string) error {
+// Record associates discordMsgID with the sending actor and the posted
+// squawk's id, and persists the store.
+func (r *fileReceipts) Record(discordMsgID, actorID, messageID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.m[discordMsgID] = actorID
+	r.m[discordMsgID] = receipt{Actor: actorID, Message: messageID}
 	data, err := json.MarshalIndent(r.m, "", "  ")
 	if err != nil {
 		return err
@@ -196,8 +225,8 @@ func (r *fileReceipts) Record(discordMsgID, actorID string) error {
 	return os.WriteFile(r.path, data, 0o600)
 }
 
-// Lookup returns the actorID recorded for discordMsgID, if any.
-func (r *fileReceipts) Lookup(discordMsgID string) (string, bool) {
+// Lookup returns the receipt recorded for discordMsgID, if any.
+func (r *fileReceipts) Lookup(discordMsgID string) (receipt, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	a, ok := r.m[discordMsgID]

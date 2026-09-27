@@ -1,10 +1,10 @@
 ---
 summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the roster human linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
-read_when: You (a human operator) want harbor to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why or how to tune it.
-owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
+read_when: You (a human operator) want harbor to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
+owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for the Project roster, a Human's `--login`, and Discord delivery profiles; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised cove does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Personal sessions
@@ -51,6 +51,26 @@ wake-on engine walks it up a ladder set by the role:
    it with: `at-harbor session release <id>`". It repeats every **`nag-every`**
    (default **24h**). **Replying to a nag is replying to the session** — it wakes and
    carries on, and the ladder starts over.
+   **Or answer the nag with a command:** reply to the nag with exactly
+   **`keep`** or **`release`** (case and a trailing `.`/`!` don't matter).
+   `release` tears the session down like `session release` and confirms
+   ("Released your personal session …"). `keep` restarts the idle clock without
+   waking the agent (a paused session stays paused), and confirms ("Keeping your
+   personal session … Next reminder in *idle-after*."). Rules:
+   - **Owner only, proven by the channel.** The reply counts only if it is posted
+     in an inbox channel that is the Discord delivery address of **exactly one**
+     roster human — you — so harbor attributes it to you, never by Discord
+     display name ([comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service)).
+     A **shared inbox** (or one that is also a roster channel) gets no
+     `keep`/`release` hint in the nag, and its replies are ordinary replies.
+     Harbor can't see Discord permissions, so this relies on your setup: **only
+     you (and harbor's bot) may post in your inbox channel.** Anyone who can post
+     there can release your session (and could already steer it by replying).
+   - **Only a reply to a nag.** A `keep` replying to the agent's own message is
+     your answer to the agent; it wakes the session.
+   - **Anything else wakes.** Someone else's `keep`/`release`, or a word in a
+     sentence, is an ordinary reply. If several replies are pending, a `release`
+     wins, then any other text wakes, and only `keep`s alone keep.
 3. **Reclaim (optional).** If the role sets **`reclaim-after`** (default: never) and
    the session has waited that long, harbor tells you ("Reclaimed your personal
    session …") and tears it down exactly as a release would, freeing your slot. The
@@ -142,7 +162,9 @@ at-harbor session release personal-alice-1a2b3c4d
   `cove raise`, no identity token or launch secret is returned.
 - **list** shows only **your** personal sessions in the project: id, role,
   phase, activity, and when each was raised.
-- **release** tears the session down. Only its owner may release it (the [idle ladder](#the-idle-ladder)'s optional reclaim is the one other way it ends). The
+- **release** tears the session down. Only its owner may release it (or reply
+  `release` to a [nag](#the-idle-ladder); the idle ladder's optional reclaim is
+  the one other way it ends). The
   teardown records the reservation release, which frees your slot.
 
 ## The admin routes
@@ -155,5 +177,5 @@ at-harbor session release personal-alice-1a2b3c4d
 
 A personal session is also an ordinary managed cove. It appears in
 `cove list`, and its Instance records `owner` and `session_kind: personal`. The
-reconcile sweep never releases personal reservations; only the owner's release, or
-an idle-ladder reclaim, does.
+reconcile sweep never releases personal reservations; only the owner's release
+(the verb, or a `release` reply to a nag), or an idle-ladder reclaim, does.

@@ -93,7 +93,9 @@ a [personal](personal-sessions.md) or [standing](standing-sessions.md) session w
 after every turn and is never torn down for `wait-max` (it is still paused at
 `warm-timeout` and woken on a reply). A personal session instead climbs the
 [idle ladder](personal-sessions.md#the-idle-ladder) — nags to its owner, and an
-optional reclaim. A standing session has no owner, so it gets no nags.
+optional reclaim. The owner's `keep`/`release` reply to a nag is acted on by harbor
+and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
+A standing session has no owner, so it gets no nags.
 
 While waiting, a cove doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0

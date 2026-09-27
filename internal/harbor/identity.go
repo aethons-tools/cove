@@ -184,6 +184,34 @@ func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
 	return DeliveryProfile{}, false
 }
 
+// DiscordInboxOwner returns the one roster human whose discord delivery
+// address is channel; ok=false when none or more than one human uses it (a
+// shared inbox), when channel is also a roster discord channel (a shared
+// conduit, not an inbox), or when channel is "". A reply posted in a channel
+// it returns is attributed to that human — the channel, not the Discord
+// display name (which anyone can set), is what proves who sent it.
+func DiscordInboxOwner(r Roster, channel string) (name string, ok bool) {
+	if channel == "" {
+		return "", false
+	}
+	for _, c := range r.Channels {
+		if c.Service == "discord" && c.Ref == channel {
+			return "", false
+		}
+	}
+	for _, h := range r.Humans {
+		p, has := h.DeliveryFor("discord")
+		if !has || p.Address != channel {
+			continue
+		}
+		if ok {
+			return "", false // a second human shares it
+		}
+		name, ok = h.Name, true
+	}
+	return name, ok
+}
+
 // Channel is a named conduit on a Service. C1: Service == "linear", Ref is a
 // tracker issue identifier (e.g. "ACME-1") the channel posts to.
 type Channel struct {

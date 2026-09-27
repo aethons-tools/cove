@@ -2,13 +2,15 @@
 // coves and wakes them (over the Attach ControlSink) when an external-origin
 // reply lands in the message Log addressed to them, or tears them down past a
 // max-wait (personal sessions excepted — they wait on their owner, and instead
-// climb the idle ladder: nag the owner, optionally reclaim). Wired from
+// climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
+// nag with "keep" or "release", which harbor acts on without waking). Wired from
 // cmd/at-harbor; not imported by internal/harbor core.
 package wakeon
 
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harbor"
@@ -42,16 +44,22 @@ type RoleLookup interface {
 	GetRole(project, name string) (harbor.Role, bool)
 }
 
-// NagRecorder persists that an owner was nagged (Supervisor.RecordNag).
+// NagRecorder persists the idle ladder's state on a personal session: that an
+// owner was nagged (Supervisor.RecordNag), and that the owner replied "keep" —
+// restart the idle period past the reply without waking (Supervisor.KeepWaiting).
 type NagRecorder interface {
 	RecordNag(actorID string, at time.Time) error
+	KeepWaiting(actorID string, afterSeq int64, at time.Time) error
 }
 
 // Nagger tells a personal session's owner their session is idle, or that it was
-// reclaimed. Implemented in cmd/at-harbor over the intercom log.
+// reclaimed, and confirms their "keep"/"release" reply to a nag. Implemented in
+// cmd/at-harbor over the intercom log.
 type Nagger interface {
 	Nag(ctx context.Context, inst harbor.Instance, idle time.Duration) error
 	NotifyReclaimed(ctx context.Context, inst harbor.Instance, idle time.Duration) error
+	NotifyKept(ctx context.Context, inst harbor.Instance, next time.Duration) error
+	NotifyReleased(ctx context.Context, inst harbor.Instance) error
 }
 
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
@@ -133,7 +141,12 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			continue
 		}
-		if e.replied(inst) {
+		if rs := e.replies(inst); len(rs) > 0 {
+			// A personal session's owner may answer a nag with "keep" or
+			// "release" instead of waking it (see command).
+			if inst.SessionKind == harbor.SessionKindPersonal && e.command(ctx, inst, rs) {
+				continue
+			}
 			if inst.Phase == harbor.PhaseIdled {
 				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
@@ -202,25 +215,122 @@ func (e *Engine) idleLadder(ctx context.Context, inst harbor.Instance) bool {
 	return false
 }
 
-// replied reports whether an external-origin inbound message addressed to
-// the cove arrived after its WaitSeq position (the log tail's append-order
-// Seq, baselined when it entered Waiting). Seq is append order, not a lexical
-// id compare — so this fires correctly regardless of which id-namespaced
-// source (Linear vs. Discord ingress, etc.) produced the reply's id (COV-184:
-// a lexical-id compare could wrongly treat a later reply as "before" the
-// baseline when the two ids come from different, non-interleaved namespaces).
-// A nil inbox (squawk log unconfigured) always reports false — reply-waking
-// is off, but the max-wait teardown and warm-timeout Idle above still run.
-func (e *Engine) replied(inst harbor.Instance) bool {
+// replies returns the external-origin inbound messages addressed to the cove
+// after its WaitSeq position (the log tail's append-order Seq, baselined when
+// it entered Waiting). Seq is append order, not a lexical id compare — so this
+// is correct regardless of which id-namespaced source (Linear vs. Discord
+// ingress, etc.) produced a reply's id (COV-184: a lexical-id compare could
+// wrongly treat a later reply as "before" the baseline when the two ids come
+// from different, non-interleaved namespaces). A nil inbox (squawk log
+// unconfigured) always returns none — reply-waking is off, but the max-wait
+// teardown and warm-timeout Idle above still run.
+func (e *Engine) replies(inst harbor.Instance) []intercom.Squawk {
 	if e.inbox == nil {
-		return false
+		return nil
 	}
+	var out []intercom.Squawk
 	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
 		if intercom.Classify(m.From) == intercom.External {
-			return true
+			out = append(out, m)
 		}
 	}
-	return false
+	return out
+}
+
+// Reply-to-act command words (see command).
+const (
+	cmdKeep    = "keep"
+	cmdRelease = "release"
+)
+
+// command acts on a Waiting personal session's owner's "keep"/"release" reply
+// to one of its nags, and reports whether it handled the replies (the caller
+// then skips the wake and the rest of the tick for this instance).
+//
+// A reply is a command only when all hold: it replies to one of THIS session's
+// nags (harbor.IsNagReply), it is from human:<owner> — the relay attributes a
+// reply to a roster human only when it was posted in that human's own discord
+// inbox, never by display name — and its trimmed, lowercased body (trailing
+// "." / "!" ignored) is exactly "keep" or "release". Anything else is an
+// ordinary reply; a command-shaped reply from anyone but the owner is logged at
+// warn and treated as ordinary. Everything fails toward waking, never teardown.
+//
+// Precedence across the pending replies: any "release" releases (teardown, then
+// a best-effort confirmation; a failed teardown is logged and retried next tick
+// because the reply is still past the baseline). Otherwise any ordinary reply
+// wakes as usual (a "keep" beside it is just text the agent reads). Otherwise —
+// only "keep"s — the wait baseline moves past them and the idle ladder restarts
+// (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
+// session is not woken, and an Idled one stays paused.
+func (e *Engine) command(ctx context.Context, inst harbor.Instance, rs []intercom.Squawk) bool {
+	if e.nags == nil || inst.Owner == "" {
+		return false // ladder off: there are no nags to answer
+	}
+	owner := intercom.Target{Kind: "human", Ref: inst.Owner}
+	var release, other bool
+	var lastKeep int64
+	for _, m := range rs {
+		word := commandWord(m.Body)
+		if word == "" || !harbor.IsNagReply(m.ReplyTo, inst.ActorID) {
+			other = true
+			continue
+		}
+		if m.From != owner {
+			e.log.Warn("wakeon: ignoring a nag command from someone other than the owner", "actor", inst.ActorID, "command", word)
+			other = true
+			continue
+		}
+		if word == cmdRelease {
+			release = true
+		} else {
+			lastKeep = max(lastKeep, m.Seq)
+		}
+	}
+	switch {
+	case release:
+		e.log.Info("wakeon: owner released personal session", "actor", inst.ActorID, "owner", inst.Owner, "command", cmdRelease)
+		if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
+			e.log.Warn("wakeon: teardown (release) failed; retrying next tick", "actor", inst.ActorID, "error", err.Error())
+			return true
+		}
+		if e.nagger != nil {
+			if err := e.nagger.NotifyReleased(ctx, inst); err != nil {
+				e.log.Warn("wakeon: release confirmation failed", "actor", inst.ActorID, "error", err.Error())
+			}
+		}
+		return true
+	case other:
+		return false
+	}
+	// only keeps
+	var idleAfter time.Duration
+	if e.roles != nil {
+		role, _ := e.roles.GetRole(inst.Project, inst.Role) // missing role → defaults
+		idleAfter, _, _ = role.Allocation.PersonalIdle()
+	} else {
+		idleAfter, _, _ = harbor.RoleAllocation{}.PersonalIdle()
+	}
+	e.log.Info("wakeon: owner kept personal session", "actor", inst.ActorID, "owner", inst.Owner, "command", cmdKeep)
+	if err := e.nags.KeepWaiting(inst.ActorID, lastKeep, e.now()); err != nil {
+		e.log.Warn("wakeon: keep failed; retrying next tick", "actor", inst.ActorID, "error", err.Error())
+		return true
+	}
+	if e.nagger != nil {
+		if err := e.nagger.NotifyKept(ctx, inst, idleAfter); err != nil {
+			e.log.Warn("wakeon: keep confirmation failed", "actor", inst.ActorID, "error", err.Error())
+		}
+	}
+	return true
+}
+
+// commandWord returns cmdKeep or cmdRelease when body is exactly that word
+// (case-insensitive, surrounding whitespace and trailing "."/"!" ignored), else "".
+func commandWord(body string) string {
+	w := strings.ToLower(strings.TrimSpace(strings.TrimRight(strings.TrimSpace(body), ".! ")))
+	if w == cmdKeep || w == cmdRelease {
+		return w
+	}
+	return ""
 }
 
 type discard struct{}

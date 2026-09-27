@@ -1550,7 +1550,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// past reclaim-after. No intercom log → no nags, reclaim still runs.
 		var nagger wakeon.Nagger
 		if intercomLog != nil {
-			nagger = intercomNagger{log: intercomLog}
+			nagger = intercomNagger{log: intercomLog, roster: st}
 		}
 		eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 		go eng.Run(context.Background())

@@ -839,6 +839,42 @@ func TestRecordNagPersists(t *testing.T) {
 	}
 }
 
+// KeepWaiting restarts a Waiting session's idle period without waking it: the
+// wait baseline moves past the owner's "keep" reply and the ladder resets.
+func TestKeepWaitingRestartsIdlePeriod(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseIdled, Activity: ActivityWaiting,
+		WaitSeq: 3, WaitingSince: time.Unix(100, 0), LastNagAt: time.Unix(500, 0), Nags: 2}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(9000, 0).UTC()
+	if err := sup.KeepWaiting("cove-1", 7, at); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.WaitSeq != 7 || !got.WaitingSince.Equal(at) || !got.LastNagAt.IsZero() || got.Nags != 0 {
+		t.Fatalf("after keep: seq %d since %v last %v nags %d", got.WaitSeq, got.WaitingSince, got.LastNagAt, got.Nags)
+	}
+	if got.Phase != PhaseIdled || got.Activity != ActivityWaiting {
+		t.Fatalf("keep must not wake or resume: phase %v activity %v", got.Phase, got.Activity)
+	}
+	if err := sup.KeepWaiting("absent", 7, at); err == nil {
+		t.Fatal("KeepWaiting on an absent instance should error")
+	}
+	if err := store.PutInstance(Instance{ActorID: "running", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.KeepWaiting("running", 7, at); err == nil {
+		t.Fatal("KeepWaiting on a non-Waiting instance should error")
+	}
+	if err := store.PutInstance(Instance{ActorID: "gone", Phase: PhaseGone, Activity: ActivityWaiting}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.KeepWaiting("gone", 7, at); err == nil {
+		t.Fatal("KeepWaiting on a gone instance should error")
+	}
+}
+
 // A reply runs another turn; the cove's next Waiting period starts a fresh idle
 // ladder, so entering Waiting clears the nag state.
 func TestReportResetsNagsOnEnteringWaiting(t *testing.T) {
