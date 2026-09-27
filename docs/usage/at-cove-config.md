@@ -1,5 +1,5 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, jam (formerly harbor), secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, jam, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
 read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
@@ -168,11 +168,11 @@ The label prefix that maps a Linear issue to a worker class (e.g. `class:impleme
 #### tracker.linear.dispatch-label-prefix
 *string, defaults to `dispatch:`*
 
-The label prefix that gates which READY issues harbor's [resident
-dispatcher](harbor/dispatcher.md) raises a cove for: only issues carrying a label
+The label prefix that gates which READY issues Jam's
+[Requisitioner](jam/requisitioner.md) raises a cove for: only issues carrying a label
 with this prefix (e.g. `dispatch:go`) are worked. Presence-only — the value after
 the prefix is unused — and distinct from `class-label-prefix` (which parses a
-class but does not gate). Only consulted by the harbor dispatcher; the standalone
+class but does not gate). Only consulted by the Requisitioner; the standalone
 `at-cove dispatch` scheduler ignores it.
 
 #### tracker.linear.states*
@@ -374,7 +374,7 @@ host-side and seeded as a file; see
 ### jam
 *optional; routes the cove's Anthropic + git through a Jam broker (COV-138)*
 
-Setting `jam:` makes a hardened cove reach a [Jam](harbor/INDEX.md)
+Setting `jam:` makes a hardened cove reach a [Jam](jam/INDEX.md)
 broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the always-on infra egress list, adds a
@@ -411,8 +411,8 @@ token is delivered env-only.
 > 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
 > into it — per-cove repo narrowing is a planned follow-up, not available yet.
 > **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
-> that never expire. See [harbor/roster.md](harbor/roster.md) for the role/enroll
-> surface and [harbor/INDEX.md](harbor/INDEX.md) for running Jam itself.
+> that never expire. See [jam/roster.md](jam/roster.md) for the role/enroll
+> surface and [jam/INDEX.md](jam/INDEX.md) for running Jam itself.
 
 Enabling `jam:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
@@ -429,9 +429,8 @@ disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove
 PAT would be misrouted to Jam's git connector); the agent clones through Jam
 on demand instead.
 
-The block was called `harbor:` before the Harbor → Jam rename. `harbor:` is still
-accepted for one release, with a deprecation warning; setting both `jam:` and
-`harbor:` is a validation error. See [renamed-from-harbor.md](harbor/renamed-from-harbor.md).
+The block's pre-rename name is still accepted for one release, with a deprecation
+warning — see [renamed-from-harbor.md](jam/renamed-from-harbor.md).
 
 ### secrets
 *map of secret env name → config*
@@ -841,13 +840,13 @@ effective egress is **`image.allowed-domains ∪ workers.<common> ∪ workers.<c
 (and likewise for `collaborators`), where only the `<common> ∪ class` delta is
 delivered per session — see [`workers.*class*.allowed-domains`](#workersclassallowed-domains)
 and the [four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
-model. Provider, self-hosted GitLab and `harbor.host` domains are *not* part of this
+model. Provider, self-hosted GitLab and `jam.host` domains are *not* part of this
 list: they are derived into the separate, always-on infra list.
 
-It is also the **egress ceiling for harbor roles**: `install` bakes an immutable copy
-(`egress_ceiling.txt`), and a harbor-managed cove whose role has an egress policy gets
+It is also the **egress ceiling for Jam roles**: `install` bakes an immutable copy
+(`egress_ceiling.txt`), and a Jam-managed cove whose role has an egress policy gets
 that role's list *in place of* this one — only if every role domain is covered by it
-(see [role egress](harbor/roster.md#role-egress)). So a domain a role needs must be
+(see [role egress](jam/roster.md#role-egress)). So a domain a role needs must be
 listed here first (a leading-dot entry covers the domain and its subdomains).
 
 When a dispatched run is blocked by the allow-list, at-cove ends the issue in

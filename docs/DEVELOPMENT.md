@@ -52,7 +52,7 @@ Two consequences worth knowing when adding a dependency:
 
 ## Regenerating gRPC code
 
-`internal/jam/attach/attachpb` (the harbor Attach stream's generated types
+`internal/jam/attach/attachpb` (the Jam Attach stream's generated types
 and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 `just buf-gen`. It installs `protoc-gen-go`, `protoc-gen-go-grpc`, and a pinned
 `buf`, then runs `buf generate`.
@@ -143,7 +143,7 @@ loop cannot drift.
 [`.github/workflows/store-integration.yml`](../.github/workflows/store-integration.yml)
 runs `go test -tags integration ./internal/jam/... ./internal/intercom/...`
 against a Postgres **service container**, with `JAM_TEST_POSTGRES_DSN`
-pointing at it — the Postgres-backed `harbor.Store` conformance suite and the
+pointing at it — the Postgres-backed `jam.Store` conformance suite and the
 Postgres squawk log (`intercompg`) conformance suite, both behind the
 `//go:build integration` tag. It is a **separate** workflow from `gate.yml` on
 purpose: the required check is `gate`, and this job must not touch it. This job

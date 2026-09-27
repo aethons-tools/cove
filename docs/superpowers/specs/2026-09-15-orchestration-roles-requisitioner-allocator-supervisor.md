@@ -21,8 +21,8 @@ layer. Nothing here is built yet.
 
 ## The problem
 
-Today two clusters own everything (see [dispatcher.md](../../usage/harbor/dispatcher.md),
-[coves.md](../../usage/harbor/coves.md)):
+Today two clusters own everything (see [dispatcher.md](../../usage/jam/requisitioner.md),
+[coves.md](../../usage/jam/coves.md)):
 
 - **The resident dispatcher** polls ready tickets → dedups → **checks the
   `max-concurrent` cap** → claims the ticket → **calls raise**. It owns matching
@@ -99,7 +99,7 @@ of this stream; a version-pinned append is the admission gate.
 **This aggregate *enforces* capacity; it does not *author* it.** A budget is
 administration — CRUD role config an operator sets — so the **source of truth for a
 role's budget is the roster/control-plane store**, next to the role's scope,
-grants, and kit (see [roster.md](../../usage/harbor/roster.md)). The Allocator
+grants, and kit (see [roster.md](../../usage/jam/roster.md)). The Allocator
 **observes** budget changes and **materializes** them onto its own stream
 (`RoleBudgetObserved`) so admission folds the budget locally and enforces the cap
 atomically. The transfer mechanism degrades gracefully: an **active ping** from the

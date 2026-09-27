@@ -1,6 +1,6 @@
 ---
-summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a cove at the broker.
-read_when: You are deciding who can reach what on a harbor — defining roles, setting a role's raw egress, granting roles to actors, enrolling a cove, viewing the roster, or revoking an identity.
+summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
+read_when: You are deciding who can reach what on a Jam — defining roles, setting a role's raw egress, granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
@@ -9,10 +9,10 @@ updated: 2026-09-27
 
 # Roles, grants & enrollment (RBAC)
 
-Harbor authorizes every brokered request against a **role-based** model:
+Jam authorizes every brokered request against a **role-based** model:
 
-- **Actor** — one enrolled identity (an `id` + a minted token). A cove or a
-  standing teammate is an Actor. Harbor stores only the token *hash*.
+- **Actor** — one enrolled identity (an `id` + a minted token). A studio or a
+  standing teammate is an Actor. Jam stores only the token *hash*.
 - **Role** — a named, reusable security class within a **Project** (a namespace).
   A Role owns the **scope**: which `destinations` it may reach, which `repos`
   (globs, for repo-scoped destinations), which comms `addressing` targets it may
@@ -54,13 +54,13 @@ at-jam role rm   [--project acme] guest
   Project's roster of humans/channels the globs resolve against.
 - `--ttl` is the default identity lifetime applied at enrollment (`0` = no
   expiry). **A role with no `--ttl` mints non-expiring tokens** — set one for
-  ephemeral coves.
+  ephemeral studios.
 - `--kit` binds a registered kit by name (optional; [kits.md](kits.md)).
 - `--max-ephemeral N` is the role's **allocation policy**: the cap on its
-  concurrent ephemeral (dispatcher-raised) sessions. Harbor's Allocator reads it
+  concurrent ephemeral (Requisitioner-raised) sessions. Jam's Allocator reads it
   live from the roster on each grant, so an edit applies on the next grant with no
-  restart. `0` (the default) = unset — the dispatcher's `max-concurrent` applies
-  as the fallback ([dispatcher.md](dispatcher.md#config-runtimerequisitioner)).
+  restart. `0` (the default) = unset — the Requisitioner's `max-concurrent` applies
+  as the fallback ([requisitioner.md](requisitioner.md#config-runtimerequisitioner)).
   `role list` shows it as `max-ephemeral=N`.
 - `--max-personal N` caps the role's concurrent **personal sessions** across all
   owners (the pool). `--max-personal-per-owner M` caps one owner's share (`0` =
@@ -88,9 +88,9 @@ at-jam role rm   [--project acme] guest
 
 ### Role egress
 
-A role can set the **raw egress** of every cove harbor raises for it. That is
-the domains the cove's squid allows beyond the sealed base and the kit's
-always-on infra list (model provider, self-hosted GitLab, harbor host).
+A role can set the **raw egress** of every studio Jam raises for it. That is
+the domains the studio's squid allows beyond the sealed base and the kit's
+always-on infra list (model provider, self-hosted GitLab, Jam host).
 
 ```
 at-jam egress set   --project acme --role fenced registry.npmjs.org,.pypi.org
@@ -99,23 +99,23 @@ at-jam egress show  --project acme --role fenced          # "kit default", "none
 at-jam egress clear --project acme --role fenced          # back to the kit default
 ```
 
-- **No policy (the default) = the kit's list.** The cove gets the kit's
+- **No policy (the default) = the kit's list.** The studio gets the kit's
   `image.allowed-domains` as before, so existing roles are unchanged. A **set but
   empty** policy (`--none`) means nothing beyond the base and infra lists.
 - **The kit is the ceiling.** The role's list *replaces* the kit's list, but every
   domain must be covered by the kit's
   [`image.allowed-domains`](../at-cove-config.md#imageallowed-domains). A leading-dot
   entry (`.x.com`) covers `x.com` and its subdomains; an exact entry covers only
-  itself. Harbor checks only syntax and normalizes (lowercase, dedupe, sort, drop
+  itself. Jam checks only syntax and normalizes (lowercase, dedupe, sort, drop
   entries a wildcard in the list already covers); **the box enforces the ceiling**.
   A role asking for more fails its raise with an error naming the domain.
-- **Reaches running coves within one reconcile pass.** Each cove records the
-  policy it runs under; harbor's [reconcile pass](coves.md#egress-drift) re-applies
+- **Reaches running studios within one reconcile pass.** Each studio records the
+  policy it runs under; Jam's [reconcile pass](coves.md#egress-drift) re-applies
   the role's current one when they differ (`clear` restores the kit's list). A
-  paused cove gets it when it resumes, before its agent is woken.
+  paused studio gets it when it resumes, before its agent is woken.
 - **Fails closed.** A re-apply that fails is retried on the next pass; the third
-  consecutive failure — or a failed re-apply on resume — tears the cove down, so a
-  cove never keeps running under a policy other than its role's. A standing session
+  consecutive failure — or a failed re-apply on resume — tears the studio down, so a
+  studio never keeps running under a policy other than its role's. A standing session
   is then raised again under the new policy; an ephemeral or personal one ends.
   A policy outside the kit's ceiling fails every time, so it reaches that teardown
   (the log names the domain).
@@ -126,8 +126,8 @@ at-jam egress clear --project acme --role fenced          # back to the kit defa
   `egress=<a.com,.b.org>`.
 
 How it is applied in the box: [the egress model](../../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling);
-when in the raise: [coves.md](coves.md#raising-a-real-managed-cove); on a running
-cove: [coves.md](coves.md#egress-drift).
+when in the raise: [coves.md](coves.md#raising-a-real-managed-studio); on a running
+studio: [coves.md](coves.md#egress-drift).
 
 Admin API (the verbs wrap these; each write keeps every other role field):
 
@@ -160,15 +160,16 @@ at-jam revoke --id spider-18                                    # removes the wh
 ```
 
 - The role must already exist (else `enroll` fails closed).
-- Without `--json`, `enroll` prints a shell **connector snippet** the Guest cove
-  sources. The token is exported once as `AT_JAM_IDENTITY_TOKEN` (the deprecated
-  `AT_HARBOR_IDENTITY_TOKEN` is exported from it, for older images), and both
+- Without `--json`, `enroll` prints a shell **connector snippet** the Guest studio
+  sources. The token is exported once as `AT_JAM_IDENTITY_TOKEN` (its deprecated
+  name is exported from it, for older images — see
+  [renamed-from-harbor.md](renamed-from-harbor.md)), and both
   connectors reference it: `ANTHROPIC_BASE_URL=<base>/anthropic` with the token as
   the key, and git `insteadOf github.com → <base>/git/` with a credential helper
   that reads the env var at run time. The token never lands in gitconfig on disk.
 - `--base-url` (or the app profile's `base-url`) sets the broker base in the
   printed snippet; `--json` needs no base URL.
-- Hardened coves usually **auto-enroll** themselves at session start rather than
+- Hardened studios usually **auto-enroll** themselves at session start rather than
   using a hand-run snippet — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 
 ## The roster

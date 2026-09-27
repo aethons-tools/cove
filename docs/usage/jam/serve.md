@@ -1,22 +1,22 @@
 ---
-summary: Running the harbor service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
-read_when: You are standing up or configuring a harbor service — writing its serve config, wiring the real credentials it brokers, adding the destinations coves reach, or exposing the admin API beyond loopback.
+summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, adding the destinations studios reach, or exposing the admin API beyond loopback.
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-09-27
 ---
 
-# Running harbor (`at-jam serve`)
+# Running Jam (`at-jam serve`)
 
 `at-jam serve --config <file>` runs one process that is both the **broker**
-(the reverse proxy coves send Anthropic/git through) and a **loopback admin API**
+(the reverse proxy studios send Anthropic/git through) and a **loopback admin API**
 (the control plane the `at-jam` admin verbs talk to). Both are backed by a
 single JSON **store** file. The serve config is bootstrap-only: destinations,
 roles, and enrollments are managed at runtime via the admin API, not this file.
 
 ```
-at-jam serve --config /etc/harbor/harbor.yml
+at-jam serve --config /etc/jam/jam.yml
 ```
 
 ## The serve config
@@ -25,15 +25,15 @@ at-jam serve --config /etc/harbor/harbor.yml
 listen: ":443"                 # broker listener (coves connect here; TLS in prod)
 admin-listen: "127.0.0.1:8081" # admin API listener (operator surface)
 ui-hosts:                      # optional; extra Host values the browser UI accepts on loopback
-  - harbor.local.example       # a custom name that DNS-binds to 127.0.0.1
+  - jam.local.example       # a custom name that DNS-binds to 127.0.0.1
 tls:                           # broker server cert (required for a real :443)
-  cert: /etc/harbor/tls/fullchain.pem
-  key:  /etc/harbor/tls/privkey.pem
+  cert: /etc/jam/tls/fullchain.pem
+  key:  /etc/jam/tls/privkey.pem
 admin-tls:                     # optional; admin-API cert. Falls back to tls: if unset
-  cert: /etc/harbor/tls/admin-fullchain.pem
-  key:  /etc/harbor/tls/admin-privkey.pem
-store: /var/lib/harbor/store.json   # the live data file (identities, roles, kits, destinations)
-credentials:                        # the REAL downstream secrets harbor injects
+  cert: /etc/jam/tls/admin-fullchain.pem
+  key:  /etc/jam/tls/admin-privkey.pem
+store: /var/lib/jam/store.json   # the live data file (identities, roles, kits, destinations)
+credentials:                        # the REAL downstream secrets Jam injects
   anthropic-key:
     command: ["at-mint", "anthropic", "--audience", "…"]   # a resolver run on the host
   git-pat:
@@ -41,8 +41,8 @@ credentials:                        # the REAL downstream secrets harbor injects
 operator-auth:                      # see operators.md — omit for loopback-only admin
   oidc:
     issuer:   https://YOUR_TENANT.us.auth0.com/
-    audience: https://harbor.example.com/admin
-    require-scope: harbor:admin
+    audience: https://jam.example.com/admin
+    require-scope: jam:admin
     device-client-id: "…"
     device-scope: "openid profile"
 runtime:                            # optional — supervisor lease/reconcile timing
@@ -50,11 +50,11 @@ runtime:                            # optional — supervisor lease/reconcile ti
   reconcile-interval: 30s           # must be < lease-ttl
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
   launcher:                         # optional — enables the real Colima cove launcher
-    install-manifest: /etc/harbor/install.json  # → the pre-built image (Image + ImageDigest)
-    runtime-addr: harbor.example.com:443        # what a raised cove dials (AT_JAM_RUNTIME_ADDR)
-    jam-host: harbor.example.com                # added to the cove's /etc/hosts; connector base host
-    identity-file: /var/lib/harbor/at-cove/id_ed25519  # SSH key matching the image's baked authorized_keys
-    known-hosts-dir: /var/lib/harbor/known_hosts.d
+    install-manifest: /etc/jam/install.json  # → the pre-built image (Image + ImageDigest)
+    runtime-addr: jam.example.com:443        # what a raised cove dials (AT_JAM_RUNTIME_ADDR)
+    jam-host: jam.example.com                # added to the cove's /etc/hosts; connector base host
+    identity-file: /var/lib/jam/at-cove/id_ed25519  # SSH key matching the image's baked authorized_keys
+    known-hosts-dir: /var/lib/jam/known_hosts.d
     dns: []
     docker: false
   wake:                             # optional — wake-on engine timing (see intercom.md)
@@ -62,29 +62,29 @@ runtime:                            # optional — supervisor lease/reconcile ti
 ```
 
 The cove-facing `listen:`/`tls:` endpoint serves **both** the HTTP broker and the
-[Attach](coves.md#the-attach-stream) gRPC stream on the one :443 TLS port: harbor
+[Attach](coves.md#the-attach-stream) gRPC stream on the one :443 TLS port: Jam
 terminates TLS once, then multiplexes the decrypted stream by `content-type`
 (`application/grpc` → the Attach server, everything else → the broker). This is
-why a hardened cove — whose sealed egress only permits `CONNECT … :443` — can
+why a hardened studio — whose sealed egress only permits `CONNECT … :443` — can
 reach the Attach stream at all. `runtime.listen` is now only an **optional plaintext dev listener** (no TLS, for local testing), not the production path.
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed cove can only `CONNECT` to 443. |
+| `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
-| `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `harbor.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
+| `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
-| `intercom-log` | no | Filesystem path to harbor's durable squawk Log (JSONL). With a Log (file or `store-postgres`), harbor runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a dispatcher; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
+| `intercom-log` | no | Filesystem path to Jam's durable squawk Log (JSONL). With a Log (file or `store-postgres`), Jam runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a Requisitioner; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
-| `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `jam-host` (formerly `harbor-host`, still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
-| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. Formerly `runtime.dispatcher`, still accepted with a warning (both set is an error). See [dispatcher.md](dispatcher.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no dispatcher needed. Polls every project whose chat service is `discord`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
+| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no Requisitioner needed. Polls every project whose chat service is `discord`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store backend (`store-postgres`)
@@ -101,10 +101,10 @@ startup and **fails closed** if it can't connect, migrate, or load.
 store-postgres:
   host: db.internal
   port: 5432
-  database: harbor
-  user: harbor
+  database: jam
+  user: jam
   sslmode: verify-full
-  password-cred: harbor-db      # a name in `credentials:` — never an inline password
+  password-cred: jam-db      # a name in `credentials:` — never an inline password
 ```
 
 The DB password is **never inline**: `password-cred` names a `credentials:`
@@ -115,8 +115,8 @@ over `store` when both are present.
 
 For a local Postgres to develop against (matching this schema and the CI
 integration setup), see [`dev/`](../../../dev/README.md) — a `docker compose`
-that raises a `postgres:17` on `localhost:15432` with database/user `harbor`,
-plus a sample dev serve config (`dev/harbor.dev.yml`) wired to it.
+that raises a `postgres:17` on `localhost:15432` with database/user `jam`,
+plus a sample dev serve config (`dev/jam.dev.yml`) wired to it.
 
 **No data migration (Phase 1).** Switching an existing deployment from the file
 `store` to `store-postgres` starts with an **empty control plane** — there is
@@ -132,8 +132,8 @@ Without `store-postgres`, the file `intercom-log` path is used as before.
 Either way, switching backends **starts empty** — no data migration.
 
 **The allocation event store follows the store backend too, and with
-`store-postgres` it is now AUTHORITATIVE for the cap.** Harbor always runs an
-Allocator (its capacity authority), with or without a dispatcher. With
+`store-postgres` it is now AUTHORITATIVE for the cap.** Jam always runs an
+Allocator (its capacity authority), with or without a Requisitioner. With
 `store-postgres`, it admits each raise through an
 **atomic optimistic-concurrency grant** on an allocation event store on the same
 database and pool (its `alloc_events` table is auto-created): a single conditional
@@ -161,12 +161,12 @@ Each reservation event also records its **session kind** (`session_kind`, plus a
 standing session's name and a personal session's owner), and the grant counts
 outstanding reservations **of the requested kind only**, so kinds never consume
 each other's capacity; a release inherits the kind of the reservation's latest
-grant. All three kinds are admitted: `ephemeral` (dispatcher) sessions,
+grant. All three kinds are admitted: `ephemeral` (Requisitioner) sessions,
 `personal` sessions ([personal-sessions.md](personal-sessions.md)), and
 `standing` sessions ([standing-sessions.md](standing-sessions.md#admission)).
 Pre-existing rows are tagged `ephemeral`. The reconcile sweep releases leaked
 ephemeral and standing reservations, never personal ones. The ephemeral budget is the role's roster `max-ephemeral`, falling
-back to the dispatcher's `max-concurrent` ([roster.md](roster.md#roles)). A
+back to the Requisitioner's `max-concurrent` ([roster.md](roster.md#roles)). A
 personal grant checks two caps in the same atomic append: the role's
 `max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
 Personal sessions **require** `store-postgres`: the file backend has no
@@ -174,26 +174,26 @@ fallback for them.
 
 ### The launcher (`runtime.launcher`)
 
-With a `launcher` block, `at-jam studio raise` starts a **real** cove on the Colima
+With a `launcher` block, `at-jam studio raise` starts a **real** studio on the Colima
 backend from the pre-built image named by `install-manifest` (the frozen
 `install.json` an `at-cove install` produced — its `Image` + `ImageDigest`),
-injects the connector + prompt over SSH, and starts `cove-master` in it. The cove
-dials harbor's Attach stream at `runtime-addr` (`harbor.host:443`) through its own
-squid proxy; `jam-host` is added to the cove's `/etc/hosts` so that name resolves
+injects the connector + prompt over SSH, and starts `cove-master` in it. The studio
+dials Jam's Attach stream at `runtime-addr` (`jam.host:443`) through its own
+squid proxy; `jam-host` is added to the studio's `/etc/hosts` so that name resolves
 to the host gateway.
 
-**Deployment constraint:** harbor must be given the **same SSH key** that
+**Deployment constraint:** Jam must be given the **same SSH key** that
 `at-cove install` baked into the image's `authorized_keys` — point `identity-file`
 at that private key (it defaults to `~/.config/at-cove/id_ed25519`, the at-cove
-default). A key harbor generates fresh would not be authorized by the image. Harbor
+default). A key Jam generates fresh would not be authorized by the image. Jam
 must also reach the Colima backend (run it where `docker`/Colima is available). Omit
 the whole block to keep the placeholder launcher (dev/tests).
 
 ## The broker model
 
 The broker is **client-addressed, per-connector** — there is no MITM CA to
-install. A cove re-addresses harbor per service (`ANTHROPIC_BASE_URL=<base>/anthropic`,
-git `insteadOf` → `<base>/git/`), presents only its **identity token**, and harbor:
+install. A studio re-addresses Jam per service (`ANTHROPIC_BASE_URL=<base>/anthropic`,
+git `insteadOf` → `<base>/git/`), presents only its **identity token**, and Jam:
 
 1. authenticates the identity (by token hash) and authorizes the request against
    the actor's role scope (see [roster.md](roster.md)),
@@ -201,9 +201,9 @@ git `insteadOf` → `<base>/git/`), presents only its **identity token**, and ha
    `credentials:`), and
 3. re-originates the request upstream.
 
-The conscious trade: harbor sees the plaintext of brokered traffic (the client
+The conscious trade: Jam sees the plaintext of brokered traffic (the client
 sent it there on purpose), in exchange for collapsing N cove-side secrets into one
-defended harbor.
+defended Jam.
 
 ## Destinations
 
@@ -224,7 +224,7 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 ```
 
 - `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —
-  how the cove presents its identity, and how harbor applies the real credential.
+  how the studio presents its identity, and how Jam applies the real credential.
 - `--repo-scoped` marks a git-style destination whose path is `<route>/<owner>/<repo>/…`,
   so a role's `repos` globs can scope it.
 - `--cred-name` must resolve to a `credentials:` entry in the serve config
@@ -238,11 +238,11 @@ see [operators.md](operators.md).
 A loopback `admin-listen` stays plain HTTP. The admin API **refuses to bind
 off-loopback unless both** a TLS cert (`admin-tls` or `tls`) **and**
 `operator-auth.oidc` are configured — an unauthenticated, plaintext control plane
-can never be exposed to the network by accident. To administer a harbor from
+can never be exposed to the network by accident. To administer a Jam from
 another machine, give it a routable `admin-listen`, TLS, and OIDC, then point
 clients at its `https://` admin URL ([operators.md](operators.md)).
 
-For the cove side of the broker connection — the `harbor:` kit config, auto-enroll,
-and reaching a host-run harbor — see [`../at-cove-config.md#jam`](../at-cove-config.md).
+For the studio side of the broker connection — the `jam:` kit config, auto-enroll,
+and reaching a host-run Jam — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 For the broker's threat model and boundary rationale, follow the design-history
 pointer in [INDEX.md](INDEX.md).

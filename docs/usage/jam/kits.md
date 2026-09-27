@@ -1,6 +1,6 @@
 ---
-summary: The kit registry operator guide — storing named, versioned kit configs in harbor with `kit push|list|show|versions|pin|rm`, and binding one to a role with `role add --kit`.
-read_when: You are registering a kit in harbor, pushing a new version, rolling a kit's current version back, or binding a kit to a role.
+summary: The kit registry operator guide — storing named, versioned kit configs in Jam with `kit push|list|show|versions|pin|rm`, and binding one to a role with `role add --kit`.
+read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, or binding a kit to a role.
 owns: the operator-facing kit-registry story — the name/version/current model and the `kit` verbs + `role --kit` binding
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to; ../at-cove-config.md for the kit config.yml schema being stored
 tier: leaf
@@ -9,10 +9,10 @@ updated: 2026-09-12
 
 # The kit registry
 
-Harbor stores **kit definitions** — the `config.yml` that defines a cove — so a
-kit can live in harbor's data store and be referenced by a role, rather than only
-as a repo-committed `.at-cove/`. This is the harbor-side registry; a managed cove
-*resolving* its kit from harbor is a later slice. Today you register kits and bind
+Jam stores **kit definitions** — the `config.yml` that defines a studio — so a
+kit can live in Jam's data store and be referenced by a role, rather than only
+as a repo-committed `.at-cove/`. This is the Jam-side registry; a managed studio
+*resolving* its kit from Jam is a later slice. Today you register kits and bind
 them to roles.
 
 ## The model

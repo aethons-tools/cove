@@ -5,7 +5,7 @@
 #
 # This is a DEV config: plaintext admin on loopback, an inline DB password, and
 # a self-signed broker cert. Never use these settings in production — see
-# docs/usage/harbor/serve.md for the real (TLS + OIDC + resolver-cred) shape.
+# docs/usage/jam/serve.md for the real (TLS + OIDC + resolver-cred) shape.
 
 # Cove-facing broker + Attach listener. Jam always serves this over TLS, so
 # even for dev you need a cert/key. Generate a self-signed pair with `just

@@ -52,4 +52,4 @@ as `:443` needs root — run the built binary under `sudo` directly for that.
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and
 resolver-based credentials — is documented in
-[`../docs/usage/harbor/serve.md`](../docs/usage/harbor/serve.md).
+[`../docs/usage/jam/serve.md`](../docs/usage/jam/serve.md).

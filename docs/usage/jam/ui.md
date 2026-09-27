@@ -1,13 +1,13 @@
 ---
-summary: The harbor admin UI — a server-rendered web view of the live coves, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed coves.
-read_when: You want to watch a running harbor in a browser — the live cove fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed cove from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster/kit/destination-editing + runtime cove raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
+summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios.
+read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
 updated: 2026-09-15
 ---
 
-# The harbor admin UI (`/ui/`)
+# The Jam admin UI (`/ui/`)
 
 `at-jam serve` serves a web UI on the same **admin listener** as the JSON
 admin API. Point a browser at the admin URL and open `/ui/` (`/` redirects
@@ -19,12 +19,12 @@ http://127.0.0.1:8081/ui/
 
 It renders:
 
-- **Dashboard** (`/ui/`) — the live cove fleet + a roster summary.
-- **Studios** (`/ui/coves`) — every managed cove's id, project/role, unit, phase,
+- **Dashboard** (`/ui/`) — the live studio fleet + a roster summary.
+- **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
-  coves — see [Runtime (coves)](#runtime-coves) below and
+  studios — see [Runtime (studios)](#runtime-studios) below and
   [coves.md](coves.md).
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the durable squawk Log (`intercom-log:` in the serve config). Filter by
@@ -47,7 +47,7 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
   `operator-auth.oidc` is configured. The request's `Host` must be a loopback
   literal (`127.0.0.1`/`::1`/`localhost`) or a host listed in `ui-hosts` — if you
   reach the UI over a custom name that DNS-binds to loopback (e.g.
-  `harbor.local.example`), add it to `ui-hosts` (see [serve.md](serve.md)) or the
+  `jam.local.example`), add it to `ui-hosts` (see [serve.md](serve.md)) or the
   UI refuses it as a possible DNS-rebinding attempt.
 - **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
   browser is redirected through an OIDC **Authorization Code + PKCE** login
@@ -58,7 +58,7 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
 - **Off-loopback, without a `browser-client-id`** — the UI is refused. The
   programmatic admin API is still reachable with a bearer token.
 
-Register `https://<your-harbor-host>/ui/auth/callback` in your IdP's Allowed
+Register `https://<your-jam-host>/ui/auth/callback` in your IdP's Allowed
 Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
 
 The UI never renders a token hash, launch secret, or credential value; the one
@@ -68,7 +68,7 @@ login routes themselves never expose mutation.
 
 ## Intercom
 
-The Intercom page (`/ui/intercom`) is a read-only view of harbor's durable
+The Intercom page (`/ui/intercom`) is a read-only view of Jam's durable
 squawk Log — enabled by setting `intercom-log:` in the serve config (see
 [serve.md](serve.md)). It shows a filterable, newest-first table of squawk
 records: filter by project, participant (`kind:ref`, e.g. `channel:eng`), a body
@@ -103,29 +103,29 @@ verbs in [roster.md](roster.md):
 - **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
-session with `require-scope`) and is recorded in harbor's audit log against the
+session with `require-scope`) and is recorded in Jam's audit log against the
 operator who made it. Destructive actions ask for confirmation. State-changing
-requests are refused unless they originate from the harbor UI itself (an
+requests are refused unless they originate from the Jam UI itself (an
 Origin/Referer check), so another site can't drive them through your browser.
 
 The kit registry and destinations are also editable from here — see
 [Config plane (kits & destinations)](#config-plane-kits-destinations) below.
-Raising and tearing down coves is editable from the UI when a runtime
-supervisor is configured — see [Runtime (coves)](#runtime-coves) below.
+Raising and tearing down studios is editable from the UI when a runtime
+supervisor is configured — see [Runtime (studios)](#runtime-studios) below.
 
-### Runtime (coves)
+### Runtime (studios)
 
-When harbor is configured with a runtime supervisor (`runtime:` in the serve
+When Jam is configured with a runtime supervisor (`runtime:` in the serve
 config — see [coves.md](coves.md)), the Studios page can also:
 
-- **Raise a managed cove** — id, role, optional project/unit and a workload
-  prompt. Harbor handles the cove's identity token and launch secret internally;
+- **Raise a managed studio** — id, role, optional project/unit and a workload
+  prompt. Jam handles the studio's identity token and launch secret internally;
   they are never shown in the browser (use the CLI `at-jam studio raise` for
   manual wiring).
-- **Tear down a cove** (confirmed).
+- **Tear down a studio** (confirmed).
 
-Without a runtime supervisor, the Studios page is view-only. Setting a cove's
-activity is not a UI action — that is reported by the cove itself. These actions
+Without a runtime supervisor, the Studios page is view-only. Setting a studio's
+activity is not a UI action — that is reported by the studio itself. These actions
 obey the same gate, CSRF, and audit-logging as the roster edits above.
 
 ### Config plane (kits & destinations)

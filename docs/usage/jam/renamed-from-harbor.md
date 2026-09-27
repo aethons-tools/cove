@@ -30,10 +30,13 @@ process) that names the old and new name and points here. The aliases are
 | `HARBOR_TEST_POSTGRES_DSN`; CI and dev database/user/password `harbor` | `JAM_TEST_POSTGRES_DSN`; `jam` | No (test infrastructure). The dev compose project is now `jam-dev`, so an old `harbor-dev` volume is not reused — `just dev-up` starts fresh. |
 | `just harbor`, `just integration-harbor`, `dev/harbor.dev.yml` | `just jam`, `just integration-jam`, `dev/jam.dev.yml` | No. |
 | dev hostname / cert CN `harbor.local.aethons.tools` | `jam.local.aethons.tools` (`*.local.aethons.tools` already resolves to localhost) | No — rerun `just dev-cert`. |
+| docs `docs/usage/harbor/` (and its `dispatcher.md`) | `docs/usage/jam/` (`requisitioner.md`) | No; every in-repo link is updated. |
 | Go package `internal/harbor` | `internal/jam` | No (internal). |
 
 **Deliberately unchanged:** the Postgres migration advisory-lock key (it spells
 "harbor"; changing it would let an old and a new binary migrate one database
 concurrently during a rollout) and the Attach gRPC service name
 `harbor.attach.v1.Runtime` (the wire name cove-master in already-built images
-dials).
+dials). The Go module path, the internal "cove" identifiers, the Requisitioner's
+`internal/dispatcher` package and the historical design docs under
+`docs/superpowers/` are unchanged too.

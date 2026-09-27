@@ -1,16 +1,16 @@
 ---
 summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the roster human linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
-read_when: You (a human operator) want harbor to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
+read_when: You (a human operator) want Jam to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
 owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
-prereqs: comms-addressing.md for the Project roster, a Human's `--login`, and Discord delivery profiles; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised cove does; serve.md for `store-postgres` and the allocation ledger
+prereqs: comms-addressing.md for the Project roster, a Human's `--login`, and Discord delivery profiles; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-09-27
 ---
 
 # Personal sessions
 
-A **personal session** is a long-lived managed cove that a human operator asks
-harbor for directly: harbor admits it against the role's personal caps, raises it
+A **personal session** is a long-lived managed studio that a human operator asks
+Jam for directly: Jam admits it against the role's personal caps, raises it
 **owned by that human**, and only the owner can list or release it. The owner talks
 to it over **Discord**, and it stays until the owner releases it. It needs
 `store-postgres`, a Discord chat service on the project, and a Discord delivery
@@ -18,21 +18,21 @@ profile for the owner.
 
 ## The conversation
 
-1. The session works its first prompt. Harbor prefixes your prompt with a short
+1. The session works its first prompt. Jam prefixes your prompt with a short
    preamble telling the agent it is your personal session and how to reach you.
-2. **The cove speaks first.** When it has results or needs input, it `send`s with
+2. **The studio speaks first.** When it has results or needs input, it `send`s with
    no `to`, which goes to its owner — you — as a message in your Discord inbox
-   channel. It may message **only** you: harbor enrolls it with an addressing
+   channel. It may message **only** you: Jam enrolls it with an addressing
    override of exactly `human:<owner>`.
-3. After **every** turn the cove waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
+3. After **every** turn the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
    there is no time limit). While it waits past the `warm-timeout` it is paused
    (`idled`, ≈0 CPU).
 4. **Reply to its Discord message** (Discord's reply-to-message feature) to
-   continue. Harbor routes the reply to the cove, wakes it (unpausing it first if
+   continue. Jam routes the reply to the studio, wakes it (unpausing it first if
    needed), and it resumes with `claude --continue`, `read`s your reply, and
    carries on. Repeat from 2.
 
-**v1 limit:** you can only *reply* to the cove's messages; a new, non-reply message
+**v1 limit:** you can only *reply* to the studio's messages; a new, non-reply message
 in your inbox channel does not reach it. The session is never torn down for
 `wait-max` and never escalated (it has no ticket); it ends when you release it, or
 when the [idle ladder](#the-idle-ladder) reclaims it (only if its role sets
@@ -41,11 +41,11 @@ when the [idle ladder](#the-idle-ladder) reclaims it (only if its role sets
 ## The idle ladder
 
 A session is **idle** while it waits on you, measured from when it last started
-waiting (each reply you send runs another turn and restarts the clock). Harbor's
+waiting (each reply you send runs another turn and restarts the clock). Jam's
 wake-on engine walks it up a ladder set by the role:
 
 1. **Pause.** Past the `warm-timeout` it is paused (step 3 above).
-2. **Nag.** Once it has waited **`idle-after`** (default **4h**), harbor messages you
+2. **Nag.** Once it has waited **`idle-after`** (default **4h**), Jam messages you
    *as the session*, in your Discord inbox: "Your personal session *id* (*role*) has
    been waiting on you for *N*. Reply to this message to pick it back up, or release
    it with: `at-jam session release <id>`". It repeats every **`nag-every`**
@@ -59,12 +59,12 @@ wake-on engine walks it up a ladder set by the role:
    personal session … Next reminder in *idle-after*."). Rules:
    - **Owner only, proven by the channel.** The reply counts only if it is posted
      in an inbox channel that is the Discord delivery address of **exactly one**
-     roster human — you — so harbor attributes it to you, never by Discord
+     roster human — you — so Jam attributes it to you, never by Discord
      display name ([comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service)).
      A **shared inbox** (or one that is also a roster channel) gets no
      `keep`/`release` hint in the nag, and its replies are ordinary replies.
-     Harbor can't see Discord permissions, so this relies on your setup: **only
-     you (and harbor's bot) may post in your inbox channel.** Anyone who can post
+     Jam can't see Discord permissions, so this relies on your setup: **only
+     you (and Jam's bot) may post in your inbox channel.** Anyone who can post
      there can release your session (and could already steer it by replying).
    - **Only a reply to a nag.** A `keep` replying to the agent's own message is
      your answer to the agent; it wakes the session.
@@ -72,7 +72,7 @@ wake-on engine walks it up a ladder set by the role:
      sentence, is an ordinary reply. If several replies are pending, a `release`
      wins, then any other text wakes, and only `keep`s alone keep.
 3. **Reclaim (optional).** If the role sets **`reclaim-after`** (default: never) and
-   the session has waited that long, harbor tells you ("Reclaimed your personal
+   the session has waited that long, Jam tells you ("Reclaimed your personal
    session …") and tears it down exactly as a release would, freeing your slot. The
    notice is delivered even though the session is gone.
 
@@ -91,7 +91,7 @@ happens.
 
 ## Discord is required
 
-A ticketless cove's messages can only be delivered over Discord, so a request is
+A ticketless studio's messages can only be delivered over Discord, so a request is
 refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
@@ -99,16 +99,16 @@ refused with **400** (before any slot is granted) unless both hold:
 - you (the owner) have a Discord delivery profile — your inbox channel:
   `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>`.
 
-Harbor must also run the Discord relay (`runtime.discord` plus an `intercom-log`,
-see [serve.md](serve.md#the-serve-config)); it no longer needs a dispatcher, and it
+Jam must also run the Discord relay (`runtime.discord` plus an `intercom-log`,
+see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
 polls every project whose chat service is `discord`
 ([intercom.md](intercom.md#enabling-it)).
 
 ## Who owns it: link your login
 
-Harbor finds the owner by matching the caller's **admin login** (the operator
+Jam finds the owner by matching the caller's **admin login** (the operator
 identity: your OIDC `sub`, which `at-jam whoami` shows, or `local` on a
-loopback-only harbor) against the **roster human** in the target project whose
+loopback-only Jam) against the **roster human** in the target project whose
 `Login` is set to it:
 
 ```
@@ -138,12 +138,12 @@ at-jam role add --project acme --name pair --destinations anthropic,git \
 The flags themselves are described in [roster.md](roster.md#roles). In this
 release any linked operator may request any role, bounded by these caps.
 
-Harbor's Allocator checks both caps inside the allocation ledger's single atomic
+Jam's Allocator checks both caps inside the allocation ledger's single atomic
 grant (see [serve.md](serve.md#postgres-store-backend-store-postgres)), so concurrent requests
 cannot overshoot either cap. Personal sessions **require the ledger**. On the
 file store there is no fallback, and a request answers **409** naming
-`store-postgres`. Harbor always runs the Allocator, so personal sessions work
-without a dispatcher.
+`store-postgres`. Jam always runs the Allocator, so personal sessions work
+without a Requisitioner.
 
 ## The verbs
 
@@ -156,7 +156,7 @@ at-jam session list    [--project acme]
 at-jam session release personal-alice-1a2b3c4d
 ```
 
-- **request** grants a slot, then raises the cove with you as its owner, and
+- **request** grants a slot, then raises the studio with you as its owner, and
   prints only the session id (`personal-<owner>-<8 hex>`). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
   `studio raise`, no identity token or launch secret is returned.
@@ -175,7 +175,7 @@ at-jam session release personal-alice-1a2b3c4d
 | `GET /admin/sessions/personal?project=P` | **200** with your own personal sessions in P. **403** if your login is not linked. |
 | `DELETE /admin/sessions/personal/{id}` | **204** after the teardown. **404** if the id does not exist or is not a personal session. **403** unless you are its owner. |
 
-A personal session is also an ordinary managed cove. It appears in
+A personal session is also an ordinary managed studio. It appears in
 `studio list`, and its Instance records `owner` and `session_kind: personal`. The
 reconcile sweep never releases personal reservations; only the owner's release
 (the verb, or a `release` reply to a nag), or an idle-ladder reclaim, does.

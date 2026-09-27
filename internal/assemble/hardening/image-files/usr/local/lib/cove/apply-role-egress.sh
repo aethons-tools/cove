@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply a harbor role's egress policy to the running squid (at raise, and on
+# Apply a Jam role's egress policy to the running squid (at raise, and on
 # a running cove when the role's policy changes).
 #
 # Reads the role's domains (one host per line) from STDIN. Each must be a valid
@@ -14,7 +14,7 @@
 # loudly (exit 1).
 #
 # SEALED + ROOT-ONLY: delivered by the hardening layer and invoked solely by the
-# host via `docker exec -u root` (harbor's launcher: at raise before the agent
+# host via `docker exec -u root` (Jam's launcher: at raise before the agent
 # starts, and again on a running cove when its role's policy changes). The
 # lists and the ceiling are root-owned and `squid -k reconfigure` is privileged,
 # so the non-root `agent` workload cannot run this to widen its own egress. The
@@ -27,7 +27,7 @@
 # the active list becomes the ceiling's own entries (the ceiling IS the kit's
 # image.allowed-domains), the session delta is cleared, and squid reconfigures.
 # It takes no domains: any stdin is refused (exit 2). Any other argument exits 2.
-# Harbor uses it when a role's policy is cleared on a running cove.
+# Jam uses it when a role's policy is cleared on a running cove.
 set -euo pipefail
 export LC_ALL=C
 
@@ -41,7 +41,7 @@ session_file="${COVE_SESSION_DOMAINS_FILE:-/etc/squid/allowed_domains.session.tx
 ceiling_file="${COVE_EGRESS_CEILING_FILE:-/etc/squid/egress_ceiling.txt}"
 
 # At least two labels; no scheme, port, path, glob or whitespace; an optional
-# leading dot means "and subdomains". Harbor enforces the same rule.
+# leading dot means "and subdomains". Jam enforces the same rule.
 domain_re='^\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 
 # 0. Mode: a role list on stdin (no arguments), or --kit-default (no stdin).

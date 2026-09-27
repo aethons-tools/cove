@@ -1,6 +1,6 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
-read_when: You want a cove's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a cove may address, or managing a Project's roster of humans and channels.
+read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
 owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
@@ -9,7 +9,7 @@ updated: 2026-09-27
 
 # Comms addressing (target space & access-graph)
 
-A cove's `send` can reach more than its own ticket: a named **human** or a shared
+A studio's `send` can reach more than its own ticket: a named **human** or a shared
 **channel**, drawn from its Project's **Roster**, gated by a **comms access-graph**
 that mirrors the broker's `Scope`/`Grant` model. This is C1 of the comms-hub
 escalation slice — the addressing foundation C2 (escalation policy) builds on.
@@ -34,14 +34,14 @@ owns a **Roster** of addressable members:
 - **Human** — `{Name, Handle, Login}`. `Name` is the roster-local target name
   (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver to
   them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
-  `local` on loopback), so harbor knows who is behind an admin request, e.g. to
+  `local` on loopback), so Jam knows who is behind an admin request, e.g. to
   own a [personal session](personal-sessions.md). One human per login per project.
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
 
 A Project's roster of humans also backs its **escalation policy** — ordered tiers
-that get `@`-mentioned while a cove is Waiting; see [escalation.md](escalation.md).
+that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
 
 Manage a roster with `at-jam project`:
 
@@ -64,7 +64,7 @@ at-jam project roster rm-channel  <project> <name>
 they have a `discord` delivery profile (falling back to the Linear
 `@`-mention when they don't); `send(to=channel:<name>)` posts to a discord
 roster channel's own `Ref` when the channel's `Service` is `discord`. Every
-Discord post is prefixed `"<cove>: "` (the sending cove's identity —
+Discord post is prefixed `"<cove>: "` (the sending studio's identity —
 `Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
 username/avatar is a future polish). Delivery is exactly-once (the resident
 Discord relay engine's own `EgressMark`, seeded to the Log tail on first
@@ -74,12 +74,12 @@ enable so turning it on never redelivers the backlog) — see
 it (requires an intercom-log; without one the engine doesn't run).
 
 **The reply loop:** when a human **replies** (Discord's own reply-to-message
-feature, not a bare follow-up post) to a cove's Discord post, harbor routes
-that reply back to the cove that sent the original squawk — the same
+feature, not a bare follow-up post) to a studio's Discord post, Jam routes
+that reply back to the studio that sent the original squawk — the same
 [wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
-so a Waiting cove resumes with the reply already in its inbox. Routing works
+so a Waiting studio resumes with the reply already in its inbox. Routing works
 by a **receipt** recorded on every Discord post (`discord-msg-id → {actor,
-message}`: the sending cove and the squawk's Log id). An inbound reply is
+message}`: the sending studio and the squawk's Log id). An inbound reply is
 matched by the id it *replies to*; its `reply_to` is the answered squawk's id,
 so it joins that squawk's thread. An older receipt (no squawk id) still routes,
 with `reply_to` `in:discord:<id>`.
@@ -90,15 +90,15 @@ channel, not the spoofable display name, proves the sender; any other is from
 
 - **Only a reply routes.** A bare (non-reply) squawk posted into a shared
   inbox channel carries no id to look up against, so it can't be attributed
-  to any cove — it is silently dropped, by construction (this also means
-  harbor's own outbound Discord posts, echoed back on the same channel,
+  to any studio — it is silently dropped, by construction (this also means
+  Jam's own outbound Discord posts, echoed back on the same channel,
   never mis-route to themselves; no separate self-post filter is needed).
 - **Receipts are currently unpruned** — one entry per post on local disk,
   never collected (a known follow-up, not a correctness issue).
 
 A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
 non-tracker service the human can be reached on. For `Service: "discord"`,
-`Address` is the id of the **inbox channel** harbor posts that human's DMs into
+`Address` is the id of the **inbox channel** Jam posts that human's DMs into
 (never a bot token or other secret — see [operators.md](operators.md) for where
 credentials actually live). Look up a human's profile for a service with
 `Human.DeliveryFor(service)`.
@@ -149,7 +149,7 @@ at-jam role add --project acme --name impl --addressing 'human:*,channel:eng-hel
 be authorized *and resolvable* by some single grant's project (one grant's
 addressing never recombines with another grant's roster). Everything is
 **fail-closed**: an unknown actor, an expired token, a role with no addressing, or
-a malformed target all deny. The cove's **own ticket** (`to` empty) never consults
+a malformed target all deny. The studio's **own ticket** (`to` empty) never consults
 the access-graph — it is always allowed, unchanged from before addressing existed.
 
 **Authz is checked before existence.** A target whose form no grant's addressing
@@ -163,12 +163,12 @@ ordering means a 403 never reveals whether a target would otherwise exist.
 | `to` | Delivery | Reply |
 |---|---|---|
 | *(empty)* | own ticket (unchanged self-scoped `send`) | own ticket → existing wake-on |
-| `human:<name>` | `@<handle>` mention posted on the cove's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
+| `human:<name>` | `@<handle>` mention posted on the studio's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
 | `channel:<name>` | comment posted on the channel's own thread (`Channel.Ref`) | **none in C1 — post-only** |
 
-A human target is delivered as an `@`-mention so the reply lands where the cove is
+A human target is delivered as an `@`-mention so the reply lands where the studio is
 already listening — no new tracker method or wake-on wiring needed. A channel
-target posts to a different ticket than the cove's own; C1 does not route replies
+target posts to a different ticket than the studio's own; C1 does not route replies
 back (that's a later comms slice — see below).
 
 ## Discovering targets: `GET /squawks/targets` / `list_targets`
@@ -192,7 +192,7 @@ alongside `send`'s now-optional `to` argument; see
   channel-sends two-way, and generalizing `read` into a merged, tagged
   multi-source inbox. (Discord already routes replies regardless of target
   kind — see the reply loop above.)
-- **Actor/role-to-actor addressing:** addressing another managed cove or Manager
+- **Actor/role-to-actor addressing:** addressing another managed studio or Manager
   directly (waits on the Manager pillar).
 
 Design rationale lives in
