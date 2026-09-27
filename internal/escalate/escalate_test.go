@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-type fakeReg struct{ insts []harbor.Instance }
+type fakeReg struct{ insts []jam.Instance }
 
-func (f *fakeReg) ListInstances() []harbor.Instance { return f.insts }
+func (f *fakeReg) ListInstances() []jam.Instance { return f.insts }
 
-type fakeProjects struct{ projects map[string]harbor.Project }
+type fakeProjects struct{ projects map[string]jam.Project }
 
-func (f *fakeProjects) GetProject(name string) (harbor.Project, bool) {
+func (f *fakeProjects) GetProject(name string) (jam.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
 }
@@ -55,10 +55,10 @@ func (f *fakePinger) PostComment(_ context.Context, issueID, body string) error 
 
 func TestOpensTierZeroImmediately(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -76,13 +76,13 @@ func TestOpensTierZeroImmediately(t *testing.T) {
 
 func TestAdvancesTierOnTimeout(t *testing.T) {
 	clock := time.Unix(2000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
-		Activity: harbor.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-16 * time.Minute)}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
+		Activity: jam.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-16 * time.Minute)}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{
 			{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute},
 			{Targets: []string{"human:bob"}, Timeout: time.Hour}},
-		Roster: harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
+		Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -100,11 +100,11 @@ func TestAdvancesTierOnTimeout(t *testing.T) {
 
 func TestNoAdvanceBeforeTimeout(t *testing.T) {
 	clock := time.Unix(2000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
-		Activity: harbor.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-1 * time.Minute)}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}, {Targets: []string{"human:bob"}, Timeout: time.Hour}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
+		Activity: jam.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-1 * time.Minute)}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}, {Targets: []string{"human:bob"}, Timeout: time.Hour}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -117,11 +117,11 @@ func TestNoAdvanceBeforeTimeout(t *testing.T) {
 
 func TestLastTierNoFurtherAdvanceNoTeardown(t *testing.T) {
 	clock := time.Unix(3000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
-		Activity: harbor.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-time.Hour)}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "a"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42",
+		Activity: jam.ActivityWaiting, EscalationTier: 0, TierPingedAt: clock.Add(-time.Hour)}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -134,12 +134,12 @@ func TestLastTierNoFurtherAdvanceNoTeardown(t *testing.T) {
 
 func TestIgnoresNonWaitingAndNoPolicy(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "running", Project: "acme", Unit: "ACME-1", Activity: harbor.ActivityRunning},
-		{ActorID: "nopolicy", Project: "beta", Unit: "BETA-1", Activity: harbor.ActivityWaiting},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "running", Project: "acme", Unit: "ACME-1", Activity: jam.ActivityRunning},
+		{ActorID: "nopolicy", Project: "beta", Unit: "BETA-1", Activity: jam.ActivityWaiting},
 	}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{
-		"acme": {Name: "acme", Escalation: []harbor.EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}}},
+	proj := &fakeProjects{projects: map[string]jam.Project{
+		"acme": {Name: "acme", Escalation: []jam.EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}}},
 		"beta": {Name: "beta"}, // no policy
 	}}
 	st := &fakeState{}
@@ -154,10 +154,10 @@ func TestIgnoresNonWaitingAndNoPolicy(t *testing.T) {
 
 func TestEmptyTierAdvancesWithoutPosting(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"channel:x", "human:ghost"}, Timeout: time.Minute}},
-		Roster:     harbor.Roster{}}}} // no matching humans
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"channel:x", "human:ghost"}, Timeout: time.Minute}},
+		Roster:     jam.Roster{}}}} // no matching humans
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -173,10 +173,10 @@ func TestEmptyTierAdvancesWithoutPosting(t *testing.T) {
 
 func TestUnknownRosterNameWarns(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:ghost"}, Timeout: time.Minute}},
-		Roster:     harbor.Roster{}}}} // no matching humans
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:ghost"}, Timeout: time.Minute}},
+		Roster:     jam.Roster{}}}} // no matching humans
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	var logBuf strings.Builder
@@ -193,10 +193,10 @@ func TestUnknownRosterNameWarns(t *testing.T) {
 
 func TestPingFailureDoesNotAdvance(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
 	pg := &erroringPinger{}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -211,10 +211,10 @@ func TestPingFailureDoesNotAdvance(t *testing.T) {
 
 func TestPostCommentFailureDoesNotAdvance(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}, postErr: &testError{"post comment failed"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -229,11 +229,11 @@ func TestPostCommentFailureDoesNotAdvance(t *testing.T) {
 
 func TestRoutesByCategory(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting, EscalationCategory: "infra"}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
-		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
-		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting, EscalationCategory: "infra"}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation:           []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -246,11 +246,11 @@ func TestRoutesByCategory(t *testing.T) {
 
 func TestUnknownCategoryFallsBackToDefault(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting, EscalationCategory: "nonexistent"}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
-		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
-		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting, EscalationCategory: "nonexistent"}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation:           []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -263,11 +263,11 @@ func TestUnknownCategoryFallsBackToDefault(t *testing.T) {
 
 func TestEmptyCategoryUsesDefault(t *testing.T) {
 	clock := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting}}} // no category
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation:           []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
-		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
-		Roster:               harbor.Roster{Humans: []harbor.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting}}} // no category
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation:           []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
+		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -280,14 +280,14 @@ func TestEmptyCategoryUsesDefault(t *testing.T) {
 
 func TestCategoryAdvanceUsesCategoryChainTimeout(t *testing.T) {
 	clock := time.Unix(2000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: harbor.ActivityWaiting,
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting,
 		EscalationCategory: "infra", EscalationTier: 0, TierPingedAt: clock.Add(-11 * time.Minute)}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
-		EscalationByCategory: map[string][]harbor.EscalationTier{"infra": {
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}},
+		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {
 			{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute},
 			{Targets: []string{"human:lead"}, Timeout: time.Hour}}},
-		Roster: harbor.Roster{Humans: []harbor.Human{{Name: "sre", Handle: "s"}, {Name: "lead", Handle: "l"}}}}}}
+		Roster: jam.Roster{Humans: []jam.Human{{Name: "sre", Handle: "s"}, {Name: "lead", Handle: "l"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
@@ -317,10 +317,10 @@ func (e *testError) Error() string { return e.msg }
 // TestIgnoresTicketlessCove: a Waiting cove with no Unit (a personal session)
 // has no ticket to escalate on — no ping, no state change.
 func TestIgnoresTicketlessCove(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: harbor.SessionKindPersonal, Activity: harbor.ActivityWaiting}}}
-	proj := &fakeProjects{projects: map[string]harbor.Project{"acme": {Name: "acme",
-		Escalation: []harbor.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: jam.SessionKindPersonal, Activity: jam.ActivityWaiting}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
 	pg := &fakePinger{ids: map[string]string{}}
 	e := New(reg, proj, st, pg, Config{}, nil)

@@ -1,0 +1,193 @@
+package adminui_test
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/adminui"
+)
+
+func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func newStore(t *testing.T) jam.Store {
+	t.Helper()
+	st, err := jam.NewFileStore(t.TempDir() + "/store.json")
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	return st
+}
+
+func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	return rec
+}
+
+func TestDashboard(t *testing.T) {
+	store := newStore(t)
+	seedCove(t, store)
+	if err := store.AddActor(jam.Actor{ID: "mgr-1"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, "mgr-1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+}
+
+func seedCove(t *testing.T, store jam.Store) {
+	t.Helper()
+	if err := store.PutInstance(jam.Instance{
+		ActorID: "spider-9", Project: "acme", Role: "worker", Unit: "COV-1",
+		Phase: jam.PhaseLive, Activity: jam.ActivityRunning,
+		Lease:    jam.Lease{Holder: "harbor-a"},
+		RaisedAt: time.Now(), LastSeen: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCovesFullPage(t *testing.T) {
+	store := newStore(t)
+	seedCove(t, store)
+	rec := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/coves")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ui/coves = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"<nav", `id="coves"`, "spider-9", "live", "running", `hx-trigger="every 3s"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("full page missing %q", want)
+		}
+	}
+}
+
+func TestCovesFragment(t *testing.T) {
+	store := newStore(t)
+	seedCove(t, store)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
+	req.Header.Set("HX-Request", "true")
+	adminui.Handler(store, testLogger(), nil, anyCred, nil).ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="coves"`) || !strings.Contains(body, "spider-9") {
+		t.Errorf("fragment missing table/row; got:\n%s", body)
+	}
+	if strings.Contains(body, "<nav") || strings.Contains(body, "<html") {
+		t.Errorf("fragment must not include page chrome; got:\n%s", body)
+	}
+}
+
+func TestCovesNoSecretLeak(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutInstance(jam.Instance{
+		ActorID: "spider-9", Project: "acme", Role: "worker",
+		Phase: jam.PhaseLive, LaunchSecretHash: "SECRET-HASH-XYZ",
+		Lease: jam.Lease{Holder: "h"}, RaisedAt: time.Now(), LastSeen: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/coves")
+	if strings.Contains(rec.Body.String(), "SECRET-HASH-XYZ") {
+		t.Error("cove view leaked the launch-secret hash")
+	}
+}
+
+func TestRosterView(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE", Grants: []jam.Grant{{Project: "acme", Role: "worker"}}}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/roster").Body.String()
+	for _, want := range []string{"spider-2", "worker", "anthropic"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("roster view missing %q", want)
+		}
+	}
+}
+
+func TestRosterViewNoSecretLeak(t *testing.T) {
+	store := newStore(t)
+	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/roster").Body.String(), "HASH-NOPE") {
+		t.Error("roster view leaked a token hash")
+	}
+}
+
+func TestRolesView(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, TTL: time.Hour}, Kit: ""}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/roles").Body.String()
+	for _, want := range []string{"acme", "review", "git", "acme/*"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("roles view missing %q", want)
+		}
+	}
+}
+
+func TestKitsView(t *testing.T) {
+	store := newStore(t)
+	if _, err := store.PushKit("base", "listen: :443"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/kits").Body.String()
+	if !strings.Contains(body, "base") {
+		t.Errorf("kits view missing kit name; got:\n%s", body)
+	}
+}
+
+func TestDestinationsView(t *testing.T) {
+	store := newStore(t)
+	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic-key"}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, anyCred, nil), "/ui/destinations").Body.String()
+	for _, want := range []string{"anthropic", "/anthropic/", "https://api.anthropic.com"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("destinations view missing %q", want)
+		}
+	}
+}
+
+func TestStaticRouteDoesNotServeTemplates(t *testing.T) {
+	h := adminui.Handler(newStore(t), testLogger(), nil, anyCred, nil)
+	rec := get(t, h, "/ui/static/templates/layout.html")
+	if rec.Code == http.StatusOK {
+		t.Errorf("static route exposed template source (%d); templates must be unreachable", rec.Code)
+	}
+}
+
+func TestStaticHtmxServed(t *testing.T) {
+	h := adminui.Handler(newStore(t), testLogger(), nil, anyCred, nil)
+	rec := get(t, h, "/ui/static/htmx.min.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET htmx.min.js = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("htmx Content-Type = %q, want text/javascript*", ct)
+	}
+	if rec.Body.Len() == 0 {
+		t.Error("htmx asset body is empty")
+	}
+}

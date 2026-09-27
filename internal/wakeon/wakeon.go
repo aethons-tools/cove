@@ -4,7 +4,7 @@
 // max-wait (personal sessions excepted — they wait on their owner, and instead
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
 // nag with "keep" or "release", which harbor acts on without waking). Wired from
-// cmd/at-harbor; not imported by internal/harbor core.
+// cmd/at-harbor; not imported by internal/jam core.
 package wakeon
 
 import (
@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-type Registry interface{ ListInstances() []harbor.Instance }
+type Registry interface{ ListInstances() []jam.Instance }
 type Waker interface{ Wake(actorID string) }
 type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
@@ -32,16 +32,16 @@ type Inbox interface {
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
 // Backed by the supervisor's Idle/Resume — never the Launcher/backend
-// directly (see internal/harbor.Supervisor.Idle/Resume).
+// directly (see internal/jam.Supervisor.Idle/Resume).
 type Idler interface {
 	Idle(ctx context.Context, actorID string) error
 	Resume(ctx context.Context, actorID string) error
 }
 
 // RoleLookup reads a Role's idle settings (RoleAllocation.PersonalIdle). Satisfied
-// by harbor.Store. A missing role gets the defaults.
+// by jam.Store. A missing role gets the defaults.
 type RoleLookup interface {
-	GetRole(project, name string) (harbor.Role, bool)
+	GetRole(project, name string) (jam.Role, bool)
 }
 
 // NagRecorder persists the idle ladder's state on a personal session: that an
@@ -56,10 +56,10 @@ type NagRecorder interface {
 // reclaimed, and confirms their "keep"/"release" reply to a nag. Implemented in
 // cmd/at-harbor over the intercom log.
 type Nagger interface {
-	Nag(ctx context.Context, inst harbor.Instance, idle time.Duration) error
-	NotifyReclaimed(ctx context.Context, inst harbor.Instance, idle time.Duration) error
-	NotifyKept(ctx context.Context, inst harbor.Instance, next time.Duration) error
-	NotifyReleased(ctx context.Context, inst harbor.Instance) error
+	Nag(ctx context.Context, inst jam.Instance, idle time.Duration) error
+	NotifyReclaimed(ctx context.Context, inst jam.Instance, idle time.Duration) error
+	NotifyKept(ctx context.Context, inst jam.Instance, next time.Duration) error
+	NotifyReleased(ctx context.Context, inst jam.Instance) error
 }
 
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
@@ -127,14 +127,14 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if inst.Activity != harbor.ActivityWaiting {
+		if inst.Activity != jam.ActivityWaiting {
 			continue
 		}
 		// A resident session (personal or standing) waits for as long as it
 		// takes: it is never reaped for waiting (it is still idled and woken
 		// below). A personal one ends when its owner releases it, a standing one
 		// when an operator dismisses it.
-		if !harbor.IsResident(inst.SessionKind) &&
+		if !jam.IsResident(inst.SessionKind) &&
 			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
@@ -144,10 +144,10 @@ func (e *Engine) tick(ctx context.Context) {
 		if rs := e.replies(inst); len(rs) > 0 {
 			// A personal session's owner may answer a nag with "keep" or
 			// "release" instead of waking it (see command).
-			if inst.SessionKind == harbor.SessionKindPersonal && e.command(ctx, inst, rs) {
+			if inst.SessionKind == jam.SessionKindPersonal && e.command(ctx, inst, rs) {
 				continue
 			}
-			if inst.Phase == harbor.PhaseIdled {
+			if inst.Phase == jam.PhaseIdled {
 				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
 				}
@@ -160,10 +160,10 @@ func (e *Engine) tick(ctx context.Context) {
 		}
 		// no reply. The idle ladder is personal-only: a standing session has no
 		// owner to nag.
-		if inst.SessionKind == harbor.SessionKindPersonal && e.idleLadder(ctx, inst) {
+		if inst.SessionKind == jam.SessionKindPersonal && e.idleLadder(ctx, inst) {
 			continue // reclaimed
 		}
-		if inst.Phase != harbor.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout {
+		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout {
 			if err := e.idler.Idle(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
 			}
@@ -178,7 +178,7 @@ func (e *Engine) tick(ctx context.Context) {
 // next tick; a failed reclaim notice defers the reclaim to the next tick, so a
 // session is never reclaimed without telling its owner (unless there is no
 // nagger at all).
-func (e *Engine) idleLadder(ctx context.Context, inst harbor.Instance) bool {
+func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 	if e.roles == nil || e.nags == nil || inst.WaitingSince.IsZero() {
 		return false
 	}
@@ -224,7 +224,7 @@ func (e *Engine) idleLadder(ctx context.Context, inst harbor.Instance) bool {
 // from different, non-interleaved namespaces). A nil inbox (squawk log
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
-func (e *Engine) replies(inst harbor.Instance) []intercom.Squawk {
+func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 	if e.inbox == nil {
 		return nil
 	}
@@ -248,7 +248,7 @@ const (
 // then skips the wake and the rest of the tick for this instance).
 //
 // A reply is a command only when all hold: it replies to one of THIS session's
-// nags (harbor.IsNagReply), it is from human:<owner> — the relay attributes a
+// nags (jam.IsNagReply), it is from human:<owner> — the relay attributes a
 // reply to a roster human only when it was posted in that human's own discord
 // inbox, never by display name — and its trimmed, lowercased body (trailing
 // "." / "!" ignored) is exactly "keep" or "release". Anything else is an
@@ -262,7 +262,7 @@ const (
 // only "keep"s — the wait baseline moves past them and the idle ladder restarts
 // (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
 // session is not woken, and an Idled one stays paused.
-func (e *Engine) command(ctx context.Context, inst harbor.Instance, rs []intercom.Squawk) bool {
+func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.Squawk) bool {
 	if e.nags == nil || inst.Owner == "" {
 		return false // ladder off: there are no nags to answer
 	}
@@ -271,7 +271,7 @@ func (e *Engine) command(ctx context.Context, inst harbor.Instance, rs []interco
 	var lastKeep int64
 	for _, m := range rs {
 		word := commandWord(m.Body)
-		if word == "" || !harbor.IsNagReply(m.ReplyTo, inst.ActorID) {
+		if word == "" || !jam.IsNagReply(m.ReplyTo, inst.ActorID) {
 			other = true
 			continue
 		}
@@ -308,7 +308,7 @@ func (e *Engine) command(ctx context.Context, inst harbor.Instance, rs []interco
 		role, _ := e.roles.GetRole(inst.Project, inst.Role) // missing role → defaults
 		idleAfter, _, _ = role.Allocation.PersonalIdle()
 	} else {
-		idleAfter, _, _ = harbor.RoleAllocation{}.PersonalIdle()
+		idleAfter, _, _ = jam.RoleAllocation{}.PersonalIdle()
 	}
 	e.log.Info("wakeon: owner kept personal session", "actor", inst.ActorID, "owner", inst.Owner, "command", cmdKeep)
 	if err := e.nags.KeepWaiting(inst.ActorID, lastKeep, e.now()); err != nil {

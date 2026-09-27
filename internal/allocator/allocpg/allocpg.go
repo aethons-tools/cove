@@ -25,7 +25,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 )
 
-// migrateAdvisoryLock is distinct from the harbor (0x686172626f72) and intercom
+// migrateAdvisoryLock is distinct from the jam (0x686172626f72, "harbor") and intercom
 // (0x696e746572636f6d) locks so the migrators sharing one database never block
 // each other incorrectly.
 const migrateAdvisoryLock = 0x616c6c6f63 // "alloc"

@@ -33,9 +33,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// maxHarborResponseBytes bounds how much of a harbor response we ever read
+// maxJamResponseBytes bounds how much of a harbor response we ever read
 // into memory, whether success or failure.
-const maxHarborResponseBytes = 1 << 20 // 1 MiB
+const maxJamResponseBytes = 1 << 20 // 1 MiB
 
 // squawkOut mirrors one entry of harbor's GET /squawks response.
 type squawkOut struct {
@@ -104,7 +104,7 @@ type messagingClient struct {
 	token   string
 }
 
-// harborBaseURL derives the https base URL harbor's /squawks endpoint is
+// jamBaseURL derives the https base URL harbor's /squawks endpoint is
 // served from, given AT_HARBOR_RUNTIME_ADDR.
 //
 // In production that variable is "host:443" (per cove-master's Attach dial
@@ -112,7 +112,7 @@ type messagingClient struct {
 // instead pass a full URL (e.g. an httptest server's http://127.0.0.1:PORT),
 // which is used as-is: the scheme is only defaulted to https when the value
 // doesn't already carry one.
-func harborBaseURL(addr string) (string, error) {
+func jamBaseURL(addr string) (string, error) {
 	if addr == "" {
 		return "", fmt.Errorf("AT_HARBOR_RUNTIME_ADDR is required")
 	}
@@ -137,7 +137,7 @@ func harborBaseURL(addr string) (string, error) {
 // newMessagingClient builds a messagingClient from the environment. It never
 // places the token on argv or in any error/log message.
 func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
-	base, err := harborBaseURL(getenv("AT_HARBOR_RUNTIME_ADDR"))
+	base, err := jamBaseURL(getenv("AT_HARBOR_RUNTIME_ADDR"))
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxHarborResponseBytes))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJamResponseBytes))
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("harbor messages: unexpected status %d", resp.StatusCode)
 	}

@@ -59,7 +59,7 @@ func TestParseConfigRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestHarborConfig(t *testing.T) {
+func TestJamConfig(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k
 harbor:
@@ -69,10 +69,10 @@ harbor:
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.Harbor == nil || cfg.Harbor.Host != "harbor.local.aethons.tools" || cfg.Harbor.Identity != "harbor-id" {
-		t.Fatalf("harbor = %+v", cfg.Harbor)
+	if cfg.Jam == nil || cfg.Jam.Host != "harbor.local.aethons.tools" || cfg.Jam.Identity != "harbor-id" {
+		t.Fatalf("harbor = %+v", cfg.Jam)
 	}
-	if !cfg.Harbor.HostGateway() {
+	if !cfg.Jam.HostGateway() {
 		t.Fatal("via-host-gateway must default to true")
 	}
 	// host is folded into the baked allow-list
@@ -85,19 +85,19 @@ harbor:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if off.Harbor.HostGateway() {
+	if off.Jam.HostGateway() {
 		t.Fatal("via-host-gateway: false must disable host-gateway")
 	}
 
 	// identity is optional: a harbor block without it parses (auto-enroll mode).
 	auto, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n"))
-	if err != nil || auto.Harbor == nil || auto.Harbor.Identity != "" {
-		t.Fatalf("harbor without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Harbor, err)
+	if err != nil || auto.Jam == nil || auto.Jam.Identity != "" {
+		t.Fatalf("harbor without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Jam, err)
 	}
 
 	// no harbor block → no harbor host in RootDomains
 	none, _ := ParseConfig([]byte("name: k\n"))
-	if none.Harbor != nil {
+	if none.Jam != nil {
 		t.Fatal("Harbor should be nil when absent")
 	}
 	if contains(RootDomains(none), "harbor.local.aethons.tools") {
@@ -105,7 +105,7 @@ harbor:
 	}
 }
 
-func TestHarborConfigValidation(t *testing.T) {
+func TestJamConfigValidation(t *testing.T) {
 	bad := map[string]string{
 		"empty host":       "name: k\nharbor:\n  identity: i\n",
 		"host w/ scheme":   "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",

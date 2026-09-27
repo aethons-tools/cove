@@ -1,0 +1,606 @@
+package jam
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"os"
+	"slices"
+	"time"
+)
+
+// Liveness is a Launcher.Probe result.
+type Liveness int
+
+const (
+	LivenessUnknown Liveness = iota
+	LivenessAlive
+	LivenessDead
+)
+
+// RaiseSpec is the request to raise a managed cove. Scope/kit resolution lives in
+// the role (and, in a later slice, the Launcher); this carries only identity.
+type RaiseSpec struct {
+	ActorID string
+	Project string
+	Role    string
+	Unit    string
+	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
+	// Owner is the owning roster Human's name for a personal session; "" otherwise.
+	Owner string
+	// Name is a standing session's declared name; "" otherwise.
+	Name string
+	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
+	// plain string (not allocator.SessionKind) so harbor never imports allocator.
+	SessionKind string
+	// Egress is the role's egress policy, which the launcher applies in-box before
+	// the agent starts; nil = the kit's default list. Supervisor.Raise always
+	// fills it from the role, overriding any caller-set value.
+	Egress *EgressPolicy
+}
+
+// LaunchCreds carries the per-instance credentials the supervisor mints and the
+// launcher must inject into the cove (identity token + launch secret). Passed to
+// Raise so the launcher can bootstrap cove-master without the supervisor leaking
+// them elsewhere.
+type LaunchCreds struct {
+	IdentityToken string
+	LaunchSecret  string
+}
+
+// Launcher is the seam over "actually start/stop/probe a cove on a backend". The
+// supervisor depends only on this, so it stays kit-free and grpc-free and fully
+// hermetic. The real backend+kit implementation is a later slice, wired from
+// cmd/at-harbor.
+type Launcher interface {
+	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
+	Teardown(ctx context.Context, inst Instance) error
+	Probe(ctx context.Context, inst Instance) (Liveness, error)
+	Pause(ctx context.Context, inst Instance) error
+	Unpause(ctx context.Context, inst Instance) error
+	// ApplyEgress sets a running cove's egress to p (nil = the kit default).
+	ApplyEgress(ctx context.Context, inst Instance, p *EgressPolicy) error
+}
+
+// ControlSink pushes lifecycle control to a connected cove (implemented by the
+// Attach server). Best-effort and non-blocking; no connected stream is a no-op.
+// nil when no stream server runs (slice-1 behavior).
+type ControlSink interface {
+	RequestTeardown(actorID string)
+	Wake(actorID string)
+}
+
+// tailReader is the sliver of the message log the supervisor needs to baseline a
+// cove's wake-on cursor to the current log position when it enters Waiting.
+type tailReader interface {
+	TailSeq() (int64, bool)
+}
+
+// Releaser records that a session's reservation was released when its cove is torn
+// down — the actual-state-out half of the Supervisor↔Allocator seam (the design's
+// "reports releases/liveness back up"; not the Allocator directing the Supervisor).
+// Best-effort shadow write: nil (file store / no Postgres) is a no-op, and a
+// recording failure never fails teardown. Satisfied structurally by
+// *allocator.Allocator (no import of allocator here — no cycle).
+type Releaser interface {
+	RecordRelease(ctx context.Context, project, role, reservationID string) error
+}
+
+// Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
+// the lease model, and the state machine. One supervisor per harbor process.
+type Supervisor struct {
+	store     Store
+	launcher  Launcher
+	holder    string // this process's lease-holder id
+	ttl       time.Duration
+	reconcile time.Duration
+	now       func() time.Time
+	log       *slog.Logger
+	sink      ControlSink
+	tail      tailReader
+	released  Releaser
+}
+
+func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
+	if now == nil {
+		now = time.Now
+	}
+	return &Supervisor{store: store, launcher: launcher, holder: holder, ttl: ttl, reconcile: reconcile, now: now, log: log}
+}
+
+// NewHolderID mints a per-process lease-holder id: <hostname>/<pid>/<4 hex>.
+func NewHolderID() string {
+	host, _ := os.Hostname()
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return fmt.Sprintf("%s/%d/%s", host, os.Getpid(), hex.EncodeToString(b[:]))
+}
+
+// SetControlSink installs the control sink after construction (resolving the
+// supervisor↔Attach-server cycle). nil-safe throughout.
+func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+
+// SetTailReader wires the squawk log tail source used to baseline WaitSeq on
+// entering Waiting (and CommitSeq at Raise). Called once at wiring time before
+// serving begins; nil (no message log) leaves both 0.
+func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
+
+// SetReleaser wires the allocation releaser recorded on teardown (the
+// actual-state-out seam). Called once at wiring time; nil (no Postgres ledger)
+// leaves teardown recording nothing, exactly as before.
+func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
+
+func (s *Supervisor) tailSeq() int64 {
+	if s.tail == nil {
+		return 0
+	}
+	seq, _ := s.tail.TailSeq()
+	return seq
+}
+
+// Raise enrolls the identity, mints a per-instance launch secret, launches the
+// cove, and records a Live Instance leased to this process. Returns the
+// Instance, the minted identity token, and the minted launch secret (each
+// returned once — the launcher/cove consume them to connect in a later slice;
+// only the launch secret's hash is persisted). A failed mint or launch rolls
+// back the enrollment so no dangling identity is left.
+func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, string, string, error) {
+	if spec.ActorID == "" {
+		return Instance{}, "", "", fmt.Errorf("actor id is required")
+	}
+	// A personal session's cove may message its owner and nobody else: the
+	// override REPLACES the role's addressing (least privilege).
+	var ov *Override
+	if spec.Owner != "" {
+		ov = &Override{Addressing: []string{"human:" + spec.Owner}}
+	}
+	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, ov, s.now())
+	if err != nil {
+		return Instance{}, "", "", err
+	}
+	// The role, not the caller, decides the cove's egress policy (Enroll just
+	// proved the role exists). Callers — dispatcher, sessions, standing — need
+	// no change, and none can widen a role's egress by setting the spec.
+	spec.Egress = nil
+	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok && role.Scope.Egress != nil {
+		spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
+	}
+	secret, err := MintToken()
+	if err != nil {
+		_ = s.store.RemoveActor(spec.ActorID)
+		return Instance{}, "", "", err
+	}
+	loc, err := s.launcher.Raise(ctx, spec, LaunchCreds{IdentityToken: tok, LaunchSecret: secret})
+	if err != nil {
+		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
+			s.log.Warn("raise rollback: failed to revoke identity after launch failure", "id", spec.ActorID, "error", rmErr)
+		}
+		return Instance{}, "", "", fmt.Errorf("raise: %w", err)
+	}
+	now := s.now()
+	inst := Instance{
+		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
+		Owner: spec.Owner, Name: spec.Name, SessionKind: spec.SessionKind,
+		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
+		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
+		LaunchSecretHash: HashToken(secret),
+		RaisedAt:         now, LastSeen: now,
+		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
+		Egress:    EgressFingerprint(spec.Egress),
+	}
+	if err := s.store.PutInstance(inst); err != nil {
+		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
+			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
+		}
+		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
+		}
+		return Instance{}, "", "", err
+	}
+	if s.log != nil {
+		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
+	}
+	return inst, tok, secret, nil
+}
+
+// Heartbeat renews the lease + LastSeen for a connected cove WITHOUT changing
+// Activity or Phase (the stream keepalive path). Errors if the instance is
+// absent or gone.
+func (s *Supervisor) Heartbeat(actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Phase == PhaseGone {
+		return fmt.Errorf("instance %q is gone", actorID)
+	}
+	now := s.now()
+	inst.LastSeen = now
+	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
+	return s.store.PutInstance(inst)
+}
+
+// Report records a cove-reported Activity, renewing (and stealing if necessary)
+// the lease — a report means the cove is talking to THIS process now. The only
+// phase effect is ActivityDone ⇒ Terminating (then teardown).
+func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Phase == PhaseGone {
+		return fmt.Errorf("instance %q is gone", actorID)
+	}
+	now := s.now()
+	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
+	inst.Activity = a
+	inst.LastSeen = now
+	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
+	if enteringWaiting {
+		inst.WaitingSince = now
+		inst.WaitSeq = s.tailSeq()
+		inst.EscalationTier = 0
+		inst.TierPingedAt = time.Time{}
+		inst.LastNagAt = time.Time{} // a new Waiting period restarts the idle ladder
+		inst.Nags = 0
+	}
+	if a == ActivityDone {
+		inst.Phase = PhaseTerminating
+	}
+	if err := s.store.PutInstance(inst); err != nil {
+		return err
+	}
+	if inst.Phase == PhaseTerminating {
+		return s.Teardown(ctx, actorID)
+	}
+	return nil
+}
+
+// SetWaitSeq persists a wake-on baseline (squawk log append Seq) on the
+// instance (used by the wake-on engine to detect a new ticket comment). No-op
+// semantics if the actor is gone.
+func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.WaitSeq = seq
+	return s.store.PutInstance(inst)
+}
+
+// SetEscalationCategory stamps the cove-declared block category on its instance.
+// Persists until re-declared or teardown (Report does not clear it); the
+// escalation engine reads it to pick the tier chain, falling back to the default
+// when the category isn't configured. No-op semantics if the actor is gone.
+func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.EscalationCategory = category
+	return s.store.PutInstance(inst)
+}
+
+// SetEscalation persists the escalation engine's per-instance tier state (which
+// tier was last pinged, and when). The zero TierPingedAt means "no escalation
+// open" — see the escalation engine. No-op semantics if the actor is gone.
+func (s *Supervisor) SetEscalation(actorID string, tier int, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.EscalationTier = tier
+	inst.TierPingedAt = at
+	return s.store.PutInstance(inst)
+}
+
+// RecordNag records that the wake-on idle ladder nagged a personal session's
+// owner at at: LastNagAt = at, Nags++. Both reset when the cove enters a new
+// Waiting period (see Report). Errors if the actor is gone.
+func (s *Supervisor) RecordNag(actorID string, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.LastNagAt = at
+	inst.Nags++
+	return s.store.PutInstance(inst)
+}
+
+// KeepWaiting restarts a Waiting personal session's idle period without waking
+// it — the owner replied "keep" to a nag: WaitSeq = afterSeq (past the reply,
+// so it is not seen again), WaitingSince = at, and the idle ladder resets
+// (LastNagAt zero, Nags 0). Phase is untouched: an Idled cove stays paused.
+// Errors if the instance is gone or not Waiting.
+func (s *Supervisor) KeepWaiting(actorID string, afterSeq int64, at time.Time) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("keep waiting: no live instance for %q", actorID)
+	}
+	if inst.Activity != ActivityWaiting {
+		return fmt.Errorf("keep waiting: instance %q is not waiting", actorID)
+	}
+	inst.WaitSeq = afterSeq
+	inst.WaitingSince = at
+	inst.LastNagAt = time.Time{}
+	inst.Nags = 0
+	return s.store.PutInstance(inst)
+}
+
+// Idle pauses a live cove (Launcher.Pause — e.g. docker pause) and marks it
+// PhaseIdled. A paused cove can't heartbeat or be probed, so Reconcile must
+// skip Idled instances (see Reconcile) rather than treating the now-frozen
+// lease as an abandoned/dead instance. Ownership: only the supervisor (via the
+// wake-on engine calling Idle/Resume) ever pauses a cove — never the
+// Launcher/backend directly.
+func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("idle: no live instance for %q", actorID)
+	}
+	if err := s.launcher.Pause(ctx, inst); err != nil {
+		return err
+	}
+	inst.Phase = PhaseIdled
+	return s.store.PutInstance(inst)
+}
+
+// Resume unpauses a previously Idled cove (Launcher.Unpause) and marks it
+// PhaseLive again, resetting WaitingSince to now so the wake-on engine's
+// retry-wake window starts fresh. If the role's egress policy changed while the
+// cove was paused, it is applied after unpausing and before the cove is Live
+// (the wake comes on a later tick, so the agent never runs a turn under the
+// stale policy); a failed apply tears the cove down at once and errors.
+func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("resume: no live instance for %q", actorID)
+	}
+	if err := s.launcher.Unpause(ctx, inst); err != nil {
+		return err
+	}
+	if want, ok := s.roleEgress(inst); ok && EgressFingerprint(want) != inst.Egress {
+		if err := s.launcher.ApplyEgress(ctx, inst, want); err != nil {
+			s.warn("torn down: egress re-apply failed", "id", actorID, "project", inst.Project, "role", inst.Role, "on", "resume", "err", err.Error())
+			// Freeze it again first, so a failed teardown leaves the cove paused
+			// rather than running under the stale policy until the next pass.
+			if pErr := s.launcher.Pause(ctx, inst); pErr != nil {
+				s.warn("egress: re-pause before teardown failed", "id", actorID, "err", pErr.Error())
+			}
+			if tdErr := s.Teardown(ctx, actorID); tdErr != nil {
+				return fmt.Errorf("resume %s: egress re-apply: %w (teardown also failed: %v)", actorID, err, tdErr)
+			}
+			return fmt.Errorf("resume %s: egress re-apply failed, torn down: %w", actorID, err)
+		}
+		inst.Egress, inst.EgressFailures = EgressFingerprint(want), 0
+		s.logEgressApplied(inst, want)
+	}
+	inst.Phase = PhaseLive
+	inst.WaitingSince = s.now()
+	return s.store.PutInstance(inst)
+}
+
+// Teardown tears the cove down and deregisters it: Launcher.Teardown, then
+// revoke the identity, then remove the Instance. Revoke-before-deregister so a
+// failed revoke leaves the Instance in place and the whole teardown is
+// retryable — a dangling identity is never left behind silently. Idempotent —
+// an absent instance, or an already-revoked identity, is a no-op.
+func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return nil
+	}
+	if s.sink != nil {
+		s.sink.RequestTeardown(actorID) // best-effort cooperative nudge
+	}
+	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
+		inst.Phase = PhaseTerminating
+		_ = s.store.PutInstance(inst)
+	}
+	if err := s.launcher.Teardown(ctx, inst); err != nil {
+		return fmt.Errorf("teardown launcher: %w", err)
+	}
+	if err := s.revokeActor(actorID); err != nil {
+		return fmt.Errorf("teardown revoke identity: %w", err)
+	}
+	if err := s.store.RemoveInstance(actorID); err != nil {
+		return err
+	}
+	if s.released != nil {
+		if err := s.released.RecordRelease(ctx, inst.Project, inst.Role, actorID); err != nil && s.log != nil {
+			s.log.Warn("teardown: record release failed (shadow, non-fatal)", "id", actorID, "err", err.Error())
+		}
+	}
+	if s.log != nil {
+		s.log.Info("cove torn down", "id", actorID)
+	}
+	return nil
+}
+
+// Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
+// Instance: renew our own unexpired lease; for an expired lease, Probe the cove —
+// dead (or probe error) ⇒ declare Lost and tear down; alive ⇒ steal + renew
+// (adopt); unknown ⇒ leave for a later tick. Run once at startup (re-adopting
+// instances a crashed/old process left behind) and on every tick.
+func (s *Supervisor) Reconcile(ctx context.Context) error {
+	now := s.now()
+	for _, inst := range s.store.ListInstances() {
+		if inst.Phase == PhaseGone {
+			continue
+		}
+		if inst.Phase == PhaseIdled {
+			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
+		}
+		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
+			// An instance already mid-teardown (Done reported, or reconciler-
+			// declared Lost) must be finished, never renewed or adopted. Resume
+			// teardown idempotently regardless of lease state.
+			if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
+				s.log.Warn("reconcile resume-teardown failed", "id", inst.ActorID, "err", err.Error())
+			}
+			continue
+		}
+		if inst.Lease.Expiry.After(now) {
+			if inst.Lease.Holder == s.holder {
+				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease
+				_ = s.store.PutInstance(inst)
+				// Only the lease holder re-applies, so two harbors never both exec in.
+				s.reconcileEgress(ctx, inst)
+			}
+			continue // someone else's live lease: not ours to touch
+		}
+		live, err := s.launcher.Probe(ctx, inst)
+		if err != nil || live == LivenessDead {
+			inst.Phase = PhaseLost
+			_ = s.store.PutInstance(inst)
+			if derr := s.Teardown(ctx, inst.ActorID); derr != nil && s.log != nil {
+				s.log.Warn("reconcile teardown failed", "id", inst.ActorID, "err", derr.Error())
+			}
+			continue
+		}
+		if live == LivenessAlive {
+			inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)} // steal + renew
+			_ = s.store.PutInstance(inst)
+		}
+		// LivenessUnknown: leave for the next tick.
+	}
+	return nil
+}
+
+// egressMaxFailures is how many consecutive failed egress re-applies a Live cove
+// survives before it is torn down: a short grace for a transient exec or squid
+// reload failure, never an indefinite run under a policy other than its role's.
+const egressMaxFailures = 3
+
+// roleEgress is the egress policy inst's role currently wants (a copy); nil is
+// the kit default. ok=false when the role no longer exists: callers then leave
+// the cove's egress as is, since the kit default could be wider.
+func (s *Supervisor) roleEgress(inst Instance) (*EgressPolicy, bool) {
+	role, ok := s.store.GetRole(inst.Project, inst.Role)
+	if !ok {
+		return nil, false
+	}
+	if role.Scope.Egress == nil {
+		return nil, true
+	}
+	return &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}, true
+}
+
+// reconcileEgress re-applies inst's role egress policy when it has drifted from
+// the one the cove is running under (inst.Egress). Success records the new
+// fingerprint; a failure is counted and retried next pass, and the
+// egressMaxFailures-th consecutive one tears the cove down (fail closed — a
+// standing session is raised again under the new policy by its reconciler).
+//
+// The exec can take a while, so the outcome is patched onto a fresh read of the
+// instance rather than written from inst, which would clobber a report or
+// heartbeat that landed meanwhile.
+func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
+	want, ok := s.roleEgress(inst)
+	if !ok {
+		return // role gone: leave egress as is (the kit default could be wider)
+	}
+	fp := EgressFingerprint(want)
+	if fp == inst.Egress {
+		if inst.EgressFailures != 0 { // the role changed back before a re-apply landed
+			s.patchEgress(inst.ActorID, func(cur *Instance) { cur.EgressFailures = 0 })
+		}
+		return
+	}
+	err := s.launcher.ApplyEgress(ctx, inst, want)
+	if err == nil {
+		s.patchEgress(inst.ActorID, func(cur *Instance) { cur.Egress, cur.EgressFailures = fp, 0 })
+		s.logEgressApplied(inst, want)
+		return
+	}
+	failures := 0
+	counted := s.patchEgress(inst.ActorID, func(cur *Instance) {
+		cur.EgressFailures++
+		failures = cur.EgressFailures
+	})
+	if !counted {
+		return // torn down or paused meanwhile: the exec failing says nothing about the policy
+	}
+	s.warn("egress re-apply failed", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "failures", failures, "err", err.Error())
+	if failures < egressMaxFailures {
+		return
+	}
+	s.warn("torn down: egress re-apply failed", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "failures", failures)
+	if tdErr := s.Teardown(ctx, inst.ActorID); tdErr != nil {
+		s.warn("egress teardown failed", "id", inst.ActorID, "err", tdErr.Error())
+	}
+}
+
+// patchEgress applies fn to a fresh read of the instance and writes it back,
+// only while it is still Live (a torn-down or paused cove is left alone; Resume
+// re-checks a paused one). It reports whether it wrote.
+func (s *Supervisor) patchEgress(actorID string, fn func(*Instance)) bool {
+	cur, ok := s.store.GetInstance(actorID)
+	if !ok || cur.Phase != PhaseLive {
+		return false
+	}
+	fn(&cur)
+	if err := s.store.PutInstance(cur); err != nil {
+		s.warn("egress: record instance failed", "id", actorID, "err", err.Error())
+		return false
+	}
+	return true
+}
+
+// logEgressApplied logs a landed re-apply: the policy's kind and domain count,
+// never the list.
+func (s *Supervisor) logEgressApplied(inst Instance, p *EgressPolicy) {
+	if s.log == nil {
+		return
+	}
+	if p == nil {
+		s.log.Info("egress re-applied", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "policy", "kit")
+		return
+	}
+	s.log.Info("egress re-applied", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "policy", "role", "domains", len(p.Domains))
+}
+
+func (s *Supervisor) warn(msg string, args ...any) {
+	if s.log != nil {
+		s.log.Warn(msg, args...)
+	}
+}
+
+// Run drives the reconciler: one startup pass (restart re-adoption) then a tick
+// every reconcile interval until ctx is cancelled. reconcile MUST be < ttl so a
+// live owner renews before its own lease expires (enforced by serve config).
+func (s *Supervisor) Run(ctx context.Context) {
+	_ = s.Reconcile(ctx)
+	t := time.NewTicker(s.reconcile)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_ = s.Reconcile(ctx)
+		}
+	}
+}
+
+// revokeActor removes the identity if present. Presence is checked BEFORE the
+// mutation: if the actor is already absent it is a no-op success (a retry after a
+// prior partial teardown); if it is present, any RemoveActor error is a real
+// failure the caller must surface (so teardown is retryable). Checking after the
+// call would be wrong — FileStore.RemoveActor deletes from memory before it
+// persists, so a save failure would look like "already absent".
+func (s *Supervisor) revokeActor(actorID string) error {
+	present := false
+	for _, a := range s.store.ListActors() {
+		if a.ID == actorID {
+			present = true
+			break
+		}
+	}
+	if !present {
+		return nil
+	}
+	return s.store.RemoveActor(actorID)
+}

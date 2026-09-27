@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/allocator"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-func newPolicyStore(t *testing.T) *harbor.FileStore {
+func newPolicyStore(t *testing.T) *jam.FileStore {
 	t.Helper()
-	st, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,14 +22,14 @@ func newPolicyStore(t *testing.T) *harbor.FileStore {
 // fallback, and is read live (a later edit is seen on the next grant).
 func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 	st := newPolicyStore(t)
-	if err := st.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 7}}); err != nil {
+	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 7}}); err != nil {
 		t.Fatal(err)
 	}
 	p := rosterPolicy{store: st, fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
 	if pol, ok := p.Policy("acme", "worker"); !ok || pol.MaxEphemeral != 7 {
 		t.Fatalf("Policy = %+v,%v; want roster value 7", pol, ok)
 	}
-	if err := st.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxEphemeral: 9}}); err != nil {
+	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 9}}); err != nil {
 		t.Fatal(err)
 	}
 	if pol, ok := p.Policy("acme", "worker"); !ok || pol.MaxEphemeral != 9 {
@@ -40,7 +40,7 @@ func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 // A role that sets no max-ephemeral uses the dispatcher's fallback.
 func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 	st := newPolicyStore(t)
-	if err := st.PutRole("acme", harbor.Role{Name: "worker"}); err != nil {
+	if err := st.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
 	p := rosterPolicy{store: st, fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
@@ -53,7 +53,7 @@ func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 // dispatcher's ephemeral fallback when the role sets no max-ephemeral.
 func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	st := newPolicyStore(t)
-	if err := st.PutRole("acme", harbor.Role{Name: "worker", Allocation: harbor.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
+	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	p := rosterPolicy{store: st, fallback: allocator.StaticPolicy{{Project: "acme", Role: "worker"}: {MaxEphemeral: 2}}}
@@ -88,8 +88,8 @@ func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
 		t.Fatalf("no dispatcher: fallback = %+v, want empty", p.fallback)
 	}
 	p := newRosterPolicy(st, &dispatcherConfig{Role: "worker", MaxConcurrent: 2})
-	if pol, ok := p.Policy(harbor.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
-		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, harbor.DefaultProject)
+	if pol, ok := p.Policy(jam.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
+		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, jam.DefaultProject)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
 // that declares only standing sessions still has a policy.
 func TestRosterPolicy_StandingNames(t *testing.T) {
 	st := newPolicyStore(t)
-	if err := st.PutRole("acme", harbor.Role{Name: "reviewer", Allocation: harbor.RoleAllocation{Standing: []harbor.StandingSession{{Name: "alice-bot", Prompt: "p"}, {Name: "bob-bot", Prompt: "q"}}}}); err != nil {
+	if err := st.PutRole("acme", jam.Role{Name: "reviewer", Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "p"}, {Name: "bob-bot", Prompt: "q"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	p := rosterPolicy{store: st}

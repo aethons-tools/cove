@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -166,7 +166,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 // intercom log — with or without a dispatcher — and leaves the broker alone
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutDispatcher(t *testing.T) {
-	st, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestCoveHTTPHandlerMountsSquawksWithoutDispatcher(t *testing.T) {
 	}
 	defer lg.Close()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sup := harbor.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
+	sup := jam.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
 
 	get := func(h http.Handler, path string) int {

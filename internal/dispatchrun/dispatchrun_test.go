@@ -495,7 +495,7 @@ func TestWorkerSecretsInjectedOnlyAtAgentStep(t *testing.T) {
 	}
 }
 
-func TestDispatchHarborConnector(t *testing.T) {
+func TestDispatchJamConnector(t *testing.T) {
 	dir := t.TempDir()
 	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
 	out := dir + "/task-result.json"
@@ -513,8 +513,8 @@ func TestDispatchHarborConnector(t *testing.T) {
 		},
 		Image: "at-cove-for-w", Name: "disp-worker",
 		CredentialsFile: creds,
-		HarborHost:      "h.test",
-		HarborToken:     "tok-xyz-9",
+		JamHost:         "h.test",
+		JamToken:        "tok-xyz-9",
 		InputPath:       in, OutputPath: out,
 		IdentityFile: "id", KnownHostsDir: t.TempDir(),
 		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),

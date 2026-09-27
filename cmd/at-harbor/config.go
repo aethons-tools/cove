@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/harbor/browserauth"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -131,8 +131,8 @@ type discordConfig struct {
 	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
 }
 
-// launcherConfig configures the real Colima-backed harbor.Launcher
-// (internal/harbor/launcher). Present (non-nil) opts a `serve` process into
+// launcherConfig configures the real Colima-backed jam.Launcher
+// (internal/jam/launcher). Present (non-nil) opts a `serve` process into
 // raising real managed coves; absent keeps the placeholder launcher.
 type launcherConfig struct {
 	// InstallManifest is the host path to the at-cove install manifest
@@ -141,9 +141,9 @@ type launcherConfig struct {
 	// RuntimeAddr is the harbor Attach-gRPC address a raised cove's cove-master
 	// dials (AT_HARBOR_RUNTIME_ADDR), typically "<harbor-host>:443".
 	RuntimeAddr string `yaml:"runtime-addr"`
-	// HarborHost is the broker hostname injected as the connector base and
+	// JamHost is the broker hostname injected as the connector base and
 	// docker --add-host target, so a raised cove can reach harbor by name.
-	HarborHost string `yaml:"harbor-host"`
+	JamHost string `yaml:"harbor-host"`
 	// IdentityFile/KnownHostsDir are the SSH identity harbor uses to reach a
 	// raised cove. They must be the same key `at-cove install` baked into the
 	// image's authorized_keys. Default to the at-cove config dir's
@@ -171,7 +171,7 @@ func (c serveConfig) validateLauncher() error {
 	if lc.RuntimeAddr == "" {
 		return fmt.Errorf("runtime.launcher.runtime-addr is required")
 	}
-	if lc.HarborHost == "" {
+	if lc.JamHost == "" {
 		return fmt.Errorf("runtime.launcher.harbor-host is required")
 	}
 	if lc.IdentityFile == "" {
@@ -296,7 +296,7 @@ func atCoveConfigDir() string {
 // operatorLoginConfig builds the public device-flow client config harbor
 // advertises at /admin/login-config, or nil when device login isn't configured
 // (no device-client-id). Scope defaults to "openid".
-func (c serveConfig) operatorLoginConfig() *harbor.OperatorLoginConfig {
+func (c serveConfig) operatorLoginConfig() *jam.OperatorLoginConfig {
 	o := c.OperatorAuth.OIDC
 	if o == nil || o.DeviceClientID == "" {
 		return nil
@@ -305,7 +305,7 @@ func (c serveConfig) operatorLoginConfig() *harbor.OperatorLoginConfig {
 	if scope == "" {
 		scope = "openid"
 	}
-	return &harbor.OperatorLoginConfig{Issuer: o.Issuer, Audience: o.Audience, ClientID: o.DeviceClientID, Scope: scope}
+	return &jam.OperatorLoginConfig{Issuer: o.Issuer, Audience: o.Audience, ClientID: o.DeviceClientID, Scope: scope}
 }
 
 // browserAuthConfig builds the browser (Authorization Code + PKCE) login config

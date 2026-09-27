@@ -9,8 +9,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // serveMux serves both the broker (HTTP/1.1 and HTTP/2) and the Attach gRPC
@@ -54,20 +54,20 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 // has an intercom log (with or without a dispatcher — a personal session needs
 // the intercom too) or a dispatcher (whose coves have always had /escalate; with
 // no log their sends fail with a clean 503). With neither, the broker alone.
-func coveHTTPHandler(broker http.Handler, st harbor.Store, sup *harbor.Supervisor, lg intercom.Store, dispatcher bool, log *slog.Logger) http.Handler {
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, dispatcher bool, log *slog.Logger) http.Handler {
 	if lg == nil && !dispatcher {
 		return broker
 	}
 	// Pass lg as both the reader and the appender only when it's genuinely
 	// non-nil: it is an intercom.Store interface value holding a real backend or
 	// a true nil interface, so this is a plain nil check (no typed-nil hazard).
-	var squawksH *harbor.SquawksHandler
+	var squawksH *jam.SquawksHandler
 	if lg != nil {
-		squawksH = harbor.NewSquawksHandler(st, lg, lg, log)
+		squawksH = jam.NewSquawksHandler(st, lg, lg, log)
 	} else {
-		squawksH = harbor.NewSquawksHandler(st, nil, nil, log)
+		squawksH = jam.NewSquawksHandler(st, nil, nil, log)
 	}
-	escH := harbor.NewEscalateHandler(st, sup, log)
+	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("harbor messages: mounted", "path", "/squawks")
 	log.Info("harbor escalate: mounted", "path", "/escalate")
 	return squawksMux(squawksH, escH, broker)

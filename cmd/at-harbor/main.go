@@ -32,17 +32,17 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
-	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/harbor/adminclient"
-	"github.com/aethons-tools/cove/internal/harbor/adminui"
-	"github.com/aethons-tools/cove/internal/harbor/attach"
-	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
-	"github.com/aethons-tools/cove/internal/harbor/browserauth"
-	"github.com/aethons-tools/cove/internal/harbor/deviceflow"
-	"github.com/aethons-tools/cove/internal/harbor/launcher"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/intercom/intercompg"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/adminclient"
+	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/attach"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/deviceflow"
+	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -240,7 +240,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}{res.ID, res.Token})
 		return 0
 	}
-	fmt.Fprint(stdout, harbor.RenderEnrollSnippet(baseURL, res.Token))
+	fmt.Fprint(stdout, jam.RenderEnrollSnippet(baseURL, res.Token))
 	return 0
 }
 
@@ -282,7 +282,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token for an OIDC-gated admin API (env: AT_HARBOR_ADMIN_TOKEN)")
 	// add flags
-	var d harbor.Destination
+	var d jam.Destination
 	fs.StringVar(&d.Name, "name", "", "destination name")
 	fs.StringVar(&d.Route, "route", "", "inbound path prefix, e.g. /git/")
 	fs.StringVar(&d.Upstream, "upstream", "", "upstream base URL")
@@ -303,7 +303,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
 	case "add":
-		d.IdentityIn, d.Apply = harbor.ApplyMethod(identityIn), harbor.ApplyMethod(apply)
+		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
 		if err := c.AddDestination(d); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -338,7 +338,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
-		var conf harbor.Config
+		var conf jam.Config
 		if err := yaml.Unmarshal(data, &conf); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -367,7 +367,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
 	repos := fs.String("repos", "", "comma-separated owner/repo globs")
@@ -404,10 +404,10 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
 			return 2
 		}
-		r := harbor.Role{
+		r := jam.Role{
 			Name: *name, Kit: *kitName,
-			Scope: harbor.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
-			Allocation: harbor.RoleAllocation{
+			Scope: jam.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
 				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
 			},
@@ -416,7 +416,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, harbor.DefaultProject)+"/"+*name)
+		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, jam.DefaultProject)+"/"+*name)
 	case "list":
 		roles, err := c.ListRoles(*project)
 		if err != nil {
@@ -431,7 +431,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor role rm: expected one role name")
 			return 2
 		}
-		if err := c.RemoveRole(firstNonEmpty(*project, harbor.DefaultProject), pos[0]); err != nil {
+		if err := c.RemoveRole(firstNonEmpty(*project, jam.DefaultProject), pos[0]); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -489,16 +489,16 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor project roster add-human: expected <project> --name and --handle")
 			return 2
 		}
-		var profiles []harbor.DeliveryProfile
+		var profiles []jam.DeliveryProfile
 		for _, d := range delivery {
 			svc, addr, ok := strings.Cut(d, ":")
 			if !ok || svc == "" || addr == "" {
 				fmt.Fprintf(stderr, "at-harbor project roster add-human: invalid --delivery %q (want service:address)\n", d)
 				return 2
 			}
-			profiles = append(profiles, harbor.DeliveryProfile{Service: svc, Address: addr})
+			profiles = append(profiles, jam.DeliveryProfile{Service: svc, Address: addr})
 		}
-		if err := c.AddHuman(pos[0], harbor.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
+		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -508,7 +508,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor project roster add-channel: expected <project> --name and --ref")
 			return 2
 		}
-		if err := c.AddChannel(pos[0], harbor.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
+		if err := c.AddChannel(pos[0], jam.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
@@ -717,7 +717,7 @@ func (m *multiFlag) Set(v string) error {
 }
 
 // tierFlags collects repeatable --tier values, parsing 'targets@timeout'.
-type tierFlags []harbor.EscalationTier
+type tierFlags []jam.EscalationTier
 
 func (t *tierFlags) String() string { return fmt.Sprintf("%d tiers", len(*t)) }
 func (t *tierFlags) Set(v string) error {
@@ -730,7 +730,7 @@ func (t *tierFlags) Set(v string) error {
 		return fmt.Errorf("tier %q: bad timeout: %w", v, err)
 	}
 	targets := strings.Split(v[:at], ",")
-	*t = append(*t, harbor.EscalationTier{Targets: targets, Timeout: d})
+	*t = append(*t, jam.EscalationTier{Targets: targets, Timeout: d})
 	return nil
 }
 
@@ -862,7 +862,7 @@ func cmdCove(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "cove/actor id")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to raise the cove for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
@@ -952,7 +952,7 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to request a personal session of (request only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -1026,7 +1026,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role the standing session belongs to")
 	name := fs.String("name", "", "standing session name, unique within the role (add only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
@@ -1042,7 +1042,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-harbor standing %s: --role is required\n", sub)
 		return 2
 	}
-	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	proj := firstNonEmpty(*project, jam.DefaultProject)
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
@@ -1056,11 +1056,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-harbor standing add: --prompt-file:", err)
 			return 1
 		}
-		if err := c.AddStanding(proj, *role, harbor.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
+		if err := c.AddStanding(proj, *role, jam.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, harbor.StandingActorID(proj, *role, *name))
+		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, jam.StandingActorID(proj, *role, *name))
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
@@ -1068,7 +1068,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, s := range list {
-			fmt.Fprintf(stdout, "%s\tid=%s\n", s.Name, harbor.StandingActorID(proj, *role, s.Name))
+			fmt.Fprintf(stdout, "%s\tid=%s\n", s.Name, jam.StandingActorID(proj, *role, s.Name))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1089,7 +1089,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 // egressState renders a role's egress policy for listings: "kit" (no policy:
 // the kit's default list), "none" (set but empty) or the comma-joined list.
-func egressState(p *harbor.EgressPolicy) string {
+func egressState(p *jam.EgressPolicy) string {
 	switch {
 	case p == nil:
 		return "kit"
@@ -1113,7 +1113,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role whose egress policy to manage")
 	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -1153,7 +1153,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "at-harbor egress %s: unexpected arguments\n", sub)
 		return 2
 	}
-	proj := firstNonEmpty(*project, harbor.DefaultProject)
+	proj := firstNonEmpty(*project, jam.DefaultProject)
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
@@ -1205,7 +1205,7 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 	adminURLFlag := fs.String("admin-url", "", "harbor admin API URL (overrides the app's settings)")
 	token := fs.String("token", os.Getenv("AT_HARBOR_ADMIN_TOKEN"), "operator token (env: AT_HARBOR_ADMIN_TOKEN)")
 	id := fs.String("id", "", "actor id")
-	project := fs.String("project", "", "project name (default: "+harbor.DefaultProject+")")
+	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role name")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
@@ -1223,9 +1223,9 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	var err error
 	if remove {
-		err = c.RemoveGrant(*id, firstNonEmpty(*project, harbor.DefaultProject), *role)
+		err = c.RemoveGrant(*id, firstNonEmpty(*project, jam.DefaultProject), *role)
 	} else {
-		err = c.AddGrant(*id, harbor.Grant{Project: *project, Role: *role})
+		err = c.AddGrant(*id, jam.Grant{Project: *project, Role: *role})
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
@@ -1266,31 +1266,31 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// placeholderLauncher satisfies harbor.Launcher without a real backend: it
+// placeholderLauncher satisfies jam.Launcher without a real backend: it
 // records a synthetic location and always probes Alive, so the supervisor spine
 // (registry, leases, reconciler, restart re-adoption) runs end-to-end against a
 // live `at-harbor serve`. `cove raise` against it creates a Live Instance with no
 // actual cove. The real backend+kit launcher lands in a later slice.
 type placeholderLauncher struct{}
 
-func (placeholderLauncher) Raise(_ context.Context, spec harbor.RaiseSpec, _ harbor.LaunchCreds) (string, error) {
+func (placeholderLauncher) Raise(_ context.Context, spec jam.RaiseSpec, _ jam.LaunchCreds) (string, error) {
 	return "placeholder:" + spec.ActorID, nil
 }
-func (placeholderLauncher) Teardown(context.Context, harbor.Instance) error { return nil }
-func (placeholderLauncher) Probe(context.Context, harbor.Instance) (harbor.Liveness, error) {
-	return harbor.LivenessAlive, nil
+func (placeholderLauncher) Teardown(context.Context, jam.Instance) error { return nil }
+func (placeholderLauncher) Probe(context.Context, jam.Instance) (jam.Liveness, error) {
+	return jam.LivenessAlive, nil
 }
-func (placeholderLauncher) Pause(context.Context, harbor.Instance) error   { return nil }
-func (placeholderLauncher) Unpause(context.Context, harbor.Instance) error { return nil }
+func (placeholderLauncher) Pause(context.Context, jam.Instance) error   { return nil }
+func (placeholderLauncher) Unpause(context.Context, jam.Instance) error { return nil }
 
 // ApplyEgress is a no-op: there is no cove to police (raise ignores egress too).
-func (placeholderLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+func (placeholderLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
 
 // linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
 // engine's ticket-comment capability). It exists here, rather than in
-// internal/harbor, so harbor core never imports internal/dispatch/linear or
+// internal/jam, so harbor core never imports internal/dispatch/linear or
 // internal/dispatch/scheduler (see AGENTS.md boundary rules): the concrete
 // tracker type is a wiring-layer concern.
 type linearCommenter struct{ c *linear.Client }
@@ -1362,7 +1362,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Select the store backend. store-postgres wins when set; otherwise the file
 	// store. The DB password is resolved on the host in memory and assembled into
 	// the DSN — never written to disk/argv, never logged.
-	var st harbor.Store
+	var st jam.Store
 	var pgPool *pgxpool.Pool // non-nil ⇒ Postgres backend; shared with the message log
 	if pc := cfg.StorePostgres; pc != nil {
 		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
@@ -1372,7 +1372,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
 			pc.Host, pc.Port, pc.Database, pc.User, resolved[pc.PasswordCred], pc.SSLMode)
-		ps, err := harbor.NewPostgresStore(context.Background(), dsn, log)
+		ps, err := jam.NewPostgresStore(context.Background(), dsn, log)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor: store-postgres:", err)
 			return 1
@@ -1382,7 +1382,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		pgPool = ps.Pool()
 		log.Info("harbor store: postgres", "host", pc.Host, "database", pc.Database) // never the password
 	} else {
-		fs, err := harbor.NewFileStore(cfg.Store)
+		fs, err := jam.NewFileStore(cfg.Store)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-harbor:", err)
 			return 1
@@ -1391,15 +1391,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("harbor store: file", "path", cfg.Store)
 	}
 
-	creds := harbor.NewSecretResolver(runner.OS{}, specs)
-	broker := harbor.NewBroker(st, creds, log)
+	creds := jam.NewSecretResolver(runner.OS{}, specs)
+	broker := jam.NewBroker(st, creds, log)
 
 	ttl, reconcile, err := cfg.runtimeDurations()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-harbor:", err)
 		return 1
 	}
-	var lch harbor.Launcher = placeholderLauncher{}
+	var lch jam.Launcher = placeholderLauncher{}
 	if lc := cfg.Runtime.Launcher; lc != nil {
 		var m install.Manifest
 		b, err := os.ReadFile(lc.InstallManifest)
@@ -1419,14 +1419,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		lch = launcher.New(launcher.Config{
 			Ops: be, Runner: runner.OS{},
 			Image: m.Image, ImageDigest: m.ImageDigest,
-			HarborHost: lc.HarborHost, RuntimeAddr: lc.RuntimeAddr,
+			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
 			Log: log,
 		})
 		log.Info("harbor launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
 	}
-	sup := harbor.NewSupervisor(st, lch, harbor.NewHolderID(), ttl, reconcile, time.Now, log)
+	sup := jam.NewSupervisor(st, lch, jam.NewHolderID(), ttl, reconcile, time.Now, log)
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
@@ -1492,7 +1492,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		ledger = as
 	}
-	alloc := allocator.New(harbor.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
+	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
 	alloc.SetLogger(log)
 	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
@@ -1649,7 +1649,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if err != nil {
 				log.Warn("harbor relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 			}
-			dir.project = firstNonEmpty(dc.Project, harbor.DefaultProject)
+			dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
 			dir.selfIdentity = self
 			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 			// Seed once: skip everything the 1a dual-write already delivered live,
@@ -1715,9 +1715,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Admin API on the loopback listener (operator surface).
 	if cfg.AdminListen != "" {
-		var auth harbor.OperatorAuthenticator = harbor.LoopbackAuthenticator{}
+		var auth jam.OperatorAuthenticator = jam.LoopbackAuthenticator{}
 		if o := cfg.OperatorAuth.OIDC; o != nil {
-			oidcAuth, err := harbor.NewOIDCAuthenticator(context.Background(), o.Issuer, o.Audience, o.RequireScope)
+			oidcAuth, err := jam.NewOIDCAuthenticator(context.Background(), o.Issuer, o.Audience, o.RequireScope)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-harbor: operator OIDC:", err)
 				return 1
@@ -1751,7 +1751,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 			uiMux.Handle("/ui/auth/", svc.Routes())
-			if oidcAuth, ok := auth.(*harbor.OIDCAuthenticator); ok {
+			if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok {
 				gate.Sess = &browserauth.SessionVerifier{Auth: oidcAuth}
 			}
 			log.Info("harbor UI auth: browser OIDC login", "client-id", bc.ClientID)
@@ -1760,7 +1760,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := harbor.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

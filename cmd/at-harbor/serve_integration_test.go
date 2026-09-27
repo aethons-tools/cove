@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // fakeResolver returns a canned real credential for any name.
@@ -36,15 +36,15 @@ func TestServeBrokersOverTLS(t *testing.T) {
 	}))
 	defer up.Close()
 
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.AddDestination(harbor.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: harbor.ApplyXAPIKey, CredName: "anthropic-key", Apply: harbor.ApplyXAPIKey}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: jam.ApplyXAPIKey, CredName: "anthropic-key", Apply: jam.ApplyXAPIKey}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ := harbor.Enroll(store, "spider-18", "ACME", "guest", nil, timeNow())
-	broker := harbor.NewBroker(store, fakeResolver{}, discardLogger())
+	tok, _ := jam.Enroll(store, "spider-18", "ACME", "guest", nil, timeNow())
+	broker := jam.NewBroker(store, fakeResolver{}, discardLogger())
 
 	ts := httptest.NewTLSServer(broker)
 	defer ts.Close()

@@ -35,7 +35,7 @@ func TestDetachedLaunchCmd(t *testing.T) {
 // the bot token must never appear on any argv the runner received (only on
 // stdin, via writeVM), and the actual launch command must be a non-tty,
 // detached (setsid) ssh invocation of at-switchboard.
-func TestLaunchTeammateHarborSupersedesAuth(t *testing.T) {
+func TestLaunchTeammateJamSupersedesAuth(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
 	r := &runner.Fake{} // no auth probe expected under harbor
 	err := LaunchTeammate(r, b, TeammateOptions{
@@ -44,8 +44,8 @@ func TestLaunchTeammateHarborSupersedesAuth(t *testing.T) {
 		Channels:       []string{"111"},
 		IdentityFile:   "/id",
 		KnownHostsFile: "/kh",
-		HarborHost:     "h.test",
-		HarborToken:    "harbor-tok-77",
+		JamHost:        "h.test",
+		JamToken:       "harbor-tok-77",
 	})
 	if err != nil {
 		t.Fatalf("LaunchTeammate: %v", err)

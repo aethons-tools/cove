@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -21,9 +21,9 @@ func openTestLog(t *testing.T) *intercom.Log {
 	return lg
 }
 
-var nagInst = harbor.Instance{
+var nagInst = jam.Instance{
 	ActorID: "pers-1", Project: "acme", Role: "pair", Owner: "alice",
-	SessionKind: harbor.SessionKindPersonal, Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting,
+	SessionKind: jam.SessionKindPersonal, Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting,
 }
 
 // Nag and NotifyReclaimed append a squawk from the cove to its owner, stamped
@@ -62,7 +62,7 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	}
 }
 
-// A nag carries a recognizable id (harbor.NagMessageID) so a reply to it can be
+// A nag carries a recognizable id (jam.NagMessageID) so a reply to it can be
 // told apart from a reply to anything else the cove sent.
 func TestNagCarriesNagID(t *testing.T) {
 	lg := openTestLog(t)
@@ -72,8 +72,8 @@ func TestNagCarriesNagID(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := lg.List(intercom.Filter{})
-	if len(got) != 1 || got[0].ID != harbor.NagMessageID("pers-1", at) || !harbor.IsNagReply(got[0].ID, "pers-1") {
-		t.Fatalf("nag = %+v, want id %q", got, harbor.NagMessageID("pers-1", at))
+	if len(got) != 1 || got[0].ID != jam.NagMessageID("pers-1", at) || !jam.IsNagReply(got[0].ID, "pers-1") {
+		t.Fatalf("nag = %+v, want id %q", got, jam.NagMessageID("pers-1", at))
 	}
 }
 
@@ -82,24 +82,24 @@ func TestNagCarriesNagID(t *testing.T) {
 func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 	const base = "Your personal session pers-1 (pair) has been waiting on you for 5h. Reply to this message to pick it back up, or release it with: at-harbor session release pers-1"
 	const hint = ` Reply "keep" to keep it, or "release" to end it.`
-	disc := func(addr string) []harbor.DeliveryProfile {
-		return []harbor.DeliveryProfile{{Service: "discord", Address: addr}}
+	disc := func(addr string) []jam.DeliveryProfile {
+		return []jam.DeliveryProfile{{Service: "discord", Address: addr}}
 	}
-	discordProj := map[string]harbor.Project{"acme": {Name: "acme", ChatService: "discord"}}
+	discordProj := map[string]jam.Project{"acme": {Name: "acme", ChatService: "discord"}}
 	for name, tc := range map[string]struct {
 		store *fakeStore
 		want  string
 	}{
-		"unique inbox": {&fakeStore{projects: discordProj, roster: map[string]harbor.Roster{"acme": {Humans: []harbor.Human{
+		"unique inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("inbox-A")}, {Name: "bob", Delivery: disc("inbox-B")},
 		}}}}, base + hint},
-		"shared inbox": {&fakeStore{projects: discordProj, roster: map[string]harbor.Roster{"acme": {Humans: []harbor.Human{
+		"shared inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("shared")}, {Name: "bob", Delivery: disc("shared")},
 		}}}}, base},
-		"no discord profile": {&fakeStore{projects: discordProj, roster: map[string]harbor.Roster{"acme": {Humans: []harbor.Human{
+		"no discord profile": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice"},
 		}}}}, base},
-		"not a discord project": {&fakeStore{roster: map[string]harbor.Roster{"acme": {Humans: []harbor.Human{
+		"not a discord project": {&fakeStore{roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("inbox-A")},
 		}}}}, base},
 		"no roster": {&fakeStore{projects: discordProj}, base},
@@ -135,7 +135,7 @@ func TestNaggerConfirmations(t *testing.T) {
 		if m.From != (intercom.Target{Kind: "actor", Ref: "pers-1"}) || len(m.To) != 1 || m.To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || m.Project != "acme" {
 			t.Fatalf("squawk shape = %+v", m)
 		}
-		if harbor.IsNagReply(m.ID, "pers-1") {
+		if jam.IsNagReply(m.ID, "pers-1") {
 			t.Fatalf("a confirmation is not a nag: %q", m.ID)
 		}
 	}
@@ -167,10 +167,10 @@ func TestFormatIdle(t *testing.T) {
 
 // nagRosterStore is a real FileStore with a discord project whose owner alice
 // has a discord inbox, holding the personal session's Instance.
-func nagRosterStore(t *testing.T) *harbor.FileStore {
+func nagRosterStore(t *testing.T) *jam.FileStore {
 	t.Helper()
 	st := newTestStore(t)
-	if err := st.AddHuman("acme", harbor.Human{Name: "alice", Handle: "alice.h", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}}); err != nil {
+	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetChatService("acme", "discord"); err != nil {
@@ -224,7 +224,7 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 	}
 	// posted in alice's own inbox → attributed to roster human alice, and it
 	// replies to the nag itself (so wake-on can recognize a keep/release).
-	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !harbor.IsNagReply(replyTo, "pers-1") {
+	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !jam.IsNagReply(replyTo, "pers-1") {
 		t.Fatalf("reply from=%+v replyTo=%q, want human:alice replying to nag %q", from, replyTo, nag.ID)
 	}
 	if _, err := lg.Append(intercom.Squawk{From: from, To: to, Body: "still here", Project: "acme", ReplyTo: replyTo}); err != nil {

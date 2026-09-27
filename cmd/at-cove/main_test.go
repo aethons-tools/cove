@@ -97,10 +97,10 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 	}
 }
 
-func TestAtHarborBinary(t *testing.T) {
-	got := atHarborBinary()
+func TestAtJamBinary(t *testing.T) {
+	got := atJamBinary()
 	if got == "" || filepath.Base(got) != "at-harbor" {
-		t.Fatalf("atHarborBinary() = %q, want a path/name ending in at-harbor", got)
+		t.Fatalf("atJamBinary() = %q, want a path/name ending in at-harbor", got)
 	}
 }
 
@@ -116,45 +116,45 @@ func calledWith(calls []runner.Call, s string) bool {
 	return false
 }
 
-func TestHarborPlan(t *testing.T) {
+func TestJamPlan(t *testing.T) {
 	// nil harbor block → no auth, no revoke.
-	if ha, rev, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
+	if ha, rev, err := jamPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
 		t.Fatalf("no harbor block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
 	}
 	// pre-supplied identity: resolves the secret host-side; no revoke, no shell-out.
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local", Identity: "HARBOR_ID"}}
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "harbor.local", Identity: "HARBOR_ID"}}
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
 		"k": {"HARBOR_ID": {Value: ptr("tok-abc")}},
 	}}
 	f := &runner.Fake{}
-	ha, rev, err := harborPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
 	if err != nil {
-		t.Fatalf("harborPlan: %v", err)
+		t.Fatalf("jamPlan: %v", err)
 	}
 	if ha == nil || ha.Host != "harbor.local" || ha.Token != "tok-abc" || rev != nil {
-		t.Fatalf("manual path: harborAuth=%+v revNil=%v", ha, rev == nil)
+		t.Fatalf("manual path: jamAuth=%+v revNil=%v", ha, rev == nil)
 	}
 	if calledWith(f.Calls, "enroll") {
 		t.Fatalf("manual path must not shell at-harbor enroll: %+v", f.Calls)
 	}
 	// declared-but-unsupplied identity → hard error (fail closed).
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
 		t.Fatal("unsupplied identity must fail closed")
 	}
 }
 
-func TestHarborPlanAutoEnroll(t *testing.T) {
+func TestJamPlanAutoEnroll(t *testing.T) {
 	// no identity → auto-enroll: shell at-harbor enroll --json, use the token,
 	// return a revoke closure.
 	cfg := kit.Config{
 		Name:          "k",
-		Harbor:        &kit.HarborConfig{Host: "harbor.local"},
+		Jam:           &kit.JamConfig{Host: "harbor.local"},
 		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo"}},
 	}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"id":"cove-box-1","token":"TKN"}` + "\n"}}}
 	// kitName ("k") differs from coveID ("cove-box-1"): the enroll --id must use
 	// the per-instance coveID, not the shared kit/bucket name.
-	ha, rev, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
 	if err != nil {
 		t.Fatalf("auto-enroll: %v", err)
 	}
@@ -206,10 +206,10 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	}
 }
 
-func TestHarborPlanAutoEnrollFailsClosed(t *testing.T) {
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local"}}
+func TestJamPlanAutoEnrollFailsClosed(t *testing.T) {
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "harbor.local"}}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
 		t.Fatal("a failing at-harbor enroll must fail closed")
 	}
 }
@@ -913,7 +913,7 @@ func TestDestroyReapsKnownHostsPin(t *testing.T) {
 // destroy removes exactly those instead of re-deriving them (COV-76).
 // COV-138: a kit with a harbor: block maps the broker host to the gateway at
 // create, so the hardened container can reach a host-run harbor by name.
-func TestCreateHarborAddsHost(t *testing.T) {
+func TestCreateJamAddsHost(t *testing.T) {
 	dir := t.TempDir()
 	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {

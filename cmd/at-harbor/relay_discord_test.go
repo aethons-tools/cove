@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/switchboard"
 )
@@ -276,15 +276,15 @@ func TestFileReceiptsMissingFile(t *testing.T) {
 
 func TestDiscordPolledChannels(t *testing.T) {
 	store := &fakeStore{
-		roster: map[string]harbor.Roster{
+		roster: map[string]jam.Roster{
 			"acme": {
-				Humans: []harbor.Human{
-					{Name: "alice", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
-					{Name: "bob", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
-					{Name: "carol", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
+				Humans: []jam.Human{
+					{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
+					{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
+					{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
 					{Name: "dave"}, // no discord profile
 				},
-				Channels: []harbor.Channel{
+				Channels: []jam.Channel{
 					{Name: "eng-help", Service: "discord", Ref: "chan-C"},   // discord channel → MUST be polled (reply-routing)
 					{Name: "chan-A-dup", Service: "discord", Ref: "chan-A"}, // duplicate of a human inbox → deduped
 					{Name: "linear-only", Service: "linear", Ref: "ACME-1"}, // non-discord → excluded
@@ -309,7 +309,7 @@ func TestDiscordPolledChannels(t *testing.T) {
 }
 
 func TestDiscordPolledChannelsNoRoster(t *testing.T) {
-	store := &fakeStore{roster: map[string]harbor.Roster{}}
+	store := &fakeStore{roster: map[string]jam.Roster{}}
 	if got := discordPolledChannels(store, "nope"); got != nil {
 		t.Fatalf("channels = %v, want nil", got)
 	}

@@ -48,7 +48,7 @@ func writeTeammateKit(t *testing.T, dir string) string {
 // A harbor teammate must have a pre-supplied harbor.identity: auto-enroll is
 // unsupported for a detached conductor (no exit hook to revoke on), so doTeammate
 // rejects a harbor teammate that omits identity (COV-142).
-func TestTeammate_HarborRequiresIdentity(t *testing.T) {
+func TestTeammate_JamRequiresIdentity(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(kitDir, 0o755); err != nil {

@@ -249,7 +249,7 @@ runtime:
 	}
 	if lc.InstallManifest != "/var/lib/harbor/install.json" ||
 		lc.RuntimeAddr != "harbor.example.com:443" ||
-		lc.HarborHost != "harbor.example.com" ||
+		lc.JamHost != "harbor.example.com" ||
 		lc.IdentityFile != "/etc/harbor/id_ed25519" ||
 		lc.KnownHostsDir != "/etc/harbor/known_hosts.d" ||
 		!lc.Docker ||
@@ -271,7 +271,7 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 		return &launcherConfig{
 			InstallManifest: "/m.json",
 			RuntimeAddr:     "h:443",
-			HarborHost:      "h",
+			JamHost:         "h",
 		}
 	}
 	// all required fields present → ok, and defaults get filled in.
@@ -287,7 +287,7 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 	for field, mutate := range map[string]func(*launcherConfig){
 		"install-manifest": func(l *launcherConfig) { l.InstallManifest = "" },
 		"runtime-addr":     func(l *launcherConfig) { l.RuntimeAddr = "" },
-		"harbor-host":      func(l *launcherConfig) { l.HarborHost = "" },
+		"harbor-host":      func(l *launcherConfig) { l.JamHost = "" },
 	} {
 		bad := serveConfig{}
 		bad.Runtime.Launcher = base()
@@ -301,7 +301,7 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
 	c := serveConfig{}
 	c.Runtime.Launcher = &launcherConfig{
-		InstallManifest: "/m.json", RuntimeAddr: "h:443", HarborHost: "h",
+		InstallManifest: "/m.json", RuntimeAddr: "h:443", JamHost: "h",
 		IdentityFile: "/custom/id", KnownHostsDir: "/custom/kh",
 	}
 	if err := c.validateLauncher(); err != nil {

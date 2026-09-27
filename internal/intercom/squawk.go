@@ -2,7 +2,7 @@
 // (Squawk{From, To[], Body, …}) for all comms, over a JSONL file mirrored in
 // memory. A Target's Reach (Internal/External) decides whether it's delivered
 // in-band (a cove reads its inbox) or later rendered onto a human surface by an
-// adapter. This package is stdlib-only and imports nothing from internal/harbor;
+// adapter. This package is stdlib-only and imports nothing from internal/jam;
 // harbor consumes it. Single-node (the serve process is the sole writer).
 package intercom
 

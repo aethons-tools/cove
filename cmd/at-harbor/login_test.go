@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // fakeAuth0 serves discovery + device-code + a token endpoint that immediately
@@ -45,16 +45,16 @@ func fakeAuth0(t *testing.T, sub string) *httptest.Server {
 	return srv
 }
 
-// harborWithLogin stands up a harbor admin API whose login-config points at the
+// jamWithLogin stands up a harbor admin API whose login-config points at the
 // given issuer.
-func harborWithLogin(t *testing.T, issuer string) *httptest.Server {
+func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
 	t.Helper()
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := &harbor.OperatorLoginConfig{Issuer: issuer, Audience: "https://harbor.test/api", ClientID: "cid", Scope: "openid"}
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://harbor.test/api", ClientID: "cid", Scope: "openid"}
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts
@@ -63,7 +63,7 @@ func harborWithLogin(t *testing.T, issuer string) *httptest.Server {
 func TestLoginCachesToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	idp := fakeAuth0(t, "auth0|alice")
-	hb := harborWithLogin(t, idp.URL)
+	hb := jamWithLogin(t, idp.URL)
 
 	var out, errb bytes.Buffer
 	code := run([]string{"login", "--admin-url", hb.URL}, func(string) string { return "" }, &out, &errb)
@@ -99,7 +99,7 @@ func TestLoginCachesToken(t *testing.T) {
 func TestLoginPersistsAdminURLAndScopesByApp(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	idp := fakeAuth0(t, "auth0|bob")
-	hb := harborWithLogin(t, idp.URL)
+	hb := jamWithLogin(t, idp.URL)
 
 	var out, errb bytes.Buffer
 	if code := run([]string{"login", "--app", "prod", "--admin-url", hb.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
@@ -180,12 +180,12 @@ func TestEnvTokenShadowWarning(t *testing.T) {
 
 func TestLoginNotOIDCGated(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// nil login config → /admin/login-config 404
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

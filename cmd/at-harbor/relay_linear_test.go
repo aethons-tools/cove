@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -73,9 +73,9 @@ func TestLinearSurfacePollSetSinceParses(t *testing.T) {
 	}
 }
 
-func newTestStore(t *testing.T) *harbor.FileStore {
+func newTestStore(t *testing.T) *jam.FileStore {
 	t.Helper()
-	st, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -84,10 +84,10 @@ func newTestStore(t *testing.T) *harbor.FileStore {
 
 func TestDirectoryRoute(t *testing.T) {
 	st := newTestStore(t)
-	if err := st.PutInstance(harbor.Instance{ActorID: "cove-1", Unit: "ACME-42", Project: "acme"}); err != nil {
+	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Unit: "ACME-42", Project: "acme"}); err != nil {
 		t.Fatalf("PutInstance: %v", err)
 	}
-	if err := st.AddChannel("acme", harbor.Channel{Name: "eng", Service: "linear", Ref: "ACME-9"}); err != nil {
+	if err := st.AddChannel("acme", jam.Channel{Name: "eng", Service: "linear", Ref: "ACME-9"}); err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
 	d := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
@@ -152,10 +152,10 @@ func TestRouteDiscord(t *testing.T) {
 // name.
 func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
 	st := newTestStore(t)
-	for _, h := range []harbor.Human{
-		{Name: "alice", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
-		{Name: "bob", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
-		{Name: "carol", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+	for _, h := range []jam.Human{
+		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
+		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+		{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
 	} {
 		if err := st.AddHuman("acme", h); err != nil {
 			t.Fatal(err)
@@ -230,15 +230,15 @@ func TestDiscordReplyJoinsThread(t *testing.T) {
 }
 
 // fakeStore is a minimal instanceRoster: canned instances, rosters and
-// projects, so Resolve/Deliver tests don't need a real *harbor.FileStore.
+// projects, so Resolve/Deliver tests don't need a real *jam.FileStore.
 type fakeStore struct {
-	insts    []harbor.Instance
-	roster   map[string]harbor.Roster
-	projects map[string]harbor.Project
+	insts    []jam.Instance
+	roster   map[string]jam.Roster
+	projects map[string]jam.Project
 }
 
-func (f *fakeStore) ListInstances() []harbor.Instance { return f.insts }
-func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
+func (f *fakeStore) ListInstances() []jam.Instance { return f.insts }
+func (f *fakeStore) GetRoster(p string) (jam.Roster, bool) {
 	r, ok := f.roster[p]
 	return r, ok
 }
@@ -247,7 +247,7 @@ func (f *fakeStore) GetRoster(p string) (harbor.Roster, bool) {
 // never populate projects get ok=false, which (for Resolve's purposes)
 // behaves like a zero Project — ChatService=="" — preserving the Linear-only
 // path.
-func (f *fakeStore) GetProject(name string) (harbor.Project, bool) {
+func (f *fakeStore) GetProject(name string) (jam.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
 }
@@ -263,12 +263,12 @@ func (f *fakeStore) ListProjects() []string {
 
 // newRosterStore builds a fakeStore with a single Instance and the project's
 // Roster preloaded (no ChatService set — Linear-only routing).
-func newRosterStore(t *testing.T, project string, inst harbor.Instance, roster harbor.Roster) *fakeStore {
+func newRosterStore(t *testing.T, project string, inst jam.Instance, roster jam.Roster) *fakeStore {
 	t.Helper()
 	return &fakeStore{
-		insts:    []harbor.Instance{inst},
-		roster:   map[string]harbor.Roster{project: roster},
-		projects: map[string]harbor.Project{project: {Name: project, Roster: roster}},
+		insts:    []jam.Instance{inst},
+		roster:   map[string]jam.Roster{project: roster},
+		projects: map[string]jam.Project{project: {Name: project, Roster: roster}},
 	}
 }
 
@@ -307,10 +307,10 @@ func (f *fakePoster) PostComment(_ context.Context, issueID, body string) error 
 // (issueID, body) pairs the pre-cutover direct-post handlePost produced.
 func TestEgressGoldenParity(t *testing.T) {
 	st := newRosterStore(t, "acme",
-		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
-		harbor.Roster{
-			Humans:   []harbor.Human{{Name: "alice", Handle: "alice.h"}},
-			Channels: []harbor.Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
+		jam.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		jam.Roster{
+			Humans:   []jam.Human{{Name: "alice", Handle: "alice.h"}},
+			Channels: []jam.Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
 		})
 	poster := &fakePoster{idByID: map[string]string{"ACME-7": "iss_7", "ACME-9": "iss_9"}}
 	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
@@ -355,20 +355,20 @@ func TestEgressGoldenParity(t *testing.T) {
 // fallback), a roster channel owned by discord, and a roster channel still
 // owned by linear (COV-179: the discord engine must not claim it).
 func TestResolveDiscordRouting(t *testing.T) {
-	roster := harbor.Roster{
-		Humans: []harbor.Human{
-			{Name: "alice", Handle: "alice.h", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
+	roster := jam.Roster{
+		Humans: []jam.Human{
+			{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
 			{Name: "bob", Handle: "bob.h"}, // no discord profile
 		},
-		Channels: []harbor.Channel{
+		Channels: []jam.Channel{
 			{Name: "eng", Service: "discord", Ref: "disc-eng"},
 			{Name: "tick", Service: "linear", Ref: "ACME-9"},
 		},
 	}
 	st := &fakeStore{
-		insts:    []harbor.Instance{{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
-		roster:   map[string]harbor.Roster{"acme": roster},
-		projects: map[string]harbor.Project{"acme": {Name: "acme", Roster: roster, ChatService: "discord"}},
+		insts:    []jam.Instance{{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
+		roster:   map[string]jam.Roster{"acme": roster},
+		projects: map[string]jam.Project{"acme": {Name: "acme", Roster: roster, ChatService: "discord"}},
 	}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	dir := &directory{store: st, project: "acme"}
@@ -410,8 +410,8 @@ func TestResolveDiscordRouting(t *testing.T) {
 // and the discord engine never owns any of its targets.
 func TestResolveNonDiscordProjectFallsBackToLinear(t *testing.T) {
 	st := newRosterStore(t, "acme",
-		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
-		harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}})
+		jam.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}})
 	dir := &directory{store: st, project: "acme"}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 
@@ -425,8 +425,8 @@ func TestResolveNonDiscordProjectFallsBackToLinear(t *testing.T) {
 
 func TestResolveUnroutableAndNonLinear(t *testing.T) {
 	st := newRosterStore(t, "acme",
-		harbor.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
-		harbor.Roster{Humans: []harbor.Human{{Name: "alice", Handle: "alice.h"}}})
+		jam.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
+		jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}})
 	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	// unknown human
@@ -454,7 +454,7 @@ func TestResolveUnroutableAndNonLinear(t *testing.T) {
 func TestResolveOwnTicketSurvivesInstanceGone(t *testing.T) {
 	st := &fakeStore{
 		insts:  nil, // no live instances — the sending cove is already gone
-		roster: map[string]harbor.Roster{"acme": {}},
+		roster: map[string]jam.Roster{"acme": {}},
 	}
 	dir := &directory{store: st, project: "acme", selfIdentity: "harbor-bot"}
 	to := intercom.Target{Kind: "channel", Ref: "ACME-7"}

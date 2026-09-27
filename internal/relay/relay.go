@@ -75,7 +75,7 @@ type Cursors interface {
 }
 
 // Directory does all actor<->Service mapping (the concrete impl, over
-// harbor.Roster/Instance, is at cmd).
+// jam.Roster/Instance, is at cmd).
 type Directory interface {
 	// Projects this Service should egress/ingress for.
 	Projects(service string) []string

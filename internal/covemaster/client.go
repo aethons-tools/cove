@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
 const (

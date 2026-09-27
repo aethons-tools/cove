@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/harbor/snippet"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
@@ -21,7 +21,7 @@ const (
 // CoveMasterOptions carries what LaunchCoveMaster injects into a raised cove.
 type CoveMasterOptions struct {
 	Target        sshargs.Target
-	HarborHost    string // harbor.host — connector base is https://<HarborHost>
+	JamHost       string // harbor.host — connector base is https://<JamHost>
 	RuntimeAddr   string // AT_HARBOR_RUNTIME_ADDR (harbor.host:443)
 	IdentityToken string // shared: AT_HARBOR_IDENTITY_TOKEN + the agent connector token
 	LaunchSecret  string // AT_HARBOR_LAUNCH_SECRET
@@ -41,7 +41,7 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	var script strings.Builder
 	// Agent connector (Anthropic base URL + x-api-key token + git routing). The
 	// identity token is exported here and shared with cove-master below.
-	script.WriteString(snippet.Render("https://"+o.HarborHost, o.IdentityToken))
+	script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
 	// cove-master's own env (AT_HARBOR_IDENTITY_TOKEN already exported by Render).
 	fmt.Fprintf(&script, "export AT_HARBOR_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
 	fmt.Fprintf(&script, "export AT_HARBOR_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))

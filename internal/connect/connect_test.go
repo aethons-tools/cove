@@ -506,7 +506,7 @@ func TestConnectInhibitsSleepAroundLaunch(t *testing.T) {
 	}
 }
 
-func TestConnect_HarborSupersedesAndInjects(t *testing.T) {
+func TestConnect_JamSupersedesAndInjects(t *testing.T) {
 	r := &runner.Fake{}
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
@@ -514,7 +514,7 @@ func TestConnect_HarborSupersedesAndInjects(t *testing.T) {
 		Container:     "c1",
 		IdentityFile:  "id",
 		KnownHostsDir: t.TempDir(),
-		Harbor:        &HarborAuth{Host: "harbor.test", Token: "s3cr3t-xyz"},
+		Jam:           &JamAuth{Host: "harbor.test", Token: "s3cr3t-xyz"},
 	})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)

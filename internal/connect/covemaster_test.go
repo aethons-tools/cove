@@ -13,7 +13,7 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	tgt := sshargs.Target{Host: "h", User: "agent", Port: 2222, IdentityFile: "k", KnownHostsFile: "kh"}
 	err := LaunchCoveMaster(fake, CoveMasterOptions{
 		Target:        tgt,
-		HarborHost:    "harbor.example.com",
+		JamHost:       "harbor.example.com",
 		RuntimeAddr:   "harbor.example.com:443",
 		IdentityToken: "tok-123",
 		LaunchSecret:  "sec-456",
@@ -81,7 +81,7 @@ func TestLaunchCoveMasterResident(t *testing.T) {
 	for _, resident := range []bool{false, true} {
 		fake := &runner.Fake{}
 		err := LaunchCoveMaster(fake, CoveMasterOptions{
-			Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, HarborHost: "hh", RuntimeAddr: "hh:443",
+			Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "hh", RuntimeAddr: "hh:443",
 			IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", Resident: resident,
 		})
 		if err != nil {

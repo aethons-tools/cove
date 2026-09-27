@@ -5,12 +5,12 @@ import (
 	"errors"
 
 	"github.com/aethons-tools/cove/internal/allocator"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// roleReader is the slice of harbor.Store the roster policy reads.
+// roleReader is the slice of jam.Store the roster policy reads.
 type roleReader interface {
-	GetRole(project, name string) (harbor.Role, bool)
+	GetRole(project, name string) (jam.Role, bool)
 }
 
 // rosterPolicy is the Allocator's PolicySource: the roster Role is the source of
@@ -67,38 +67,38 @@ func newRosterPolicy(store roleReader, dc *dispatcherConfig) rosterPolicy {
 
 // dispatcherProject is the dispatcher's project, normalized: grants use this value
 // (via dispatcher.Config.Project → Grant), and the Supervisor stores
-// inst.Project = orDefaultProject(spec.Project) = harbor.DefaultProject when
+// inst.Project = orDefaultProject(spec.Project) = jam.DefaultProject when
 // empty, which is what RecordRelease keys off on teardown. Leaving it as
 // dc.Project ("") would split them across "/role" and "default/role" — they'd
 // never reconcile.
 func dispatcherProject(dc *dispatcherConfig) string {
 	if dc.Project == "" {
-		return harbor.DefaultProject
+		return jam.DefaultProject
 	}
 	return dc.Project
 }
 
-// personalAllocator adapts *allocator.Allocator to harbor.SessionAllocator (harbor
+// personalAllocator adapts *allocator.Allocator to jam.SessionAllocator (harbor
 // does not import allocator): a personal grant is a SessionPersonal request owned
 // by the requester, and the allocator's no-ledger error becomes
-// harbor.ErrNeedsLedger so the admin route can answer 409.
+// jam.ErrNeedsLedger so the admin route can answer 409.
 type personalAllocator struct{ a *allocator.Allocator }
 
-var _ harbor.SessionAllocator = personalAllocator{}
+var _ jam.SessionAllocator = personalAllocator{}
 
-// GrantPersonal implements harbor.SessionAllocator.
+// GrantPersonal implements jam.SessionAllocator.
 func (p personalAllocator) GrantPersonal(ctx context.Context, project, role, reservationID, owner string) (bool, error) {
 	ok, err := p.a.Grant(ctx, allocator.Request{
 		Project: project, Role: role, ReservationID: reservationID,
 		Kind: allocator.SessionPersonal, Owner: owner,
 	})
 	if errors.Is(err, allocator.ErrNeedsLedger) {
-		return false, harbor.ErrNeedsLedger
+		return false, jam.ErrNeedsLedger
 	}
 	return ok, err
 }
 
-// RecordRelease implements harbor.SessionAllocator.
+// RecordRelease implements jam.SessionAllocator.
 func (p personalAllocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
 	return p.a.RecordRelease(ctx, project, role, reservationID)
 }

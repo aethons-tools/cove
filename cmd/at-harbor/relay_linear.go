@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -97,18 +97,18 @@ func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m interco
 
 func (s *linearSurface) Close() error { return nil }
 
-// instanceRoster is the slice of harbor.Store that the Linear directory reads:
+// instanceRoster is the slice of jam.Store that the Linear directory reads:
 // live instances (own-ticket / sender resolution) and the project roster
-// (human handles, channel refs). *harbor.FileStore satisfies it.
+// (human handles, channel refs). *jam.FileStore satisfies it.
 type instanceRoster interface {
-	ListInstances() []harbor.Instance
-	GetRoster(project string) (harbor.Roster, bool)
-	GetProject(name string) (harbor.Project, bool)
+	ListInstances() []jam.Instance
+	GetRoster(project string) (jam.Roster, bool)
+	GetProject(name string) (jam.Project, bool)
 	ListProjects() []string
 }
 
 // directory is the concrete relay.Directory mapping the Linear feed and
-// Discord replies into the actor model, over harbor.Store (narrowed to
+// Discord replies into the actor model, over jam.Store (narrowed to
 // instanceRoster). project and selfIdentity are the dispatcher's (Linear
 // routing only runs with a dispatcher); both are "" without one, and the
 // Discord path needs neither.
@@ -162,7 +162,7 @@ func (d *directory) Route(service, project string, e relay.Event) (from intercom
 //
 // The sender is the roster human whose inbox the reply was posted in, when
 // that channel is exactly one human's discord inbox in project
-// (harbor.DiscordInboxOwner) — the channel, never the spoofable display name,
+// (jam.DiscordInboxOwner) — the channel, never the spoofable display name,
 // proves the owner. Otherwise it is human:<Discord display name>, as before.
 func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
 	if e.ReplyToForeign == "" {
@@ -178,7 +178,7 @@ func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.T
 	}
 	from = intercom.Target{Kind: "human", Ref: e.Author}
 	if r, ok := d.store.GetRoster(project); ok {
-		if name, ok := harbor.DiscordInboxOwner(r, e.Surface); ok {
+		if name, ok := jam.DiscordInboxOwner(r, e.Surface); ok {
 			from.Ref = name
 		}
 	}
@@ -237,26 +237,26 @@ func (d *directory) Resolve(service, project string, to, from intercom.Target) (
 
 // instanceOf finds the live Instance whose ActorID matches from.Ref (when
 // from is an actor target).
-func (d *directory) instanceOf(from intercom.Target) (harbor.Instance, bool) {
+func (d *directory) instanceOf(from intercom.Target) (jam.Instance, bool) {
 	if from.Kind != "actor" {
-		return harbor.Instance{}, false
+		return jam.Instance{}, false
 	}
 	for _, inst := range d.store.ListInstances() {
 		if inst.ActorID == from.Ref {
 			return inst, true
 		}
 	}
-	return harbor.Instance{}, false
+	return jam.Instance{}, false
 }
 
 // findHuman looks up a roster Human by its roster-local Name.
-func findHuman(r harbor.Roster, name string) (harbor.Human, bool) {
+func findHuman(r jam.Roster, name string) (jam.Human, bool) {
 	for _, h := range r.Humans {
 		if h.Name == name {
 			return h, true
 		}
 	}
-	return harbor.Human{}, false
+	return jam.Human{}, false
 }
 
 // resolveHuman picks the service the project uses for human DMs, falling

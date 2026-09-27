@@ -13,9 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// fakeHarbor records what the mcp subcommand sent it and lets tests script a
+// fakeJam records what the mcp subcommand sent it and lets tests script a
 // canned inbox or a failure status.
-type fakeHarbor struct {
+type fakeJam struct {
 	gotAuth   string
 	gotMethod string
 	gotBody   map[string]any
@@ -24,7 +24,7 @@ type fakeHarbor struct {
 	inbox      []squawkOut // canned GET response
 }
 
-func (f *fakeHarbor) handler() http.HandlerFunc {
+func (f *fakeJam) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f.gotAuth = r.Header.Get("Authorization")
 		f.gotMethod = r.Method
@@ -76,7 +76,7 @@ func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
 }
 
 func TestMCPListsReadAndSend(t *testing.T) {
-	fh := &fakeHarbor{}
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
@@ -100,8 +100,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	}
 }
 
-func TestMCPSendForwardsToHarbor(t *testing.T) {
-	fh := &fakeHarbor{}
+func TestMCPSendForwardsToJam(t *testing.T) {
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
@@ -134,7 +134,7 @@ func TestMCPSendForwardsToHarbor(t *testing.T) {
 }
 
 func TestMCPReadReturnsInbox(t *testing.T) {
-	fh := &fakeHarbor{inbox: []squawkOut{
+	fh := &fakeJam{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
 	}}
 	backend := httptest.NewServer(fh.handler())
@@ -360,7 +360,7 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	}
 }
 
-func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
+func TestMCPCommitToolForwardsToJam(t *testing.T) {
 	var gotPath, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -435,7 +435,7 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 }
 
 func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
-	fh := &fakeHarbor{failStatus: http.StatusInternalServerError}
+	fh := &fakeJam{failStatus: http.StatusInternalServerError}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 

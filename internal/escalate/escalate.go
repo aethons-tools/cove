@@ -4,7 +4,7 @@
 // comments, wakes no coves, and tears nothing down — reply-detection, waking, and
 // max-wait teardown stay in internal/wakeon. The two engines share only the
 // Instance.Activity==Waiting gate. Wired from cmd/at-harbor; not imported by
-// internal/harbor core.
+// internal/jam core.
 package escalate
 
 import (
@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-type Registry interface{ ListInstances() []harbor.Instance }
+type Registry interface{ ListInstances() []jam.Instance }
 type Projects interface {
-	GetProject(name string) (harbor.Project, bool)
+	GetProject(name string) (jam.Project, bool)
 }
 type State interface {
 	SetEscalation(actorID string, tier int, at time.Time) error
@@ -69,7 +69,7 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if inst.Activity != harbor.ActivityWaiting {
+		if inst.Activity != jam.ActivityWaiting {
 			continue
 		}
 		if inst.Unit == "" {
@@ -98,7 +98,7 @@ func (e *Engine) tick(ctx context.Context) {
 
 // chainFor picks the tier chain for a cove's declared category, falling back to
 // the Project's default chain for an unset/unknown/empty-configured category.
-func chainFor(proj harbor.Project, category string) []harbor.EscalationTier {
+func chainFor(proj jam.Project, category string) []jam.EscalationTier {
 	if c, ok := proj.EscalationByCategory[category]; ok && len(c) > 0 {
 		return c
 	}
@@ -109,7 +109,7 @@ func chainFor(proj harbor.Project, category string) []harbor.EscalationTier {
 // nudge on the cove's OWN ticket, and records the advance. A tier with no
 // resolvable human handles posts nothing but still advances the timer (so a
 // mis-configured tier can't wedge a blocked cove).
-func (e *Engine) pingTier(ctx context.Context, inst harbor.Instance, proj harbor.Project, chain []harbor.EscalationTier, tier int) {
+func (e *Engine) pingTier(ctx context.Context, inst jam.Instance, proj jam.Project, chain []jam.EscalationTier, tier int) {
 	handles := e.resolveHandles(proj.Roster, chain, tier)
 	if len(handles) > 0 {
 		issueID, err := e.ping.IssueByIdentifier(ctx, inst.Unit)
@@ -131,7 +131,7 @@ func (e *Engine) pingTier(ctx context.Context, inst harbor.Instance, proj harbor
 	}
 }
 
-func (e *Engine) resolveHandles(roster harbor.Roster, chain []harbor.EscalationTier, tier int) []string {
+func (e *Engine) resolveHandles(roster jam.Roster, chain []jam.EscalationTier, tier int) []string {
 	var handles []string
 	for _, target := range chain[tier].Targets {
 		kind, name, ok := strings.Cut(target, ":")

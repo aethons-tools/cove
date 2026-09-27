@@ -1,7 +1,7 @@
 name: store-integration
 
 # Runs the Postgres-backed harbor.Store conformance suite (the //go:build
-# integration tests in internal/harbor) against a real Postgres service. Kept
+# integration tests in internal/jam) against a real Postgres service. Kept
 # separate from the `gate` workflow so the required `gate` check is untouched;
 # promoting this to a required check is a branch-protection setting, not here.
 
@@ -50,4 +50,4 @@ jobs:
       - name: store integration tests
         env:
           HARBOR_TEST_POSTGRES_DSN: "host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable"
-        run: go test -tags integration ./internal/harbor/... ./internal/intercom/... ./internal/allocator/...
+        run: go test -tags integration ./internal/jam/... ./internal/intercom/... ./internal/allocator/...

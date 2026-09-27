@@ -16,33 +16,33 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/cli"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// aliveLauncher is a trivial harbor.Launcher for CLI-level tests that need a
+// aliveLauncher is a trivial jam.Launcher for CLI-level tests that need a
 // non-nil supervisor: it always raises successfully, reports the cove alive,
 // and tears down without error.
 type aliveLauncher struct{}
 
-func (aliveLauncher) Raise(_ context.Context, spec harbor.RaiseSpec, _ harbor.LaunchCreds) (string, error) {
+func (aliveLauncher) Raise(_ context.Context, spec jam.RaiseSpec, _ jam.LaunchCreds) (string, error) {
 	return "fake:" + spec.ActorID, nil
 }
-func (aliveLauncher) Teardown(_ context.Context, _ harbor.Instance) error { return nil }
-func (aliveLauncher) Probe(_ context.Context, _ harbor.Instance) (harbor.Liveness, error) {
-	return harbor.LivenessAlive, nil
+func (aliveLauncher) Teardown(_ context.Context, _ jam.Instance) error { return nil }
+func (aliveLauncher) Probe(_ context.Context, _ jam.Instance) (jam.Liveness, error) {
+	return jam.LivenessAlive, nil
 }
-func (aliveLauncher) Pause(_ context.Context, _ harbor.Instance) error   { return nil }
-func (aliveLauncher) Unpause(_ context.Context, _ harbor.Instance) error { return nil }
-func (aliveLauncher) ApplyEgress(context.Context, harbor.Instance, *harbor.EgressPolicy) error {
+func (aliveLauncher) Pause(_ context.Context, _ jam.Instance) error   { return nil }
+func (aliveLauncher) Unpause(_ context.Context, _ jam.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
 
 func TestEnrollCommandJSON(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole(harbor.DefaultProject, harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -68,11 +68,11 @@ func TestEnrollCommandJSON(t *testing.T) {
 }
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("ACME", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -108,8 +108,8 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 }
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -200,8 +200,8 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 }
 
 func TestProjectRosterCommands(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -217,7 +217,7 @@ func TestProjectRosterCommands(t *testing.T) {
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("project roster add-human: exit=%d stderr=%s", code, errb.String())
 	}
-	if hu, ok := harbor.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
+	if hu, ok := jam.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
 		t.Fatalf("add-human --login did not link alice: %+v,%v", hu, ok)
 	}
 
@@ -359,8 +359,8 @@ func TestProjectRosterCommands(t *testing.T) {
 // end-to-end through httptest.Server + FileStore, including the --tier
 // 'targets@timeout' parse and its missing-'@' error.
 func TestProjectEscalationCommands(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -418,8 +418,8 @@ func TestProjectEscalationCommands(t *testing.T) {
 // set/list/clear: setting a category chain alongside the default, listing both,
 // then clearing just the category and confirming the default survives.
 func TestProjectEscalationCategoryCommands(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -481,8 +481,8 @@ func TestProjectEscalationCategoryCommands(t *testing.T) {
 // TestProjectChatServiceCommands exercises `project chat-service
 // set|show|clear` end-to-end through httptest.Server + FileStore.
 func TestProjectChatServiceCommands(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -548,8 +548,8 @@ func TestProjectChatServiceCommands(t *testing.T) {
 // --delivery service:address` (repeatable) end-to-end, including its
 // malformed-input errors.
 func TestProjectRosterAddHumanDelivery(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -570,7 +570,7 @@ func TestProjectRosterAddHumanDelivery(t *testing.T) {
 	if !ok {
 		t.Fatal("GetRoster acme")
 	}
-	var dave harbor.Human
+	var dave jam.Human
 	for _, hu := range rr.Humans {
 		if hu.Name == "dave" {
 			dave = hu
@@ -630,8 +630,8 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 }
 
 func TestKitCommandsRoundTrip(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -716,7 +716,7 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role add --kit: exit=%d stderr=%s", code, errb.String())
 	}
-	if r, ok := store.GetRole(harbor.DefaultProject, "impl"); !ok || r.Kit != "web" {
+	if r, ok := store.GetRole(jam.DefaultProject, "impl"); !ok || r.Kit != "web" {
 		t.Fatalf("role add --kit did not bind the kit: role=%+v ok=%v", r, ok)
 	}
 
@@ -749,12 +749,12 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 // this test wires one with a fake Launcher. It also pins down the "never
 // print the identity token" constraint on `cove raise`.
 func TestCoveCommandsRoundTrip(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("default", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := harbor.NewAdminHandler(store, sup, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -841,7 +841,7 @@ func TestCoveCommandsRoundTrip(t *testing.T) {
 	}
 }
 
-// grantAllSessions is a harbor.SessionAllocator that admits every personal
+// grantAllSessions is a jam.SessionAllocator that admits every personal
 // request (the real one needs Postgres).
 type grantAllSessions struct{}
 
@@ -853,20 +853,20 @@ func (grantAllSessions) RecordRelease(context.Context, string, string, string) e
 // TestSessionCommandsRoundTrip exercises `session request|list|release` end to
 // end. The loopback operator is "local", so alice is linked to that login.
 func TestSessionCommandsRoundTrip(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("acme", harbor.Role{Name: "pair", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
 	// Personal sessions are delivered over Discord (request-time check).
-	if err := store.AddHuman("acme", harbor.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetChatService("acme", "discord"); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
-	h := harbor.NewAdminHandler(store, sup, grantAllSessions{}, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	h := jam.NewAdminHandler(store, sup, grantAllSessions{}, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -920,12 +920,12 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 }
 
 // The allocator adapter maps a personal grant onto allocator.Request and
-// translates the no-ledger error to harbor.ErrNeedsLedger.
+// translates the no-ledger error to jam.ErrNeedsLedger.
 func TestPersonalAllocator_NoLedger(t *testing.T) {
-	a := allocator.New(harbor.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2}}, nil)
+	a := allocator.New(jam.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2}}, nil)
 	ok, err := personalAllocator{a}.GrantPersonal(context.Background(), "acme", "pair", "personal-alice-1", "alice")
-	if ok || !errors.Is(err, harbor.ErrNeedsLedger) {
-		t.Fatalf("got %v,%v; want harbor.ErrNeedsLedger", ok, err)
+	if ok || !errors.Is(err, jam.ErrNeedsLedger) {
+		t.Fatalf("got %v,%v; want jam.ErrNeedsLedger", ok, err)
 	}
 }
 
@@ -948,7 +948,7 @@ func (c *capturingLedger) OutstandingReservations(context.Context, time.Time) ([
 // requester against the role's pool and per-owner caps.
 func TestPersonalAllocator_MapsRequest(t *testing.T) {
 	cl := &capturingLedger{}
-	a := allocator.New(harbor.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2, MaxPersonalPerOwner: 1}}, cl)
+	a := allocator.New(jam.InstanceCounter{Store: nil}, allocator.StaticPolicy{{Project: "acme", Role: "pair"}: {MaxPersonal: 2, MaxPersonalPerOwner: 1}}, cl)
 	ok, err := personalAllocator{a}.GrantPersonal(context.Background(), "acme", "pair", "personal-alice-1", "alice")
 	if !ok || err != nil {
 		t.Fatalf("got %v,%v", ok, err)
@@ -962,11 +962,11 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 // `standing add|list|rm` declare, list and dismiss a role's standing sessions;
 // the prompt is read from a file host-side, and the role's other fields are kept.
 func TestStandingCommandsRoundTrip(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -980,7 +980,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("standing add: exit=%d stderr=%s", code, errb.String())
 	}
 	r, _ := store.GetRole("acme", "reviewer")
-	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0] != (harbor.StandingSession{Name: "alice-bot", Prompt: "review every PR"}) {
+	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0] != (jam.StandingSession{Name: "alice-bot", Prompt: "review every PR"}) {
 		t.Fatalf("standing = %+v", r.Allocation.Standing)
 	}
 	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
@@ -992,7 +992,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), harbor.StandingActorID("acme", "reviewer", "alice-bot")) {
+	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), jam.StandingActorID("acme", "reviewer", "alice-bot")) {
 		t.Fatalf("standing list output:\n%s", out.String())
 	}
 
@@ -1032,11 +1032,11 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 // `egress set|show|clear` manage a role's egress policy; `role list` shows it
 // (kit default, none, or the list), and the role's other fields are kept.
 func TestEgressCommandsRoundTrip(t *testing.T) {
-	store, _ := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("acme", harbor.Role{Name: "reviewer", Scope: harbor.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: harbor.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
 	}
-	h := harbor.NewAdminHandler(store, nil, nil, harbor.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }

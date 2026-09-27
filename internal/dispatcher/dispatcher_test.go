@@ -8,7 +8,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 type fakeTracker struct {
@@ -36,29 +36,29 @@ func (f *fakeTracker) Transition(ctx context.Context, id string, role scheduler.
 }
 
 type fakeRaiser struct {
-	specs []harbor.RaiseSpec
+	specs []jam.RaiseSpec
 	err   error
 }
 
-func (f *fakeRaiser) Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error) {
+func (f *fakeRaiser) Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error) {
 	f.specs = append(f.specs, spec)
 	if f.err != nil {
-		return harbor.Instance{}, "", "", f.err
+		return jam.Instance{}, "", "", f.err
 	}
-	return harbor.Instance{ActorID: spec.ActorID}, "tok", "sec", nil
+	return jam.Instance{ActorID: spec.ActorID}, "tok", "sec", nil
 }
 
-type fakeRegistry struct{ insts []harbor.Instance }
+type fakeRegistry struct{ insts []jam.Instance }
 
-func (f *fakeRegistry) GetInstance(actorID string) (harbor.Instance, bool) {
+func (f *fakeRegistry) GetInstance(actorID string) (jam.Instance, bool) {
 	for _, i := range f.insts {
 		if i.ActorID == actorID {
 			return i, true
 		}
 	}
-	return harbor.Instance{}, false
+	return jam.Instance{}, false
 }
-func (f *fakeRegistry) ListInstances() []harbor.Instance { return f.insts }
+func (f *fakeRegistry) ListInstances() []jam.Instance { return f.insts }
 
 // fakeAdmitter grants the first `allow` calls, then denies (or always grants when
 // `grant` is set) — standing in for the Allocator so dispatcher tests exercise
@@ -144,7 +144,7 @@ func TestTickRaisesOnlyLabeledAmongMixed(t *testing.T) {
 func TestTickDedupsExistingInstance(t *testing.T) {
 	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
-	reg := &fakeRegistry{insts: []harbor.Instance{{ActorID: "cove-AET-1", Phase: harbor.PhaseLive}}}
+	reg := &fakeRegistry{insts: []jam.Instance{{ActorID: "cove-AET-1", Phase: jam.PhaseLive}}}
 	newTestDispatcher(tr, r, reg, 5).tick(context.Background())
 	if len(tr.transitions) != 0 || len(r.specs) != 0 {
 		t.Fatalf("existing instance must be skipped: transitions=%v raises=%v", tr.transitions, r.specs)

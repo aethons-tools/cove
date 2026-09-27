@@ -140,7 +140,7 @@ proxy (grpc-go's built-in dialer honors the cove's `https_proxy`; harbor's cert
 is validated against the system trust store) — authenticates the stream, reports
 Activity up, and reacts to control (teardown, wake) pushed down — reconnecting
 with backoff across transient drops. The client imports only the generated
-`attachpb` types and grpc, never `internal/harbor`, so it stays a lean,
+`attachpb` types and grpc, never `internal/jam`, so it stays a lean,
 server-free dependency for whatever process embeds it.
 
 It reads its configuration from the environment (no SSH, no host

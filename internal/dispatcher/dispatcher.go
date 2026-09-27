@@ -1,7 +1,7 @@
 // Package dispatcher is harbor's resident intake: an always-on poll loop that
 // turns ready tracker tickets into managed-cove raises, admitting each raise
 // through the Allocator (harbor's capacity authority) rather than counting
-// instances against a cap itself. It lives outside internal/harbor core (it
+// instances against a cap itself. It lives outside internal/jam core (it
 // imports the tracker + kit + supervisor) and is wired from cmd/at-harbor.
 package dispatcher
 
@@ -13,18 +13,18 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Raiser is the supervisor's raise entrypoint (satisfied by *harbor.Supervisor).
+// Raiser is the supervisor's raise entrypoint (satisfied by *jam.Supervisor).
 type Raiser interface {
-	Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error)
+	Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error)
 }
 
-// Registry reads the durable Instance registry (satisfied by harbor.Store).
+// Registry reads the durable Instance registry (satisfied by jam.Store).
 type Registry interface {
-	GetInstance(actorID string) (harbor.Instance, bool)
-	ListInstances() []harbor.Instance
+	GetInstance(actorID string) (jam.Instance, bool)
+	ListInstances() []jam.Instance
 }
 
 // Tracker is the scheduler.Tracker subset the dispatcher needs (satisfied by *linear.Client).
@@ -152,7 +152,7 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			d.release(ctx, actorID)
 			continue
 		}
-		if _, _, _, err := d.raiser.Raise(ctx, harbor.RaiseSpec{
+		if _, _, _, err := d.raiser.Raise(ctx, jam.RaiseSpec{
 			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, Prompt: prompt,
 		}); err != nil {
 			d.log.Warn("dispatcher: raise failed", "issue", iss.Identifier, "error", err.Error())

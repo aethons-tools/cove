@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/harbor"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-type fakeReg struct{ insts []harbor.Instance }
+type fakeReg struct{ insts []jam.Instance }
 
-func (f *fakeReg) ListInstances() []harbor.Instance { return f.insts }
+func (f *fakeReg) ListInstances() []jam.Instance { return f.insts }
 
 type fakeWaker struct{ woke []string }
 
@@ -83,8 +83,8 @@ func contains(ss []string, s string) bool {
 
 func TestTick_ExternalReplyAfterWaitSeq_Wakes(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 6, "id-6")},
@@ -120,8 +120,8 @@ func TestTick_ExternalReplyAfterWaitSeq_Wakes(t *testing.T) {
 func TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder(t *testing.T) {
 	const baselineID = "in:linear:zzz" // hypothetical id the WaitSeq=5 baseline would have carried
 	waitStart := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	replyID := "in:discord:aaa"
 	if replyID >= baselineID {
@@ -145,8 +145,8 @@ func TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder(t *testing.T) 
 
 func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	// inbound at the WaitSeq baseline (Seq == WaitSeq, not >) → not a reply
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
@@ -170,8 +170,8 @@ func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 
 func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	internal := intercom.Squawk{
 		Seq:  6,
@@ -196,8 +196,8 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 
 func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 6, "id-6")},
@@ -223,8 +223,8 @@ func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 
 func TestTick_NilInbox_NoWake_StillTeardownAtMaxWait(t *testing.T) {
 	waitStart := time.Unix(0, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -244,8 +244,8 @@ func TestTick_NilInbox_NoWake_StillTeardownAtMaxWait(t *testing.T) {
 
 func TestTick_NilInbox_NoReplyWaking_ButPauseStillRuns(t *testing.T) {
 	waitStart := time.Unix(0, 0)
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
 	}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
@@ -267,8 +267,8 @@ func TestTick_NilInbox_NoReplyWaking_ButPauseStillRuns(t *testing.T) {
 }
 
 func TestTick_NonWaitingIgnored(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Activity: harbor.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Activity: jam.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 		"a1": {extInbound("a1", 1, "id-1")},
@@ -287,8 +287,8 @@ func TestTick_NonWaitingIgnored(t *testing.T) {
 }
 
 func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
 	wake := &fakeWaker{}
@@ -314,8 +314,8 @@ func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
 }
 
 func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
-	reg := &fakeReg{insts: []harbor.Instance{
-		{ActorID: "a1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
 	wake := &fakeWaker{}
@@ -341,10 +341,10 @@ func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
 }
 
 func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
-	for _, phase := range []harbor.Phase{harbor.PhaseLive, harbor.PhaseIdled} {
+	for _, phase := range []jam.Phase{jam.PhaseLive, jam.PhaseIdled} {
 		t.Run(string(phase), func(t *testing.T) {
-			reg := &fakeReg{insts: []harbor.Instance{
-				{ActorID: "a1", Phase: phase, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
+			reg := &fakeReg{insts: []jam.Instance{
+				{ActorID: "a1", Phase: phase, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 			}}
 			// even with a pending reply, max-wait teardown wins
 			inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
@@ -378,9 +378,9 @@ func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 	cfg := Config{MaxWait: time.Hour, WarmTimeout: time.Minute}
 
 	t.Run("idled, not reaped", func(t *testing.T) {
-		reg := &fakeReg{insts: []harbor.Instance{
-			{ActorID: "p1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, Owner: "alice", WaitingSince: waitStart},
-			{ActorID: "e1", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
+		reg := &fakeReg{insts: []jam.Instance{
+			{ActorID: "p1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, SessionKind: jam.SessionKindPersonal, Owner: "alice", WaitingSince: waitStart},
+			{ActorID: "e1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
 		}}
 		reap, idler := &fakeReaper{}, &fakeIdler{}
 		e := New(reg, &fakeWaker{}, reap, idler, &fakeInbox{}, cfg, nil)
@@ -402,9 +402,9 @@ func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 			"p1": {extInbound("p1", 6, "id-6")},
 			"p2": {extInbound("p2", 6, "id-6")},
 		}}
-		reg := &fakeReg{insts: []harbor.Instance{
-			{ActorID: "p1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
-			{ActorID: "p2", Phase: harbor.PhaseLive, Activity: harbor.ActivityWaiting, SessionKind: harbor.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
+		reg := &fakeReg{insts: []jam.Instance{
+			{ActorID: "p1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, SessionKind: jam.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
+			{ActorID: "p2", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, SessionKind: jam.SessionKindPersonal, WaitingSince: waitStart, WaitSeq: 5},
 		}}
 		wake, reap, idler := &fakeWaker{}, &fakeReaper{}, &fakeIdler{}
 		e := New(reg, wake, reap, idler, inbox, cfg, nil)
@@ -421,9 +421,9 @@ func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 
 // --- personal-session idle ladder (session-kinds slice 4) ---
 
-type fakeRoles map[string]harbor.Role // "project/role" → role
+type fakeRoles map[string]jam.Role // "project/role" → role
 
-func (f fakeRoles) GetRole(project, name string) (harbor.Role, bool) {
+func (f fakeRoles) GetRole(project, name string) (jam.Role, bool) {
 	r, ok := f[project+"/"+name]
 	return r, ok
 }
@@ -483,7 +483,7 @@ type fakeNagger struct {
 	log   *[]string // shared event log, to assert notice-before-teardown ordering
 }
 
-func (f *fakeNagger) Nag(_ context.Context, inst harbor.Instance, idle time.Duration) error {
+func (f *fakeNagger) Nag(_ context.Context, inst jam.Instance, idle time.Duration) error {
 	if f.fail != nil {
 		return f.fail
 	}
@@ -491,7 +491,7 @@ func (f *fakeNagger) Nag(_ context.Context, inst harbor.Instance, idle time.Dura
 	return nil
 }
 
-func (f *fakeNagger) NotifyReclaimed(_ context.Context, inst harbor.Instance, idle time.Duration) error {
+func (f *fakeNagger) NotifyReclaimed(_ context.Context, inst jam.Instance, idle time.Duration) error {
 	if f.fail != nil {
 		return f.fail
 	}
@@ -502,7 +502,7 @@ func (f *fakeNagger) NotifyReclaimed(_ context.Context, inst harbor.Instance, id
 	return nil
 }
 
-func (f *fakeNagger) NotifyKept(_ context.Context, inst harbor.Instance, next time.Duration) error {
+func (f *fakeNagger) NotifyKept(_ context.Context, inst jam.Instance, next time.Duration) error {
 	if f.fail != nil {
 		return f.fail
 	}
@@ -510,7 +510,7 @@ func (f *fakeNagger) NotifyKept(_ context.Context, inst harbor.Instance, next ti
 	return nil
 }
 
-func (f *fakeNagger) NotifyReleased(_ context.Context, inst harbor.Instance) error {
+func (f *fakeNagger) NotifyReleased(_ context.Context, inst jam.Instance) error {
 	if f.fail != nil {
 		return f.fail
 	}
@@ -531,17 +531,17 @@ func (o *orderedReaper) Teardown(ctx context.Context, a string) error {
 	return o.fakeReaper.Teardown(ctx, a)
 }
 
-func personal(id string, waitingSince time.Time) harbor.Instance {
-	return harbor.Instance{
+func personal(id string, waitingSince time.Time) jam.Instance {
+	return jam.Instance{
 		ActorID: id, Project: "acme", Role: "pair", Owner: "alice",
-		SessionKind: harbor.SessionKindPersonal,
-		Phase:       harbor.PhaseIdled, Activity: harbor.ActivityWaiting, WaitingSince: waitingSince,
+		SessionKind: jam.SessionKindPersonal,
+		Phase:       jam.PhaseIdled, Activity: jam.ActivityWaiting, WaitingSince: waitingSince,
 	}
 }
 
 // ladderKit wires an engine with the idle ladder: role acme/pair with the given
 // allocation, a registry holding insts, and a clock set by the returned setter.
-func ladderKit(alloc harbor.RoleAllocation, nagger Nagger, reap Reaper, insts ...harbor.Instance) (*Engine, *fakeReg, *fakeNagRecorder, func(time.Time)) {
+func ladderKit(alloc jam.RoleAllocation, nagger Nagger, reap Reaper, insts ...jam.Instance) (*Engine, *fakeReg, *fakeNagRecorder, func(time.Time)) {
 	reg := &fakeReg{insts: insts}
 	rec := &fakeNagRecorder{regs: reg}
 	e := New(reg, &fakeWaker{}, reap, &fakeIdler{}, &fakeInbox{}, Config{MaxWait: time.Minute, WarmTimeout: time.Minute}, nil)
@@ -554,7 +554,7 @@ func ladderKit(alloc harbor.RoleAllocation, nagger Nagger, reap Reaper, insts ..
 func TestIdleLadder_NagCadence(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	n := &fakeNagger{}
-	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour, NagEvery: 3 * time.Hour}, n, &fakeReaper{}, personal("p1", start))
+	e, _, rec, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, NagEvery: 3 * time.Hour}, n, &fakeReaper{}, personal("p1", start))
 	ctx := context.Background()
 
 	setNow(start.Add(59 * time.Minute)) // before idle-after
@@ -588,7 +588,7 @@ func TestIdleLadder_DefaultsAndNeverReclaimed(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	n := &fakeNagger{}
 	reap := &fakeReaper{}
-	e, _, _, setNow := ladderKit(harbor.RoleAllocation{}, n, reap, personal("p1", start))
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{}, n, reap, personal("p1", start))
 	setNow(start.Add(4*time.Hour - time.Second))
 	e.tick(context.Background())
 	if len(n.calls) != 0 {
@@ -625,7 +625,7 @@ func TestIdleLadder_ReplyResetsLadder(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	inst := personal("p1", start.Add(10*time.Hour)) // re-entered Waiting after a reply; nags cleared
 	n := &fakeNagger{}
-	e, _, _, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour, NagEvery: time.Hour}, n, &fakeReaper{}, inst)
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, NagEvery: time.Hour}, n, &fakeReaper{}, inst)
 	setNow(start.Add(10*time.Hour + 30*time.Minute))
 	e.tick(context.Background())
 	if len(n.calls) != 0 {
@@ -637,11 +637,11 @@ func TestIdleLadder_ReplyResetsLadder(t *testing.T) {
 func TestIdleLadder_PendingReplyWakesInsteadOfNagging(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	inst := personal("p1", start)
-	inst.Phase = harbor.PhaseLive
+	inst.Phase = jam.PhaseLive
 	inst.WaitSeq = 5
 	n := &fakeNagger{}
 	reap := &fakeReaper{}
-	e, _, _, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 2 * time.Hour}, n, reap, inst)
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 2 * time.Hour}, n, reap, inst)
 	e.inbox = &fakeInbox{byActor: map[string][]intercom.Squawk{"p1": {extInbound("p1", 6, "id-6")}}}
 	wake := &fakeWaker{}
 	e.wake = wake
@@ -657,7 +657,7 @@ func TestIdleLadder_ReclaimNoticeThenTeardown(t *testing.T) {
 	var events []string
 	n := &fakeNagger{log: &events}
 	reap := &orderedReaper{log: &events}
-	e, _, _, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 72 * time.Hour}, n, reap, personal("p1", start))
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 72 * time.Hour}, n, reap, personal("p1", start))
 	setNow(start.Add(72*time.Hour - time.Second))
 	e.tick(context.Background())
 	if len(reap.down) != 0 {
@@ -680,7 +680,7 @@ func TestIdleLadder_FailedNagRetriedNeverTearsDown(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	n := &fakeNagger{fail: errors.New("log unavailable")}
 	reap := &fakeReaper{}
-	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour}, n, reap, personal("p1", start))
+	e, _, rec, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour}, n, reap, personal("p1", start))
 	setNow(start.Add(2 * time.Hour))
 	e.tick(context.Background())
 	if len(reap.down) != 0 || len(rec.at) != 0 {
@@ -699,7 +699,7 @@ func TestIdleLadder_FailedReclaimNoticeDefersReclaim(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	n := &fakeNagger{fail: errors.New("log unavailable")}
 	reap := &fakeReaper{}
-	e, _, _, setNow := ladderKit(harbor.RoleAllocation{ReclaimAfter: time.Hour}, n, reap, personal("p1", start))
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{ReclaimAfter: time.Hour}, n, reap, personal("p1", start))
 	setNow(start.Add(2 * time.Hour))
 	e.tick(context.Background())
 	if len(reap.down) != 0 {
@@ -717,7 +717,7 @@ func TestIdleLadder_FailedReclaimNoticeDefersReclaim(t *testing.T) {
 func TestIdleLadder_NilNagger(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	reap := &fakeReaper{}
-	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 3 * time.Hour}, nil, reap, personal("p1", start))
+	e, _, rec, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 3 * time.Hour}, nil, reap, personal("p1", start))
 	setNow(start.Add(2 * time.Hour))
 	e.tick(context.Background()) // past idle-after: would nag, but no nagger
 	if len(rec.at) != 0 || len(reap.down) != 0 {
@@ -734,10 +734,10 @@ func TestIdleLadder_NilNagger(t *testing.T) {
 // teardown.
 func TestIdleLadder_EphemeralUnaffected(t *testing.T) {
 	start := time.Unix(100_000, 0)
-	eph := harbor.Instance{ActorID: "e1", Project: "acme", Role: "pair", Unit: "AET-1", Phase: harbor.PhaseIdled, Activity: harbor.ActivityWaiting, WaitingSince: start}
+	eph := jam.Instance{ActorID: "e1", Project: "acme", Role: "pair", Unit: "AET-1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, WaitingSince: start}
 	n := &fakeNagger{}
 	reap := &fakeReaper{}
-	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Second, ReclaimAfter: time.Hour}, n, reap, eph)
+	e, _, rec, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Second, ReclaimAfter: time.Hour}, n, reap, eph)
 	e.cfg.MaxWait = 100 * time.Hour
 	setNow(start.Add(10 * time.Hour)) // past idle-after and reclaim-after, within wait-max
 	e.tick(context.Background())
@@ -756,14 +756,14 @@ func TestIdleLadder_EphemeralUnaffected(t *testing.T) {
 // no owner to nag.
 func TestTick_StandingSessionResident_NoLadder(t *testing.T) {
 	start := time.Unix(100_000, 0)
-	st := harbor.Instance{
+	st := jam.Instance{
 		ActorID: "standing-acme-pair-bot", Project: "acme", Role: "pair", Name: "bot",
-		SessionKind: harbor.SessionKindStanding,
-		Phase:       harbor.PhaseLive, Activity: harbor.ActivityWaiting, WaitingSince: start,
+		SessionKind: jam.SessionKindStanding,
+		Phase:       jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: start,
 	}
 	n := &fakeNagger{}
 	reap := &fakeReaper{}
-	e, _, rec, setNow := ladderKit(harbor.RoleAllocation{IdleAfter: time.Second, NagEvery: time.Second, ReclaimAfter: time.Minute}, n, reap, st)
+	e, _, rec, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Second, NagEvery: time.Second, ReclaimAfter: time.Minute}, n, reap, st)
 	idler := &fakeIdler{}
 	e.idler = idler
 	setNow(start.Add(100 * time.Hour)) // far past wait-max (1m), idle-after and reclaim-after
@@ -782,7 +782,7 @@ func TestTick_StandingSessionResident_NoLadder(t *testing.T) {
 // --- reply-to-act on nags: an owner's keep/release reply to a nag ---
 
 // nagID is the id of one of actor's nags (as the nagger stamps it).
-func nagID(actor string) string { return harbor.NagMessageID(actor, time.Unix(50_000, 7)) }
+func nagID(actor string) string { return jam.NagMessageID(actor, time.Unix(50_000, 7)) }
 
 // reply is an external reply from `from` to cove, replying to replyTo.
 func reply(cove string, seq int64, from, replyTo, body string) intercom.Squawk {
@@ -820,17 +820,17 @@ type cmdKit struct {
 	now   time.Time
 }
 
-func newCmdKit(t *testing.T, reap Reaper, inst harbor.Instance, msgs ...intercom.Squawk) *cmdKit {
+func newCmdKit(t *testing.T, reap Reaper, inst jam.Instance, msgs ...intercom.Squawk) *cmdKit {
 	t.Helper()
 	k := &cmdKit{n: &fakeNagger{}, wake: &fakeWaker{}, idler: &fakeIdler{}, now: time.Unix(200_000, 0)}
-	k.e, k.reg, k.rec, _ = ladderKit(harbor.RoleAllocation{IdleAfter: 2 * time.Hour, NagEvery: time.Hour}, k.n, reap, inst)
+	k.e, k.reg, k.rec, _ = ladderKit(jam.RoleAllocation{IdleAfter: 2 * time.Hour, NagEvery: time.Hour}, k.n, reap, inst)
 	k.inbox = &fakeInbox{byActor: map[string][]intercom.Squawk{inst.ActorID: msgs}}
 	k.e.inbox, k.e.wake, k.e.idler = k.inbox, k.wake, k.idler
 	k.e.now = func() time.Time { return k.now }
 	return k
 }
 
-func waitingPersonal() harbor.Instance {
+func waitingPersonal() jam.Instance {
 	inst := personal("p1", time.Unix(199_000, 0)) // idle 1000s: under idle-after, so no nag this tick
 	inst.WaitSeq = 5
 	inst.LastNagAt = time.Unix(199_500, 0)
@@ -901,7 +901,7 @@ func TestReplyToAct_KeepRestartsIdleClockWithoutWaking(t *testing.T) {
 	if k.woke("p1") || len(reap.down) != 0 {
 		t.Fatalf("keep must not wake or tear down: woke=%v resumed=%v down=%v", k.wake.woke, k.idler.resumed, reap.down)
 	}
-	if got.Phase != harbor.PhaseIdled {
+	if got.Phase != jam.PhaseIdled {
 		t.Fatalf("an Idled session stays paused after keep: %v", got.Phase)
 	}
 }
@@ -1018,7 +1018,7 @@ func TestReplyToAct_FailedNotifyDoesNotUndo(t *testing.T) {
 // Only personal sessions act on commands: a standing or ephemeral session's
 // "release" (even one shaped like a reply to its nag) wakes it as today.
 func TestReplyToAct_NonPersonalWakes(t *testing.T) {
-	for _, kind := range []string{harbor.SessionKindStanding, ""} {
+	for _, kind := range []string{jam.SessionKindStanding, ""} {
 		t.Run("kind="+kind, func(t *testing.T) {
 			inst := waitingPersonal()
 			inst.SessionKind = kind

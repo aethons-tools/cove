@@ -367,12 +367,12 @@ func resolveKit(projectDir string) (string, error) {
 	return kitDir, nil
 }
 
-// atHarborBinary resolves an at-harbor executable sitting beside this at-cove
+// atJamBinary resolves an at-harbor executable sitting beside this at-cove
 // binary (so a dist/<os-arch>/at-cove finds its sibling), falling back to the
 // bare name "at-harbor" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
 // at-harbor for cove auto-enrollment (COV-141) rather than importing adminclient
 // (which pulls go-oidc).
-func atHarborBinary() string {
+func atJamBinary() string {
 	self, err := os.Executable()
 	if err != nil {
 		return "at-harbor"
@@ -803,8 +803,8 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, diges
 	}
 	// Map a host-run harbor to the gateway so the hardened container can reach it
 	// by name (COV-138).
-	if cfg.Harbor != nil && cfg.Harbor.HostGateway() {
-		cc.ExtraHosts = []string{cfg.Harbor.Host}
+	if cfg.Jam != nil && cfg.Jam.HostGateway() {
+		cc.ExtraHosts = []string{cfg.Jam.Host}
 	}
 	bi, err := b.Create(cc)
 	if err != nil {
@@ -993,14 +993,14 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 
 	// Harbor routes Anthropic + git through the broker, superseding OAuth/Vertex
 	// (COV-138). Resolve the identity token host-side; connect delivers it env-only.
-	var harborAuth *connect.HarborAuth
-	if cfg.Harbor != nil && !noAuth {
-		var harborRevoke func()
-		if harborAuth, harborRevoke, err = harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
+	var jamAuth *connect.JamAuth
+	if cfg.Jam != nil && !noAuth {
+		var jamRevoke func()
+		if jamAuth, jamRevoke, err = jamPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
 			return err
 		}
-		if harborRevoke != nil {
-			defer harborRevoke() // revoke the auto-minted identity when the session ends
+		if jamRevoke != nil {
+			defer jamRevoke() // revoke the auto-minted identity when the session ends
 		}
 	}
 
@@ -1019,7 +1019,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// bootstrap clone would send the real token to harbor (and break). Skip the
 	// auto-clone under harbor — the agent clones through harbor on demand (COV-138).
 	var wsClone *connect.WorkspaceClone
-	if cfg.Harbor == nil {
+	if cfg.Jam == nil {
 		wsClone, err = workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
 	}
 	if err != nil {
@@ -1093,7 +1093,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		WorkspaceClone:     wsClone,
 		ExtraEnv:           cfg.SessionEnv(),
 		Vertex:             vertexAuth,
-		Harbor:             harborAuth,
+		Jam:                jamAuth,
 	})
 }
 
@@ -1201,19 +1201,19 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		errorChannel = tm.Discord.Channels[0]
 	}
 
-	// Harbor: route the conductor's Anthropic + git through the broker (COV-142).
+	// Jam: route the conductor's Anthropic + git through the broker (COV-142).
 	// A teammate is detached (no exit hook to revoke on), so auto-enroll is
 	// unsupported — the identity must be pre-supplied.
-	var harborHost, harborToken string
-	if cfg.Harbor != nil {
-		if cfg.Harbor.Identity == "" {
+	var jamHost, jamToken string
+	if cfg.Jam != nil {
+		if cfg.Jam.Identity == "" {
 			return fmt.Errorf("teammate harbor requires harbor.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
 		}
-		hauth, _, err := harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
+		hauth, _, err := jamPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
 		if err != nil {
 			return err
 		}
-		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+		jamHost, jamToken = cfg.Jam.Host, hauth.Token
 	}
 
 	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
@@ -1225,8 +1225,8 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		KnownHostsFile:  filepath.Join(knownHostsDir, st.Container),
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		Stderr:          stderr,
-		HarborHost:      harborHost,
-		HarborToken:     harborToken,
+		JamHost:         jamHost,
+		JamToken:        jamToken,
 	}); err != nil {
 		return err
 	}
@@ -1290,7 +1290,7 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
 }
 
-// harborPlan produces a harbor kit's connector config host-side; nil when the kit
+// jamPlan produces a harbor kit's connector config host-side; nil when the kit
 // has no harbor: block. When harbor.identity is set it resolves that supplied
 // secret (COV-138); when absent it auto-enrolls by shelling at-harbor (COV-141),
 // returning a revoke closure the caller defers (nil for the pre-supplied path).
@@ -1300,13 +1300,13 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 // name), distinct from kitName (the shared secret-bucket key used by the
 // pre-supplied path). Passing the bucket key would collide across concurrent
 // same-kit instances and revoke a sibling cove's live identity.
-func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, func(), error) {
-	if cfg.Harbor == nil {
+func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.JamAuth, func(), error) {
+	if cfg.Jam == nil {
 		return nil, nil, nil
 	}
 	// Pre-supplied path: harbor.identity names a host-supplied secret (COV-138).
-	if cfg.Harbor.Identity != "" {
-		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Harbor.Identity, secretsPath)
+	if cfg.Jam.Identity != "" {
+		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Jam.Identity, secretsPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1314,17 +1314,17 @@ func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 		if err != nil {
 			return nil, nil, err
 		}
-		tok := resolved[cfg.Harbor.Identity]
+		tok := resolved[cfg.Jam.Identity]
 		if strings.TrimSpace(tok) == "" {
-			return nil, nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Harbor.Identity)
+			return nil, nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Jam.Identity)
 		}
-		return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: tok}, nil, nil
+		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok}, nil, nil
 	}
 	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
 	// token arrives on stdout, in memory only. The returned closure revokes it.
 	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest"}
-	out, err := r.Output(atHarborBinary(), args...)
+	out, err := r.Output(atJamBinary(), args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll failed (is at-harbor reachable + an operator logged in?): %w", kitName, err)
 	}
@@ -1338,8 +1338,8 @@ func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	if strings.TrimSpace(res.Token) == "" {
 		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned an empty token", kitName)
 	}
-	revoke := func() { _ = r.Run(atHarborBinary(), "revoke", "--id", res.ID) }
-	return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: res.Token}, revoke, nil
+	revoke := func() { _ = r.Run(atJamBinary(), "revoke", "--id", res.ID) }
+	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token}, revoke, nil
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
@@ -1833,7 +1833,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// A harbor kit supplies the agent's Anthropic auth via the harbor connector
 	// (injected ANTHROPIC_API_KEY = the identity token), not a worker-bucket bearer,
 	// so the bearer gate doesn't apply.
-	if !bearerResolved && cfg.Harbor == nil {
+	if !bearerResolved && cfg.Jam == nil {
 		bearerNames := strings.Join(agentBearerSecrets, " or ")
 		bearerErr := fmt.Errorf("no agent bearer (%s) is resolved for kit %q — the worker would fail closed with a 401; wire one under kits: %q in %s (or secrets.local.yml)",
 			bearerNames, cfg.Name, cfg.Name, secretsPath)
@@ -1859,18 +1859,18 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 1
 	}
 
-	// Harbor: route the agent's Anthropic through the broker (COV-142). The worker
+	// Jam: route the agent's Anthropic through the broker (COV-142). The worker
 	// container name is the per-unit enroll id, so concurrent workers don't collide;
 	// the revoke fires when this unit ends (auto path; pre-supplied path has none).
 	workerName := workName(cfg.Name)
-	var harborHost, harborToken string
-	if cfg.Harbor != nil {
-		hauth, hrevoke, herr := harborPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
+	var jamHost, jamToken string
+	if cfg.Jam != nil {
+		hauth, hrevoke, herr := jamPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
 		if herr != nil {
 			lg.UserError(ctx, herr, slog.String("step", "secrets"))
 			return 1
 		}
-		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+		jamHost, jamToken = cfg.Jam.Host, hauth.Token
 		if hrevoke != nil {
 			defer hrevoke()
 		}
@@ -1881,8 +1881,8 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,
-		HarborHost:    harborHost,
-		HarborToken:   harborToken,
+		JamHost:       jamHost,
+		JamToken:      jamToken,
 		// A dispatched worker authenticates to Anthropic via an injected
 		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
 		// So we deliberately do not seed credentials.json: with no OAuth token to

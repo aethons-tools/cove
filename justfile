@@ -54,8 +54,8 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
-# regenerate the harbor Attach stream's gRPC code (internal/harbor/attach/attachpb)
-# from internal/harbor/attach/proto/attach.proto. Installs protoc-gen-go,
+# regenerate the harbor Attach stream's gRPC code (internal/jam/attach/attachpb)
+# from internal/jam/attach/proto/attach.proto. Installs protoc-gen-go,
 # protoc-gen-go-grpc, and buf (pinned) into GOPATH/bin, then runs `buf generate`.
 # Generated files ARE committed — CI never regenerates.
 buf-gen:
@@ -65,7 +65,7 @@ buf-gen:
     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
     go install github.com/bufbuild/buf/cmd/buf@v1.45.0
-    cd internal/harbor/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
+    cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
 
 # adopt a published base image: resolve <tag> to its @sha256 index digest and pin
 # it in .at-cove/config.yml (image.base). Add --breaking to also raise the blessed
@@ -122,7 +122,7 @@ integration-docker:
 
 # harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
 integration-harbor:
-    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/... ./internal/allocator/...
+    go test -tags integration ./cmd/at-harbor/... ./internal/jam/... ./internal/allocator/...
 
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip

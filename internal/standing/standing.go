@@ -4,7 +4,7 @@
 // one whose cove died is raised again under the same actor id (a fresh session:
 // no context carries over); a cove whose name is no longer declared, or whose
 // role is gone, is torn down. A name whose raise keeps failing backs off
-// exponentially. It lives outside internal/harbor core (harbor must not import
+// exponentially. It lives outside internal/jam core (harbor must not import
 // it) and is wired from cmd/at-harbor whenever harbor serves.
 package standing
 
@@ -16,18 +16,18 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/allocator"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Roster reads the declarations (satisfied by harbor.Store).
+// Roster reads the declarations (satisfied by jam.Store).
 type Roster interface {
 	ListProjects() []string
-	ListRoles(project string) []harbor.Role
+	ListRoles(project string) []jam.Role
 }
 
-// Registry reads the durable Instance registry (satisfied by harbor.Store).
+// Registry reads the durable Instance registry (satisfied by jam.Store).
 type Registry interface {
-	ListInstances() []harbor.Instance
+	ListInstances() []jam.Instance
 }
 
 // Granter is harbor's capacity authority (satisfied by *allocator.Allocator).
@@ -36,19 +36,19 @@ type Granter interface {
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
 }
 
-// Supervisor raises and tears down coves (satisfied by *harbor.Supervisor).
+// Supervisor raises and tears down coves (satisfied by *jam.Supervisor).
 // Teardown records the reservation release itself.
 type Supervisor interface {
-	Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error)
+	Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error)
 	Teardown(ctx context.Context, actorID string) error
 }
 
 // Actors is the actor store, used to clear a leftover identity. A crash between
 // Raise enrolling a standing cove's actor and recording its instance leaves an
 // actor with the standing id and no cove; every later Raise would then fail
-// "already exists". Satisfied by harbor.Store.
+// "already exists". Satisfied by jam.Store.
 type Actors interface {
-	ListActors() []harbor.Actor
+	ListActors() []jam.Actor
 	RemoveActor(id string) error
 }
 
@@ -121,9 +121,9 @@ type declKey struct{ project, role, name string }
 // Tick runs one reconcile pass: ensure a cove for every declared name, then tear
 // down standing coves that are no longer declared.
 func (r *Reconciler) Tick(ctx context.Context) {
-	byID := map[string]harbor.Instance{}
+	byID := map[string]jam.Instance{}
 	for _, inst := range r.registry.ListInstances() {
-		if inst.Phase != harbor.PhaseGone {
+		if inst.Phase != jam.PhaseGone {
 			byID[inst.ActorID] = inst
 		}
 	}
@@ -139,7 +139,7 @@ func (r *Reconciler) Tick(ctx context.Context) {
 	}
 
 	for _, inst := range byID {
-		if inst.SessionKind != harbor.SessionKindStanding {
+		if inst.SessionKind != jam.SessionKindStanding {
 			continue // ephemeral and personal coves are not ours
 		}
 		if declared[declKey{inst.Project, inst.Role, inst.Name}] {
@@ -156,10 +156,10 @@ func (r *Reconciler) Tick(ctx context.Context) {
 
 // ensure makes sure the declared name s of (project, role) has a cove: grant,
 // then raise, releasing the grant and backing off if the raise fails.
-func (r *Reconciler) ensure(ctx context.Context, project, role string, s harbor.StandingSession, byID map[string]harbor.Instance) {
-	id := harbor.StandingActorID(project, role, s.Name)
+func (r *Reconciler) ensure(ctx context.Context, project, role string, s jam.StandingSession, byID map[string]jam.Instance) {
+	id := jam.StandingActorID(project, role, s.Name)
 	if inst, ok := byID[id]; ok {
-		if inst.SessionKind != harbor.SessionKindStanding || inst.Project != project || inst.Role != role || inst.Name != s.Name {
+		if inst.SessionKind != jam.SessionKindStanding || inst.Project != project || inst.Role != role || inst.Name != s.Name {
 			r.log.Warn("standing: actor id held by another cove; not raising", "id", id, "project", project, "role", role, "name", s.Name)
 			return
 		}
@@ -197,9 +197,9 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s harbor.
 		r.log.Warn("standing: grant denied", "id", id, "project", project, "role", role, "name", s.Name)
 		return
 	}
-	_, _, _, err = r.sup.Raise(ctx, harbor.RaiseSpec{
+	_, _, _, err = r.sup.Raise(ctx, jam.RaiseSpec{
 		ActorID: id, Project: project, Role: role, Name: s.Name,
-		Prompt: Prompt(project, role, s), SessionKind: harbor.SessionKindStanding,
+		Prompt: Prompt(project, role, s), SessionKind: jam.SessionKindStanding,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.
@@ -220,7 +220,7 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s harbor.
 
 // Prompt is the prompt a standing session is raised with: a preamble telling
 // the agent how a standing session works, then the declared prompt.
-func Prompt(project, role string, s harbor.StandingSession) string {
+func Prompt(project, role string, s jam.StandingSession) string {
 	return fmt.Sprintf("You are the standing session %q for role %s in project %s. You run until an operator\n"+
 		"removes you. When you have results or need input, message people with the intercom `send` tool — you\n"+
 		"must name the recipient (`to`); replies wake you and are available via `read`.\n"+
