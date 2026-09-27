@@ -27,6 +27,20 @@ func IsResident(kind string) bool {
 	return kind == SessionKindPersonal || kind == SessionKindStanding
 }
 
+// NagMessageID is the intercom message id of an idle nag sent to a personal
+// session's owner at at: "nag:<actorID>:<unix-nanos>". The id lets wake-on
+// recognize a reply to one of this session's nags (IsNagReply) with no log
+// schema change.
+func NagMessageID(actorID string, at time.Time) string {
+	return fmt.Sprintf("nag:%s:%d", actorID, at.UnixNano())
+}
+
+// IsNagReply reports whether replyTo is the id of one of actorID's nags. The
+// trailing ':' of the prefix keeps actors whose ids share a prefix apart.
+func IsNagReply(replyTo, actorID string) bool {
+	return actorID != "" && strings.HasPrefix(replyTo, "nag:"+actorID+":")
+}
+
 // ErrNeedsLedger is returned (possibly wrapped) by a SessionAllocator when
 // personal sessions cannot be admitted because harbor has no allocation ledger
 // (it runs on the file store, not store-postgres).
