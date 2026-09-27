@@ -534,7 +534,8 @@ func TestDispatchJamConnector(t *testing.T) {
 	}
 	agent := envWrites[1]
 	// values are shell-quoted in the script (export KEY='value'); match substrings.
-	if !strings.Contains(agent, "ANTHROPIC_BASE_URL") || !strings.Contains(agent, "https://h.test/anthropic") || !strings.Contains(agent, "AT_HARBOR_IDENTITY_TOKEN") {
+	if !strings.Contains(agent, "ANTHROPIC_BASE_URL") || !strings.Contains(agent, "https://h.test/anthropic") || !strings.Contains(agent, "AT_JAM_IDENTITY_TOKEN") ||
+		!strings.Contains(agent, "AT_HARBOR_IDENTITY_TOKEN") { // deprecated name, still set for older images
 		t.Fatalf("agent step missing harbor connector env:\n%s", agent)
 	}
 	// harbor supersedes OAuth: the credentials file is NOT seeded.

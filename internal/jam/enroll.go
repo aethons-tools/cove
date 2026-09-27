@@ -44,13 +44,13 @@ func Enroll(store Store, id, project, role string, overrides *Override, now time
 }
 
 // RenderEnrollSnippet renders the env + gitconfig a Guest cove sources to route
-// Anthropic and git through harbor. The identity token is exported once (as
-// AT_HARBOR_IDENTITY_TOKEN) and both connectors reference it; harbor swaps it for
-// the real credentials.
+// Anthropic and git through Jam. The identity token is written once (as
+// AT_JAM_IDENTITY_TOKEN; the deprecated AT_HARBOR_IDENTITY_TOKEN is exported from
+// it) and both connectors reference it; Jam swaps it for the real credentials.
 //
 // The token stays **env-only**: the git credential helper reads it from
-// $AT_HARBOR_IDENTITY_TOKEN at run time, so the token never lands in gitconfig on
-// disk (only the env-var name does). This makes `git clone` through harbor work
+// $AT_JAM_IDENTITY_TOKEN at run time, so the token never lands in gitconfig on
+// disk (only the env-var name does). This makes `git clone` through Jam work
 // headlessly — no prompt — matching the repo's existing env-only-token pattern.
 func RenderEnrollSnippet(baseURL, token string) string {
 	return snippet.Render(baseURL, token)

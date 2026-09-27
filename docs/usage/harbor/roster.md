@@ -161,7 +161,8 @@ at-jam revoke --id spider-18                                    # removes the wh
 
 - The role must already exist (else `enroll` fails closed).
 - Without `--json`, `enroll` prints a shell **connector snippet** the Guest cove
-  sources. The token is exported once as `AT_HARBOR_IDENTITY_TOKEN`, and both
+  sources. The token is exported once as `AT_JAM_IDENTITY_TOKEN` (the deprecated
+  `AT_HARBOR_IDENTITY_TOKEN` is exported from it, for older images), and both
   connectors reference it: `ANTHROPIC_BASE_URL=<base>/anthropic` with the token as
   the key, and git `insteadOf github.com → <base>/git/` with a credential helper
   that reads the env var at run time. The token never lands in gitconfig on disk.

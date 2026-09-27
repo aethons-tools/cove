@@ -81,8 +81,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -106,8 +106,8 @@ func TestMCPSendForwardsToJam(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -141,8 +141,8 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-B",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-B",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -188,9 +188,9 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -217,9 +217,9 @@ func TestMCPListTargets(t *testing.T) {
 	defer srv.Close()
 	c, _ := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -240,9 +240,9 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -268,9 +268,9 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -308,9 +308,9 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -338,9 +338,9 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -372,8 +372,8 @@ func TestMCPCommitToolForwardsToJam(t *testing.T) {
 	defer srv.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   srv.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-C",
+		"AT_JAM_RUNTIME_ADDR":   srv.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-C",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -416,9 +416,9 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -441,8 +441,8 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 
 	const secretToken = "super-secret-token-value"
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": secretToken,
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": secretToken,
 	}
 	getenv := func(k string) string { return env[k] }
 

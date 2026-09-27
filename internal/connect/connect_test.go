@@ -538,7 +538,8 @@ func TestConnect_JamSupersedesAndInjects(t *testing.T) {
 	}
 	// The launch env carries the harbor connector vars.
 	if tr.gotEnv["ANTHROPIC_BASE_URL"] != "https://harbor.test/anthropic" ||
-		tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["AT_HARBOR_IDENTITY_TOKEN"] != "s3cr3t-xyz" {
+		tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["AT_JAM_IDENTITY_TOKEN"] != "s3cr3t-xyz" ||
+		tr.gotEnv["AT_HARBOR_IDENTITY_TOKEN"] != "s3cr3t-xyz" { // deprecated name, still set for older images
 		t.Fatalf("launch env missing harbor connector vars: %v", tr.gotEnv)
 	}
 	// The token stays env-only — never on argv or ssh stdin.

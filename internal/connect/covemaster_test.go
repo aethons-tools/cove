@@ -13,8 +13,8 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	tgt := sshargs.Target{Host: "h", User: "agent", Port: 2222, IdentityFile: "k", KnownHostsFile: "kh"}
 	err := LaunchCoveMaster(fake, CoveMasterOptions{
 		Target:        tgt,
-		JamHost:       "harbor.example.com",
-		RuntimeAddr:   "harbor.example.com:443",
+		JamHost:       "jam.example.com",
+		RuntimeAddr:   "jam.example.com:443",
 		IdentityToken: "tok-123",
 		LaunchSecret:  "sec-456",
 		WorkDir:       "/home/agent/workspace",
@@ -44,12 +44,17 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	// The env script is written to a tmpfs file and contains the connector + cove-master vars.
 	envWrite := stdinTo(coveMasterEnvVMPath)
 	for _, want := range []string{
-		"AT_HARBOR_RUNTIME_ADDR=", "harbor.example.com:443",
-		"AT_HARBOR_LAUNCH_SECRET=", "sec-456",
+		"AT_JAM_RUNTIME_ADDR=", "jam.example.com:443",
+		"AT_JAM_LAUNCH_SECRET=", "sec-456",
 		"AT_COVE_WORKDIR=", "/home/agent/workspace",
 		"AT_COVE_AGENT_PROMPT_FILE=", coveMasterPromptVMPath,
-		"AT_HARBOR_IDENTITY_TOKEN=tok-123",
-		"ANTHROPIC_BASE_URL=https://harbor.example.com/anthropic",
+		"AT_JAM_IDENTITY_TOKEN=tok-123",
+		// The deprecated names are still set for older images, each exported
+		// from its new variable so no secret is written twice.
+		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
+		`export AT_HARBOR_LAUNCH_SECRET="$AT_JAM_LAUNCH_SECRET"`,
+		`export AT_HARBOR_RUNTIME_ADDR="$AT_JAM_RUNTIME_ADDR"`,
+		"ANTHROPIC_BASE_URL=https://jam.example.com/anthropic",
 		"git config --global",
 	} {
 		if !strings.Contains(envWrite, want) {
@@ -72,6 +77,11 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	}
 	if !launched {
 		t.Fatalf("no detached cove-master launch; calls=%+v", fake.Calls)
+	}
+	for _, sec := range []string{"tok-123", "sec-456"} {
+		if n := strings.Count(envWrite, sec); n != 1 {
+			t.Fatalf("secret %q written %d times in the env script, want exactly 1:\n%s", sec, n, envWrite)
+		}
 	}
 }
 

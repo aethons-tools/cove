@@ -147,13 +147,17 @@ It reads its configuration from the environment (no SSH, no host
 orchestration):
 
 ```
-AT_HARBOR_RUNTIME_ADDR    harbor's cove-facing Attach address, harbor.host:443 (TLS, via the cove's proxy)
-AT_HARBOR_IDENTITY_TOKEN  the cove's identity token
-AT_HARBOR_LAUNCH_SECRET   the per-instance launch secret, minted at raise time
+AT_JAM_RUNTIME_ADDR       Jam's cove-facing Attach address, jam.host:443 (TLS, via the cove's proxy)
+AT_JAM_IDENTITY_TOKEN     the cove's identity token
+AT_JAM_LAUNCH_SECRET      the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
 ```
+
+Each `AT_JAM_*` variable falls back to its pre-rename `AT_HARBOR_*` name, and the
+launcher sets both (older images read only the old names) — see
+[renamed-from-harbor.md](renamed-from-harbor.md).
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
 it spawns `claude -p --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,

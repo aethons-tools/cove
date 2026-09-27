@@ -51,7 +51,7 @@ runtime:                            # optional — supervisor lease/reconcile ti
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
   launcher:                         # optional — enables the real Colima cove launcher
     install-manifest: /etc/harbor/install.json  # → the pre-built image (Image + ImageDigest)
-    runtime-addr: harbor.example.com:443        # what a raised cove dials (AT_HARBOR_RUNTIME_ADDR)
+    runtime-addr: harbor.example.com:443        # what a raised cove dials (AT_JAM_RUNTIME_ADDR)
     jam-host: harbor.example.com                # added to the cove's /etc/hosts; connector base host
     identity-file: /var/lib/harbor/at-cove/id_ed25519  # SSH key matching the image's baked authorized_keys
     known-hosts-dir: /var/lib/harbor/known_hosts.d
