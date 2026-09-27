@@ -27,10 +27,10 @@
   | basic-auth realm `harbor` | `jam` | none |
   | `HARBOR_TEST_POSTGRES_DSN`, CI database `harbor` | `JAM_TEST_POSTGRES_DSN`, database `jam` | none (test infrastructure) |
   | `just harbor`, `just integration-harbor`, dev `harbor.dev.yml` | `just jam`, `just integration-jam`, `dev/jam.dev.yml` | none |
+  | dev hostname and cert CN `harbor.local.aethons.tools` | `jam.local.aethons.tools` (`*.local.aethons.tools` already resolves to localhost) | none; rerun `just dev-cert` |
 
 - **Deliberately unchanged:**
   - **The Postgres migration advisory-lock key** (`0x686172626f72`, "harbor"). Changing it would let an old and a new binary migrate the same database concurrently during a rollout. Keep the value and say why in a comment.
-  - **The dev hostname `harbor.local.aethons.tools`.** It needs a DNS record, so moving to `jam.local.aethons.tools` is left to the maintainer.
   - **The Go module path.**
   - **Historical design docs under `docs/superpowers/`.**
 - **Requisitioner:**
@@ -106,7 +106,7 @@
 ## Task 7: Wire names and test infrastructure
 
 - [ ] Cookies `jam_session` and `jam_oauth_*`, and the realm `jam`. Update the tests.
-- [ ] `JAM_TEST_POSTGRES_DSN` in the integration tests, the CI workflow (database, user and password `jam`) and `dev/`. `dev/harbor.dev.yml` → `dev/jam.dev.yml`, and `dev/README.md` is updated. The dev hostname stays.
+- [ ] `JAM_TEST_POSTGRES_DSN` in the integration tests, the CI workflow (database, user and password `jam`) and `dev/`. `dev/harbor.dev.yml` → `dev/jam.dev.yml`, and `dev/README.md` is updated. The dev hostname and the `just dev-cert` CN become `jam.local.aethons.tools`.
 - [ ] Commit: `rename: jam cookies, realm, and test infrastructure`.
 
 ## Task 8: Docs
@@ -129,7 +129,6 @@
   - the alias code and its tests
   - the rename doc
   - the advisory-lock comment
-  - the dev hostname
   - `build.sh`'s alias copy
 
   Paste the final hit list, grouped by allow-list reason, into the report.
@@ -140,4 +139,3 @@
 
 - Removing the aliases (a later release; the rename doc says so).
 - Renaming internal "cove" identifiers, the `at-cove` tool, `cove-master` or the module.
-- The dev DNS name.
