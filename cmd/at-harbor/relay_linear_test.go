@@ -146,6 +146,43 @@ func TestRouteDiscord(t *testing.T) {
 	}
 }
 
+// A reply posted in an inbox channel that is exactly one roster human's
+// discord delivery address is attributed to that human (by roster name, not
+// the Discord display name); a reply in a shared channel keeps the display
+// name.
+func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
+	st := newTestStore(t)
+	for _, h := range []harbor.Human{
+		{Name: "alice", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
+		{Name: "bob", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+		{Name: "carol", Delivery: []harbor.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+	} {
+		if err := st.AddHuman("acme", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := mustReceipts(t)
+	if err := rec.Record("D1", "cove-1", "M1"); err != nil {
+		t.Fatal(err)
+	}
+	dir := &directory{store: st, receipts: rec}
+
+	from, _, _, ok := dir.Route("discord", "acme", relay.Event{Author: "Alice Display", Surface: "inbox-A", ReplyToForeign: "D1", ForeignID: "m2"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "alice"}) {
+		t.Fatalf("inbox reply from = %+v ok=%v, want human:alice", from, ok)
+	}
+	from, _, _, ok = dir.Route("discord", "acme", relay.Event{Author: "Bob Display", Surface: "shared", ReplyToForeign: "D1", ForeignID: "m3"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "Bob Display"}) {
+		t.Fatalf("shared-channel reply from = %+v ok=%v, want the display name", from, ok)
+	}
+	// the inbox belongs to alice in acme only: another project's reply there
+	// is not attributed to her.
+	from, _, _, ok = dir.Route("discord", "other", relay.Event{Author: "Mallory", Surface: "inbox-A", ReplyToForeign: "D1", ForeignID: "m4"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "Mallory"}) {
+		t.Fatalf("other-project reply from = %+v ok=%v", from, ok)
+	}
+}
+
 // A legacy receipt (no message id) still routes to its cove, with the old
 // opaque in:discord:<id> ReplyTo.
 func TestRouteDiscordLegacyReceipt(t *testing.T) {
