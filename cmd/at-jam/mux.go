@@ -51,11 +51,11 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 
 // coveHTTPHandler builds the cove-facing HTTP handler: the broker, plus the
 // intercom endpoints (/squawks and its subpaths) and /escalate whenever harbor
-// has an intercom log (with or without a dispatcher — a personal session needs
-// the intercom too) or a dispatcher (whose coves have always had /escalate; with
+// has an intercom log (with or without a Requisitioner — a personal session needs
+// the intercom too) or a Requisitioner (whose coves have always had /escalate; with
 // no log their sends fail with a clean 503). With neither, the broker alone.
-func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, dispatcher bool, log *slog.Logger) http.Handler {
-	if lg == nil && !dispatcher {
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, log *slog.Logger) http.Handler {
+	if lg == nil && !requisitioner {
 		return broker
 	}
 	// Pass lg as both the reader and the appender only when it's genuinely

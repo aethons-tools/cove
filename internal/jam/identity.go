@@ -44,8 +44,8 @@ type StandingSession struct {
 // by harbor's Allocator on each grant, by wake-on's personal-session idle ladder,
 // and by the standing reconciler. A later slice adds requester grants.
 type RoleAllocation struct {
-	// MaxEphemeral caps the role's concurrent ephemeral (dispatcher) sessions;
-	// 0 = unset (the dispatcher's max-concurrent applies as the fallback).
+	// MaxEphemeral caps the role's concurrent ephemeral (Requisitioner) sessions;
+	// 0 = unset (the Requisitioner's max-concurrent applies as the fallback).
 	MaxEphemeral int `json:"max_ephemeral,omitempty"`
 	// MaxPersonal caps the role's concurrent personal sessions across all owners
 	// (the pool); 0 = no personal sessions of this role.

@@ -60,7 +60,7 @@ at-jam role rm   [--project acme] guest
   concurrent ephemeral (dispatcher-raised) sessions. Harbor's Allocator reads it
   live from the roster on each grant, so an edit applies on the next grant with no
   restart. `0` (the default) = unset — the dispatcher's `max-concurrent` applies
-  as the fallback ([dispatcher.md](dispatcher.md#config-runtimedispatcher)).
+  as the fallback ([dispatcher.md](dispatcher.md#config-runtimerequisitioner)).
   `role list` shows it as `max-ephemeral=N`.
 - `--max-personal N` caps the role's concurrent **personal sessions** across all
   owners (the pool). `--max-personal-per-owner M` caps one owner's share (`0` =

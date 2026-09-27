@@ -375,7 +375,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
-	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (dispatcher) sessions (0 = unset: the dispatcher's max-concurrent applies)")
+	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (Requisitioner) sessions (0 = unset: the Requisitioner's max-concurrent applies)")
 	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
 	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
 	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
@@ -1344,7 +1344,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	if err := cfg.validateDispatcher(); err != nil {
+	if err := cfg.validateRequisitioner(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
@@ -1435,7 +1435,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
 	// optionally on a plaintext dev listener (runtime.listen). One server, one
-	// ControlSink. Built here (ahead of the dispatcher block below) because the
+	// ControlSink. Built here (ahead of the Requisitioner block below) because the
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
@@ -1473,12 +1473,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	// The Allocator is harbor's capacity authority, built whenever harbor serves
-	// (not only with a dispatcher): it admits the dispatcher's ephemeral raises and
+	// (not only with a Requisitioner): it admits the Requisitioner's ephemeral raises and
 	// operators' personal-session requests against
 	// the roster's per-(project, role) policy (`role add --max-ephemeral
 	// --max-personal --max-personal-per-owner`), read live on each grant. The
-	// dispatcher's max-concurrent is the ephemeral fallback for its own
-	// (project, role), seeded only when a dispatcher is configured.
+	// Requisitioner's max-concurrent is the ephemeral fallback for its own
+	// (project, role), seeded only when a Requisitioner is configured.
 	//
 	// Ledger cutover (slice 4): with Postgres the allocation event store is the
 	// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-caps)
@@ -1496,7 +1496,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		ledger = as
 	}
-	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Dispatcher), ledger)
+	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner), ledger)
 	alloc.SetLogger(log)
 	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
@@ -1527,14 +1527,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	log.Info("harbor standing reconciler: resident", "interval", standing.DefaultInterval)
 
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
-	// the Discord relay — runs whenever harbor has an intercom log, dispatcher or
+	// the Discord relay — runs whenever harbor has an intercom log, Requisitioner or
 	// not: a personal session converses with its owner over it. The tracker, the
-	// dispatcher, the escalation engine and the Linear relay need the tracker, so
-	// they stay in the dispatcher block below.
-	dc := cfg.Runtime.Dispatcher
+	// Requisitioner, the escalation engine and the Linear relay need the tracker, so
+	// they stay in the Requisitioner block below.
+	dc := cfg.Runtime.Requisitioner
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below:
-	// the broker, plus /squawks and /escalate with an intercom log or a dispatcher.
+	// the broker, plus /squawks and /escalate with an intercom log or a Requisitioner.
 	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, log)
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
@@ -1542,7 +1542,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// in the message Log addressed to them, pauses them past the warm-timeout,
 	// tears down non-personal ones past wait-max, and runs the personal-session
 	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
-	// of the process. Settings: runtime.wake > runtime.dispatcher > defaults.
+	// of the process. Settings: runtime.wake > runtime.requisitioner > defaults.
 	if intercomLog != nil || dc != nil {
 		// Pass intercomLog as the Inbox only when it's genuinely non-nil (a plain
 		// nil check — no typed-nil hazard).
@@ -1605,7 +1605,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Resolve harbor's own tracker token (never injected into a cove, never logged).
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: dispatcher tracker-token:", err)
+			fmt.Fprintln(stderr, "at-jam: requisitioner tracker-token:", err)
 			return 1
 		}
 		token := tokEnv["AT_DISPATCH_TRACKER_TOKEN"]
@@ -1613,22 +1613,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
 		tracker, err := linear.New(kitShell, token, nil)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: dispatcher tracker:", err)
+			fmt.Fprintln(stderr, "at-jam: requisitioner tracker:", err)
 			return 1
 		}
-		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → dispatcher default
-		// The dispatcher's (project, role), normalized the same way as the
-		// Allocator's fallback (see dispatcherProject).
-		project := dispatcherProject(dc)
+		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → Requisitioner default
+		// The Requisitioner's (project, role), normalized the same way as the
+		// Allocator's fallback (see requisitionerProject).
+		project := requisitionerProject(dc)
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
-			log.Info("harbor allocator: roster max-ephemeral overrides dispatcher max-concurrent",
+			log.Info("harbor allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
 		}
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
 		go disp.Run(context.Background())
-		log.Info("harbor dispatcher: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
+		log.Info("requisitioner: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
 		// Escalation engine: while a managed cove is Waiting on a ticket, pings
 		// ordered human tiers of its Project escalation policy on per-tier timers
@@ -1682,7 +1682,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// human replies, routing a reply back to the cove it answers via the receipt
 	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
 	// "discord" marks live side by side in the one markers file. Gated on an
-	// intercom log and runtime.discord; no dispatcher needed.
+	// intercom log and runtime.discord; no Requisitioner needed.
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {

@@ -163,9 +163,9 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 }
 
 // coveHTTPHandler mounts /squawks (and /escalate) whenever harbor has an
-// intercom log — with or without a dispatcher — and leaves the broker alone
+// intercom log — with or without a Requisitioner — and leaves the broker alone
 // when there is neither.
-func TestCoveHTTPHandlerMountsSquawksWithoutDispatcher(t *testing.T) {
+func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -185,18 +185,18 @@ func TestCoveHTTPHandlerMountsSquawksWithoutDispatcher(t *testing.T) {
 		return rec.Code
 	}
 	for _, tc := range []struct {
-		name       string
-		lg         intercom.Store
-		dispatcher bool
-		mounted    bool
+		name          string
+		lg            intercom.Store
+		requisitioner bool
+		mounted       bool
 	}{
-		{"log, no dispatcher", lg, false, true},
-		{"log + dispatcher", lg, true, true},
-		{"dispatcher, no log", nil, true, true},
+		{"log, no Requisitioner", lg, false, true},
+		{"log + Requisitioner", lg, true, true},
+		{"Requisitioner, no log", nil, true, true},
 		{"neither", nil, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := coveHTTPHandler(broker, st, sup, tc.lg, tc.dispatcher, log)
+			h := coveHTTPHandler(broker, st, sup, tc.lg, tc.requisitioner, log)
 			for _, p := range []string{"/squawks", "/escalate"} {
 				if got := get(h, p) != http.StatusTeapot; got != tc.mounted {
 					t.Fatalf("%s mounted = %v, want %v", p, got, tc.mounted)

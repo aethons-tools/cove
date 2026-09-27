@@ -1,4 +1,5 @@
-// Package dispatcher is harbor's resident intake: an always-on poll loop that
+// Package dispatcher is the Requisitioner (Jam's resident intake; the package
+// keeps its pre-rename name): an always-on poll loop that
 // turns ready tracker tickets into managed-cove raises, admitting each raise
 // through the Allocator (harbor's capacity authority) rather than counting
 // instances against a cap itself. It lives outside internal/jam core (it
@@ -117,7 +118,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 func (d *Dispatcher) tick(ctx context.Context) {
 	issues, err := d.tracker.ListReady(ctx)
 	if err != nil {
-		d.log.Warn("dispatcher: list ready failed", "error", err.Error())
+		d.log.Warn("requisitioner: list ready failed", "error", err.Error())
 		return
 	}
 	for _, iss := range issues {
@@ -132,22 +133,22 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			Project: d.cfg.Project, Role: d.cfg.Role, ReservationID: actorID, Kind: allocator.SessionEphemeral,
 		})
 		if err != nil {
-			d.log.Warn("dispatcher: grant failed", "actor", actorID, "err", err.Error())
+			d.log.Warn("requisitioner: grant failed", "actor", actorID, "err", err.Error())
 			break // store trouble — back off this tick
 		}
 		if !granted {
-			d.log.Info("dispatcher: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
+			d.log.Info("requisitioner: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
 			break // backpressure — wait for a slot next tick
 		}
 		// slot reserved — any failure from here must release it (compensation)
 		if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleInProgress); err != nil {
-			d.log.Warn("dispatcher: claim failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: claim failed", "issue", iss.Identifier, "error", err.Error())
 			d.release(ctx, actorID)
 			continue
 		}
 		prompt, err := d.buildPrompt(ctx, iss)
 		if err != nil {
-			d.log.Warn("dispatcher: build prompt failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: build prompt failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
 			d.release(ctx, actorID)
 			continue
@@ -155,12 +156,12 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		if _, _, _, err := d.raiser.Raise(ctx, jam.RaiseSpec{
 			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, Prompt: prompt,
 		}); err != nil {
-			d.log.Warn("dispatcher: raise failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: raise failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
 			d.release(ctx, actorID)
 			continue
 		}
-		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
+		d.log.Info("requisitioner: raised cove", "issue", iss.Identifier, "actor", actorID)
 	}
 }
 
@@ -169,7 +170,7 @@ func (d *Dispatcher) tick(ctx context.Context) {
 // where Grant reserved nothing.
 func (d *Dispatcher) release(ctx context.Context, actorID string) {
 	if err := d.admitter.RecordRelease(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
-		d.log.Warn("dispatcher: compensating release failed", "actor", actorID, "err", err.Error())
+		d.log.Warn("requisitioner: compensating release failed", "actor", actorID, "err", err.Error())
 	}
 }
 
@@ -183,7 +184,7 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (stri
 
 func (d *Dispatcher) needsInput(ctx context.Context, iss scheduler.Issue) {
 	if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleNeedsInput); err != nil {
-		d.log.Warn("dispatcher: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
+		d.log.Warn("requisitioner: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
 	}
 }
 

@@ -161,7 +161,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		return Instance{}, "", "", err
 	}
 	// The role, not the caller, decides the cove's egress policy (Enroll just
-	// proved the role exists). Callers — dispatcher, sessions, standing — need
+	// proved the role exists). Callers — the Requisitioner, sessions, standing — need
 	// no change, and none can widen a role's egress by setting the spec.
 	spec.Egress = nil
 	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok && role.Scope.Egress != nil {

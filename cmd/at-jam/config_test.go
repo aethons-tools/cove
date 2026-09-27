@@ -312,10 +312,10 @@ func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
 	}
 }
 
-func TestRuntimeDispatcherParsed(t *testing.T) {
+func TestRuntimeRequisitionerParsed(t *testing.T) {
 	c, err := parseServeConfig([]byte(`
 runtime:
-  dispatcher:
+  requisitioner:
     role: implementer
     project: cove
     max-concurrent: 3
@@ -334,9 +334,9 @@ runtime:
 	if err != nil {
 		t.Fatal(err)
 	}
-	dc := c.Runtime.Dispatcher
+	dc := c.Runtime.Requisitioner
 	if dc == nil {
-		t.Fatal("runtime.dispatcher did not parse")
+		t.Fatal("runtime.requisitioner did not parse")
 	}
 	if dc.Role != "implementer" ||
 		dc.Project != "cove" ||
@@ -346,7 +346,7 @@ runtime:
 		dc.WaitMax != "24h" ||
 		dc.WarmTimeout != "5m" ||
 		dc.EscalationPollInterval != "45s" {
-		t.Fatalf("dispatcher config = %+v", dc)
+		t.Fatalf("Requisitioner config = %+v", dc)
 	}
 	if len(dc.TrackerToken.Command) != 3 || dc.TrackerToken.Command[0] != "op" {
 		t.Fatalf("tracker-token command = %+v", dc.TrackerToken)
@@ -354,19 +354,19 @@ runtime:
 	if dc.Linear == nil || dc.Linear.Team != "COV" {
 		t.Fatalf("linear.team did not parse: %+v", dc.Linear)
 	}
-	// runtime.dispatcher is a known key (no unknown-key warning).
-	if got := unknownServeKeys([]byte("runtime:\n  dispatcher:\n    role: r\n")); len(got) != 0 {
+	// runtime.requisitioner is a known key (no unknown-key warning).
+	if got := unknownServeKeys([]byte("runtime:\n  requisitioner:\n    role: r\n")); len(got) != 0 {
 		t.Fatalf("unknown keys = %v", got)
 	}
 }
 
-func TestValidateDispatcherRequiredFields(t *testing.T) {
-	// no dispatcher block at all → no error.
-	if err := (serveConfig{}).validateDispatcher(); err != nil {
-		t.Fatalf("nil dispatcher should not error: %v", err)
+func TestValidateRequisitionerRequiredFields(t *testing.T) {
+	// no Requisitioner block at all → no error.
+	if err := (serveConfig{}).validateRequisitioner(); err != nil {
+		t.Fatalf("nil Requisitioner should not error: %v", err)
 	}
-	base := func() *dispatcherConfig {
-		return &dispatcherConfig{
+	base := func() *requisitionerConfig {
+		return &requisitionerConfig{
 			Role:          "implementer",
 			MaxConcurrent: 1,
 			Linear:        &kit.LinearTracker{Team: "COV"},
@@ -374,20 +374,20 @@ func TestValidateDispatcherRequiredFields(t *testing.T) {
 	}
 	// all required fields present → ok.
 	c := serveConfig{}
-	c.Runtime.Dispatcher = base()
-	if err := c.validateDispatcher(); err != nil {
-		t.Fatalf("complete dispatcher block should not error: %v", err)
+	c.Runtime.Requisitioner = base()
+	if err := c.validateRequisitioner(); err != nil {
+		t.Fatalf("complete Requisitioner block should not error: %v", err)
 	}
 
-	for field, mutate := range map[string]func(*dispatcherConfig){
-		"role":           func(d *dispatcherConfig) { d.Role = "" },
-		"max-concurrent": func(d *dispatcherConfig) { d.MaxConcurrent = 0 },
-		"linear":         func(d *dispatcherConfig) { d.Linear = nil },
+	for field, mutate := range map[string]func(*requisitionerConfig){
+		"role":           func(d *requisitionerConfig) { d.Role = "" },
+		"max-concurrent": func(d *requisitionerConfig) { d.MaxConcurrent = 0 },
+		"linear":         func(d *requisitionerConfig) { d.Linear = nil },
 	} {
 		bad := serveConfig{}
-		bad.Runtime.Dispatcher = base()
-		mutate(bad.Runtime.Dispatcher)
-		if err := bad.validateDispatcher(); err == nil {
+		bad.Runtime.Requisitioner = base()
+		mutate(bad.Runtime.Requisitioner)
+		if err := bad.validateRequisitioner(); err == nil {
 			t.Fatalf("missing/invalid %s should error", field)
 		}
 	}
@@ -528,7 +528,7 @@ func TestRuntimeWakeParsedAndKnown(t *testing.T) {
 	}
 }
 
-// Each wake-on setting resolves runtime.wake > runtime.dispatcher > the engine
+// Each wake-on setting resolves runtime.wake > runtime.requisitioner > the engine
 // default (zero), independently per field.
 func TestWakeSettingsPrecedence(t *testing.T) {
 	for _, tc := range []struct {
@@ -537,11 +537,11 @@ func TestWakeSettingsPrecedence(t *testing.T) {
 		want wakeon.Config
 	}{
 		{"defaults", "runtime: {}\n", wakeon.Config{}},
-		{"dispatcher fallback", "runtime:\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
+		{"Requisitioner fallback", "runtime:\n  requisitioner:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
 			wakeon.Config{PollInterval: 15 * time.Second, MaxWait: 24 * time.Hour, WarmTimeout: 5 * time.Minute}},
-		{"wake wins", "runtime:\n  wake:\n    poll-interval: 5s\n    wait-max: 2h\n    warm-timeout: 90s\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
+		{"wake wins", "runtime:\n  wake:\n    poll-interval: 5s\n    wait-max: 2h\n    warm-timeout: 90s\n  requisitioner:\n    wake-poll-interval: 15s\n    wait-max: 24h\n    warm-timeout: 5m\n",
 			wakeon.Config{PollInterval: 5 * time.Second, MaxWait: 2 * time.Hour, WarmTimeout: 90 * time.Second}},
-		{"per field", "runtime:\n  wake:\n    wait-max: 2h\n  dispatcher:\n    wake-poll-interval: 15s\n    wait-max: 24h\n",
+		{"per field", "runtime:\n  wake:\n    wait-max: 2h\n  requisitioner:\n    wake-poll-interval: 15s\n    wait-max: 24h\n",
 			wakeon.Config{PollInterval: 15 * time.Second, MaxWait: 2 * time.Hour}},
 		{"wake only", "runtime:\n  wake:\n    warm-timeout: 90s\n", wakeon.Config{WarmTimeout: 90 * time.Second}},
 	} {
@@ -557,7 +557,7 @@ func TestWakeSettingsPrecedence(t *testing.T) {
 	}
 }
 
-// An invalid runtime.wake duration is a config error (the dispatcher's legacy
+// An invalid runtime.wake duration is a config error (the Requisitioner's legacy
 // fields stay lenient: invalid ⇒ engine default).
 func TestValidateWake(t *testing.T) {
 	if err := (serveConfig{}).validateWake(); err != nil {

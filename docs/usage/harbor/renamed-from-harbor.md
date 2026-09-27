@@ -23,6 +23,7 @@ process) that names the old and new name and points here. The aliases are
 | `AT_HARBOR_IDENTITY_TOKEN`, `AT_HARBOR_LAUNCH_SECRET`, `AT_HARBOR_RUNTIME_ADDR` (set inside a cove) | `AT_JAM_IDENTITY_TOKEN`, `AT_JAM_LAUNCH_SECRET`, `AT_JAM_RUNTIME_ADDR` | Yes. Writers (the enroll snippet, at-cove, the launcher) set both names, because older images read only the old ones; the sourceable snippet exports each old name from its new variable rather than repeating the value. `cove-master`, its MCP server and the git credential helper read the new name, then the old (no warning — a cove can't act on one). |
 | kit `config.yml` `harbor:` block | `jam:` | Yes, with a warning. Setting both is a validation error. |
 | serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host` | Yes, with a warning. Setting both is an error. |
+| serve config `runtime.dispatcher` (the resident dispatcher) | `runtime.requisitioner` (the Requisitioner) | Yes, with a warning. Setting both is an error. The standalone `at-dispatch` keeps its name. |
 | `just harbor`, `just integration-harbor` | `just jam`, `just integration-jam` | No. |
 | Go package `internal/harbor` | `internal/jam` | No (internal). |
 

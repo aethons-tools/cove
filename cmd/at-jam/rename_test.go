@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/logging"
 )
@@ -200,5 +201,38 @@ func TestServeWarnsOnDeprecatedKeys(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "runtime.launcher.harbor-host") || !strings.Contains(errb.String(), "runtime.launcher.jam-host") {
 		t.Fatalf("want a deprecation warning for harbor-host; stderr=%q", errb.String())
+	}
+}
+
+// runtime.dispatcher is the deprecated name for runtime.requisitioner.
+func TestServeConfigDispatcherAlias(t *testing.T) {
+	const block = "    role: implementer\n    max-concurrent: 2\n    wait-max: 24h\n"
+	c, err := parseServeConfig([]byte("runtime:\n  requisitioner:\n" + block))
+	if err != nil || c.Runtime.Requisitioner == nil || c.Runtime.Requisitioner.Role != "implementer" || len(c.deprecated) != 0 {
+		t.Fatalf("requisitioner: cfg=%+v deprecated=%v err=%v", c.Runtime.Requisitioner, c.deprecated, err)
+	}
+
+	c, err = parseServeConfig([]byte("runtime:\n  dispatcher:\n" + block))
+	if err != nil {
+		t.Fatalf("dispatcher must still parse: %v", err)
+	}
+	if c.Runtime.Requisitioner == nil || c.Runtime.Requisitioner.MaxConcurrent != 2 || c.Runtime.DeprecatedDispatcher != nil {
+		t.Fatalf("dispatcher must fold into Requisitioner: %+v", c.Runtime)
+	}
+	if len(c.deprecated) != 1 || c.deprecated[0] != [2]string{"runtime.dispatcher", "runtime.requisitioner"} {
+		t.Fatalf("deprecated = %v", c.deprecated)
+	}
+	// The runtime.wake fallback reads the aliased block too.
+	if got := c.wakeSettings(); got.MaxWait != 24*time.Hour {
+		t.Fatalf("wake fallback through the dispatcher alias = %+v", got)
+	}
+	// Both keys are recognized (no unknown-key warning).
+	if got := unknownServeKeys([]byte("runtime:\n  dispatcher:\n    role: r\n  requisitioner:\n    role: r\n")); len(got) != 0 {
+		t.Fatalf("unknown keys = %v", got)
+	}
+
+	if _, err := parseServeConfig([]byte("runtime:\n  requisitioner:\n" + block + "  dispatcher:\n" + block)); err == nil ||
+		!strings.Contains(err.Error(), "requisitioner") || !strings.Contains(err.Error(), "dispatcher") {
+		t.Fatalf("both present must be an error naming both; got %v", err)
 	}
 }

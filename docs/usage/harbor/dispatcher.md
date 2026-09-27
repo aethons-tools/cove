@@ -1,7 +1,7 @@
 ---
-summary: The resident dispatcher — harbor's always-on poll loop that turns ready tracker tickets into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.dispatcher` serve-config block, and the elastic-raise-under-a-cap model.
+summary: The resident dispatcher — harbor's always-on poll loop that turns ready tracker tickets into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.requisitioner` serve-config block, and the elastic-raise-under-a-cap model.
 read_when: You are enabling or operating harbor's automatic intake — having it poll a tracker (Linear) and raise a managed cove per ready ticket — or tuning its concurrency cap and poll interval.
-owns: the operator-facing resident-dispatcher story — the poll→claim→raise flow, the `runtime.dispatcher` serve-config block, and the concurrency-cap model
+owns: the operator-facing resident-dispatcher story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed cove does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised cove needs; roster.md for the role tickets are raised for
 tier: leaf
 updated: 2026-09-26
@@ -12,7 +12,7 @@ updated: 2026-09-26
 The **resident dispatcher** is an always-on loop inside `at-jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
 to `at-jam cove raise` ([coves.md](coves.md)). Enable it with a
-`runtime.dispatcher` block; the supervisor + Launcher own everything after the
+`runtime.requisitioner` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
 
 ## The flow (per poll)
@@ -47,16 +47,16 @@ is a fresh raise, bounded by `max-concurrent`. The tracker's READY column is the
 durable queue; the dispatcher is the bounded consumer. This is the middle ground
 between the old single-task dispatcher and raising unboundedly.
 
-## Config (`runtime.dispatcher`)
+## Config (`runtime.requisitioner`)
 
-Add a `runtime.dispatcher` block to the serve config (see [serve.md](serve.md));
+Add a `runtime.requisitioner` block to the serve config (see [serve.md](serve.md));
 omit it and harbor runs no intake. The dispatcher needs a real
 [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) to raise real coves
 (against a placeholder launcher it exercises intake only).
 
 ```yaml
 runtime:
-  dispatcher:
+  requisitioner:
     role: worker              # required — role raised coves get (must grant anthropic + git)
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)

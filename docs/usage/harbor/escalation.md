@@ -1,7 +1,7 @@
 ---
 summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that actively pings while a cove is Waiting, opt-in and independent of wake-on's reply/max-wait clock.
 read_when: You want a raised cove's Waiting state to actively nudge humans instead of passively waiting — configuring ordered tiers of people to @-mention with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
-owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.dispatcher.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
+owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.requisitioner.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered cove tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
 updated: 2026-09-26
@@ -108,7 +108,7 @@ A tier whose targets don't resolve to any known human (a typo'd name, a
 the timer** as if it had pinged, so escalation keeps moving to the next tier
 instead of getting stuck forever on a broken one.
 
-## Config: `runtime.dispatcher.escalation-poll-interval`
+## Config: `runtime.requisitioner.escalation-poll-interval`
 
 The engine lives alongside the [resident dispatcher](dispatcher.md) and reuses
 its tracker/Linear client. Tune how often it checks Waiting coves for tiers due
@@ -116,7 +116,7 @@ to ping:
 
 ```yaml
 runtime:
-  dispatcher:
+  requisitioner:
     # …role / max-concurrent / linear / wake-poll-interval / wait-max as before…
     escalation-poll-interval: 30s   # how often harbor checks Waiting coves for a due tier (default 30s)
 ```

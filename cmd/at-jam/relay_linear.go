@@ -109,8 +109,8 @@ type instanceRoster interface {
 
 // directory is the concrete relay.Directory mapping the Linear feed and
 // Discord replies into the actor model, over jam.Store (narrowed to
-// instanceRoster). project and selfIdentity are the dispatcher's (Linear
-// routing only runs with a dispatcher); both are "" without one, and the
+// instanceRoster). project and selfIdentity are the Requisitioner's (Linear
+// routing only runs with a Requisitioner); both are "" without one, and the
 // Discord path needs neither.
 type directory struct {
 	store        instanceRoster
@@ -121,8 +121,8 @@ type directory struct {
 
 // Projects lists the projects a relay engine polls. Discord covers every store
 // project whose chat service is discord — personal sessions live in any such
-// project, with or without a dispatcher — plus the dispatcher's project (whose
-// roster discord channels were always polled). Linear keeps the dispatcher's
+// project, with or without a Requisitioner — plus the Requisitioner's project (whose
+// roster discord channels were always polled). Linear keeps the Requisitioner's
 // single project.
 func (d *directory) Projects(service string) []string {
 	if service != "discord" {

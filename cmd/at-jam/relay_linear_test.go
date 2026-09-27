@@ -652,8 +652,8 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 }
 
 // Discord ingress covers every project whose chat service is discord (not just
-// a dispatcher's project), plus the dispatcher's project for back-compat;
-// Linear keeps its single dispatcher project.
+// a Requisitioner's project), plus the Requisitioner's project for back-compat;
+// Linear keeps its single Requisitioner project.
 func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 	st := newTestStore(t)
 	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": "", "delta": "slack"} {
@@ -663,18 +663,18 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 	}
 	sorted := func(ss []string) []string { out := append([]string(nil), ss...); sort.Strings(out); return out }
 
-	noDispatcher := &directory{store: st}
-	if got := sorted(noDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta"}) {
-		t.Fatalf("discord projects (no dispatcher) = %v, want [acme beta]", got)
+	noRequisitioner := &directory{store: st}
+	if got := sorted(noRequisitioner.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta"}) {
+		t.Fatalf("discord projects (no Requisitioner) = %v, want [acme beta]", got)
 	}
-	withDispatcher := &directory{store: st, project: "gamma"}
-	if got := sorted(withDispatcher.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta", "gamma"}) {
-		t.Fatalf("discord projects (dispatcher on gamma) = %v, want [acme beta gamma]", got)
+	withRequisitioner := &directory{store: st, project: "gamma"}
+	if got := sorted(withRequisitioner.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta", "gamma"}) {
+		t.Fatalf("discord projects (Requisitioner on gamma) = %v, want [acme beta gamma]", got)
 	}
 	if got := (&directory{store: st, project: "acme"}).Projects("discord"); len(got) != 2 {
-		t.Fatalf("dispatcher project already discord must not repeat: %v", got)
+		t.Fatalf("Requisitioner project already discord must not repeat: %v", got)
 	}
-	if got := withDispatcher.Projects("linear"); !reflect.DeepEqual(got, []string{"gamma"}) {
+	if got := withRequisitioner.Projects("linear"); !reflect.DeepEqual(got, []string{"gamma"}) {
 		t.Fatalf("linear projects = %v, want [gamma]", got)
 	}
 }

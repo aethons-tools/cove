@@ -39,7 +39,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 4. **Role** — `at-jam role add --name worker --destinations anthropic,git
    --repos '<owner>/*' --ttl 24h`. A role with **no `--ttl` mints non-expiring
    tokens** — always set one for ephemeral coves. [roster.md](roster.md).
-5. **Dispatcher** — add `runtime.dispatcher` (`role`, `max-concurrent`,
+5. **Dispatcher** — add `runtime.requisitioner` (`role`, `max-concurrent`,
    `tracker-token`, `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one cove per **dispatch-labeled** ticket, bounded by
    the cap. [dispatcher.md](dispatcher.md).

@@ -83,9 +83,9 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima cove launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `jam-host` (formerly `harbor-host`, still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
-| `runtime.dispatcher` | no | Enables the resident dispatcher: harbor polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. See [dispatcher.md](dispatcher.md). |
+| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed cove per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. Formerly `runtime.dispatcher`, still accepted with a warning (both set is an error). See [dispatcher.md](dispatcher.md). |
 | `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no dispatcher needed. Polls every project whose chat service is `discord`. See [comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service) and [intercom.md](intercom.md#enabling-it). |
-| `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.dispatcher` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
+| `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store backend (`store-postgres`)
 

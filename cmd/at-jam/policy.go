@@ -15,10 +15,10 @@ type roleReader interface {
 
 // rosterPolicy is the Allocator's PolicySource: the roster Role is the source of
 // truth (read live from the memory-cached store on each grant, so a role edit
-// takes effect on the next grant with no restart); the dispatcher's
+// takes effect on the next grant with no restart); the Requisitioner's
 // max-concurrent is the fallback ephemeral cap for its own (project, role) when
 // the Role sets no max-ephemeral (fallback is empty when harbor serves without a
-// dispatcher). The personal caps and the standing names come only from the
+// Requisitioner). The personal caps and the standing names come only from the
 // Role. No role and no fallback ⇒ no policy ⇒ fail closed.
 type rosterPolicy struct {
 	store    roleReader
@@ -44,7 +44,7 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 		pol.StandingNames = append(pol.StandingNames, s.Name)
 	}
 	if pol.MaxEphemeral <= 0 {
-		pol.MaxEphemeral = fb.MaxEphemeral // dispatcher fallback (0 without one)
+		pol.MaxEphemeral = fb.MaxEphemeral // Requisitioner fallback (0 without one)
 	}
 	if pol.MaxEphemeral <= 0 && pol.MaxPersonal <= 0 && pol.MaxPersonalPerOwner <= 0 && len(pol.StandingNames) == 0 {
 		return pol, false // the role sets nothing and there is no fallback
@@ -52,26 +52,26 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 	return pol, true
 }
 
-// newRosterPolicy builds the Allocator's roster-sourced policy. The dispatcher's
+// newRosterPolicy builds the Allocator's roster-sourced policy. The Requisitioner's
 // max-concurrent seeds the ephemeral fallback for its own (project, role) only
-// when a dispatcher is configured (dc != nil); without one the roster alone
-// decides. The dispatcher project is normalized (see dispatcherProject) so
+// when a Requisitioner is configured (dc != nil); without one the roster alone
+// decides. The Requisitioner project is normalized (see requisitionerProject) so
 // grants and releases land on the same (project, role) stream.
-func newRosterPolicy(store roleReader, dc *dispatcherConfig) rosterPolicy {
+func newRosterPolicy(store roleReader, dc *requisitionerConfig) rosterPolicy {
 	p := rosterPolicy{store: store}
 	if dc != nil {
-		p.fallback = allocator.StaticPolicy{{Project: dispatcherProject(dc), Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
+		p.fallback = allocator.StaticPolicy{{Project: requisitionerProject(dc), Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
 	}
 	return p
 }
 
-// dispatcherProject is the dispatcher's project, normalized: grants use this value
+// requisitionerProject is the Requisitioner's project, normalized: grants use this value
 // (via dispatcher.Config.Project → Grant), and the Supervisor stores
 // inst.Project = orDefaultProject(spec.Project) = jam.DefaultProject when
 // empty, which is what RecordRelease keys off on teardown. Leaving it as
 // dc.Project ("") would split them across "/role" and "default/role" — they'd
 // never reconcile.
-func dispatcherProject(dc *dispatcherConfig) string {
+func requisitionerProject(dc *requisitionerConfig) string {
 	if dc.Project == "" {
 		return jam.DefaultProject
 	}

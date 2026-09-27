@@ -65,13 +65,17 @@ type serveConfig struct {
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
-		Listen            string            `yaml:"listen"`
-		LeaseTTL          string            `yaml:"lease-ttl"`
-		ReconcileInterval string            `yaml:"reconcile-interval"`
-		Launcher          *launcherConfig   `yaml:"launcher"`
-		Dispatcher        *dispatcherConfig `yaml:"dispatcher"`
-		Discord           *discordConfig    `yaml:"discord"`
-		Wake              *wakeConfig       `yaml:"wake"`
+		Listen            string               `yaml:"listen"`
+		LeaseTTL          string               `yaml:"lease-ttl"`
+		ReconcileInterval string               `yaml:"reconcile-interval"`
+		Launcher          *launcherConfig      `yaml:"launcher"`
+		Requisitioner     *requisitionerConfig `yaml:"requisitioner"`
+		// DeprecatedDispatcher is runtime.requisitioner's pre-rename name,
+		// accepted for one release with a warning (both set is an error);
+		// parseServeConfig folds it into Requisitioner and clears it.
+		DeprecatedDispatcher *requisitionerConfig `yaml:"dispatcher"`
+		Discord              *discordConfig       `yaml:"discord"`
+		Wake                 *wakeConfig          `yaml:"wake"`
 	} `yaml:"runtime"`
 
 	// deprecated lists the {old, new} key pairs parseServeConfig folded from a
@@ -81,8 +85,8 @@ type serveConfig struct {
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
-// runs whenever harbor has an intercom log or a dispatcher. Each field is
-// optional and resolves runtime.wake > the matching runtime.dispatcher field
+// runs whenever harbor has an intercom log or a Requisitioner. Each field is
+// optional and resolves runtime.wake > the matching runtime.requisitioner field
 // (wake-poll-interval / wait-max / warm-timeout) > the engine default.
 type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
@@ -91,8 +95,8 @@ type wakeConfig struct {
 }
 
 // wakeSettings resolves the wake-on engine's settings, per field:
-// runtime.wake if set, else the runtime.dispatcher field, else zero (the
-// engine's default). An invalid dispatcher value also falls back to the
+// runtime.wake if set, else the runtime.requisitioner field, else zero (the
+// engine's default). An invalid Requisitioner value also falls back to the
 // default (its long-standing lenient behavior); runtime.wake values are
 // checked by validateWake.
 func (c serveConfig) wakeSettings() wakeon.Config {
@@ -100,9 +104,9 @@ func (c serveConfig) wakeSettings() wakeon.Config {
 	if c.Runtime.Wake != nil {
 		w = *c.Runtime.Wake
 	}
-	var d dispatcherConfig
-	if c.Runtime.Dispatcher != nil {
-		d = *c.Runtime.Dispatcher
+	var d requisitionerConfig
+	if c.Runtime.Requisitioner != nil {
+		d = *c.Runtime.Requisitioner
 	}
 	dur := func(s string) time.Duration {
 		v, _ := time.ParseDuration(s) // "" or invalid → 0 → engine default
@@ -193,13 +197,13 @@ func (c serveConfig) validateLauncher() error {
 	return nil
 }
 
-// dispatcherConfig enables the resident dispatcher: harbor polls the tracker and
+// requisitionerConfig enables the Requisitioner: harbor polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
-type dispatcherConfig struct {
+type requisitionerConfig struct {
 	Role          string             `yaml:"role"`
 	Project       string             `yaml:"project"`
 	MaxConcurrent int                `yaml:"max-concurrent"`
-	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the dispatcher's 30s default
+	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
 	TrackerToken  credSpec           `yaml:"tracker-token"`
 	Linear        *kit.LinearTracker `yaml:"linear"`
 
@@ -256,22 +260,22 @@ func (cs credSpec) toSpec(name string) secret.Spec {
 	return secret.Spec{Name: name, Command: cs.Command}
 }
 
-// validateDispatcher checks runtime.dispatcher when present (required fields:
-// role, max-concurrent > 0, linear). A no-op when runtime.dispatcher is unset —
-// the resident dispatcher stays disabled, unchanged from before this block existed.
-func (c serveConfig) validateDispatcher() error {
-	d := c.Runtime.Dispatcher
+// validateRequisitioner checks runtime.requisitioner when present (required fields:
+// role, max-concurrent > 0, linear). A no-op when runtime.requisitioner is unset —
+// the Requisitioner stays disabled, unchanged from before this block existed.
+func (c serveConfig) validateRequisitioner() error {
+	d := c.Runtime.Requisitioner
 	if d == nil {
 		return nil
 	}
 	if d.Role == "" {
-		return fmt.Errorf("runtime.dispatcher.role is required")
+		return fmt.Errorf("runtime.requisitioner.role is required")
 	}
 	if d.MaxConcurrent <= 0 {
-		return fmt.Errorf("runtime.dispatcher.max-concurrent must be > 0")
+		return fmt.Errorf("runtime.requisitioner.max-concurrent must be > 0")
 	}
 	if d.Linear == nil {
-		return fmt.Errorf("runtime.dispatcher.linear is required")
+		return fmt.Errorf("runtime.requisitioner.linear is required")
 	}
 	return nil
 }
@@ -476,6 +480,13 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		}
 		lc.JamHost, lc.DeprecatedHarborHost = lc.DeprecatedHarborHost, ""
 		c.deprecated = append(c.deprecated, [2]string{"runtime.launcher.harbor-host", "runtime.launcher.jam-host"})
+	}
+	if c.Runtime.DeprecatedDispatcher != nil {
+		if c.Runtime.Requisitioner != nil {
+			return serveConfig{}, fmt.Errorf("runtime: both requisitioner and dispatcher are set; dispatcher is the deprecated name for requisitioner — keep only requisitioner (see %s)", logging.RenameDoc)
+		}
+		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
+		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
 	}
 	return c, nil
 }

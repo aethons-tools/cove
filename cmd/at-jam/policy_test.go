@@ -18,7 +18,7 @@ func newPolicyStore(t *testing.T) *jam.FileStore {
 	return st
 }
 
-// The roster Role's max-ephemeral wins over the dispatcher's max-concurrent
+// The roster Role's max-ephemeral wins over the Requisitioner's max-concurrent
 // fallback, and is read live (a later edit is seen on the next grant).
 func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 	st := newPolicyStore(t)
@@ -37,7 +37,7 @@ func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 	}
 }
 
-// A role that sets no max-ephemeral uses the dispatcher's fallback.
+// A role that sets no max-ephemeral uses the Requisitioner's fallback.
 func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 	st := newPolicyStore(t)
 	if err := st.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
@@ -50,7 +50,7 @@ func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 }
 
 // The role's personal caps pass through to the policy, alongside the
-// dispatcher's ephemeral fallback when the role sets no max-ephemeral.
+// Requisitioner's ephemeral fallback when the role sets no max-ephemeral.
 func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	st := newPolicyStore(t)
 	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
@@ -61,7 +61,7 @@ func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	if pol, ok := p.Policy("acme", "worker"); !ok || !reflect.DeepEqual(pol, want) {
 		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
 	}
-	// With no dispatcher fallback (harbor serving without a dispatcher), a role
+	// With no Requisitioner fallback (harbor serving without a Requisitioner), a role
 	// with only personal caps still has a policy — its ephemeral cap is 0.
 	p = rosterPolicy{store: st}
 	want = allocator.Policy{MaxPersonal: 3, MaxPersonalPerOwner: 1}
@@ -78,18 +78,18 @@ func TestRosterPolicy_NoRoleNoFallback(t *testing.T) {
 	}
 }
 
-// Without a dispatcher, the Allocator's policy has no ephemeral fallback (the
-// roster alone decides); with one, the dispatcher's max-concurrent seeds the
+// Without a Requisitioner, the Allocator's policy has no ephemeral fallback (the
+// roster alone decides); with one, the Requisitioner's max-concurrent seeds the
 // fallback for its own (project, role), with an empty project normalized to
 // the default so grants and releases share one stream.
-func TestNewRosterPolicy_FallbackOnlyWithDispatcher(t *testing.T) {
+func TestNewRosterPolicy_FallbackOnlyWithRequisitioner(t *testing.T) {
 	st := newPolicyStore(t)
 	if p := newRosterPolicy(st, nil); len(p.fallback) != 0 {
-		t.Fatalf("no dispatcher: fallback = %+v, want empty", p.fallback)
+		t.Fatalf("no Requisitioner: fallback = %+v, want empty", p.fallback)
 	}
-	p := newRosterPolicy(st, &dispatcherConfig{Role: "worker", MaxConcurrent: 2})
+	p := newRosterPolicy(st, &requisitionerConfig{Role: "worker", MaxConcurrent: 2})
 	if pol, ok := p.Policy(jam.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
-		t.Fatalf("dispatcher fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, jam.DefaultProject)
+		t.Fatalf("Requisitioner fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, jam.DefaultProject)
 	}
 }
 

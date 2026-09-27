@@ -1,7 +1,7 @@
 // Package allocator is harbor's capacity authority (the "Allocator" role from the
 // orchestration design): it rations session existence per (project, role) against
 // a budget. Slice 1 is an in-memory admission check that moves the concurrency cap
-// out of the dispatcher; the event-sourced reservation ledger arrives in a later
+// out of the Requisitioner; the event-sourced reservation ledger arrives in a later
 // slice, behind this same interface.
 package allocator
 
@@ -33,7 +33,7 @@ type Counter interface {
 type SessionKind string
 
 const (
-	// SessionEphemeral is a dispatcher-raised session for one unit of work.
+	// SessionEphemeral is a Requisitioner-raised session for one unit of work.
 	SessionEphemeral SessionKind = "ephemeral"
 	// SessionStanding is an operator-declared, named session that lives until
 	// dismissed. Admitted only for a declared name (Policy.StandingNames).
@@ -90,7 +90,7 @@ type PolicySource interface {
 	Policy(project, role string) (Policy, bool)
 }
 
-// StaticPolicy is a fixed policy table (tests, and the dispatcher-seeded
+// StaticPolicy is a fixed policy table (tests, and the Requisitioner-seeded
 // fallback behind cmd/at-jam's roster-sourced policy).
 type StaticPolicy map[Key]Policy
 

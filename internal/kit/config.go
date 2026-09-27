@@ -254,7 +254,7 @@ type LinearTracker struct {
 	Team             string `yaml:"team"`
 	PollInterval     string `yaml:"poll-interval"`
 	ClassLabelPrefix string `yaml:"class-label-prefix"`
-	// DispatchLabelPrefix gates which ready issues harbor's resident dispatcher
+	// DispatchLabelPrefix gates which ready issues the Requisitioner
 	// raises a cove for: only issues carrying a label with this prefix. Defaults
 	// to "dispatch:" (presence-only; the value after the prefix is unused).
 	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`

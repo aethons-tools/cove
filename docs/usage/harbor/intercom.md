@@ -115,7 +115,7 @@ runtime:
     warm-timeout: 5m     # how long a waiting cove stays live before it's paused (default 60s)
 ```
 
-Each field resolves independently: **`runtime.wake` > the matching `runtime.dispatcher`
+Each field resolves independently: **`runtime.wake` > the matching `runtime.requisitioner`
 field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback for
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid dispatcher value still falls back to the default.

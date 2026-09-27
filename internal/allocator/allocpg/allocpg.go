@@ -70,7 +70,7 @@ func (s *Store) Close() error { return nil }
 // A release takes its session kind, name, and owner from the reservation's latest
 // grant in the same stream (falling back to the event's own fields, then
 // ephemeral, when there is none), so per-kind counts net correctly and release
-// callers — supervisor teardown, the sweep, dispatcher compensation — need not
+// callers — supervisor teardown, the sweep, Requisitioner compensation — need not
 // know the kind. Any other event records its own SessionKind (empty ⇒ ephemeral).
 func (s *Store) Record(ctx context.Context, ev allocator.Event) error {
 	streamID := ev.Project + "/" + ev.Role
