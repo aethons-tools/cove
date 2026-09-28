@@ -2,7 +2,7 @@
 summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the roster human linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
 read_when: You (a human operator) want Jam to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
 owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
-prereqs: comms-addressing.md for the Project roster, a Human's `--login`, and Discord delivery profiles; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
+prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-09-27
 ---
@@ -57,15 +57,19 @@ wake-on engine walks it up a ladder set by the role:
    ("Released your personal session …"). `keep` restarts the idle clock without
    waking the agent (a paused session stays paused), and confirms ("Keeping your
    personal session … Next reminder in *idle-after*."). Rules:
-   - **Owner only, proven by the channel.** The reply counts only if it is posted
-     in an inbox channel that is the Discord delivery address of **exactly one**
-     roster human — you — so Jam attributes it to you, never by Discord
-     display name ([comms-addressing.md](comms-addressing.md#delivery-profiles-per-project-chat-service)).
-     A **shared inbox** (or one that is also a roster channel) gets no
+   - **Owner only.** The reply counts only if Jam attributes it to you, never
+     by Discord display name ([the rules](discord.md#who-a-discord-reply-is-from)).
+     **Bind your Discord user id (recommended):**
+     `--delivery discord:<inbox-channel>:<your-user-id>`. Then only your own
+     Discord account counts as you, and `keep`/`release` works from **any**
+     inbox, shared ones included.
+     **Unbound**, only an inbox channel that is **exactly yours** proves it's
+     you. A shared inbox (or one that is also a roster channel) gets no
      `keep`/`release` hint in the nag, and its replies are ordinary replies.
-     Jam can't see Discord permissions, so this relies on your setup: **only
-     you (and Jam's bot) may post in your inbox channel.** Anyone who can post
-     there can release your session (and could already steer it by replying).
+     Jam can't see Discord permissions, so unbound this relies on your setup:
+     **only you (and Jam's bot) may post in your inbox channel.** Anyone who can
+     post there can release your session (and could already steer it by
+     replying).
    - **Only a reply to a nag.** A `keep` replying to the agent's own message is
      your answer to the agent; it wakes the session.
    - **Anything else wakes.** Someone else's `keep`/`release`, or a word in a
@@ -96,8 +100,9 @@ refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
   `at-jam project chat-service set --project acme --service discord`;
-- you (the owner) have a Discord delivery profile — your inbox channel:
-  `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>`.
+- you (the owner) have a Discord delivery profile — your inbox channel, ideally
+  bound to your Discord user id ([discord.md](discord.md)):
+  `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>:<your-user-id>`.
 
 Jam must also run the Discord relay (`runtime.discord` plus an `intercom-log`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it

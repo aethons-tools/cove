@@ -26,8 +26,9 @@ type squawkAppender interface {
 // Each nag carries the id jam.NagMessageID, so wake-on can tell an owner's
 // "keep"/"release" reply to a nag from any other reply. The nag advertises
 // those replies only when the owner could send one wake-on will act on: the
-// project chats over discord and the owner's discord inbox is theirs alone
-// (jam.DiscordInboxOwner) — a reply there is attributed to them.
+// project chats over discord and a reply from the owner is attributed to them
+// (jam.DiscordAuthor) — they are bound to their Discord user id, or, unbound,
+// their discord inbox is theirs alone.
 type intercomNagger struct {
 	log    squawkAppender
 	roster nagRoster
@@ -45,7 +46,7 @@ func (n intercomNagger) Nag(_ context.Context, inst jam.Instance, idle time.Dura
 	body := fmt.Sprintf(
 		"Your personal session %s (%s) has been waiting on you for %s. Reply to this message to pick it back up, or release it with: at-jam session release %s",
 		inst.ActorID, inst.Role, formatIdle(idle), inst.ActorID)
-	if n.ownerHasOwnInbox(inst) {
+	if n.ownerAttributable(inst) {
 		body += ` Reply "keep" to keep it, or "release" to end it.`
 	}
 	return n.send(inst, jam.NagMessageID(inst.ActorID, n.clock()), body)
@@ -71,10 +72,11 @@ func (n intercomNagger) NotifyReleased(_ context.Context, inst jam.Instance) err
 		"Released your personal session %s (%s).", inst.ActorID, inst.Role))
 }
 
-// ownerHasOwnInbox reports whether inst's owner has a discord inbox in a
-// discord-chat project that no one else shares — the condition under which a
-// reply to a nag is attributed to the owner and so can act on the session.
-func (n intercomNagger) ownerHasOwnInbox(inst jam.Instance) bool {
+// ownerAttributable reports whether, in a discord-chat project, a reply from
+// inst's owner to a nag in their inbox would be attributed to them
+// (jam.DiscordAuthor, by their bound id or by their unshared inbox) — the
+// condition under which the reply can act on the session.
+func (n intercomNagger) ownerAttributable(inst jam.Instance) bool {
 	if n.roster == nil {
 		return false
 	}
@@ -93,7 +95,9 @@ func (n intercomNagger) ownerHasOwnInbox(inst jam.Instance) bool {
 	if !ok {
 		return false
 	}
-	owner, ok := jam.DiscordInboxOwner(r, p.Address)
+	// Ask the attribution rule itself about a reply from the owner's own
+	// account (their bound id, or none) in their own inbox.
+	owner, _, ok := jam.DiscordAuthor(r, p.Address, p.UserID, false)
 	return ok && owner == inst.Owner
 }
 

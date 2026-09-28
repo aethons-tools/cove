@@ -1,7 +1,7 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-09-27
@@ -46,7 +46,7 @@ that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation
 Manage a roster with `at-jam project`:
 
 ```
-at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123']
+at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123'] [--delivery discord:<channel>[:<user-id>]]
 at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-jam project roster list        <project>
 at-jam project roster rm-human    <project> <name>
@@ -59,77 +59,10 @@ at-jam project roster rm-channel  <project> <name>
 
 ## Delivery profiles & per-project chat service
 
-**Discord egress and reply-routing are both live.** A discord-project's
-`send(to=human:<name>)` posts to that human's Discord **inbox channel** when
-they have a `discord` delivery profile (falling back to the Linear
-`@`-mention when they don't); `send(to=channel:<name>)` posts to a discord
-roster channel's own `Ref` when the channel's `Service` is `discord`. Every
-Discord post is prefixed `"<cove>: "` (the sending studio's identity —
-`Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
-username/avatar is a future polish). Delivery is exactly-once (the resident
-Discord relay engine's own `EgressMark`, seeded to the Log tail on first
-enable so turning it on never redelivers the backlog) — see
-[intercom.md](intercom.md#enabling-it) for the engine and
-[serve.md](serve.md) for the `runtime.discord.bot-token` config that enables
-it (requires an intercom-log; without one the engine doesn't run).
-
-**The reply loop:** when a human **replies** (Discord's own reply-to-message
-feature, not a bare follow-up post) to a studio's Discord post, Jam routes
-that reply back to the studio that sent the original squawk — the same
-[wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
-so a Waiting studio resumes with the reply already in its inbox. Routing works
-by a **receipt** recorded on every Discord post (`discord-msg-id → {actor,
-message}`: the sending studio and the squawk's Log id). An inbound reply is
-matched by the id it *replies to*; its `reply_to` is the answered squawk's id,
-so it joins that squawk's thread. An older receipt (no squawk id) still routes,
-with `reply_to` `in:discord:<id>`.
-A reply in an inbox channel that is the `discord` address of **exactly one**
-roster human (not also a roster channel) is from `human:<roster name>` — the
-channel, not the spoofable display name, proves the sender; any other is from
-`human:<Discord display name>`. Consequences:
-
-- **Only a reply routes.** A bare (non-reply) squawk posted into a shared
-  inbox channel carries no id to look up against, so it can't be attributed
-  to any studio — it is silently dropped, by construction (this also means
-  Jam's own outbound Discord posts, echoed back on the same channel,
-  never mis-route to themselves; no separate self-post filter is needed).
-- **Receipts are currently unpruned** — one entry per post on local disk,
-  never collected (a known follow-up, not a correctness issue).
-
-A **Human** additionally carries `Delivery []{Service, Address}` — one entry per
-non-tracker service the human can be reached on. For `Service: "discord"`,
-`Address` is the id of the **inbox channel** Jam posts that human's DMs into
-(never a bot token or other secret — see [operators.md](operators.md) for where
-credentials actually live). Look up a human's profile for a service with
-`Human.DeliveryFor(service)`.
-
-A **Project** additionally carries `ChatService string` — the service backing
-that project's human DMs (e.g. `"discord"`); empty means tracker `@`-mentions
-only, same as before this field existed.
-
-Set a human's delivery profiles with `--delivery service:address` on
-`add-human` (repeatable — one flag per service):
-
-```
-at-jam project roster add-human <project> --name alice --handle alice.h \
-  --delivery discord:123456789
-```
-
-Each `--delivery` value splits on the first `:`; both the service and the
-address must be non-empty, or the command exits `2` (e.g. `discord:`, `:123`,
-or a value with no `:` are all rejected).
-
-Manage a project's chat service with `at-jam project chat-service`:
-
-```
-at-jam project chat-service set   --project <project> --service discord
-at-jam project chat-service show  --project <project>
-at-jam project chat-service clear --project <project>
-```
-
-`set` requires `--project` and `--service`; `clear` is `set` with `""` under
-the hood; `show` prints the configured service or `(none)`. All three take the
-same admin-client flags as every other `at-jam` verb.
+A Human may also carry per-service **delivery profiles** (a Discord inbox channel,
+optionally bound to their Discord user id), and a Project a **chat service**; the
+Discord egress, the reply loop, and who a Discord reply is attributed to live in
+[discord.md](discord.md).
 
 ## The comms access-graph
 
@@ -191,7 +124,7 @@ alongside `send`'s now-optional `to` argument; see
 - **Cross-thread reply-routing + merged inbox (Linear):** making Linear
   channel-sends two-way, and generalizing `read` into a merged, tagged
   multi-source inbox. (Discord already routes replies regardless of target
-  kind — see the reply loop above.)
+  kind — see [discord.md](discord.md#egress-the-reply-loop).)
 - **Actor/role-to-actor addressing:** addressing another managed studio or Manager
   directly (waits on the Manager pillar).
 

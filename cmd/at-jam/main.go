@@ -474,7 +474,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
-	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address` (repeatable, add-human), e.g. discord:123456789")
+	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address[:user-id]` (repeatable, add-human), e.g. discord:<inbox-channel-id>:<your-discord-user-id>; the user id (discord only) binds the human to their Discord account")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -493,12 +493,12 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		var profiles []jam.DeliveryProfile
 		for _, d := range delivery {
-			svc, addr, ok := strings.Cut(d, ":")
-			if !ok || svc == "" || addr == "" {
-				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --delivery %q (want service:address)\n", d)
+			p, err := parseDelivery(d)
+			if err != nil {
+				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --delivery %q: %v\n", d, err)
 				return 2
 			}
-			profiles = append(profiles, jam.DeliveryProfile{Service: svc, Address: addr})
+			profiles = append(profiles, p)
 		}
 		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
@@ -529,6 +529,9 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			line := fmt.Sprintf("human\t%s\thandle=%s", h.Name, h.Handle)
 			if h.Login != "" {
 				line += "\tlogin=" + h.Login
+			}
+			if d, ok := h.DeliveryFor("discord"); ok && d.UserID != "" {
+				line += "\tdiscord-user=" + d.UserID
 			}
 			fmt.Fprintln(stdout, line)
 		}
@@ -706,6 +709,28 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// parseDelivery parses one --delivery value, `service:address[:user-id]`. The
+// optional user id is discord-only (the human's Discord user id, all digits);
+// any other service given one is an error.
+func parseDelivery(d string) (jam.DeliveryProfile, error) {
+	svc, rest, ok := strings.Cut(d, ":")
+	if !ok || svc == "" || rest == "" {
+		return jam.DeliveryProfile{}, fmt.Errorf("want service:address[:user-id]")
+	}
+	addr, uid, hasUID := strings.Cut(rest, ":")
+	if addr == "" {
+		return jam.DeliveryProfile{}, fmt.Errorf("want service:address[:user-id]")
+	}
+	p := jam.DeliveryProfile{Service: svc, Address: addr, UserID: uid}
+	if hasUID && uid == "" {
+		return jam.DeliveryProfile{}, fmt.Errorf("empty user id")
+	}
+	if err := jam.ValidateDelivery([]jam.DeliveryProfile{p}); err != nil {
+		return jam.DeliveryProfile{}, err
+	}
+	return p, nil
 }
 
 // multiFlag collects repeatable string flag values (e.g. --delivery
@@ -1584,7 +1609,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st}
+	dir := &directory{store: st, log: log}
 	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
 	if intercomLog != nil && (dc != nil || runDiscord) {
 		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {

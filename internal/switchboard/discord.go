@@ -124,6 +124,8 @@ type discordMessage struct {
 	ID      string `json:"id"`
 	Content string `json:"content"`
 	Author  struct {
+		ID         string `json:"id"`
+		Bot        bool   `json:"bot"`
 		Username   string `json:"username"`
 		GlobalName string `json:"global_name"`
 	} `json:"author"`
@@ -173,7 +175,11 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 			if author == "" {
 				author = m.Author.Username
 			}
-			out = append(out, Message{ID: m.ID, Channel: ch, Author: author, Content: m.Content, ReferencedID: m.MessageReference.MessageID})
+			out = append(out, Message{
+				ID: m.ID, Channel: ch, Author: author, Content: m.Content,
+				ReferencedID: m.MessageReference.MessageID,
+				AuthorID:     m.Author.ID, AuthorBot: m.Author.Bot,
+			})
 			nc[ch] = m.ID
 		}
 	}

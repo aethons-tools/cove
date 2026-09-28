@@ -79,6 +79,8 @@ func (s *discordSurface) Poll(ctx context.Context, project, since string) ([]rel
 			ForeignID:      m.ID,
 			Surface:        m.Channel,
 			Author:         m.Author,
+			AuthorID:       m.AuthorID,
+			AuthorBot:      m.AuthorBot,
 			Body:           m.Content,
 			ReplyToForeign: m.ReferencedID, // "" if not a reply
 		})

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,7 +79,8 @@ func TestNagCarriesNagID(t *testing.T) {
 }
 
 // The nag offers keep/release only when a reply can prove the owner: the
-// project chats over discord and the owner's discord inbox is theirs alone.
+// project chats over discord and the owner is bound to their Discord user id,
+// or (unbound) their discord inbox is theirs alone.
 func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 	const base = "Your personal session pers-1 (pair) has been waiting on you for 5h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"
 	const hint = ` Reply "keep" to keep it, or "release" to end it.`
@@ -103,6 +105,12 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 			{Name: "alice", Delivery: disc("inbox-A")},
 		}}}}, base},
 		"no roster": {&fakeStore{projects: discordProj}, base},
+		"bound owner, shared inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}}, {Name: "bob", Delivery: disc("shared")},
+		}}}}, base + hint},
+		"bound owner, own inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A", UserID: "111"}}},
+		}}}}, base + hint},
 	} {
 		t.Run(name, func(t *testing.T) {
 			lg := openTestLog(t)
@@ -233,6 +241,57 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 	inbox := lg.ReadInboxSince(intercom.Target{Kind: "actor", Ref: "pers-1"}, nag.Seq, 0)
 	if len(inbox) != 1 || intercom.Classify(inbox[0].From) != intercom.External {
 		t.Fatalf("cove inbox after reply = %+v, want one external reply", inbox)
+	}
+}
+
+// A bound owner's "release" reply to a nag, posted in a SHARED inbox, is routed
+// as human:<owner> replying to the nag itself — exactly what wake-on acts on —
+// while the same reply from another member of that inbox stays an ordinary
+// reply under their display name.
+func TestBoundOwnerReleaseFromSharedInbox(t *testing.T) {
+	st := newTestStore(t)
+	for _, h := range []jam.Human{
+		{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}},
+		{Name: "bob", Handle: "bob.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
+	} {
+		if err := st.AddHuman("acme", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetChatService("acme", "discord"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutInstance(nagInst); err != nil {
+		t.Fatal(err)
+	}
+	lg := openTestLog(t)
+	rec := mustReceipts(t)
+	dir := &directory{store: st, receipts: rec}
+	client := &fakeDiscordClient{postID: "D-nag"}
+	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
+
+	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	nag := lg.List(intercom.Filter{})[0]
+	if !strings.Contains(nag.Body, `Reply "keep"`) {
+		t.Fatalf("a bound owner's nag should offer keep/release: %q", nag.Body)
+	}
+	if d, ok := deliverOverDiscord(t, dir, surf, nag); !ok || d.Address != "shared" {
+		t.Fatalf("nag not delivered to the shared inbox: %+v %v", d, ok)
+	}
+
+	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "Alice D.", AuthorID: "111", Surface: "shared", ReplyToForeign: "D-nag", ForeignID: "D-r1", Body: "release"})
+	if !ok || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "pers-1"}) {
+		t.Fatalf("release not routed to the cove: to=%+v ok=%v", to, ok)
+	}
+	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !jam.IsNagReply(replyTo, "pers-1") {
+		t.Fatalf("release from=%+v replyTo=%q, want human:alice replying to nag %q", from, replyTo, nag.ID)
+	}
+
+	from, _, _, ok = dir.Route("discord", "acme", relay.Event{Author: "Bob D.", AuthorID: "222", Surface: "shared", ReplyToForeign: "D-nag", ForeignID: "D-r2", Body: "release"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "Bob D."}) {
+		t.Fatalf("another member's release from=%+v ok=%v, want the display name", from, ok)
 	}
 }
 

@@ -32,6 +32,8 @@ type Event struct {
 	ForeignID      string // stable Service id (Linear comment id / Discord snowflake) — the dedup anchor
 	Surface        string // Service-native surface it occurred on (ticket/channel id)
 	Author         string // Service-native author handle
+	AuthorID       string // Service-native immutable author id (Discord user snowflake); "" if unknown
+	AuthorBot      bool   // the author is a bot (Discord author.bot); a bot is never a roster human
 	Body           string
 	ReplyToForeign string // Service id of the artifact replied to ("" = top-level)
 	At             time.Time

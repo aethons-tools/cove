@@ -342,7 +342,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatal("RemoveHuman on an absent project must error")
 		}
 		// delivery profile round-trips through AddHuman (upsert by name)
-		if err := s.AddHuman("acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		if err := s.AddHuman("acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}}); err != nil {
 			t.Fatalf("AddHuman with delivery: %v", err)
 		}
 		if r, ok := s.GetRoster("acme"); !ok {
@@ -354,7 +354,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 					dave = h
 				}
 			}
-			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
+			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" || d.UserID != "123456789" {
 				t.Fatalf("dave delivery = %+v,%v", d, ok)
 			}
 			if dave.Login != "auth0|dave" {

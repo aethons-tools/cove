@@ -311,3 +311,28 @@ func TestRESTClient_PollCapsRetryAfter(t *testing.T) {
 		t.Fatalf("wait = %v, want exactly %v (a miscalculated cap must be caught, not just any value under it)", gotWait, maxRetryAfter)
 	}
 }
+
+func TestRESTClient_PollKeepsAuthorIDAndBotFlag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "31", "content": "beep", "author": map[string]any{"id": "900", "username": "botty", "bot": true}},
+			{"id": "30", "content": "hi", "author": map[string]any{"id": "123456789", "username": "sam", "global_name": "Sam"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewRESTClient("tok", []string{"chan1"}, WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	msgs, _, err := c.Poll(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages", len(msgs))
+	}
+	if msgs[0].AuthorID != "123456789" || msgs[0].AuthorBot || msgs[0].Author != "Sam" {
+		t.Fatalf("human msg = %+v", msgs[0])
+	}
+	if msgs[1].AuthorID != "900" || !msgs[1].AuthorBot || msgs[1].Author != "botty" {
+		t.Fatalf("bot msg = %+v", msgs[1])
+	}
+}

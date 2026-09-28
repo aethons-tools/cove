@@ -156,6 +156,26 @@ func TestDiscordPollMapsReplies(t *testing.T) {
 	}
 }
 
+func TestDiscordPollCarriesAuthorIDAndBotFlag(t *testing.T) {
+	fc := &fakeDiscordClient{
+		pollMsgs: []switchboard.Message{
+			{ID: "m1", Channel: "inbox-A", Author: "alice", AuthorID: "111", Content: "hi"},
+			{ID: "m2", Channel: "inbox-A", Author: "botty", AuthorID: "222", AuthorBot: true, Content: "beep"},
+		},
+	}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
+	ev, _, err := s.Poll(context.Background(), "acme", "")
+	if err != nil || len(ev) != 2 {
+		t.Fatalf("poll = %+v,%v", ev, err)
+	}
+	if ev[0].AuthorID != "111" || ev[0].AuthorBot || ev[0].Author != "alice" {
+		t.Fatalf("ev[0] = %+v", ev[0])
+	}
+	if ev[1].AuthorID != "222" || !ev[1].AuthorBot {
+		t.Fatalf("ev[1] = %+v", ev[1])
+	}
+}
+
 func TestDiscordPollPropagatesError(t *testing.T) {
 	fc := &fakeDiscordClient{pollErr: errBoom}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
