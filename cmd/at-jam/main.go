@@ -1861,8 +1861,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				ExpectedHosts: cfg.UIHosts,
 				Log:           log,
 			}
-			meMux.Handle("/me/", meGate.Wrap(participantHome()))
+			// The gated participant surface: the landing view and the send
+			// endpoint (POST /me/send), the human analog of the agent send tool.
+			// It writes to the same intercom Log the agent send + relay ingress
+			// use (nil Log → send 503), so a reply wakes a waiting studio.
+			meSurface := http.NewServeMux()
+			var sendH *jam.ParticipantSendHandler
+			if intercomLog != nil {
+				sendH = jam.NewParticipantSendHandler(st, intercomLog, log)
+			} else {
+				sendH = jam.NewParticipantSendHandler(st, nil, log)
+			}
+			meSurface.Handle("/me/send", sendH)
+			meSurface.Handle("/me/", participantHome())
+			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
+			log.Info("Jam participant intercom: send mounted", "path", "/me/send")
 			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
 		} else {
 			log.Info("Jam UI auth: loopback-only")

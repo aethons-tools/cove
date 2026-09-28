@@ -3,12 +3,75 @@ package wakeon
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
+
+// meSendStore is the participantSendStore the participant send handler needs,
+// backing the wake-on-through-the-real-send-path integration test below.
+type meSendStore struct {
+	rosters   map[string]jam.Roster
+	instances []jam.Instance
+}
+
+func (s meSendStore) GetRoster(project string) (jam.Roster, bool) {
+	r, ok := s.rosters[project]
+	return r, ok
+}
+func (s meSendStore) ListInstances() []jam.Instance { return s.instances }
+
+// TestParticipantSendWakesWaitingStudio is the COV-200 wake-on integration
+// check: a participant's send, appended to the SAME squawk Log through the real
+// jam.ParticipantSendHandler and addressed to a waiting studio's session actor,
+// wakes that studio on the next wake-on tick — exactly as a relayed reply does.
+func TestParticipantSendWakesWaitingStudio(t *testing.T) {
+	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	defer lg.Close()
+
+	const issuer, subject = "https://idp.example", "sub-alice"
+	inst := jam.Instance{
+		ActorID: "a1", Project: "acme", Unit: "ACME-1",
+		Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		WaitingSince: time.Unix(1990, 0), WaitSeq: 0, // baseline: empty log tail
+	}
+	store := meSendStore{
+		rosters: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+			{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: issuer, Subject: subject}}},
+		}}},
+		instances: []jam.Instance{inst},
+	}
+
+	// The participant replies to the waiting studio via the real send handler.
+	h := jam.NewParticipantSendHandler(store, lg, nil)
+	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"studio:ACME-1","body":"go ahead"}`))
+	r = jam.WithParticipant(r, jam.Participant{Issuer: issuer, Subject: subject, Projects: []string{"acme"}, Name: "alice"})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 204 {
+		t.Fatalf("send status = %d, want 204 (%s)", w.Code, w.Body.String())
+	}
+
+	// Wake-on, reading the same Log, must wake the studio (its reply landed at
+	// Seq 1 > WaitSeq 0, external-origin, addressed to actor:a1).
+	reg := &fakeReg{insts: []jam.Instance{inst}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, lg, Config{MaxWait: time.Hour, WarmTimeout: 10 * time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+
+	if !contains(wake.woke, "a1") {
+		t.Fatalf("a participant reply appended through the send path must wake the studio, got wake=%v", wake.woke)
+	}
+}
 
 type fakeReg struct{ insts []jam.Instance }
 
