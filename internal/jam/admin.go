@@ -248,7 +248,7 @@ func RosterSummaries(store Store) []ActorSummary {
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
-func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui http.Handler) http.Handler {
+func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	// Every read-modify-write of a Role (role put, standing, egress) takes this
 	// lock, so no writer can drop another's change.
@@ -459,6 +459,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		// A Discord user id binds at most one human per project, so attribution
 		// of a Discord reply by its author id is unambiguous.
 		if err := ValidateDelivery(b.Delivery); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := ValidateIdentity(b.Identity); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -690,17 +694,25 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerEgress(mux, store, log, &roleMu)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
-	if ui == nil {
+	if ui == nil && me == nil {
 		return guarded
 	}
-	// The UI subtree owns its own gate (loopback-or-session), so it is mounted
-	// OUTSIDE the /admin/* authenticator rather than wrapped by it.
+	// The /ui (operator) and /me (participant) subtrees each own their own gate,
+	// so they are mounted OUTSIDE the /admin/* authenticator rather than wrapped
+	// by it. A participant session (jam_participant, Path /me) is never sent to
+	// /ui or /admin, and both of those are gated independently — so the
+	// participant plane cannot reach operator routes.
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
-	parent.Handle("/ui/", ui)
-	parent.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusFound)
-	})
+	if ui != nil {
+		parent.Handle("/ui/", ui)
+		parent.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+		})
+	}
+	if me != nil {
+		parent.Handle("/me/", me)
+	}
 	return parent
 }
 

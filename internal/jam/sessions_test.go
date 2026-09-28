@@ -82,7 +82,7 @@ func newSessionKit(t *testing.T) *sessionKit {
 	sup := NewSupervisor(store, l, "holder-sessions", time.Minute, 30*time.Second, nil, log)
 	fa := &fakeSessionAlloc{granted: true}
 	op := "auth0|alice"
-	h := NewAdminHandler(store, sup, fa, switchOperator{id: &op}, func(string) bool { return true }, nil, log, nil)
+	h := NewAdminHandler(store, sup, fa, switchOperator{id: &op}, func(string) bool { return true }, nil, log, nil, nil)
 	return &sessionKit{h: h, store: store, launcher: l, alloc: fa, sup: sup, op: &op}
 }
 
@@ -258,7 +258,7 @@ func TestPersonalSessions_NoSupervisorOrAllocator503(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	if rec := doJSON(t, h, "POST", "/admin/sessions/personal", PersonalSessionBody{Project: "acme", Role: "pair"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("no runtime = %d, want 503", rec.Code)
 	}

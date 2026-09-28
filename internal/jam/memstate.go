@@ -26,6 +26,10 @@ type memState struct {
 	kits      map[string]Kit         // keyed by Name
 	instances map[string]Instance    // keyed by ActorID
 	projects  map[string]Project     // keyed by Name
+	// unread is the per-(participant, channel) intercom-UI unread cursor:
+	// participant → channel id → last-seen append Seq. Monotonic forward-only
+	// (applyCommitUnread). Free-form keys — no backing entity is required.
+	unread map[string]map[string]int64
 }
 
 func newMemState() *memState {
@@ -36,6 +40,7 @@ func newMemState() *memState {
 		kits:      map[string]Kit{},
 		instances: map[string]Instance{},
 		projects:  map[string]Project{},
+		unread:    map[string]map[string]int64{},
 	}
 }
 
@@ -198,6 +203,27 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 	}, true
 }
 
+// UnreadCursor returns the participant's last-seen Seq on channel, and whether
+// a cursor has been committed for that (participant, channel) pair.
+func (m *memState) UnreadCursor(participant, channel string) (int64, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	seq, ok := m.unread[participant][channel]
+	return seq, ok
+}
+
+// UnreadCursors returns a copy of all of the participant's channel cursors
+// (channel id → last-seen Seq), the map ProjectChannels consumes. Never nil.
+func (m *memState) UnreadCursors(participant string) map[string]int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]int64, len(m.unread[participant]))
+	for ch, seq := range m.unread[participant] {
+		out[ch] = seq
+	}
+	return out
+}
+
 // ---- lock-free read/validation helpers (caller holds the lock) ----
 
 // actorByID finds the actor with the given id and returns its map key
@@ -340,6 +366,22 @@ func (m *memState) applyAdvanceCommitCursor(actorID, upToID string, upToSeq int6
 	return i, true
 }
 
+// applyCommitUnread moves the (participant, channel) unread cursor forward to
+// seq iff seq is beyond the current value; returns the (possibly unchanged)
+// cursor and whether it moved. Forward-only (a backward/equal seq is a no-op).
+// Caller holds the write lock.
+func (m *memState) applyCommitUnread(participant, channel string, seq int64) (int64, bool) {
+	cur := m.unread[participant][channel]
+	if seq <= cur {
+		return cur, false
+	}
+	if m.unread[participant] == nil {
+		m.unread[participant] = map[string]int64{}
+	}
+	m.unread[participant][channel] = seq
+	return seq, true
+}
+
 func (m *memState) applyPutDestination(d Destination) { m.dests[d.Name] = d }
 
 func (m *memState) applyRemoveDestination(name string) bool {
@@ -464,11 +506,13 @@ func copyKit(k Kit) Kit {
 }
 
 // copyHumans returns a deep copy of hs: the slice plus each Human's Delivery
-// sub-slice, so a returned Human's Delivery can't alias the store's state.
+// and Identity sub-slices, so a returned Human's sub-slices can't alias the
+// store's state.
 func copyHumans(hs []Human) []Human {
 	out := append([]Human(nil), hs...)
 	for i := range out {
 		out[i].Delivery = append([]DeliveryProfile(nil), out[i].Delivery...)
+		out[i].Identity = append([]OIDCIdentity(nil), out[i].Identity...)
 	}
 	return out
 }

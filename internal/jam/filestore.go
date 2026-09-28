@@ -38,6 +38,15 @@ type Store interface {
 	RemoveInstance(actorID string) error
 	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) // monotonic forward on upToSeq; no-op if upToSeq <= current CommitSeq; error if actor absent
 
+	// CommitUnread advances the intercom-UI unread cursor for (participant,
+	// channel) to seq. Monotonic forward-only: a backward/equal seq is a no-op
+	// success. participant and channel are free-form (no backing entity); both
+	// must be non-empty. UnreadCursor reads one pair; UnreadCursors reads all of
+	// a participant's channel cursors (the map ProjectChannels consumes).
+	CommitUnread(participant, channel string, seq int64) error
+	UnreadCursor(participant, channel string) (int64, bool)
+	UnreadCursors(participant string) map[string]int64
+
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
@@ -61,6 +70,10 @@ type storeFile struct {
 	Kits         map[string]Kit             `json:"kits"`               // keyed by Kit.Name
 	Instances    map[string]Instance        `json:"instances"`          // keyed by Instance.ActorID
 	Projects     map[string]Project         `json:"projects,omitempty"` // keyed by Project.Name
+	// UnreadCursors is the intercom-UI per-(participant, channel) unread cursor:
+	// participant → channel id → last-seen Seq. Additive; an old store without
+	// it loads with no cursors (everything unread), which is safe.
+	UnreadCursors map[string]map[string]int64 `json:"unread_cursors,omitempty"`
 }
 
 // legacyIdentity is the pre-RBAC (v1/v2) per-identity record, read only during
@@ -125,6 +138,9 @@ func NewFileStore(path string) (*FileStore, error) {
 		}
 		if v3.Projects != nil {
 			fs.projects = v3.Projects
+		}
+		if v3.UnreadCursors != nil {
+			fs.unread = v3.UnreadCursors
 		}
 		return fs, nil
 	}
@@ -212,7 +228,7 @@ func sameStrings(a, b []string) bool {
 
 // save persists the v4 shape. Caller holds fs.mu.
 func (fs *FileStore) save() error {
-	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits, Instances: fs.instances, Projects: fs.projects}, "", "  ")
+	data, err := json.MarshalIndent(storeFile{Roles: fs.roles, Actors: fs.actors, Destinations: fs.dests, Kits: fs.kits, Instances: fs.instances, Projects: fs.projects, UnreadCursors: fs.unread}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -357,6 +373,20 @@ func (fs *FileStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) 
 		return i, nil
 	}
 	return i, fs.save()
+}
+
+func (fs *FileStore) CommitUnread(participant, channel string, seq int64) error {
+	if participant == "" || channel == "" {
+		return fmt.Errorf("participant and channel are required")
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if _, changed := fs.applyCommitUnread(participant, channel, seq); !changed {
+		// No-op advance (backward/equal seq): the cache is unchanged, so skip the
+		// write to avoid an unnecessary disk save.
+		return nil
+	}
+	return fs.save()
 }
 
 func (fs *FileStore) AddDestination(d Destination) error {

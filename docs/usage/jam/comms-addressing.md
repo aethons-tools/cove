@@ -1,10 +1,10 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 # Comms addressing (target space & access-graph)
@@ -31,11 +31,16 @@ both.
 A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.md))
 owns a **Roster** of addressable members:
 
-- **Human** — `{Name, Handle, Login}`. `Name` is the roster-local target name
-  (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver to
-  them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
+- **Human** — `{Name, Handle, Login, Identity}`. `Name` is the roster-local target
+  name (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver
+  to them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
   `local` on loopback), so Jam knows who is behind an admin request, e.g. to
   own a [personal session](personal-sessions.md). One human per login per project.
+  `Identity` (optional) is a list of **OIDC identity bindings** `{Issuer, Subject}`
+  — a browser OIDC subject, so a login authenticated at a provider can later map to
+  this roster actor. Both parts are opaque identifiers, never secrets; both must be
+  non-empty. (Data-model + CLI only for now; the auth/session mapping is a later
+  slice.)
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
@@ -46,14 +51,19 @@ that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation
 Manage a roster with `at-jam project`:
 
 ```
-at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123'] [--delivery discord:<channel>[:<user-id>]]
+at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123'] [--delivery discord:<channel>[:<user-id>]] [--oidc <issuer>:<subject>]
 at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-jam project roster list        <project>
 at-jam project roster rm-human    <project> <name>
 at-jam project roster rm-channel  <project> <name>
 ```
 
-`--service` defaults to `linear`. All subcommands take the same admin-client flags
+`--service` defaults to `linear`. `--delivery` and `--oidc` are both repeatable
+(one flag per binding). Because an OIDC issuer is commonly a URL that itself
+contains colons, `--oidc` splits on the **final** colon: the subject is the text
+after it, the issuer everything before. `roster list` shows each binding as
+`oidc=<issuer>:<subject>`. A malformed value (empty issuer or subject) exits `2`
+(the admin route answers `400`). All subcommands take the same admin-client flags
 (`--app`/`--admin-url`/`--token`) as every other `at-jam` verb — see
 [operators.md](operators.md).
 

@@ -475,6 +475,8 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
 	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address[:user-id]` (repeatable, add-human), e.g. discord:<inbox-channel-id>:<your-discord-user-id>; the user id (discord only) binds the human to their Discord account")
+	var oidc multiFlag
+	fs.Var(&oidc, "oidc", "OIDC identity binding, `issuer:subject` (repeatable, add-human); binds a browser OIDC subject to this roster human. issuer and subject must be non-empty; issuer may itself contain colons (a URL), the subject is the text after the final colon")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -500,7 +502,16 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			profiles = append(profiles, p)
 		}
-		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
+		var identities []jam.OIDCIdentity
+		for _, o := range oidc {
+			id, err := parseOIDC(o)
+			if err != nil {
+				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --oidc %q: %v\n", o, err)
+				return 2
+			}
+			identities = append(identities, id)
+		}
+		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles, Identity: identities}); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
@@ -532,6 +543,9 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			if d, ok := h.DeliveryFor("discord"); ok && d.UserID != "" {
 				line += "\tdiscord-user=" + d.UserID
+			}
+			for _, id := range h.Identity {
+				line += "\toidc=" + id.Issuer + ":" + id.Subject
 			}
 			fmt.Fprintln(stdout, line)
 		}
@@ -731,6 +745,22 @@ func parseDelivery(d string) (jam.DeliveryProfile, error) {
 		return jam.DeliveryProfile{}, err
 	}
 	return p, nil
+}
+
+// parseOIDC parses one --oidc value, `issuer:subject`. The issuer is commonly a
+// URL that itself contains colons, so the split is on the final colon: the
+// subject is the text after it, the issuer everything before. Both must be
+// non-empty.
+func parseOIDC(v string) (jam.OIDCIdentity, error) {
+	i := strings.LastIndex(v, ":")
+	if i < 0 {
+		return jam.OIDCIdentity{}, fmt.Errorf("want issuer:subject")
+	}
+	id := jam.OIDCIdentity{Issuer: v[:i], Subject: v[i+1:]}
+	if err := jam.ValidateIdentity([]jam.OIDCIdentity{id}); err != nil {
+		return jam.OIDCIdentity{}, err
+	}
+	return id, nil
 }
 
 // multiFlag collects repeatable string flag values (e.g. --delivery
@@ -1339,6 +1369,18 @@ func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) 
 	return l.c.PostComment(ctx, issueID, body)
 }
 
+// participantHome is the placeholder landing handler for the gated participant
+// intercom subtree (/me). It proves the resolver + gate injected a Participant;
+// the real inbox UI (COV-201) and send path (COV-200) register under /me on top
+// of this same gate.
+func participantHome() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := jam.ParticipantFrom(r)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "Signed in to the Jam intercom as %s.\n", p.Name)
+	})
+}
+
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -1782,24 +1824,52 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 
 		uiMux := http.NewServeMux()
-		gate := browserauth.Gate{LoginPath: "/ui/auth/login", ExpectedHosts: cfg.UIHosts, Log: log}
+		gate := browserauth.Gate{
+			LoopbackTrust: browserauth.OperatorLoopbackTrust(),
+			LoginPath:     "/ui/auth/login",
+			ExpectedHosts: cfg.UIHosts,
+			Log:           log,
+		}
+		var meHandler http.Handler
 		if bc := cfg.browserAuthConfig(); bc != nil {
-			svc, err := browserauth.New(context.Background(), *bc, nil, log)
+			svc, err := browserauth.New(context.Background(), *bc, browserauth.OperatorUIMount(), nil, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: browser login:", err)
 				return 1
 			}
 			uiMux.Handle("/ui/auth/", svc.Routes())
 			if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok {
-				gate.Sess = &browserauth.SessionVerifier{Auth: oidcAuth}
+				gate.Session = browserauth.OperatorSession(oidcAuth, browserauth.OperatorUIMount().SessionCookie)
 			}
 			log.Info("Jam UI auth: browser OIDC login", "client-id", bc.ClientID)
+
+			// Participant intercom plane (/me): the SAME OIDC client, but the
+			// session is mapped to a roster human (no operator scope), and — unlike
+			// /ui — there is NO loopback trust: we must know which human, and
+			// loopback cannot say. The login routes (/me/auth/*) stay ungated.
+			meMount := browserauth.ParticipantMount()
+			meSvc, err := browserauth.New(context.Background(), *bc, meMount, nil, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: participant login:", err)
+				return 1
+			}
+			meMux := http.NewServeMux()
+			meMux.Handle("/me/auth/", meSvc.Routes())
+			meGate := browserauth.Gate{
+				Session:       meSvc.ParticipantSession(st),
+				LoginPath:     "/me/auth/login",
+				ExpectedHosts: cfg.UIHosts,
+				Log:           log,
+			}
+			meMux.Handle("/me/", meGate.Wrap(participantHome()))
+			meHandler = meMux
+			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
 		} else {
 			log.Info("Jam UI auth: loopback-only")
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

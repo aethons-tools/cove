@@ -44,7 +44,7 @@ func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 		t.Fatal(err)
 	}
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -98,7 +98,7 @@ func TestClientLoginConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &jam.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -538,7 +538,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
-	h := jam.NewAdminHandler(store, sup, &grantAll{}, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
+	h := jam.NewAdminHandler(store, sup, &grantAll{}, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")

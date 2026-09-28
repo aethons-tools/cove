@@ -22,7 +22,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 		t.Fatal(err)
 	}
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	return h, store
 }
 
@@ -156,7 +156,7 @@ func TestAdminHandlerMountsUI(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("UI:" + r.URL.Path))
 	})
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui, nil)
 
 	// Root redirects to /ui/.
 	rec := httptest.NewRecorder()
@@ -202,7 +202,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
+	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil, nil)
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -276,7 +276,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -671,7 +671,7 @@ func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *
 	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
-	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	return h, store, sup, launcher
 }
 
@@ -808,6 +808,33 @@ func TestAdminRosterHumanDiscordUser(t *testing.T) {
 	nd := Human{Name: "dan", Handle: "dan.h", Delivery: []DeliveryProfile{{Service: "linear", Address: "x", UserID: "222"}}}
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", nd); rec.Code != http.StatusBadRequest {
 		t.Fatalf("user id on linear profile = %d, want 400", rec.Code)
+	}
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	for _, hu := range rr.Humans {
+		if hu.Name != "alice" {
+			t.Fatalf("a rejected human was added: %+v", hu)
+		}
+	}
+}
+
+// A roster human's OIDC identity binding round-trips, and a malformed one
+// (empty issuer or subject) is rejected with 400, leaving the roster unchanged.
+func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	good := Human{Name: "alice", Handle: "alice.h", Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}}
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", good); rec.Code != http.StatusCreated {
+		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if len(rr.Humans) != 1 || len(rr.Humans[0].Identity) != 1 || rr.Humans[0].Identity[0].Subject != "alice-sub" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	for _, bad := range []OIDCIdentity{{Issuer: "", Subject: "x"}, {Issuer: "x", Subject: ""}} {
+		nd := Human{Name: "bob", Handle: "bob.h", Identity: []OIDCIdentity{bad}}
+		if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", nd); rec.Code != http.StatusBadRequest {
+			t.Fatalf("malformed identity %+v = %d, want 400", bad, rec.Code)
+		}
 	}
 	getJSON(t, h, "/admin/projects/acme/roster", &rr)
 	for _, hu := range rr.Humans {
