@@ -275,6 +275,80 @@ func ActiveRecipients(roster Roster, instances []Instance) []Recipient {
 	return out
 }
 
+// ResolveSendTarget maps a participant's send reference to the single Log target
+// to address, within one project. ref is either a recipient target from
+// ActiveRecipients — "human:<name>", "actor:<id>", or "channel:<name-or-unit>" —
+// or a channel id from ProjectChannels — "studio:<unit>", "named:<name>", or
+// "dm:<x>|<y>". self is the participant's own target in this project
+// ("human:<name>"), used to pick the other endpoint when replying to a DM.
+//
+// A studio channel ("channel:<unit>" / "studio:<unit>") and a session DM
+// ("actor:<id>") both resolve to the session's actor target, so an
+// external-origin append wakes a waiting/idled studio exactly as a relayed reply
+// does (wake-on reads the actor inbox — see internal/wakeon). Only currently
+// active instances (the ActiveRecipients/ProjectChannels reachability rule) and
+// roster-declared humans/named channels resolve; anything else returns
+// ok=false (an unknown or inactive recipient).
+func ResolveSendTarget(ref string, self intercom.Target, roster Roster, instances []Instance) (intercom.Target, bool) {
+	kind, val, ok := strings.Cut(ref, ":")
+	if !ok || val == "" {
+		return intercom.Target{}, false
+	}
+	switch kind {
+	case "actor": // a session DM — wakes the session
+		for _, i := range instances {
+			if i.ActorID == val && instanceActive(i) {
+				return intercom.Target{Kind: "actor", Ref: val}, true
+			}
+		}
+	case "studio": // a studio channel id → the studio's session actor (wakes it)
+		for _, i := range instances {
+			if i.Unit == val && instanceActive(i) {
+				return intercom.Target{Kind: "actor", Ref: i.ActorID}, true
+			}
+		}
+	case "named": // a named channel id
+		for _, c := range roster.Channels {
+			if c.Name == val {
+				return intercom.Target{Kind: "channel", Ref: c.Name}, true
+			}
+		}
+	case "channel": // a recipient target: a studio (by unit) → its session actor, else a named channel
+		for _, i := range instances {
+			if i.Unit == val && instanceActive(i) {
+				return intercom.Target{Kind: "actor", Ref: i.ActorID}, true
+			}
+		}
+		for _, c := range roster.Channels {
+			if c.Name == val {
+				return intercom.Target{Kind: "channel", Ref: c.Name}, true
+			}
+		}
+	case "human": // a human DM
+		for _, h := range roster.Humans {
+			if h.Name == val {
+				return intercom.Target{Kind: "human", Ref: h.Name}, true
+			}
+		}
+	case "dm": // a DM channel id "x|y" → the endpoint that is not self, re-resolved
+		a, b, ok := strings.Cut(val, "|")
+		if !ok {
+			return intercom.Target{}, false
+		}
+		var other string
+		switch self.String() {
+		case a:
+			other = b
+		case b:
+			other = a
+		default:
+			return intercom.Target{}, false // the participant is not a member of this DM
+		}
+		return ResolveSendTarget(other, self, roster, instances)
+	}
+	return intercom.Target{}, false
+}
+
 // sessionLabel is a session's display name: its declared name when it has one,
 // else its actor id.
 func sessionLabel(i Instance) string {

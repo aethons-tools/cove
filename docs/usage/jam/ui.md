@@ -1,10 +1,10 @@
 ---
 summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios.
 read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the separate participant `/me/` login surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, and the operator/participant boundary)
-prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
+owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-09-15
+updated: 2026-09-28
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -93,6 +93,32 @@ against the browser client id; its `(issuer, subject)` is matched to a roster
 <issuer>:<subject>`; see [comms-addressing.md](comms-addressing.md)). A **global
 person**: the same subject bound in several projects is one participant whose
 view spans them. An unbound subject is refused (fail closed).
+
+### Sending (`POST /me/send`)
+
+`POST /me/send` is the participant's send — the human analog of the agent
+`send` tool. It takes a JSON body `{"to": "<recipient>", "body": "<text>"}` and
+returns **204** on success. It writes to the **same** durable squawk Log the
+agent `send` tool and the relay ingress write (never a parallel path); the UI is
+an in-process Log writer, not an egress engine.
+
+- **Identity is the resolved session**, never the body: the sender is the
+  gate-injected participant. The outgoing `from` is that person's roster name in
+  the *target's* project (a global person may have a different roster name/handle
+  per project); when a bare recipient is ambiguous across the participant's
+  projects, the first project (in roster-listing order) that resolves it wins.
+- **`to` is a recipient or a channel** — a New Message recipient target
+  (`human:<name>`, `actor:<session-id>`, `channel:<name-or-unit>`) or a reply to
+  an existing channel id from the inbox (`studio:<unit>`, `named:<name>`,
+  `dm:<x>|<y>`). A **studio** target (and a **session DM**) resolves to the
+  studio's *session actor*, so the append is external-origin and addressed to the
+  session — **wake-on resumes a waiting/idled studio** exactly as a relayed reply
+  does (unpause if idled; see [comms-addressing.md](comms-addressing.md) and the
+  wake-on engine). Any currently-active recipient is allowed — open addressing to
+  start, with no comms access-graph check.
+- **Errors mirror the agent send** (`/squawks`): a recipient that does not
+  resolve → **404**; no intercom-log configured → **503**; an append failure →
+  **502**; an empty `to`/`body` → **400**.
 
 ## Intercom
 
