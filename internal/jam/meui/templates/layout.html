@@ -36,9 +36,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .rail{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;min-height:0}
 .rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 4px}
 .rail-head b{font-size:13px}
+.newmsg{position:relative}
 .newmsg summary{cursor:pointer;list-style:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;border:1px solid var(--border-strong);border-radius:8px}
 .newmsg[open] summary{background:var(--accent-soft)}
-.recips{padding:6px 8px;display:flex;flex-direction:column;gap:2px;max-height:220px;overflow-y:auto}
+.recips{position:absolute;top:100%;right:0;z-index:30;min-width:230px;margin-top:6px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto}
 .recips button{text-align:left;background:none;border:0;font:inherit;color:var(--ink);padding:6px 8px;border-radius:8px;cursor:pointer}
 .recips button:hover{background:var(--surface-2)}
 .recips .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-left:6px}
@@ -85,6 +86,16 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 <header class="topbar">
   <span class="brand"><span class="dot"></span>Jam <small>Intercom</small></span>
   <span class="spacer"></span>
+  <details class="newmsg" id="newmsg">
+    <summary>New message</summary>
+    <div class="recips">
+      {{range .Recipients}}
+        <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
+      {{else}}
+        <p class="empty">No active recipients.</p>
+      {{end}}
+    </div>
+  </details>
   <span class="who"><span class="av">{{if .Me}}{{slice .Me 0 1}}{{else}}?{{end}}</span> <span>{{.Me}}</span></span>
 </header>
 <div class="panes">
@@ -98,8 +109,13 @@ function meSend(e, to){
   if(!body) return false;
   fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body})})
    .then(function(r){
-     if(r.status===204){ f.reset(); htmx.ajax('GET','/me/pane?c='+encodeURIComponent(to),{target:'#pane',swap:'outerHTML'}); htmx.ajax('GET','/me/rail?c='+encodeURIComponent(to),{target:'#rail',swap:'outerHTML'}); }
-     else { alert('Send failed ('+r.status+')'); }
+     if(r.status===204){
+       f.reset();
+       // Refresh only the message list of an open conversation; the rail's own
+       // 3s poll picks up a brand-new channel. Never re-render the composer.
+       var s=document.getElementById('stream');
+       if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}); }
+     } else { alert('Send failed ('+r.status+')'); }
    });
   return false;
 }
