@@ -54,7 +54,7 @@ func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
 		t.Fatal(err)
 	}
 	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: "openid"}
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts
@@ -185,7 +185,7 @@ func TestLoginNotOIDCGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	// nil login config → /admin/login-config 404
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

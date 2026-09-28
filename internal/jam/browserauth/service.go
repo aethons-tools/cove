@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // RawConfig is the browser-login configuration resolved from operator-auth.oidc.
@@ -21,18 +23,26 @@ type RawConfig struct {
 	Audience string
 }
 
-// Service serves the /ui/auth/* login routes for the code+PKCE flow.
+// Service serves the <prefix>/auth/* login routes for the code+PKCE flow of one
+// Mount. Operator ("/ui") and participant ("/me") each get a Service over the
+// same RawConfig; they differ only in their Mount.
 type Service struct {
 	cfg          RawConfig
+	mount        Mount
 	authorizeURL string
 	tokenURL     string
 	idVerifier   *oidc.IDTokenVerifier
-	doer         HTTPDoer
-	log          *slog.Logger
+	// verifySubject verifies a session token and returns its subject claim. It
+	// wraps idVerifier by default; tests inject a fake to exercise the participant
+	// resolver without a live IdP.
+	verifySubject func(ctx context.Context, raw string) (string, error)
+	doer          HTTPDoer
+	log           *slog.Logger
 }
 
-// New discovers the IdP endpoints and builds the ID-token verifier (aud = ClientID).
-func New(ctx context.Context, cfg RawConfig, doer HTTPDoer, log *slog.Logger) (*Service, error) {
+// New discovers the IdP endpoints and builds the ID-token verifier (aud = ClientID)
+// for the given mount.
+func New(ctx context.Context, cfg RawConfig, mount Mount, doer HTTPDoer, log *slog.Logger) (*Service, error) {
 	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery for browser login: %w", err)
@@ -40,21 +50,30 @@ func New(ctx context.Context, cfg RawConfig, doer HTTPDoer, log *slog.Logger) (*
 	if doer == nil {
 		doer = http.DefaultClient
 	}
-	return &Service{
+	s := &Service{
 		cfg:          cfg,
+		mount:        mount,
 		authorizeURL: provider.Endpoint().AuthURL,
 		tokenURL:     provider.Endpoint().TokenURL,
 		idVerifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
 		doer:         doer,
 		log:          log,
-	}, nil
+	}
+	s.verifySubject = func(ctx context.Context, raw string) (string, error) {
+		t, err := s.idVerifier.Verify(ctx, raw)
+		if err != nil {
+			return "", err
+		}
+		return t.Subject, nil
+	}
+	return s, nil
 }
 
 func (s *Service) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /ui/auth/login", s.login)
-	mux.HandleFunc("GET /ui/auth/callback", s.callback)
-	mux.HandleFunc("GET /ui/auth/logout", s.logout)
+	mux.HandleFunc("GET "+s.mount.loginPath(), s.login)
+	mux.HandleFunc("GET "+s.mount.callbackPath(), s.callback)
+	mux.HandleFunc("GET "+s.mount.authPrefix()+"/logout", s.logout)
 	return mux
 }
 
@@ -66,12 +85,12 @@ func randToken() string {
 
 func isSecure(r *http.Request) bool { return r.TLS != nil }
 
-func redirectURI(r *http.Request) string {
+func (s *Service) redirectURI(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host + "/ui/auth/callback"
+	return scheme + "://" + r.Host + s.mount.callbackPath()
 }
 
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
@@ -83,11 +102,11 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	}
 	secure := isSecure(r)
 	// Bind the post-login destination into the state cookie as "<state>|<return_to>".
-	rt := safeReturnTo(r.URL.Query().Get("return_to"))
-	tempCookie(w, stateCookie, state+"|"+rt, secure)
-	tempCookie(w, nonceCookie, nonce, secure)
-	tempCookie(w, pkceCookie, verifier, secure)
-	http.Redirect(w, r, AuthCodeURL(s.authorizeURL, s.cfg.ClientID, redirectURI(r), s.cfg.Scope, s.cfg.Audience, state, nonce, challenge), http.StatusFound)
+	rt := safeReturnTo(s.mount, r.URL.Query().Get("return_to"))
+	s.mount.tempCookie(w, stateCookie, state+"|"+rt, secure)
+	s.mount.tempCookie(w, nonceCookie, nonce, secure)
+	s.mount.tempCookie(w, pkceCookie, verifier, secure)
+	http.Redirect(w, r, AuthCodeURL(s.authorizeURL, s.cfg.ClientID, s.redirectURI(r), s.cfg.Scope, s.cfg.Audience, state, nonce, challenge), http.StatusFound)
 }
 
 func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +125,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing login state", http.StatusBadRequest)
 		return
 	}
-	idTok, accessTok, err := ExchangeCode(r.Context(), s.doer, s.tokenURL, s.cfg.ClientID, r.URL.Query().Get("code"), pkce.Value, redirectURI(r))
+	idTok, accessTok, err := ExchangeCode(r.Context(), s.doer, s.tokenURL, s.cfg.ClientID, r.URL.Query().Get("code"), pkce.Value, s.redirectURI(r))
 	if err != nil {
 		s.log.Warn("browser login: code exchange failed", "reason", err.Error())
 		http.Error(w, "login failed", http.StatusUnauthorized)
@@ -124,25 +143,55 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, n := range []string{stateCookie, nonceCookie, pkceCookie} {
-		clearTemp(w, n)
+		s.mount.clearTemp(w, n)
 	}
-	setSession(w, accessTok, isSecure(r))
-	http.Redirect(w, r, safeReturnTo(rt), http.StatusFound)
+	// The session cookie carries the token the gate re-verifies: the access token
+	// for the operator plane (API aud + scope), the ID token for the participant
+	// plane (aud = ClientID, mapped to a roster human).
+	tok := accessTok
+	if s.mount.Session == IDTokenSession {
+		tok = idTok
+	}
+	s.mount.setSession(w, tok, isSecure(r))
+	http.Redirect(w, r, safeReturnTo(s.mount, rt), http.StatusFound)
 }
 
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
-	clearSession(w)
-	http.Redirect(w, r, "/ui/auth/login", http.StatusFound)
+	s.mount.clearSession(w)
+	http.Redirect(w, r, s.mount.loginPath(), http.StatusFound)
 }
 
-// safeReturnTo permits only same-site absolute paths under /ui, defeating open
-// redirects. Anything else collapses to /ui/.
-func safeReturnTo(p string) string {
-	if p == "" || !strings.HasPrefix(p, "/ui") {
-		return "/ui/"
+// ParticipantSession returns a Gate session verifier for the participant plane:
+// it verifies the session's ID token (aud = ClientID), maps its subject to a
+// roster human via jam.ParticipantByIdentity, and injects the resolved
+// Participant. An unmapped subject fails closed (ok=false → the gate refuses).
+func (s *Service) ParticipantSession(store jam.ParticipantStore) func(*http.Request) (*http.Request, bool) {
+	return func(r *http.Request) (*http.Request, bool) {
+		c, err := r.Cookie(s.mount.SessionCookie)
+		if err != nil || c.Value == "" {
+			return r, false
+		}
+		sub, err := s.verifySubject(r.Context(), c.Value)
+		if err != nil {
+			return r, false
+		}
+		p, ok := jam.ParticipantByIdentity(store, s.cfg.Issuer, sub)
+		if !ok {
+			return r, false
+		}
+		return jam.WithParticipant(r, p), true
+	}
+}
+
+// safeReturnTo permits only same-site absolute paths under the mount's prefix,
+// defeating open redirects. Anything else collapses to "<prefix>/".
+func safeReturnTo(m Mount, p string) string {
+	home := m.Prefix + "/"
+	if p == "" || !strings.HasPrefix(p, m.Prefix) {
+		return home
 	}
 	if strings.HasPrefix(p, "//") || strings.Contains(p, "\\") {
-		return "/ui/"
+		return home
 	}
 	return p
 }

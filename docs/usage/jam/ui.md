@@ -1,7 +1,7 @@
 ---
 summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios.
 read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure)
+owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the separate participant `/me/` login surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, and the operator/participant boundary)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; INDEX.md for the service overview
 tier: leaf
 updated: 2026-09-15
@@ -65,6 +65,34 @@ The UI never renders a token hash, launch secret, or credential value; the one
 exception is the identity token shown once at enroll time (below) — and the
 Intercom view, which shows comms bodies (agent/human squawks), not secrets. The
 login routes themselves never expose mutation.
+
+## The participant intercom (`/me/`)
+
+`/me/` is a **separate, participant-facing** surface on the same admin listener,
+distinct from the operator `/ui/`. It is where a **roster human** — not the
+operator — will read and reply to their intercom channels (the inbox UI and send
+path land here in later slices). It has its own gate, and a participant session
+**never** carries operator scope and cannot reach the `/admin/*` or `/ui/*`
+routes (the participant cookie is path-scoped to `/me`, and `/admin`/`/ui` are
+gated independently).
+
+Auth differs from the operator UI in two deliberate ways:
+
+- **Always requires OIDC login — no loopback bypass.** Unlike `/ui/` (where a
+  loopback request is trusted as the local operator), `/me/` must know *which*
+  human you are, and loopback cannot say — so even a local request logs in via
+  `/me/auth/login`. The operator god-view stays the loopback affordance.
+- **Reuses the operator's `browser-client-id`.** There is no separate IdP client
+  to configure; operator vs participant is decided by mapping the login's OIDC
+  subject to a roster human, not by the client. `/me/` is mounted only when
+  browser login (`operator-auth.oidc.browser-client-id`) is configured.
+
+The session (cookie `jam_participant`, Path `/me`) is the ID token, verified
+against the browser client id; its `(issuer, subject)` is matched to a roster
+`Human.Identity` binding (bind one with `at-jam project roster add-human --oidc
+<issuer>:<subject>`; see [comms-addressing.md](comms-addressing.md)). A **global
+person**: the same subject bound in several projects is one participant whose
+view spans them. An unbound subject is refused (fail closed).
 
 ## Intercom
 

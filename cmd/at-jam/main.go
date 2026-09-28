@@ -1369,6 +1369,18 @@ func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) 
 	return l.c.PostComment(ctx, issueID, body)
 }
 
+// participantHome is the placeholder landing handler for the gated participant
+// intercom subtree (/me). It proves the resolver + gate injected a Participant;
+// the real inbox UI (COV-201) and send path (COV-200) register under /me on top
+// of this same gate.
+func participantHome() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := jam.ParticipantFrom(r)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "Signed in to the Jam intercom as %s.\n", p.Name)
+	})
+}
+
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -1812,24 +1824,52 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 
 		uiMux := http.NewServeMux()
-		gate := browserauth.Gate{LoginPath: "/ui/auth/login", ExpectedHosts: cfg.UIHosts, Log: log}
+		gate := browserauth.Gate{
+			LoopbackTrust: browserauth.OperatorLoopbackTrust(),
+			LoginPath:     "/ui/auth/login",
+			ExpectedHosts: cfg.UIHosts,
+			Log:           log,
+		}
+		var meHandler http.Handler
 		if bc := cfg.browserAuthConfig(); bc != nil {
-			svc, err := browserauth.New(context.Background(), *bc, nil, log)
+			svc, err := browserauth.New(context.Background(), *bc, browserauth.OperatorUIMount(), nil, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: browser login:", err)
 				return 1
 			}
 			uiMux.Handle("/ui/auth/", svc.Routes())
 			if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok {
-				gate.Sess = &browserauth.SessionVerifier{Auth: oidcAuth}
+				gate.Session = browserauth.OperatorSession(oidcAuth, browserauth.OperatorUIMount().SessionCookie)
 			}
 			log.Info("Jam UI auth: browser OIDC login", "client-id", bc.ClientID)
+
+			// Participant intercom plane (/me): the SAME OIDC client, but the
+			// session is mapped to a roster human (no operator scope), and — unlike
+			// /ui — there is NO loopback trust: we must know which human, and
+			// loopback cannot say. The login routes (/me/auth/*) stay ungated.
+			meMount := browserauth.ParticipantMount()
+			meSvc, err := browserauth.New(context.Background(), *bc, meMount, nil, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: participant login:", err)
+				return 1
+			}
+			meMux := http.NewServeMux()
+			meMux.Handle("/me/auth/", meSvc.Routes())
+			meGate := browserauth.Gate{
+				Session:       meSvc.ParticipantSession(st),
+				LoginPath:     "/me/auth/login",
+				ExpectedHosts: cfg.UIHosts,
+				Log:           log,
+			}
+			meMux.Handle("/me/", meGate.Wrap(participantHome()))
+			meHandler = meMux
+			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
 		} else {
 			log.Info("Jam UI auth: loopback-only")
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, credExists, squawkReader)))
 
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux)
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler)
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()
