@@ -77,7 +77,7 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 		t.Fatalf("GET /me/ = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Jam", "Conversations", "eng", "hi from alice", "/me/static/htmx.min.js"} {
+	for _, want := range []string{"Jam", "New message", "eng", "hi from alice", "/me/static/htmx.min.js"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing %q", want)
 		}
@@ -85,6 +85,37 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 	// The message from the viewer renders on the "human" (own) side.
 	if !strings.Contains(body, `msg human`) {
 		t.Error("viewer's own message should render on the human side")
+	}
+	// The composer must be OUTSIDE the polled region: the poll lives on #stream
+	// (innerHTML), and the composer is a later sibling — so a 3s refresh never
+	// wipes a typed reply.
+	if strings.Index(body, `id="stream"`) > strings.Index(body, `class="composer"`) {
+		t.Error("composer should render after the stream, as a sibling outside it")
+	}
+	if !strings.Contains(body, `hx-swap="innerHTML"`) {
+		t.Error("stream should poll with innerHTML swap (not outerHTML on the whole pane)")
+	}
+}
+
+func TestStreamFragmentIsMessagesOnly(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("GET /me/stream = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "hi from alice") {
+		t.Error("stream fragment should contain the messages")
+	}
+	// It is ONLY the messages — no composer, no topbar chrome to clobber.
+	for _, absent := range []string{"class=\"composer\"", "New message", "<header"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("stream fragment should not contain %q (it must not re-render chrome)", absent)
+		}
 	}
 }
 

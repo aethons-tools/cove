@@ -2,19 +2,6 @@
 
 {{define "rail"}}
 <nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
-  <div class="rail-head">
-    <b>Conversations</b>
-    <details class="newmsg">
-      <summary>New message</summary>
-      <div class="recips">
-        {{range .Recipients}}
-          <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
-        {{else}}
-          <p class="empty">No active recipients.</p>
-        {{end}}
-      </div>
-    </details>
-  </div>
   {{range .Groups}}
     <div class="group{{if eq (printf "%s" .Bucket) "waiting"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
@@ -32,8 +19,10 @@
 </nav>
 {{end}}
 
+{{/* The pane itself does NOT poll — only #stream does (innerHTML), so the
+     header and composer (and a half-typed reply) survive the 3s refresh. */}}
 {{define "pane"}}
-<section class="convo" id="pane" hx-get="/me/pane{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<section class="convo" id="pane">
   {{with .Conv}}
     <div class="cv-head">
       <div>
@@ -43,16 +32,8 @@
       <span class="spacer"></span>
       {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
     </div>
-    <div class="stream">
-      {{range .Messages}}
-        <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
-          <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
-          <div class="body">{{.Body}}</div>
-          <span class="t">{{.At}}</span>
-        </div>
-      {{else}}
-        <p class="empty">No messages yet.</p>
-      {{end}}
+    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="every 3s" hx-swap="innerHTML">
+      {{template "messages" $}}
     </div>
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
@@ -65,4 +46,20 @@
     <div class="cv-empty">Select a conversation, or start a New message.</div>
   {{end}}
 </section>
+{{end}}
+
+{{/* messages renders just the conversation's message list; it is the /me/stream
+     poll target, so a refresh never touches the composer. */}}
+{{define "messages"}}
+{{with .Conv}}
+  {{range .Messages}}
+    <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
+      <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
+      <div class="body">{{.Body}}</div>
+      <span class="t">{{.At}}</span>
+    </div>
+  {{else}}
+    <p class="empty">No messages yet.</p>
+  {{end}}
+{{end}}
 {{end}}

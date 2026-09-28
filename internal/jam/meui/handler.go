@@ -57,7 +57,7 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /me/{$}", h.full)
 	mux.HandleFunc("GET /me/rail", h.rail)
-	mux.HandleFunc("GET /me/pane", h.pane)
+	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
 	mux.Handle("GET /me/static/", http.StripPrefix("/me/static/", http.FileServer(http.FS(staticFS))))
 	return mux
@@ -121,13 +121,15 @@ func (h *handler) rail(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "rail", page)
 }
 
-func (h *handler) pane(w http.ResponseWriter, r *http.Request) {
+// stream renders just the open conversation's message list (the #stream poll
+// target). It never re-renders the composer, so a half-typed reply survives.
+func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
 	page, ok := h.build(r)
 	if !ok {
 		http.Error(w, "no participant", http.StatusUnauthorized)
 		return
 	}
-	h.render(w, "pane", page)
+	h.render(w, "messages", page)
 }
 
 // markRead advances the participant's unread cursor for a channel to seq, under
