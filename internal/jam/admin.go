@@ -462,6 +462,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := ValidateIdentity(b.Identity); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if rr, ok := store.GetRoster(r.PathValue("project")); ok {
 			for _, id := range b.discordUserIDs() {
 				for _, other := range rr.Humans {

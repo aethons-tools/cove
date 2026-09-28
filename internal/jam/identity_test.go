@@ -45,6 +45,22 @@ func TestHumanDeliveryFor(t *testing.T) {
 	}
 }
 
+func TestValidateIdentity(t *testing.T) {
+	ok := []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}
+	if err := ValidateIdentity(ok); err != nil {
+		t.Fatalf("ValidateIdentity(%+v) = %v, want nil", ok, err)
+	}
+	for _, bad := range [][]OIDCIdentity{
+		{{Issuer: "", Subject: "x"}},
+		{{Issuer: "x", Subject: ""}},
+		{{Issuer: "", Subject: ""}},
+	} {
+		if err := ValidateIdentity(bad); err == nil {
+			t.Fatalf("ValidateIdentity(%+v) = nil, want error", bad)
+		}
+	}
+}
+
 func TestHumanByLogin(t *testing.T) {
 	store := newFileStoreT(t)
 	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "@alice", Login: "auth0|abc"}); err != nil {

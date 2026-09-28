@@ -604,6 +604,76 @@ func TestProjectRosterAddHumanDelivery(t *testing.T) {
 	}
 }
 
+// TestProjectRosterAddHumanOIDC exercises `project roster add-human --oidc
+// <issuer>:<subject>` (repeatable): it binds the human's OIDC identities, a
+// malformed value exits 2 with the roster unchanged, and `roster list` shows
+// the bindings.
+func TestProjectRosterAddHumanOIDC(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+
+	// valid --oidc (repeatable, issuer is a URL with a colon) reaches the roster
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+		"--name", "dave", "--handle", "dave.h",
+		"--oidc", "https://accounts.google.com:dave-sub",
+		"--oidc", "https://login.microsoftonline.com:dave-ms",
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("project roster add-human --oidc: exit=%d stderr=%s", code, errb.String())
+	}
+	rr, ok := store.GetRoster("acme")
+	if !ok {
+		t.Fatal("GetRoster acme")
+	}
+	var dave jam.Human
+	for _, hu := range rr.Humans {
+		if hu.Name == "dave" {
+			dave = hu
+		}
+	}
+	if len(dave.Identity) != 2 ||
+		dave.Identity[0].Issuer != "https://accounts.google.com" || dave.Identity[0].Subject != "dave-sub" ||
+		dave.Identity[1].Issuer != "https://login.microsoftonline.com" || dave.Identity[1].Subject != "dave-ms" {
+		t.Fatalf("dave identity = %+v", dave.Identity)
+	}
+
+	// malformed --oidc values are rejected with exit 2, roster unchanged
+	for _, bad := range []string{"noseparator", "https://issuer:", ":subject", ""} {
+		out.Reset()
+		errb.Reset()
+		code := run([]string{
+			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
+			"--name", "eve", "--handle", "eve.h",
+			"--oidc", bad,
+		}, getenv, &out, &errb)
+		if code != 2 {
+			t.Fatalf("project roster add-human --oidc %q: exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
+		}
+	}
+	rr, _ = store.GetRoster("acme")
+	for _, hu := range rr.Humans {
+		if hu.Name == "eve" {
+			t.Fatalf("eve should not have been added with a malformed --oidc: %+v", hu)
+		}
+	}
+
+	// roster list shows the binding
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("roster list exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "oidc=https://accounts.google.com:dave-sub") {
+		t.Fatalf("roster list does not show the oidc binding:\n%s", out.String())
+	}
+}
+
 // TestProjectRosterAddHumanDiscordUser exercises `--delivery
 // discord:<channel>:<user-id>`: the optional third part binds the human's
 // Discord user id; it must be all digits, and only discord accepts it. `roster

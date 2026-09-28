@@ -816,3 +816,30 @@ func TestAdminRosterHumanDiscordUser(t *testing.T) {
 		}
 	}
 }
+
+// A roster human's OIDC identity binding round-trips, and a malformed one
+// (empty issuer or subject) is rejected with 400, leaving the roster unchanged.
+func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	good := Human{Name: "alice", Handle: "alice.h", Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}}
+	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", good); rec.Code != http.StatusCreated {
+		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
+	}
+	var rr Roster
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	if len(rr.Humans) != 1 || len(rr.Humans[0].Identity) != 1 || rr.Humans[0].Identity[0].Subject != "alice-sub" {
+		t.Fatalf("roster humans = %+v", rr.Humans)
+	}
+	for _, bad := range []OIDCIdentity{{Issuer: "", Subject: "x"}, {Issuer: "x", Subject: ""}} {
+		nd := Human{Name: "bob", Handle: "bob.h", Identity: []OIDCIdentity{bad}}
+		if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", nd); rec.Code != http.StatusBadRequest {
+			t.Fatalf("malformed identity %+v = %d, want 400", bad, rec.Code)
+		}
+	}
+	getJSON(t, h, "/admin/projects/acme/roster", &rr)
+	for _, hu := range rr.Humans {
+		if hu.Name != "alice" {
+			t.Fatalf("a rejected human was added: %+v", hu)
+		}
+	}
+}
