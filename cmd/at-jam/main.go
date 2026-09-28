@@ -43,6 +43,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
+	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -1369,18 +1370,6 @@ func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) 
 	return l.c.PostComment(ctx, issueID, body)
 }
 
-// participantHome is the placeholder landing handler for the gated participant
-// intercom subtree (/me). It proves the resolver + gate injected a Participant;
-// the real inbox UI (COV-201) and send path (COV-200) register under /me on top
-// of this same gate.
-func participantHome() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, _ := jam.ParticipantFrom(r)
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "Signed in to the Jam intercom as %s.\n", p.Name)
-	})
-}
-
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -1873,10 +1862,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				sendH = jam.NewParticipantSendHandler(st, nil, log)
 			}
 			meSurface.Handle("/me/send", sendH)
-			meSurface.Handle("/me/", participantHome())
+			// The inbox reads the same intercom Log; a nil Log (unconfigured)
+			// renders an empty inbox rather than failing.
+			var meLog jam.LogReader
+			if intercomLog != nil {
+				meLog = intercomLog
+			}
+			meSurface.Handle("/me/", meui.Handler(st, meLog, log))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
-			log.Info("Jam participant intercom: send mounted", "path", "/me/send")
+			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
 		} else {
 			log.Info("Jam UI auth: loopback-only")

@@ -1,0 +1,68 @@
+{{define "content"}}{{template "rail" .}}{{template "pane" .}}{{end}}
+
+{{define "rail"}}
+<nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+  <div class="rail-head">
+    <b>Conversations</b>
+    <details class="newmsg">
+      <summary>New message</summary>
+      <div class="recips">
+        {{range .Recipients}}
+          <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
+        {{else}}
+          <p class="empty">No active recipients.</p>
+        {{end}}
+      </div>
+    </details>
+  </div>
+  {{range .Groups}}
+    <div class="group{{if eq (printf "%s" .Bucket) "waiting"}} attention{{end}}">
+      <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
+      {{range .Rows}}
+        <a class="thread{{if .Selected}} sel{{end}}" href="/me/?c={{.ID}}">
+          <span class="pin {{if .Waiting}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
+          <span class="cove">{{.Label}}</span>
+          {{if gt .Unread 0}}<span class="badge unread">{{.Unread}}</span>{{end}}
+        </a>
+      {{end}}
+    </div>
+  {{else}}
+    <p class="empty">No conversations yet. Start one with New message.</p>
+  {{end}}
+</nav>
+{{end}}
+
+{{define "pane"}}
+<section class="convo" id="pane" hx-get="/me/pane{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+  {{with .Conv}}
+    <div class="cv-head">
+      <div>
+        <div class="cv-title">{{.Label}}</div>
+        <div class="cv-sub">{{.Project}}{{if .Kind}} · {{.Kind}}{{end}}</div>
+      </div>
+      <span class="spacer"></span>
+      {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
+    </div>
+    <div class="stream">
+      {{range .Messages}}
+        <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
+          <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
+          <div class="body">{{.Body}}</div>
+          <span class="t">{{.At}}</span>
+        </div>
+      {{else}}
+        <p class="empty">No messages yet.</p>
+      {{end}}
+    </div>
+    <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
+    <div class="composer">
+      <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
+        <textarea name="body" placeholder="Reply&#8230;" required></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  {{else}}
+    <div class="cv-empty">Select a conversation, or start a New message.</div>
+  {{end}}
+</section>
+{{end}}
