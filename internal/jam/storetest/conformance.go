@@ -341,8 +341,8 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.RemoveHuman("absent", "x"); err == nil {
 			t.Fatal("RemoveHuman on an absent project must error")
 		}
-		// delivery profile round-trips through AddHuman (upsert by name)
-		if err := s.AddHuman("acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}}); err != nil {
+		// delivery profile + oidc identity round-trip through AddHuman (upsert by name)
+		if err := s.AddHuman("acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}, Identity: []jam.OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "dave-sub"}}}); err != nil {
 			t.Fatalf("AddHuman with delivery: %v", err)
 		}
 		if r, ok := s.GetRoster("acme"); !ok {
@@ -359,6 +359,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			}
 			if dave.Login != "auth0|dave" {
 				t.Fatalf("dave login = %q, want auth0|dave", dave.Login)
+			}
+			if len(dave.Identity) != 1 || dave.Identity[0].Issuer != "https://accounts.google.com" || dave.Identity[0].Subject != "dave-sub" {
+				t.Fatalf("dave identity = %+v", dave.Identity)
 			}
 		}
 		// chat-service set + clear round-trips through GetProject

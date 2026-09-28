@@ -464,11 +464,13 @@ func copyKit(k Kit) Kit {
 }
 
 // copyHumans returns a deep copy of hs: the slice plus each Human's Delivery
-// sub-slice, so a returned Human's Delivery can't alias the store's state.
+// and Identity sub-slices, so a returned Human's sub-slices can't alias the
+// store's state.
 func copyHumans(hs []Human) []Human {
 	out := append([]Human(nil), hs...)
 	for i := range out {
 		out[i].Delivery = append([]DeliveryProfile(nil), out[i].Delivery...)
+		out[i].Identity = append([]OIDCIdentity(nil), out[i].Identity...)
 	}
 	return out
 }
