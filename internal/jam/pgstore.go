@@ -216,14 +216,34 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	return s.loadDocs(ctx, "projects", func(doc []byte) error {
+	if err := s.loadDocs(ctx, "projects", func(doc []byte) error {
 		var p Project
 		if err := json.Unmarshal(doc, &p); err != nil {
 			return err
 		}
 		s.projects[p.Name] = p
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// intercom-UI unread cursors: (participant, channel) → last-seen Seq.
+	curs, err := s.pool.Query(ctx, `SELECT participant, channel, seq FROM intercom_unread_cursors`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load intercom_unread_cursors: %w", err)
+	}
+	defer curs.Close()
+	for curs.Next() {
+		var participant, channel string
+		var seq int64
+		if err := curs.Scan(&participant, &channel, &seq); err != nil {
+			return err
+		}
+		if s.unread[participant] == nil {
+			s.unread[participant] = map[string]int64{}
+		}
+		s.unread[participant][channel] = seq
+	}
+	return curs.Err()
 }
 
 func (s *PostgresStore) loadDocs(ctx context.Context, table string, unmarshal func(doc []byte) error) error {
@@ -487,6 +507,25 @@ func (s *PostgresStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int6
 	}
 	i, _ := s.applyAdvanceCommitCursor(actorID, upToID, upToSeq)
 	return i, nil
+}
+
+func (s *PostgresStore) CommitUnread(participant, channel string, seq int64) error {
+	if participant == "" || channel == "" {
+		return fmt.Errorf("participant and channel are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Forward-only in the DB (GREATEST), matching the cache helper below. A
+	// backward/equal seq is a harmless no-op update (the row keeps its value).
+	if err := s.exec("CommitUnread",
+		`INSERT INTO intercom_unread_cursors (participant, channel, seq) VALUES ($1,$2,$3)
+		 ON CONFLICT (participant, channel) DO UPDATE
+		   SET seq = GREATEST(intercom_unread_cursors.seq, EXCLUDED.seq), updated_at = now()`,
+		participant, channel, seq); err != nil {
+		return err
+	}
+	s.applyCommitUnread(participant, channel, seq)
+	return nil
 }
 
 func (s *PostgresStore) AddDestination(d Destination) error {
