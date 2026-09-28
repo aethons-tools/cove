@@ -24,7 +24,7 @@ func (f *fakeIdP) mintAccess(t *testing.T, aud, sub string, exp time.Time) strin
 
 // operatorGate builds the operator "/ui" gate (loopback-trusted) over an
 // optional session verifier, matching the production wiring.
-func operatorGate(sess func(*http.Request) (*http.Request, bool)) Gate {
+func operatorGate(sess func(*http.Request) (*http.Request, SessionOutcome)) Gate {
 	return Gate{
 		LoopbackTrust: OperatorLoopbackTrust(),
 		Session:       sess,
@@ -224,7 +224,7 @@ func (f fakeParticipantStore) GetRoster(p string) (jam.Roster, bool) {
 func TestParticipantGateNoLoopbackBypass(t *testing.T) {
 	var called bool
 	g := Gate{ // no LoopbackTrust — participant plane
-		Session:   func(r *http.Request) (*http.Request, bool) { return r, false },
+		Session:   func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionNone },
 		LoginPath: "/me/auth/login",
 		Log:       discard(),
 	}
@@ -267,13 +267,13 @@ func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
 	cases := []struct {
 		name     string
 		cookie   string
-		wantOK   bool
+		want     SessionOutcome
 		wantName string
 	}{
-		{"mapped subject resolves", "alice-token", true, "alice"},
-		{"unmapped subject fails closed", "stranger-token", false, ""},
-		{"unverifiable token fails closed", "garbage", false, ""},
-		{"no cookie fails closed", "", false, ""},
+		{"mapped subject → OK", "alice-token", SessionOK, "alice"},
+		{"unmapped subject → Forbidden (not a loop)", "stranger-token", SessionForbidden, ""},
+		{"unverifiable token → None (re-login)", "garbage", SessionNone, ""},
+		{"no cookie → None (re-login)", "", SessionNone, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,11 +281,11 @@ func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
 			if tc.cookie != "" {
 				req.AddCookie(&http.Cookie{Name: ParticipantMount().SessionCookie, Value: tc.cookie})
 			}
-			rr, ok := sess(req)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			rr, out := sess(req)
+			if out != tc.want {
+				t.Fatalf("outcome = %v, want %v", out, tc.want)
 			}
-			if !tc.wantOK {
+			if tc.want != SessionOK {
 				return
 			}
 			p, has := jam.ParticipantFrom(rr)
@@ -296,5 +296,46 @@ func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
 				t.Errorf("participant = %+v, want name %q subject sub-alice issuer %s", p, tc.wantName, idp.url)
 			}
 		})
+	}
+}
+
+// TestParticipantGateForbiddenDoesNotLoop is the fix: a valid session whose
+// subject resolves to no roster human gets a 403, NOT a redirect back to login
+// (which would loop, since re-login yields the same subject).
+func TestParticipantGateForbiddenDoesNotLoop(t *testing.T) {
+	var called bool
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
+
+	forbidden := Gate{
+		Session:   func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionForbidden },
+		LoginPath: "/me/auth/login",
+		Log:       discard(),
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/me/", nil)
+	req.RemoteAddr = "203.0.113.7:5555"
+	forbidden.Wrap(stub).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("forbidden session = %d, want 403 (must not redirect/loop)", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("forbidden session redirected to %q; must not redirect", loc)
+	}
+	if called {
+		t.Error("wrapped handler reached with an unauthorized session")
+	}
+
+	// By contrast, SessionNone still redirects to login.
+	none := Gate{
+		Session:   func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionNone },
+		LoginPath: "/me/auth/login",
+		Log:       discard(),
+	}
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/me/", nil)
+	req2.RemoteAddr = "203.0.113.7:5555"
+	none.Wrap(stub).ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/me/auth/login" {
+		t.Fatalf("no session = %d %q, want 302 /me/auth/login", rec2.Code, rec2.Header().Get("Location"))
 	}
 }

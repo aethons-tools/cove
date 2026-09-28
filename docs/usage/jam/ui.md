@@ -93,7 +93,10 @@ against the browser client id; its `(issuer, subject)` is matched to a roster
 `Human.Identity` binding (bind one with `at-jam project roster add-human --oidc
 <issuer>:<subject>`; see [comms-addressing.md](comms-addressing.md)). A **global
 person**: the same subject bound in several projects is one participant whose
-view spans them. An unbound subject is refused (fail closed).
+view spans them. An unbound subject — one that authenticates at the IdP but is
+not bound to any roster human — is refused with **403** (fail closed), not
+redirected back to login (which would loop); the operator adds the binding to
+let them in.
 
 ### Sending (`POST /me/send`)
 
