@@ -475,6 +475,8 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	service := fs.String("service", "linear", "channel service (add-channel)")
 	var delivery multiFlag
 	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address[:user-id]` (repeatable, add-human), e.g. discord:<inbox-channel-id>:<your-discord-user-id>; the user id (discord only) binds the human to their Discord account")
+	var oidc multiFlag
+	fs.Var(&oidc, "oidc", "OIDC identity binding, `issuer:subject` (repeatable, add-human); binds a browser OIDC subject to this roster human. issuer and subject must be non-empty; issuer may itself contain colons (a URL), the subject is the text after the final colon")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -500,7 +502,16 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			profiles = append(profiles, p)
 		}
-		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles}); err != nil {
+		var identities []jam.OIDCIdentity
+		for _, o := range oidc {
+			id, err := parseOIDC(o)
+			if err != nil {
+				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --oidc %q: %v\n", o, err)
+				return 2
+			}
+			identities = append(identities, id)
+		}
+		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles, Identity: identities}); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
@@ -532,6 +543,9 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			if d, ok := h.DeliveryFor("discord"); ok && d.UserID != "" {
 				line += "\tdiscord-user=" + d.UserID
+			}
+			for _, id := range h.Identity {
+				line += "\toidc=" + id.Issuer + ":" + id.Subject
 			}
 			fmt.Fprintln(stdout, line)
 		}
@@ -731,6 +745,22 @@ func parseDelivery(d string) (jam.DeliveryProfile, error) {
 		return jam.DeliveryProfile{}, err
 	}
 	return p, nil
+}
+
+// parseOIDC parses one --oidc value, `issuer:subject`. The issuer is commonly a
+// URL that itself contains colons, so the split is on the final colon: the
+// subject is the text after it, the issuer everything before. Both must be
+// non-empty.
+func parseOIDC(v string) (jam.OIDCIdentity, error) {
+	i := strings.LastIndex(v, ":")
+	if i < 0 {
+		return jam.OIDCIdentity{}, fmt.Errorf("want issuer:subject")
+	}
+	id := jam.OIDCIdentity{Issuer: v[:i], Subject: v[i+1:]}
+	if err := jam.ValidateIdentity([]jam.OIDCIdentity{id}); err != nil {
+		return jam.OIDCIdentity{}, err
+	}
+	return id, nil
 }
 
 // multiFlag collects repeatable string flag values (e.g. --delivery

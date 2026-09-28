@@ -525,6 +525,22 @@ func TestGetRosterCopiesDelivery(t *testing.T) {
 	}
 }
 
+func TestGetRosterCopiesIdentity(t *testing.T) {
+	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	_ = fs.AddHuman("acme", Human{
+		Name:     "dave",
+		Handle:   "@dave",
+		Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "dave-sub"}},
+	})
+
+	rr, _ := fs.GetRoster("acme")
+	rr.Humans[0].Identity[0].Subject = "MUTATED" // must not corrupt the store
+	rr2, _ := fs.GetRoster("acme")
+	if rr2.Humans[0].Identity[0].Subject != "dave-sub" {
+		t.Fatalf("GetRoster leaked a live Identity slice: %v", rr2.Humans[0].Identity)
+	}
+}
+
 func TestEscalationByCategoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)

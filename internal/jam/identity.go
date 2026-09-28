@@ -142,6 +142,32 @@ type Human struct {
 	// unlinked. At most one human per project may hold a given login.
 	Login    string            `json:"login,omitempty"`
 	Delivery []DeliveryProfile `json:"delivery,omitempty"` // per-service DM delivery targets
+	// Identity binds the human to one or more browser OIDC subjects, so a login
+	// authenticated at an OIDC provider can later be mapped to this roster actor.
+	// Data-model only here; the auth/session mapping lives in a later slice.
+	Identity []OIDCIdentity `json:"identity,omitempty"`
+}
+
+// OIDCIdentity binds a Human to a browser OIDC subject: the provider's Issuer
+// and the subject (`sub`) claim within it. Both are opaque identifiers, never
+// secrets. A subject is unique only within its issuer, so both are needed.
+type OIDCIdentity struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
+}
+
+// ValidateIdentity checks a human's OIDC identity bindings: both the issuer and
+// the subject of each binding must be non-empty.
+func ValidateIdentity(ids []OIDCIdentity) error {
+	for _, id := range ids {
+		if id.Issuer == "" {
+			return fmt.Errorf("oidc identity issuer must be non-empty")
+		}
+		if id.Subject == "" {
+			return fmt.Errorf("oidc identity subject must be non-empty")
+		}
+	}
+	return nil
 }
 
 // rosterReader is the slice of Store HumanByLogin reads.
