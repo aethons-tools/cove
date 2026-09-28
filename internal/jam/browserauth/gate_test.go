@@ -2,6 +2,7 @@ package browserauth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,8 +22,19 @@ func (f *fakeIdP) mintAccess(t *testing.T, aud, sub string, exp time.Time) strin
 	})
 }
 
+// operatorGate builds the operator "/ui" gate (loopback-trusted) over an
+// optional session verifier, matching the production wiring.
+func operatorGate(sess func(*http.Request) (*http.Request, bool)) Gate {
+	return Gate{
+		LoopbackTrust: OperatorLoopbackTrust(),
+		Session:       sess,
+		LoginPath:     "/ui/auth/login",
+		Log:           discard(),
+	}
+}
+
 func TestGateLoopbackAlwaysAllowed(t *testing.T) {
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
@@ -34,7 +46,7 @@ func TestGateLoopbackAlwaysAllowed(t *testing.T) {
 }
 
 func TestGateOffLoopbackLoopbackOnlyRefused(t *testing.T) {
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
@@ -50,7 +62,7 @@ func TestGateOffLoopbackNoSessionRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
@@ -66,7 +78,7 @@ func TestGateOffLoopbackWriteWithoutSessionRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	var called bool
 	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -87,7 +99,7 @@ func TestGateOffLoopbackWriteWithoutSessionRefused(t *testing.T) {
 func TestGateAttributesOperator(t *testing.T) {
 	// Loopback → "local".
 	var gotLoopback string
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/roster", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
@@ -107,11 +119,11 @@ func TestGateAttributesOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotSession string
-	gs := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	gs := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	rec = httptest.NewRecorder()
 	sreq := httptest.NewRequest("GET", "/ui/roster", nil)
 	sreq.RemoteAddr = "203.0.113.7:5555"
-	sreq.AddCookie(&http.Cookie{Name: SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
+	sreq.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
 	gs.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSession = jam.OperatorID(r)
 		w.WriteHeader(http.StatusOK)
@@ -127,12 +139,12 @@ func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := Gate{Sess: &SessionVerifier{Auth: auth}, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	tok := idp.mintAccess(t, "aud", "auth0|bob", time.Now().Add(time.Hour))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
-	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: tok})
+	req.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: tok})
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("valid session = %d, want 200", rec.Code)
@@ -142,7 +154,7 @@ func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 func TestGateLoopbackRejectsForeignHost(t *testing.T) {
 	// A DNS-rebinding request: loopback connection, but Host is an attacker name
 	// not in the expected set. Must be refused even though it is loopback.
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()}
+	g := operatorGate(nil)
 	var called bool
 	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
 	rec := httptest.NewRecorder()
@@ -159,7 +171,7 @@ func TestGateLoopbackRejectsForeignHost(t *testing.T) {
 }
 
 func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", ExpectedHosts: []string{"jam.local.aethons.tools"}, Log: discard()}
+	g := Gate{LoopbackTrust: OperatorLoopbackTrust(), LoginPath: "/ui/auth/login", ExpectedHosts: []string{"jam.local.aethons.tools"}, Log: discard()}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
@@ -180,7 +192,7 @@ func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
 }
 
 func TestGateLoopbackAllowsLoopbackLiterals(t *testing.T) {
-	g := Gate{Sess: nil, LoginPath: "/ui/auth/login", Log: discard()} // no ExpectedHosts
+	g := operatorGate(nil) // no ExpectedHosts
 	for _, host := range []string{"127.0.0.1:8081", "localhost:8081", "[::1]:8081"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/ui/coves", nil)
@@ -190,5 +202,99 @@ func TestGateLoopbackAllowsLoopbackLiterals(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("loopback + Host %q = %d, want 200", host, rec.Code)
 		}
+	}
+}
+
+// --- Participant plane (/me): no loopback trust; session maps to a roster human ---
+
+// fakeParticipantStore is a jam.ParticipantStore over one project's roster.
+type fakeParticipantStore struct{ humans []jam.Human }
+
+func (f fakeParticipantStore) ListProjects() []string { return []string{"proj"} }
+func (f fakeParticipantStore) GetRoster(p string) (jam.Roster, bool) {
+	if p != "proj" {
+		return jam.Roster{}, false
+	}
+	return jam.Roster{Humans: f.humans}, true
+}
+
+// TestParticipantGateNoLoopbackBypass is the key boundary property: with no
+// LoopbackTrust hook, even a loopback request must present a valid session — the
+// gate must not silently authenticate a local caller as some participant.
+func TestParticipantGateNoLoopbackBypass(t *testing.T) {
+	var called bool
+	g := Gate{ // no LoopbackTrust — participant plane
+		Session:   func(r *http.Request) (*http.Request, bool) { return r, false },
+		LoginPath: "/me/auth/login",
+		Log:       discard(),
+	}
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/me/", nil)
+	req.RemoteAddr = "127.0.0.1:5000" // loopback
+	req.Host = "127.0.0.1:8081"
+	g.Wrap(stub).ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/me/auth/login" {
+		t.Fatalf("loopback no-session = %d %q, want 302 /me/auth/login (no loopback bypass)", rec.Code, rec.Header().Get("Location"))
+	}
+	if called {
+		t.Error("participant handler reached on loopback without a session")
+	}
+}
+
+func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
+	idp := newFakeIdP(t)
+	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "jam-browser"}, ParticipantMount(), nil, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject a fake token→subject step so we don't need a live-signed token.
+	svc.verifySubject = func(_ context.Context, raw string) (string, error) {
+		switch raw {
+		case "alice-token":
+			return "sub-alice", nil
+		case "stranger-token":
+			return "sub-stranger", nil
+		default:
+			return "", fmt.Errorf("bad token")
+		}
+	}
+	store := fakeParticipantStore{humans: []jam.Human{
+		{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}},
+	}}
+	sess := svc.ParticipantSession(store)
+
+	cases := []struct {
+		name     string
+		cookie   string
+		wantOK   bool
+		wantName string
+	}{
+		{"mapped subject resolves", "alice-token", true, "alice"},
+		{"unmapped subject fails closed", "stranger-token", false, ""},
+		{"unverifiable token fails closed", "garbage", false, ""},
+		{"no cookie fails closed", "", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/me/", nil)
+			if tc.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: ParticipantMount().SessionCookie, Value: tc.cookie})
+			}
+			rr, ok := sess(req)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if !tc.wantOK {
+				return
+			}
+			p, has := jam.ParticipantFrom(rr)
+			if !has {
+				t.Fatal("no participant injected on success")
+			}
+			if p.Name != tc.wantName || p.Subject != "sub-alice" || p.Issuer != idp.url {
+				t.Errorf("participant = %+v, want name %q subject sub-alice issuer %s", p, tc.wantName, idp.url)
+			}
+		})
 	}
 }
