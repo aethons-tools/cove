@@ -14,8 +14,8 @@
 # /etc/hosts entry needed.
 listen: "jam.local.aethons.tools:8443"
 tls:
-  cert: dev/tls/cert.pem
-  key: dev/tls/key.pem
+  cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
+  key:  /etc/letsencrypt/live/local.aethons.tools/privkey.pem
 
 # Extra Host the browser admin UI accepts on loopback (beyond localhost/127.0.0.1).
 ui-hosts:
@@ -23,6 +23,9 @@ ui-hosts:
 
 # Loopback admin API — plain HTTP is fine on loopback (no OIDC needed).
 admin-listen: "127.0.0.1:8081"
+admin-tls:
+  cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
+  key:  /etc/letsencrypt/live/local.aethons.tools/privkey.pem
 
 # Control-plane store: the dev Postgres from dev/docker-compose.yml.
 # Jam auto-migrates on startup, and the message log rides on the same DB.
@@ -39,3 +42,12 @@ credentials:
   # resolver run on the host — never an inline value.
   jam-db:
     value: jam
+
+operator-auth:
+  oidc:
+    issuer: https://dev-g4zj2mtadm3h4deq.us.auth0.com/
+    audience: https://harbor.aethons.tools/admin
+    require-scope: harbor:admin      # omit for "any valid token"
+    device-client-id: qP8KOzONbEcdTWRmfClpzsLnjYDPGbnW
+    browser-client-id: qP8KOzONbEcdTWRmfClpzsLnjYDPGbnW
+    device-scope: openid harbor:admin      # ensures the minted token carries the permission

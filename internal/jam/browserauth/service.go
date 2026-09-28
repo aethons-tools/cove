@@ -164,22 +164,25 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 // ParticipantSession returns a Gate session verifier for the participant plane:
 // it verifies the session's ID token (aud = ClientID), maps its subject to a
 // roster human via jam.ParticipantByIdentity, and injects the resolved
-// Participant. An unmapped subject fails closed (ok=false → the gate refuses).
-func (s *Service) ParticipantSession(store jam.ParticipantStore) func(*http.Request) (*http.Request, bool) {
-	return func(r *http.Request) (*http.Request, bool) {
+// Participant. Outcomes: no/invalid session → SessionNone (the gate redirects to
+// login); a verified subject that is not bound to any roster human →
+// SessionForbidden (the gate returns 403 rather than looping through login);
+// a resolved subject → SessionOK.
+func (s *Service) ParticipantSession(store jam.ParticipantStore) func(*http.Request) (*http.Request, SessionOutcome) {
+	return func(r *http.Request) (*http.Request, SessionOutcome) {
 		c, err := r.Cookie(s.mount.SessionCookie)
 		if err != nil || c.Value == "" {
-			return r, false
+			return r, SessionNone
 		}
 		sub, err := s.verifySubject(r.Context(), c.Value)
 		if err != nil {
-			return r, false
+			return r, SessionNone
 		}
 		p, ok := jam.ParticipantByIdentity(store, s.cfg.Issuer, sub)
 		if !ok {
-			return r, false
+			return r, SessionForbidden
 		}
-		return jam.WithParticipant(r, p), true
+		return jam.WithParticipant(r, p), SessionOK
 	}
 }
 
