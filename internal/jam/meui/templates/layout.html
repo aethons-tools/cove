@@ -1,0 +1,116 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jam Intercom</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F5F6F8; --surface:#fff; --surface-2:#FBF9FA; --ink:#1B1D24; --muted:#61656F; --faint:#8A8F9A;
+  --border:#E3E5EA; --border-strong:#D2D5DC; --accent:#B5306A; --accent-soft:#FBEAF1;
+  --wait:#9C5E00; --wait-soft:#FBF0DC; --wait-line:#E6A93B; --live:#1A7F58; --live-soft:#E1F1E9;
+  --idle:#6E7686; --idle-soft:#EDEEF1; --agent-bubble:#F1F2F5; --human-bubble:#FBEAF1;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0F1116; --surface:#171A21; --surface-2:#1C1F27; --ink:#E8EAEE; --muted:#A0A5B0; --faint:#757B87;
+  --border:#262A33; --border-strong:#333844; --accent:#E86AA0; --accent-soft:#34202B;
+  --wait:#E8B15A; --wait-soft:#322914; --wait-line:#B98A2E; --live:#4FC28C; --live-soft:#17281F;
+  --idle:#8B93A3; --idle-soft:#23262F; --agent-bubble:#1F232B; --human-bubble:#34202B; color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+.mono,.cove,.tkt{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
+.brand{display:flex;align-items:baseline;gap:8px;font-weight:600}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+.brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
+.topbar .spacer{flex:1}
+.who{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.who .av{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:600}
+.panes{flex:1 1 auto;display:grid;grid-template-columns:320px 1fr;min-height:0}
+.rail{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;min-height:0}
+.rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 4px}
+.rail-head b{font-size:13px}
+.newmsg summary{cursor:pointer;list-style:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;border:1px solid var(--border-strong);border-radius:8px}
+.newmsg[open] summary{background:var(--accent-soft)}
+.recips{padding:6px 8px;display:flex;flex-direction:column;gap:2px;max-height:220px;overflow-y:auto}
+.recips button{text-align:left;background:none;border:0;font:inherit;color:var(--ink);padding:6px 8px;border-radius:8px;cursor:pointer}
+.recips button:hover{background:var(--surface-2)}
+.recips .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-left:6px}
+.group{padding:6px 10px 4px}
+.group-h{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.group-h .count{margin-left:auto}
+.group.attention .group-h{color:var(--wait)}
+.thread{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;text-decoration:none;color:inherit;border:1px solid transparent}
+.thread:hover{background:var(--surface-2)}
+.thread.sel{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.thread .pin{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.pin.wait{background:var(--wait);box-shadow:0 0 0 3px var(--wait-soft)}
+.pin.live{background:var(--live);box-shadow:0 0 0 3px var(--live-soft)}
+.pin.chan{background:var(--faint);border-radius:2px}
+.thread .cove{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px}
+.badge.unread{background:var(--accent);color:#fff;min-width:18px;text-align:center}
+.empty{color:var(--faint);font-size:13px;padding:14px}
+.convo{display:grid;grid-template-rows:auto 1fr auto;min-height:0;background:var(--bg)}
+.cv-empty{display:grid;place-items:center;color:var(--faint)}
+.cv-head{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cv-title{font-weight:600;font-size:15px}
+.cv-sub{color:var(--muted);font-size:12.5px}
+.cv-head .spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--wait-line);background:var(--wait-soft);color:var(--wait)}
+.stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
+.msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px}
+.msg .body{padding:10px 13px;border-radius:13px;white-space:pre-wrap;word-break:break-word}
+.msg.agent{align-self:flex-start}
+.msg.agent .body{background:var(--agent-bubble);border-top-left-radius:4px}
+.msg.human{align-self:flex-end;align-items:flex-end}
+.msg.human .body{background:var(--human-bubble);border-top-right-radius:4px}
+.msg .t{font-size:10.5px;color:var(--faint);padding:0 4px}
+.composer{border-top:1px solid var(--border);background:var(--surface);padding:12px 20px}
+.composer form{display:flex;gap:10px;align-items:flex-end}
+.composer textarea{flex:1;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;padding:10px 12px;resize:none;min-height:42px;outline:none}
+.composer textarea:focus{border-color:var(--accent)}
+.composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
+@media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand"><span class="dot"></span>Jam <small>Intercom</small></span>
+  <span class="spacer"></span>
+  <span class="who"><span class="av">{{if .Me}}{{slice .Me 0 1}}{{else}}?{{end}}</span> <span>{{.Me}}</span></span>
+</header>
+<div class="panes">
+{{template "content" .}}
+</div>
+<script src="/me/static/htmx.min.js"></script>
+<script>
+function meSend(e, to){
+  e.preventDefault();
+  var f=e.target, body=(f.body.value||"").trim();
+  if(!body) return false;
+  fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body})})
+   .then(function(r){
+     if(r.status===204){ f.reset(); htmx.ajax('GET','/me/pane?c='+encodeURIComponent(to),{target:'#pane',swap:'outerHTML'}); htmx.ajax('GET','/me/rail?c='+encodeURIComponent(to),{target:'#rail',swap:'outerHTML'}); }
+     else { alert('Send failed ('+r.status+')'); }
+   });
+  return false;
+}
+function meCompose(to, label){
+  var pane=document.getElementById('pane');
+  pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
+    +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
+    +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
+    +'<textarea name="body" placeholder="Message '+label+'…" required></textarea>'
+    +'<button type="submit">Send</button></form></div>';
+}
+</script>
+</body>
+</html>{{end}}

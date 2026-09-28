@@ -228,6 +228,50 @@ func sortChannels(chs []ChannelView) {
 	})
 }
 
+// ChannelSquawks returns, in append order, every squawk that belongs to
+// channelID — using the SAME id derivation as ProjectChannels, so a channel's
+// conversation is exactly the messages the rail counted. instances map a
+// studio's Unit to its channel; a nil/short log yields nothing.
+func ChannelSquawks(channelID string, log LogReader, instances []Instance) []intercom.Squawk {
+	byUnit := map[string]Instance{}
+	for _, i := range instances {
+		if i.Unit != "" {
+			byUnit[i.Unit] = i
+		}
+	}
+	var out []intercom.Squawk
+	for _, m := range log.ListSince(0, 0) {
+		if squawkMapsToChannel(m, channelID, byUnit) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// squawkMapsToChannel reports whether any recipient of m derives channelID,
+// mirroring the To-target classification in ProjectChannels.
+func squawkMapsToChannel(m intercom.Squawk, channelID string, byUnit map[string]Instance) bool {
+	for _, t := range m.To {
+		var id string
+		switch t.Kind {
+		case "channel":
+			if _, ok := byUnit[t.Ref]; ok {
+				id = StudioChannelID(t.Ref)
+			} else {
+				id = NamedChannelID(t.Ref)
+			}
+		case "actor", "human":
+			id = DMChannelID(m.From, t)
+		default:
+			continue
+		}
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
 // Recipient is one addressable target for the New Message picker.
 type Recipient struct {
 	Kind    string          // "human" | "session" | "studio" | "channel"

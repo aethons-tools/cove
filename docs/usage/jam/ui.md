@@ -70,8 +70,9 @@ login routes themselves never expose mutation.
 
 `/me/` is a **separate, participant-facing** surface on the same admin listener,
 distinct from the operator `/ui/`. It is where a **roster human** — not the
-operator — will read and reply to their intercom channels (the inbox UI and send
-path land here in later slices). It has its own gate, and a participant session
+operator — reads and replies to their intercom channels: the two-pane inbox UI
+(see [intercom-ui.md](intercom-ui.md)) and the `/me/send` path are mounted here.
+It has its own gate, and a participant session
 **never** carries operator scope and cannot reach the `/admin/*` or `/ui/*`
 routes (the participant cookie is path-scoped to `/me`, and `/admin`/`/ui` are
 gated independently).
