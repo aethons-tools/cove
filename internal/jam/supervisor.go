@@ -20,29 +20,6 @@ const (
 	LivenessDead
 )
 
-// KitRef is the light, hot-path reference to a kit: what a RaiseSpec carries so
-// a launcher can answer "do I have this?" without the full kit config crossing
-// the wire. It is a stable content key — kit versions are monotonic and
-// immutable — so a launcher caches prepared artifacts by it. Digest is an
-// optional content hash for integrity ("" = unset).
-//
-// It lives here (not in internal/jam/launcher) so RaiseSpec and the jam.Launcher
-// seam can name it without an import cycle — launcher imports jam. The launcher
-// package aliases it (launcher.KitRef = jam.KitRef) so its kit-prepare machinery
-// and this raise field are the one type.
-//
-// See docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md
-// ("Kit reference + lazy prepare").
-type KitRef struct {
-	ID      string
-	Version int
-	Digest  string
-}
-
-// String is the stable key used in logs and the launcher's prepared-kit
-// inventory, e.g. "managed@v3".
-func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) }
-
 // RaiseSpec is the request to raise a managed cove. Scope/kit resolution lives in
 // the role (and, in a later slice, the Launcher); this carries only identity.
 type RaiseSpec struct {
