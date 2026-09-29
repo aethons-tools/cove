@@ -1,6 +1,6 @@
 # jam: the subscription-OAuth account pool — cheap Anthropic credentials for coves
 
-**Status:** design approved (brainstorm complete), pre-plan
+**Status:** shipped (#249 and follow-ups) — **revised 2026-09-29(b): see "Revision B" at the end.** The dummy-`.credentials.json` identity hop is superseded by `ANTHROPIC_AUTH_TOKEN`.
 **Scope:** replace the per-cove federated (service-account) Anthropic token with a **pool of subscription-OAuth accounts** the broker draws from, so a cove's `claude` runs as a subscription principal (~20× cheaper, and entitled to the models a subscription carries) instead of a federated one.
 **Builds on:** the credential-injecting broker (`internal/jam/proxy.go`, `creds.go`), the connector snippet (`internal/jam/snippet`), the cove launch path (`internal/jam/launcher`, `internal/connect/covemaster.go`), and the roster/identity model (actor identity token → `HashToken` → `Lookup`).
 **Does not change:** the broker's authenticate → `Decide` → resolve → inject → proxy pipeline, the roster/grant model, `Decide`'s three-question authorization, git routing, or the hardening/egress boundary. The proxy machinery is **reused as-is**; only the *identity ingress header*, the *credential source*, and the *cove seed* change.
@@ -163,3 +163,47 @@ Additive and flag-gated: a `pool:` serve-config block enables the pool path; wit
 ---
 
 *Design rationale grounded in the 2026-09-29 subscription-mode probe (base-URL honored; `Authorization: Bearer`; no `x-api-key`; `oauth-2025-04-20` beta) and the current broker in `internal/jam/proxy.go` + `creds.go` + `snippet`.*
+
+---
+
+# Revision B (2026-09-29): the `ANTHROPIC_AUTH_TOKEN` identity hop
+
+The original design seeded the cove a **dummy `claudeAiOauth` `.credentials.json`** (subscription mode) whose `accessToken` was the cove's Jam identity, so `claude` would send it as `Authorization: Bearer` to the broker. Live bring-up proved that mechanism **fragile and self-destructing**, and this revision replaces it.
+
+## Why the dummy-subscription hop failed (observed)
+
+In subscription mode `claude` **manages the OAuth session**: it validates and refreshes the `claudeAiOauth` token, and **on any `401` it tries to refresh and then blanks its own credentials** (`accessToken:""`, `expiresAt:0`). Observed end-to-end in a real cove:
+
+1. broker proxied the initial inference (`broker proxy destination=anthropic` — identity accepted, pool cred resolved), so the whole broker path works;
+2. `api.anthropic.com` returned `401` (stale/rotated pool token — see the account-exclusivity note below);
+3. `claude` treated that as *its* session expiring, tried to refresh against `platform.claude.com` (a **hardcoded** host, not `ANTHROPIC_BASE_URL`), failed, and **wiped the dummy creds** — so every subsequent (woken) turn failed locally with `OAuth session expired and could not be refreshed`, never reaching the broker again.
+
+The initial-far-future-expiry dummy masked this in the isolated probe (no `401` there); in a real cove the first `401` permanently breaks the cove's credential. The approach is inherently fragile.
+
+## The replacement: `ANTHROPIC_AUTH_TOKEN` (probed 2026-09-29)
+
+`ANTHROPIC_AUTH_TOKEN` makes `claude` send `Authorization: Bearer <value>` as a **pure static token** — no `.credentials.json`, no OAuth session, no validation, no refresh. Two probes confirmed, with **no** credentials file:
+
+- With `ANTHROPIC_AUTH_TOKEN=<id>` + `ANTHROPIC_BASE_URL=<logger>`, `claude` sent `POST /v1/messages?beta=true` with `Authorization: Bearer <id>` **and touched no other host** — no `platform.claude.com`, no `api.anthropic.com`, no `claude.ai`. So **no self-destruct is possible** (there is no session to invalidate).
+- It **does not** send the `oauth-2025-04-20` beta (subscription mode did); its `anthropic-beta` is the `claude-code-…` set only.
+- It survives `forceLoginMethod: claudeai` (user-level `settings.json`): still a static bearer, still no OAuth hosts. *(To re-confirm against the cove's system `/etc/claude-code/managed-settings.json`; env auth is normally the top override.)*
+
+## Revised design (supersedes the original "cove seed" + "identity ingress")
+
+- **Cove connector (`internal/jam/snippet.RenderSubscription`):** export **`ANTHROPIC_AUTH_TOKEN=$AT_JAM_IDENTITY_TOKEN`** (plus `ANTHROPIC_BASE_URL` + the identity + git routing). **No `.credentials.json`, no `ANTHROPIC_API_KEY`.** `internal/jam/snippet.DummyCredentials` and the cove-side creds write in `internal/connect/covemaster.go` are **removed**.
+- **Broker destination:** stays `identity_in: bearer` — the bearer slot already matches, **no flip**. The identity arrives on `Authorization: Bearer`, `Decide`/pool-resolve are unchanged.
+- **Broker inject (new):** on the pool path, after swapping the identity for the pool subscription bearer, **append `oauth-2025-04-20` to the `anthropic-beta` header** (merged with `claude`'s existing betas) — because `AUTH_TOKEN` mode doesn't send it and Anthropic requires it for a subscription-OAuth token. Gated per-destination (a Destination flag), so only the pool anthropic destination adds it.
+- **Cove egress (hardening):** a brokered cove should reach **only the jam host**. Today `.anthropic.com`/`.claude.com`/`claude.ai` live in the *sealed base* `allowed_domains.txt` (allowed first, unconditional — a role egress policy cannot remove them). Move direct-Anthropic **out of the always-on base** and make it **opt-in for the interactive `claude auth login` path** (kit `image.allowed-domains`), so a brokered cove is locked to the broker. **Blast radius:** interactive/collaborator coves must keep direct Anthropic via their kit — handle as its own task. This is defense-in-depth: in this model the cove holds **no real Anthropic credential** (only the fake identity), so the direct-Anthropic path leaks nothing today; the lock guarantees no bypass.
+
+## Account exclusivity (carried forward, made explicit)
+
+A pool account must be a **grant nothing else holds**. Subscription refresh tokens rotate per use and providers revoke the whole token family on detecting reuse of a rotated token — so copying an *active* interactive login into the pool guarantees an eventual `invalid_grant`. Each pool account needs its own dedicated `claude auth login`, not shared with any interactive session. (Same account is fine; the *grant* must be exclusive.)
+
+## Slices (this revision)
+
+- **A — snippet + cove seed:** `RenderSubscription` sets `ANTHROPIC_AUTH_TOKEN`; drop `DummyCredentials` + the creds write. *(implemented in this change)*
+- **B — broker appends the `oauth` beta** on the pool destination (a Destination flag). *(implemented in this change)*
+- **C — egress lock** for brokered coves (hardening restructure; interactive-login as a sub-task). *(ticketed — a security-boundary change, done deliberately)*
+- **D — in-cove `forceLoginMethod` confirmation** against the real `managed-settings.json`. *(ticketed — live verification)*
+
+Slices A+B make the pool **work** (no self-destruct); C is the security hardening; D is a verification.

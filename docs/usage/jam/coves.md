@@ -73,9 +73,10 @@ Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Insta
 
 > **Anthropic credentialing.** How the agent's `claude` authenticates depends on
 > the serve config: by default the connector sets `ANTHROPIC_API_KEY` (the identity
-> on `x-api-key`), but with a [`pool:`](pool.md)
-> block the cove is instead seeded a dummy subscription credential and runs as a
-> pooled subscription principal. The launcher chooses the mode; the cove is unaware.
+> on `x-api-key`), but with a [`pool:`](pool.md) block the connector sets
+> `ANTHROPIC_AUTH_TOKEN` instead (the identity as a static bearer, no credentials
+> file), and the broker swaps in a pooled subscription token. The launcher chooses
+> the mode; the cove is unaware.
 
 The raise sequence is: enroll the identity → start the container → wait for sshd →
 **apply the role's egress policy** → start cove-master (and so the agent). The egress

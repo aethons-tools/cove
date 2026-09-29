@@ -295,6 +295,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
 	fs.BoolVar(&d.RepoScoped, "repo-scoped", false, "path is <route>/<owner>/<repo>/…")
+	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -320,7 +321,11 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			return 1
 		}
 		for _, dd := range ds {
-			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply)
+			ob := ""
+			if dd.OAuthBeta {
+				ob = ", oauth-beta"
+			}
+			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
 	case "rm":
 		if len(pos) != 1 {
