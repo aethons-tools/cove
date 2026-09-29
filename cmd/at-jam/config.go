@@ -547,6 +547,17 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 	return c, nil
 }
 
+// credConfigured reports whether n names a credential the broker can resolve: a
+// `credentials:` entry, or (when the pool is enabled) the pool's cred-name, which
+// the ChainResolver serves from the subscription account pool by identity rather
+// than from `credentials:`. Used to validate a destination's cred_name at add time.
+func (c serveConfig) credConfigured(n string) bool {
+	if _, ok := c.Credentials[n]; ok {
+		return true
+	}
+	return c.Pool != nil && n == c.Pool.CredName
+}
+
 // credSpecs maps each configured credential to a secret.Spec (literal or command).
 func (c serveConfig) credSpecs() map[string]secret.Spec {
 	out := make(map[string]secret.Spec, len(c.Credentials))

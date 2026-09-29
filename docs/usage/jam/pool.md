@@ -58,6 +58,10 @@ at-jam destination add --name anthropic --route /anthropic/ --upstream https://a
   --identity-in bearer --cred-name anthropic-sub --apply bearer
 ```
 
+The pool's `cred-name` does **not** need a `credentials:` entry — with a `pool:`
+block configured, destination validation accepts it and the pool resolves it by
+identity.
+
 ## Broker-owned refresh
 
 A background refresher rotates each account's token ahead of expiry (within
