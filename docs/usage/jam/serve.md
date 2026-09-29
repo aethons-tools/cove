@@ -233,8 +233,9 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   how the studio presents its identity, and how Jam applies the real credential.
 - `--repo-scoped` marks a git-style destination whose path is `<route>/<owner>/<repo>/…`,
   so a role's `repos` globs can scope it.
-- `--cred-name` must resolve to a `credentials:` entry in the serve config
-  (validated at add time).
+- `--cred-name` must resolve to a `credentials:` entry in the serve config —
+  or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
+  pool resolves by identity, not from `credentials:`). Validated at add time.
 
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -104,7 +105,21 @@ func (r *Refresher) refreshOne(ctx context.Context, a PoolAccount) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("token endpoint status %d", resp.StatusCode) // body not logged (may echo secrets)
+		// An OAuth error response carries a machine-readable `error` (and often
+		// `error_description`) — neither is a secret, and both are what makes a
+		// failure diagnosable. Parse just those, bounded, and never echo the raw
+		// body (a 2xx body would carry tokens; an error body does not, but stay
+		// strict). See RFC 6749 §5.2.
+		var oe struct {
+			Error       string `json:"error"`
+			Description string `json:"error_description"`
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		_ = json.Unmarshal(body, &oe)
+		if oe.Error != "" {
+			return fmt.Errorf("token endpoint %d: %s: %s", resp.StatusCode, oe.Error, oe.Description)
+		}
+		return fmt.Errorf("token endpoint status %d", resp.StatusCode)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
