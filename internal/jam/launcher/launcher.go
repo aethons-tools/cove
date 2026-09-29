@@ -45,6 +45,7 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
+	Subscription  bool                // seed raised coves in subscription mode (dummy claudeAiOauth, no ANTHROPIC_API_KEY)
 	WorkDir       string              // AT_COVE_WORKDIR; default /home/agent/workspace
 	Log           *slog.Logger        // nil → discard
 	sleep         func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
@@ -99,6 +100,9 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			// A personal session is a long-lived conversation: its agent stays
 			// resident, waiting for its owner's reply after every turn.
 			Resident: jam.IsResident(spec.SessionKind),
+			// Subscription mode seeds a dummy claudeAiOauth credential so the
+			// cove's claude authenticates as a pooled subscription principal.
+			Subscription: l.cfg.Subscription,
 		})
 	}
 	if err := launch(); err != nil {

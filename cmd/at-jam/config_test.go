@@ -577,3 +577,75 @@ func TestValidateWake(t *testing.T) {
 		t.Fatalf("valid runtime.wake: %v", err)
 	}
 }
+
+func TestParseServeConfigPool(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+pool:
+  store: /var/lib/jam/pool.json
+  cred-name: anthropic-sub
+  refresh-interval: 5m
+  refresh-margin: 15m
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Pool == nil || cfg.Pool.CredName != "anthropic-sub" || cfg.Pool.Store != "/var/lib/jam/pool.json" {
+		t.Fatalf("pool block not parsed: %+v", cfg.Pool)
+	}
+	iv, mg, err := cfg.poolDurations()
+	if err != nil {
+		t.Fatalf("poolDurations: %v", err)
+	}
+	if iv != 5*time.Minute || mg != 15*time.Minute {
+		t.Fatalf("durations = %v / %v", iv, mg)
+	}
+}
+
+func TestValidatePoolRequiresStoreAndCred(t *testing.T) {
+	c := serveConfig{Pool: &poolConfig{Store: "", CredName: "x"}}
+	if err := c.validatePool(); err == nil {
+		t.Fatal("missing store should fail validation")
+	}
+	c = serveConfig{Pool: &poolConfig{Store: "/p.json", CredName: ""}}
+	if err := c.validatePool(); err == nil {
+		t.Fatal("missing cred-name should fail validation")
+	}
+	c = serveConfig{Pool: &poolConfig{Store: "/p.json", CredName: "anthropic-sub"}}
+	if err := c.validatePool(); err != nil {
+		t.Fatalf("valid pool block should pass: %v", err)
+	}
+}
+
+func TestPoolDurationsDefault(t *testing.T) {
+	c := serveConfig{Pool: &poolConfig{Store: "/p.json", CredName: "x"}}
+	iv, mg, err := c.poolDurations()
+	if err != nil {
+		t.Fatalf("poolDurations: %v", err)
+	}
+	if iv != 5*time.Minute || mg != 15*time.Minute {
+		t.Fatalf("defaults = %v / %v, want 5m/15m", iv, mg)
+	}
+}
+
+func TestParseClaudeAiOauth(t *testing.T) {
+	data := []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-AAA","refreshToken":"sk-ant-ort01-BBB","expiresAt":1893456000000,"subscriptionType":"pro"}}`)
+	acct, err := parseClaudeAiOauth("pool-a", data)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if acct.Name != "pool-a" || acct.AccessToken != "sk-ant-oat01-AAA" || acct.RefreshToken != "sk-ant-ort01-BBB" {
+		t.Fatalf("account = %+v", acct)
+	}
+	if acct.ExpiresAt.UnixMilli() != 1893456000000 {
+		t.Fatalf("expiresAt = %v", acct.ExpiresAt)
+	}
+}
+
+func TestParseClaudeAiOauthMissingTokens(t *testing.T) {
+	if _, err := parseClaudeAiOauth("x", []byte(`{"claudeAiOauth":{"accessToken":"a"}}`)); err == nil {
+		t.Fatal("missing refreshToken should error")
+	}
+	if _, err := parseClaudeAiOauth("x", []byte(`not json`)); err == nil {
+		t.Fatal("bad json should error")
+	}
+}

@@ -3,6 +3,7 @@ package connect
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -32,7 +33,13 @@ type CoveMasterOptions struct {
 	WorkDir       string // AT_COVE_WORKDIR
 	Prompt        string // written to tmpfs; AT_COVE_AGENT_PROMPT_FILE points at it
 	Resident      bool   // AT_COVE_RESIDENT=1: a personal session's agent waits for a Wake after every turn
+	Subscription  bool   // seed a dummy claudeAiOauth credentials file + subscription render (no ANTHROPIC_API_KEY)
 }
+
+// dummyCredsFarFuture is the expiry stamped into a subscription cove's dummy
+// credentials, chosen far enough out that claude never tries to refresh (the
+// broker owns refresh).
+var dummyCredsFarFuture = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
 // plus the cove-master env and the prompt into tmpfs over ssh stdin, then starts
@@ -43,9 +50,23 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 		return fmt.Errorf("cove-master prompt: %w", err)
 	}
 	var script strings.Builder
-	// Agent connector (Anthropic base URL + x-api-key token + git routing). The
-	// identity token is exported here and shared with cove-master below.
-	script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
+	// Agent connector (Anthropic base URL + git routing). The identity token is
+	// exported here and shared with cove-master below. In subscription mode the
+	// cove authenticates from a seeded dummy .credentials.json (accessToken = the
+	// identity token) and the render omits ANTHROPIC_API_KEY; otherwise the
+	// identity rides on x-api-key.
+	if o.Subscription {
+		creds, err := snippet.DummyCredentials(o.IdentityToken, dummyCredsFarFuture)
+		if err != nil {
+			return fmt.Errorf("cove-master dummy credentials: %w", err)
+		}
+		if err := writeVM(r, o.Target, creds, credsVMPath); err != nil {
+			return fmt.Errorf("cove-master credentials: %w", err)
+		}
+		script.WriteString(snippet.RenderSubscription("https://"+o.JamHost, o.IdentityToken))
+	} else {
+		script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
+	}
 	// cove-master's own env (AT_JAM_IDENTITY_TOKEN already exported by Render).
 	fmt.Fprintf(&script, "export AT_JAM_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
 	fmt.Fprintf(&script, "export AT_JAM_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))

@@ -57,7 +57,15 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var cred string
 	if dec.NeedCred {
-		if cred, err = b.creds.Resolve(dec.CredName); err != nil {
+		// Prefer an identity-aware resolver (the subscription pool: the token
+		// depends on which account this identity is bound to). tokenHash is the
+		// same hash used for Lookup above.
+		if ir, ok := b.creds.(IdentityCredResolver); ok {
+			cred, err = ir.ResolveFor(dec.CredName, HashToken(tok))
+		} else {
+			cred, err = b.creds.Resolve(dec.CredName)
+		}
+		if err != nil {
 			b.log.Error("credential resolve failed", "destination", dest.Name)
 			http.Error(w, "credential unavailable", http.StatusBadGateway)
 			return

@@ -38,3 +38,44 @@ func (s *SecretResolver) Resolve(name string) (string, error) {
 	}
 	return vals[name], nil
 }
+
+// IdentityCredResolver is an optional CredResolver that resolves a credential
+// scoped to the requesting identity. The broker prefers it when the resolver
+// implements it (the subscription pool: the token depends on the identity's
+// bound account). Implementations must never log or persist the value.
+type IdentityCredResolver interface {
+	ResolveFor(name, identityHash string) (string, error)
+}
+
+// ChainResolver routes one configured pool credential name to a Pool (by
+// identity) and delegates every other name to a base CredResolver. It satisfies
+// both CredResolver and IdentityCredResolver.
+type ChainResolver struct {
+	base     CredResolver
+	pool     *Pool
+	poolCred string
+}
+
+// NewChainResolver builds a resolver that sends poolCred to pool (identity-scoped)
+// and everything else to base.
+func NewChainResolver(base CredResolver, pool *Pool, poolCred string) *ChainResolver {
+	return &ChainResolver{base: base, pool: pool, poolCred: poolCred}
+}
+
+// Resolve serves non-pool credentials. The pool credential requires an identity,
+// so a bare Resolve of it fails closed.
+func (c *ChainResolver) Resolve(name string) (string, error) {
+	if name == c.poolCred {
+		return "", fmt.Errorf("credential %q is identity-scoped (pool); no identity presented", name)
+	}
+	return c.base.Resolve(name)
+}
+
+// ResolveFor serves the pool credential from the identity's bound account, and
+// delegates every other name to the base (identity ignored).
+func (c *ChainResolver) ResolveFor(name, identityHash string) (string, error) {
+	if name == c.poolCred {
+		return c.pool.TokenFor(identityHash)
+	}
+	return c.base.Resolve(name)
+}
