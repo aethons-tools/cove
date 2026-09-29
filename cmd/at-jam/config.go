@@ -53,7 +53,13 @@ type serveConfig struct {
 	// named credential resolved on the host in memory (see password-cred).
 	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
 	Credentials   map[string]credSpec  `yaml:"credentials"`
-	OperatorAuth  struct {
+	// Pool, when set, enables the subscription-OAuth account pool: the anthropic
+	// destination's cred (cred-name) is resolved from the pool by cove identity,
+	// coves are seeded in subscription mode, and a background refresher rotates
+	// pool tokens. Absent ⇒ the anthropic destination keeps its configured
+	// (x-api-key/federated) credential and coves launch in API-key mode.
+	Pool         *poolConfig `yaml:"pool"`
+	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
 			Audience        string `yaml:"audience"`
@@ -144,6 +150,56 @@ type discordConfig struct {
 // launcherConfig configures the real Colima-backed jam.Launcher
 // (internal/jam/launcher). Present (non-nil) opts a `serve` process into
 // raising real managed coves; absent keeps the placeholder launcher.
+// poolConfig configures the subscription-OAuth account pool. TokenURL, ClientID,
+// and Scope are optional and default to the probed Claude Code constants
+// (see jam.Refresher).
+type poolConfig struct {
+	Store           string `yaml:"store"`            // path to the pool JSON file (required)
+	CredName        string `yaml:"cred-name"`        // the anthropic destination cred that routes to the pool (required)
+	RefreshInterval string `yaml:"refresh-interval"` // ticker cadence; default 5m
+	RefreshMargin   string `yaml:"refresh-margin"`   // refresh when within this of expiry; default 15m
+	TokenURL        string `yaml:"token-url"`        // default jam.defaultTokenURL
+	ClientID        string `yaml:"client-id"`        // default jam.defaultClientID
+	Scope           string `yaml:"scope"`            // default jam.defaultScope
+}
+
+// validatePool checks a set pool block. Store and CredName are required; the
+// endpoint/client/scope default in the refresher, and durations parse.
+func (c serveConfig) validatePool() error {
+	if c.Pool == nil {
+		return nil
+	}
+	if c.Pool.Store == "" {
+		return fmt.Errorf("pool: store is required")
+	}
+	if c.Pool.CredName == "" {
+		return fmt.Errorf("pool: cred-name is required")
+	}
+	if _, _, err := c.poolDurations(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// poolDurations returns the refresh interval and margin, defaulting to 5m / 15m.
+func (c serveConfig) poolDurations() (interval, margin time.Duration, err error) {
+	interval, margin = 5*time.Minute, 15*time.Minute
+	if c.Pool == nil {
+		return interval, margin, nil
+	}
+	if s := c.Pool.RefreshInterval; s != "" {
+		if interval, err = time.ParseDuration(s); err != nil {
+			return 0, 0, fmt.Errorf("pool.refresh-interval: %w", err)
+		}
+	}
+	if s := c.Pool.RefreshMargin; s != "" {
+		if margin, err = time.ParseDuration(s); err != nil {
+			return 0, 0, fmt.Errorf("pool.refresh-margin: %w", err)
+		}
+	}
+	return interval, margin, nil
+}
+
 type launcherConfig struct {
 	// InstallManifest is the host path to the at-cove install manifest
 	// (install.Manifest JSON) whose Image/ImageDigest the launcher raises.

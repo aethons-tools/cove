@@ -71,6 +71,12 @@ lifecycle; automated result-handling (commit/push/PR after the agent) comes with
 Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Instance only
 (no real studio).
 
+> **Anthropic credentialing.** How the agent's `claude` authenticates depends on
+> the serve config: by default the connector sets `ANTHROPIC_API_KEY` (the identity
+> on `x-api-key`), but with a [`pool:`](pool.md)
+> block the cove is instead seeded a dummy subscription credential and runs as a
+> pooled subscription principal. The launcher chooses the mode; the cove is unaware.
+
 The raise sequence is: enroll the identity → start the container → wait for sshd →
 **apply the role's egress policy** → start cove-master (and so the agent). The egress
 step runs only for a role with a [policy](roster.md#role-egress) and lands before the

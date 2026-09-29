@@ -1,10 +1,10 @@
 ---
-summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
-read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, adding the destinations studios reach, or exposing the admin API beyond loopback.
-owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials), the broker model, the `destination` verb, and the off-loopback exposure guard
+summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
+owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 # Running Jam (`at-jam serve`)
@@ -38,6 +38,11 @@ credentials:                        # the REAL downstream secrets Jam injects
     command: ["at-mint", "anthropic", "--audience", "…"]   # a resolver run on the host
   git-pat:
     value: "ghp_…"                                         # or a literal value
+pool:                               # optional — subscription-OAuth account pool (see below)
+  store: /var/lib/jam/pool.json     # host-side pool file (accounts + identity→account bindings)
+  cred-name: anthropic-sub          # the anthropic destination cred this pool serves
+  refresh-interval: 5m              # optional (default 5m)
+  refresh-margin: 15m               # optional (default 15m) — refresh when within this of expiry
 operator-auth:                      # see operators.md — omit for loopback-only admin
   oidc:
     issuer:   https://YOUR_TENANT.us.auth0.com/
@@ -79,6 +84,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
 | `intercom-log` | no | Filesystem path to Jam's durable squawk Log (JSONL). With a Log (file or `store-postgres`), Jam runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a Requisitioner; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
+| `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `store` and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
@@ -232,6 +238,16 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
+
+## The subscription account pool (`pool:`)
+
+The optional `pool:` block runs cove `claude` as a **pooled subscription
+principal** (cheaper, model-entitled) instead of the federated `anthropic-key`
+credential: the anthropic destination flips to `bearer`, each cove is seeded a
+dummy subscription credential whose access token is its own identity, and the
+broker injects a pooled account's real token per request. See
+[pool.md](pool.md) for the mechanism, the `at-jam pool` verb, broker-owned token
+refresh, and the egress it needs.
 
 ## Exposing the admin API (fail-closed)
 

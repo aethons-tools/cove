@@ -71,6 +71,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
+			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
@@ -1426,6 +1427,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validatePool(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	specs := cfg.credSpecs()
 
@@ -1461,7 +1466,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam store: file", "path", cfg.Store)
 	}
 
-	creds := jam.NewSecretResolver(runner.OS{}, specs)
+	base := jam.NewSecretResolver(runner.OS{}, specs)
+	var creds jam.CredResolver = base
+	if cfg.Pool != nil {
+		poolStore, err := jam.NewFilePoolStore(cfg.Pool.Store)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: pool store:", err)
+			return 1
+		}
+		pool := jam.NewPool(poolStore)
+		creds = jam.NewChainResolver(base, pool, cfg.Pool.CredName)
+		interval, margin, _ := cfg.poolDurations() // validated above
+		refresher := jam.NewRefresher(poolStore, jam.RefresherOptions{
+			TokenURL: cfg.Pool.TokenURL, ClientID: cfg.Pool.ClientID, Scope: cfg.Pool.Scope,
+			Margin: margin, Log: log,
+		})
+		go refresher.Run(context.Background(), interval)
+		log.Info("Jam subscription pool enabled", "store", cfg.Pool.Store, "cred", cfg.Pool.CredName) // never tokens
+	}
 	broker := jam.NewBroker(st, creds, log)
 
 	ttl, reconcile, err := cfg.runtimeDurations()
@@ -1492,7 +1514,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
-			Log: log,
+			// Seed raised coves in subscription mode when the pool is enabled, so
+			// their claude authenticates as a pooled subscription principal.
+			Subscription: cfg.Pool != nil,
+			Log:          log,
 		})
 		log.Info("Jam launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
 	}
@@ -1950,4 +1975,97 @@ func runAs(invokedAs string, argv []string, getenv func(string) string, stdout, 
 	}
 	migrateConfigDir(stderr)
 	return run(argv, getenv, stdout, stderr)
+}
+
+// parseClaudeAiOauth extracts a PoolAccount from a claude .credentials.json (or a
+// file containing just the claudeAiOauth block). expiresAt is epoch milliseconds.
+func parseClaudeAiOauth(name string, data []byte) (jam.PoolAccount, error) {
+	var doc struct {
+		ClaudeAiOauth struct {
+			AccessToken  string `json:"accessToken"`
+			RefreshToken string `json:"refreshToken"`
+			ExpiresAt    int64  `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return jam.PoolAccount{}, fmt.Errorf("parse credentials: %w", err)
+	}
+	o := doc.ClaudeAiOauth
+	if o.AccessToken == "" || o.RefreshToken == "" {
+		return jam.PoolAccount{}, fmt.Errorf("credentials missing claudeAiOauth.accessToken/refreshToken")
+	}
+	var exp time.Time
+	if o.ExpiresAt > 0 {
+		exp = time.UnixMilli(o.ExpiresAt)
+	}
+	return jam.PoolAccount{Name: name, AccessToken: o.AccessToken, RefreshToken: o.RefreshToken, ExpiresAt: exp}, nil
+}
+
+// cmdPool manages the host-side subscription-OAuth account pool store directly
+// (not via the admin API): add seeds a real account from a claude login's
+// credentials, list shows account names and expiries (never token values).
+func cmdPool(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "at-jam pool: expected add|list")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("pool "+sub, flag.ContinueOnError)
+	store := fs.String("store", "", "path to the pool JSON store (required)")
+	name := fs.String("name", "", "account name (add)")
+	fromFile := fs.String("from-file", "", "file holding the claudeAiOauth credentials block; default stdin (add)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	_ = pos
+	if !ok {
+		return code
+	}
+	if *store == "" {
+		fmt.Fprintln(stderr, "at-jam pool: --store is required")
+		return 2
+	}
+	ps, err := jam.NewFilePoolStore(*store)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam pool:", err)
+		return 1
+	}
+	switch sub {
+	case "add":
+		if *name == "" {
+			fmt.Fprintln(stderr, "at-jam pool add: --name is required")
+			return 2
+		}
+		var data []byte
+		if *fromFile == "" {
+			if data, err = io.ReadAll(os.Stdin); err != nil {
+				fmt.Fprintln(stderr, "at-jam pool add: read stdin:", err)
+				return 1
+			}
+		} else if data, err = os.ReadFile(*fromFile); err != nil {
+			fmt.Fprintln(stderr, "at-jam pool add:", err)
+			return 1
+		}
+		acct, err := parseClaudeAiOauth(*name, data)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam pool add:", err)
+			return 1
+		}
+		if err := ps.SetAccount(acct); err != nil {
+			fmt.Fprintln(stderr, "at-jam pool add:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "added pool account", acct.Name) // never the tokens
+	case "list":
+		accts, err := ps.Accounts()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam pool:", err)
+			return 1
+		}
+		for _, a := range accts {
+			fmt.Fprintf(stdout, "%s\texpires %s\n", a.Name, a.ExpiresAt.Format(time.RFC3339))
+		}
+	default:
+		fmt.Fprintln(stderr, "at-jam pool: unknown subcommand", sub)
+		return 2
+	}
+	return 0
 }

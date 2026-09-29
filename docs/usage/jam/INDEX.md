@@ -31,7 +31,8 @@ five pillars), see the design history:
 | Doc | Read when |
 |-----|-----------|
 | [dispatch-runbook.md](dispatch-runbook.md) | You are standing up (or reproducing) a real Linear→studio dispatch loop end to end and want the ordered steps + the field gotchas (egress, cert-name, flat-vs-grouped labels), not the per-field reference. |
-| [serve.md](serve.md) | Standing up the service: `at-jam serve`, the serve-config YAML (listen, TLS, store, credentials), the broker + destinations, and the off-loopback exposure rule. |
+| [serve.md](serve.md) | Standing up the service: `at-jam serve`, the serve-config YAML (listen, TLS, store, credentials, the subscription account pool), the broker + destinations, and the off-loopback exposure rule. |
+| [pool.md](pool.md) | Running coves on a subscription-OAuth account pool: identity→account binding + bearer injection, the `at-jam pool` verb, broker-owned token refresh, and the egress/rollout it needs. |
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Registering or versioning kits: `kit push\|list\|show\|versions\|pin\|rm` and binding one to a role with `role add --kit`. |
