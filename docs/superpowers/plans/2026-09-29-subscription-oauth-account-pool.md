@@ -27,7 +27,15 @@
 
 ---
 
-## Task 0: Probe the subscription refresh endpoint (spike — blocks Task 3)
+## Task 0: Probe the subscription refresh endpoint (spike — blocks Task 3) — ✅ DONE (2026-09-29)
+
+**Result (recorded in the spec, "Refresh endpoint (probed)"):**
+- Endpoint: `POST https://platform.claude.com/v1/oauth/token` — a **fixed host**, not `ANTHROPIC_BASE_URL`; must be on Jam's own egress allow-list.
+- Encoding: **JSON** (`Content-Type: application/json`).
+- Body: `{"grant_type":"refresh_token","refresh_token":"…","client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","scope":"user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins"}`.
+- Response: standard `{access_token, refresh_token, expires_in}`.
+
+Task 3's code below is already corrected to these values (JSON body, concrete endpoint/client_id/scope defaults). The original spike procedure is retained for reference:
 
 Not a code task. A spike whose deliverable is the recorded refresh-request shape that Task 3 hard-codes. The inference-request probe is already done (recorded in the spec); this one captures the **refresh** request.
 
@@ -586,7 +594,7 @@ git commit -m "feat(jam): identity-aware cred resolution for the subscription po
 - Consumes: `PoolStore` (Task 1). Uses `net/http` against the probed token endpoint.
 - Produces:
   - `type Refresher struct { ... }`
-  - `func NewRefresher(store PoolStore, opts RefresherOptions) *Refresher` with `RefresherOptions{ HTTPClient *http.Client; TokenURL string; ClientID string; Now func() time.Time; Margin time.Duration; Log *slog.Logger }`
+  - `func NewRefresher(store PoolStore, opts RefresherOptions) *Refresher` with `RefresherOptions{ HTTPClient *http.Client; TokenURL string; ClientID string; Scope string; Now func() time.Time; Margin time.Duration; Log *slog.Logger }`. Probed defaults: `TokenURL = https://platform.claude.com/v1/oauth/token`, `ClientID = 9d1c250a-e61b-44d9-88ed-5944d1962f5e`, `Scope = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins"`.
   - `func (r *Refresher) RefreshDue(ctx context.Context) error` — refresh every account within `Margin` of expiry (the unit of work; the loop just calls this on a ticker).
   - `func (r *Refresher) Run(ctx context.Context, interval time.Duration)` — ticker loop calling `RefreshDue`.
 
@@ -608,12 +616,16 @@ import (
 
 func TestRefreshDueRotatesTokenWithinMargin(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	var gotGrant, gotRefresh, gotClient string
+	var gotGrant, gotRefresh, gotClient, gotCT string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		gotGrant = r.Form.Get("grant_type")
-		gotRefresh = r.Form.Get("refresh_token")
-		gotClient = r.Form.Get("client_id")
+		gotCT = r.Header.Get("Content-Type")
+		var body struct {
+			GrantType    string `json:"grant_type"`
+			RefreshToken string `json:"refresh_token"`
+			ClientID     string `json:"client_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotGrant, gotRefresh, gotClient = body.GrantType, body.RefreshToken, body.ClientID
 		json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600,
 		})
@@ -633,6 +645,9 @@ func TestRefreshDueRotatesTokenWithinMargin(t *testing.T) {
 	}
 	if gotGrant != "refresh_token" || gotRefresh != "old-refresh" || gotClient != "test-client" {
 		t.Fatalf("request shape: grant=%q refresh=%q client=%q", gotGrant, gotRefresh, gotClient)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", gotCT)
 	}
 	accts, _ := st.Accounts()
 	if accts[0].AccessToken != "new-access" || accts[0].RefreshToken != "new-refresh" {
@@ -663,27 +678,34 @@ func TestRefreshDueSkipsFarFromExpiry(t *testing.T) {
 Run: `go test ./internal/jam/ -run TestRefreshDue -v`
 Expected: FAIL — `undefined: NewRefresher`.
 
-- [ ] **Step 3: Implement `refresher.go`** (fill `TokenURL`/`ClientID` defaults from Task 0; the request encoding — form vs JSON — matches what the probe captured; the code below assumes `application/x-www-form-urlencoded`, adjust if the probe shows JSON):
+- [ ] **Step 3: Implement `refresher.go`** (endpoint/client_id/scope + JSON encoding are the Task 0 probed values):
 
 ```go
 // internal/jam/refresher.go
 package jam
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
+)
+
+// Probed 2026-09-29 (see the spec's "Refresh endpoint" section).
+const (
+	defaultTokenURL = "https://platform.claude.com/v1/oauth/token"
+	defaultClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	defaultScope    = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins"
 )
 
 type RefresherOptions struct {
 	HTTPClient *http.Client
-	TokenURL   string // probed subscription OAuth token endpoint
-	ClientID   string // probed public claude client_id
+	TokenURL   string // default defaultTokenURL
+	ClientID   string // default defaultClientID
+	Scope      string // default defaultScope
 	Now        func() time.Time
 	Margin     time.Duration // refresh when ExpiresAt is within this of Now
 	Log        *slog.Logger
@@ -703,6 +725,15 @@ func NewRefresher(store PoolStore, opt RefresherOptions) *Refresher {
 	}
 	if opt.Margin == 0 {
 		opt.Margin = 15 * time.Minute
+	}
+	if opt.TokenURL == "" {
+		opt.TokenURL = defaultTokenURL
+	}
+	if opt.ClientID == "" {
+		opt.ClientID = defaultClientID
+	}
+	if opt.Scope == "" {
+		opt.Scope = defaultScope
 	}
 	return &Refresher{store: store, opt: opt}
 }
@@ -727,16 +758,21 @@ func (r *Refresher) RefreshDue(ctx context.Context) error {
 }
 
 func (r *Refresher) refreshOne(ctx context.Context, a PoolAccount) error {
-	form := url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {a.RefreshToken},
-		"client_id":     {r.opt.ClientID},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.opt.TokenURL, strings.NewReader(form.Encode()))
+	payload, err := json.Marshal(map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": a.RefreshToken,
+		"client_id":     r.opt.ClientID,
+		"scope":         r.opt.Scope,
+	})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.opt.TokenURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	resp, err := r.opt.HTTPClient.Do(req)
 	if err != nil {
 		return err
@@ -967,8 +1003,8 @@ pool:
   cred-name: anthropic-sub
   refresh-interval: 5m
   refresh-margin: 15m
-  token-url: https://console.anthropic.com/v1/oauth/token
-  client-id: <probed-client-id>
+  # token-url / client-id / scope are optional — default to the probed constants
+  # (https://platform.claude.com/v1/oauth/token, client 9d1c250a-…, the claude scope set)
 `
 	cfg, err := parseServeConfig([]byte(y)) // use the real parser name in config.go
 	if err != nil {
@@ -1000,7 +1036,7 @@ type poolConfig struct {
 //   Pool *poolConfig `yaml:"pool"`
 ```
 
-Add `validatePool()` (when `Pool != nil`: `Store`, `CredName`, `TokenURL`, `ClientID` required; durations parse; default interval 5m / margin 15m).
+Add `validatePool()` (when `Pool != nil`: `Store` and `CredName` required; `TokenURL`/`ClientID`/`Scope` optional — the `Refresher` defaults them to the probed constants; durations parse; default interval 5m / margin 15m).
 
 - [ ] **Step 4: Construct + wire in `main.go`** (near the existing `creds := jam.NewSecretResolver(...)` / `broker := jam.NewBroker(...)`):
 
