@@ -1,4 +1,4 @@
-package launcher
+package jam
 
 import (
 	"errors"
@@ -12,6 +12,11 @@ import (
 // wire. It is an alias for jam.KitRef — the canonical type lives in jam so
 // RaiseSpec.Kit and the jam.Launcher seam can name it without an import cycle
 // (launcher imports jam) — so launcher.KitRef and jam.KitRef are one type.
+//
+// These kit-reference types live in package jam (not internal/jam/launcher)
+// because the jam.Launcher interface is parametrized by them: the concrete
+// launcher imports jam, so the types must sit on the jam side of that seam to
+// avoid an import cycle.
 //
 // See docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md
 // ("Kit reference + lazy prepare").

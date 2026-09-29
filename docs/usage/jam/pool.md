@@ -79,12 +79,16 @@ so copying an *active* interactive login into the pool guarantees an eventual
 account is fine; the *grant* must be exclusive), and don't use that login
 interactively elsewhere.
 
-> **Planned hardening (not yet shipped):** a brokered cove should reach **only**
-> the jam host. Today the sealed base egress allow-list still permits
-> `.anthropic.com`/`.claude.com`/`claude.ai` for every cove (needed by the
-> interactive `claude auth login` path). Locking brokered coves to the broker is
-> tracked separately. It's defense-in-depth — in this model the cove holds no real
-> Anthropic credential (only the fake identity), so the direct path leaks nothing.
+> **Egress lock (COV-208):** brokered coves run the **managed kit**, which omits
+> Anthropic egress — `jam.ManagedKit(base)` clones the interactive kit and strips
+> `.anthropic.com`/`.claude.com`/`claude.ai` (and any subdomain of them) from
+> `image.allowed-domains`, keeping everything else. A managed cove therefore
+> reaches Anthropic **only** through the jam host; the interactive
+> `claude auth login` path keeps the full allow-list on the interactive kit. It's
+> defense-in-depth — in this model the cove holds no real Anthropic credential
+> (only the fake identity), so even the removed direct path would leak nothing.
+> The managed kit's `KitRef.Version` is a content hash of the resulting config, so
+> any change to the egress list bumps the version automatically.
 
 ## Broker-owned refresh
 
