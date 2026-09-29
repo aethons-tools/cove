@@ -1,37 +1,18 @@
 package snippet
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestDummyCredentialsUsesIdentityAsAccessToken(t *testing.T) {
-	far := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
-	out, err := DummyCredentials("TOK123", far)
-	if err != nil {
-		t.Fatalf("DummyCredentials: %v", err)
-	}
-	var parsed struct {
-		ClaudeAiOauth struct {
-			AccessToken string `json:"accessToken"`
-			ExpiresAt   int64  `json:"expiresAt"`
-		} `json:"claudeAiOauth"`
-	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if parsed.ClaudeAiOauth.AccessToken != "TOK123" {
-		t.Fatalf("accessToken = %q, want the identity token", parsed.ClaudeAiOauth.AccessToken)
-	}
-	if parsed.ClaudeAiOauth.ExpiresAt != far.UnixMilli() {
-		t.Fatalf("expiresAt = %d, want far-future ms %d", parsed.ClaudeAiOauth.ExpiresAt, far.UnixMilli())
-	}
-}
-
-func TestRenderSubscriptionOmitsAPIKey(t *testing.T) {
+func TestRenderSubscriptionSetsAuthTokenNotAPIKey(t *testing.T) {
 	out := RenderSubscription("https://jam.local", "TOK123")
+	// Identity rides on ANTHROPIC_AUTH_TOKEN (static bearer), referencing the
+	// identity var so the raw token is written once.
+	if !strings.Contains(out, "export ANTHROPIC_AUTH_TOKEN=$AT_JAM_IDENTITY_TOKEN") {
+		t.Fatalf("subscription render must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", out)
+	}
+	// NOT the API-key slot — that would force x-api-key mode.
 	if strings.Contains(out, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription render must NOT set ANTHROPIC_API_KEY:\n%s", out)
 	}
@@ -44,5 +25,9 @@ func TestRenderSubscriptionOmitsAPIKey(t *testing.T) {
 	// git routing still present in subscription mode.
 	if !strings.Contains(out, "git config --global") {
 		t.Fatalf("missing git config:\n%s", out)
+	}
+	// The raw token is written exactly once (only in AT_JAM_IDENTITY_TOKEN).
+	if n := strings.Count(out, "TOK123"); n != 1 {
+		t.Fatalf("raw token appears %d times, want exactly 1:\n%s", n, out)
 	}
 }

@@ -107,18 +107,23 @@ func TestLaunchCoveMasterSubscription(t *testing.T) {
 		t.Fatalf("no ssh stdin write to %s; calls=%+v", path, fake.Calls)
 		return ""
 	}
-	creds := stdinTo(credsVMPath)
-	if !strings.Contains(creds, `"claudeAiOauth"`) || !strings.Contains(creds, `"accessToken":"cove-identity"`) {
-		t.Fatalf("dummy credentials missing/incorrect:\n%s", creds)
+	// Subscription mode writes NO credentials file — the identity rides on
+	// ANTHROPIC_AUTH_TOKEN as a static bearer instead.
+	for _, c := range fake.Calls {
+		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+credsVMPath) {
+			t.Fatalf("subscription launch must NOT write a credentials file (%s)", credsVMPath)
+		}
 	}
 	env := stdinTo(coveMasterEnvVMPath)
 	if strings.Contains(env, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription env must NOT set ANTHROPIC_API_KEY:\n%s", env)
 	}
+	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=$AT_JAM_IDENTITY_TOKEN") {
+		t.Fatalf("subscription env must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", env)
+	}
 	if !strings.Contains(env, "ANTHROPIC_BASE_URL=https://jam.example.com/anthropic") {
 		t.Fatalf("env missing base URL:\n%s", env)
 	}
-	// The identity token rides in the credentials file, and the env still exports it.
 	if !strings.Contains(env, "export AT_JAM_IDENTITY_TOKEN=cove-identity") {
 		t.Fatalf("env missing identity export:\n%s", env)
 	}

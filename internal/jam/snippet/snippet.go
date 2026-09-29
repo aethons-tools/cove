@@ -14,10 +14,8 @@
 package snippet
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 const (
@@ -53,41 +51,21 @@ func Env(baseURL, token string) map[string]string {
 	}
 }
 
-// DummyCredentials returns the well-known dummy claudeAiOauth credentials file
-// seeded into a subscription-mode cove. accessToken IS the identity token — that
-// is what reaches the broker as the OAuth bearer. The far-future expiry means
-// claude never attempts a refresh (the broker owns refresh). No real secret is
-// present: the identity token is already known to the cove.
-func DummyCredentials(identityToken string, farFuture time.Time) (string, error) {
-	ms := farFuture.UnixMilli()
-	doc := map[string]any{
-		"claudeAiOauth": map[string]any{
-			"accessToken":           identityToken,
-			"refreshToken":          "jam-dummy-refresh",
-			"expiresAt":             ms,
-			"refreshTokenExpiresAt": ms,
-			"scopes":                []string{"user:inference", "user:profile"},
-			"subscriptionType":      "pro",
-			"rateLimitTier":         "default",
-		},
-	}
-	b, err := json.Marshal(doc)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-// RenderSubscription is Render without ANTHROPIC_API_KEY: subscription-mode
-// claude authenticates from the seeded .credentials.json, so setting the API key
-// (which would force API-key mode) must be avoided. The identity + git routing
-// are rendered exactly as Render does.
+// RenderSubscription routes a brokered subscription-pool cove: it sets the
+// identity on ANTHROPIC_AUTH_TOKEN, so claude sends it as a **static**
+// `Authorization: Bearer` with no OAuth session — no .credentials.json, no
+// refresh, no `platform.claude.com`, and so no self-destruct on a 401 (probed
+// 2026-09-29; see the pool spec's Revision B). It deliberately does NOT set
+// ANTHROPIC_API_KEY (which would force x-api-key mode). The broker reads the
+// identity from the bearer, swaps in the real pool subscription token, and adds
+// the `oauth-2025-04-20` beta on the way to Anthropic.
 func RenderSubscription(baseURL, token string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	var b strings.Builder
 	fmt.Fprintf(&b, "export %s=%s\n", tokenVar, token)
 	fmt.Fprintf(&b, "export %s=\"$%s\"\n", legacyTokenVar, tokenVar)
 	fmt.Fprintf(&b, "export ANTHROPIC_BASE_URL=%s%s\n", baseURL, anthropicPath)
+	fmt.Fprintf(&b, "export ANTHROPIC_AUTH_TOKEN=$%s\n", tokenVar)
 	b.WriteString(GitConfig(baseURL))
 	return b.String()
 }
