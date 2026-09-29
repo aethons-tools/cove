@@ -19,18 +19,25 @@ drawing from a pool of real `claude` subscription logins. It is enabled by the
 
 ## How it works
 
-With a `pool:` block, the anthropic destination is set to carry the identity on
-**`Authorization: Bearer`** (`--identity-in bearer`, `--apply bearer`,
-`--cred-name` = the pool's `cred-name`). Each raised cove is seeded a well-known
-**dummy** `claudeAiOauth` credentials file whose `accessToken` **is** the cove's
-Jam identity token (far-future expiry, so the cove's `claude` never tries to
-refresh). Subscription-mode `claude` sends that identity as the bearer; the
-broker authenticates it exactly as before (`HashToken` → actor → `Decide` — see
-the [broker model](serve.md#the-broker-model)), then resolves the credential from
-the pool: it binds the identity to a pool account **for the cove's life**
-(spreading new identities across the least-loaded accounts) and injects that
-account's **current** access token. `claude`'s `anthropic-beta: oauth-2025-04-20`
-header is preserved, so `api.anthropic.com` sees a genuine subscription request.
+With a `pool:` block, each raised cove is seeded **`ANTHROPIC_AUTH_TOKEN` = its
+Jam identity token** (via the connector snippet — no `.credentials.json`, no
+`ANTHROPIC_API_KEY`). `claude` sends that identity as a **static
+`Authorization: Bearer`** with **no OAuth session** — it never validates,
+refreshes, or contacts `platform.claude.com`, so a `401` can't make it
+self-destruct its own credentials (the failure mode of the earlier dummy-
+`claudeAiOauth` approach — see the spec's Revision B).
+
+The anthropic destination carries the identity on the bearer
+(`--identity-in bearer --apply bearer`, `--cred-name` = the pool's `cred-name`,
+`--oauth-beta`). The broker authenticates the identity exactly as before
+(`HashToken` → actor → `Decide` — see the [broker model](serve.md#the-broker-model)),
+resolves the credential from the pool — binding the identity to a pool account
+**for the cove's life** (spreading new identities across the least-loaded
+accounts) and injecting that account's **current** access token — and, because
+`AUTH_TOKEN` mode does **not** send it, **adds the `oauth-2025-04-20` beta** to
+the forwarded `anthropic-beta` header (that's what `--oauth-beta` does). So
+`api.anthropic.com` sees a genuine subscription request with the pool account's
+real bearer.
 
 Because a subscription carries its own rate limits, **size the pool to your cove
 concurrency** — one account can back several coves but will throttle.
@@ -55,12 +62,29 @@ pool:
 
 ```
 at-jam destination add --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
-  --identity-in bearer --cred-name anthropic-sub --apply bearer
+  --identity-in bearer --cred-name anthropic-sub --apply bearer --oauth-beta
 ```
 
 The pool's `cred-name` does **not** need a `credentials:` entry — with a `pool:`
 block configured, destination validation accepts it and the pool resolves it by
-identity.
+identity. `--oauth-beta` makes the broker add the `oauth-2025-04-20`
+`anthropic-beta` on forwarded requests, which Anthropic requires to accept a
+subscription-OAuth token (a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send it).
+
+**Account exclusivity.** A pool account must be a `claude auth login` **grant
+nothing else holds.** Subscription refresh tokens rotate on every use, and reusing
+a rotated token trips the provider's theft defense and revokes the whole grant —
+so copying an *active* interactive login into the pool guarantees an eventual
+`invalid_grant`. Give each pool account its own dedicated login (same Anthropic
+account is fine; the *grant* must be exclusive), and don't use that login
+interactively elsewhere.
+
+> **Planned hardening (not yet shipped):** a brokered cove should reach **only**
+> the jam host. Today the sealed base egress allow-list still permits
+> `.anthropic.com`/`.claude.com`/`claude.ai` for every cove (needed by the
+> interactive `claude auth login` path). Locking brokered coves to the broker is
+> tracked separately. It's defense-in-depth — in this model the cove holds no real
+> Anthropic credential (only the fake identity), so the direct path leaks nothing.
 
 ## Broker-owned refresh
 

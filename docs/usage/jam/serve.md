@@ -233,6 +233,9 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   how the studio presents its identity, and how Jam applies the real credential.
 - `--repo-scoped` marks a git-style destination whose path is `<route>/<owner>/<repo>/…`,
   so a role's `repos` globs can scope it.
+- `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
+  forwarded requests — required for the subscription [pool](pool.md) (a cove on
+  `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
   pool resolves by identity, not from `credentials:`). Validated at add time.
