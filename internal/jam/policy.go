@@ -25,6 +25,11 @@ type Destination struct {
 	CredName   string      `json:"cred_name"   yaml:"cred_name"`
 	Apply      ApplyMethod `json:"apply"       yaml:"apply"`
 	RepoScoped bool        `json:"repo_scoped" yaml:"repo_scoped"`
+	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
+	// present in the forwarded `anthropic-beta` header. Used by the subscription
+	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
+	// Anthropic requires it to accept a subscription-OAuth token.
+	OAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
 }
 
 // Config is the broker's destination table.

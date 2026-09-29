@@ -86,6 +86,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if dec.NeedCred {
 			applyCred(out, dec.Apply, cred)
 		}
+		if dest.OAuthBeta {
+			ensureAnthropicOAuthBeta(out.Header)
+		}
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
@@ -123,6 +126,27 @@ func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// anthropicOAuthBeta is the beta flag Anthropic requires for a subscription-OAuth
+// bearer. A cove on ANTHROPIC_AUTH_TOKEN doesn't send it, so the broker adds it.
+const anthropicOAuthBeta = "oauth-2025-04-20"
+
+// ensureAnthropicOAuthBeta adds anthropicOAuthBeta to the request's anthropic-beta
+// header (a comma-separated list), preserving any betas already present and never
+// duplicating.
+func ensureAnthropicOAuthBeta(h http.Header) {
+	existing := h.Get("anthropic-beta")
+	if existing == "" {
+		h.Set("anthropic-beta", anthropicOAuthBeta)
+		return
+	}
+	for _, b := range strings.Split(existing, ",") {
+		if strings.TrimSpace(b) == anthropicOAuthBeta {
+			return
+		}
+	}
+	h.Set("anthropic-beta", existing+","+anthropicOAuthBeta)
 }
 
 // applyCred sets Jam's real credential on the upstream request.
