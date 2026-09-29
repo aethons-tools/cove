@@ -1,0 +1,90 @@
+# Template for `at-jam serve` local-dev config. Copy to `dev/jam.dev.yml` (which
+# is gitignored) and fill in the real secrets there — never commit real tokens.
+#
+#   cp dev/jam.dev.yml.example dev/jam.dev.yml
+#   just dev-up                                # raise the dev Postgres
+#   at-jam serve --config dev/jam.dev.yml      # run Jam against it
+#
+# This is a DEV shape: plaintext admin on loopback, inline credential values, a
+# self-signed broker cert. Never use these settings in production — see
+# docs/usage/jam/serve.md for the real (TLS + OIDC + resolver-cred) shape.
+
+# Cove-facing broker + Attach listener (always TLS; `just dev-cert` writes a
+# self-signed pair). The host DNS-resolves to 127.0.0.1 — no /etc/hosts entry.
+listen: "jam.local.aethons.tools:443"
+tls:
+  cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
+  key:  /etc/letsencrypt/live/local.aethons.tools/privkey.pem
+
+# Extra Host the browser admin UI accepts on loopback (beyond localhost/127.0.0.1).
+ui-hosts:
+  - jam.local.aethons.tools
+
+# Loopback admin API — plain HTTP is fine on loopback (no OIDC needed).
+admin-listen: "127.0.0.1:8081"
+admin-tls:
+  cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
+  key:  /etc/letsencrypt/live/local.aethons.tools/privkey.pem
+
+# Control-plane store: the dev Postgres from dev/docker-compose.yml.
+# Jam auto-migrates on startup, and the message log rides on the same DB.
+store-postgres:
+  host: localhost
+  port: 15432
+  database: jam
+  user: jam
+  sslmode: disable
+  password-cred: jam-db   # references the credentials entry below
+
+credentials:
+  # DEV ONLY: inline literal values. In production each is a `command:` resolver
+  # run on the host — never an inline value. Fill these in your copy.
+  jam-db:
+    value: jam
+  anthropic-key:            { value: "<your-anthropic-api-key>" }        # unused once the pool is enabled + destination flipped
+  git-pat:                  { value: "<your-github-pat>" }
+  linear-token:
+    value: "<your-linear-api-token>"
+  cove-collab-github-token:
+    value: "<your-cove-collaborator-github-pat>"
+  discord-bot-token:
+    value: "<your-discord-bot-token>"
+
+# Subscription-OAuth account pool (dev). Runs coves as a pooled subscription
+# principal instead of the federated `anthropic-key` above. See
+# docs/usage/jam/pool.md. With this block present, `serve` seeds raised coves in
+# subscription mode and starts the background token refresher.
+#
+# Two one-time setup steps AFTER `serve` picks this up:
+#   1. Seed a real login (on a trusted machine, `claude auth login`, then copy
+#      its ~/.claude/.credentials.json here as ./credentials.json):
+#        at-jam pool add  --store dev/pool.dev.json --name pool-a --from-file ./credentials.json
+#        at-jam pool list --store dev/pool.dev.json     # names + expiries, never tokens
+#   2. Flip the anthropic destination to the pool (bearer identity):
+#        at-jam destination add --name anthropic --route /anthropic/ \
+#          --upstream https://api.anthropic.com \
+#          --identity-in bearer --cred-name anthropic-sub --apply bearer
+#
+# dev/pool.dev.json holds REAL subscription tokens — gitignored.
+# The refresher calls https://platform.claude.com/v1/oauth/token, so that host
+# must be reachable from THIS machine (Jam's own egress, not a cove's).
+pool:
+  store: dev/pool.dev.json
+  cred-name: anthropic-sub
+  refresh-interval: 5m
+  refresh-margin: 15m
+
+operator-auth:
+  oidc:
+    issuer: https://YOUR_TENANT.us.auth0.com/
+    audience: https://harbor.aethons.tools/admin
+    require-scope: harbor:admin      # omit for "any valid token"
+    device-client-id: "<your-oidc-device-client-id>"
+    browser-client-id: "<your-oidc-browser-client-id>"
+    device-scope: openid harbor:admin      # ensures the minted token carries the permission
+
+runtime:
+  launcher:
+    install-manifest: /path/to/cove/.at-cove/.state/install.json
+    runtime-addr: jam.local.aethons.tools:443
+    jam-host: jam.local.aethons.tools
