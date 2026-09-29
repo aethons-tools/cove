@@ -10,8 +10,12 @@
 # docs/usage/jam/serve.md for the real (TLS + OIDC + resolver-cred) shape.
 
 # Cove-facing broker + Attach listener (always TLS; `just dev-cert` writes a
-# self-signed pair). The host DNS-resolves to 127.0.0.1 — no /etc/hosts entry.
-listen: "jam.local.aethons.tools:443"
+# self-signed pair). Bind ALL interfaces (":443"), NOT the hostname — a Colima
+# cove reaches the host at the VM gateway (e.g. 192.168.5.2), so a listener bound
+# to jam.local.aethons.tools (which resolves to 127.0.0.1 on the host) is
+# loopback-only and the cove's squid CONNECT gets a 503. The TLS cert below still
+# presents the jam.local.aethons.tools name the cove dials (SNI). Needs sudo (:443).
+listen: ":443"
 tls:
   cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
   key:  /etc/letsencrypt/live/local.aethons.tools/privkey.pem
