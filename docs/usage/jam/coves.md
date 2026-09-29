@@ -183,6 +183,15 @@ A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 running is held (at most one), so the next `needs-input` wait resumes at once;
 further wakes are dropped.
 
+**Post-mortem on teardown.** Just before the container (and its `/agent-data`
+volume) is removed, the launcher grabs the **tail of `cove-master`'s log**
+(`/agent-data/cove-master.log`, the agent's combined stdout+stderr) over SSH and
+records it at `WARN` (`cove agent log (tail, captured on teardown)`, keyed by
+`id`). So a cove that died — a crash, a `claude` auth failure, an egress-blocked
+model call, or a one-shot exit from a stale image — leaves its reason in Jam's
+log instead of vanishing with the volume. It is strictly best-effort: an
+unreachable cove or a missing log never blocks the teardown.
+
 **Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
 sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
 own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -153,7 +154,35 @@ func (l *Launcher) applyEgress(container, actorID, project, role string, p *jam.
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
+	// Post-mortem insurance: before the container (and its /agent-data volume)
+	// is removed, grab the tail of cove-master's log and record it, so a cove
+	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
+	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
+	// any failure here never blocks the teardown.
+	if tail := l.captureAgentLog(inst.Location); tail != "" {
+		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
+	}
 	return l.cfg.Ops.RemoveContainer(inst.Location)
+}
+
+// captureAgentLog returns the last few KB of cove-master's log from the cove, or
+// "" if it can't be read (container gone, no ssh, no log yet). Best-effort.
+func (l *Launcher) captureAgentLog(container string) string {
+	ep, cleanup, err := l.cfg.Ops.Dial(container)
+	if err != nil {
+		return ""
+	}
+	defer cleanup()
+	tgt := sshargs.Target{
+		Host: ep.Host, User: ep.User, Port: ep.Port,
+		IdentityFile:   l.cfg.IdentityFile,
+		KnownHostsFile: filepath.Join(l.cfg.KnownHostsDir, container),
+	}
+	out, err := l.cfg.Runner.Output("ssh", append(sshargs.Base(tgt), "tail -c 4096 "+connect.CoveMasterLogVMPath+" 2>/dev/null")...)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 func (l *Launcher) Probe(ctx context.Context, inst jam.Instance) (jam.Liveness, error) {

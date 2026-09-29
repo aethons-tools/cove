@@ -15,7 +15,11 @@ import (
 const (
 	coveMasterPromptVMPath = "/dev/shm/cove-agent-prompt"
 	coveMasterEnvVMPath    = "/dev/shm/cove-master-env"
-	coveMasterLogVMPath    = "/agent-data/cove-master.log"
+	// CoveMasterLogVMPath is where cove-master's detached launch appends its
+	// combined stdout+stderr inside the cove. Exported so the launcher can grab
+	// its tail on teardown (a post-mortem for a cove that died). Single source
+	// of truth for the path.
+	CoveMasterLogVMPath = "/agent-data/cove-master.log"
 )
 
 // CoveMasterOptions carries what LaunchCoveMaster injects into a raised cove.
@@ -59,7 +63,7 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 		return fmt.Errorf("cove-master env: %w", err)
 	}
 	cmd := "set -a; . " + coveMasterEnvVMPath + "; set +a; rm -f " + coveMasterEnvVMPath + "; " +
-		"setsid nohup cove-master </dev/null >>" + coveMasterLogVMPath + " 2>&1 &"
+		"setsid nohup cove-master </dev/null >>" + CoveMasterLogVMPath + " 2>&1 &"
 	if err := r.Run("ssh", append(sshargs.Base(o.Target), cmd)...); err != nil {
 		return fmt.Errorf("cove-master launch: %w", err)
 	}

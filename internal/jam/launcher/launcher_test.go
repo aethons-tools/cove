@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/connect"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/runner"
 )
@@ -120,6 +121,51 @@ func TestTeardownRemoves(t *testing.T) {
 	}
 	if ops.removed != "atcove-cove-w1" {
 		t.Fatalf("removed = %q", ops.removed)
+	}
+}
+
+func TestTeardownCapturesAgentLog(t *testing.T) {
+	var buf bytes.Buffer
+	ops := &fakeOps{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "panic: claude auth failed\n"}}}
+	l := New(Config{
+		Ops: ops, Runner: r, IdentityFile: "id", KnownHostsDir: "kh",
+		Log: slog.New(slog.NewTextHandler(&buf, nil)),
+	})
+
+	if err := l.Teardown(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Container is still removed.
+	if ops.removed != "atcove-cove-w1" {
+		t.Fatalf("removed = %q, want atcove-cove-w1", ops.removed)
+	}
+	// The captured tail was logged.
+	if !strings.Contains(buf.String(), "claude auth failed") {
+		t.Errorf("teardown log missing the captured agent log; got: %s", buf.String())
+	}
+	// It read the cove-master log over ssh before removal.
+	var sawTail bool
+	for _, c := range r.Calls {
+		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.CoveMasterLogVMPath) {
+			sawTail = true
+		}
+	}
+	if !sawTail {
+		t.Errorf("expected an ssh tail of %s; calls: %+v", connect.CoveMasterLogVMPath, r.Calls)
+	}
+}
+
+func TestTeardownCaptureIsBestEffort(t *testing.T) {
+	ops := &fakeOps{}
+	r := &runner.Fake{Err: errors.New("ssh boom")} // Output errors → capture yields ""
+	l := New(Config{Ops: ops, Runner: r, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	if err := l.Teardown(context.Background(), jam.Instance{Location: "c1", ActorID: "a1"}); err != nil {
+		t.Fatalf("teardown must not fail when log capture fails: %v", err)
+	}
+	if ops.removed != "c1" {
+		t.Fatalf("container must still be removed; removed = %q", ops.removed)
 	}
 }
 
