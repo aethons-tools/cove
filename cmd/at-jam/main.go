@@ -1822,7 +1822,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			log.Info("Jam admin auth: loopback")
 		}
-		credExists := func(n string) bool { _, ok := specs[n]; return ok }
+		// A destination's cred_name is valid if it's a configured `credentials:`
+		// entry OR (pool enabled) the pool cred-name, which the ChainResolver
+		// resolves from the account pool by identity rather than from `credentials:`.
+		credExists := cfg.credConfigured
 
 		// Compose the /ui subtree with its own gate: loopback always reaches it;
 		// off-loopback needs a browser session when browser login is configured,

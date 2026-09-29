@@ -649,3 +649,24 @@ func TestParseClaudeAiOauthMissingTokens(t *testing.T) {
 		t.Fatal("bad json should error")
 	}
 }
+
+func TestCredConfiguredIncludesPoolCred(t *testing.T) {
+	c := serveConfig{
+		Credentials: map[string]credSpec{"git-pat": {}},
+		Pool:        &poolConfig{Store: "/p.json", CredName: "anthropic-sub"},
+	}
+	if !c.credConfigured("git-pat") {
+		t.Fatal("a credentials: entry should be configured")
+	}
+	if !c.credConfigured("anthropic-sub") {
+		t.Fatal("the pool cred-name should be accepted (the pool resolves it)")
+	}
+	if c.credConfigured("nope") {
+		t.Fatal("an unknown name must not be configured")
+	}
+	// No pool block ⇒ the pool cred name is not accepted.
+	c2 := serveConfig{Credentials: map[string]credSpec{"git-pat": {}}}
+	if c2.credConfigured("anthropic-sub") {
+		t.Fatal("without a pool block, the pool cred must not resolve")
+	}
+}
