@@ -39,6 +39,13 @@ type RaiseSpec struct {
 	// the agent starts; nil = the kit's default list. Supervisor.Raise always
 	// fills it from the role, overriding any caller-set value.
 	Egress *EgressPolicy
+	// Kit is the kit to raise the cove from (its light reference). The launcher
+	// consults its prepared-kit inventory: a miss returns ErrKitNotReady (the
+	// supervisor then prepares the full definition and retries), a hit raises the
+	// cove-kit:<id>-v<version> image. A zero KitRef (empty ID) selects the legacy
+	// path that raises the launcher's statically configured image, so existing
+	// callers are unaffected (Phase-1 additive).
+	Kit KitRef
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the

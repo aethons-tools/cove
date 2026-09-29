@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -45,13 +47,33 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
-	Subscription  bool                // seed raised coves in subscription mode (dummy claudeAiOauth, no ANTHROPIC_API_KEY)
-	WorkDir       string              // AT_COVE_WORKDIR; default /home/agent/workspace
-	Log           *slog.Logger        // nil → discard
-	sleep         func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
+	Subscription  bool         // seed raised coves in subscription mode (dummy claudeAiOauth, no ANTHROPIC_API_KEY)
+	WorkDir       string       // AT_COVE_WORKDIR; default /home/agent/workspace
+	Log           *slog.Logger // nil → discard
+
+	// PrepareKit inputs (managed-cove build path). BuildRoot is where per-kit
+	// build contexts are assembled (default os.TempDir()/cove-kit-builds); KitDir
+	// is the managed kit's Dockerfile source dir and PublicKey the managed key,
+	// both consumed by the default assembler. Inventory is the launcher's
+	// prepared-kit source of truth (nil → the Colima docker-image inventory over
+	// Runner).
+	BuildRoot string
+	KitDir    string
+	PublicKey []byte
+	Inventory Inventory
+
+	sleep func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
+	// assemble stages a KitDefinition's build context into buildDir. nil → the
+	// real assemble.Assemble over KitDir; a seam so PrepareKit tests stay hermetic.
+	assemble func(def KitDefinition, buildDir string) error
 }
 
-type Launcher struct{ cfg Config }
+type Launcher struct {
+	cfg      Config
+	inv      Inventory
+	mu       sync.Mutex             // guards inflight
+	inflight map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
+}
 
 var _ jam.Launcher = (*Launcher)(nil)
 
@@ -65,12 +87,38 @@ func New(cfg Config) *Launcher {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Launcher{cfg: cfg}
+	if cfg.BuildRoot == "" {
+		cfg.BuildRoot = filepath.Join(os.TempDir(), "cove-kit-builds")
+	}
+	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
+	l.inv = cfg.Inventory
+	if l.inv == nil {
+		l.inv = newColimaInventory(cfg.Runner)
+	}
+	if l.cfg.assemble == nil {
+		l.cfg.assemble = l.defaultAssemble
+	}
+	return l
 }
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := naming.CoveContainer(spec.ActorID)
-	if _, err := l.cfg.Ops.RunEphemeral(l.cfg.Image, l.cfg.ImageDigest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
+	// A kit-referenced raise runs the prepared cove-kit:<id>-v<version> image; a
+	// launcher without that kit returns ErrKitNotReady and creates NO container,
+	// so the supervisor prepares the kit and retries. A zero KitRef (empty ID)
+	// keeps the legacy static-image path so existing callers are unaffected.
+	image, digest := l.cfg.Image, l.cfg.ImageDigest
+	if spec.Kit.ID != "" {
+		ok, err := l.inv.Has(spec.Kit)
+		if err != nil {
+			return "", fmt.Errorf("raise %s: inventory: %w", name, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
+		}
+		image, digest = imageTag(spec.Kit), spec.Kit.Digest
+	}
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.
