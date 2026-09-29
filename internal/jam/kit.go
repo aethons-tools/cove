@@ -1,4 +1,4 @@
-package launcher
+package jam
 
 import (
 	"errors"
@@ -12,6 +12,11 @@ import (
 // crossing the wire. It is a stable content key — kit versions are monotonic and
 // immutable — so a launcher can cache prepared artifacts by it. Digest is an
 // optional content hash for integrity ("" = unset).
+//
+// These kit-reference types live in package jam (not internal/jam/launcher)
+// because the jam.Launcher interface is parametrized by them: the concrete
+// launcher imports jam, so the types must sit on the jam side of that seam to
+// avoid an import cycle.
 //
 // See docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md
 // ("Kit reference + lazy prepare").
