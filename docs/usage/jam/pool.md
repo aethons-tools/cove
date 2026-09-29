@@ -65,7 +65,9 @@ A background refresher rotates each account's token ahead of expiry (within
 `POST https://platform.claude.com/v1/oauth/token` (`grant_type=refresh_token`,
 JSON body). This is **Jam's own host egress**, not a cove path — so if `at-jam
 serve` runs inside a hardened sandbox, add `platform.claude.com` to **Jam's**
-egress allow-list. Token values are never logged.
+egress allow-list. Token values are never logged; a refresh failure logs the
+endpoint's OAuth `error`/`error_description` (e.g. `invalid_grant`) so it is
+diagnosable without exposing secrets.
 
 ## Rollout
 
