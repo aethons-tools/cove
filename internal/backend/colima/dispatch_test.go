@@ -169,3 +169,24 @@ func TestScavengeLabeledRemovesOldOnly(t *testing.T) {
 		t.Fatalf("should rm old, not fresh:\n%s", joined)
 	}
 }
+
+func TestPauseIdempotentWhenAlreadyPaused(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: container abc is already paused", Err: &runner.ExitError{Code: 1}}}}
+	if err := New(f).(*Colima).Pause("abc"); err != nil {
+		t.Fatalf("Pause of an already-paused container must be a no-op success, got %v", err)
+	}
+}
+
+func TestPausePropagatesRealError(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: No such container: abc", Err: &runner.ExitError{Code: 1}}}}
+	if err := New(f).(*Colima).Pause("abc"); err == nil {
+		t.Fatal("Pause must propagate a non-benign docker error")
+	}
+}
+
+func TestUnpauseIdempotentWhenNotPaused(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: container abc is not paused", Err: &runner.ExitError{Code: 1}}}}
+	if err := New(f).(*Colima).Unpause("abc"); err != nil {
+		t.Fatalf("Unpause of a non-paused container must be a no-op success, got %v", err)
+	}
+}

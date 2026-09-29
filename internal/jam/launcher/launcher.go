@@ -158,6 +158,14 @@ func (l *Launcher) applyEgress(container, actorID, project, role string, p *jam.
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
+	// An idled cove is docker-paused; SSH into a frozen container hangs (so the
+	// log capture below blocks and the whole teardown stalls). Unpause first —
+	// best-effort, and Pause/Unpause are idempotent so this is a harmless no-op
+	// on a running cove — then the post-mortem capture works and removal is never
+	// blocked on a paused container.
+	if err := l.cfg.Ops.Unpause(inst.Location); err != nil {
+		l.cfg.Log.Warn("teardown: unpause before capture failed (continuing)", "id", inst.ActorID, "error", err.Error())
+	}
 	// Post-mortem insurance: before the container (and its /agent-data volume)
 	// is removed, grab the tail of cove-master's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
