@@ -20,6 +20,29 @@ const (
 	LivenessDead
 )
 
+// KitRef is the light, hot-path reference to a kit: what a RaiseSpec carries so
+// a launcher can answer "do I have this?" without the full kit config crossing
+// the wire. It is a stable content key — kit versions are monotonic and
+// immutable — so a launcher caches prepared artifacts by it. Digest is an
+// optional content hash for integrity ("" = unset).
+//
+// It lives here (not in internal/jam/launcher) so RaiseSpec and the jam.Launcher
+// seam can name it without an import cycle — launcher imports jam. The launcher
+// package aliases it (launcher.KitRef = jam.KitRef) so its kit-prepare machinery
+// and this raise field are the one type.
+//
+// See docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md
+// ("Kit reference + lazy prepare").
+type KitRef struct {
+	ID      string
+	Version int
+	Digest  string
+}
+
+// String is the stable key used in logs and the launcher's prepared-kit
+// inventory, e.g. "managed@v3".
+func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) }
+
 // RaiseSpec is the request to raise a managed cove. Scope/kit resolution lives in
 // the role (and, in a later slice, the Launcher); this carries only identity.
 type RaiseSpec struct {
@@ -39,6 +62,13 @@ type RaiseSpec struct {
 	// the agent starts; nil = the kit's default list. Supervisor.Raise always
 	// fills it from the role, overriding any caller-set value.
 	Egress *EgressPolicy
+	// Kit is the kit to raise the cove from (its light reference). The launcher
+	// consults its prepared-kit inventory: a miss returns ErrKitNotReady (the
+	// supervisor then prepares the full definition and retries), a hit raises the
+	// cove-kit:<id>-v<version> image. A zero KitRef (empty ID) selects the legacy
+	// path that raises the launcher's statically configured image, so existing
+	// callers are unaffected (Phase-1 additive).
+	Kit KitRef
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the

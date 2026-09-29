@@ -103,7 +103,22 @@ func New(cfg Config) *Launcher {
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := naming.CoveContainer(spec.ActorID)
-	if _, err := l.cfg.Ops.RunEphemeral(l.cfg.Image, l.cfg.ImageDigest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
+	// A kit-referenced raise runs the prepared cove-kit:<id>-v<version> image; a
+	// launcher without that kit returns ErrKitNotReady and creates NO container,
+	// so the supervisor prepares the kit and retries. A zero KitRef (empty ID)
+	// keeps the legacy static-image path so existing callers are unaffected.
+	image, digest := l.cfg.Image, l.cfg.ImageDigest
+	if spec.Kit.ID != "" {
+		ok, err := l.inv.Has(spec.Kit)
+		if err != nil {
+			return "", fmt.Errorf("raise %s: inventory: %w", name, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
+		}
+		image, digest = imageTag(spec.Kit), spec.Kit.Digest
+	}
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.

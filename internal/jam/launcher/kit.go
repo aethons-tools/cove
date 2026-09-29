@@ -2,28 +2,20 @@ package launcher
 
 import (
 	"errors"
-	"fmt"
 
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
-// KitRef is the light, hot-path reference to a kit: what the supervisor puts on
-// a Raise so the launcher can answer "do I have this?" without the full config
-// crossing the wire. It is a stable content key — kit versions are monotonic and
-// immutable — so a launcher can cache prepared artifacts by it. Digest is an
-// optional content hash for integrity ("" = unset).
+// KitRef is the light, hot-path reference to a kit: what a Raise carries so the
+// launcher can answer "do I have this?" without the full config crossing the
+// wire. It is an alias for jam.KitRef — the canonical type lives in jam so
+// RaiseSpec.Kit and the jam.Launcher seam can name it without an import cycle
+// (launcher imports jam) — so launcher.KitRef and jam.KitRef are one type.
 //
 // See docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md
 // ("Kit reference + lazy prepare").
-type KitRef struct {
-	ID      string
-	Version int
-	Digest  string
-}
-
-// String is the stable key used in logs and the launcher's prepared-kit
-// inventory, e.g. "managed@v3".
-func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) }
+type KitRef = jam.KitRef
 
 // KitDefinition is the chunky payload: a KitRef plus the full kit config. The
 // supervisor sends it only on a miss (ErrKitNotReady), via PrepareKit.

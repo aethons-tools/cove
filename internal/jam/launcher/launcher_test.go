@@ -98,6 +98,69 @@ func TestRaiseRunsDialsLaunches(t *testing.T) {
 	}
 }
 
+// A kit-referenced raise whose kit is not in the launcher's inventory returns
+// ErrKitNotReady and creates NO container — the supervisor prepares it and
+// retries. imageTag(spec.Kit) is never run.
+func TestRaiseKitNotReady(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: &fakeInv{}, // empty: nothing prepared
+		sleep:     func(time.Duration) {},
+	})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "a", Kit: jam.KitRef{ID: "managed", Version: 1}}, jam.LaunchCreds{})
+	if !errors.Is(err, ErrKitNotReady) {
+		t.Fatalf("want ErrKitNotReady, got %v", err)
+	}
+	if ops.ran {
+		t.Fatal("no container may be created on a not-ready kit")
+	}
+}
+
+// A kit-referenced raise whose kit is prepared runs the cove-kit:<id>-v<n> image
+// (not the static cfg.Image) and launches cove-master as usual.
+func TestRaiseFromPreparedKit(t *testing.T) {
+	ops := &fakeOps{}
+	inv := &fakeInv{}
+	ref := jam.KitRef{ID: "managed", Version: 3}
+	inv.set(ref, true)
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: inv,
+		sleep:     func(time.Duration) {},
+	})
+	loc, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: ref, Prompt: "go"}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ops.ran || ops.runImage != "cove-kit:managed-v3" {
+		t.Fatalf("kit raise ran image %q, want cove-kit:managed-v3 (calls=%+v)", ops.runImage, ops)
+	}
+	if loc != "atcove-cove-w1" {
+		t.Fatalf("location = %q, want atcove-cove-w1", loc)
+	}
+}
+
+// A zero KitRef (empty ID) keeps the legacy static-image path: the inventory is
+// never consulted and cfg.Image is raised — existing callers are unaffected.
+func TestRaiseZeroKitUsesLegacyImage(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: &fakeInv{}, // empty, but never consulted on the legacy path
+		sleep:     func(time.Duration) {},
+	})
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Prompt: "go"}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.runImage != "atcove-worker" {
+		t.Fatalf("legacy raise ran image %q, want atcove-worker", ops.runImage)
+	}
+}
+
 func TestRaiseRemovesContainerOnLaunchFailure(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
