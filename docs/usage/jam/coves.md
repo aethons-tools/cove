@@ -196,7 +196,12 @@ records it at `WARN` (`cove agent log (tail, captured on teardown)`, keyed by
 `id`). So a cove that died — a crash, a `claude` auth failure, an egress-blocked
 model call, or a one-shot exit from a stale image — leaves its reason in Jam's
 log instead of vanishing with the volume. It is strictly best-effort: an
-unreachable cove or a missing log never blocks the teardown.
+unreachable cove or a missing log never blocks the teardown. An **idled** cove is
+`docker pause`d — SSH into a frozen container hangs — so teardown **unpauses it
+first** (idempotently) before the capture and removal. `Pause`/`Unpause` are
+idempotent (pausing an already-paused cove, or unpausing a running one, is a
+no-op success), so the idle ladder never fails a reconcile on a cove it already
+paused.
 
 **Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
 sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its

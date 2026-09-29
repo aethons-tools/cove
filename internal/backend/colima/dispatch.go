@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"bytes"
 	"strings"
 	"time"
 
@@ -61,7 +62,7 @@ func (c *Colima) Pause(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs("pause", name)...)
+	return c.dockerIdempotent("is already paused", dargs("pause", name)...)
 }
 
 // Unpause thaws a paused container (docker unpause), the inverse of Pause.
@@ -69,7 +70,24 @@ func (c *Colima) Unpause(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs("unpause", name)...)
+	return c.dockerIdempotent("is not paused", dargs("unpause", name)...)
+}
+
+// dockerIdempotent runs `docker <args>` and treats a benign "already in the
+// target state" daemon message as success — so pausing an already-paused
+// container (or unpausing a running one) is a no-op, not an error. Without this
+// the idle ladder fails on every reconcile against a cove it already paused
+// ("container … is already paused"), never records the Idled phase, and retries
+// forever. The daemon writes that message to stderr, so capture both streams.
+func (c *Colima) dockerIdempotent(benign string, args ...string) error {
+	var buf bytes.Buffer
+	if err := c.r.RunIO(nil, &buf, &buf, "docker", args...); err != nil {
+		if strings.Contains(buf.String(), benign) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // ScavengeLabeled removes labeled containers older than olderThan. It never removes

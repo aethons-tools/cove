@@ -437,3 +437,16 @@ func TestApplyEgressWithoutOpErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestTeardownUnpausesBeforeRemoving(t *testing.T) {
+	ops := &fakeOps{}
+	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.unpaused != "atcove-cove-w1" {
+		t.Fatalf("Teardown must unpause first (an idled cove is paused; SSH into it hangs); unpaused=%q", ops.unpaused)
+	}
+	if ops.removed != "atcove-cove-w1" {
+		t.Fatalf("Teardown must still remove the container; removed=%q", ops.removed)
+	}
+}
