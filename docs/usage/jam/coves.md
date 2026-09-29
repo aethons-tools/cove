@@ -202,7 +202,10 @@ unreachable cove or a missing log never blocks the teardown.
 sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
 own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the
 client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
-— there is no `MaxWait`. A wake resumes the agent with `claude --continue` and a prompt
+— there is no `MaxWait`. A turn that **exited non-zero and wrote no worker-result**
+(a crashed or auth/model-failed `claude`) is logged at **WARN** — the session still
+waits for its owner, but the failure is loud, not mistaken for a healthy idle wait;
+the cause is in the agent's own `cove-master.log`. A wake resumes the agent with `claude --continue` and a prompt
 to `read` the reply and carry on. The session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears a resident session down for
