@@ -33,17 +33,20 @@ type Kit struct { … }   // by-value or by-reference; the launcher handles it
 // Launcher owns a managed cove's lifecycle on one substrate. Build may be local
 // (Colima/docker) or remote (Fly/Firecracker) — the caller doesn't know or care.
 type Launcher interface {
-    // Prepare turns a kit into a raiseable image for this substrate, building it
-    // wherever this substrate builds (local or remote). Returns an opaque handle.
-    Prepare(ctx, kit Kit) (Prepared, error)
-    // Raise stands up + initializes a cove from a Prepared kit (connector env,
-    // cove-master, egress) — the managed init recipe.
-    Raise(ctx, spec RaiseSpec, creds LaunchCreds) (Instance, error)
+    // Raise stands up + initializes a cove from a kit REFERENCE (id+version, a
+    // tiny payload). If this launcher hasn't prepared that kit, it returns
+    // ErrKitNotReady rather than the full definition crossing the wire.
+    Raise(ctx, spec RaiseSpec /* {KitID, KitVersion, Digest?} */, creds LaunchCreds) (Instance, error)
+    // PrepareKit builds/records a kit from its FULL definition (the chunky
+    // transfer, only on a miss), wherever this substrate builds (local or
+    // REMOTE). Idempotent + de-duped per (id,version); may be async — status is
+    // PREPARING until READY.
+    PrepareKit(ctx, def KitDefinition) (KitStatus, error)
     Teardown/Probe/Pause/Unpause(…)   // as today's jam.Launcher
 }
 ```
 
-`Prepare` and `Raise` may collapse for a substrate that builds-and-runs in one step; the point is that **the kit is the input and build-location is hidden**. Init (the connector env + `cove-master`) is largely substrate-agnostic once the substrate yields an SSH `Endpoint` (via `Dial`), so it stays shared.
+The **reference** (`{KitID, KitVersion}`) rides the hot path; the **full definition** crosses only on `ErrKitNotReady`. Init (the connector env + `cove-master`) is largely substrate-agnostic once the substrate yields an SSH `Endpoint` (via `Dial`), so it stays shared. See "Kit reference + lazy prepare" below for the flow.
 
 ## Relationship to what exists
 
@@ -56,6 +59,36 @@ type Launcher interface {
 ## The managed kit flavor (COV-208 rides here)
 
 The managed cove's kit **omits `.anthropic.com`/`.claude.com`/`claude.ai`** from egress — a brokered cove reaches Anthropic only through the jam broker. With build+kit owned by the Launcher, this is just the managed kit's config, not sealed-base surgery and not a second binary. Combined with the already-shipped `ANTHROPIC_AUTH_TOKEN` init (#256), a managed cove holds no real credential and can't reach Anthropic directly. **This is the COV-208 deliverable, achieved as a property of the managed launcher's kit.**
+
+## Kit reference + lazy prepare (the remote-tolerant protocol)
+
+Remoteness wants **light, chunky, one-way-tolerant** communication: don't ship the kit on every raise; ship a *reference*, and transfer the full definition only when the launcher actually lacks it.
+
+- **Kits are immutable and versioned.** The registry already does monotonic versions behind a mutable `current` pointer, so **`(kitID, version)` is a stable content key** (optionally paired with a content **digest** for integrity). A kit change bumps the version; sessions on the old version keep working.
+- **The launcher tracks its own prepared kits** — an install inventory *per substrate* (local docker images for Colima; remote images for Fly). The launcher is the **source of truth for "do I have this?"**; the supervisor tracks no per-substrate build state. Eviction/GC is therefore invisible: a dropped kit just misses and re-prepares.
+- **Definitions live in the registry; prepared artifacts live in the launcher.** Durable, immutable definitions on one side; a per-substrate *cache* on the other. That split is what lets the launcher evict freely and re-request on demand.
+
+**The flow (sketch, to be firmed in the plan):**
+
+```
+supervisor                              launcher
+   │  Raise(spec{kitID, version, digest?}, creds)   │
+   ├───────────────────────────────────────────────▶│  have (kitID,version)?
+   │                                                 │   ├─ yes → build cove → Instance
+   │  ◀────────────── KIT_NOT_READY ─────────────────┤   └─ no  → KIT_NOT_READY
+   │  (fetch full definition from the registry)      │
+   │  PrepareKit(fullDefinition{kitID, version})     │
+   ├───────────────────────────────────────────────▶│  build (local or REMOTE) → record in inventory
+   │  ◀──────────── READY | PREPARING ───────────────┤
+   │  retry Raise (reconcile/backoff) ───────────────▶│  … until READY
+```
+
+Constraints the plan must honor:
+
+- **Async build.** A remote build takes minutes, so `PrepareKit` can't reliably block: model it as *start-prepare* + a `PREPARING`/`READY` status, and let the supervisor's existing reconcile/backoff drive the retry. Colima phase 1 may prepare synchronously, but the interface must allow async so Fly fits.
+- **Idempotent / de-duped prepare.** Concurrent Raises for the same missing kit must collapse to one in-flight `PrepareKit(kitID, version)` build.
+- **Registry is the definition source.** On `KIT_NOT_READY` the supervisor resolves the full definition by `(kitID, version)` from the registry; the launcher never persists definitions long-term.
+- **Colima phase-1 mapping.** `PrepareKit` = `assemble` + `docker build`, keyed/tagged by `(kitID, version)`; "available" = that local image exists. This is what replaces the out-of-band `at-cove install` manifest for managed coves.
 
 ## YAGNI / the honest long road
 
