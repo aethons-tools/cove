@@ -103,7 +103,21 @@ A loop started by `at-jam serve` when a pool is configured:
 - Refresh = `POST` to Anthropic's subscription OAuth **token endpoint** with `grant_type=refresh_token`, the account's `RefreshToken`, and the public `claude` **client_id**. The response's new `{access_token, refresh_token, expires_in}` is written back via `store.SetAccount`.
 - **Runs on the host, out-of-band from any cove.** The refresh call is Jam's own egress, not a cove's; it does not traverse the broker.
 
-> **To pin during implementation:** the exact token-endpoint URL and the public client_id used by `claude auth login --claudeai`. Confirm with a second probe — seed a dummy with a **past** `expiresAt` and capture the refresh request `claude` emits (method, URL, body, client_id) — before writing the refresher. Recorded here so the plan carries it as an explicit task, not an assumption.
+#### Refresh endpoint (probed 2026-09-29)
+
+Captured the real refresh request by MITM'ing `claude`'s egress (a local CONNECT proxy presenting a `platform.claude.com` leaf cert trusted via `NODE_EXTRA_CA_CERTS`) with a **past-expiry** dummy credential:
+
+- **Endpoint:** `POST https://platform.claude.com/v1/oauth/token` — a **fixed host**, *not* `ANTHROPIC_BASE_URL`. The refresher dials it directly (Jam host egress), so **`platform.claude.com` must be on Jam's own egress allow-list** — it is not a cove path.
+- **Encoding:** **JSON** — `Content-Type: application/json` (not form-urlencoded).
+- **Body:**
+  ```json
+  {"grant_type":"refresh_token",
+   "refresh_token":"<the account's refresh token>",
+   "client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+   "scope":"user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins"}
+  ```
+  `client_id` is the public Claude Code OAuth client (confirmed present in the `claude` bundle beside the endpoint). The `scope` string is sent verbatim by `claude`; the refresher sends the same.
+- **Response:** standard OAuth JSON `{access_token, refresh_token, expires_in}` (`claude` accepted a canned reply of that shape and proceeded).
 
 Seeding the pool (bootstrap): an account definition is captured **once** from a real `claude` login — an operator runs `claude auth login --claudeai` on a trusted machine and hands Jam the resulting `claudeAiOauth` block (access + refresh + expiry). An admin verb (`at-jam pool add --name <n>`, reading the token block from stdin/file, never argv) writes it into the store. This is out-of-scope-detailed here; the plan defines the exact verb.
 
