@@ -190,8 +190,15 @@ func (w *Workload) logResidentTurn(waitErr error) {
 	switch {
 	case rerr != nil:
 		w.log.Warn("agentrun: resident turn: unreadable worker-result; waiting for the owner", "err", rerr.Error())
+	case !ok && waitErr != nil:
+		// A non-zero exit with no worker-result is a FAILED turn — claude
+		// crashed or errored (auth/model-not-accessible/…) before writing a
+		// result. In resident mode the session still waits for the owner rather
+		// than ending, but the failure must be loud, not mistaken for a healthy
+		// idle wait. The cause is in the agent's own log (cove-master.log).
+		w.log.Warn("agentrun: resident turn FAILED — agent exited non-zero and wrote no worker-result; waiting for the owner (cause is in the agent log)", "exit", waitErr.Error())
 	case !ok:
-		w.log.Info("agentrun: resident turn ended without a worker-result; waiting for the owner", "exit", fmt.Sprint(waitErr))
+		w.log.Info("agentrun: resident turn ended cleanly without a worker-result; waiting for the owner")
 	default:
 		status, serr := wr.Status.Active()
 		if serr != nil {
