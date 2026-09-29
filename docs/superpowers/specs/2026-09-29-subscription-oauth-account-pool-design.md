@@ -77,13 +77,23 @@ Concurrency: the store is written by the refresher (token rotation) **and** by r
 
 ### 2. The pool `CredResolver` (slots beside `SecretResolver`)
 
-`proxy.go` calls `b.creds.Resolve(dec.CredName)`. Today that's `SecretResolver` (runs a `secret.Spec`). Add a `PoolResolver` implementing the same `CredResolver` interface, but keyed on the **requesting identity**, not a static cred name.
+`proxy.go` calls `b.creds.Resolve(dec.CredName)`. Today that's `SecretResolver` (runs a `secret.Spec`). But `dec.CredName` comes from **static destination config** (`Decide` returns `dest.CredName` verbatim) — it can't carry the per-request identity. And the anthropic pool cred *depends on which account the identity is bound to*. So the resolver needs the identity, which `Resolve(name string)` doesn't provide. Options considered:
 
-The wrinkle: `Resolve(name string)` has no identity argument. Options considered:
-- **(chosen)** thread the actor/identity into resolution. `Decide` already produces `dec.CredName`; for the pool path we set `CredName` to the **binding key** (the identity hash), and `PoolResolver.Resolve(key)` binds-or-looks-up the account and returns its **current** access token. This keeps the `CredResolver` interface intact (still `Resolve(string) (string,error)`) — the string is just an identity-scoped key for the pool destination rather than a global cred name. The mapping from destination → "this cred name is identity-scoped" lives in the anthropic destination's config.
-- (rejected) widen `CredResolver` to `Resolve(name string, actor Actor)` — a broader interface change than needed; the identity-hash-as-key approach avoids touching every resolver.
+- **(chosen)** an **optional capability interface** the broker prefers when present:
+  ```go
+  // IdentityCredResolver resolves a credential scoped to the requesting identity
+  // (the pool: the token depends on the identity's bound account).
+  type IdentityCredResolver interface {
+      ResolveFor(name, identityHash string) (string, error)
+  }
+  ```
+  In `proxy.go`, when `dec.NeedCred`: if `b.creds` implements `IdentityCredResolver`, call `ResolveFor(dec.CredName, HashToken(tok))` (the hash is already computed for `Lookup`); else `Resolve(dec.CredName)`. Purely additive — no `Decide` change, no `Destination` change, and `SecretResolver` (which doesn't implement it) is unaffected.
+- (rejected) set `CredName` to the identity hash — `CredName` is static config, not per-request, so this can't work.
+- (rejected) widen `CredResolver` itself to `Resolve(name, actor)` — forces every resolver to change; the capability interface is strictly additive.
 
-`Resolve` returns the account's **`AccessToken` as it currently stands in the store** — never triggers a refresh inline (refresh is the background loop's job). If the bound account's token is somehow expired at request time (refresher lagging), that's a `BadGateway` the same as any resolve failure; the refresher's safety margin (below) should prevent it.
+Because git and anthropic share **one** broker resolver, a small **`ChainResolver`** composes them: it implements `IdentityCredResolver`, routes the configured pool cred name to the `Pool` (via `ResolveFor`), and delegates every other name to a base `SecretResolver` (identity ignored). So git PATs resolve exactly as today; only the pool cred is identity-scoped.
+
+Resolution returns the account's **`AccessToken` as it currently stands in the store** — it never triggers a refresh inline (refresh is the background loop's job). If the bound account's token is somehow expired at request time (refresher lagging), that's a `BadGateway` the same as any resolve failure; the refresher's safety margin (below) should prevent it.
 
 ### 3. The broker-owned refresher (`internal/jam`, background goroutine)
 
