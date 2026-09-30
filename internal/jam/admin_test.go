@@ -573,33 +573,40 @@ func TestAdminRejectsNonLoopback(t *testing.T) {
 
 func TestAdminKitsCRUD(t *testing.T) {
 	h, _ := newTestAdmin(t)
-	// push v1, v2
+	// push v1, v2 — two valid, distinct configs (config RoE: parsed as YAML,
+	// stored as JSON). v2 adds an egress domain so the versions differ.
 	var r1 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nv: 1\n"}), &r1)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\n"}), &r1)
 	if r1.Version != 1 {
 		t.Fatalf("push v1 = %+v", r1)
 	}
 	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nv: 2\n"}), &r2)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nimage:\n  allowed-domains:\n    - example.com\n"}), &r2)
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
 	}
-	// list
+	// an invalid config (unknown field) is rejected at ingestion, not stored
+	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nnope: 1\n"}).Code; code != http.StatusBadRequest {
+		t.Fatalf("invalid config push = %d, want 400", code)
+	}
+	// list (still 2 versions — the rejected push stored nothing)
 	var kits []KitSummary
 	getJSON(t, h, "/admin/kits", &kits)
 	if len(kits) != 1 || kits[0].Current != 2 || kits[0].Versions != 2 {
 		t.Fatalf("list = %+v", kits)
 	}
-	// show current + specific version
+	// show current + specific version — stored form is canonical JSON
 	var cur KitConfigResult
 	getJSON(t, h, "/admin/kits/web", &cur)
-	if cur.Version != 2 || cur.Config != "name: web\nv: 2\n" {
-		t.Fatalf("show current = %+v", cur)
+	if cur.Version != 2 || !json.Valid([]byte(cur.Config)) ||
+		!strings.Contains(cur.Config, `"name":"web"`) || !strings.Contains(cur.Config, "example.com") {
+		t.Fatalf("show current = %+v (want canonical JSON with example.com)", cur)
 	}
 	var old KitConfigResult
 	getJSON(t, h, "/admin/kits/web?version=1", &old)
-	if old.Version != 1 || old.Config != "name: web\nv: 1\n" {
-		t.Fatalf("show v1 = %+v", old)
+	if old.Version != 1 || !json.Valid([]byte(old.Config)) ||
+		!strings.Contains(old.Config, `"name":"web"`) || strings.Contains(old.Config, "example.com") {
+		t.Fatalf("show v1 = %+v (want canonical JSON without example.com)", old)
 	}
 	// versions
 	var vers []int
