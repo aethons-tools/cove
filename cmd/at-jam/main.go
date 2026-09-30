@@ -836,11 +836,29 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		if err := validatePushedKit(data); err != nil {
+		sk, err := studio.ParseStudioKit(data)
+		if err != nil {
 			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
 			return 1
 		}
-		v, err := c.PushKit(*name, string(data))
+		// Resolve a client-only base.context-dir by packing that host directory
+		// into base.context (a zip) before sending — the server can't read the
+		// operator's filesystem. A relative context-dir is resolved against the
+		// kit file's directory (CWD for stdin). A no-op when unset.
+		baseDir := "."
+		if *config != "-" {
+			baseDir = filepath.Dir(*config)
+		}
+		if err := sk.ResolveContextDir(baseDir); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push: base.context-dir:", err)
+			return 1
+		}
+		resolved, err := sk.ToJSON()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
+		v, err := c.PushKit(*name, string(resolved))
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
