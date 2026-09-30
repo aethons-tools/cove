@@ -15,19 +15,22 @@ import (
 )
 
 // Store is the parsed supply. Minters and Global are inert libraries: reachable
-// only through an explicit mint:/global: reference under a specific kit (or path).
+// only through an explicit mint:/global: reference under a specific kit (or path),
+// or a flat credentials entry (LoadFlat).
 type Store struct {
-	Minters map[string]Minter
-	Global  map[string]Source
-	Kits    map[string]map[string]Source // secrets.yml: kit name -> secret -> source
-	Local   map[string]map[string]Source // secrets.local.yml: kit path -> secret -> source
+	Minters     map[string]Minter
+	Global      map[string]Source
+	Kits        map[string]map[string]Source // secrets.yml: kit name -> secret -> source
+	Local       map[string]map[string]Source // secrets.local.yml: kit path -> secret -> source
+	Credentials map[string]Source            // credentials.yml (LoadFlat): name -> source (at-jam)
 }
 
 // file is the on-disk shape of each secrets file.
 type file struct {
-	Minters map[string]Minter            `yaml:"minters"`
-	Global  map[string]Source            `yaml:"global"`
-	Kits    map[string]map[string]Source `yaml:"kits"`
+	Minters     map[string]Minter            `yaml:"minters"`
+	Global      map[string]Source            `yaml:"global"`
+	Kits        map[string]map[string]Source `yaml:"kits"`
+	Credentials map[string]Source            `yaml:"credentials"`
 }
 
 // UnmarshalYAML decodes a supply mapping into exactly one Source form.
@@ -118,21 +121,8 @@ func (st Store) validate() error {
 	}
 	check := func(where string, entries map[string]map[string]Source) error {
 		for kit, secrets := range entries {
-			for name, src := range secrets {
-				kind, err := src.Kind()
-				if err != nil {
-					return fmt.Errorf("%s.%s.%s: %w", where, kit, name, err)
-				}
-				switch kind {
-				case "global":
-					if _, ok := st.Global[src.Global]; !ok {
-						return fmt.Errorf("%s.%s.%s: global %q is not defined", where, kit, name, src.Global)
-					}
-				case "mint":
-					if _, ok := st.Minters[src.Mint]; !ok {
-						return fmt.Errorf("%s.%s.%s: mint %q is not a defined minter", where, kit, name, src.Mint)
-					}
-				}
+			if err := st.checkSources(where+"."+kit, secrets); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -141,4 +131,66 @@ func (st Store) validate() error {
 		return err
 	}
 	return check("local", st.Local)
+}
+
+// LoadFlat parses a single flat supply file (~/.config/at-jam/credentials.yml)
+// into a Store: minters:/global: inert libraries plus a flat credentials: map of
+// name -> source. Unlike Load there is no kit partitioning and no .local file. A
+// missing file yields an empty Store (the caller fails closed on an unsupplied
+// demand). It validates every minter and that every credentials global:/mint:
+// reference resolves to a defined library entry.
+func LoadFlat(path string) (Store, error) {
+	f, err := readFile(path)
+	if err != nil {
+		return Store{}, err
+	}
+	st := Store{
+		Minters:     map[string]Minter{},
+		Global:      map[string]Source{},
+		Credentials: map[string]Source{},
+	}
+	for k, v := range f.Minters {
+		st.Minters[k] = v
+	}
+	for k, v := range f.Global {
+		st.Global[k] = v
+	}
+	for k, v := range f.Credentials {
+		st.Credentials[k] = v
+	}
+	if err := st.validateFlat(); err != nil {
+		return Store{}, err
+	}
+	return st, nil
+}
+
+func (st Store) validateFlat() error {
+	for name, m := range st.Minters {
+		if err := m.Validate(); err != nil {
+			return fmt.Errorf("minters.%s: %w", name, err)
+		}
+	}
+	return st.checkSources("credentials", st.Credentials)
+}
+
+// checkSources validates each source's kind and that any global:/mint: reference
+// resolves. Shared by validateFlat and the kit-partitioned validate.
+func (st Store) checkSources(where string, entries map[string]Source) error {
+	for name, src := range entries {
+		kind, err := src.Kind()
+		if err != nil {
+			return fmt.Errorf("%s.%s: %w", where, name, err)
+		}
+		switch kind {
+		case "global":
+			if _, ok := st.Global[src.Global]; !ok {
+				return fmt.Errorf("%s.%s: global %q is not defined", where, name, src.Global)
+			}
+		case "mint":
+			if _, ok := st.Minters[src.Mint]; !ok {
+				return fmt.Errorf("%s.%s: mint %q is not a defined minter", where, name, src.Mint)
+			}
+		}
+	}
+	return nil
 }

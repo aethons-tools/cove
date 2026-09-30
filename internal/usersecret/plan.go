@@ -86,3 +86,24 @@ func (st Store) resolve(name string, src Source, expand MintExpander) (secret.Sp
 		return secret.Spec{}, fmt.Errorf("unhandled source kind %q", kind)
 	}
 }
+
+// PlanFlat resolves each demanded credential name to a secret.Spec against the
+// flat Credentials map (LoadFlat). A name with no entry is returned in unresolved
+// (the caller decides if it is required). A structural fault (an undefined
+// global:/mint:, or a mint: with no expander) returns err. minters:/global: are
+// never matched by demand name; they are reached only via a credentials source.
+func (st Store) PlanFlat(demanded []string, expand MintExpander) (resolvable []secret.Spec, unresolved []string, err error) {
+	for _, name := range demanded {
+		src, ok := st.Credentials[name]
+		if !ok {
+			unresolved = append(unresolved, name)
+			continue
+		}
+		spec, e := st.resolve(name, src, expand)
+		if e != nil {
+			return nil, nil, fmt.Errorf("credential %q: %w", name, e)
+		}
+		resolvable = append(resolvable, spec)
+	}
+	return resolvable, unresolved, nil
+}

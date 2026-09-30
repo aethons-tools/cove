@@ -156,8 +156,8 @@ admin-listen: "127.0.0.1:8081"
 tls: { cert: /c.pem, key: /k.pem }
 store: /var/lib/jam/store.json
 credentials:
-  anthropic-key: { command: [at-mint, anthropic] }
-  git-pat: { value: literal-dev-pat }
+  anthropic-key: {}
+  git-pat: {}
 `
 	cfg, err := parseServeConfig([]byte(yml))
 	if err != nil {
@@ -166,14 +166,13 @@ credentials:
 	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.Store != "/var/lib/jam/store.json" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
-	if s := cfg.credSpecs()["git-pat"]; !s.Literal || s.Value != "literal-dev-pat" || s.Name != "git-pat" {
-		t.Fatalf("git-pat spec = %+v", s)
+	// Credentials are name-only demands; values come from the credentials file.
+	names := map[string]bool{}
+	for _, n := range cfg.demandedCredentials() {
+		names[n] = true
 	}
-	// Each spec must carry its Name: secret.Resolve keys its output map by Spec.Name,
-	// and callers (e.g. the store-postgres password path) index the result by the
-	// credential name. A missing Name yields an empty resolved value.
-	if s := cfg.credSpecs()["anthropic-key"]; s.Name != "anthropic-key" {
-		t.Fatalf("anthropic-key spec Name = %q, want %q", s.Name, "anthropic-key")
+	if !names["git-pat"] || !names["anthropic-key"] {
+		t.Fatalf("demandedCredentials = %v, want git-pat and anthropic-key", names)
 	}
 }
 
@@ -330,8 +329,7 @@ runtime:
     wait-max: 24h
     warm-timeout: 5m
     escalation-poll-interval: 45s
-    tracker-token:
-      command: ["op", "read", "tracker-token"]
+    tracker-token-cred: linear-bot
     linear:
       team: COV
       poll-interval: 60s
@@ -354,8 +352,8 @@ runtime:
 		dc.EscalationPollInterval != "45s" {
 		t.Fatalf("Requisitioner config = %+v", dc)
 	}
-	if len(dc.TrackerToken.Command) != 3 || dc.TrackerToken.Command[0] != "op" {
-		t.Fatalf("tracker-token command = %+v", dc.TrackerToken)
+	if dc.TrackerTokenCred != "linear-bot" {
+		t.Fatalf("tracker-token-cred = %q", dc.TrackerTokenCred)
 	}
 	if dc.Linear == nil || dc.Linear.Team != "COV" {
 		t.Fatalf("linear.team did not parse: %+v", dc.Linear)
@@ -373,24 +371,26 @@ func TestValidateRequisitionerRequiredFields(t *testing.T) {
 	}
 	base := func() *requisitionerConfig {
 		return &requisitionerConfig{
-			Role:          "implementer",
-			MaxConcurrent: 1,
-			Linear:        &kit.LinearTracker{Team: "COV"},
+			Role:             "implementer",
+			MaxConcurrent:    1,
+			Linear:           &kit.LinearTracker{Team: "COV"},
+			TrackerTokenCred: "linear-bot",
 		}
 	}
 	// all required fields present → ok.
-	c := serveConfig{}
+	c := serveConfig{Credentials: map[string]credSpec{"linear-bot": {}}}
 	c.Runtime.Requisitioner = base()
 	if err := c.validateRequisitioner(); err != nil {
 		t.Fatalf("complete Requisitioner block should not error: %v", err)
 	}
 
 	for field, mutate := range map[string]func(*requisitionerConfig){
-		"role":           func(d *requisitionerConfig) { d.Role = "" },
-		"max-concurrent": func(d *requisitionerConfig) { d.MaxConcurrent = 0 },
-		"linear":         func(d *requisitionerConfig) { d.Linear = nil },
+		"role":               func(d *requisitionerConfig) { d.Role = "" },
+		"max-concurrent":     func(d *requisitionerConfig) { d.MaxConcurrent = 0 },
+		"linear":             func(d *requisitionerConfig) { d.Linear = nil },
+		"tracker-token-cred": func(d *requisitionerConfig) { d.TrackerTokenCred = "" },
 	} {
-		bad := serveConfig{}
+		bad := serveConfig{Credentials: map[string]credSpec{"linear-bot": {}}}
 		bad.Runtime.Requisitioner = base()
 		mutate(bad.Runtime.Requisitioner)
 		if err := bad.validateRequisitioner(); err == nil {
@@ -502,11 +502,12 @@ func TestValidateStorePostgres(t *testing.T) {
 
 func TestValidateDiscord(t *testing.T) {
 	var c serveConfig
-	c.Runtime.Discord = &discordConfig{} // no bot-token
+	c.Runtime.Discord = &discordConfig{} // no bot-token-cred
 	if err := c.validateDiscord(); err == nil {
-		t.Fatal("expected error for missing bot-token")
+		t.Fatal("expected error for missing bot-token-cred")
 	}
-	c.Runtime.Discord = &discordConfig{BotToken: credSpec{Value: "x"}}
+	c.Credentials = map[string]credSpec{"discord-bot": {}}
+	c.Runtime.Discord = &discordConfig{BotTokenCred: "discord-bot"}
 	if err := c.validateDiscord(); err != nil {
 		t.Fatalf("valid discord: %v", err)
 	}
@@ -674,5 +675,151 @@ func TestCredConfiguredIncludesPoolCred(t *testing.T) {
 	c2 := serveConfig{Credentials: map[string]credSpec{"git-pat": {}}}
 	if c2.credConfigured("anthropic-sub") {
 		t.Fatal("without a pool block, the pool cred must not resolve")
+	}
+}
+
+func TestValidateCredentials_InlineStrategyRejected(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  anthropic-key:
+    command: ["at-mint", "anthropic"]
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err == nil {
+		t.Fatal("want error for an inline command under credentials:, got nil")
+	}
+}
+
+func TestValidateCredentials_NameOnlyOK(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  anthropic-key:
+  git-pat:
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err != nil {
+		t.Fatalf("name-only credentials should validate: %v", err)
+	}
+	got := cfg.demandedCredentials()
+	if len(got) != 2 || got[0] != "anthropic-key" || got[1] != "git-pat" {
+		t.Fatalf("demandedCredentials = %v", got)
+	}
+}
+
+func TestCredentialsFilePath_DefaultUnderXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	var cfg serveConfig
+	if got := cfg.credentialsFilePath(); got != "/tmp/xdg/at-jam/credentials.yml" {
+		t.Fatalf("default path = %q", got)
+	}
+	cfg.CredentialsFile = "/etc/jam/creds.yml"
+	if got := cfg.credentialsFilePath(); got != "/etc/jam/creds.yml" {
+		t.Fatalf("explicit path = %q", got)
+	}
+}
+
+func TestValidateDiscord_InlineBotTokenRejected(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  discord-bot:
+runtime:
+  discord:
+    bot-token: { value: "x" }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateDiscord(); err == nil {
+		t.Fatal("want error for inline runtime.discord.bot-token, got nil")
+	}
+}
+
+func TestValidateDiscord_CredReferenceOK(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  discord-bot:
+runtime:
+  discord:
+    bot-token-cred: discord-bot
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateDiscord(); err != nil {
+		t.Fatalf("bot-token-cred reference should validate: %v", err)
+	}
+}
+
+func TestValidateDiscord_CredMustBeDemanded(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+runtime:
+  discord:
+    bot-token-cred: nope
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateDiscord(); err == nil {
+		t.Fatal("want error: bot-token-cred names an undemanded credential")
+	}
+}
+
+func TestValidateRequisitioner_InlineTrackerTokenRejected(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  linear-bot:
+runtime:
+  requisitioner:
+    role: worker
+    max-concurrent: 1
+    linear: { team: T }
+    tracker-token: { value: "x" }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateRequisitioner(); err == nil {
+		t.Fatal("want error for inline runtime.requisitioner.tracker-token, got nil")
+	}
+}
+
+func TestValidateRequisitioner_CredReferenceOK(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  linear-bot:
+runtime:
+  requisitioner:
+    role: worker
+    max-concurrent: 1
+    linear: { team: T }
+    tracker-token-cred: linear-bot
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateRequisitioner(); err != nil {
+		t.Fatalf("tracker-token-cred reference should validate: %v", err)
+	}
+}
+
+func TestValidateDiscord_PoolCredNotAccepted(t *testing.T) {
+	cfg := serveConfig{}
+	cfg.Pool = &poolConfig{CredName: "anthropic-sub"}
+	cfg.Runtime.Discord = &discordConfig{BotTokenCred: "anthropic-sub"}
+	if err := cfg.validateDiscord(); err == nil {
+		t.Fatal("want error: the pool cred is not a demanded credentials: key")
+	}
+}
+
+func TestValidateRequisitioner_PoolCredNotAccepted(t *testing.T) {
+	cfg := serveConfig{}
+	cfg.Pool = &poolConfig{CredName: "anthropic-sub"}
+	cfg.Runtime.Requisitioner = &requisitionerConfig{Role: "w", MaxConcurrent: 1, Linear: &kit.LinearTracker{}, TrackerTokenCred: "anthropic-sub"}
+	if err := cfg.validateRequisitioner(); err == nil {
+		t.Fatal("want error: the pool cred is not a demanded credentials: key")
 	}
 }

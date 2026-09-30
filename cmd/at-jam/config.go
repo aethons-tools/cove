@@ -14,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
-	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
@@ -52,7 +51,12 @@ type serveConfig struct {
 	// precedence over the file `store`. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
 	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
-	Credentials   map[string]credSpec  `yaml:"credentials"`
+	// CredentialsFile is the protected supply file that resolves each demanded
+	// credential's strategy (value/command/global/mint). Empty => the XDG default
+	// (~/.config/at-jam/credentials.yml). Strategies never live in this serve
+	// config — see docs/usage/jam/credentials.md.
+	CredentialsFile string              `yaml:"credentials-file"`
+	Credentials     map[string]credSpec `yaml:"credentials"`
 	// Pool, when set, enables the subscription-OAuth account pool: the anthropic
 	// destination's cred (cred-name) is resolved from the pool by cove identity,
 	// coves are seeded in subscription mode, and a background refresher rotates
@@ -144,7 +148,12 @@ func (c serveConfig) validateWake() error {
 
 // discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
-	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
+	// BotTokenCred names a demanded credential; the token is supplied by the
+	// at-jam credentials file, never inline here.
+	BotTokenCred string `yaml:"bot-token-cred"`
+	// DeprecatedBotToken detects the removed inline form; a set value is a hard
+	// error pointing at the credentials file.
+	DeprecatedBotToken *credSpec `yaml:"bot-token"`
 }
 
 // launcherConfig configures the real Colima-backed jam.Launcher
@@ -250,12 +259,14 @@ func (c serveConfig) validateLauncher() error {
 // requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
-	Role          string             `yaml:"role"`
-	Project       string             `yaml:"project"`
-	MaxConcurrent int                `yaml:"max-concurrent"`
-	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
-	TrackerToken  credSpec           `yaml:"tracker-token"`
-	Linear        *kit.LinearTracker `yaml:"linear"`
+	Role             string `yaml:"role"`
+	Project          string `yaml:"project"`
+	MaxConcurrent    int    `yaml:"max-concurrent"`
+	PollInterval     string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	TrackerTokenCred string `yaml:"tracker-token-cred"`
+	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
+	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
+	Linear                 *kit.LinearTracker `yaml:"linear"`
 
 	// WakePollInterval, WaitMax, and WarmTimeout configure the resident wake-on
 	// engine (internal/wakeon), which watches Waiting instances' tickets and
@@ -302,14 +313,6 @@ func (c serveConfig) validateStorePostgres() error {
 	return nil
 }
 
-// toSpec converts this credential to a named secret.Spec (literal or command).
-func (cs credSpec) toSpec(name string) secret.Spec {
-	if cs.Value != "" {
-		return secret.Spec{Name: name, Value: cs.Value, Literal: true}
-	}
-	return secret.Spec{Name: name, Command: cs.Command}
-}
-
 // validateRequisitioner checks runtime.requisitioner when present (required fields:
 // role, max-concurrent > 0, linear). A no-op when runtime.requisitioner is unset —
 // the Requisitioner stays disabled, unchanged from before this block existed.
@@ -327,19 +330,34 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.Linear == nil {
 		return fmt.Errorf("runtime.requisitioner.linear is required")
 	}
+	if d.DeprecatedTrackerToken != nil {
+		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
+	}
+	if d.TrackerTokenCred == "" {
+		return fmt.Errorf("runtime.requisitioner.tracker-token-cred is required")
+	}
+	if _, ok := c.Credentials[d.TrackerTokenCred]; !ok {
+		return fmt.Errorf("runtime.requisitioner.tracker-token-cred %q is not a demanded credential", d.TrackerTokenCred)
+	}
 	return nil
 }
 
 // validateDiscord checks runtime.discord when present (required: a non-empty
-// bot-token, as a command or a literal value). A no-op when runtime.discord is
+// bot-token-cred, naming a demanded credential). A no-op when runtime.discord is
 // unset — the resident Discord relay engine stays disabled.
 func (c serveConfig) validateDiscord() error {
 	d := c.Runtime.Discord
 	if d == nil {
 		return nil
 	}
-	if len(d.BotToken.Command) == 0 && d.BotToken.Value == "" {
-		return fmt.Errorf("runtime.discord.bot-token is required")
+	if d.DeprecatedBotToken != nil {
+		return fmt.Errorf("runtime.discord.bot-token is no longer inline — set runtime.discord.bot-token-cred: <name> and %s", credentialsFileHint)
+	}
+	if d.BotTokenCred == "" {
+		return fmt.Errorf("runtime.discord.bot-token-cred is required")
+	}
+	if _, ok := c.Credentials[d.BotTokenCred]; !ok {
+		return fmt.Errorf("runtime.discord.bot-token-cred %q is not a demanded credential", d.BotTokenCred)
 	}
 	return nil
 }
@@ -552,14 +570,49 @@ func (c serveConfig) credConfigured(n string) bool {
 	return c.Pool != nil && n == c.Pool.CredName
 }
 
-// credSpecs maps each configured credential to a secret.Spec (literal or command).
-func (c serveConfig) credSpecs() map[string]secret.Spec {
-	out := make(map[string]secret.Spec, len(c.Credentials))
-	for name, cs := range c.Credentials {
-		// toSpec sets Name, which secret.Resolve keys its output map by; callers
-		// that index the resolved map by credential name (e.g. the store-postgres
-		// password path) get an empty value if Name is unset.
-		out[name] = cs.toSpec(name)
+// credentialsFileHint is the shared tail for every "an inline secret is no longer
+// allowed here" error — it points the operator at the supply file + its doc.
+const credentialsFileHint = "supply its strategy in the at-jam credentials file (see docs/usage/jam/credentials.md)"
+
+// validateCredentials enforces the demand/supply split: a serve-config
+// credentials: entry names a credential only; an inline command:/value: (the old
+// form) is a hard error pointing at the credentials file.
+func (c serveConfig) validateCredentials() error {
+	for _, name := range c.demandedCredentials() {
+		cs := c.Credentials[name]
+		if len(cs.Command) > 0 || cs.Value != "" {
+			return fmt.Errorf("credentials.%s: an inline command/value is no longer allowed — list the name only and %s", name, credentialsFileHint)
+		}
 	}
+	return nil
+}
+
+// demandedCredentials is the sorted set of credential names the serve config
+// demands (the credentials: keys). The supply file must resolve every one.
+func (c serveConfig) demandedCredentials() []string {
+	out := make([]string, 0, len(c.Credentials))
+	for name := range c.Credentials {
+		out = append(out, name)
+	}
+	sort.Strings(out)
 	return out
+}
+
+// credentialsFilePath is the supply file to load: the explicit credentials-file
+// when set, else the XDG default ~/.config/at-jam/credentials.yml.
+func (c serveConfig) credentialsFilePath() string {
+	if c.CredentialsFile != "" {
+		return c.CredentialsFile
+	}
+	return filepath.Join(atJamConfigDir(), "credentials.yml")
+}
+
+// atJamConfigDir mirrors atCoveConfigDir: $XDG_CONFIG_HOME/at-jam, else
+// ~/.config/at-jam.
+func atJamConfigDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "at-jam")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "at-jam")
 }
