@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/moby/patternmatcher v0.6.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/net v0.59.0
 	google.golang.org/grpc v1.83.2

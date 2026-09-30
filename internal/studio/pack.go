@@ -9,6 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 )
 
 // PackContextDir zips the build context rooted at dir into a base64 string
@@ -29,6 +32,10 @@ func PackContextDir(dir string) (string, error) {
 	if fi, err := os.Stat(filepath.Join(dir, "Dockerfile")); err != nil || !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("context-dir %q: a root Dockerfile is required", dir)
 	}
+	pm, err := loadDockerignore(dir)
+	if err != nil {
+		return "", fmt.Errorf("context-dir %q: .dockerignore: %w", dir, err)
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	var entries int
@@ -41,6 +48,32 @@ func PackContextDir(dir string) (string, error) {
 		if p == dir {
 			return nil
 		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		relSlash := filepath.ToSlash(rel)
+		// Honor .dockerignore (exact docker-build parity), but always keep the root
+		// Dockerfile and the .dockerignore itself. An ignored directory is pruned,
+		// so its contents neither pack nor count against the caps.
+		if relSlash != "Dockerfile" && relSlash != ".dockerignore" {
+			ignored, merr := pm.MatchesOrParentMatches(relSlash)
+			if merr != nil {
+				return merr
+			}
+			if ignored {
+				if d.IsDir() {
+					// Prune only when no `!` exclusion could re-include something
+					// beneath this dir; otherwise descend and match each child
+					// individually (moby/docker-build parity for `*` + `!sub/x`).
+					if !pm.Exclusions() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				return nil
+			}
+		}
 		if d.Type()&fs.ModeSymlink != 0 {
 			return fmt.Errorf("entry %q is a symlink (not allowed)", p)
 		}
@@ -50,11 +83,6 @@ func PackContextDir(dir string) (string, error) {
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("entry %q is not a regular file", p)
 		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		relSlash := filepath.ToSlash(rel)
 		if relSlash == "Dockerfile" {
 			sawDockerfile = true
 		}
@@ -98,6 +126,24 @@ func PackContextDir(dir string) (string, error) {
 		return "", fmt.Errorf("packed context-dir %q is %d base64 bytes, exceeds the %d-byte cap", dir, len(b64), maxEncodedZip)
 	}
 	return b64, nil
+}
+
+// loadDockerignore reads <dir>/.dockerignore into a matcher for exact
+// docker-build parity. A missing file yields a matcher that excludes nothing.
+func loadDockerignore(dir string) (*patternmatcher.PatternMatcher, error) {
+	f, err := os.Open(filepath.Join(dir, ".dockerignore"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return patternmatcher.New(nil)
+		}
+		return nil, err
+	}
+	defer f.Close()
+	patterns, err := ignorefile.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	return patternmatcher.New(patterns)
 }
 
 // ResolveContextDir packs a client-only base.context-dir into base.context (a
