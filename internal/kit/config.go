@@ -897,6 +897,12 @@ var reservedSecretNames = map[string]bool{
 	gcpADCDemandName:             true,
 }
 
+// IsReservedSecretName reports whether n is a reserved subsystem secret name
+// (AT_TASK_GIT_TOKEN, AT_DISPATCH_*, the ADC demand). Exported so other packages
+// (e.g. internal/studio build-arg validation) can reject collisions without
+// duplicating the set.
+func IsReservedSecretName(n string) bool { return reservedSecretNames[n] }
+
 // gcpADCDemandName is the well-known demand name a Vertex kit's GCP Application
 // Default Credentials are supplied under (mirrors cmd/at-cove's gcpADCDemand
 // const — duplicated here rather than imported, since internal/kit must not
