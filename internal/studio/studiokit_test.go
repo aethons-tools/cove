@@ -36,7 +36,7 @@ prompt: |
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Deterministic: re-marshal equal, and canonical key order (base before egress).
+	// Deterministic: re-marshal equal.
 	b2, _ := sk.ToJSON()
 	if string(b) != string(b2) {
 		t.Fatal("ToJSON not deterministic")
@@ -62,5 +62,62 @@ func TestParseStudioKitRequiresKindAndName(t *testing.T) {
 	}
 	if _, err := ParseStudioKit([]byte("kind: studio\nname: bad/name\n")); err == nil {
 		t.Fatal("want error on a non-tag-safe name")
+	}
+}
+
+func TestParseStudioKitRejectsBuildArgCollisions(t *testing.T) {
+	// Test table: each case should be rejected by Validate.
+	cases := []struct {
+		name    string
+		desc    string
+		data    []byte
+		wantErr string // substring of expected error message
+	}{
+		{
+			name: "build-arg collides with secret demand",
+			desc: "a custom secret name present in both secrets: and build-args:",
+			data: []byte(`kind: studio
+name: web
+secrets:
+  MYSECRET:
+    description: a custom secret
+build-args:
+  MYSECRET: value
+`),
+			wantErr: "collides with a secret demand",
+		},
+		{
+			name: "build-arg is a reserved secret name",
+			desc: "build-arg uses AT_TASK_GIT_TOKEN, a reserved name",
+			data: []byte(`kind: studio
+name: web
+build-args:
+  AT_TASK_GIT_TOKEN: value
+`),
+			wantErr: "reserved secret name",
+		},
+		{
+			name: "base.ref and base.dockerfile both set",
+			desc: "both base.ref and base.dockerfile are set (mutually exclusive)",
+			data: []byte(`kind: studio
+name: web
+base:
+  ref: ghcr.io/acme/web:latest
+  dockerfile: path/to/Dockerfile
+`),
+			wantErr: "mutually exclusive",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseStudioKit(tc.data)
+			if err == nil {
+				t.Errorf("%s: ParseStudioKit should reject this config, got nil", tc.desc)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: error %q does not contain %q", tc.desc, err, tc.wantErr)
+			}
+		})
 	}
 }
