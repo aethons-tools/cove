@@ -28,10 +28,15 @@ versions** of a config, behind a mutable **current** pointer:
 - **pin** *current* to an older version to **roll back** (or forward); versions
   themselves are never mutated or deleted.
 
-The stored value is the kit's `config.yml` text (see
-[`../at-cove-config.md`](../at-cove-config.md) for that schema). A registered kit
-must pin its `image.base` by digest; kits whose image is a local `image/Dockerfile`
-build context aren't registry-eligible yet.
+The kit is a `config.yml` (see [`../at-cove-config.md`](../at-cove-config.md) for
+that schema). On `push` it is **parsed and validated as YAML, then stored as
+canonical JSON**, and `kit show` renders it **back as YAML** — the config rule of
+engagement (human-input parsed as YAML, stored/used as JSON, displayed as YAML).
+So a malformed config is rejected at `push`, not at a later raise, and every
+internal reader sees one canonical form. (JSON is valid YAML, so the parser also
+reads any pre-existing YAML-stored rows.) A registered kit must pin its
+`image.base` by digest; kits whose image is a local `image/Dockerfile` build
+context aren't registry-eligible yet.
 
 ## The `kit` verbs
 

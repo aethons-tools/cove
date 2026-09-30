@@ -861,7 +861,19 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprint(stdout, res.Config)
+		// Stored form is canonical JSON; render it back as YAML for the human.
+		// ParseConfig accepts JSON (and any legacy YAML rows) alike.
+		cfg, err := kit.ParseConfig([]byte(res.Config))
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam kit show: stored config is not valid:", err)
+			return 1
+		}
+		y, err := kit.ConfigToYAML(cfg)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprint(stdout, string(y))
 	case "versions":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "at-jam kit versions: expected one kit name")

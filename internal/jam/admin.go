@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -555,7 +557,21 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "name and config are required", http.StatusBadRequest)
 			return
 		}
-		v, err := store.PushKit(b.Name, b.Config)
+		// Config rule of engagement: parse the (human-input) config as YAML and
+		// store it as canonical JSON. ParseConfig validates strictly (KnownFields),
+		// so a malformed or typo'd config is rejected here at ingestion rather than
+		// surfacing later at a raise; the stored JSON reads back via any YAML parser.
+		cfg, err := kit.ParseConfig([]byte(b.Config))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		jsonCfg, err := kit.ConfigToJSON(cfg)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		v, err := store.PushKit(b.Name, string(jsonCfg))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

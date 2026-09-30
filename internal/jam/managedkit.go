@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/kit"
-	"gopkg.in/yaml.v3"
 )
 
 // ManagedKitID is the kit registry name the managed (brokered-cove) kit is
@@ -126,18 +125,19 @@ func ResolveKitDefinition(store Store, ref KitRef) (KitDefinition, bool, error) 
 	if !ok {
 		return KitDefinition{}, false, nil
 	}
-	var cfg kit.Config
-	if err := yaml.Unmarshal([]byte(text), &cfg); err != nil {
-		return KitDefinition{}, false, fmt.Errorf("resolve kit %s: unmarshal config: %w", ref, err)
+	cfg, err := kit.ParseConfig([]byte(text))
+	if err != nil {
+		return KitDefinition{}, false, fmt.Errorf("resolve kit %s: %w", ref, err)
 	}
 	return KitDefinition{Ref: ref, Config: cfg}, true, nil
 }
 
-// marshalKitConfig serializes a kit.Config to the registry's canonical text and
-// its content digest (full SHA-256 hex). yaml.Marshal of a struct is
-// deterministic, so identical configs yield identical text and digest.
+// marshalKitConfig serializes a kit.Config to the registry's canonical stored
+// form (JSON, per the config rule of engagement) and its content digest (full
+// SHA-256 hex). kit.ConfigToJSON is deterministic (sorted keys), so identical
+// configs yield identical text and digest.
 func marshalKitConfig(cfg kit.Config) (text, digest string, err error) {
-	b, err := yaml.Marshal(cfg)
+	b, err := kit.ConfigToJSON(cfg)
 	if err != nil {
 		return "", "", err
 	}
