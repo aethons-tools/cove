@@ -55,7 +55,6 @@ runtime:                            # optional — supervisor lease/reconcile ti
   reconcile-interval: 30s           # must be < lease-ttl
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
   launcher:                         # optional — enables the real Colima cove launcher
-    install-manifest: /etc/jam/install.json  # → the pre-built image (Image + ImageDigest)
     runtime-addr: jam.example.com:443        # what a raised cove dials (AT_JAM_RUNTIME_ADDR)
     jam-host: jam.example.com                # added to the cove's /etc/hosts; connector base host
     identity-file: /var/lib/jam/at-cove/id_ed25519  # SSH key matching the image's baked authorized_keys
@@ -88,7 +87,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
-| `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
+| `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
 | `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
 | `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
@@ -181,19 +180,16 @@ fallback for them.
 ### The launcher (`runtime.launcher`)
 
 With a `launcher` block, `at-jam studio raise` starts a **real** studio on the Colima
-backend from the pre-built image named by `install-manifest` (the frozen
-`install.json` an `at-cove install` produced — its `Image` + `ImageDigest`),
-injects the connector + prompt over SSH, and starts `cove-master` in it. The studio
-dials Jam's Attach stream at `runtime-addr` (`jam.host:443`) through its own
-squid proxy; `jam-host` is added to the studio's `/etc/hosts` so that name resolves
-to the host gateway.
-
-**Deployment constraint:** Jam must be given the **same SSH key** that
-`at-cove install` baked into the image's `authorized_keys` — point `identity-file`
-at that private key (it defaults to `~/.config/at-cove/id_ed25519`, the at-cove
-default). A key Jam generates fresh would not be authorized by the image. Jam
-must also reach the Colima backend (run it where `docker`/Colima is available). Omit
-the whole block to keep the placeholder launcher (dev/tests).
+backend from the role's [StudioKit](kits.md) (the seeded `default` when the role
+names none), built on demand by the launcher — no pre-built image or
+`install.json` is involved. It injects the connector + prompt over SSH and starts
+`cove-master` in it. The studio dials Jam's Attach stream at `runtime-addr`
+(`jam.host:443`) through its own squid proxy; `jam-host` is added to the studio's
+`/etc/hosts` so that name resolves to the host gateway. Jam must reach the Colima
+backend (run it where `docker`/Colima is available); `identity-file` is the SSH key
+Jam uses to reach the studio (defaults to `~/.config/at-cove/id_ed25519`). Omit the
+whole block to keep the placeholder launcher (dev/tests). The build/prepare
+handshake is in [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol).
 
 ## The broker model
 
