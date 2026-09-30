@@ -850,3 +850,59 @@ func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminConfigExportImport(t *testing.T) {
+	src := populated(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srcH := NewAdminHandler(src, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	srcTS := httptest.NewServer(srcH)
+	defer srcTS.Close()
+
+	resp, err := http.Get(srcTS.URL + "/admin/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dstH := NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	dstTS := httptest.NewServer(dstH)
+	defer dstTS.Close()
+
+	post := func(payload []byte) int {
+		r, err := http.Post(dstTS.URL+"/admin/config", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		return r.StatusCode
+	}
+	if code := post(body); code != http.StatusNoContent {
+		t.Fatalf("POST import status = %d, want 204", code)
+	}
+	if a, ok := dst.Lookup(HashToken("tok")); !ok || a.ID != "spider-18" {
+		t.Fatalf("import did not restore actor: %+v ok=%v", a, ok)
+	}
+	if code := post(body); code != http.StatusConflict {
+		t.Fatalf("second POST status = %d, want 409", code)
+	}
+}
+
+func TestAdminConfigImportBadVersion(t *testing.T) {
+	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	defer ts.Close()
+	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(`{"version":999}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", r.StatusCode)
+	}
+}

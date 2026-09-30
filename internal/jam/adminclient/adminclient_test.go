@@ -2,6 +2,7 @@ package adminclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -639,5 +640,47 @@ func TestClientEgressRoundTrip(t *testing.T) {
 	}
 	if _, err := c.ShowEgress(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
+	}
+}
+
+func TestExportImportConfigClient(t *testing.T) {
+	want := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Actors: []jam.Actor{{ID: "a", TokenHash: "h"}}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(want)
+	})
+	var imported jam.ConfigSnapshot
+	mux.HandleFunc("POST /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&imported)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	got, err := c.ExportConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Actors) != 1 || got.Actors[0].ID != "a" {
+		t.Fatalf("export = %+v", got)
+	}
+	if err := c.ImportConfig(want); err != nil {
+		t.Fatal(err)
+	}
+	if imported.Actors[0].ID != "a" {
+		t.Fatalf("server received %+v", imported)
+	}
+}
+
+func TestImportConfigConflict(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "import refused: target config is not empty", http.StatusConflict)
+	}))
+	defer ts.Close()
+	err := New(ts.URL, "").ImportConfig(jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 }

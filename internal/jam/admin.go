@@ -2,6 +2,7 @@ package jam
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -298,6 +299,32 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		log.Info("admin destination removed", "operator", OperatorID(r), "name", name)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		// The snapshot carries token hashes; it is written to the client but
+		// never logged.
+		writeJSON(w, http.StatusOK, store.ExportConfig())
+	})
+	mux.HandleFunc("POST /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		var snap ConfigSnapshot
+		if !decode(w, r, &snap) {
+			return
+		}
+		if err := store.ImportConfig(snap); err != nil {
+			switch {
+			case errors.Is(err, ErrConfigNotEmpty):
+				http.Error(w, err.Error(), http.StatusConflict)
+			case errors.Is(err, ErrUnsupportedConfigVersion):
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			default:
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		log.Info("admin config imported", "operator", OperatorID(r),
+			"actors", len(snap.Actors), "kits", len(snap.Kits),
+			"destinations", len(snap.Destinations), "projects", len(snap.Projects))
 		w.WriteHeader(http.StatusNoContent)
 	})
 

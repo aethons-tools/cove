@@ -71,6 +71,8 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
+			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, projects) to a file (or stdout) via the admin API", Run: cmdExport},
+			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
