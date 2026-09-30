@@ -63,7 +63,13 @@ func PackContextDir(dir string) (string, error) {
 			}
 			if ignored {
 				if d.IsDir() {
-					return filepath.SkipDir
+					// Prune only when no `!` exclusion could re-include something
+					// beneath this dir; otherwise descend and match each child
+					// individually (moby/docker-build parity for `*` + `!sub/x`).
+					if !pm.Exclusions() {
+						return filepath.SkipDir
+					}
+					return nil
 				}
 				return nil
 			}

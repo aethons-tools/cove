@@ -195,6 +195,51 @@ func TestPackContextDirDockerignorePrunesUnderCap(t *testing.T) {
 	}
 }
 
+// `*` + `!sub/file` must re-include the negated file even though its parent dir
+// matches `*` — the packer must NOT unconditionally prune an ignored dir when
+// exclusions exist (moby/docker-build parity). Regression for the review find.
+func TestPackContextDirDockerignoreNegationUnderDir(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{
+		"Dockerfile":    "FROM x\n",
+		".dockerignore": "*\n!src/main.go\n",
+		"src/main.go":   "keep",
+		"src/other.go":  "drop",
+		"top.txt":       "drop",
+	})
+	b64, err := PackContextDir(src)
+	if err != nil {
+		t.Fatalf("PackContextDir: %v", err)
+	}
+	out := extracted(t, b64)
+	if !has(out, "src/main.go") {
+		t.Fatal("!src/main.go must be re-included even though its parent matches *")
+	}
+	if has(out, "src/other.go") || has(out, "top.txt") {
+		t.Fatal("* must exclude everything not re-included")
+	}
+	if !has(out, "Dockerfile") {
+		t.Fatal("root Dockerfile must be kept")
+	}
+}
+
+func TestPackContextDirDockerignoreSymlinkHandling(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n", ".dockerignore": "badlink\n"})
+	if err := os.Symlink("/etc/passwd", filepath.Join(src, "badlink")); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	// An IGNORED symlink is skipped, not an error.
+	if _, err := PackContextDir(src); err != nil {
+		t.Fatalf("an ignored symlink must be skipped, not error: %v", err)
+	}
+	// A NON-ignored symlink still errors (rejection applies to included entries).
+	if err := os.Symlink("/etc/hosts", filepath.Join(src, "livelink")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := PackContextDir(src); err == nil {
+		t.Fatal("a non-ignored symlink must still be rejected")
+	}
+}
+
 func TestResolveContextDirPacks(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n"})
 	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextDir: src}}
