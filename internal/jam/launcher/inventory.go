@@ -1,10 +1,6 @@
 package launcher
 
-import (
-	"fmt"
-
-	"github.com/aethons-tools/cove/internal/runner"
-)
+import "fmt"
 
 // Inventory answers whether this launcher has already prepared a kit — the
 // launcher's own source of truth for "do I have this?", consulted on the hot
@@ -19,19 +15,18 @@ type Inventory interface {
 // so it is the same tag PrepareKit builds and Raise runs.
 func imageTag(r KitRef) string { return fmt.Sprintf("cove-kit:%s-v%d", r.ID, r.Version) }
 
-// colimaInventory is the Colima Inventory: it asks the local docker daemon
-// whether the kit's tagged image exists.
-type colimaInventory struct{ r runner.Runner }
-
-func newColimaInventory(r runner.Runner) *colimaInventory { return &colimaInventory{r: r} }
-
-// Has reports whether the (id,version) image exists locally. `docker image
-// inspect` exits non-zero when the image is absent, which we map to not-ready
-// (false, nil) rather than an error — a miss is a normal, expected outcome that
-// drives PrepareKit, not a fault the caller must handle.
-func (c *colimaInventory) Has(ref KitRef) (bool, error) {
-	if _, err := c.r.Output("docker", "image", "inspect", imageTag(ref)); err != nil {
-		return false, nil
-	}
-	return true, nil
+// imageChecker is the sliver of the substrate backend the inventory needs: does a
+// tagged image exist on this substrate? Satisfied by backend.KitImageBuilder.
+type imageChecker interface {
+	HasKitImage(tag string) (bool, error)
 }
+
+// backendInventory is the default Inventory: it asks the substrate backend
+// whether the kit's tagged image exists. Going through the backend (not a bare
+// docker runner) means the inventory queries the SAME daemon the backend builds
+// and runs on — on Colima the pinned `--context colima`, never the host's default
+// (e.g. Docker Desktop). That daemon agreement is the whole point (COV-217).
+type backendInventory struct{ ops imageChecker }
+
+// Has reports whether the (id,version) image exists on the substrate.
+func (b backendInventory) Has(ref KitRef) (bool, error) { return b.ops.HasKitImage(imageTag(ref)) }

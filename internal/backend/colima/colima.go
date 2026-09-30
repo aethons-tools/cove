@@ -155,6 +155,16 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCach
 	if err != nil {
 		return "", "", err
 	}
+	digest, err = c.buildFromBase(buildDir, tag, resolvedBase, noCache)
+	return resolvedBase, digest, err
+}
+
+// buildFromBase is the actual `docker build` — assemble context in, tagged image
+// out — FROM an already-resolved base passed as the Dockerfile's BASE arg. It is
+// the shared body of dockerBuild (which resolves+gates the base first) and
+// BuildKitImage (which reuses a base the caller already gated). Context-pinned via
+// dargs, so the build and any later RunEphemeral share the colima daemon.
+func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, noCache bool) (digest string, err error) {
 	// --progress=plain: line-by-line build output (BuildKit's TTY renderer can
 	// overflow the terminal by a column). --no-cache: rebuild every layer so the
 	// build-time `claude`/plugin install re-runs instead of reusing cached layers.
@@ -164,7 +174,7 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCach
 	}
 	buildArgs = append(buildArgs, "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)
 	if err := c.r.Run("docker", dargs(buildArgs...)...); err != nil {
-		return "", "", err
+		return "", err
 	}
 	// Capture the built image's OWN sha256 (its image ID) so runs can pin it
 	// (COV-78). `docker build -t` only moves the mutable tag; inspecting {{.Id}} on
@@ -172,9 +182,35 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCach
 	// at. This is distinct from resolvedBase, which is the FROM-base digest.
 	out, err := c.r.Output("docker", dargs("inspect", "--format", "{{.Id}}", tag)...)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return resolvedBase, strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), nil
+}
+
+// BuildKitImage builds a managed kit's assembled context into the tagged image on
+// the colima daemon, FROM an already-resolved+gated base (the launcher passes the
+// install manifest's BaseRef). It is the Jam launcher's build step — see
+// backend.KitImageBuilder. Context-pinned, so the image lands in the same daemon
+// RunEphemeral runs it from.
+func (c *Colima) BuildKitImage(buildDir, tag, base string, noCache bool) (digest string, err error) {
+	if err := c.preflight(); err != nil {
+		return "", err
+	}
+	if base == "" {
+		return "", fmt.Errorf("build kit image %s: base is required (the Dockerfile is FROM ${BASE})", tag)
+	}
+	return c.buildFromBase(buildDir, tag, base, noCache)
+}
+
+// HasKitImage reports whether the tagged image exists on the colima daemon.
+// `docker image inspect` exits non-zero when absent → (false, nil), the normal
+// miss that drives PrepareKit, never surfaced as an error. Context-pinned so it
+// queries the same daemon BuildKitImage/RunEphemeral use.
+func (c *Colima) HasKitImage(tag string) (bool, error) {
+	if _, err := c.r.Output("docker", dargs("image", "inspect", tag)...); err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 // runImage picks the image reference to `docker run`: the built-image digest when

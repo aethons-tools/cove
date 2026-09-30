@@ -95,8 +95,10 @@ base kit with Anthropic egress stripped — the COV-208 lock), built on demand v
 substrate: each raise carries only the kit reference (`<id>@v<n>`); on an inventory
 **miss** the launcher raises no container and reports not-ready; Jam resolves the
 full definition from the [registry](kits.md#the-managed-kit), calls the launcher's
-`PrepareKit` to build it, and retries. An in-progress build does not block — the
-raise defers to the next reconcile tick. The build context is **data** (the kit
+`PrepareKit` to build it **on the substrate backend** (the colima daemon, so the
+image lands where `RunEphemeral` runs it) FROM the base the install already
+resolved and gated, and retries. An in-progress build does not block — the raise
+defers to the next reconcile tick. The build context is **data** (the kit
 definition + resources compiled into the `at-jam` binary + the launcher's key),
 with **no source kit directory**, so the build can move to a remote substrate; it
 replaces the out-of-band `at-cove install` image (the install manifest is the build

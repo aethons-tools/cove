@@ -691,6 +691,59 @@ func TestPreflightFailsActionably(t *testing.T) {
 	}
 }
 
+// BuildKitImage (the Jam launcher's managed-kit build) is context-pinned and
+// passes the caller's resolved base as the Dockerfile's BASE arg — the two things
+// the bare-runner build in T2/T3 got wrong (COV-217).
+func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}} // the post-build inspect .Id
+	digest, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != "sha256:img" {
+		t.Fatalf("digest = %q, want sha256:img", digest)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE=cove-base@sha256:base") ||
+		!contains(build, "-t") || !contains(build, "cove-kit:managed-v1") || !contains(build, "/b") ||
+		!contains(build, "--progress=plain") {
+		t.Fatalf("build call = %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// The Dockerfile is FROM ${BASE}; a blank base can't build.
+func TestBuildKitImageRequiresBase(t *testing.T) {
+	f := &runner.Fake{}
+	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "", false); err == nil {
+		t.Fatal("BuildKitImage must require a non-empty base")
+	}
+}
+
+// HasKitImage inspects the tag on the pinned colima daemon; a non-zero inspect
+// (absent image) is a (false, nil) miss, not an error.
+func TestHasKitImage(t *testing.T) {
+	f := &runner.Fake{}
+	ok, err := New(f).(backend.KitImageBuilder).HasKitImage("cove-kit:managed-v2")
+	if err != nil || !ok {
+		t.Fatalf("present: Has = %v, %v", ok, err)
+	}
+	insp := dockerCall(f.Calls, "image")
+	if insp == nil || !contains(insp, "inspect") || !contains(insp, "cove-kit:managed-v2") {
+		t.Fatalf("HasKitImage did not inspect the tag: %+v", f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("HasKitImage must pin --context colima: %+v", f.Calls)
+	}
+
+	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
+	if ok, _ := New(f2).(backend.KitImageBuilder).HasKitImage("cove-kit:missing-v9"); ok {
+		t.Fatal("HasKitImage must be false when the image is absent")
+	}
+}
+
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {

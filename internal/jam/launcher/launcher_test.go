@@ -21,6 +21,7 @@ type fakeOps struct {
 	ran        bool
 	runName    string
 	runImage   string
+	runDigest  string
 	runAddHost []string
 	removed    string
 	paused     string
@@ -28,15 +29,31 @@ type fakeOps struct {
 	status     backend.State
 	statusErr  error
 	runErr     error
+
+	// KitImageBuilder scripting/recording.
+	builds    int
+	builtTag  string
+	builtBase string
+	buildErr  error
+	hasImage  map[string]bool
 }
 
 func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
-	f.ran, f.runName, f.runImage, f.runAddHost = true, name, image, addHosts
+	f.ran, f.runName, f.runImage, f.runDigest, f.runAddHost = true, name, image, digest, addHosts
 	if f.runErr != nil {
 		return backend.Instance{}, f.runErr
 	}
 	return backend.Instance{Container: name, Image: image}, nil
 }
+func (f *fakeOps) BuildKitImage(buildDir, tag, base string, noCache bool) (string, error) {
+	f.builds++
+	f.builtTag, f.builtBase = tag, base
+	if f.buildErr != nil {
+		return "", f.buildErr
+	}
+	return "sha256:built", nil
+}
+func (f *fakeOps) HasKitImage(tag string) (bool, error) { return f.hasImage[tag], nil }
 func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
@@ -137,6 +154,11 @@ func TestRaiseFromPreparedKit(t *testing.T) {
 	}
 	if !ops.ran || ops.runImage != "cove-kit:managed-v3" {
 		t.Fatalf("kit raise ran image %q, want cove-kit:managed-v3 (calls=%+v)", ops.runImage, ops)
+	}
+	// The kit path must run the tag with NO digest pin — KitRef.Digest is the
+	// config content hash, not the built image's id, and must never be a run pin.
+	if ops.runDigest != "" {
+		t.Fatalf("kit raise pinned digest %q; want none (KitRef.Digest is a config hash, not an image id)", ops.runDigest)
 	}
 	if loc != "atcove-cove-w1" {
 		t.Fatalf("location = %q, want atcove-cove-w1", loc)
