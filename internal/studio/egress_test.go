@@ -31,3 +31,24 @@ func TestDefaultStudioKitIsAnthropicFree(t *testing.T) {
 		t.Fatal("default kit base must be empty (→ blessed default)")
 	}
 }
+
+func TestCeilingExcludesTrailingDotFQDNs(t *testing.T) {
+	// Trailing-dot FQDNs (e.g., api.anthropic.com.) must be excluded from the ceiling.
+	ceiling, _ := Ceiling([]string{"anthropic.com.", "api.anthropic.com.", "github.com"})
+	if slices.Contains(ceiling, "anthropic.com.") || slices.Contains(ceiling, "api.anthropic.com.") {
+		t.Fatalf("ceiling must exclude trailing-dot Anthropic entries: %v", ceiling)
+	}
+	if !slices.Contains(ceiling, "github.com") {
+		t.Fatalf("ceiling must include non-Anthropic entry github.com: %v", ceiling)
+	}
+	// Negative cases: notanthropic.com should NOT be excluded
+	_, excluded2 := Ceiling([]string{"notanthropic.com"})
+	if len(excluded2) != 0 {
+		t.Fatalf("notanthropic.com should not be excluded: excluded=%v", excluded2)
+	}
+	// Uppercase variants should be excluded (case-insensitive)
+	_, excluded3 := Ceiling([]string{"ANTHROPIC.COM", "claude.com"})
+	if !slices.Contains(excluded3, "ANTHROPIC.COM") || !slices.Contains(excluded3, "claude.com") {
+		t.Fatalf("uppercase ANTHROPIC.COM and claude.com must be excluded: excluded=%v", excluded3)
+	}
+}

@@ -35,6 +35,7 @@ func Ceiling(authored []string) (ceiling, excluded []string) {
 
 func isAnthropicEgress(domain string) bool {
 	h := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	h = strings.TrimSuffix(h, ".")
 	for _, root := range anthropicEgressRoots {
 		if h == root || strings.HasSuffix(h, "."+root) {
 			return true
