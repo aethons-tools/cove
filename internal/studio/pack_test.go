@@ -100,6 +100,101 @@ func TestPackContextDirSizeCap(t *testing.T) {
 	}
 }
 
+func extracted(t *testing.T, b64 string) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "base")
+	if err := (Base{Context: b64}).MaterializeInto(out); err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	return out
+}
+
+func has(dir, rel string) bool { _, err := os.Stat(filepath.Join(dir, rel)); return err == nil }
+
+func TestPackContextDirHonorsDockerignore(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{
+		"Dockerfile":    "FROM x\n",
+		".dockerignore": "*.log\nsecret.txt\n",
+		"app.go":        "keep",
+		"secret.txt":    "nope",
+		"debug.log":     "nope", // root-level → matched by *.log
+		"logs/a.log":    "keep", // subdir → NOT matched by root-anchored *.log (docker parity)
+	})
+	b64, err := PackContextDir(src)
+	if err != nil {
+		t.Fatalf("PackContextDir: %v", err)
+	}
+	out := extracted(t, b64)
+	if !has(out, "Dockerfile") || !has(out, "app.go") {
+		t.Fatal("kept files missing")
+	}
+	if has(out, "secret.txt") {
+		t.Fatal("secret.txt must be excluded by .dockerignore")
+	}
+	if has(out, "debug.log") {
+		t.Fatal("root debug.log must be excluded by *.log")
+	}
+	if !has(out, "logs/a.log") {
+		t.Fatal("logs/a.log must be KEPT — *.log is root-anchored (docker parity)")
+	}
+}
+
+func TestPackContextDirDockerignoreNegation(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{
+		"Dockerfile":    "FROM x\n",
+		".dockerignore": "*.log\n!keep.log\n",
+		"drop.log":      "d",
+		"keep.log":      "k",
+	})
+	b64, err := PackContextDir(src)
+	if err != nil {
+		t.Fatalf("PackContextDir: %v", err)
+	}
+	out := extracted(t, b64)
+	if has(out, "drop.log") {
+		t.Fatal("drop.log must be excluded")
+	}
+	if !has(out, "keep.log") {
+		t.Fatal("!keep.log negation must re-include (moby parity)")
+	}
+}
+
+func TestPackContextDirDockerignoreKeepsBuildFiles(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{
+		"Dockerfile":    "FROM x\n",
+		".dockerignore": "*\n", // ignore everything…
+		"other.txt":     "x",
+	})
+	b64, err := PackContextDir(src)
+	if err != nil {
+		t.Fatalf("PackContextDir: %v", err)
+	}
+	out := extracted(t, b64)
+	if !has(out, "Dockerfile") {
+		t.Fatal("root Dockerfile must be kept even when .dockerignore matches *")
+	}
+	if has(out, "other.txt") {
+		t.Fatal("other.txt must be excluded by *")
+	}
+}
+
+// An ignored directory is pruned, so its contents don't count against the caps —
+// a tree that would blow the entry cap packs fine once .dockerignore excludes it.
+func TestPackContextDirDockerignorePrunesUnderCap(t *testing.T) {
+	defer func(o int) { maxZipEntries = o }(maxZipEntries)
+	maxZipEntries = 2 // room for Dockerfile + .dockerignore only
+	src := writeCtxDir(t, map[string]string{
+		"Dockerfile":     "FROM x\n",
+		".dockerignore":  "node_modules\n",
+		"node_modules/a": "1",
+		"node_modules/b": "2",
+		"node_modules/c": "3",
+	})
+	if _, err := PackContextDir(src); err != nil {
+		t.Fatalf("ignored dir must be pruned (not counted against caps): %v", err)
+	}
+}
+
 func TestResolveContextDirPacks(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n"})
 	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextDir: src}}
