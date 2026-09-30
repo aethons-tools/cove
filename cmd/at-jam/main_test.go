@@ -1284,8 +1284,8 @@ func TestKitPushPacksContextDir(t *testing.T) {
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "ctxkit"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "context:") {
-		t.Fatalf("stored kit should carry a packed context zip; show:\n%s", out.String())
+	if !strings.Contains(out.String(), "context:") || strings.Contains(out.String(), "context-files") {
+		t.Fatalf("stored kit should carry a packed `context:` zip (not context-files); show:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "context-dir") {
 		t.Fatalf("context-dir is client-only and must not be stored; show:\n%s", out.String())

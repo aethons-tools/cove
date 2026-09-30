@@ -18,6 +18,14 @@ import (
 // size, and the encoded-size cap on the result). Only regular files are packed
 // (their paths carry their directories); empty directories are dropped.
 func PackContextDir(dir string) (string, error) {
+	// Resolve a symlinked root to its real path: WalkDir does NOT descend into a
+	// symlinked directory (it would yield an empty zip that only fails later at
+	// build), and EvalSymlinks also gives a clear error for a missing dir.
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("context-dir %q: %w", dir, err)
+	}
+	dir = real
 	if fi, err := os.Stat(filepath.Join(dir, "Dockerfile")); err != nil || !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("context-dir %q: a root Dockerfile is required", dir)
 	}
@@ -25,6 +33,7 @@ func PackContextDir(dir string) (string, error) {
 	zw := zip.NewWriter(&buf)
 	var entries int
 	var total int64
+	var sawDockerfile bool
 	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -41,23 +50,19 @@ func PackContextDir(dir string) (string, error) {
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("entry %q is not a regular file", p)
 		}
-		entries++
-		if entries > maxZipEntries {
-			return fmt.Errorf("context-dir has more than %d entries", maxZipEntries)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		total += info.Size()
-		if total > int64(maxDecompressedZip) {
-			return fmt.Errorf("context-dir exceeds the %d-byte uncompressed cap", maxDecompressedZip)
-		}
 		rel, err := filepath.Rel(dir, p)
 		if err != nil {
 			return err
 		}
-		w, err := zw.Create(filepath.ToSlash(rel))
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == "Dockerfile" {
+			sawDockerfile = true
+		}
+		entries++
+		if entries > maxZipEntries {
+			return fmt.Errorf("context-dir has more than %d entries", maxZipEntries)
+		}
+		w, err := zw.Create(relSlash)
 		if err != nil {
 			return err
 		}
@@ -65,12 +70,25 @@ func PackContextDir(dir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		_, cerr := io.Copy(w, f)
+		// Bound the copy to the remaining budget (the actual decompressed stream,
+		// not the stat size — the file could grow mid-pack), cumulative across entries.
+		before := total
+		n, cerr := io.Copy(w, io.LimitReader(f, int64(maxDecompressedZip)-before+1))
 		f.Close()
-		return cerr
+		if cerr != nil {
+			return cerr
+		}
+		if n > int64(maxDecompressedZip)-before {
+			return fmt.Errorf("context-dir exceeds the %d-byte uncompressed cap", maxDecompressedZip)
+		}
+		total = before + n
+		return nil
 	})
 	if walkErr != nil {
 		return "", fmt.Errorf("pack context-dir %q: %w", dir, walkErr)
+	}
+	if !sawDockerfile {
+		return "", fmt.Errorf("pack context-dir %q: no root Dockerfile packed", dir)
 	}
 	if err := zw.Close(); err != nil {
 		return "", fmt.Errorf("pack context-dir %q: %w", dir, err)

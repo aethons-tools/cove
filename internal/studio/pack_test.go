@@ -70,6 +70,36 @@ func TestPackContextDirEntryCap(t *testing.T) {
 	}
 }
 
+// A symlinked context root must be followed (WalkDir alone would not descend,
+// yielding an empty zip). Regression for the review's Important finding.
+func TestPackContextDirFollowsSymlinkedRoot(t *testing.T) {
+	real := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n", "a.txt": "A"})
+	link := filepath.Join(t.TempDir(), "ctxlink")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	b64, err := PackContextDir(link)
+	if err != nil {
+		t.Fatalf("PackContextDir(symlinked root): %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "base")
+	if err := (Base{Context: b64}).MaterializeInto(out); err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if got := readStr(t, filepath.Join(out, "a.txt")); got != "A" {
+		t.Fatalf("symlinked-root context was not packed: a.txt=%q", got)
+	}
+}
+
+func TestPackContextDirSizeCap(t *testing.T) {
+	defer func(o int) { maxDecompressedZip = o }(maxDecompressedZip)
+	maxDecompressedZip = 16
+	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n", "big": string(make([]byte, 1000))})
+	if _, err := PackContextDir(src); err == nil {
+		t.Fatal("uncompressed size over the cap must be rejected")
+	}
+}
+
 func TestResolveContextDirPacks(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n"})
 	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextDir: src}}
