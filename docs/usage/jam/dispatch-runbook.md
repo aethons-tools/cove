@@ -40,7 +40,7 @@ doc that owns the detail; this runbook only owns the **order** and the
    --repos '<owner>/*' --ttl 24h`. A role with **no `--ttl` mints non-expiring
    tokens** — always set one for ephemeral studios. [roster.md](roster.md).
 5. **Requisitioner** — add `runtime.requisitioner` (`role`, `max-concurrent`,
-   `tracker-token`, `linear.team` + `states`). Restart serve. It polls the
+   `tracker-token-cred`, `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one studio per **dispatch-labeled** ticket, bounded by
    the cap. [requisitioner.md](requisitioner.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and

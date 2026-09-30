@@ -61,8 +61,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    tracker-token:            # Jam's own secret to call the tracker API (never injected into a cove)
-      command: ["op", "read", "op://jam/linear/token"]
+    tracker-token-cred: linear-bot   # names a demanded credential; supplied in the at-jam credentials file (see credentials.md), never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
