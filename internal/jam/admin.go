@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -585,15 +585,16 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		// Config rule of engagement: parse the (human-input) config as YAML and
-		// store it as canonical JSON. ParseConfig validates strictly (KnownFields),
-		// so a malformed or typo'd config is rejected here at ingestion rather than
-		// surfacing later at a raise; the stored JSON reads back via any YAML parser.
-		cfg, err := kit.ParseConfig([]byte(b.Config))
+		// store it as canonical JSON. The jam kit registry holds STUDIO kits only;
+		// studio.ParseStudioKit validates strictly (kind, KnownFields), so a
+		// malformed, typo'd or non-studio config is rejected here at ingestion
+		// rather than surfacing later at a raise.
+		sk, err := studio.ParseStudioKit([]byte(b.Config))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		jsonCfg, err := kit.ConfigToJSON(cfg)
+		jsonCfg, err := sk.ToJSON()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

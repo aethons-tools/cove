@@ -34,7 +34,7 @@ const Label = "harbor.cove"
 // share one docker daemon (COV-217).
 type Backend interface {
 	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
-	backend.KitImageBuilder // BuildKitImage, HasKitImage (managed-kit prepare)
+	backend.KitImageBuilder // BuildKitImage, HasKitImage (studio-kit prepare)
 	GetStatus(container string) (backend.State, error)
 }
 
@@ -42,8 +42,6 @@ type Backend interface {
 type Config struct {
 	Ops           Backend
 	Runner        runner.Runner
-	Image         string
-	ImageDigest   string
 	JamHost       string
 	RuntimeAddr   string
 	IdentityFile  string
@@ -54,20 +52,18 @@ type Config struct {
 	WorkDir       string       // AT_COVE_WORKDIR; default /home/agent/workspace
 	Log           *slog.Logger // nil → discard
 
-	// PrepareKit inputs (managed-cove build path). BuildRoot is where per-kit
+	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
 	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
 	// PublicKey is the launcher's own SSH public key, baked into the built image's
 	// authorized_keys so Jam can reach the raised cove (its private half is
-	// IdentityFile). BaseImage is the resolved, already-gated FROM-base the managed
-	// image builds on (the install manifest's BaseRef) — passed to the backend as
-	// the Dockerfile's BASE arg. The build context otherwise comes entirely from
-	// the KitDefinition (data) and resources compiled into this binary — no source
-	// kit directory, so the build stays a data-only transfer (remote-tolerant).
-	// Inventory is the launcher's prepared-kit source of truth (nil → the
-	// substrate backend's image inventory).
+	// IdentityFile). The build context comes entirely from the KitDefinition (data)
+	// and resources compiled into this binary — no source kit directory, so the
+	// build stays a data-only transfer (remote-tolerant); the FROM-base is resolved
+	// per kit on the substrate (ResolveKitBase, gate ON). Inventory is the
+	// launcher's prepared-kit source of truth (nil → the substrate backend's image
+	// inventory).
 	BuildRoot string
 	PublicKey []byte
-	BaseImage string
 	Inventory Inventory
 
 	sleep func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
@@ -112,24 +108,26 @@ func New(cfg Config) *Launcher {
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := naming.CoveContainer(spec.ActorID)
-	// A kit-referenced raise runs the prepared cove-kit:<id>-v<version> image; a
-	// launcher without that kit returns ErrKitNotReady and creates NO container,
-	// so the supervisor prepares the kit and retries. A zero KitRef (empty ID)
-	// keeps the legacy static-image path so existing callers are unaffected.
-	image, digest := l.cfg.Image, l.cfg.ImageDigest
-	if spec.Kit.ID != "" {
-		ok, err := l.inv.Has(spec.Kit)
-		if err != nil {
-			return "", fmt.Errorf("raise %s: inventory: %w", name, err)
-		}
-		if !ok {
-			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
-		}
-		// Run the immutable cove-kit:<id>-v<n> tag. No digest pin: KitRef.Digest is
-		// the kit CONFIG's content hash (integrity of the definition), not the built
-		// image's id, so it must never be passed as RunEphemeral's image digest.
-		image, digest = imageTag(spec.Kit), ""
+	// A studio raise always carries a kit: its image is cove-kit:<build-digest>. A
+	// launcher without that kit in its inventory returns ErrKitNotReady and creates
+	// NO container, so the supervisor prepares the kit and retries.
+	if spec.Kit.ID == "" {
+		return "", fmt.Errorf("raise %s: no kit (studio raises require a kit)", name)
 	}
+	// The build-digest keys the image tag cove-kit:<Digest>; empty would yield an invalid tag.
+	if spec.Kit.Digest == "" {
+		return "", fmt.Errorf("raise %s: kit %s has no build-digest", name, spec.Kit.ID)
+	}
+	ok, err := l.inv.Has(spec.Kit)
+	if err != nil {
+		return "", fmt.Errorf("raise %s: inventory: %w", name, err)
+	}
+	if !ok {
+		return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
+	}
+	// Run the immutable cove-kit:<build-digest> tag. No digest pin: the tag already
+	// names the exact built image by its build-input digest.
+	image, digest := imageTag(spec.Kit), ""
 	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}

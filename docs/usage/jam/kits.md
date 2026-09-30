@@ -1,58 +1,95 @@
 ---
-summary: The kit registry operator guide — storing named, versioned kit configs in Jam with `kit push|list|show|versions|pin|rm`, and binding one to a role with `role add --kit`.
+summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm`, the StudioKit schema, and binding one to a role with `role add --kit`.
 read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, or binding a kit to a role.
-owns: the operator-facing kit-registry story — the name/version/current model and the `kit` verbs + `role --kit` binding
-prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to; ../at-cove-config.md for the kit config.yml schema being stored
+owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`), the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
+prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
 updated: 2026-09-30
 ---
 
 # The kit registry
 
-Jam stores **kit definitions** — the `config.yml` that defines a studio — so a
-kit can live in Jam's data store and be referenced by a role, rather than only
-as a repo-committed `.at-cove/`. This is the Jam-side registry. Today you register
-kits and bind them to roles; Jam also auto-registers the [managed
-kit](#the-managed-kit) and *resolves* it from here when raising a brokered studio.
-Resolving an *arbitrary* role's kit by reference is still a later slice.
+Jam stores **studio kits** — the small, directly-authored definition a brokered
+studio is built and raised from — so a kit lives in Jam's data store and a role
+references it by name. The registry is **studio-only**: it is not a place for a
+full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
+[migration note](studio-kit-migration.md)).
+
+## The StudioKit
+
+A StudioKit is YAML with a `kind: studio` discriminator (stored in the registry
+as JSON with the same discriminator), a `name`, and five content fields. Unknown
+fields are rejected, so a full-kit field on a studio kit fails at `push`.
+
+```yaml
+kind: studio
+name: web                  # tag-safe: [A-Za-z0-9_.-]
+base:                      # OPTIONAL — one of: ref | dockerfile(+context) | omitted
+  ref: ghcr.io/acme/base@sha256:…
+egress: [github.com, pkg.go.dev]   # allow-list (capped by the ceiling, below)
+build-args: {GO_VERSION: "1.23"}   # never secrets
+secrets:                   # demands: name + description only, never values
+  GH_TOKEN: {description: "clone access"}
+prompt: "You work on the web service …"   # orients the session
+```
+
+| Field | Meaning |
+|---|---|
+| `base` | The image to build FROM: a gated `ref`, **or** a `dockerfile` + `context` files, **or** omitted for the blessed default base. `ref` and `dockerfile` are mutually exclusive. A Dockerfile-context base is **accepted by the schema but its build is deferred** — raising it errors until that lands. |
+| `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
+| `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
+| `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
+| `prompt` | The kit layer of the session prompt. |
+
+The session prompt is **composed at raise** from ordered layers — Jam
+boilerplate → kit → project → role → launch — so it lives *outside* the image.
+The image is tagged by a **build-digest** over only the build-affecting fields
+(`base` + `egress` + `build-args`): a prompt- or secrets-only edit reuses the
+cached image.
+
+### The egress ceiling (COV-208)
+
+A studio's egress **ceiling** structurally excludes `anthropic.com`,
+`claude.com` and `claude.ai` (and their subdomains), so a brokered studio reaches
+Anthropic only through the Jam broker (see [pool.md](pool.md)). An authored
+`egress` naming them is not rejected — the ceiling simply caps it. `kit show`
+prints the effective `egress ceiling:` and an `excluded (COV-208):` line, and
+prepare logs the excluded roots.
 
 ## The model
 
-A registered **kit** is a name holding **immutable, monotonically-numbered
-versions** of a config, behind a mutable **current** pointer:
+A registered kit is a name holding **immutable, monotonically-numbered
+versions**, behind a mutable **current** pointer:
 
-- **push** a config → it becomes the next version (`v1`, `v2`, …) and *current*
+- **push** a studio kit → it becomes the next version (`v1`, `v2`, …) and *current*
   advances to it.
 - A **role references a kit by name** (not `name@version`); the name resolves to
   *current*. Upgrades don't churn role bindings.
 - **pin** *current* to an older version to **roll back** (or forward); versions
-  themselves are never mutated or deleted.
+  are never mutated or deleted.
 
-The kit is a `config.yml` (see [`../at-cove-config.md`](../at-cove-config.md) for
-that schema). On `push` it is **parsed and validated as YAML, then stored as
-canonical JSON**, and `kit show` renders it **back as YAML** — the config rule of
-engagement (human-input parsed as YAML, stored/used as JSON, displayed as YAML).
-So a malformed config is rejected at `push`, not at a later raise, and every
-internal reader sees one canonical form. (JSON is valid YAML, so the parser also
-reads any pre-existing YAML-stored rows.) A registered kit must pin its
-`image.base` by digest; kits whose image is a local `image/Dockerfile` build
-context aren't registry-eligible yet.
+On `push` the YAML is **parsed and validated as a studio kit, then stored as
+canonical JSON**; `kit show` renders it **back as YAML** (the config rule of
+engagement). A malformed or non-studio kit is rejected at `push`, not at a later
+raise.
 
 ## The `kit` verbs
 
 ```
-at-jam kit push --name web --config ./.at-cove/config.yml   # → "pushed web v3"
+at-jam kit push --name web --config ./web.studio.yml        # → "pushed web v3"
 at-jam kit push --name web --config -                       # read config from stdin
 at-jam kit list                                             # name  current=vN  versions=K
-at-jam kit show web                                         # current version's config
+at-jam kit show web                                         # current version's kit + ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
 at-jam kit versions web                                     # v1, v2, v3, …
 at-jam kit pin web 1                                        # roll current back to v1
 at-jam kit rm web                                           # remove the kit (all versions)
 ```
 
-- `kit push` **validates** the config with the same parser `at-cove` uses before
-  sending it — a malformed kit is rejected client-side, not stored.
+- `kit push` **validates** the file as a StudioKit before sending it — a
+  malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
+  full-kit row now fails `kit show`/resolution (see the [migration
+  note](studio-kit-migration.md)).
 - `kit rm` is **fail-closed**: a kit that any role references can't be removed
   (the command reports the referencing role); `ungrant`/rebind the role first, or
   point the role at another kit.
@@ -70,38 +107,22 @@ at-jam role add --project acme --name builder --destinations anthropic,git --kit
 otherwise). The role then resolves to that kit's *current* version. See
 [roster.md](roster.md) for the rest of the role surface.
 
-## The managed kit
+## Role to kit, and the default kit
 
-When a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) is configured,
-Jam auto-registers a kit named **`managed`** at startup: the launcher's base kit
-with the Anthropic egress roots (`anthropic.com`, `claude.com`, `claude.ai`)
-stripped, so a brokered studio reaches Anthropic only through the Jam broker (the
-COV-208 egress lock — see [pool.md](pool.md)). The push is **idempotent**: an
-unchanged config keeps its version across restarts, and a change bumps a new one
-(so a drifted kit re-builds instead of running a stale image). It uses the same
-name/version/current model as any registered kit, so `kit show managed` /
-`kit versions managed` inspect it.
+`role add --kit <name>` names a studio kit **directly**; a brokered cove for that
+role raises from it. Resolution is **fail-closed**: a name that is absent from the
+registry, or not tag-safe, fails the raise. A role with `--kit` unset (`""`)
+raises the built-in **`default`** studio kit — the blessed base, a minimal
+Anthropic-free egress list and a generic prompt — which Jam **seeds into the
+registry at serve start** (idempotent), so it is inspectable/versioned like any
+other (`kit show default`).
 
-The supervisor carries only the kit's light **reference** (`<id>@v<n>`, a
-`KitRef`) on each raise; the launcher resolves that against its own prepared-image
-inventory and, on a miss, Jam resolves the full definition from *this* registry
-and hands it to the launcher's `PrepareKit` to build before retrying the raise.
-That light-reference / lazy-prepare handshake — and why the build context travels
-as data with no source directory — is documented on the raise side in
-[coves.md](coves.md#the-managed-kit-and-its-kit-prepare-protocol).
-
-### Per-role kits
-
-A [role](roster.md) can name its own kit (`role add --kit <name>`, above): a
-managed cove for that role raises from a **managed variant** of the named kit —
-Jam derives it exactly as the default (`ManagedKit()` strips Anthropic egress),
-registers it idempotently under **`managed-<name>`** (reserved prefix, so the
-docker tag `cove-kit:managed-<name>-v<n>` stays valid), and raises from that. So
-COV-208 holds for every role's kit, and operators push ordinary kits. A role with
-no kit uses the default `managed`. Unlike the default (which reuses at-cove
-install's already-gated base), a role-named kit's own `image.base` is resolved and
-**provenance-gated at build with no `--allow-unverified` escape hatch** — a
-brokered cove must run a blessed base, or the raise fails.
+The supervisor carries only a light **reference** (`<id>@v<n>`) on each raise; the
+launcher resolves it against its prepared-image inventory and, on a miss, Jam
+resolves the full kit from *this* registry and calls `PrepareKit` to build it. That
+handshake is documented on the raise side in
+[coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol). A `ref` base is
+**provenance-gated at build with no `--allow-unverified` escape hatch**.
 
 ## Upgrades & rollback
 
@@ -110,5 +131,5 @@ brokered cove must run a blessed base, or the raise fails.
 - **Roll back**: `kit pin web <older-version>` — *current* moves back; bindings are
   unchanged (they still reference `web`).
 
-Design rationale (the versioning model, deferred image/payload-tree kits) lives in
+Design rationale (the versioning model) lives in
 [`../../superpowers/specs/2026-09-12-harbor-kit-registry.md`](../../superpowers/specs/2026-09-12-harbor-kit-registry.md).

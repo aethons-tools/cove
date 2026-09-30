@@ -2,16 +2,21 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
-	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// PrepareKit builds a managed kit's image from its full definition: it assembles
-// the build context and `docker build -t cove-kit:<id>-v<version>`, so a later
+// ErrDockerfileContextUnsupported is returned by PrepareKit for a studio kit
+// whose base is a Dockerfile-context build: the schema is accepted but the build
+// is deferred (COV-208 ships the ref-based path first).
+var ErrDockerfileContextUnsupported = errors.New("studio kit: Dockerfile-context build not yet supported")
+
+// PrepareKit builds a studio kit's image from its full definition: it assembles
+// the build context and `docker build -t cove-kit:<build-digest>`, so a later
 // Raise carrying only the KitRef finds the tagged image. It is the response to a
 // Raise that returned ErrKitNotReady.
 //
@@ -37,29 +42,29 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitReady}, nil
 	}
 
-	buildDir := filepath.Join(l.cfg.BuildRoot, fmt.Sprintf("%s-v%d", ref.ID, ref.Version))
+	// A Dockerfile-context build is accepted in the schema but deferred: the
+	// ref-based path ships first (COV-208).
+	if def.Kit.Base.Dockerfile != "" {
+		return KitStatus{State: KitPreparing, Err: ErrDockerfileContextUnsupported.Error()}, fmt.Errorf("prepare kit %s: %w", ref, ErrDockerfileContextUnsupported)
+	}
+	buildDir := filepath.Join(l.cfg.BuildRoot, ref.Digest)
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
-	// Pick the FROM-base. The default managed kit keeps cfg.BaseImage — the base
-	// at-cove install already resolved and gated (COV-217). A role-named kit builds
-	// FROM its OWN declared base, resolved + gated on the substrate (gate ON — no
-	// --allow-unverified for brokered coves).
-	base := l.cfg.BaseImage
-	if ref.ID != jam.ManagedKitID {
-		resolved, err := l.cfg.Ops.ResolveKitBase(def.Config.Image.Base)
-		if err != nil {
-			return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
-		}
-		base = resolved
+	// Resolve the FROM-base on the substrate: the gate is ON (no --allow-unverified
+	// for brokered coves), and an empty Base.Ref resolves to the blessed default.
+	base, err := l.cfg.Ops.ResolveKitBase(def.Kit.Base.Ref)
+	if err != nil {
+		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
 	}
-	// Build on the substrate backend (context-pinned + BASE arg), so the image
-	// lands in the same daemon Raise's RunEphemeral runs it from, and the
-	// Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
-	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, false); err != nil {
+	// Build on the substrate backend (context-pinned + BASE arg + kit build-args),
+	// so the image lands in the same daemon Raise's RunEphemeral runs it from, and
+	// the Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
+	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
-	l.cfg.Log.Info("prepared kit", "ref", ref.String(), "tag", imageTag(ref))
+	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
+	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", imageTag(ref), "ceiling_excludes", excluded)
 	return KitStatus{State: KitReady}, nil
 }
 
@@ -87,6 +92,6 @@ func (l *Launcher) lockRef(ref KitRef) func() {
 // data-only transfer that a remote substrate could run too. Wired unless a test
 // injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
-	gitlabHost, _ := def.Config.GitLabHost() // "" for a non-GitLab kit
-	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, assemble.EgressFor(def.Config), gitlabHost)
+	eg, _ := studioEgress(def.Kit, l.cfg.JamHost)
+	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "")
 }

@@ -22,7 +22,7 @@ import (
 // produced is a machine-side concern (see internal/usersecret) — a kit never
 // carries a resolver command.
 type SecretConfig struct {
-	Description string `yaml:"description"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // ImageConfig declares the image a kit hardens and its additive egress. Build-time
@@ -896,6 +896,12 @@ var reservedSecretNames = map[string]bool{
 	"AT_DISPATCH_WEBHOOK_SECRET": true,
 	gcpADCDemandName:             true,
 }
+
+// IsReservedSecretName reports whether n is a reserved subsystem secret name
+// (AT_TASK_GIT_TOKEN, AT_DISPATCH_*, the ADC demand). Exported so other packages
+// (e.g. internal/studio build-arg validation) can reject collisions without
+// duplicating the set.
+func IsReservedSecretName(n string) bool { return reservedSecretNames[n] }
 
 // gcpADCDemandName is the well-known demand name a Vertex kit's GCP Application
 // Default Credentials are supplied under (mirrors cmd/at-cove's gcpADCDemand

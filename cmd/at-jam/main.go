@@ -32,7 +32,6 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
-	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/intercom/intercompg"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -50,6 +49,7 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/standing"
+	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -834,8 +834,8 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		if _, err := kit.ParseConfig(data); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: invalid kit config:", err)
+		if err := validatePushedKit(data); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
 			return 1
 		}
 		v, err := c.PushKit(*name, string(data))
@@ -864,18 +864,21 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// Stored form is canonical JSON; render it back as YAML for the human.
-		// ParseConfig accepts JSON (and any legacy YAML rows) alike.
-		cfg, err := kit.ParseConfig([]byte(res.Config))
+		// ParseStudioKit accepts JSON (and any YAML rows) alike.
+		sk, err := studio.ParseStudioKit([]byte(res.Config))
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam kit show: stored config is not valid:", err)
+			fmt.Fprintln(stderr, "at-jam kit show: stored config is not a valid studio kit:", err)
 			return 1
 		}
-		y, err := kit.ConfigToYAML(cfg)
+		y, err := yaml.Marshal(sk)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprint(stdout, string(y))
+		ceiling, excluded := studioShowEgress(sk.Egress)
+		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
+		fmt.Fprintf(stdout, "excluded (COV-208): %s\n", joinOrNone(excluded))
 	case "versions":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "at-jam kit versions: expected one kit name")
@@ -1517,69 +1520,52 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	var lch jam.Launcher = placeholderLauncher{}
-	var managedRef jam.KitRef
-	var haveManagedKit bool
+	var defaultRef jam.KitRef
+	var haveDefaultKit bool
 	if lc := cfg.Runtime.Launcher; lc != nil {
-		var m install.Manifest
-		b, err := os.ReadFile(lc.InstallManifest)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: launcher install-manifest:", err)
-			return 1
-		}
-		if err := json.Unmarshal(b, &m); err != nil {
-			fmt.Fprintln(stderr, "at-jam: launcher install-manifest:", err)
-			return 1
-		}
 		be, ok := colima.New(runner.OS{}).(launcher.Backend) // colima.New returns backend.Backend; *Colima also satisfies DispatchOps+GetStatus
 		if !ok {
 			fmt.Fprintln(stderr, "at-jam: colima backend does not satisfy launcher.Backend")
 			return 1
 		}
-		// The launcher builds the managed image on demand, so it needs the public
-		// half of the SSH identity to bake into the image's authorized_keys (the
-		// same key at-cove install baked; its private half is IdentityFile). No kit
-		// source directory: the build context comes from the kit definition (data)
-		// + resources compiled into this binary.
+		// The launcher builds each studio kit's image on demand, so it needs the
+		// public half of the SSH identity to bake into the image's authorized_keys
+		// (the same key at-cove install baked; its private half is IdentityFile). No
+		// kit source directory: the build context comes from the kit definition
+		// (data) + resources compiled into this binary, and the FROM-base is resolved
+		// per kit on the substrate (gate ON).
 		pub, err := os.ReadFile(lc.IdentityFile + ".pub")
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: launcher identity public key ("+lc.IdentityFile+".pub):", err)
 			return 1
 		}
-		// The managed image builds FROM the same base at-cove install already
-		// resolved and gated (the manifest's BaseRef); the launcher passes it as the
-		// Dockerfile's BASE arg. A manifest without one can't build a managed kit.
-		if m.BaseRef == "" {
-			fmt.Fprintln(stderr, "at-jam: launcher install-manifest has no baseRef; cannot build the managed kit")
-			return 1
-		}
 		lch = launcher.New(launcher.Config{
 			Ops: be, Runner: runner.OS{},
-			Image: m.Image, ImageDigest: m.ImageDigest,
 			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
-			PublicKey: pub, BaseImage: m.BaseRef,
+			PublicKey: pub,
 			// Seed raised coves in subscription mode when the pool is enabled, so
 			// their claude authenticates as a pooled subscription principal.
 			Subscription: cfg.Pool != nil,
 			Log:          log,
 		})
-		// Register the managed kit (the interactive base with Anthropic egress
-		// stripped — COV-208) in the registry and hand its reference to the
-		// supervisor. Idempotent: an unchanged config reuses the version across
+		// Seed the built-in default studio kit (blessed base, Anthropic-free egress
+		// ceiling — COV-208) in the registry and hand its reference to the
+		// supervisor. Idempotent: an unchanged definition reuses the version across
 		// restarts; the supervisor resolves the full definition from the registry
 		// only when the launcher reports the kit is not yet built.
-		managedRef, err = jam.EnsureManagedKit(st, m.RunConfig)
+		defaultRef, err = jam.EnsureDefaultStudioKit(st)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: register managed kit:", err)
+			fmt.Fprintln(stderr, "at-jam: seed default studio kit:", err)
 			return 1
 		}
-		haveManagedKit = true
-		log.Info("Jam launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr, "managed-kit", managedRef.String())
+		haveDefaultKit = true
+		log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", defaultRef.String())
 	}
 	sup := jam.NewSupervisor(st, lch, jam.NewHolderID(), ttl, reconcile, time.Now, log)
-	if haveManagedKit {
-		sup.SetManagedKit(managedRef)
+	if haveDefaultKit {
+		sup.SetDefaultStudioKit(defaultRef)
 	}
 	go sup.Run(context.Background())
 
@@ -2130,4 +2116,24 @@ func cmdPool(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// validatePushedKit validates a studio-kit config before it is stored, so a
+// malformed kit is caught at push, not at raise.
+func validatePushedKit(data []byte) error {
+	_, err := studio.ParseStudioKit(data)
+	return err
+}
+
+// studioShowEgress returns the effective ceiling and the excluded (Anthropic)
+// roots for display, so an operator sees exactly what a studio kit can reach.
+func studioShowEgress(authored []string) (ceiling, excluded []string) {
+	return studio.Ceiling(authored)
+}
+
+func joinOrNone(ss []string) string {
+	if len(ss) == 0 {
+		return "none"
+	}
+	return strings.Join(ss, ", ")
 }
