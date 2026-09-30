@@ -149,7 +149,12 @@ func (c serveConfig) validateWake() error {
 
 // discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
-	BotToken credSpec `yaml:"bot-token"` // resolved on the host; never logged/injected
+	// BotTokenCred names a demanded credential; the token is supplied by the
+	// at-jam credentials file, never inline here.
+	BotTokenCred string `yaml:"bot-token-cred"`
+	// DeprecatedBotToken detects the removed inline form; a set value is a hard
+	// error pointing at the credentials file.
+	DeprecatedBotToken *credSpec `yaml:"bot-token"`
 }
 
 // launcherConfig configures the real Colima-backed jam.Launcher
@@ -261,12 +266,14 @@ func (c serveConfig) validateLauncher() error {
 // requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
-	Role          string             `yaml:"role"`
-	Project       string             `yaml:"project"`
-	MaxConcurrent int                `yaml:"max-concurrent"`
-	PollInterval  string             `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
-	TrackerToken  credSpec           `yaml:"tracker-token"`
-	Linear        *kit.LinearTracker `yaml:"linear"`
+	Role             string `yaml:"role"`
+	Project          string `yaml:"project"`
+	MaxConcurrent    int    `yaml:"max-concurrent"`
+	PollInterval     string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	TrackerTokenCred string `yaml:"tracker-token-cred"`
+	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
+	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
+	Linear                 *kit.LinearTracker `yaml:"linear"`
 
 	// WakePollInterval, WaitMax, and WarmTimeout configure the resident wake-on
 	// engine (internal/wakeon), which watches Waiting instances' tickets and
@@ -338,19 +345,34 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.Linear == nil {
 		return fmt.Errorf("runtime.requisitioner.linear is required")
 	}
+	if d.DeprecatedTrackerToken != nil {
+		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
+	}
+	if d.TrackerTokenCred == "" {
+		return fmt.Errorf("runtime.requisitioner.tracker-token-cred is required")
+	}
+	if !c.credConfigured(d.TrackerTokenCred) {
+		return fmt.Errorf("runtime.requisitioner.tracker-token-cred %q is not a demanded credential", d.TrackerTokenCred)
+	}
 	return nil
 }
 
 // validateDiscord checks runtime.discord when present (required: a non-empty
-// bot-token, as a command or a literal value). A no-op when runtime.discord is
+// bot-token-cred, naming a demanded credential). A no-op when runtime.discord is
 // unset — the resident Discord relay engine stays disabled.
 func (c serveConfig) validateDiscord() error {
 	d := c.Runtime.Discord
 	if d == nil {
 		return nil
 	}
-	if len(d.BotToken.Command) == 0 && d.BotToken.Value == "" {
-		return fmt.Errorf("runtime.discord.bot-token is required")
+	if d.DeprecatedBotToken != nil {
+		return fmt.Errorf("runtime.discord.bot-token is no longer inline — set runtime.discord.bot-token-cred: <name> and %s", credentialsFileHint)
+	}
+	if d.BotTokenCred == "" {
+		return fmt.Errorf("runtime.discord.bot-token-cred is required")
+	}
+	if !c.credConfigured(d.BotTokenCred) {
+		return fmt.Errorf("runtime.discord.bot-token-cred %q is not a demanded credential", d.BotTokenCred)
 	}
 	return nil
 }
