@@ -202,6 +202,13 @@ func (c *Colima) BuildKitImage(buildDir, tag, base string, noCache bool) (digest
 	return c.buildFromBase(buildDir, tag, base, noCache)
 }
 
+// ResolveKitBase resolves + gates declaredBase for a role-named managed kit (the
+// provenance gate is ON — no --allow-unverified escape hatch for brokered coves;
+// "" resolves to the blessed default). See backend.KitImageBuilder.
+func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
+	return c.resolveBase(backend.BaseSpec{Base: declaredBase})
+}
+
 // HasKitImage reports whether the tagged image exists on the colima daemon.
 // `docker image inspect` exits non-zero when absent → (false, nil), the normal
 // miss that drives PrepareKit, never surfaced as an error. Context-pinned so it

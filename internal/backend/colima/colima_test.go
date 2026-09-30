@@ -714,6 +714,17 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	}
 }
 
+// ResolveKitBase with no declared base resolves to the substrate's blessed
+// default (no gate inspect needed for the default), so a role-named kit that
+// doesn't pin its own base still builds.
+func TestResolveKitBaseDefaultsToBlessed(t *testing.T) {
+	f := &runner.Fake{}
+	got, err := New(f).(backend.KitImageBuilder).ResolveKitBase("")
+	if err != nil || got == "" {
+		t.Fatalf("ResolveKitBase(\"\") = %q, %v; want the blessed default", got, err)
+	}
+}
+
 // The Dockerfile is FROM ${BASE}; a blank base can't build.
 func TestBuildKitImageRequiresBase(t *testing.T) {
 	f := &runner.Fake{}

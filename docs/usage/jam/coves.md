@@ -102,7 +102,9 @@ defers to the next reconcile tick. The build context is **data** (the kit
 definition + resources compiled into the `at-jam` binary + the launcher's key),
 with **no source kit directory**, so the build can move to a remote substrate; it
 replaces the out-of-band `at-cove install` image (the install manifest is the build
-base, not the raised image).
+base, not the raised image). A [role that names its own kit](kits.md#per-role-kits)
+raises from a `managed-<name>` variant instead, built FROM that kit's own
+provenance-gated base.
 
 ### Egress drift
 

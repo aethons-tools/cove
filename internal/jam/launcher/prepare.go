@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // PrepareKit builds a managed kit's image from its full definition: it assembles
@@ -40,10 +41,22 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
+	// Pick the FROM-base. The default managed kit keeps cfg.BaseImage — the base
+	// at-cove install already resolved and gated (COV-217). A role-named kit builds
+	// FROM its OWN declared base, resolved + gated on the substrate (gate ON — no
+	// --allow-unverified for brokered coves).
+	base := l.cfg.BaseImage
+	if ref.ID != jam.ManagedKitID {
+		resolved, err := l.cfg.Ops.ResolveKitBase(def.Config.Image.Base)
+		if err != nil {
+			return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
+		}
+		base = resolved
+	}
 	// Build on the substrate backend (context-pinned + BASE arg), so the image
 	// lands in the same daemon Raise's RunEphemeral runs it from, and the
 	// Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
-	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), l.cfg.BaseImage, false); err != nil {
+	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
 	l.cfg.Log.Info("prepared kit", "ref", ref.String(), "tag", imageTag(ref))

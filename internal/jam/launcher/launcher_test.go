@@ -31,11 +31,13 @@ type fakeOps struct {
 	runErr     error
 
 	// KitImageBuilder scripting/recording.
-	builds    int
-	builtTag  string
-	builtBase string
-	buildErr  error
-	hasImage  map[string]bool
+	builds       int
+	builtTag     string
+	builtBase    string
+	buildErr     error
+	hasImage     map[string]bool
+	resolvedBase string // ResolveKitBase returns this (default "blessed-default")
+	resolvedFrom string // the declaredBase ResolveKitBase was asked about
 }
 
 func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
@@ -54,6 +56,13 @@ func (f *fakeOps) BuildKitImage(buildDir, tag, base string, noCache bool) (strin
 	return "sha256:built", nil
 }
 func (f *fakeOps) HasKitImage(tag string) (bool, error) { return f.hasImage[tag], nil }
+func (f *fakeOps) ResolveKitBase(declaredBase string) (string, error) {
+	f.resolvedFrom = declaredBase
+	if f.resolvedBase != "" {
+		return f.resolvedBase, nil
+	}
+	return "blessed-default", nil
+}
 func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
