@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Running Jam (`at-jam serve`)
@@ -33,11 +33,12 @@ admin-tls:                     # optional; admin-API cert. Falls back to tls: if
   cert: /etc/jam/tls/admin-fullchain.pem
   key:  /etc/jam/tls/admin-privkey.pem
 store: /var/lib/jam/store.json   # the live data file (identities, roles, kits, destinations)
-credentials:                        # the REAL downstream secrets Jam injects
+credentials-file: /home/jam/.config/at-jam/credentials.yml  # optional; the XDG default shown
+credentials:                        # name-only DEMANDS — strategies live in the credentials file
   anthropic-key:
-    command: ["at-mint", "anthropic", "--audience", "…"]   # a resolver run on the host
   git-pat:
-    value: "ghp_…"                                         # or a literal value
+  discord-bot:
+  linear-bot:
 pool:                               # optional — subscription-OAuth account pool (see below)
   store: /var/lib/jam/pool.json     # host-side pool file (accounts + identity→account bindings)
   cred-name: anthropic-sub          # the anthropic destination cred this pool serves
@@ -62,6 +63,10 @@ runtime:                            # optional — supervisor lease/reconcile ti
     known-hosts-dir: /var/lib/jam/known_hosts.d
     dns: []
     docker: false
+  discord:
+    bot-token-cred: discord-bot     # a name in `credentials:`
+  requisitioner:
+    tracker-token-cred: linear-bot  # a name in `credentials:`
   wake:                             # optional — wake-on engine timing (see intercom.md)
     wait-max: 24h
 ```
@@ -83,14 +88,15 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
 | `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
 | `intercom-log` | no | Filesystem path to Jam's durable squawk Log (JSONL). With a Log (file or `store-postgres`), Jam runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a Requisitioner; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
-| `credentials.<name>` | as needed | The real secrets the broker injects, each a `{command: [...]}` resolver or a literal `{value: "..."}`. Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. |
+| `credentials-file` | no | Path to the protected file that supplies the demanded credentials. Default `${XDG_CONFIG_HOME:-~/.config}/at-jam/credentials.yml`. See [credentials.md](credentials.md). |
+| `credentials.<name>` | as needed | The credentials the broker injects, **named only** (an empty entry); strategies live in the credentials file — see [credentials.md](credentials.md). Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. A demanded name the file doesn't supply aborts `serve`. |
 | `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `store` and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `install-manifest`, `runtime-addr`, `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. See the launcher note below. |
-| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), and a `linear` block. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires a non-empty `bot-token` (`command` or `value`, resolved on the host — never logged/injected) and a configured `intercom-log`; no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), a `linear` block, and `tracker-token-cred` (a demanded credential name). Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `bot-token-cred` (a demanded name in `credentials:`, resolved on the host — never logged/injected) and a configured `intercom-log`; no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store backend (`store-postgres`)
@@ -113,8 +119,8 @@ store-postgres:
   password-cred: jam-db      # a name in `credentials:` — never an inline password
 ```
 
-The DB password is **never inline**: `password-cred` names a `credentials:`
-entry, resolved on the host in memory when `serve` assembles the connection
+No credential is ever inline — the DB password included: `password-cred` names a `credentials:`
+entry (supplied by the [credentials file](credentials.md)), resolved on the host in memory when `serve` assembles the connection
 string — it is never written to disk, put on a command line, or logged (the
 startup log names only the host and database). `store-postgres` takes precedence
 over `store` when both are present.
