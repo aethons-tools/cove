@@ -52,7 +52,12 @@ type serveConfig struct {
 	// precedence over the file `store`. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
 	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
-	Credentials   map[string]credSpec  `yaml:"credentials"`
+	// CredentialsFile is the protected supply file that resolves each demanded
+	// credential's strategy (value/command/global/mint). Empty => the XDG default
+	// (~/.config/at-jam/credentials.yml). Strategies never live in this serve
+	// config — see docs/usage/jam/credentials.md.
+	CredentialsFile string              `yaml:"credentials-file"`
+	Credentials     map[string]credSpec `yaml:"credentials"`
 	// Pool, when set, enables the subscription-OAuth account pool: the anthropic
 	// destination's cred (cred-name) is resolved from the pool by cove identity,
 	// coves are seeded in subscription mode, and a background refresher rotates
@@ -556,6 +561,52 @@ func (c serveConfig) credConfigured(n string) bool {
 		return true
 	}
 	return c.Pool != nil && n == c.Pool.CredName
+}
+
+// credentialsFileHint is the shared tail for every "an inline secret is no longer
+// allowed here" error — it points the operator at the supply file + its doc.
+const credentialsFileHint = "supply its strategy in the at-jam credentials file (see docs/usage/jam/credentials.md)"
+
+// validateCredentials enforces the demand/supply split: a serve-config
+// credentials: entry names a credential only; an inline command:/value: (the old
+// form) is a hard error pointing at the credentials file.
+func (c serveConfig) validateCredentials() error {
+	for name, cs := range c.Credentials {
+		if len(cs.Command) > 0 || cs.Value != "" {
+			return fmt.Errorf("credentials.%s: an inline command/value is no longer allowed — list the name only and %s", name, credentialsFileHint)
+		}
+	}
+	return nil
+}
+
+// demandedCredentials is the sorted set of credential names the serve config
+// demands (the credentials: keys). The supply file must resolve every one.
+func (c serveConfig) demandedCredentials() []string {
+	out := make([]string, 0, len(c.Credentials))
+	for name := range c.Credentials {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// credentialsFilePath is the supply file to load: the explicit credentials-file
+// when set, else the XDG default ~/.config/at-jam/credentials.yml.
+func (c serveConfig) credentialsFilePath() string {
+	if c.CredentialsFile != "" {
+		return c.CredentialsFile
+	}
+	return filepath.Join(atJamConfigDir(), "credentials.yml")
+}
+
+// atJamConfigDir mirrors atCoveConfigDir: $XDG_CONFIG_HOME/at-jam, else
+// ~/.config/at-jam.
+func atJamConfigDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "at-jam")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "at-jam")
 }
 
 // credSpecs maps each configured credential to a secret.Spec (literal or command).

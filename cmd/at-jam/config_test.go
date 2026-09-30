@@ -670,3 +670,47 @@ func TestCredConfiguredIncludesPoolCred(t *testing.T) {
 		t.Fatal("without a pool block, the pool cred must not resolve")
 	}
 }
+
+func TestValidateCredentials_InlineStrategyRejected(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  anthropic-key:
+    command: ["at-mint", "anthropic"]
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err == nil {
+		t.Fatal("want error for an inline command under credentials:, got nil")
+	}
+}
+
+func TestValidateCredentials_NameOnlyOK(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  anthropic-key:
+  git-pat:
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err != nil {
+		t.Fatalf("name-only credentials should validate: %v", err)
+	}
+	got := cfg.demandedCredentials()
+	if len(got) != 2 || got[0] != "anthropic-key" || got[1] != "git-pat" {
+		t.Fatalf("demandedCredentials = %v", got)
+	}
+}
+
+func TestCredentialsFilePath_DefaultUnderXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	var cfg serveConfig
+	if got := cfg.credentialsFilePath(); got != "/tmp/xdg/at-jam/credentials.yml" {
+		t.Fatalf("default path = %q", got)
+	}
+	cfg.CredentialsFile = "/etc/jam/creds.yml"
+	if got := cfg.credentialsFilePath(); got != "/etc/jam/creds.yml" {
+		t.Fatalf("explicit path = %q", got)
+	}
+}
