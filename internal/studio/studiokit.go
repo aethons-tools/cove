@@ -19,11 +19,13 @@ const Kind = "studio"
 
 // Base names the image a studio kit builds FROM, exactly one of three ways:
 //   - Ref set          → build FROM that (gated) image ref.
-//   - Dockerfile set   → build a context (Dockerfile + Context files); the build
-//     is DEFERRED (PrepareKit returns ErrDockerfileContextUnsupported).
+//   - Dockerfile set   → build a context (Dockerfile + Context files) into a
+//     (gated) base image; the Dockerfile should `FROM ${COVE_BASE_IMAGE}` so the
+//     result descends from the blessed base.
 //   - both empty       → the blessed default base.
 //
-// Ref and Dockerfile are mutually exclusive.
+// Ref and Dockerfile are mutually exclusive. Context maps a relative path to its
+// file content; it travels by value with the kit, so the build needs no host dir.
 type Base struct {
 	Ref        string            `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Dockerfile string            `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`

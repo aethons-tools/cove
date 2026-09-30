@@ -2,18 +2,12 @@ package launcher
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
 )
-
-// ErrDockerfileContextUnsupported is returned by PrepareKit for a studio kit
-// whose base is a Dockerfile-context build: the schema is accepted but the build
-// is deferred (COV-208 ships the ref-based path first).
-var ErrDockerfileContextUnsupported = errors.New("studio kit: Dockerfile-context build not yet supported")
 
 // PrepareKit builds a studio kit's image from its full definition: it assembles
 // the build context and `docker build -t cove-kit:<build-digest>`, so a later
@@ -42,18 +36,15 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitReady}, nil
 	}
 
-	// A Dockerfile-context build is accepted in the schema but deferred: the
-	// ref-based path ships first (COV-208).
-	if def.Kit.Base.Dockerfile != "" {
-		return KitStatus{State: KitPreparing, Err: ErrDockerfileContextUnsupported.Error()}, fmt.Errorf("prepare kit %s: %w", ref, ErrDockerfileContextUnsupported)
-	}
 	buildDir := filepath.Join(l.cfg.BuildRoot, ref.Digest)
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
-	// Resolve the FROM-base on the substrate: the gate is ON (no --allow-unverified
-	// for brokered coves), and an empty Base.Ref resolves to the blessed default.
-	base, err := l.cfg.Ops.ResolveKitBase(def.Kit.Base.Ref)
+	// Resolve the FROM-base on the substrate (gate ON — no --allow-unverified for
+	// brokered coves). Three cases: an authored Dockerfile+context is materialized
+	// and built into a gated base; else a declared Base.Ref is resolved+gated; an
+	// empty ref resolves to the blessed default.
+	base, err := l.resolveStudioBase(def, ref)
 	if err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
 	}
@@ -66,6 +57,21 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
 	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", imageTag(ref), "ceiling_excludes", excluded)
 	return KitStatus{State: KitReady}, nil
+}
+
+// resolveStudioBase resolves the gated FROM-base for a studio kit. An authored
+// Dockerfile+context is materialized (by value, no host-dir dependency) into a
+// per-ref base dir and built+gated via the backend; otherwise the declared
+// Base.Ref is resolved+gated ("" → blessed default). The gate is ON in both cases.
+func (l *Launcher) resolveStudioBase(def KitDefinition, ref KitRef) (string, error) {
+	if def.Kit.Base.Dockerfile != "" {
+		baseDir := filepath.Join(l.cfg.BuildRoot, ref.Digest+"-base")
+		if err := materializeDockerfileBase(baseDir, def.Kit.Base); err != nil {
+			return "", err
+		}
+		return l.cfg.Ops.ResolveKitBaseDockerfile(baseDir)
+	}
+	return l.cfg.Ops.ResolveKitBase(def.Kit.Base.Ref)
 }
 
 // lockRef returns the per-ref build lock, held; the returned func releases it.

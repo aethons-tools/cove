@@ -219,6 +219,14 @@ func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
 	return c.resolveBase(backend.BaseSpec{Base: declaredBase})
 }
 
+// ResolveKitBaseDockerfile builds the studio kit's materialized Dockerfile context
+// (Dockerfile at contextDir's root) into a base image and gates it (gate ON), per
+// backend.KitImageBuilder. The build injects the blessed COVE_BASE_IMAGE arg, so a
+// context that does `FROM ${COVE_BASE_IMAGE}` descends from the blessed base.
+func (c *Colima) ResolveKitBaseDockerfile(contextDir string) (string, error) {
+	return c.resolveBase(backend.BaseSpec{DockerfileDir: contextDir})
+}
+
 // HasKitImage reports whether the tagged image exists on the colima daemon.
 // `docker image inspect` exits non-zero when absent → (false, nil), the normal
 // miss that drives PrepareKit, never surfaced as an error. Context-pinned so it
