@@ -51,6 +51,13 @@ type Store interface {
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
 	Match(reqPath string) (Destination, bool)
+	// ExportConfig snapshots the config aggregates (actors, roles, kits,
+	// destinations, projects); it never reads instances or unread cursors.
+	ExportConfig() ConfigSnapshot
+	// ImportConfig restores a snapshot into an EMPTY store, fail-closed: it
+	// returns ErrConfigNotEmpty (writing nothing) if any config aggregate has
+	// entries, or ErrUnsupportedConfigVersion for a bad version.
+	ImportConfig(s ConfigSnapshot) error
 
 	AddHuman(project string, h Human) error // upsert by name
 	AddChannel(project string, c Channel) error
