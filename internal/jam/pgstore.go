@@ -272,6 +272,73 @@ func (s *PostgresStore) exec(op, sql string, args ...any) error {
 	return nil
 }
 
+// ImportConfig restores a config snapshot into an empty Postgres store in a
+// single transaction: either every aggregate row is inserted or none is. It is
+// fail-closed (checkImport) and never touches instances or unread cursors.
+func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := checkImport(s.memState, snap); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		for _, a := range snap.Actors {
+			doc, err := json.Marshal(a)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO actors (token_hash, id, doc) VALUES ($1,$2,$3)`, a.TokenHash, a.ID, doc); err != nil {
+				return err
+			}
+		}
+		for project, rs := range snap.Roles {
+			for _, r := range rs {
+				doc, err := json.Marshal(r)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)`, project, r.Name, doc); err != nil {
+					return err
+				}
+			}
+		}
+		for _, k := range snap.Kits {
+			doc, err := json.Marshal(k)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO kits (name, doc) VALUES ($1,$2)`, k.Name, doc); err != nil {
+				return err
+			}
+		}
+		for _, d := range snap.Destinations {
+			doc, err := json.Marshal(d)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO destinations (name, doc) VALUES ($1,$2)`, d.Name, doc); err != nil {
+				return err
+			}
+		}
+		for _, p := range snap.Projects {
+			doc, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("pgstore: ImportConfig: %w", err)
+	}
+	applyImport(s.memState, snap)
+	return nil
+}
+
 // ---- mutators: Lock; validate/compute (from memState); write; apply cache ----
 
 func (s *PostgresStore) AddActor(a Actor) error {
