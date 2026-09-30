@@ -79,20 +79,14 @@ so copying an *active* interactive login into the pool guarantees an eventual
 account is fine; the *grant* must be exclusive), and don't use that login
 interactively elsewhere.
 
-> **Egress lock (COV-208):** brokered coves run the **managed kit**, which omits
-> Anthropic egress — `jam.ManagedKit(base)` clones the interactive kit and strips
-> `.anthropic.com`/`.claude.com`/`claude.ai` (and any subdomain of them) from
-> `image.allowed-domains`, keeping everything else. A managed cove therefore
-> reaches Anthropic **only** through the jam host; the interactive
-> `claude auth login` path keeps the full allow-list on the interactive kit. It's
-> defense-in-depth — in this model the cove holds no real Anthropic credential
-> (only the fake identity), so even the removed direct path would leak nothing.
-> Jam records the managed kit in its [kit registry](kits.md#the-managed-kit) at
-> startup (name `managed`); its version is the registry's monotonic version, and
-> an idempotent startup push reuses it while the config is unchanged and bumps a
-> new one when the egress list changes — so a drifted kit rebuilds. See
-> [coves.md](coves.md#the-managed-kit-and-its-kit-prepare-protocol) for the raise-side
-> build/prepare protocol.
+> **Egress lock (COV-208):** brokered coves run a **StudioKit** whose egress
+> ceiling structurally excludes `anthropic.com`/`claude.com`/`claude.ai` (and
+> subdomains), so a cove reaches Anthropic **only** through the jam host; the
+> interactive `claude auth login` path keeps the full allow-list on the
+> interactive kit. It's defense-in-depth — the cove holds no real Anthropic
+> credential (only the fake identity). The ceiling and `kit show` output are in
+> [kits.md](kits.md#the-egress-ceiling-cov-208); the raise-side build protocol is
+> in [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol).
 
 ## Broker-owned refresh
 

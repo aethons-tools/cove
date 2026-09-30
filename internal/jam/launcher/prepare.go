@@ -7,11 +7,10 @@ import (
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
-	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// PrepareKit builds a managed kit's image from its full definition: it assembles
-// the build context and `docker build -t cove-kit:<id>-v<version>`, so a later
+// PrepareKit builds a studio kit's image from its full definition: it assembles
+// the build context and `docker build -t cove-kit:<build-digest>`, so a later
 // Raise carrying only the KitRef finds the tagged image. It is the response to a
 // Raise that returned ErrKitNotReady.
 //
@@ -37,30 +36,42 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitReady}, nil
 	}
 
-	buildDir := filepath.Join(l.cfg.BuildRoot, fmt.Sprintf("%s-v%d", ref.ID, ref.Version))
+	buildDir := filepath.Join(l.cfg.BuildRoot, ref.Digest)
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
-	// Pick the FROM-base. The default managed kit keeps cfg.BaseImage — the base
-	// at-cove install already resolved and gated (COV-217). A role-named kit builds
-	// FROM its OWN declared base, resolved + gated on the substrate (gate ON — no
-	// --allow-unverified for brokered coves).
-	base := l.cfg.BaseImage
-	if ref.ID != jam.ManagedKitID {
-		resolved, err := l.cfg.Ops.ResolveKitBase(def.Config.Image.Base)
-		if err != nil {
-			return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
-		}
-		base = resolved
+	// Resolve the FROM-base on the substrate (gate ON — no --allow-unverified for
+	// brokered coves). Three cases: an authored Dockerfile+context is materialized
+	// and built into a gated base; else a declared Base.Ref is resolved+gated; an
+	// empty ref resolves to the blessed default.
+	base, err := l.resolveStudioBase(def, ref)
+	if err != nil {
+		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
 	}
-	// Build on the substrate backend (context-pinned + BASE arg), so the image
-	// lands in the same daemon Raise's RunEphemeral runs it from, and the
-	// Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
-	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, false); err != nil {
+	// Build on the substrate backend (context-pinned + BASE arg + kit build-args),
+	// so the image lands in the same daemon Raise's RunEphemeral runs it from, and
+	// the Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
+	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
-	l.cfg.Log.Info("prepared kit", "ref", ref.String(), "tag", imageTag(ref))
+	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
+	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", imageTag(ref), "ceiling_excludes", excluded)
 	return KitStatus{State: KitReady}, nil
+}
+
+// resolveStudioBase resolves the gated FROM-base for a studio kit. An authored
+// Dockerfile+context is materialized (by value, no host-dir dependency) into a
+// per-ref base dir and built+gated via the backend; otherwise the declared
+// Base.Ref is resolved+gated ("" → blessed default). The gate is ON in both cases.
+func (l *Launcher) resolveStudioBase(def KitDefinition, ref KitRef) (string, error) {
+	if def.Kit.Base.Dockerfile != "" {
+		baseDir := filepath.Join(l.cfg.BuildRoot, ref.Digest+"-base")
+		if err := materializeDockerfileBase(baseDir, def.Kit.Base); err != nil {
+			return "", err
+		}
+		return l.cfg.Ops.ResolveKitBaseDockerfile(baseDir)
+	}
+	return l.cfg.Ops.ResolveKitBase(def.Kit.Base.Ref)
 }
 
 // lockRef returns the per-ref build lock, held; the returned func releases it.
@@ -87,6 +98,6 @@ func (l *Launcher) lockRef(ref KitRef) func() {
 // data-only transfer that a remote substrate could run too. Wired unless a test
 // injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
-	gitlabHost, _ := def.Config.GitLabHost() // "" for a non-GitLab kit
-	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, assemble.EgressFor(def.Config), gitlabHost)
+	eg, _ := studioEgress(def.Kit, l.cfg.JamHost)
+	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "")
 }

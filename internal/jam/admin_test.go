@@ -576,12 +576,12 @@ func TestAdminKitsCRUD(t *testing.T) {
 	// push v1, v2 — two valid, distinct configs (config RoE: parsed as YAML,
 	// stored as JSON). v2 adds an egress domain so the versions differ.
 	var r1 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\n"}), &r1)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\n"}), &r1)
 	if r1.Version != 1 {
 		t.Fatalf("push v1 = %+v", r1)
 	}
 	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nimage:\n  allowed-domains:\n    - example.com\n"}), &r2)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\negress:\n  - example.com\n"}), &r2)
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
 	}
@@ -634,7 +634,7 @@ func TestAdminKitsCRUD(t *testing.T) {
 
 func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 	h, _ := newTestAdmin(t)
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
 		t.Fatalf("role add = %d", rec.Code)
 	}
@@ -650,12 +650,22 @@ func TestAdminRoleRejectsMissingKit(t *testing.T) {
 		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
 	}
 	// roster/role summary reflects a valid kit
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].Kit != "builder" {
 		t.Fatalf("role summary = %+v", roles)
+	}
+}
+
+func TestAdminKitsPushRejectsNonStudioConfig(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	// A config without kind: studio is rejected (fail-closed on the authoritative
+	// server path), even if otherwise valid-looking.
+	rec := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nsecrets: {}\n"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("push non-studio config = %d, want 400", rec.Code)
 	}
 }
 
@@ -848,5 +858,61 @@ func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
 		if hu.Name != "alice" {
 			t.Fatalf("a rejected human was added: %+v", hu)
 		}
+	}
+}
+
+func TestAdminConfigExportImport(t *testing.T) {
+	src := populated(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srcH := NewAdminHandler(src, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	srcTS := httptest.NewServer(srcH)
+	defer srcTS.Close()
+
+	resp, err := http.Get(srcTS.URL + "/admin/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dstH := NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	dstTS := httptest.NewServer(dstH)
+	defer dstTS.Close()
+
+	post := func(payload []byte) int {
+		r, err := http.Post(dstTS.URL+"/admin/config", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		return r.StatusCode
+	}
+	if code := post(body); code != http.StatusNoContent {
+		t.Fatalf("POST import status = %d, want 204", code)
+	}
+	if a, ok := dst.Lookup(HashToken("tok")); !ok || a.ID != "spider-18" {
+		t.Fatalf("import did not restore actor: %+v ok=%v", a, ok)
+	}
+	if code := post(body); code != http.StatusConflict {
+		t.Fatalf("second POST status = %d, want 409", code)
+	}
+}
+
+func TestAdminConfigImportBadVersion(t *testing.T) {
+	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	defer ts.Close()
+	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(`{"version":999}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", r.StatusCode)
 	}
 }

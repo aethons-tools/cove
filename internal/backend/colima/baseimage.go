@@ -71,7 +71,12 @@ func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 		DefaultRef:      basedigest.DefaultRef(),
 		AllowUnverified: spec.AllowUnverified,
 	}
-	if spec.KitDir != "" {
+	switch {
+	case spec.DockerfileDir != "":
+		// A studio kit's materialized Dockerfile context: the Dockerfile is at the
+		// dir root (no image/ subdir convention). Takes precedence over KitDir.
+		s.DockerfileDir = spec.DockerfileDir
+	case spec.KitDir != "":
 		imageDir := filepath.Join(spec.KitDir, "image")
 		if _, err := os.Stat(filepath.Join(imageDir, "Dockerfile")); err == nil {
 			s.DockerfileDir = imageDir

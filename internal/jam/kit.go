@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // KitRef is the light, hot-path reference to a kit: what the supervisor puts on
@@ -30,11 +30,12 @@ type KitRef struct {
 // inventory, e.g. "managed@v3".
 func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) }
 
-// KitDefinition is the chunky payload: a KitRef plus the full kit config. The
-// supervisor sends it only on a miss (ErrKitNotReady), via PrepareKit.
+// KitDefinition is the chunky payload: a KitRef plus the full studio-kit
+// definition. The supervisor sends it only on a miss (ErrKitNotReady), via
+// PrepareKit.
 type KitDefinition struct {
-	Ref    KitRef
-	Config kit.Config
+	Ref KitRef
+	Kit studio.StudioKit
 }
 
 // KitState is the readiness of a kit on a launcher. Colima prepares

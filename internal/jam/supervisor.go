@@ -10,6 +10,8 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // Liveness is a Launcher.Probe result.
@@ -115,11 +117,11 @@ type Supervisor struct {
 	sink      ControlSink
 	tail      tailReader
 	released  Releaser
-	// managedKit is the kit every managed raise runs from (its light reference).
-	// nil keeps the launcher's legacy static-image path (hermetic tests, no kit
-	// wiring). Set once at wiring via SetManagedKit; the full definition is
-	// resolved from the registry only on an ErrKitNotReady miss.
-	managedKit *KitRef
+	// defaultStudioKit is the studio kit a raise runs from when its role names no
+	// kit (its light reference). nil leaves such a raise with no kit (hermetic
+	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
+	// definition is resolved from the registry only on an ErrKitNotReady miss.
+	defaultStudioKit *KitRef
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -151,13 +153,14 @@ func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 // leaves teardown recording nothing, exactly as before.
 func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 
-// SetManagedKit wires the kit every managed raise runs from — its light
-// reference, recorded in the registry by EnsureManagedKit at wiring. With it set,
-// Raise stamps the ref on the launch spec and, if the launcher reports
-// ErrKitNotReady, resolves the definition from the registry and PrepareKits it
-// before retrying. Unset (the default) keeps the launcher's legacy static-image
-// path so hermetic tests and un-wired setups are unaffected.
-func (s *Supervisor) SetManagedKit(ref KitRef) { s.managedKit = &ref }
+// SetDefaultStudioKit wires the studio kit a raise runs from when its role names
+// no kit — its light reference, recorded in the registry by EnsureDefaultStudioKit
+// at wiring. With it set, a role without a kit stamps this ref on the launch spec
+// and, if the launcher reports ErrKitNotReady, resolves the definition from the
+// registry and PrepareKits it before retrying. Unset (the default) leaves an
+// unnamed-kit raise with no kit so hermetic tests and un-wired setups are
+// unaffected.
+func (s *Supervisor) SetDefaultStudioKit(ref KitRef) { s.defaultStudioKit = &ref }
 
 func (s *Supervisor) tailSeq() int64 {
 	if s.tail == nil {
@@ -217,6 +220,17 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			spec.Kit = ref
 		}
 	}
+	// Compose the session prompt from ordered layers (Jam boilerplate → Kit info
+	// → Project → Role → launch). Resolve the kit's prompt from the registry; a
+	// cheap local read, needed every raise (unlike the launcher-side lazy prepare).
+	if spec.Kit.ID != "" {
+		layers := studio.PromptLayers{Launch: spec.Prompt}
+		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
+			layers.Kit = def.Kit.Prompt
+		}
+		// Project/Role prompt layers plug in here when those configs carry one.
+		spec.Prompt = studio.ComposePrompt(layers)
+	}
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
 	if errors.Is(err, ErrKitNotReady) {
@@ -257,22 +271,22 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	return inst, tok, secret, nil
 }
 
-// kitRefFor returns the kit reference a raise for role should carry. A role that
-// names a kit (role.Kit) uses a managed (Anthropic-stripped) variant of it,
-// resolved + registered on demand (fail closed if the kit is absent or its name
-// isn't tag-safe); an unnamed kit falls back to the wiring-set default managed
-// ref. ok=false (no default set) keeps the launcher's legacy static-image path,
-// so un-wired setups and hermetic tests are unaffected.
+// kitRefFor returns the studio kit reference a raise for role should carry. A
+// role that names a kit (role.Kit) resolves that registered studio kit's current
+// version (fail closed if the kit is absent, not tag-safe, or not a studio kit);
+// an unnamed kit falls back to the wiring-set default studio ref. ok=false (no
+// default set) leaves the raise with no kit, so un-wired setups and hermetic
+// tests are unaffected.
 func (s *Supervisor) kitRefFor(role Role) (KitRef, bool, error) {
 	if role.Kit != "" {
-		ref, err := EnsureManagedKitFor(s.store, role.Kit)
+		ref, err := StudioKitRef(s.store, role.Kit)
 		if err != nil {
 			return KitRef{}, false, err
 		}
 		return ref, true, nil
 	}
-	if s.managedKit != nil {
-		return *s.managedKit, true, nil
+	if s.defaultStudioKit != nil {
+		return *s.defaultStudioKit, true, nil
 	}
 	return KitRef{}, false, nil
 }

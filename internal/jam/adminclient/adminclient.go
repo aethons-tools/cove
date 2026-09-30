@@ -23,6 +23,10 @@ import (
 // from a transport failure or another HTTP error.
 var ErrNotFound = errors.New("not found")
 
+// ErrConflict wraps a 409 from the admin API — e.g. importing config into a
+// store that is not empty.
+var ErrConflict = errors.New("conflict")
+
 // Client talks to a running Jam's admin API (e.g. http://127.0.0.1:8081).
 type Client struct {
 	base  string
@@ -74,6 +78,9 @@ func (c *Client) do(method, path string, body any, out any) error {
 		err := fmt.Errorf("admin API %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(msg)))
 		if resp.StatusCode == http.StatusNotFound {
 			err = fmt.Errorf("%w: %s", ErrNotFound, err)
+		}
+		if resp.StatusCode == http.StatusConflict {
+			err = fmt.Errorf("%w: %s", ErrConflict, err)
 		}
 		return err
 	}
@@ -403,4 +410,17 @@ func (c *Client) ShowEgress(project, role string) (jam.EgressView, error) {
 // ClearEgress reverts project's role to the kit's default egress list.
 func (c *Client) ClearEgress(project, role string) error {
 	return c.do("DELETE", egressPath(project, role), nil, nil)
+}
+
+// ExportConfig fetches a full config snapshot (GET /admin/config).
+func (c *Client) ExportConfig() (jam.ConfigSnapshot, error) {
+	var s jam.ConfigSnapshot
+	err := c.do("GET", "/admin/config", nil, &s)
+	return s, err
+}
+
+// ImportConfig restores a snapshot (POST /admin/config). A non-empty target
+// surfaces as ErrConflict.
+func (c *Client) ImportConfig(s jam.ConfigSnapshot) error {
+	return c.do("POST", "/admin/config", s, nil)
 }

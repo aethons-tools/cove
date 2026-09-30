@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 func TestKitRefStringIsStableKey(t *testing.T) {
@@ -26,11 +26,12 @@ func TestKitStateReadyDistinctFromPreparing(t *testing.T) {
 	}
 }
 
-// KitDefinition carries a KitRef + the full kit.Config (the chunky payload sent
-// only on a miss). Compile-level guard that the shape is what later tasks expect.
-func TestKitDefinitionCarriesRefAndConfig(t *testing.T) {
-	def := KitDefinition{Ref: KitRef{ID: "managed", Version: 1}, Config: kit.Config{Name: "cove"}}
-	if def.Ref.ID != "managed" || def.Config.Name != "cove" {
+// KitDefinition carries a KitRef + the full studio.StudioKit (the chunky payload
+// sent only on a miss). Compile-level guard that the shape is what later tasks
+// expect.
+func TestKitDefinitionCarriesRefAndKit(t *testing.T) {
+	def := KitDefinition{Ref: KitRef{ID: "web", Version: 1}, Kit: studio.StudioKit{Kind: studio.Kind, Name: "web"}}
+	if def.Ref.ID != "web" || def.Kit.Name != "web" {
 		t.Fatalf("KitDefinition = %+v", def)
 	}
 }

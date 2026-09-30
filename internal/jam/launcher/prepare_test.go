@@ -3,12 +3,14 @@ package launcher
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // fakeInv is a mutable prepared-kit inventory a PrepareKit test controls: Has
@@ -43,7 +45,7 @@ type countingOps struct {
 	buildErr error
 }
 
-func (c *countingOps) BuildKitImage(buildDir, tag, base string, noCache bool) (string, error) {
+func (c *countingOps) BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (string, error) {
 	c.mu.Lock()
 	c.nbuilds++
 	c.mu.Unlock()
@@ -67,49 +69,131 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 		Runner:  &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
 		BuildRoot: "/tmp/cove-kit-builds-test",
-		BaseImage: "cove-base@sha256:base", // the Dockerfile's FROM ${BASE}
 		Inventory: inv,
 		assemble:  asm,
 		sleep:     func(time.Duration) {},
 	})
 }
 
-func minimalKitConfig(t *testing.T) kit.Config {
-	t.Helper()
-	return kit.Config{Name: "managed"}
+// studioKitDef is a small studio KitDefinition for prepare tests: its ref's
+// Digest is the build-digest, so imageTag(ref) == cove-kit:<digest>.
+func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
+	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk)}, Kit: sk}
 }
 
-func TestPrepareKitBuildsTaggedImage(t *testing.T) {
-	ops := &fakeOps{}
+// A studio kit builds by its build-digest tag, FROM the substrate-resolved base
+// (empty Base.Ref → blessed default), threading the kit's build-args; the
+// Anthropic-excluded ceiling is applied at assemble.
+func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
+	ops := &fakeOps{resolvedBase: "blessed@sha256:def"}
 	inv := &fakeInv{}
-	asm := func(def KitDefinition, buildDir string) error { return nil }
+	asm := func(def KitDefinition, buildDir string) error { return nil } // assemble seam
 	l := newPrepareLauncher(ops, inv, asm)
 
-	st, err := l.PrepareKit(context.Background(), KitDefinition{
-		Ref:    KitRef{ID: "managed", Version: 1},
-		Config: minimalKitConfig(t),
-	})
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web",
+		Egress: []string{"github.com", ".anthropic.com"}, BuildArgs: map[string]string{"X": "1"}}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err != nil || st.State != KitReady {
-		t.Fatalf("PrepareKit = %+v, %v; want KitReady, nil", st, err)
+		t.Fatalf("PrepareKit = %+v, %v", st, err)
 	}
-	if ops.builds != 1 || ops.builtTag != "cove-kit:managed-v1" {
-		t.Fatalf("build not routed through the backend for the kit tag: builds=%d tag=%q", ops.builds, ops.builtTag)
+	if ops.builtTag != "cove-kit:"+ref.Digest {
+		t.Fatalf("image tag must be the build-digest: %q", ops.builtTag)
 	}
-	if ops.builtBase != "cove-base@sha256:base" {
-		t.Fatalf("build did not pass the resolved base: %q", ops.builtBase)
+	if ops.resolvedFrom != "" { // Base.Ref == "" → blessed default
+		t.Fatalf("ResolveKitBase called with %q, want empty (blessed default)", ops.resolvedFrom)
 	}
+	if ops.builtBase != "blessed@sha256:def" {
+		t.Fatalf("build base = %q, want the resolved blessed base", ops.builtBase)
+	}
+	if ops.builtArgs["X"] != "1" {
+		t.Fatalf("build-args not threaded: %+v", ops.builtArgs)
+	}
+}
+
+// A Dockerfile-context base is materialized (Dockerfile + context files, by value)
+// into a per-ref base dir, built+gated via the backend, and the kit image is built
+// FROM the resolved base.
+func TestPrepareStudioKitDockerfileBase(t *testing.T) {
+	root := t.TempDir()
+	ops := &fakeOps{resolvedDockerfileBase: "blessed-df@sha256:aaa"}
+	inv := &fakeInv{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		BuildRoot: root, Inventory: inv,
+		assemble: func(KitDefinition, string) error { return nil },
+		sleep:    func(time.Duration) {},
+	})
+
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+		Dockerfile: "FROM ${COVE_BASE_IMAGE}\nRUN echo hi",
+		Context:    map[string]string{"scripts/setup.sh": "echo setup"},
+	}}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
+	if err != nil || st.State != KitReady {
+		t.Fatalf("PrepareKit = %+v, %v", st, err)
+	}
+	baseDir := filepath.Join(root, ref.Digest+"-base")
+	if ops.resolvedDockerfileDir != baseDir {
+		t.Fatalf("ResolveKitBaseDockerfile ctxDir = %q, want %q", ops.resolvedDockerfileDir, baseDir)
+	}
+	if got := readFile(t, filepath.Join(baseDir, "Dockerfile")); got != sk.Base.Dockerfile {
+		t.Fatalf("materialized Dockerfile = %q, want the authored one", got)
+	}
+	if got := readFile(t, filepath.Join(baseDir, "scripts/setup.sh")); got != "echo setup" {
+		t.Fatalf("materialized context file = %q", got)
+	}
+	if ops.builtBase != "blessed-df@sha256:aaa" {
+		t.Fatalf("kit image built FROM %q, want the gated Dockerfile base", ops.builtBase)
+	}
+	if ops.builtTag != "cove-kit:"+ref.Digest {
+		t.Fatalf("image tag = %q, want the build-digest tag", ops.builtTag)
+	}
+}
+
+// An unblessed Dockerfile base fails the prepare loudly (gate ON, fail-closed):
+// the kit image is never built.
+func TestPrepareStudioKitDockerfileBaseGateFails(t *testing.T) {
+	ops := &fakeOps{resolveDockerfileErr: errors.New("base does not descend from any blessed cove-base-image")}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		BuildRoot: t.TempDir(), Inventory: &fakeInv{},
+		assemble: func(KitDefinition, string) error { return nil },
+		sleep:    func(time.Duration) {},
+	})
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{Dockerfile: "FROM scratch"}}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
+	if err == nil || st.State == KitReady {
+		t.Fatalf("want a fail-closed prepare, got st=%+v err=%v", st, err)
+	}
+	if ops.builds != 0 {
+		t.Fatalf("kit image must not build when the base gate fails; builds=%d", ops.builds)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
 }
 
 func TestPrepareKitIdempotentWhenPresent(t *testing.T) {
 	ops := &fakeOps{}
 	inv := &fakeInv{}
-	ref := KitRef{ID: "managed", Version: 4}
-	inv.set(ref, true) // already prepared
+	def := studioKitDef("web", 4, studio.StudioKit{Kind: studio.Kind, Name: "web"})
+	inv.set(def.Ref, true) // already prepared
 	asmCalled := false
 	asm := func(def KitDefinition, buildDir string) error { asmCalled = true; return nil }
 	l := newPrepareLauncher(ops, inv, asm)
 
-	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Config: minimalKitConfig(t)})
+	st, err := l.PrepareKit(context.Background(), def)
 	if err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit(present) = %+v, %v; want KitReady, nil", st, err)
 	}
@@ -123,7 +207,7 @@ func TestPrepareKitIdempotentWhenPresent(t *testing.T) {
 
 func TestPrepareKitDedupesConcurrentBuilds(t *testing.T) {
 	inv := &fakeInv{}
-	ref := KitRef{ID: "managed", Version: 7}
+	def := studioKitDef("web", 7, studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com"}})
 	ops := &countingOps{}
 	// The assembler simulates the build's effect (the tagged image now exists) so a
 	// serialized later prepare short-circuits; the small sleep widens the race
@@ -141,7 +225,7 @@ func TestPrepareKitDedupesConcurrentBuilds(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			_, _ = l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Config: minimalKitConfig(t)})
+			_, _ = l.PrepareKit(context.Background(), def)
 		}()
 	}
 	wg.Wait()
@@ -151,56 +235,13 @@ func TestPrepareKitDedupesConcurrentBuilds(t *testing.T) {
 	}
 }
 
-// A role-named kit (id != "managed") builds FROM its OWN declared base, resolved
-// + gated on the substrate — not the launcher's default BaseImage.
-func TestPrepareKitNamedKitResolvesOwnBase(t *testing.T) {
-	ops := &fakeOps{resolvedBase: "blessed@sha256:web"}
-	l := newPrepareLauncher(ops, &fakeInv{}, func(KitDefinition, string) error { return nil })
-	_, err := l.PrepareKit(context.Background(), KitDefinition{
-		Ref:    KitRef{ID: "managed-web", Version: 1},
-		Config: kit.Config{Name: "web", Image: kit.ImageConfig{Base: "some/base:tag"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ops.resolvedFrom != "some/base:tag" {
-		t.Fatalf("named kit must resolve its declared base; resolved from %q", ops.resolvedFrom)
-	}
-	if ops.builtBase != "blessed@sha256:web" {
-		t.Fatalf("named kit must build FROM the resolved base; got %q", ops.builtBase)
-	}
-}
-
-// The default managed kit keeps cfg.BaseImage (the interactive install's gated
-// base) and does NOT re-resolve a base.
-func TestPrepareKitDefaultKitKeepsConfigBase(t *testing.T) {
-	ops := &fakeOps{}
-	l := newPrepareLauncher(ops, &fakeInv{}, func(KitDefinition, string) error { return nil })
-	_, err := l.PrepareKit(context.Background(), KitDefinition{
-		Ref:    KitRef{ID: "managed", Version: 1},
-		Config: kit.Config{Name: "managed"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ops.resolvedFrom != "" {
-		t.Fatal("default managed kit must NOT re-resolve a base")
-	}
-	if ops.builtBase != "cove-base@sha256:base" { // newPrepareLauncher's BaseImage
-		t.Fatalf("default kit must build FROM cfg.BaseImage; got %q", ops.builtBase)
-	}
-}
-
 func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 	ops := &fakeOps{buildErr: errors.New("docker build boom")}
 	inv := &fakeInv{}
 	asm := func(def KitDefinition, buildDir string) error { return nil }
 	l := newPrepareLauncher(ops, inv, asm)
 
-	st, err := l.PrepareKit(context.Background(), KitDefinition{
-		Ref:    KitRef{ID: "managed", Version: 2},
-		Config: minimalKitConfig(t),
-	})
+	st, err := l.PrepareKit(context.Background(), studioKitDef("web", 2, studio.StudioKit{Kind: studio.Kind, Name: "web"}))
 	if err == nil {
 		t.Fatal("PrepareKit must surface a build failure")
 	}

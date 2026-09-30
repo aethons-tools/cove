@@ -210,9 +210,6 @@ func (c serveConfig) poolDurations() (interval, margin time.Duration, err error)
 }
 
 type launcherConfig struct {
-	// InstallManifest is the host path to the at-cove install manifest
-	// (install.Manifest JSON) whose Image/ImageDigest the launcher raises.
-	InstallManifest string `yaml:"install-manifest"`
 	// RuntimeAddr is the Jam Attach-gRPC address a raised cove's cove-master
 	// dials (AT_JAM_RUNTIME_ADDR), typically "<jam-host>:443".
 	RuntimeAddr string `yaml:"runtime-addr"`
@@ -235,17 +232,14 @@ type launcherConfig struct {
 }
 
 // validateLauncher checks runtime.launcher when present (required fields:
-// install-manifest, runtime-addr, jam-host) and defaults identity-file /
-// known-hosts-dir to the at-cove config dir's id_ed25519 / known_hosts.d.
-// A no-op when runtime.launcher is unset — the placeholder launcher stays in
-// effect, unchanged from before this block existed.
+// runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
+// at-cove config dir's id_ed25519 / known_hosts.d. A no-op when runtime.launcher
+// is unset — the placeholder launcher stays in effect, unchanged from before
+// this block existed.
 func (c serveConfig) validateLauncher() error {
 	lc := c.Runtime.Launcher
 	if lc == nil {
 		return nil
-	}
-	if lc.InstallManifest == "" {
-		return fmt.Errorf("runtime.launcher.install-manifest is required")
 	}
 	if lc.RuntimeAddr == "" {
 		return fmt.Errorf("runtime.launcher.runtime-addr is required")

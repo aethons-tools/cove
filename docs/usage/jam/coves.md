@@ -87,24 +87,23 @@ a domain outside the ceiling, the raise fails (the error names the domain), the
 container is removed and the identity revoked. It never falls back to the wider kit
 default. A role with no policy skips the step and keeps the kit's list.
 
-### The managed kit and its kit-prepare protocol
+### The StudioKit and its kit-prepare protocol
 
-The real launcher raises from the **[managed kit](kits.md#the-managed-kit)** (the
-base kit with Anthropic egress stripped — the COV-208 lock), built on demand via a
+The real launcher raises from a **[StudioKit](kits.md#the-studiokit)** — the
+role's named kit, or the seeded `default` ([kits.md](kits.md#role-to-kit-and-the-default-kit)).
+Its egress ceiling excludes Anthropic (COV-208). It is built on demand via a
 **light-reference / lazy-prepare** handshake that tolerates a remote-building
 substrate: each raise carries only the kit reference (`<id>@v<n>`); on an inventory
 **miss** the launcher raises no container and reports not-ready; Jam resolves the
-full definition from the [registry](kits.md#the-managed-kit), calls the launcher's
-`PrepareKit` to build it **on the substrate backend** (the colima daemon, so the
-image lands where `RunEphemeral` runs it) FROM the base the install already
-resolved and gated, and retries. An in-progress build does not block — the raise
-defers to the next reconcile tick. The build context is **data** (the kit
-definition + resources compiled into the `at-jam` binary + the launcher's key),
-with **no source kit directory**, so the build can move to a remote substrate; it
-replaces the out-of-band `at-cove install` image (the install manifest is the build
-base, not the raised image). A [role that names its own kit](kits.md#per-role-kits)
-raises from a `managed-<name>` variant instead, built FROM that kit's own
-provenance-gated base.
+full kit from the [registry](kits.md), calls the launcher's `PrepareKit` to build it
+**on the substrate backend** (the colima daemon, so the image lands where
+`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest,
+so a prompt-only edit reuses the cached image. An in-progress build does not block
+— the raise defers to the next reconcile tick. The build context is **data** (the
+kit plus resources compiled into the `at-jam` binary and the launcher's key), with
+**no source kit directory**, so the build can move to a remote substrate. The
+session prompt is composed at raise, outside the image. A Dockerfile-context base
+is not yet buildable (deferred).
 
 ### Egress drift
 

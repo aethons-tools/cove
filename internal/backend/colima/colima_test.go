@@ -696,7 +696,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 // the bare-runner build in T2/T3 got wrong (COV-217).
 func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}} // the post-build inspect .Id
-	digest, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", false)
+	digest, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,8 +728,25 @@ func TestResolveKitBaseDefaultsToBlessed(t *testing.T) {
 // The Dockerfile is FROM ${BASE}; a blank base can't build.
 func TestBuildKitImageRequiresBase(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "", false); err == nil {
+	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "", nil, false); err == nil {
 		t.Fatal("BuildKitImage must require a non-empty base")
+	}
+}
+
+// BuildKitImage injects kit build-args as deterministic --build-arg pairs
+// alongside the required BASE arg.
+func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
+	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:deadbeef", "cove-base@sha256:base",
+		map[string]string{"NODE_VERSION": "20"}, false); err != nil {
+		t.Fatal(err)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "NODE_VERSION=20") {
+		t.Fatalf("build must inject the kit build-arg: %+v", f.Calls)
+	}
+	if !contains(build, "BASE=cove-base@sha256:base") {
+		t.Fatalf("build must still inject the BASE arg: %+v", f.Calls)
 	}
 }
 

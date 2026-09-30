@@ -231,7 +231,6 @@ func TestRuntimeLauncherParsed(t *testing.T) {
 	c, err := parseServeConfig([]byte(`
 runtime:
   launcher:
-    install-manifest: /var/lib/jam/install.json
     runtime-addr: jam.example.com:443
     jam-host: jam.example.com
     identity-file: /etc/jam/id_ed25519
@@ -246,8 +245,7 @@ runtime:
 	if lc == nil {
 		t.Fatal("runtime.launcher did not parse")
 	}
-	if lc.InstallManifest != "/var/lib/jam/install.json" ||
-		lc.RuntimeAddr != "jam.example.com:443" ||
+	if lc.RuntimeAddr != "jam.example.com:443" ||
 		lc.JamHost != "jam.example.com" ||
 		lc.IdentityFile != "/etc/jam/id_ed25519" ||
 		lc.KnownHostsDir != "/etc/jam/known_hosts.d" ||
@@ -268,9 +266,8 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 	}
 	base := func() *launcherConfig {
 		return &launcherConfig{
-			InstallManifest: "/m.json",
-			RuntimeAddr:     "h:443",
-			JamHost:         "h",
+			RuntimeAddr: "h:443",
+			JamHost:     "h",
 		}
 	}
 	// all required fields present → ok, and defaults get filled in.
@@ -284,9 +281,8 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 	}
 
 	for field, mutate := range map[string]func(*launcherConfig){
-		"install-manifest": func(l *launcherConfig) { l.InstallManifest = "" },
-		"runtime-addr":     func(l *launcherConfig) { l.RuntimeAddr = "" },
-		"jam-host":         func(l *launcherConfig) { l.JamHost = "" },
+		"runtime-addr": func(l *launcherConfig) { l.RuntimeAddr = "" },
+		"jam-host":     func(l *launcherConfig) { l.JamHost = "" },
 	} {
 		bad := serveConfig{}
 		bad.Runtime.Launcher = base()
@@ -297,10 +293,20 @@ func TestValidateLauncherRequiredFields(t *testing.T) {
 	}
 }
 
+// install-manifest is retired (no shim): a launcher block with only runtime-addr
+// and jam-host now validates.
+func TestValidateLauncherNoLongerRequiresInstallManifest(t *testing.T) {
+	c := serveConfig{}
+	c.Runtime.Launcher = &launcherConfig{RuntimeAddr: "jam:443", JamHost: "jam"}
+	if err := c.validateLauncher(); err != nil {
+		t.Fatalf("launcher without install-manifest must validate: %v", err)
+	}
+}
+
 func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
 	c := serveConfig{}
 	c.Runtime.Launcher = &launcherConfig{
-		InstallManifest: "/m.json", RuntimeAddr: "h:443", JamHost: "h",
+		RuntimeAddr: "h:443", JamHost: "h",
 		IdentityFile: "/custom/id", KnownHostsDir: "/custom/kh",
 	}
 	if err := c.validateLauncher(); err != nil {
