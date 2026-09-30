@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"gopkg.in/yaml.v3"
 )
 
 // fakeLauncher is a scripted Launcher for hermetic supervisor tests.
@@ -243,6 +244,39 @@ func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
 		t.Fatal("a deferred raise must record no instance")
 	}
 }
+
+// A role that names a kit raises from the managed variant of that kit
+// (managed-<name>), not the default managed kit.
+func TestRaiseUsesRoleKit(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	webText, _ := yaml.Marshal(kit.Config{Name: "web", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}})
+	if _, err := store.PushKit("web", string(webText)); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := store.GetRole("default", "guest")
+	r.Kit = "web"
+	if err := store.PutRole("default", r); err != nil {
+		t.Fatal(err)
+	}
+	def, err := EnsureManagedKit(store, kit.Config{Name: "base"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetManagedKit(def) // unbound roles would use this; this role overrides it
+
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"}); err != nil {
+		t.Fatalf("Raise: %v", err)
+	}
+	if fl.gotSpec.Kit.ID != "managed-web" {
+		t.Fatalf("raise used kit %q, want managed-web", fl.gotSpec.Kit.ID)
+	}
+}
+
+// Note: a role naming a kit absent from the registry is prevented at bind time
+// (Store.PutRole validates the kit exists — TestPutRoleValidatesKitExists), and
+// the resolver's own fail-closed on a missing/untag-safe kit is covered by
+// TestEnsureManagedKitForFailsClosed. kitRefFor's rollback path is defensive.
 
 func TestRaiseRequiresExistingRole(t *testing.T) {
 	sup, _, _ := supTestKit(t, &fakeLauncher{})

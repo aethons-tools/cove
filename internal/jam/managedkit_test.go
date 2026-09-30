@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"gopkg.in/yaml.v3"
 )
 
 func TestManagedKitStripsAnthropicEgress(t *testing.T) {
@@ -104,6 +105,53 @@ func TestEnsureManagedKitIdempotentThenBumps(t *testing.T) {
 	}
 	if c.Version == a.Version {
 		t.Fatalf("changed config must bump the version: both %d", a.Version)
+	}
+}
+
+// EnsureManagedKitFor strips + registers the managed variant of a registered kit
+// under managed-<name>, idempotently; fails closed on an absent or non-tag-safe
+// source kit.
+func TestEnsureManagedKitForStripsAndRegistersDerivative(t *testing.T) {
+	st := newKitTestStore(t)
+	webCfg := kit.Config{Name: "web", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}}
+	text, err := yaml.Marshal(webCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PushKit("web", string(text)); err != nil {
+		t.Fatal(err)
+	}
+
+	ref, err := EnsureManagedKitFor(st, "web")
+	if err != nil {
+		t.Fatalf("EnsureManagedKitFor: %v", err)
+	}
+	if ref.ID != "managed-web" || ref.Version == 0 || ref.Digest == "" {
+		t.Fatalf("bad ref: %+v", ref)
+	}
+	def, ok, err := ResolveKitDefinition(st, ref)
+	if err != nil || !ok {
+		t.Fatalf("resolve: %v %v", ok, err)
+	}
+	if slices.Contains(def.Config.Image.AllowedDomains, ".anthropic.com") {
+		t.Fatalf("derivative must strip Anthropic egress: %v", def.Config.Image.AllowedDomains)
+	}
+	ref2, err := EnsureManagedKitFor(st, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref2.Version != ref.Version {
+		t.Fatalf("unchanged source must reuse the version: %d vs %d", ref.Version, ref2.Version)
+	}
+}
+
+func TestEnsureManagedKitForFailsClosed(t *testing.T) {
+	st := newKitTestStore(t)
+	if _, err := EnsureManagedKitFor(st, "missing"); err == nil {
+		t.Fatal("a kit absent from the registry must fail closed")
+	}
+	if _, err := EnsureManagedKitFor(st, "bad/name"); err == nil {
+		t.Fatal("a non-tag-safe kit name must fail closed")
 	}
 }
 

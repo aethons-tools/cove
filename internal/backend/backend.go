@@ -217,6 +217,13 @@ type KitImageBuilder interface {
 	// HasKitImage reports whether the tagged image exists on this substrate. A
 	// miss is (false, nil) — the normal signal that drives PrepareKit — not an error.
 	HasKitImage(tag string) (bool, error)
+	// ResolveKitBase resolves + gates a role-named kit's declared base into the ref
+	// to pass BuildKitImage as its base. An empty declaredBase resolves to the
+	// substrate's blessed default. The provenance gate is ON — a brokered kit gets
+	// no --allow-unverified escape hatch, so an unblessed base errors here rather
+	// than building. (The default managed kit skips this: it reuses the base
+	// at-cove install already resolved and gated, passed to the launcher directly.)
+	ResolveKitBase(declaredBase string) (resolvedBase string, err error)
 }
 
 // Factory constructs a Backend bound to a Runner.

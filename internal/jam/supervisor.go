@@ -187,11 +187,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if err != nil {
 		return Instance{}, "", "", err
 	}
-	// The role, not the caller, decides the cove's egress policy (Enroll just
-	// proved the role exists). Callers — the Requisitioner, sessions, standing — need
-	// no change, and none can widen a role's egress by setting the spec.
+	// The role, not the caller, decides the cove's egress policy AND its kit
+	// (Enroll just proved the role exists). Callers — the Requisitioner, sessions,
+	// standing — need no change, and none can widen a role's egress or pick its kit
+	// by setting the spec.
 	spec.Egress = nil
-	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok && role.Scope.Egress != nil {
+	role, roleOK := s.store.GetRole(spec.Project, spec.Role)
+	if roleOK && role.Scope.Egress != nil {
 		spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
 	}
 	secret, err := MintToken()
@@ -199,11 +201,21 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		_ = s.store.RemoveActor(spec.ActorID)
 		return Instance{}, "", "", err
 	}
-	// Every managed raise runs from the managed kit (its light reference); the
-	// launcher resolves that against its prepared-kit inventory. nil keeps the
-	// legacy static-image path.
-	if s.managedKit != nil {
-		spec.Kit = *s.managedKit
+	// Stamp the kit the role raises from (its light reference); the launcher
+	// resolves it against its prepared-kit inventory. A role that names a kit uses
+	// a managed variant of it; otherwise the default managed kit (nil = legacy
+	// static-image path). Fail closed on a bad role.Kit, rolling back the identity.
+	if roleOK {
+		ref, have, kerr := s.kitRefFor(role)
+		if kerr != nil {
+			if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+				s.log.Warn("raise rollback: failed to revoke identity after kit resolve failure", "id", spec.ActorID, "error", rmErr)
+			}
+			return Instance{}, "", "", fmt.Errorf("raise: resolve kit for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, kerr)
+		}
+		if have {
+			spec.Kit = ref
+		}
 	}
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
@@ -243,6 +255,26 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
 	return inst, tok, secret, nil
+}
+
+// kitRefFor returns the kit reference a raise for role should carry. A role that
+// names a kit (role.Kit) uses a managed (Anthropic-stripped) variant of it,
+// resolved + registered on demand (fail closed if the kit is absent or its name
+// isn't tag-safe); an unnamed kit falls back to the wiring-set default managed
+// ref. ok=false (no default set) keeps the launcher's legacy static-image path,
+// so un-wired setups and hermetic tests are unaffected.
+func (s *Supervisor) kitRefFor(role Role) (KitRef, bool, error) {
+	if role.Kit != "" {
+		ref, err := EnsureManagedKitFor(s.store, role.Kit)
+		if err != nil {
+			return KitRef{}, false, err
+		}
+		return ref, true, nil
+	}
+	if s.managedKit != nil {
+		return *s.managedKit, true, nil
+	}
+	return KitRef{}, false, nil
 }
 
 // prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it resolves

@@ -49,20 +49,70 @@ func ManagedKit(base kit.Config) kit.Config {
 // carries only this KitRef on the hot path, and resolves the chunky definition
 // from the registry (ResolveKitDefinition) only on an ErrKitNotReady miss.
 func EnsureManagedKit(store Store, base kit.Config) (KitRef, error) {
+	return ensureManagedVariant(store, ManagedKitID, base)
+}
+
+// ManagedVariantID is the registry id — and docker-tag stem, cove-kit:<id>-v<n> —
+// of the managed derivative of the registered kit srcKit. The "managed-" prefix
+// is reserved for these derivatives.
+func ManagedVariantID(srcKit string) string { return "managed-" + srcKit }
+
+// EnsureManagedKitFor records the managed (Anthropic-stripped) variant of the
+// registered kit srcKit under ManagedVariantID(srcKit), returning its reference —
+// what a role that names srcKit raises from. Idempotent like EnsureManagedKit. It
+// fails closed (never a silent fallback, which would hide a misconfigured role)
+// when srcKit is not tag-safe or is absent from the registry.
+func EnsureManagedKitFor(store Store, srcKit string) (KitRef, error) {
+	if !tagSafeKitName(srcKit) {
+		return KitRef{}, fmt.Errorf("kit name %q is not usable in an image tag", srcKit)
+	}
+	text, ok := store.KitConfig(srcKit, 0) // 0 = current
+	if !ok {
+		return KitRef{}, fmt.Errorf("kit %q not in registry", srcKit)
+	}
+	var cfg kit.Config
+	if err := yaml.Unmarshal([]byte(text), &cfg); err != nil {
+		return KitRef{}, fmt.Errorf("managed kit for %q: unmarshal config: %w", srcKit, err)
+	}
+	return ensureManagedVariant(store, ManagedVariantID(srcKit), cfg)
+}
+
+// ensureManagedVariant strips base's Anthropic egress and idempotently records the
+// result in the kit registry under id — an unchanged config reuses the current
+// version, a change bumps a new monotonic one — returning the reference. Shared by
+// the default managed kit (EnsureManagedKit) and per-role kits (EnsureManagedKitFor).
+func ensureManagedVariant(store Store, id string, base kit.Config) (KitRef, error) {
 	text, digest, err := marshalKitConfig(ManagedKit(base))
 	if err != nil {
-		return KitRef{}, fmt.Errorf("managed kit: marshal config: %w", err)
+		return KitRef{}, fmt.Errorf("managed kit %q: marshal config: %w", id, err)
 	}
-	if k, ok := store.GetKit(ManagedKitID); ok && k.Current != 0 {
-		if cur, ok := store.KitConfig(ManagedKitID, k.Current); ok && cur == text {
-			return KitRef{ID: ManagedKitID, Version: k.Current, Digest: digest}, nil // unchanged: reuse
+	if k, ok := store.GetKit(id); ok && k.Current != 0 {
+		if cur, ok := store.KitConfig(id, k.Current); ok && cur == text {
+			return KitRef{ID: id, Version: k.Current, Digest: digest}, nil // unchanged: reuse
 		}
 	}
-	version, err := store.PushKit(ManagedKitID, text)
+	version, err := store.PushKit(id, text)
 	if err != nil {
-		return KitRef{}, fmt.Errorf("managed kit: push to registry: %w", err)
+		return KitRef{}, fmt.Errorf("managed kit %q: push to registry: %w", id, err)
 	}
-	return KitRef{ID: ManagedKitID, Version: version, Digest: digest}, nil
+	return KitRef{ID: id, Version: version, Digest: digest}, nil
+}
+
+// tagSafeKitName reports whether name can be the stem of a docker tag
+// (cove-kit:managed-<name>-v<n>): a tag component admits only [A-Za-z0-9_.-].
+// Empty is not tag-safe.
+func tagSafeKitName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ResolveKitDefinition fetches the full kit definition a KitRef names from the

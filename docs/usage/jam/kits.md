@@ -85,6 +85,19 @@ That light-reference / lazy-prepare handshake — and why the build context trav
 as data with no source directory — is documented on the raise side in
 [coves.md](coves.md#the-managed-kit-and-its-kit-prepare-protocol).
 
+### Per-role kits
+
+A [role](roster.md) can name its own kit (`role add --kit <name>`, above): a
+managed cove for that role raises from a **managed variant** of the named kit —
+Jam derives it exactly as the default (`ManagedKit()` strips Anthropic egress),
+registers it idempotently under **`managed-<name>`** (reserved prefix, so the
+docker tag `cove-kit:managed-<name>-v<n>` stays valid), and raises from that. So
+COV-208 holds for every role's kit, and operators push ordinary kits. A role with
+no kit uses the default `managed`. Unlike the default (which reuses at-cove
+install's already-gated base), a role-named kit's own `image.base` is resolved and
+**provenance-gated at build with no `--allow-unverified` escape hatch** — a
+brokered cove must run a blessed base, or the raise fails.
+
 ## Upgrades & rollback
 
 - **Upgrade** a role's kit for everyone: `kit push --name web --config <new>` —

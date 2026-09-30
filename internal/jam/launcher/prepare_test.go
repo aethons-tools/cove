@@ -151,6 +151,46 @@ func TestPrepareKitDedupesConcurrentBuilds(t *testing.T) {
 	}
 }
 
+// A role-named kit (id != "managed") builds FROM its OWN declared base, resolved
+// + gated on the substrate — not the launcher's default BaseImage.
+func TestPrepareKitNamedKitResolvesOwnBase(t *testing.T) {
+	ops := &fakeOps{resolvedBase: "blessed@sha256:web"}
+	l := newPrepareLauncher(ops, &fakeInv{}, func(KitDefinition, string) error { return nil })
+	_, err := l.PrepareKit(context.Background(), KitDefinition{
+		Ref:    KitRef{ID: "managed-web", Version: 1},
+		Config: kit.Config{Name: "web", Image: kit.ImageConfig{Base: "some/base:tag"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops.resolvedFrom != "some/base:tag" {
+		t.Fatalf("named kit must resolve its declared base; resolved from %q", ops.resolvedFrom)
+	}
+	if ops.builtBase != "blessed@sha256:web" {
+		t.Fatalf("named kit must build FROM the resolved base; got %q", ops.builtBase)
+	}
+}
+
+// The default managed kit keeps cfg.BaseImage (the interactive install's gated
+// base) and does NOT re-resolve a base.
+func TestPrepareKitDefaultKitKeepsConfigBase(t *testing.T) {
+	ops := &fakeOps{}
+	l := newPrepareLauncher(ops, &fakeInv{}, func(KitDefinition, string) error { return nil })
+	_, err := l.PrepareKit(context.Background(), KitDefinition{
+		Ref:    KitRef{ID: "managed", Version: 1},
+		Config: kit.Config{Name: "managed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops.resolvedFrom != "" {
+		t.Fatal("default managed kit must NOT re-resolve a base")
+	}
+	if ops.builtBase != "cove-base@sha256:base" { // newPrepareLauncher's BaseImage
+		t.Fatalf("default kit must build FROM cfg.BaseImage; got %q", ops.builtBase)
+	}
+}
+
 func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 	ops := &fakeOps{buildErr: errors.New("docker build boom")}
 	inv := &fakeInv{}
