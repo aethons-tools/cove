@@ -36,6 +36,9 @@ func (aliveLauncher) Unpause(_ context.Context, _ jam.Instance) error { return n
 func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
+func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
 
 func TestEnrollCommandJSON(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))

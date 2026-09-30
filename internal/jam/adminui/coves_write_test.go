@@ -30,6 +30,9 @@ func (fakeLauncher) Unpause(_ context.Context, _ jam.Instance) error { return ni
 func (fakeLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
+func (fakeLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
 
 func newSup(t *testing.T, store jam.Store) *jam.Supervisor {
 	t.Helper()

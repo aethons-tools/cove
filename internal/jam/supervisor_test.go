@@ -3,12 +3,16 @@ package jam
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // fakeLauncher is a scripted Launcher for hermetic supervisor tests.
@@ -27,12 +31,25 @@ type fakeLauncher struct {
 	egressErr   error
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
+
+	// Kit-prepare scripting: notReadyOnce makes the first Raise return
+	// ErrKitNotReady until a PrepareKit lands; prepareCalls counts PrepareKit and
+	// preparedDef records the last definition it received; prepareState is the
+	// status PrepareKit reports (zero value KitPreparing → set KitReady to succeed).
+	notReadyOnce bool
+	prepareCalls int
+	preparedDef  KitDefinition
+	prepareState KitState
+	prepareErr   error
 }
 
 func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
 	f.gotSpec, f.gotCreds = spec, creds
 	if f.raiseErr != nil {
 		return "", f.raiseErr
+	}
+	if f.notReadyOnce && f.prepareCalls == 0 {
+		return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 	}
 	f.raised = append(f.raised, spec.ActorID)
 	if f.loc != "" {
@@ -59,6 +76,14 @@ func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 func (f *fakeLauncher) ApplyEgress(_ context.Context, _ Instance, p *EgressPolicy) error {
 	f.egressed = append(f.egressed, p)
 	return f.egressErr
+}
+func (f *fakeLauncher) PrepareKit(_ context.Context, def KitDefinition) (KitStatus, error) {
+	f.prepareCalls++
+	f.preparedDef = def
+	if f.prepareErr != nil {
+		return KitStatus{State: KitPreparing, Err: f.prepareErr.Error()}, f.prepareErr
+	}
+	return KitStatus{State: f.prepareState}, nil
 }
 
 // supTestKit builds a supervisor over a temp store with a guest role, a fixed
@@ -157,6 +182,65 @@ func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 	}
 	if _, ok := store.GetInstance("w1"); ok {
 		t.Fatal("failed raise must record no instance")
+	}
+}
+
+// A managed supervisor stamps the managed KitRef on the raise; when the launcher
+// reports ErrKitNotReady it resolves the definition from the registry, calls
+// PrepareKit once, and retries the raise, which then succeeds.
+func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
+	sup, store, _ := supTestKit(t, fl)
+	ref, err := EnsureManagedKit(store, kit.Config{Name: "base", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetManagedKit(ref)
+
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"})
+	if err != nil {
+		t.Fatalf("Raise after prepare: %v", err)
+	}
+	if fl.prepareCalls != 1 {
+		t.Fatalf("PrepareKit called %d times, want 1", fl.prepareCalls)
+	}
+	if len(fl.raised) != 1 || inst.Location == "" {
+		t.Fatalf("cove not raised after prepare+retry: raised=%v inst=%+v", fl.raised, inst)
+	}
+	if fl.gotSpec.Kit != ref {
+		t.Fatalf("raise spec.Kit = %v, want the managed ref %v", fl.gotSpec.Kit, ref)
+	}
+	if fl.preparedDef.Ref != ref || !slices.Contains(fl.preparedDef.Config.Image.AllowedDomains, "github.com") {
+		t.Fatalf("PrepareKit got the wrong definition: %+v", fl.preparedDef)
+	}
+	if _, ok := store.GetInstance("spider"); !ok {
+		t.Fatal("prepared+raised cove must be recorded")
+	}
+}
+
+// A PrepareKit that is still preparing (async remote build) must NOT block the
+// raise: the raise fails cleanly (retried on the next reconcile) and leaves no
+// dangling identity or instance.
+func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitPreparing}
+	sup, store, _ := supTestKit(t, fl)
+	ref, err := EnsureManagedKit(store, kit.Config{Name: "base", Image: kit.ImageConfig{AllowedDomains: []string{"github.com"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetManagedKit(ref)
+
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"}); err == nil {
+		t.Fatal("expected the raise to defer (error) while the kit is preparing")
+	}
+	if len(fl.raised) != 0 {
+		t.Fatal("no cove may be raised while the kit is still preparing")
+	}
+	if len(store.ListActors()) != 0 {
+		t.Fatal("a deferred raise must roll back the identity")
+	}
+	if _, ok := store.GetInstance("spider"); ok {
+		t.Fatal("a deferred raise must record no instance")
 	}
 }
 

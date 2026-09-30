@@ -35,6 +35,9 @@ func (aliveLauncher) Unpause(context.Context, jam.Instance) error { return nil }
 func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
+func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
 
 // harness raises one instance and starts an in-memory Attach server. Returns the
 // store, supervisor, server, a dial func, and the raised actor's token + launch secret.

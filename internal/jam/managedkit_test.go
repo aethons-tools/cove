@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -9,17 +10,14 @@ import (
 
 func TestManagedKitStripsAnthropicEgress(t *testing.T) {
 	base := kit.Config{Name: "k", Image: kit.ImageConfig{AllowedDomains: []string{".anthropic.com", "claude.ai", "proxy.golang.org", ".local.aethons.tools"}}}
-	mk := ManagedKit(base)
+	got := ManagedKit(base).Image.AllowedDomains
 	for _, banned := range []string{".anthropic.com", ".claude.com", "claude.ai"} {
-		if slices.Contains(mk.Config.Image.AllowedDomains, banned) {
-			t.Fatalf("managed kit egress must not include %q: %v", banned, mk.Config.Image.AllowedDomains)
+		if slices.Contains(got, banned) {
+			t.Fatalf("managed kit egress must not include %q: %v", banned, got)
 		}
 	}
-	if !slices.Contains(mk.Config.Image.AllowedDomains, "proxy.golang.org") {
+	if !slices.Contains(got, "proxy.golang.org") {
 		t.Fatal("non-Anthropic domains must be preserved")
-	}
-	if mk.Ref.ID != "managed" {
-		t.Fatalf("ref id = %q", mk.Ref.ID)
 	}
 }
 
@@ -50,7 +48,7 @@ func TestManagedKitEgressGolden(t *testing.T) {
 		"registry.example.com",
 		".local.aethons.tools",
 	}
-	got := ManagedKit(base).Config.Image.AllowedDomains
+	got := ManagedKit(base).Image.AllowedDomains
 	if !slices.Equal(got, want) {
 		t.Fatalf("managed egress golden mismatch:\n got:  %v\n want: %v", got, want)
 	}
@@ -66,24 +64,73 @@ func TestManagedKitDoesNotMutateBase(t *testing.T) {
 	}
 }
 
-// TestManagedKitVersionStableAndChanges — the content-hashed version is stable
-// for identical content and bumps when the config changes.
-func TestManagedKitVersionStableAndChanges(t *testing.T) {
+func newKitTestStore(t *testing.T) Store {
+	t.Helper()
+	st, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// EnsureManagedKit records the managed config in the registry and returns a ref
+// naming that (id, version). Recording the SAME config again reuses the version
+// (no churn on restart); a CHANGED config bumps a new monotonic version.
+func TestEnsureManagedKitIdempotentThenBumps(t *testing.T) {
+	st := newKitTestStore(t)
 	base := kit.Config{Name: "k", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}}
 
-	a := ManagedKit(base)
-	b := ManagedKit(base)
-	if a.Ref.Version != b.Ref.Version || a.Ref.Digest != b.Ref.Digest {
-		t.Fatalf("version not stable for identical content: %s vs %s", a.Ref, b.Ref)
+	a, err := EnsureManagedKit(st, base)
+	if err != nil {
+		t.Fatalf("EnsureManagedKit: %v", err)
 	}
-	if a.Ref.Digest == "" {
-		t.Fatal("expected a content digest")
+	if a.ID != ManagedKitID || a.Version == 0 || a.Digest == "" {
+		t.Fatalf("bad ref: %+v", a)
+	}
+
+	b, err := EnsureManagedKit(st, base)
+	if err != nil {
+		t.Fatalf("EnsureManagedKit (repeat): %v", err)
+	}
+	if b.Version != a.Version || b.Digest != a.Digest {
+		t.Fatalf("unchanged config must reuse the version: %s vs %s", a, b)
 	}
 
 	changed := base
 	changed.Image.AllowedDomains = []string{"github.com", "example.org", ".anthropic.com"}
-	c := ManagedKit(changed)
-	if c.Ref.Version == a.Ref.Version {
-		t.Fatalf("version must bump when content changes: both %s", a.Ref)
+	c, err := EnsureManagedKit(st, changed)
+	if err != nil {
+		t.Fatalf("EnsureManagedKit (changed): %v", err)
+	}
+	if c.Version == a.Version {
+		t.Fatalf("changed config must bump the version: both %d", a.Version)
+	}
+}
+
+// ResolveKitDefinition round-trips a recorded managed kit back to its config —
+// the chunky transfer the supervisor makes on an ErrKitNotReady miss. The
+// resolved config carries the Anthropic-stripped egress.
+func TestResolveKitDefinitionRoundTrips(t *testing.T) {
+	st := newKitTestStore(t)
+	base := kit.Config{Name: "k", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com", "proxy.golang.org"}}}
+	ref, err := EnsureManagedKit(st, base)
+	if err != nil {
+		t.Fatalf("EnsureManagedKit: %v", err)
+	}
+
+	def, ok, err := ResolveKitDefinition(st, ref)
+	if err != nil || !ok {
+		t.Fatalf("ResolveKitDefinition = %v, %v", ok, err)
+	}
+	if def.Ref != ref {
+		t.Fatalf("ref mismatch: %s vs %s", def.Ref, ref)
+	}
+	want := []string{"github.com", "proxy.golang.org"}
+	if !slices.Equal(def.Config.Image.AllowedDomains, want) {
+		t.Fatalf("resolved egress = %v, want %v", def.Config.Image.AllowedDomains, want)
+	}
+
+	if _, ok, _ := ResolveKitDefinition(st, KitRef{ID: ManagedKitID, Version: 999}); ok {
+		t.Fatal("resolving an absent version must report not found")
 	}
 }

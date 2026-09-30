@@ -52,19 +52,22 @@ type Config struct {
 	Log           *slog.Logger // nil → discard
 
 	// PrepareKit inputs (managed-cove build path). BuildRoot is where per-kit
-	// build contexts are assembled (default os.TempDir()/cove-kit-builds); KitDir
-	// is the managed kit's Dockerfile source dir and PublicKey the managed key,
-	// both consumed by the default assembler. Inventory is the launcher's
-	// prepared-kit source of truth (nil → the Colima docker-image inventory over
-	// Runner).
+	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
+	// PublicKey is the launcher's own SSH public key, baked into the built image's
+	// authorized_keys so Jam can reach the raised cove (its private half is
+	// IdentityFile). The build context otherwise comes entirely from the
+	// KitDefinition (data) and resources compiled into this binary — no source kit
+	// directory, so the build stays a data-only transfer (remote-tolerant).
+	// Inventory is the launcher's prepared-kit source of truth (nil → the Colima
+	// docker-image inventory over Runner).
 	BuildRoot string
-	KitDir    string
 	PublicKey []byte
 	Inventory Inventory
 
 	sleep func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
 	// assemble stages a KitDefinition's build context into buildDir. nil → the
-	// real assemble.Assemble over KitDir; a seam so PrepareKit tests stay hermetic.
+	// real assemble.AssembleContext from the definition + PublicKey; a seam so
+	// PrepareKit tests stay hermetic.
 	assemble func(def KitDefinition, buildDir string) error
 }
 
