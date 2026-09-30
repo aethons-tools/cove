@@ -27,8 +27,8 @@ func TestDefaultStudioKitIsAnthropicFree(t *testing.T) {
 	if len(excluded) != 0 {
 		t.Fatalf("default kit egress must already be Anthropic-free, excluded=%v", excluded)
 	}
-	if sk.Base.Ref != "" || sk.Base.Dockerfile != "" {
-		t.Fatal("default kit base must be empty (→ blessed default)")
+	if k, err := sk.Base.Kind(); err != nil || k != BaseDefault {
+		t.Fatalf("default kit base must be empty (→ blessed default); kind=%v err=%v", k, err)
 	}
 }
 
