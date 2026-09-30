@@ -758,8 +758,8 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 	}
 	// Pin down that the rejection came from config parsing (not some unrelated
 	// failure), so this test can't silently pass for the wrong reason.
-	if !strings.Contains(errb.String(), "invalid kit config") {
-		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), "invalid kit config")
+	if !strings.Contains(errb.String(), "invalid studio kit config") {
+		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), "invalid studio kit config")
 	}
 }
 
@@ -772,7 +772,7 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 
 	dir := t.TempDir()
 	valid := filepath.Join(dir, "valid.yml")
-	if err := os.WriteFile(valid, []byte("name: web\n"), 0o600); err != nil {
+	if err := os.WriteFile(valid, []byte("kind: studio\nname: web\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -818,7 +818,9 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "name: web") {
+	if !strings.Contains(out.String(), "name: web") ||
+		!strings.Contains(out.String(), "egress ceiling: github.com") ||
+		!strings.Contains(out.String(), "excluded (COV-208): claude.ai") {
 		t.Fatalf("kit show output missing expected config:\n%s", out.String())
 	}
 
@@ -1245,5 +1247,29 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 		if code := run(args, getenv, &out, &errb); code != 2 {
 			t.Fatalf("%v: exit=%d, want 2 (stderr=%s)", args, code, errb.String())
 		}
+	}
+}
+
+func TestKitPushValidatesStudioKit(t *testing.T) {
+	good := "kind: studio\nname: web\negress:\n  - github.com\n"
+	bad := "kind: studio\nname: web\nworkers: {}\n"
+	if err := validatePushedKit([]byte(good)); err != nil {
+		t.Fatalf("good studio kit rejected: %v", err)
+	}
+	if err := validatePushedKit([]byte(bad)); err == nil {
+		t.Fatal("bad studio kit must be rejected at push")
+	}
+	if err := validatePushedKit([]byte("name: web\n")); err == nil {
+		t.Fatal("non-studio kit must be rejected at push")
+	}
+}
+
+func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
+	ceiling, excluded := studioShowEgress([]string{"github.com", "claude.ai"})
+	if len(ceiling) != 1 || ceiling[0] != "github.com" {
+		t.Fatalf("ceiling=%v", ceiling)
+	}
+	if len(excluded) != 1 || excluded[0] != "claude.ai" {
+		t.Fatalf("excluded=%v", excluded)
 	}
 }

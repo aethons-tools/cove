@@ -49,6 +49,7 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/standing"
+	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -833,8 +834,8 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		if _, err := kit.ParseConfig(data); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: invalid kit config:", err)
+		if err := validatePushedKit(data); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
 			return 1
 		}
 		v, err := c.PushKit(*name, string(data))
@@ -863,18 +864,21 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// Stored form is canonical JSON; render it back as YAML for the human.
-		// ParseConfig accepts JSON (and any legacy YAML rows) alike.
-		cfg, err := kit.ParseConfig([]byte(res.Config))
+		// ParseStudioKit accepts JSON (and any YAML rows) alike.
+		sk, err := studio.ParseStudioKit([]byte(res.Config))
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam kit show: stored config is not valid:", err)
+			fmt.Fprintln(stderr, "at-jam kit show: stored config is not a valid studio kit:", err)
 			return 1
 		}
-		y, err := kit.ConfigToYAML(cfg)
+		y, err := yaml.Marshal(sk)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		fmt.Fprint(stdout, string(y))
+		ceiling, excluded := studioShowEgress(sk.Egress)
+		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
+		fmt.Fprintf(stdout, "excluded (COV-208): %s\n", joinOrNone(excluded))
 	case "versions":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "at-jam kit versions: expected one kit name")
@@ -2112,4 +2116,24 @@ func cmdPool(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// validatePushedKit validates a studio-kit config before it is stored, so a
+// malformed kit is caught at push, not at raise.
+func validatePushedKit(data []byte) error {
+	_, err := studio.ParseStudioKit(data)
+	return err
+}
+
+// studioShowEgress returns the effective ceiling and the excluded (Anthropic)
+// roots for display, so an operator sees exactly what a studio kit can reach.
+func studioShowEgress(authored []string) (ceiling, excluded []string) {
+	return studio.Ceiling(authored)
+}
+
+func joinOrNone(ss []string) string {
+	if len(ss) == 0 {
+		return "none"
+	}
+	return strings.Join(ss, ", ")
 }

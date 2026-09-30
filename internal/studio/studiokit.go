@@ -38,7 +38,7 @@ type StudioKit struct {
 	Name      string                      `yaml:"name" json:"name"`
 	Base      Base                        `yaml:"base,omitempty" json:"base,omitempty"`
 	Egress    []string                    `yaml:"egress,omitempty" json:"egress,omitempty"`
-	BuildArgs map[string]string           `yaml:"build-args,omitempty" json:"buildArgs,omitempty"`
+	BuildArgs map[string]string           `yaml:"build-args,omitempty" json:"build-args,omitempty"`
 	Secrets   map[string]kit.SecretConfig `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Prompt    string                      `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 }

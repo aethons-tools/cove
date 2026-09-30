@@ -576,12 +576,12 @@ func TestAdminKitsCRUD(t *testing.T) {
 	// push v1, v2 — two valid, distinct configs (config RoE: parsed as YAML,
 	// stored as JSON). v2 adds an egress domain so the versions differ.
 	var r1 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\n"}), &r1)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\n"}), &r1)
 	if r1.Version != 1 {
 		t.Fatalf("push v1 = %+v", r1)
 	}
 	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nimage:\n  allowed-domains:\n    - example.com\n"}), &r2)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\negress:\n  - example.com\n"}), &r2)
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
 	}
@@ -634,7 +634,7 @@ func TestAdminKitsCRUD(t *testing.T) {
 
 func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 	h, _ := newTestAdmin(t)
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
 		t.Fatalf("role add = %d", rec.Code)
 	}
@@ -650,7 +650,7 @@ func TestAdminRoleRejectsMissingKit(t *testing.T) {
 		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
 	}
 	// roster/role summary reflects a valid kit
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "name: builder\n"})
+	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
