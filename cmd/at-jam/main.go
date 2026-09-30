@@ -46,11 +46,13 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
+	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/switchboard"
+	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
@@ -1454,8 +1456,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateCredentials(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	specs := cfg.credSpecs()
+	specs, err := planCredentials(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 
 	// Select the store backend. store-postgres wins when set; otherwise the file
 	// store. The DB password is resolved on the host in memory and assembled into
@@ -1736,12 +1746,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	var discordReceipts *fileReceipts
 	if runDiscord {
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{cfg.Runtime.Discord.BotToken.toSpec("AT_DISCORD_BOT_TOKEN")})
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Runtime.Discord.BotTokenCred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: discord bot-token:", err)
 			return 1
 		}
-		discordTok = tokEnv["AT_DISCORD_BOT_TOKEN"]
+		discordTok = tokEnv[cfg.Runtime.Discord.BotTokenCred]
 		if discordReceipts, err = newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json")); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
@@ -1751,12 +1761,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	if dc != nil {
 		// Resolve Jam's own tracker token (never injected into a cove, never logged).
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{dc.TrackerToken.toSpec("AT_DISPATCH_TRACKER_TOKEN")})
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[dc.TrackerTokenCred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: requisitioner tracker-token:", err)
 			return 1
 		}
-		token := tokEnv["AT_DISPATCH_TRACKER_TOKEN"]
+		token := tokEnv[dc.TrackerTokenCred]
 		// linear.New wants a full kit.Config; wrap the configured LinearTracker.
 		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
 		tracker, err := linear.New(kitShell, token, nil)
@@ -2128,4 +2138,29 @@ func cmdPool(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// planCredentials loads the protected credentials file, resolves every demanded
+// credential to a secret.Spec keyed by name, and fails closed if the serve config
+// demands a credential the file does not supply. The broker and every downstream
+// resolver index the returned map by credential name.
+func planCredentials(cfg serveConfig) (map[string]secret.Spec, error) {
+	path := cfg.credentialsFilePath()
+	store, err := usersecret.LoadFlat(path)
+	if err != nil {
+		return nil, fmt.Errorf("credentials file: %w", err)
+	}
+	demanded := cfg.demandedCredentials()
+	specSlice, unresolved, err := store.PlanFlat(demanded, mint.Expander(runner.OS{}, store.Global, ""))
+	if err != nil {
+		return nil, err
+	}
+	if len(unresolved) > 0 {
+		return nil, fmt.Errorf("credential(s) demanded in the serve config but not supplied by %s: %s", path, strings.Join(unresolved, ", "))
+	}
+	specs := make(map[string]secret.Spec, len(specSlice))
+	for _, s := range specSlice {
+		specs[s.Name] = s
+	}
+	return specs, nil
 }

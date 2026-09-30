@@ -14,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
-	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
@@ -320,14 +319,6 @@ func (c serveConfig) validateStorePostgres() error {
 	return nil
 }
 
-// toSpec converts this credential to a named secret.Spec (literal or command).
-func (cs credSpec) toSpec(name string) secret.Spec {
-	if cs.Value != "" {
-		return secret.Spec{Name: name, Value: cs.Value, Literal: true}
-	}
-	return secret.Spec{Name: name, Command: cs.Command}
-}
-
 // validateRequisitioner checks runtime.requisitioner when present (required fields:
 // role, max-concurrent > 0, linear). A no-op when runtime.requisitioner is unset —
 // the Requisitioner stays disabled, unchanged from before this block existed.
@@ -629,16 +620,4 @@ func atJamConfigDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-jam")
-}
-
-// credSpecs maps each configured credential to a secret.Spec (literal or command).
-func (c serveConfig) credSpecs() map[string]secret.Spec {
-	out := make(map[string]secret.Spec, len(c.Credentials))
-	for name, cs := range c.Credentials {
-		// toSpec sets Name, which secret.Resolve keys its output map by; callers
-		// that index the resolved map by credential name (e.g. the store-postgres
-		// password path) get an empty value if Name is unset.
-		out[name] = cs.toSpec(name)
-	}
-	return out
 }
