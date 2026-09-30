@@ -12,7 +12,7 @@ func TestParseStudioKitRoundTrip(t *testing.T) {
 	src := []byte(`kind: studio
 name: web
 base:
-  ref: ghcr.io/acme/web@sha256:abc
+  image: ghcr.io/acme/web@sha256:abc
 egress:
   - github.com
   - pkg.go.dev
@@ -28,7 +28,7 @@ prompt: |
 	if err != nil {
 		t.Fatalf("ParseStudioKit: %v", err)
 	}
-	if sk.Name != "web" || sk.Base.Ref != "ghcr.io/acme/web@sha256:abc" {
+	if sk.Name != "web" || sk.Base.Image != "ghcr.io/acme/web@sha256:abc" {
 		t.Fatalf("bad parse: %+v", sk)
 	}
 	if sk.BuildArgs["NODE_VERSION"] != "20" || sk.Secrets["AT_TASK_GIT_TOKEN"].Description == "" {
@@ -99,15 +99,27 @@ build-args:
 			wantErr: "reserved secret name",
 		},
 		{
-			name: "base.ref and base.dockerfile both set",
-			desc: "both base.ref and base.dockerfile are set (mutually exclusive)",
+			name: "base image and context-files both set",
+			desc: "more than one base form is set (mutually exclusive)",
 			data: []byte(`kind: studio
 name: web
 base:
-  ref: ghcr.io/acme/web:latest
-  dockerfile: path/to/Dockerfile
+  image: ghcr.io/acme/web:latest
+  context-files:
+    dockerfile: "FROM x"
 `),
-			wantErr: "mutually exclusive",
+			wantErr: "exactly one",
+		},
+		{
+			name: "context-files without a dockerfile",
+			desc: "base.context-files is missing its required dockerfile",
+			data: []byte(`kind: studio
+name: web
+base:
+  context-files:
+    readme.txt: hello
+`),
+			wantErr: "dockerfile` file is required",
 		},
 	}
 
@@ -131,7 +143,7 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 		Kind: "studio",
 		Name: "web",
 		Base: Base{
-			Ref: "r",
+			Image: "r",
 		},
 		Egress: []string{"github.com"},
 		BuildArgs: map[string]string{
@@ -162,8 +174,8 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	if parsed.Name != "web" {
 		t.Errorf("Name = %q, want web", parsed.Name)
 	}
-	if parsed.Base.Ref != "r" {
-		t.Errorf("Base.Ref = %q, want r", parsed.Base.Ref)
+	if parsed.Base.Image != "r" {
+		t.Errorf("Base.Image = %q, want r", parsed.Base.Image)
 	}
 	if len(parsed.Egress) != 1 || parsed.Egress[0] != "github.com" {
 		t.Errorf("Egress = %v, want [github.com]", parsed.Egress)

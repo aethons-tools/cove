@@ -17,21 +17,6 @@ import (
 // from a full kit.Config entry sharing the jam kit registry.
 const Kind = "studio"
 
-// Base names the image a studio kit builds FROM, exactly one of three ways:
-//   - Ref set          → build FROM that (gated) image ref.
-//   - Dockerfile set   → build a context (Dockerfile + Context files) into a
-//     (gated) base image; the Dockerfile should `FROM ${COVE_BASE_IMAGE}` so the
-//     result descends from the blessed base.
-//   - both empty       → the blessed default base.
-//
-// Ref and Dockerfile are mutually exclusive. Context maps a relative path to its
-// file content; it travels by value with the kit, so the build needs no host dir.
-type Base struct {
-	Ref        string            `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Dockerfile string            `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
-	Context    map[string]string `yaml:"context,omitempty" json:"context,omitempty"`
-}
-
 // StudioKit is the parsed contents of a studio kit's config. Build-affecting
 // fields (Base, Egress, BuildArgs) key the built image (see BuildDigest);
 // raise-time fields (Secrets, Prompt) do not.
@@ -72,8 +57,8 @@ func (sk StudioKit) Validate() error {
 	if !TagSafeName(sk.Name) {
 		return fmt.Errorf("studio kit: name %q is not tag-safe (allowed: [A-Za-z0-9_.-])", sk.Name)
 	}
-	if sk.Base.Ref != "" && sk.Base.Dockerfile != "" {
-		return fmt.Errorf("studio kit %q: base.ref and base.dockerfile are mutually exclusive", sk.Name)
+	if err := sk.Base.validate(); err != nil {
+		return fmt.Errorf("studio kit %q: %w", sk.Name, err)
 	}
 	// Build-args must never collide with a secret demand or a reserved secret
 	// name — secrets reach the session at raise, never the build (argv/logs).

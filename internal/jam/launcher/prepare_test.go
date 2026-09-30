@@ -1,7 +1,10 @@
 package launcher
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -82,7 +85,7 @@ func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
 }
 
 // A studio kit builds by its build-digest tag, FROM the substrate-resolved base
-// (empty Base.Ref → blessed default), threading the kit's build-args; the
+// (empty Base.Image → blessed default), threading the kit's build-args; the
 // Anthropic-excluded ceiling is applied at assemble.
 func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	ops := &fakeOps{resolvedBase: "blessed@sha256:def"}
@@ -100,7 +103,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	if ops.builtTag != "cove-kit:"+ref.Digest {
 		t.Fatalf("image tag must be the build-digest: %q", ops.builtTag)
 	}
-	if ops.resolvedFrom != "" { // Base.Ref == "" → blessed default
+	if ops.resolvedFrom != "" { // Base.Image == "" → blessed default
 		t.Fatalf("ResolveKitBase called with %q, want empty (blessed default)", ops.resolvedFrom)
 	}
 	if ops.builtBase != "blessed@sha256:def" {
@@ -111,24 +114,27 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	}
 }
 
-// A Dockerfile-context base is materialized (Dockerfile + context files, by value)
-// into a per-ref base dir, built+gated via the backend, and the kit image is built
+func sp(s string) *string { return &s }
+
+// A context-files base is materialized (Dockerfile + nested files, by value) into
+// a per-ref base dir, built+gated via the backend, and the kit image is built
 // FROM the resolved base.
-func TestPrepareStudioKitDockerfileBase(t *testing.T) {
+func TestPrepareStudioKitContextFilesBase(t *testing.T) {
 	root := t.TempDir()
 	ops := &fakeOps{resolvedDockerfileBase: "blessed-df@sha256:aaa"}
-	inv := &fakeInv{}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		BuildRoot: root, Inventory: inv,
+		BuildRoot: root, Inventory: &fakeInv{},
 		assemble: func(KitDefinition, string) error { return nil },
 		sleep:    func(time.Duration) {},
 	})
-
+	df := "FROM ${COVE_BASE_IMAGE}\nRUN echo hi"
 	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
-		Dockerfile: "FROM ${COVE_BASE_IMAGE}\nRUN echo hi",
-		Context:    map[string]string{"scripts/setup.sh": "echo setup"},
+		ContextFiles: studio.ContextTree{
+			"dockerfile": {File: sp(df)},
+			"scripts":    {Dir: studio.ContextTree{"setup.sh": {File: sp("echo setup")}}},
+		},
 	}}
 	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
@@ -139,11 +145,11 @@ func TestPrepareStudioKitDockerfileBase(t *testing.T) {
 	if ops.resolvedDockerfileDir != baseDir {
 		t.Fatalf("ResolveKitBaseDockerfile ctxDir = %q, want %q", ops.resolvedDockerfileDir, baseDir)
 	}
-	if got := readFile(t, filepath.Join(baseDir, "Dockerfile")); got != sk.Base.Dockerfile {
+	if got := readFile(t, filepath.Join(baseDir, "Dockerfile")); got != df {
 		t.Fatalf("materialized Dockerfile = %q, want the authored one", got)
 	}
 	if got := readFile(t, filepath.Join(baseDir, "scripts/setup.sh")); got != "echo setup" {
-		t.Fatalf("materialized context file = %q", got)
+		t.Fatalf("materialized nested context file = %q", got)
 	}
 	if ops.builtBase != "blessed-df@sha256:aaa" {
 		t.Fatalf("kit image built FROM %q, want the gated Dockerfile base", ops.builtBase)
@@ -153,9 +159,58 @@ func TestPrepareStudioKitDockerfileBase(t *testing.T) {
 	}
 }
 
-// An unblessed Dockerfile base fails the prepare loudly (gate ON, fail-closed):
-// the kit image is never built.
-func TestPrepareStudioKitDockerfileBaseGateFails(t *testing.T) {
+// A base64 zip context is decoded + unzipped into the base dir, then built+gated;
+// the kit image is built FROM the resolved base.
+func TestPrepareStudioKitZipContextBase(t *testing.T) {
+	root := t.TempDir()
+	ops := &fakeOps{resolvedDockerfileBase: "blessed-zip@sha256:bbb"}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		BuildRoot: root, Inventory: &fakeInv{},
+		assemble: func(KitDefinition, string) error { return nil },
+		sleep:    func(time.Duration) {},
+	})
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range []struct{ name, body string }{
+		{"Dockerfile", "FROM ${COVE_BASE_IMAGE}\n"},
+		{"app/main.go", "package main\n"},
+	} {
+		w, err := zw.Create(e.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(e.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+		Context: base64.StdEncoding.EncodeToString(buf.Bytes()),
+	}}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
+	if err != nil || st.State != KitReady {
+		t.Fatalf("PrepareKit = %+v, %v", st, err)
+	}
+	baseDir := filepath.Join(root, ref.Digest+"-base")
+	if ops.resolvedDockerfileDir != baseDir {
+		t.Fatalf("ResolveKitBaseDockerfile ctxDir = %q, want %q", ops.resolvedDockerfileDir, baseDir)
+	}
+	if got := readFile(t, filepath.Join(baseDir, "app/main.go")); got != "package main\n" {
+		t.Fatalf("zip nested file = %q", got)
+	}
+	if ops.builtBase != "blessed-zip@sha256:bbb" {
+		t.Fatalf("kit image built FROM %q, want the gated zip base", ops.builtBase)
+	}
+}
+
+// An unblessed context base fails the prepare loudly (gate ON, fail-closed): the
+// kit image is never built.
+func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
 	ops := &fakeOps{resolveDockerfileErr: errors.New("base does not descend from any blessed cove-base-image")}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
@@ -164,7 +219,9 @@ func TestPrepareStudioKitDockerfileBaseGateFails(t *testing.T) {
 		assemble: func(KitDefinition, string) error { return nil },
 		sleep:    func(time.Duration) {},
 	})
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{Dockerfile: "FROM scratch"}}
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+		ContextFiles: studio.ContextTree{"dockerfile": {File: sp("FROM scratch")}},
+	}}
 	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err == nil || st.State == KitReady {

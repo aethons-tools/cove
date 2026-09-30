@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // PrepareKit builds a studio kit's image from its full definition: it assembles
@@ -42,7 +43,7 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	}
 	// Resolve the FROM-base on the substrate (gate ON — no --allow-unverified for
 	// brokered coves). Three cases: an authored Dockerfile+context is materialized
-	// and built into a gated base; else a declared Base.Ref is resolved+gated; an
+	// and built into a gated base; else a declared Base.Image is resolved+gated; an
 	// empty ref resolves to the blessed default.
 	base, err := l.resolveStudioBase(def, ref)
 	if err != nil {
@@ -62,16 +63,24 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 // resolveStudioBase resolves the gated FROM-base for a studio kit. An authored
 // Dockerfile+context is materialized (by value, no host-dir dependency) into a
 // per-ref base dir and built+gated via the backend; otherwise the declared
-// Base.Ref is resolved+gated ("" → blessed default). The gate is ON in both cases.
+// Base.Image is resolved+gated ("" → blessed default). The gate is ON in both cases.
 func (l *Launcher) resolveStudioBase(def KitDefinition, ref KitRef) (string, error) {
-	if def.Kit.Base.Dockerfile != "" {
+	kind, err := def.Kit.Base.Kind()
+	if err != nil {
+		return "", err
+	}
+	switch kind {
+	case studio.BaseContextFiles, studio.BaseContextZip:
+		// Materialize the context (inline tree or zip) by value into a per-ref dir,
+		// then build+gate it as the FROM-base (COV-223 path).
 		baseDir := filepath.Join(l.cfg.BuildRoot, ref.Digest+"-base")
-		if err := materializeDockerfileBase(baseDir, def.Kit.Base); err != nil {
+		if err := def.Kit.Base.MaterializeInto(baseDir); err != nil {
 			return "", err
 		}
 		return l.cfg.Ops.ResolveKitBaseDockerfile(baseDir)
+	default: // BaseImage or BaseDefault: a declared ref, or "" → blessed default.
+		return l.cfg.Ops.ResolveKitBase(def.Kit.Base.Image)
 	}
-	return l.cfg.Ops.ResolveKitBase(def.Kit.Base.Ref)
 }
 
 // lockRef returns the per-ref build lock, held; the returned func releases it.
