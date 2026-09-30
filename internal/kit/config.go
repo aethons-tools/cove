@@ -22,7 +22,7 @@ import (
 // produced is a machine-side concern (see internal/usersecret) — a kit never
 // carries a resolver command.
 type SecretConfig struct {
-	Description string `yaml:"description"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // ImageConfig declares the image a kit hardens and its additive egress. Build-time

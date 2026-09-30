@@ -4,6 +4,8 @@ package studio
 import (
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 func TestParseStudioKitRoundTrip(t *testing.T) {
@@ -119,5 +121,57 @@ base:
 				t.Errorf("%s: error %q does not contain %q", tc.desc, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestStudioKitJSONRoundTrip(t *testing.T) {
+	// Regression test: a StudioKit with build-args must survive a JSON round-trip
+	// (ToJSON → ParseStudioKit). This guards against JSON/YAML tag mismatches.
+	sk := StudioKit{
+		Kind: "studio",
+		Name: "web",
+		Base: Base{
+			Ref: "r",
+		},
+		Egress: []string{"github.com"},
+		BuildArgs: map[string]string{
+			"NODE_VERSION": "20",
+		},
+		Secrets: map[string]kit.SecretConfig{
+			"MYSECRET": {Description: "x"},
+		},
+		Prompt: "p",
+	}
+
+	// Marshal to JSON.
+	jsonBytes, err := sk.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON: %v", err)
+	}
+
+	// Parse back from JSON.
+	parsed, err := ParseStudioKit(jsonBytes)
+	if err != nil {
+		t.Fatalf("ParseStudioKit: %v", err)
+	}
+
+	// Verify critical fields survived the round-trip.
+	if parsed.BuildArgs["NODE_VERSION"] != "20" {
+		t.Errorf("BuildArgs[NODE_VERSION] = %q, want 20", parsed.BuildArgs["NODE_VERSION"])
+	}
+	if parsed.Name != "web" {
+		t.Errorf("Name = %q, want web", parsed.Name)
+	}
+	if parsed.Base.Ref != "r" {
+		t.Errorf("Base.Ref = %q, want r", parsed.Base.Ref)
+	}
+	if len(parsed.Egress) != 1 || parsed.Egress[0] != "github.com" {
+		t.Errorf("Egress = %v, want [github.com]", parsed.Egress)
+	}
+	if sec, ok := parsed.Secrets["MYSECRET"]; !ok || sec.Description != "x" {
+		t.Errorf("Secrets[MYSECRET] = %+v, want Description=x", sec)
+	}
+	if parsed.Prompt != "p" {
+		t.Errorf("Prompt = %q, want p", parsed.Prompt)
 	}
 }

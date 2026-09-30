@@ -659,6 +659,16 @@ func TestAdminRoleRejectsMissingKit(t *testing.T) {
 	}
 }
 
+func TestAdminKitsPushRejectsNonStudioConfig(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	// A config without kind: studio is rejected (fail-closed on the authoritative
+	// server path), even if otherwise valid-looking.
+	rec := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nsecrets: {}\n"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("push non-studio config = %d, want 400", rec.Code)
+	}
+}
+
 func newTestAdminWithSupervisor(t *testing.T) (http.Handler, Store, *Supervisor) {
 	t.Helper()
 	h, store, sup, _ := newTestAdminWithSupervisorAndLauncher(t)
