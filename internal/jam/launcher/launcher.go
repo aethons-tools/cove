@@ -29,9 +29,12 @@ import (
 const Label = "harbor.cove"
 
 // Backend is the backend surface the launcher needs: the ephemeral run/dial/remove
-// ops plus GetStatus for probing. The Colima backend value satisfies both.
+// ops, GetStatus for probing, and the managed-kit build+inventory. The Colima
+// backend value satisfies all three, so its build/inventory and its RunEphemeral
+// share one docker daemon (COV-217).
 type Backend interface {
-	backend.DispatchOps // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
+	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
+	backend.KitImageBuilder // BuildKitImage, HasKitImage (managed-kit prepare)
 	GetStatus(container string) (backend.State, error)
 }
 
@@ -55,13 +58,16 @@ type Config struct {
 	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
 	// PublicKey is the launcher's own SSH public key, baked into the built image's
 	// authorized_keys so Jam can reach the raised cove (its private half is
-	// IdentityFile). The build context otherwise comes entirely from the
-	// KitDefinition (data) and resources compiled into this binary — no source kit
-	// directory, so the build stays a data-only transfer (remote-tolerant).
-	// Inventory is the launcher's prepared-kit source of truth (nil → the Colima
-	// docker-image inventory over Runner).
+	// IdentityFile). BaseImage is the resolved, already-gated FROM-base the managed
+	// image builds on (the install manifest's BaseRef) — passed to the backend as
+	// the Dockerfile's BASE arg. The build context otherwise comes entirely from
+	// the KitDefinition (data) and resources compiled into this binary — no source
+	// kit directory, so the build stays a data-only transfer (remote-tolerant).
+	// Inventory is the launcher's prepared-kit source of truth (nil → the
+	// substrate backend's image inventory).
 	BuildRoot string
 	PublicKey []byte
+	BaseImage string
 	Inventory Inventory
 
 	sleep func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
@@ -96,7 +102,7 @@ func New(cfg Config) *Launcher {
 	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
 	l.inv = cfg.Inventory
 	if l.inv == nil {
-		l.inv = newColimaInventory(cfg.Runner)
+		l.inv = backendInventory{cfg.Ops}
 	}
 	if l.cfg.assemble == nil {
 		l.cfg.assemble = l.defaultAssemble
@@ -119,7 +125,10 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if !ok {
 			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 		}
-		image, digest = imageTag(spec.Kit), spec.Kit.Digest
+		// Run the immutable cove-kit:<id>-v<n> tag. No digest pin: KitRef.Digest is
+		// the kit CONFIG's content hash (integrity of the definition), not the built
+		// image's id, so it must never be passed as RunEphemeral's image digest.
+		image, digest = imageTag(spec.Kit), ""
 	}
 	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)

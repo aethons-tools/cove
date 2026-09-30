@@ -40,7 +40,10 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
-	if err := l.cfg.Runner.Run("docker", "build", "-t", imageTag(ref), buildDir); err != nil {
+	// Build on the substrate backend (context-pinned + BASE arg), so the image
+	// lands in the same daemon Raise's RunEphemeral runs it from, and the
+	// Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
+	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), l.cfg.BaseImage, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
 	l.cfg.Log.Info("prepared kit", "ref", ref.String(), "tag", imageTag(ref))

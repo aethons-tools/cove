@@ -198,6 +198,27 @@ type RoleEgress interface {
 	ResetRoleEgress(container string) error
 }
 
+// KitImageBuilder is the managed-cove build+inventory surface a Jam launcher
+// drives on a substrate (COV-217). The launcher owns "prepare a managed kit's
+// image", which each substrate builds its own way — Colima builds locally via
+// docker in its pinned context, so the build and the RunEphemeral that later runs
+// the image share one daemon. Kept its own interface so the launcher type-asserts
+// it and the persistent Backend/DispatchOps surfaces don't grow build methods.
+//
+// Distinct from Backend.Install (the at-cove single gated build site, COV-38):
+// this builds an already-assembled context FROM a base the caller has already
+// resolved and gated (at-cove install's manifest BaseRef), so it reuses that
+// blessed base rather than running the provenance gate again.
+type KitImageBuilder interface {
+	// BuildKitImage builds the assembled context in buildDir into the tagged image,
+	// FROM base (passed as the Dockerfile's BASE arg; must be non-empty). noCache
+	// bypasses docker's layer cache. Returns the built image's own sha256 digest.
+	BuildKitImage(buildDir, tag, base string, noCache bool) (digest string, err error)
+	// HasKitImage reports whether the tagged image exists on this substrate. A
+	// miss is (false, nil) — the normal signal that drives PrepareKit — not an error.
+	HasKitImage(tag string) (bool, error)
+}
+
 // Factory constructs a Backend bound to a Runner.
 type Factory func(r runner.Runner) Backend
 

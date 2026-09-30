@@ -1531,13 +1531,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam: launcher identity public key ("+lc.IdentityFile+".pub):", err)
 			return 1
 		}
+		// The managed image builds FROM the same base at-cove install already
+		// resolved and gated (the manifest's BaseRef); the launcher passes it as the
+		// Dockerfile's BASE arg. A manifest without one can't build a managed kit.
+		if m.BaseRef == "" {
+			fmt.Fprintln(stderr, "at-jam: launcher install-manifest has no baseRef; cannot build the managed kit")
+			return 1
+		}
 		lch = launcher.New(launcher.Config{
 			Ops: be, Runner: runner.OS{},
 			Image: m.Image, ImageDigest: m.ImageDigest,
 			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
-			PublicKey: pub,
+			PublicKey: pub, BaseImage: m.BaseRef,
 			// Seed raised coves in subscription mode when the pool is enabled, so
 			// their claude authenticates as a pooled subscription principal.
 			Subscription: cfg.Pool != nil,
