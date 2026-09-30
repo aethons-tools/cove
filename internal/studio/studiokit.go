@@ -80,6 +80,12 @@ func (sk StudioKit) ToJSON() ([]byte, error) {
 	if sk.Kind == "" {
 		sk.Kind = Kind
 	}
+	// base.context-dir is a client-only authoring field packed into base.context
+	// at push. It must be resolved (see (*StudioKit).ResolveContextDir) before a
+	// kit is serialized for storage — the server can't read the operator's disk.
+	if sk.Base.ContextDir != "" {
+		return nil, fmt.Errorf("studio kit %q: base.context-dir must be resolved (packed) before serializing", sk.Name)
+	}
 	return json.Marshal(sk)
 }
 

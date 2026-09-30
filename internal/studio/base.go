@@ -36,6 +36,11 @@ type Base struct {
 	Image        string      `yaml:"image,omitempty" json:"image,omitempty"`
 	ContextFiles ContextTree `yaml:"context-files,omitempty" json:"contextFiles,omitempty"`
 	Context      string      `yaml:"context,omitempty" json:"context,omitempty"` // base64 zip
+	// ContextDir is a CLIENT-ONLY authoring convenience: a host directory that
+	// `at-jam kit push` packs into Context (a zip) before pushing, then clears.
+	// It is never serialized (json:"-"), so it never reaches the registry, the
+	// server, or the build-digest — the server can't read the operator's disk.
+	ContextDir string `yaml:"context-dir,omitempty" json:"-"`
 }
 
 // ContextTree is a directory of authored context entries keyed by a single path
@@ -98,6 +103,7 @@ const (
 	BaseImage                        // a prebuilt gated ref
 	BaseContextFiles                 // an inline tree
 	BaseContextZip                   // a base64 zip context
+	BaseContextDir                   // a host dir (client-only; packed into a zip at push)
 )
 
 // Kind reports which base form is set, erroring if more than one is.
@@ -112,8 +118,11 @@ func (b Base) Kind() (BaseKind, error) {
 	if b.Context != "" {
 		kind, n = BaseContextZip, n+1
 	}
+	if b.ContextDir != "" {
+		kind, n = BaseContextDir, n+1
+	}
 	if n > 1 {
-		return BaseDefault, fmt.Errorf("base: set exactly one of image / context-files / context")
+		return BaseDefault, fmt.Errorf("base: set exactly one of image / context-files / context / context-dir")
 	}
 	return kind, nil
 }

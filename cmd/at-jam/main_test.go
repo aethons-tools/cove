@@ -1250,6 +1250,48 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestKitPushPacksContextDir(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	dir := t.TempDir()
+	ctx := filepath.Join(dir, "ctx")
+	if err := os.MkdirAll(ctx, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx, "Dockerfile"), []byte("FROM ${COVE_BASE_IMAGE}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx, "hello.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// base.context-dir is relative → resolved against the kit file's directory.
+	kitFile := filepath.Join(dir, "kit.yml")
+	if err := os.WriteFile(kitFile, []byte("kind: studio\nname: ctxkit\nbase:\n  context-dir: ctx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "ctxkit", "--config", kitFile}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit push: exit=%d stderr=%s", code, errb.String())
+	}
+	// The stored kit must be a packed context (zip), with context-dir stripped.
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "ctxkit"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "context:") {
+		t.Fatalf("stored kit should carry a packed context zip; show:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "context-dir") {
+		t.Fatalf("context-dir is client-only and must not be stored; show:\n%s", out.String())
+	}
+}
+
 func TestKitPushValidatesStudioKit(t *testing.T) {
 	good := "kind: studio\nname: web\negress:\n  - github.com\n"
 	bad := "kind: studio\nname: web\nworkers: {}\n"
