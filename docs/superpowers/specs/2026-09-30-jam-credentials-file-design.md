@@ -12,7 +12,8 @@ read-when: implementing, slicing, or reviewing the move of at-jam's credential r
 
 Today `at-jam serve` carries each downstream credential's **resolution strategy inline** in
 its serve config: `credentials.<name>` holds a `{command: […]}` or `{value: "…"}`, and the
-Discord bot-token is an inline `{command/value}` under `runtime.discord`. The serve config
+Discord bot-token (`runtime.discord.bot-token`) and the requisitioner's tracker-token
+(`runtime.requisitioner.tracker-token`) are inline `{command/value}` blocks. The serve config
 (e.g. `dev/jam.dev.yml`) therefore physically contains secret material — or the argv that
 mints it — right next to source control, the exact leak surface at-cove already solved for
 kits. This design **ports at-cove's demand/supply split to the service**: the serve config
@@ -54,7 +55,9 @@ sections resolve each demand through one of four sources. This is implemented in
 inline. `serveConfig.credSpecs()` turns that into `map[string]secret.Spec`, and
 `cmd/at-jam/main.go` feeds it to `jam.NewSecretResolver(runner.OS{}, specs)`. The
 Postgres-password (`store-postgres.password-cred`) already references a name in that map; the
-Discord bot-token (`runtime.discord.bot-token`) is inline.
+**Discord bot-token** (`runtime.discord.bot-token`) and the **requisitioner tracker-token**
+(`runtime.requisitioner.tracker-token`) are both still inline `credSpec` blocks — three
+inline secret sites in all.
 
 ## The protected file — `~/.config/at-jam/credentials.yml`
 
@@ -74,6 +77,7 @@ credentials:                   # name -> source: exactly one of value | command 
   git-pat:       { global: gh-token }
   jam-db:        { value: "dev-only-password" }
   discord-bot:   { command: ["cat", "/run/secrets/discord"] }
+  linear-bot:    { command: ["cat", "/run/secrets/linear"] }
 ```
 
 - Each `credentials:` entry sets **exactly one** source, validated on load (the existing
@@ -92,11 +96,14 @@ credentials:                    # name-only DEMANDS — an inline strategy is a 
   git-pat:
   jam-db:
   discord-bot:
+  linear-bot:
 store-postgres:
-  password-cred: jam-db         # unchanged; resolves against the file-supplied specs
+  password-cred: jam-db          # unchanged; resolves against the file-supplied specs
 runtime:
   discord:
-    bot-token-cred: discord-bot # NEW name; replaces inline `bot-token: {command/value}`
+    bot-token-cred: discord-bot  # NEW name; replaces inline `bot-token: {command/value}`
+  requisitioner:
+    tracker-token-cred: linear-bot # NEW name; replaces inline `tracker-token: {command/value}`
 ```
 
 1. **`credentials-file: <path>`** — new optional field. When omitted, defaults to
@@ -107,7 +114,9 @@ runtime:
 3. **`runtime.discord.bot-token` → `runtime.discord.bot-token-cred: <name>`**, referencing a
    demanded credential — the same pattern as `store-postgres.password-cred`. An inline
    `bot-token:` is a parse error with a migration message.
-4. **`store-postgres.password-cred`** — unchanged shape; now resolves against the
+4. **`runtime.requisitioner.tracker-token` → `runtime.requisitioner.tracker-token-cred: <name>`**,
+   the same conversion. An inline `tracker-token:` is a parse error with a migration message.
+5. **`store-postgres.password-cred`** — unchanged shape; now resolves against the
    file-supplied specs like any other reference.
 
 ## Resolution flow (`at-jam serve` startup)
@@ -131,10 +140,10 @@ The broker and everything downstream of `map[string]secret.Spec` are untouched.
 
 ## Validation & invariants
 
-- **Reference integrity.** Every credential reference — `password-cred`, `bot-token-cred`, a
-  destination's `cred-name` (validated at add time), and the pool `cred-name` — must name a
-  **demanded** credential. This extends the existing `credConfigured` check to draw the
-  allowed set from the demand list.
+- **Reference integrity.** Every credential reference — `password-cred`, `bot-token-cred`,
+  `tracker-token-cred`, a destination's `cred-name` (validated at add time), and the pool
+  `cred-name` — must name a **demanded** credential. This extends the existing `credConfigured`
+  check to draw the allowed set from the demand list.
 - **Anti-mining, ported.** File `credentials:`/`global:`/`minters:` entries are inert until
   named as a demand; an undemanded file entry supplies nothing.
 - **Fail-closed on missing supply.** A demanded credential with no matching file entry aborts
@@ -165,13 +174,16 @@ service-style consumer, keeping that logic in exactly one place:
   `command:`/`value:` is a parse error.
 - Add `CredentialsFile string` (`yaml:"credentials-file"`) with the XDG default resolved when
   empty.
-- Add `runtime.discord.bot-token-cred`; make inline `bot-token` a parse error.
-- Remove the inline strategy fields from the credential path; `credSpecs()` is replaced by the
-  `usersecret.PlanFlat` call in the `serve` wiring.
+- Add `runtime.discord.bot-token-cred` and `runtime.requisitioner.tracker-token-cred`; make an
+  inline `bot-token`/`tracker-token` a parse error (detected via retained deprecated fields).
+- Remove the inline strategy fields from all three credential paths; `credSpecs()`/`toSpec()`
+  are replaced by the `usersecret.PlanFlat` call in the `serve` wiring.
 
 `cmd/at-jam/main.go`: in the `serve` path, load the credentials file, `PlanFlat` the demand
-set, fail closed on unresolved, and hand the resulting specs to `jam.NewSecretResolver` (and
-the Postgres-password `secret.Resolve`) exactly where `credSpecs()` is used today.
+set, fail closed on unresolved, and hand the resulting specs to `jam.NewSecretResolver` (and to
+the Postgres-password, Discord bot-token, and requisitioner tracker-token `secret.Resolve`
+calls) — all of which now index the same specs map by name, where `credSpecs()` and the three
+inline `.toSpec(...)` calls are used today.
 
 ## Testing (hermetic, TDD — write the failing test first)
 
@@ -181,12 +193,13 @@ the Postgres-password `secret.Resolve`) exactly where `credSpecs()` is used toda
 - **`LoadFlat`** — missing file ⇒ empty store; malformed YAML ⇒ error; a `global:`/`mint:`
   reference to an undefined library entry ⇒ error.
 - **serve-config parsing** — inline `command:`/`value:` under `credentials:` ⇒ error; inline
-  `runtime.discord.bot-token` ⇒ error; name-only `credentials:` + `bot-token-cred` parse; the
+  `runtime.discord.bot-token` ⇒ error; inline `runtime.requisitioner.tracker-token` ⇒ error;
+  name-only `credentials:` + `bot-token-cred` + `tracker-token-cred` parse; the
   `credentials-file` default path resolves under a temp `XDG_CONFIG_HOME`.
 - **serve wiring** — a demanded-but-unsupplied credential ⇒ fail closed before the broker
-  starts; a `password-cred`/`bot-token-cred`/destination `cred-name` naming an undemanded
-  credential ⇒ error; given equivalent inputs, the broker receives an **identical**
-  `map[string]secret.Spec` (parity with the pre-change path).
+  starts; a `password-cred`/`bot-token-cred`/`tracker-token-cred`/destination `cred-name`
+  naming an undemanded credential ⇒ error; given equivalent inputs, the broker receives an
+  **identical** `map[string]secret.Spec` (parity with the pre-change path).
 
 ## Docs
 
@@ -203,8 +216,9 @@ the Postgres-password `secret.Resolve`) exactly where `credSpecs()` is used toda
 
 ## Migration
 
-- A serve config with an inline `credentials:` strategy, or an inline `runtime.discord.bot-token`,
-  fails to parse with a message naming the field and pointing at the credentials file.
+- A serve config with an inline `credentials:` strategy, or an inline `runtime.discord.bot-token`
+  or `runtime.requisitioner.tracker-token`, fails to parse with a message naming the field and
+  pointing at the credentials file.
 - Migrate the operator's `dev/jam.dev.yml` and the sample serve config: strategies move to a
   new `~/.config/at-jam/credentials.yml`; the serve config keeps only names + `bot-token-cred`.
   Low blast radius — the dev serve config is locally staged and never committed.
