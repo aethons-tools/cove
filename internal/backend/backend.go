@@ -222,8 +222,8 @@ type KitImageBuilder interface {
 	// to pass BuildKitImage as its base. An empty declaredBase resolves to the
 	// substrate's blessed default. The provenance gate is ON — a brokered kit gets
 	// no --allow-unverified escape hatch, so an unblessed base errors here rather
-	// than building. (The default managed kit skips this: it reuses the base
-	// at-cove install already resolved and gated, passed to the launcher directly.)
+	// than building. All studio kits resolve + gate their declared base here (gate
+	// ON, no allow-unverified); an empty declared base resolves to the blessed default.
 	ResolveKitBase(declaredBase string) (resolvedBase string, err error)
 }
 

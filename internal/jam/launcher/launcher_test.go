@@ -176,6 +176,25 @@ func TestRaiseRequiresKit(t *testing.T) {
 	}
 }
 
+// A studio ref with an empty build-digest is rejected (it would yield the invalid
+// image tag "cove-kit:") and creates no container.
+func TestRaiseRejectsEmptyDigest(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: &fakeInv{},
+		sleep:     func(time.Duration) {},
+	})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "a", Kit: jam.KitRef{ID: "web", Version: 1}}, jam.LaunchCreds{})
+	if err == nil || !strings.Contains(err.Error(), "no build-digest") {
+		t.Fatalf("want a no-build-digest error, got %v", err)
+	}
+	if ops.ran {
+		t.Fatal("no container may be created without a build-digest")
+	}
+}
+
 // A kit-referenced raise whose kit is prepared runs the cove-kit:<build-digest>
 // image and launches cove-master as usual.
 func TestRaiseFromPreparedKit(t *testing.T) {

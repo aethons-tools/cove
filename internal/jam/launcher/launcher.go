@@ -34,7 +34,7 @@ const Label = "harbor.cove"
 // share one docker daemon (COV-217).
 type Backend interface {
 	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
-	backend.KitImageBuilder // BuildKitImage, HasKitImage (managed-kit prepare)
+	backend.KitImageBuilder // BuildKitImage, HasKitImage (studio-kit prepare)
 	GetStatus(container string) (backend.State, error)
 }
 
@@ -113,6 +113,10 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	// NO container, so the supervisor prepares the kit and retries.
 	if spec.Kit.ID == "" {
 		return "", fmt.Errorf("raise %s: no kit (studio raises require a kit)", name)
+	}
+	// The build-digest keys the image tag cove-kit:<Digest>; empty would yield an invalid tag.
+	if spec.Kit.Digest == "" {
+		return "", fmt.Errorf("raise %s: kit %s has no build-digest", name, spec.Kit.ID)
 	}
 	ok, err := l.inv.Has(spec.Kit)
 	if err != nil {

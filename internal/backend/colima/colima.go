@@ -198,9 +198,8 @@ func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, kitArgs map[s
 	return strings.TrimSpace(out), nil
 }
 
-// BuildKitImage builds a managed kit's assembled context into the tagged image on
-// the colima daemon, FROM an already-resolved+gated base (the launcher passes the
-// install manifest's BaseRef). It is the Jam launcher's build step — see
+// BuildKitImage builds a studio kit's assembled context into the tagged image on
+// the colima daemon, FROM the base already resolved+gated by ResolveKitBase. It is the Jam launcher's build step — see
 // backend.KitImageBuilder. Context-pinned, so the image lands in the same daemon
 // RunEphemeral runs it from.
 func (c *Colima) BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (digest string, err error) {
@@ -213,7 +212,7 @@ func (c *Colima) BuildKitImage(buildDir, tag, base string, buildArgs map[string]
 	return c.buildFromBase(buildDir, tag, base, buildArgs, noCache)
 }
 
-// ResolveKitBase resolves + gates declaredBase for a role-named managed kit (the
+// ResolveKitBase resolves + gates declaredBase for a role-named studio kit (the
 // provenance gate is ON — no --allow-unverified escape hatch for brokered coves;
 // "" resolves to the blessed default). See backend.KitImageBuilder.
 func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
