@@ -103,3 +103,23 @@ func TestImportIntoNonEmptyFails(t *testing.T) {
 		t.Fatalf("stderr should explain non-empty target: %s", errb.String())
 	}
 }
+
+func TestExportTightensPermsOnExistingFile(t *testing.T) {
+	src := seedStore(t)
+	srcTS := newBackupServer(t, src)
+	file := filepath.Join(t.TempDir(), "backup.json")
+	if err := os.WriteFile(file, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"export", "--admin-url", srcTS.URL, file}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("export exit=%d stderr=%s", code, errb.String())
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("perm = %o, want 600", got)
+	}
+}

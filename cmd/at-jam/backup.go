@@ -56,6 +56,11 @@ func cmdExport(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam export:", err)
 		return 1
 	}
+	// WriteFile keeps an existing file's mode; enforce 0o600 regardless.
+	if err := os.Chmod(pos[0], 0o600); err != nil {
+		fmt.Fprintln(stderr, "at-jam export:", err)
+		return 1
+	}
 	fmt.Fprintln(stdout, "exported config to", pos[0])
 	return 0
 }
