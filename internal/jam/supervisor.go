@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -69,6 +70,12 @@ type Launcher interface {
 	Unpause(ctx context.Context, inst Instance) error
 	// ApplyEgress sets a running cove's egress to p (nil = the kit default).
 	ApplyEgress(ctx context.Context, inst Instance, p *EgressPolicy) error
+	// PrepareKit builds/records a kit from its full definition, wherever this
+	// substrate builds (local now; remote later). The supervisor calls it only
+	// when a Raise returned ErrKitNotReady, then retries the Raise. Idempotent and
+	// de-duped per (id,version); may report KitPreparing (async) so the supervisor
+	// defers rather than blocking.
+	PrepareKit(ctx context.Context, def KitDefinition) (KitStatus, error)
 }
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
@@ -108,6 +115,11 @@ type Supervisor struct {
 	sink      ControlSink
 	tail      tailReader
 	released  Releaser
+	// managedKit is the kit every managed raise runs from (its light reference).
+	// nil keeps the launcher's legacy static-image path (hermetic tests, no kit
+	// wiring). Set once at wiring via SetManagedKit; the full definition is
+	// resolved from the registry only on an ErrKitNotReady miss.
+	managedKit *KitRef
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -138,6 +150,14 @@ func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 // actual-state-out seam). Called once at wiring time; nil (no Postgres ledger)
 // leaves teardown recording nothing, exactly as before.
 func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
+
+// SetManagedKit wires the kit every managed raise runs from — its light
+// reference, recorded in the registry by EnsureManagedKit at wiring. With it set,
+// Raise stamps the ref on the launch spec and, if the launcher reports
+// ErrKitNotReady, resolves the definition from the registry and PrepareKits it
+// before retrying. Unset (the default) keeps the launcher's legacy static-image
+// path so hermetic tests and un-wired setups are unaffected.
+func (s *Supervisor) SetManagedKit(ref KitRef) { s.managedKit = &ref }
 
 func (s *Supervisor) tailSeq() int64 {
 	if s.tail == nil {
@@ -179,7 +199,20 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		_ = s.store.RemoveActor(spec.ActorID)
 		return Instance{}, "", "", err
 	}
-	loc, err := s.launcher.Raise(ctx, spec, LaunchCreds{IdentityToken: tok, LaunchSecret: secret})
+	// Every managed raise runs from the managed kit (its light reference); the
+	// launcher resolves that against its prepared-kit inventory. nil keeps the
+	// legacy static-image path.
+	if s.managedKit != nil {
+		spec.Kit = *s.managedKit
+	}
+	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
+	loc, err := s.launcher.Raise(ctx, spec, creds)
+	if errors.Is(err, ErrKitNotReady) {
+		// The launcher lacks this kit: send it the full definition (from the
+		// registry) and retry once. A still-preparing build does not block — the
+		// raise fails and the caller's reconcile retries on a later tick.
+		loc, err = s.prepareKitAndRetry(ctx, spec, creds)
+	}
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
 			s.log.Warn("raise rollback: failed to revoke identity after launch failure", "id", spec.ActorID, "error", rmErr)
@@ -210,6 +243,36 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
 	return inst, tok, secret, nil
+}
+
+// prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it resolves
+// the full kit definition from the registry, asks the launcher to prepare it, and
+// retries the Raise once when the kit is ready. A KitPreparing status (an async
+// remote build) returns an error WITHOUT blocking — the caller's reconcile loop
+// retries the raise on a later tick, by which point the build may be done. The
+// caller (Raise) rolls back the enrollment on any error this returns.
+func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
+	def, ok, err := ResolveKitDefinition(s.store, spec.Kit)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("kit %s not in registry", spec.Kit)
+	}
+	status, err := s.launcher.PrepareKit(ctx, def)
+	if err != nil {
+		return "", fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
+	}
+	if status.State != KitReady {
+		if s.log != nil {
+			s.log.Info("kit preparing; deferring raise to reconcile", "id", spec.ActorID, "kit", spec.Kit.String())
+		}
+		return "", fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
+	}
+	if s.log != nil {
+		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
+	}
+	return s.launcher.Raise(ctx, spec, creds)
 }
 
 // Heartbeat renews the lease + LastSeen for a connected cove WITHOUT changing

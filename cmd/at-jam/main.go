@@ -1361,6 +1361,12 @@ func (placeholderLauncher) ApplyEgress(context.Context, jam.Instance, *jam.Egres
 	return nil
 }
 
+// PrepareKit is a no-op: the placeholder's Raise never reports ErrKitNotReady,
+// so the supervisor never asks it to prepare a kit.
+func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
+
 // linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
 // engine's ticket-comment capability). It exists here, rather than in
 // internal/jam, so Jam core never imports internal/dispatch/linear or
@@ -1497,6 +1503,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	var lch jam.Launcher = placeholderLauncher{}
+	var managedRef jam.KitRef
+	var haveManagedKit bool
 	if lc := cfg.Runtime.Launcher; lc != nil {
 		var m install.Manifest
 		b, err := os.ReadFile(lc.InstallManifest)
@@ -1513,20 +1521,45 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam: colima backend does not satisfy launcher.Backend")
 			return 1
 		}
+		// The launcher builds the managed image on demand, so it needs the public
+		// half of the SSH identity to bake into the image's authorized_keys (the
+		// same key at-cove install baked; its private half is IdentityFile). No kit
+		// source directory: the build context comes from the kit definition (data)
+		// + resources compiled into this binary.
+		pub, err := os.ReadFile(lc.IdentityFile + ".pub")
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: launcher identity public key ("+lc.IdentityFile+".pub):", err)
+			return 1
+		}
 		lch = launcher.New(launcher.Config{
 			Ops: be, Runner: runner.OS{},
 			Image: m.Image, ImageDigest: m.ImageDigest,
 			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
 			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 			DNS: lc.DNS, Docker: lc.Docker,
+			PublicKey: pub,
 			// Seed raised coves in subscription mode when the pool is enabled, so
 			// their claude authenticates as a pooled subscription principal.
 			Subscription: cfg.Pool != nil,
 			Log:          log,
 		})
-		log.Info("Jam launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr)
+		// Register the managed kit (the interactive base with Anthropic egress
+		// stripped — COV-208) in the registry and hand its reference to the
+		// supervisor. Idempotent: an unchanged config reuses the version across
+		// restarts; the supervisor resolves the full definition from the registry
+		// only when the launcher reports the kit is not yet built.
+		managedRef, err = jam.EnsureManagedKit(st, m.RunConfig)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: register managed kit:", err)
+			return 1
+		}
+		haveManagedKit = true
+		log.Info("Jam launcher: colima", "image", m.Image, "runtime-addr", lc.RuntimeAddr, "managed-kit", managedRef.String())
 	}
 	sup := jam.NewSupervisor(st, lch, jam.NewHolderID(), ttl, reconcile, time.Now, log)
+	if haveManagedKit {
+		sup.SetManagedKit(managedRef)
+	}
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and

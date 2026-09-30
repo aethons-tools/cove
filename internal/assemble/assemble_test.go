@@ -32,6 +32,26 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 	}
 }
 
+// AssembleContext builds the whole context from in-binary resources + supplied
+// data, with NO source kit directory — the property that lets a Launcher build a
+// managed cove from a kit communicated as data. It must produce the Dockerfile
+// (embedded), bake the key, and write the egress list, touching no kit dir.
+func TestAssembleContextNeedsNoKitDir(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{Policy: []string{"proxy.golang.org"}}, ""); err != nil {
+		t.Fatalf("AssembleContext: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(buildDir, "Dockerfile")); err != nil {
+		t.Fatalf("Dockerfile missing: %v", err)
+	}
+	if got := read(t, filepath.Join(buildDir, "image-files/home/agent/.ssh/authorized_keys")); got != "ssh-ed25519 AAAA k\n" {
+		t.Fatalf("authorized_keys = %q", got)
+	}
+	if kitList := read(t, filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt")); !strings.Contains(kitList, "proxy.golang.org") {
+		t.Fatalf("kit egress list missing the policy domain:\n%s", kitList)
+	}
+}
+
 func TestWriteSwitchboard_WritesArchFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeSwitchboard(dir); err != nil {

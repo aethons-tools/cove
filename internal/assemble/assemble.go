@@ -34,12 +34,31 @@ func EgressFor(c kit.Config) Egress {
 // the managed public key. The kit's image/ is the Dockerfile build context
 // (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
 // source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
+//
+// Assemble keeps the kit's .gitignore current (a dev-repo housekeeping side
+// effect on kitDir) and then assembles the build context. The build context
+// itself needs no kitDir — see AssembleContext, which the managed-cove launcher
+// uses to build from a kit communicated as data, with no host directory.
 func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string) error {
 	// Any path that assembles a build context (build/create/work) keeps the kit's
 	// .gitignore current, so generated .build/.state artifacts never leak into git.
 	if err := kit.EnsureGitignore(kitDir); err != nil {
 		return err
 	}
+	return AssembleContext(buildDir, pub, egress, gitlabHost)
+}
+
+// AssembleContext stages the docker build context into buildDir with NO source
+// kit directory: everything comes from resources compiled into this binary (the
+// sealed hardening layer + Dockerfile via the embedded FS, and the injected
+// at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
+// the kit's egress lists, its per-kit GitLab gitconfig, and the public key baked
+// into authorized_keys. Because it takes no directory, a Launcher can build a
+// managed cove from a kit communicated purely as data (config + key), which is
+// what lets that build run wherever the substrate builds (locally today; a
+// remote substrate later). See
+// docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md.
+func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string) error {
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}

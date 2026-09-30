@@ -33,6 +33,9 @@ func (aliveLauncher) Unpause(context.Context, jam.Instance) error { return nil }
 func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
+func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
 
 func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 	t.Helper()

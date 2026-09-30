@@ -65,9 +65,12 @@ func (l *Launcher) lockRef(ref KitRef) func() {
 }
 
 // defaultAssemble is the real assembler: it stages the sealed hardening layer,
-// the injected binaries, the kit's egress lists and the managed key into
-// buildDir from the managed kit's source dir. Wired unless a test injects a seam.
+// the injected binaries, the kit's egress lists and the launcher's public key
+// into buildDir. Everything comes from the KitDefinition (data) plus resources
+// compiled into this binary — no source kit directory — so the build is a
+// data-only transfer that a remote substrate could run too. Wired unless a test
+// injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
 	gitlabHost, _ := def.Config.GitLabHost() // "" for a non-GitLab kit
-	return assemble.Assemble(l.cfg.KitDir, buildDir, l.cfg.PublicKey, assemble.EgressFor(def.Config), gitlabHost)
+	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, assemble.EgressFor(def.Config), gitlabHost)
 }

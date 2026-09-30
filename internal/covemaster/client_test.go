@@ -34,6 +34,9 @@ func (aliveLauncher) Unpause(context.Context, jam.Instance) error { return nil }
 func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
 	return nil
 }
+func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
 
 // serverHarness raises one instance and starts an in-memory attach server.
 // Returns the store, the attach server, a DialOption that reaches it, and the

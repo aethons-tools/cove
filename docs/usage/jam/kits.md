@@ -4,16 +4,17 @@ read_when: You are registering a kit in Jam, pushing a new version, rolling a ki
 owns: the operator-facing kit-registry story — the name/version/current model and the `kit` verbs + `role --kit` binding
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to; ../at-cove-config.md for the kit config.yml schema being stored
 tier: leaf
-updated: 2026-09-12
+updated: 2026-09-30
 ---
 
 # The kit registry
 
 Jam stores **kit definitions** — the `config.yml` that defines a studio — so a
 kit can live in Jam's data store and be referenced by a role, rather than only
-as a repo-committed `.at-cove/`. This is the Jam-side registry; a managed studio
-*resolving* its kit from Jam is a later slice. Today you register kits and bind
-them to roles.
+as a repo-committed `.at-cove/`. This is the Jam-side registry. Today you register
+kits and bind them to roles; Jam also auto-registers the [managed
+kit](#the-managed-kit) and *resolves* it from here when raising a brokered studio.
+Resolving an *arbitrary* role's kit by reference is still a later slice.
 
 ## The model
 
@@ -63,6 +64,26 @@ at-jam role add --project acme --name builder --destinations anthropic,git --kit
 `--kit` names a registered kit (it must already exist — `role add` fails closed
 otherwise). The role then resolves to that kit's *current* version. See
 [roster.md](roster.md) for the rest of the role surface.
+
+## The managed kit
+
+When a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) is configured,
+Jam auto-registers a kit named **`managed`** at startup: the launcher's base kit
+with the Anthropic egress roots (`anthropic.com`, `claude.com`, `claude.ai`)
+stripped, so a brokered studio reaches Anthropic only through the Jam broker (the
+COV-208 egress lock — see [pool.md](pool.md)). The push is **idempotent**: an
+unchanged config keeps its version across restarts, and a change bumps a new one
+(so a drifted kit re-builds instead of running a stale image). It uses the same
+name/version/current model as any registered kit, so `kit show managed` /
+`kit versions managed` inspect it.
+
+The supervisor carries only the kit's light **reference** (`<id>@v<n>`, a
+`KitRef`) on each raise; the launcher resolves that against its own prepared-image
+inventory and, on a miss, Jam resolves the full definition from *this* registry
+and hands it to the launcher's `PrepareKit` to build before retrying the raise.
+That light-reference / lazy-prepare handshake — and why the build context travels
+as data with no source directory — is documented on the raise side in
+[coves.md](coves.md#the-managed-kit-and-its-kit-prepare-protocol).
 
 ## Upgrades & rollback
 

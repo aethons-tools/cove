@@ -4,7 +4,7 @@ read_when: You are enabling or operating the subscription account pool — seedi
 owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the `at-jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
 prereqs: serve.md for the `pool:` config block + the broker model and `destination` verb; coves.md for how a raised cove is credentialed
 tier: leaf
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # The subscription account pool
@@ -87,8 +87,12 @@ interactively elsewhere.
 > `claude auth login` path keeps the full allow-list on the interactive kit. It's
 > defense-in-depth — in this model the cove holds no real Anthropic credential
 > (only the fake identity), so even the removed direct path would leak nothing.
-> The managed kit's `KitRef.Version` is a content hash of the resulting config, so
-> any change to the egress list bumps the version automatically.
+> Jam records the managed kit in its [kit registry](kits.md#the-managed-kit) at
+> startup (name `managed`); its version is the registry's monotonic version, and
+> an idempotent startup push reuses it while the config is unchanged and bumps a
+> new one when the egress list changes — so a drifted kit rebuilds. See
+> [coves.md](coves.md#the-managed-kit-and-its-kit-prepare-protocol) for the raise-side
+> build/prepare protocol.
 
 ## Broker-owned refresh
 
