@@ -3,6 +3,7 @@ package usersecret
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/secret"
@@ -127,5 +128,18 @@ func TestPlanFlat_MintWithoutExpanderErrors(t *testing.T) {
 	}
 	if _, _, err := st.PlanFlat([]string{"anthropic"}, nil); err == nil {
 		t.Fatal("want error minting without an expander, got nil")
+	}
+}
+
+func TestLoadFlat_ErrorDoesNotLeakValues(t *testing.T) {
+	// command expects a list; a bare secret-looking scalar makes yaml.v3 fail
+	// to decode. The error must not echo the scalar.
+	p := writeTemp(t, "credentials:\n  git-pat:\n    command: sekret-token-value\n")
+	_, err := LoadFlat(p)
+	if err == nil {
+		t.Fatal("want decode error for malformed credentials file, got nil")
+	}
+	if strings.Contains(err.Error(), "sekret-token-value") {
+		t.Fatalf("error leaks a secret-looking value: %v", err)
 	}
 }

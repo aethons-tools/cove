@@ -3,13 +3,14 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestPlanCredentials_FailsClosedOnUnsupplied(t *testing.T) {
 	dir := t.TempDir()
 	credFile := filepath.Join(dir, "credentials.yml")
-	if err := os.WriteFile(credFile, []byte("credentials:\n  git-pat: { value: pat }\n"), 0o600); err != nil {
+	if err := os.WriteFile(credFile, []byte("credentials:\n  git-pat: { value: sekret-pat-value }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := serveConfig{
@@ -19,6 +20,16 @@ func TestPlanCredentials_FailsClosedOnUnsupplied(t *testing.T) {
 	_, err := planCredentials(cfg)
 	if err == nil {
 		t.Fatal("want fail-closed error naming the unsupplied credential, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "missing") {
+		t.Errorf("error should name the unsupplied credential %q: %v", "missing", err)
+	}
+	if !strings.Contains(msg, credFile) {
+		t.Errorf("error should name the credentials file %q: %v", credFile, err)
+	}
+	if strings.Contains(msg, "sekret-pat-value") {
+		t.Errorf("error must not leak a supplied secret value: %v", err)
 	}
 }
 
