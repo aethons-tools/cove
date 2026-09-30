@@ -51,6 +51,7 @@ type Endpoint struct {
 // hardening build's BASE arg.
 type BaseSpec struct {
 	KitDir          string // holds image/Dockerfile, if the kit ships one
+	DockerfileDir   string // a context dir with the Dockerfile at its root (studio Dockerfile base); takes precedence over KitDir
 	Base            string // config.yml image.base; "" if unset
 	AllowUnverified bool   // --allow-unverified-base: downgrade a failed gate to a warning
 }
@@ -225,6 +226,13 @@ type KitImageBuilder interface {
 	// than building. All studio kits resolve + gate their declared base here (gate
 	// ON, no allow-unverified); an empty declared base resolves to the blessed default.
 	ResolveKitBase(declaredBase string) (resolvedBase string, err error)
+	// ResolveKitBaseDockerfile builds a studio kit's authored Dockerfile-context
+	// base (materialized at contextDir, with the Dockerfile at its root) into an
+	// image and gates it, returning the ref to pass BuildKitImage as its base. The
+	// gate is ON (same as ResolveKitBase) — the built base must descend from a
+	// blessed cove-base-image or this errors. The context's Dockerfile builds FROM
+	// the blessed base via the injected COVE_BASE_IMAGE build arg.
+	ResolveKitBaseDockerfile(contextDir string) (resolvedBase string, err error)
 }
 
 // Factory constructs a Backend bound to a Runner.

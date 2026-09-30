@@ -35,7 +35,7 @@ prompt: "You work on the web service …"   # orients the session
 
 | Field | Meaning |
 |---|---|
-| `base` | The image to build FROM: a gated `ref`, **or** a `dockerfile` + `context` files, **or** omitted for the blessed default base. `ref` and `dockerfile` are mutually exclusive. A Dockerfile-context base is **accepted by the schema but its build is deferred** — raising it errors until that lands. |
+| `base` | The image to build FROM: a gated `ref`, **or** a `dockerfile` + `context` files, **or** omitted for the blessed default base. `ref` and `dockerfile` are mutually exclusive. A `dockerfile` base is materialized (Dockerfile + `context` files, carried by value) and built into a base image that must still pass the provenance gate — write it `FROM ${COVE_BASE_IMAGE}` so it descends from the blessed base. `context` maps a relative path to its file content; escaping paths are rejected. |
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
