@@ -799,3 +799,21 @@ runtime:
 		t.Fatalf("tracker-token-cred reference should validate: %v", err)
 	}
 }
+
+func TestValidateDiscord_PoolCredNotAccepted(t *testing.T) {
+	cfg := serveConfig{}
+	cfg.Pool = &poolConfig{CredName: "anthropic-sub"}
+	cfg.Runtime.Discord = &discordConfig{BotTokenCred: "anthropic-sub"}
+	if err := cfg.validateDiscord(); err == nil {
+		t.Fatal("want error: the pool cred is not a demanded credentials: key")
+	}
+}
+
+func TestValidateRequisitioner_PoolCredNotAccepted(t *testing.T) {
+	cfg := serveConfig{}
+	cfg.Pool = &poolConfig{CredName: "anthropic-sub"}
+	cfg.Runtime.Requisitioner = &requisitionerConfig{Role: "w", MaxConcurrent: 1, Linear: &kit.LinearTracker{}, TrackerTokenCred: "anthropic-sub"}
+	if err := cfg.validateRequisitioner(); err == nil {
+		t.Fatal("want error: the pool cred is not a demanded credentials: key")
+	}
+}

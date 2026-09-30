@@ -342,7 +342,7 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.TrackerTokenCred == "" {
 		return fmt.Errorf("runtime.requisitioner.tracker-token-cred is required")
 	}
-	if !c.credConfigured(d.TrackerTokenCred) {
+	if _, ok := c.Credentials[d.TrackerTokenCred]; !ok {
 		return fmt.Errorf("runtime.requisitioner.tracker-token-cred %q is not a demanded credential", d.TrackerTokenCred)
 	}
 	return nil
@@ -362,7 +362,7 @@ func (c serveConfig) validateDiscord() error {
 	if d.BotTokenCred == "" {
 		return fmt.Errorf("runtime.discord.bot-token-cred is required")
 	}
-	if !c.credConfigured(d.BotTokenCred) {
+	if _, ok := c.Credentials[d.BotTokenCred]; !ok {
 		return fmt.Errorf("runtime.discord.bot-token-cred %q is not a demanded credential", d.BotTokenCred)
 	}
 	return nil
@@ -584,7 +584,8 @@ const credentialsFileHint = "supply its strategy in the at-jam credentials file 
 // credentials: entry names a credential only; an inline command:/value: (the old
 // form) is a hard error pointing at the credentials file.
 func (c serveConfig) validateCredentials() error {
-	for name, cs := range c.Credentials {
+	for _, name := range c.demandedCredentials() {
+		cs := c.Credentials[name]
 		if len(cs.Command) > 0 || cs.Value != "" {
 			return fmt.Errorf("credentials.%s: an inline command/value is no longer allowed — list the name only and %s", name, credentialsFileHint)
 		}
