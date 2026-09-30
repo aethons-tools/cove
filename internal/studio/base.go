@@ -131,6 +131,11 @@ func (b Base) validate() error {
 		if !ok || df.File == nil {
 			return fmt.Errorf("base.context-files: a top-level `dockerfile` file is required")
 		}
+		// The reserved `dockerfile` is materialized to `Dockerfile`; a sibling
+		// `Dockerfile` key would collide at that path with undefined precedence.
+		if _, clash := b.ContextFiles["Dockerfile"]; clash {
+			return fmt.Errorf("base.context-files: use the reserved lowercase `dockerfile` key; a top-level `Dockerfile` collides with it")
+		}
 		return validateContextKeys(b.ContextFiles)
 	case BaseContextZip:
 		return b.validateZipCheap()

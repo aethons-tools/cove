@@ -160,6 +160,16 @@ func TestBuildDigestDiffersByBaseForm(t *testing.T) {
 	}
 }
 
+func TestValidateContextFilesRejectsDockerfileClash(t *testing.T) {
+	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextFiles: ContextTree{
+		"dockerfile": fileNode("FROM x"),
+		"Dockerfile": fileNode("FROM y"),
+	}}}
+	if err := sk.Validate(); err == nil {
+		t.Fatal("a top-level Dockerfile key colliding with reserved dockerfile must be rejected")
+	}
+}
+
 func readStr(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

@@ -155,6 +155,9 @@ func extractCapped(dst string, f *zip.File, remaining int64) (int64, error) {
 	return n, nil
 }
 
+// hasDotDotComponent reports a ".." path component in a zip entry name. Combined
+// with the absolute-path check and withinDir, it blocks escape on at-jam's POSIX
+// hosts; a backslash in a name is a literal filename here, not a separator.
 func hasDotDotComponent(name string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
 		if part == ".." {
