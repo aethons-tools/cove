@@ -1,7 +1,5 @@
 package launcher
 
-import "fmt"
-
 // Inventory answers whether this launcher has already prepared a kit — the
 // launcher's own source of truth for "do I have this?", consulted on the hot
 // path of a Raise (a miss returns ErrKitNotReady so the supervisor prepares it).
@@ -10,10 +8,9 @@ type Inventory interface {
 	Has(KitRef) (bool, error)
 }
 
-// imageTag is the docker tag a prepared Colima kit carries, e.g.
-// "cove-kit:managed-v2". It is derived purely from the (id,version) content key,
-// so it is the same tag PrepareKit builds and Raise runs.
-func imageTag(r KitRef) string { return fmt.Sprintf("cove-kit:%s-v%d", r.ID, r.Version) }
+// imageTag names the built image by the studio kit's BUILD-digest, so kits with
+// identical build inputs share an image and a prompt-only edit reuses it.
+func imageTag(r KitRef) string { return "cove-kit:" + r.Digest }
 
 // imageChecker is the sliver of the substrate backend the inventory needs: does a
 // tagged image exist on this substrate? Satisfied by backend.KitImageBuilder.

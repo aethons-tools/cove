@@ -18,12 +18,12 @@ func (f *fakeImageChecker) HasKitImage(tag string) (bool, error) {
 func TestBackendInventoryHasByImageTag(t *testing.T) {
 	c := &fakeImageChecker{present: true}
 	inv := backendInventory{ops: c}
-	ok, err := inv.Has(KitRef{ID: "managed", Version: 2})
+	ok, err := inv.Has(KitRef{ID: "web", Version: 2, Digest: "deadbeef"})
 	if err != nil || !ok {
 		t.Fatalf("Has = %v,%v want true,nil", ok, err)
 	}
-	if c.askedTag != "cove-kit:managed-v2" {
-		t.Fatalf("inventory queried tag %q, want cove-kit:managed-v2", c.askedTag)
+	if c.askedTag != "cove-kit:deadbeef" {
+		t.Fatalf("inventory queried tag %q, want cove-kit:deadbeef", c.askedTag)
 	}
 }
 

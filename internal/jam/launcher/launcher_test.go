@@ -15,7 +15,19 @@ import (
 	"github.com/aethons-tools/cove/internal/connect"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/studio"
 )
+
+// testKitRef is the prepared studio kit the raise-path tests run from; its image
+// tag is cove-kit:<Digest>.
+var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind, Name: "web"})}
+
+// readyInv is an inventory with testKitRef already prepared.
+func readyInv() *fakeInv {
+	i := &fakeInv{}
+	i.set(testKitRef, true)
+	return i
+}
 
 type fakeOps struct {
 	ran        bool
@@ -34,6 +46,7 @@ type fakeOps struct {
 	builds       int
 	builtTag     string
 	builtBase    string
+	builtArgs    map[string]string
 	buildErr     error
 	hasImage     map[string]bool
 	resolvedBase string // ResolveKitBase returns this (default "blessed-default")
@@ -47,9 +60,9 @@ func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts 
 	}
 	return backend.Instance{Container: name, Image: image}, nil
 }
-func (f *fakeOps) BuildKitImage(buildDir, tag, base string, noCache bool) (string, error) {
+func (f *fakeOps) BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (string, error) {
 	f.builds++
-	f.builtTag, f.builtBase = tag, base
+	f.builtTag, f.builtBase, f.builtArgs = tag, base, buildArgs
 	if f.buildErr != nil {
 		return "", f.buildErr
 	}
@@ -99,21 +112,21 @@ func (failingRunner) RunIO(stdin io.Reader, stdout, stderr io.Writer, name strin
 func newLauncher(ops *fakeOps) *Launcher {
 	return New(Config{
 		Ops: ops, Runner: &runner.Fake{},
-		Image: "atcove-worker", ImageDigest: "sha256:abc",
 		JamHost: "jam.example.com", RuntimeAddr: "jam.example.com:443",
 		IdentityFile: "k", KnownHostsDir: "/kh",
-		sleep: func(time.Duration) {}, // injected no-op wait-for-sshd
+		Inventory: readyInv(),
+		sleep:     func(time.Duration) {}, // injected no-op wait-for-sshd
 	})
 }
 
 func TestRaiseRunsDialsLaunches(t *testing.T) {
 	ops := &fakeOps{}
 	l := newLauncher(ops)
-	loc, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Prompt: "go"}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"})
+	loc, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go"}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != "atcove-worker" {
+	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != imageTag(testKitRef) {
 		t.Fatalf("RunEphemeral not called correctly: %+v", ops)
 	}
 	if len(ops.runAddHost) != 1 || ops.runAddHost[0] != "jam.example.com" {
@@ -131,11 +144,11 @@ func TestRaiseKitNotReady(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
-		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
 		Inventory: &fakeInv{}, // empty: nothing prepared
 		sleep:     func(time.Duration) {},
 	})
-	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "a", Kit: jam.KitRef{ID: "managed", Version: 1}}, jam.LaunchCreds{})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "a", Kit: testKitRef}, jam.LaunchCreds{})
 	if !errors.Is(err, ErrKitNotReady) {
 		t.Fatalf("want ErrKitNotReady, got %v", err)
 	}
@@ -144,16 +157,35 @@ func TestRaiseKitNotReady(t *testing.T) {
 	}
 }
 
-// A kit-referenced raise whose kit is prepared runs the cove-kit:<id>-v<n> image
-// (not the static cfg.Image) and launches cove-master as usual.
+// A studio raise with no kit (empty KitRef) errors and creates no container —
+// studio raises always carry a kit.
+func TestRaiseRequiresKit(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: &fakeInv{},
+		sleep:     func(time.Duration) {},
+	})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "a"}, jam.LaunchCreds{})
+	if err == nil || !strings.Contains(err.Error(), "no kit") {
+		t.Fatalf("want a no-kit error, got %v", err)
+	}
+	if ops.ran {
+		t.Fatal("no container may be created without a kit")
+	}
+}
+
+// A kit-referenced raise whose kit is prepared runs the cove-kit:<build-digest>
+// image and launches cove-master as usual.
 func TestRaiseFromPreparedKit(t *testing.T) {
 	ops := &fakeOps{}
 	inv := &fakeInv{}
-	ref := jam.KitRef{ID: "managed", Version: 3}
+	ref := jam.KitRef{ID: "web", Version: 3, Digest: "cafef00d"}
 	inv.set(ref, true)
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
-		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
 		Inventory: inv,
 		sleep:     func(time.Duration) {},
 	})
@@ -161,34 +193,16 @@ func TestRaiseFromPreparedKit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ops.ran || ops.runImage != "cove-kit:managed-v3" {
-		t.Fatalf("kit raise ran image %q, want cove-kit:managed-v3 (calls=%+v)", ops.runImage, ops)
+	if !ops.ran || ops.runImage != "cove-kit:cafef00d" {
+		t.Fatalf("kit raise ran image %q, want cove-kit:cafef00d (calls=%+v)", ops.runImage, ops)
 	}
-	// The kit path must run the tag with NO digest pin — KitRef.Digest is the
-	// config content hash, not the built image's id, and must never be a run pin.
+	// The kit path must run the tag with NO digest pin — the build-digest tag
+	// already names the exact built image.
 	if ops.runDigest != "" {
-		t.Fatalf("kit raise pinned digest %q; want none (KitRef.Digest is a config hash, not an image id)", ops.runDigest)
+		t.Fatalf("kit raise pinned digest %q; want none (the tag already pins the build)", ops.runDigest)
 	}
 	if loc != "atcove-cove-w1" {
 		t.Fatalf("location = %q, want atcove-cove-w1", loc)
-	}
-}
-
-// A zero KitRef (empty ID) keeps the legacy static-image path: the inventory is
-// never consulted and cfg.Image is raised — existing callers are unaffected.
-func TestRaiseZeroKitUsesLegacyImage(t *testing.T) {
-	ops := &fakeOps{}
-	l := New(Config{
-		Ops: ops, Runner: &runner.Fake{},
-		Image: "atcove-worker", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		Inventory: &fakeInv{}, // empty, but never consulted on the legacy path
-		sleep:     func(time.Duration) {},
-	})
-	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Prompt: "go"}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
-		t.Fatal(err)
-	}
-	if ops.runImage != "atcove-worker" {
-		t.Fatalf("legacy raise ran image %q, want atcove-worker", ops.runImage)
 	}
 }
 
@@ -196,10 +210,11 @@ func TestRaiseRemovesContainerOnLaunchFailure(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
 		Ops: ops, Runner: failingRunner{}, // a Runner whose Run/RunStdin returns an error
-		Image: "img", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		sleep: func(time.Duration) {},
+		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(),
+		sleep:     func(time.Duration) {},
 	})
-	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1"}, jam.LaunchCreds{})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef}, jam.LaunchCreds{})
 	if err == nil {
 		t.Fatal("want error on launch failure")
 	}
@@ -307,10 +322,11 @@ func TestRaiseResidentKinds(t *testing.T) {
 		ops := &fakeOps{}
 		r := &runner.Fake{}
 		l := New(Config{
-			Ops: ops, Runner: r, Image: "img", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-			sleep: func(time.Duration) {},
+			Ops: ops, Runner: r, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+			Inventory: readyInv(),
+			sleep:     func(time.Duration) {},
 		})
-		if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Prompt: "go", SessionKind: kind}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+		if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go", SessionKind: kind}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
 			t.Fatal(err)
 		}
 		got := false
@@ -353,9 +369,10 @@ var _ backend.RoleEgress = (*egressOps)(nil)
 
 func newEgressLauncher(ops Backend, r *runner.Fake, logw io.Writer) *Launcher {
 	return New(Config{
-		Ops: ops, Runner: r, Image: "img", JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		Log:   slog.New(slog.NewJSONHandler(logw, nil)),
-		sleep: func(time.Duration) {},
+		Ops: ops, Runner: r, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(),
+		Log:       slog.New(slog.NewJSONHandler(logw, nil)),
+		sleep:     func(time.Duration) {},
 	})
 }
 
@@ -374,7 +391,7 @@ func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
 	var logs bytes.Buffer
 	l := newEgressLauncher(ops, r, &logs)
 	domains := []string{".b.org", "a.com"}
-	spec := jam.RaiseSpec{ActorID: "w1", Project: "acme", Role: "fenced", Prompt: "go", Egress: &jam.EgressPolicy{Domains: domains}}
+	spec := jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Project: "acme", Role: "fenced", Prompt: "go", Egress: &jam.EgressPolicy{Domains: domains}}
 	if _, err := l.Raise(context.Background(), spec, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +427,7 @@ func TestRaiseNilEgressSkipsApply(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	l := newEgressLauncher(ops, r, io.Discard)
-	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest", Prompt: "go"}, jam.LaunchCreds{}); err != nil {
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Role: "guest", Prompt: "go"}, jam.LaunchCreds{}); err != nil {
 		t.Fatal(err)
 	}
 	if ops.applied {
@@ -423,7 +440,7 @@ func TestRaiseEmptyEgressStillApplies(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	l := newEgressLauncher(ops, r, io.Discard)
-	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "r", Egress: &jam.EgressPolicy{Domains: []string{}}}, jam.LaunchCreds{}); err != nil {
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Role: "r", Egress: &jam.EgressPolicy{Domains: []string{}}}, jam.LaunchCreds{}); err != nil {
 		t.Fatal(err)
 	}
 	if !ops.applied || len(ops.domains) != 0 {
@@ -437,7 +454,7 @@ func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("apply-role-egress: evil.example is outside the kit's egress ceiling")}
 	l := newEgressLauncher(ops, r, io.Discard)
-	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "r", Egress: &jam.EgressPolicy{Domains: []string{"evil.example"}}}, jam.LaunchCreds{})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Role: "r", Egress: &jam.EgressPolicy{Domains: []string{"evil.example"}}}, jam.LaunchCreds{})
 	if err == nil || !strings.Contains(err.Error(), "apply role egress") || !strings.Contains(err.Error(), "evil.example") {
 		t.Fatalf("err = %v; want apply role egress naming the domain", err)
 	}
@@ -457,7 +474,7 @@ func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &fakeOps{}
 	l := newEgressLauncher(ops, r, io.Discard)
-	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Project: "acme", Role: "fenced", Egress: &jam.EgressPolicy{Domains: []string{"a.com"}}}, jam.LaunchCreds{})
+	_, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Project: "acme", Role: "fenced", Egress: &jam.EgressPolicy{Domains: []string{"a.com"}}}, jam.LaunchCreds{})
 	if err == nil || !strings.Contains(err.Error(), "backend does not support role egress (required for role acme/fenced)") {
 		t.Fatalf("err = %v; want fail-closed", err)
 	}
