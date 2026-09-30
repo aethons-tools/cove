@@ -70,9 +70,12 @@ func EnsureManagedKitFor(store Store, srcKit string) (KitRef, error) {
 	if !ok {
 		return KitRef{}, fmt.Errorf("kit %q not in registry", srcKit)
 	}
-	var cfg kit.Config
-	if err := yaml.Unmarshal([]byte(text), &cfg); err != nil {
-		return KitRef{}, fmt.Errorf("managed kit for %q: unmarshal config: %w", srcKit, err)
+	// Parse with the canonical config parser — the same strict (KnownFields)
+	// validation `at-jam kit push` ran before storing this text — so the resolver
+	// and the push-time validator never disagree.
+	cfg, err := kit.ParseConfig([]byte(text))
+	if err != nil {
+		return KitRef{}, fmt.Errorf("managed kit for %q: %w", srcKit, err)
 	}
 	return ensureManagedVariant(store, ManagedVariantID(srcKit), cfg)
 }

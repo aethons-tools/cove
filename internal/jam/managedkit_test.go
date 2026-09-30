@@ -145,6 +145,42 @@ func TestEnsureManagedKitForStripsAndRegistersDerivative(t *testing.T) {
 	}
 }
 
+// A hand-written config.yml (the on-disk form an operator pushes, comments and
+// all) resolves through the canonical parser and strips Anthropic egress — the
+// path that a paste-mangled YAML once tripped. Guards against reverting to a
+// non-canonical parser that would diverge from push-time validation.
+func TestEnsureManagedKitForParsesOnDiskConfig(t *testing.T) {
+	st := newKitTestStore(t)
+	raw := "# webkit\nname: webkit\nimage:\n  allowed-domains:\n    - example.com\n    - .anthropic.com\n"
+	if _, err := st.PushKit("webkit", raw); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := EnsureManagedKitFor(st, "webkit")
+	if err != nil {
+		t.Fatalf("EnsureManagedKitFor: %v", err)
+	}
+	def, ok, err := ResolveKitDefinition(st, ref)
+	if err != nil || !ok {
+		t.Fatalf("resolve: %v %v", ok, err)
+	}
+	if !slices.Contains(def.Config.Image.AllowedDomains, "example.com") ||
+		slices.Contains(def.Config.Image.AllowedDomains, ".anthropic.com") {
+		t.Fatalf("want example.com kept, Anthropic stripped: %v", def.Config.Image.AllowedDomains)
+	}
+}
+
+// A stored config that isn't valid config.yml fails closed with the canonical
+// parser's error (surfacing what push should have rejected).
+func TestEnsureManagedKitForRejectsInvalidConfig(t *testing.T) {
+	st := newKitTestStore(t)
+	if _, err := st.PushKit("broken", "name: x\n  bad: indent\n"); err != nil {
+		t.Fatal(err) // PushKit stores verbatim; it does not itself validate
+	}
+	if _, err := EnsureManagedKitFor(st, "broken"); err == nil {
+		t.Fatal("invalid stored config must fail closed at resolution")
+	}
+}
+
 func TestEnsureManagedKitForFailsClosed(t *testing.T) {
 	st := newKitTestStore(t)
 	if _, err := EnsureManagedKitFor(st, "missing"); err == nil {
