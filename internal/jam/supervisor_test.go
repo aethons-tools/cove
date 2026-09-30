@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/kit"
-	"gopkg.in/yaml.v3"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // fakeLauncher is a scripted Launcher for hermetic supervisor tests.
@@ -186,17 +186,18 @@ func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 	}
 }
 
-// A managed supervisor stamps the managed KitRef on the raise; when the launcher
+// A studio supervisor stamps the default KitRef on the raise; when the launcher
 // reports ErrKitNotReady it resolves the definition from the registry, calls
 // PrepareKit once, and retries the raise, which then succeeds.
 func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
 	sup, store, _ := supTestKit(t, fl)
-	ref, err := EnsureManagedKit(store, kit.Config{Name: "base", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}})
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "base", Egress: []string{"github.com"}}
+	ref, err := EnsureStudioKit(store, sk)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sup.SetManagedKit(ref)
+	sup.SetDefaultStudioKit(ref)
 
 	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"})
 	if err != nil {
@@ -209,9 +210,9 @@ func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 		t.Fatalf("cove not raised after prepare+retry: raised=%v inst=%+v", fl.raised, inst)
 	}
 	if fl.gotSpec.Kit != ref {
-		t.Fatalf("raise spec.Kit = %v, want the managed ref %v", fl.gotSpec.Kit, ref)
+		t.Fatalf("raise spec.Kit = %v, want the default studio ref %v", fl.gotSpec.Kit, ref)
 	}
-	if fl.preparedDef.Ref != ref || !slices.Contains(fl.preparedDef.Config.Image.AllowedDomains, "github.com") {
+	if fl.preparedDef.Ref != ref || !slices.Contains(fl.preparedDef.Kit.Egress, "github.com") {
 		t.Fatalf("PrepareKit got the wrong definition: %+v", fl.preparedDef)
 	}
 	if _, ok := store.GetInstance("spider"); !ok {
@@ -225,11 +226,11 @@ func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitPreparing}
 	sup, store, _ := supTestKit(t, fl)
-	ref, err := EnsureManagedKit(store, kit.Config{Name: "base", Image: kit.ImageConfig{AllowedDomains: []string{"github.com"}}})
+	ref, err := EnsureStudioKit(store, studio.StudioKit{Kind: studio.Kind, Name: "base", Egress: []string{"github.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sup.SetManagedKit(ref)
+	sup.SetDefaultStudioKit(ref)
 
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"}); err == nil {
 		t.Fatal("expected the raise to defer (error) while the kit is preparing")
@@ -245,38 +246,42 @@ func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
 	}
 }
 
-// A role that names a kit raises from the managed variant of that kit
-// (managed-<name>), not the default managed kit.
-func TestRaiseUsesRoleKit(t *testing.T) {
+// A role that names a kit raises from that registered studio kit, not the
+// wiring-set default studio kit.
+func TestRaiseUsesRoleStudioKit(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	webText, _ := yaml.Marshal(kit.Config{Name: "web", Image: kit.ImageConfig{AllowedDomains: []string{"github.com", ".anthropic.com"}}})
-	if _, err := store.PushKit("web", string(webText)); err != nil {
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com"}}
+	if _, err := EnsureStudioKit(store, sk); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := store.GetRole("default", "guest")
-	r.Kit = "web"
-	if err := store.PutRole("default", r); err != nil {
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", Scope: Scope{TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	def, err := EnsureManagedKit(store, kit.Config{Name: "base"})
-	if err != nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev"}); err != nil {
 		t.Fatal(err)
 	}
-	sup.SetManagedKit(def) // unbound roles would use this; this role overrides it
-
-	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "spider", Project: "default", Role: "guest"}); err != nil {
-		t.Fatalf("Raise: %v", err)
-	}
-	if fl.gotSpec.Kit.ID != "managed-web" {
-		t.Fatalf("raise used kit %q, want managed-web", fl.gotSpec.Kit.ID)
+	if fl.gotSpec.Kit.ID != "web" || fl.gotSpec.Kit.Digest != studio.BuildDigest(sk) {
+		t.Fatalf("raise spec.Kit = %+v, want the studio ref for web", fl.gotSpec.Kit)
 	}
 }
 
-// Note: a role naming a kit absent from the registry is prevented at bind time
-// (Store.PutRole validates the kit exists — TestPutRoleValidatesKitExists), and
-// the resolver's own fail-closed on a missing/untag-safe kit is covered by
-// TestEnsureManagedKitForFailsClosed. kitRefFor's rollback path is defensive.
+// The session prompt is composed from ordered layers (Jam boilerplate → kit →
+// launch) before the launcher sees it.
+func TestRaiseComposesPrompt(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Prompt: "KITLAYER"}
+	ref, _ := EnsureStudioKit(store, sk)
+	sup.SetDefaultStudioKit(ref)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(fl.gotSpec.Prompt, studio.JamBoilerplate) ||
+		!strings.Contains(fl.gotSpec.Prompt, "KITLAYER") || !strings.Contains(fl.gotSpec.Prompt, "LAUNCHLAYER") {
+		t.Fatalf("composed prompt missing layers: %q", fl.gotSpec.Prompt)
+	}
+}
 
 func TestRaiseRequiresExistingRole(t *testing.T) {
 	sup, _, _ := supTestKit(t, &fakeLauncher{})
