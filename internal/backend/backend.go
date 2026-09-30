@@ -211,9 +211,10 @@ type RoleEgress interface {
 // blessed base rather than running the provenance gate again.
 type KitImageBuilder interface {
 	// BuildKitImage builds the assembled context in buildDir into the tagged image,
-	// FROM base (passed as the Dockerfile's BASE arg; must be non-empty). noCache
-	// bypasses docker's layer cache. Returns the built image's own sha256 digest.
-	BuildKitImage(buildDir, tag, base string, noCache bool) (digest string, err error)
+	// FROM base (the Dockerfile's BASE arg; must be non-empty), injecting buildArgs
+	// as additional --build-arg pairs. buildArgs values must never carry secrets.
+	// noCache bypasses docker's layer cache. Returns the built image's own sha256 digest.
+	BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (digest string, err error)
 	// HasKitImage reports whether the tagged image exists on this substrate. A
 	// miss is (false, nil) — the normal signal that drives PrepareKit — not an error.
 	HasKitImage(tag string) (bool, error)

@@ -4,6 +4,7 @@ package colima
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -155,7 +156,7 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCach
 	if err != nil {
 		return "", "", err
 	}
-	digest, err = c.buildFromBase(buildDir, tag, resolvedBase, noCache)
+	digest, err = c.buildFromBase(buildDir, tag, resolvedBase, nil, noCache)
 	return resolvedBase, digest, err
 }
 
@@ -164,7 +165,7 @@ func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCach
 // the shared body of dockerBuild (which resolves+gates the base first) and
 // BuildKitImage (which reuses a base the caller already gated). Context-pinned via
 // dargs, so the build and any later RunEphemeral share the colima daemon.
-func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, noCache bool) (digest string, err error) {
+func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, kitArgs map[string]string, noCache bool) (digest string, err error) {
 	// --progress=plain: line-by-line build output (BuildKit's TTY renderer can
 	// overflow the terminal by a column). --no-cache: rebuild every layer so the
 	// build-time `claude`/plugin install re-runs instead of reusing cached layers.
@@ -172,7 +173,17 @@ func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, noCache bool)
 	if noCache {
 		buildArgs = append(buildArgs, "--no-cache")
 	}
-	buildArgs = append(buildArgs, "--build-arg", "BASE="+resolvedBase, "-t", tag, buildDir)
+	buildArgs = append(buildArgs, "--build-arg", "BASE="+resolvedBase)
+	// kit build-args (sorted for a deterministic argv), after BASE, before -t.
+	keys := make([]string, 0, len(kitArgs))
+	for k := range kitArgs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		buildArgs = append(buildArgs, "--build-arg", k+"="+kitArgs[k])
+	}
+	buildArgs = append(buildArgs, "-t", tag, buildDir)
 	if err := c.r.Run("docker", dargs(buildArgs...)...); err != nil {
 		return "", err
 	}
@@ -192,14 +203,14 @@ func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, noCache bool)
 // install manifest's BaseRef). It is the Jam launcher's build step — see
 // backend.KitImageBuilder. Context-pinned, so the image lands in the same daemon
 // RunEphemeral runs it from.
-func (c *Colima) BuildKitImage(buildDir, tag, base string, noCache bool) (digest string, err error) {
+func (c *Colima) BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (digest string, err error) {
 	if err := c.preflight(); err != nil {
 		return "", err
 	}
 	if base == "" {
 		return "", fmt.Errorf("build kit image %s: base is required (the Dockerfile is FROM ${BASE})", tag)
 	}
-	return c.buildFromBase(buildDir, tag, base, noCache)
+	return c.buildFromBase(buildDir, tag, base, buildArgs, noCache)
 }
 
 // ResolveKitBase resolves + gates declaredBase for a role-named managed kit (the
