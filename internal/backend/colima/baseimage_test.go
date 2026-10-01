@@ -3,6 +3,7 @@ package colima
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -119,6 +120,13 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	// (its ARG default is only for a bare manual `docker build`).
 	if !contains(build, "--build-arg") || !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("build must inject COVE_BASE_IMAGE build-arg: %+v", f.Calls)
+	}
+	// Standard studio build args: the jam-namespaced base alias and the target arch.
+	if !contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
+		t.Fatalf("build must inject AT_JAM_STUDIO_BASE_IMAGE build-arg: %+v", f.Calls)
+	}
+	if !contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
+		t.Fatalf("build must inject AT_JAM_STUDIO_TARGET_ARCH build-arg: %+v", f.Calls)
 	}
 	// The built ID must be tagged under wantRef so `FROM ${BASE}` can resolve it.
 	tag := dockerCall(f.Calls, "tag")
