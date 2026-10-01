@@ -110,6 +110,19 @@ function meSelecting(){
   var sel=window.getSelection(), s=document.getElementById('stream');
   return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));
 }
+// Stick to the bottom: a #stream swap (the 3s poll, or the refresh after a
+// send) keeps the old scrollTop, so a new squawk would land below the fold.
+// Note before the swap whether the view was at the end (within a few px, for
+// fractional scroll offsets); if so, scroll to the new end after it. A viewer
+// scrolled up into history is left where they are.
+document.addEventListener('htmx:beforeSwap', function(e){
+  var s=e.detail.target;
+  if(s && s.id==='stream'){ s._atBottom = s.scrollHeight - s.scrollTop - s.clientHeight < 16; }
+});
+document.addEventListener('htmx:afterSwap', function(e){
+  var s=e.detail.target;
+  if(s && s.id==='stream' && s._atBottom){ s.scrollTo({top: s.scrollHeight, behavior: 'smooth'}); }
+});
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();

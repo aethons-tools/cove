@@ -114,6 +114,24 @@ func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
 	}
 }
 
+func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// A #stream swap records whether the view was at the bottom before, and if
+	// so scrolls to the new end after, so a new squawk is fully in view; a
+	// viewer scrolled up into history is left where they are.
+	for _, want := range []string{"htmx:beforeSwap", "htmx:afterSwap", "_atBottom", "scrollHeight"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing stick-to-bottom wiring %q", want)
+		}
+	}
+}
+
 func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 	store, log, p := fixture()
 	h := Handler(store, log, nil)

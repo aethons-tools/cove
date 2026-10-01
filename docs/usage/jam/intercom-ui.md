@@ -50,6 +50,9 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   `HX-Request` header). The pane header and composer never poll, so a half-typed
   reply survives. The message-list poll **pauses while text in it is selected**,
   so a squawk can be selected and copied; it resumes once the selection clears.
+  If the conversation is scrolled to the bottom when a refresh brings a new
+  squawk (or your own send lands), it scrolls so the new message is fully in
+  view. Scrolled up into history, the view stays put.
   A live push (SSE) is a later slice.
 
 ## Enabling it
