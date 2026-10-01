@@ -91,6 +91,14 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   `host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable`.
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
+- `just test-browser` (`go test -tags browser ./internal/jam/meui/`) drives the
+  `/me` page in **headless Chrome** via chromedp, covering the composer JS that
+  the hermetic tests can only see as source (e.g. paste-as-code). It needs
+  `chrome-headless-shell` on `PATH` (or `COVE_BROWSER=<path>`), and each test
+  **skips** without one. The `cove-ic` studio kit
+  ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml)) installs a pinned Chrome
+  for Testing build; the same binary can screenshot a page
+  (`chrome-headless-shell --screenshot=out.png <url>`) to eyeball a UI change.
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
 - The remaining untested gap is a full `create`→container→`connect` against a real image,
   which needs a container runtime;
@@ -125,7 +133,8 @@ loop cannot drift.
   it is not version-pinned there.)
 - The workflow needs no `just` — the logic lives in `scripts/`, per the
   justfile's header.
-- **Not** gated: `just integration` (real-ssh) and `just e2e` (live infra).
+- **Not** gated: `just integration` (real-ssh), `just test-browser` (headless
+  Chrome) and `just e2e` (live infra).
 - CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.

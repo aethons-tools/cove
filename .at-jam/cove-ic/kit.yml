@@ -6,6 +6,7 @@ build-args:
   GO_VERSION: 1.27.1
   HADOLINT_VERSION: v2.15.1
   CC_SKILLS_GOLANG_VERSION: 2.0.0
+  CHROME_VERSION: 153.0.8010.12
 egress:
   - github.com
   # Go dependencies
