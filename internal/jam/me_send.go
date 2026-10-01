@@ -66,8 +66,9 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {
-		To   string `json:"to"`
-		Body string `json:"body"`
+		To          string `json:"to"`
+		Body        string `json:"body"`
+		ContentType string `json:"content_type,omitempty"` // "" = text/markdown
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -84,6 +85,10 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 	if req.To == "" {
 		http.Error(w, "empty to", http.StatusBadRequest)
+		return
+	}
+	if !intercom.ValidContentType(req.ContentType) {
+		http.Error(w, "unsupported content_type (want text/markdown or text/plain)", http.StatusBadRequest)
 		return
 	}
 
@@ -128,10 +133,11 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if _, err := h.lg.Append(intercom.Squawk{
-		From:    from,
-		To:      []intercom.Target{to},
-		Body:    req.Body,
-		Project: project,
+		From:        from,
+		To:          []intercom.Target{to},
+		Body:        req.Body,
+		Project:     project,
+		ContentType: req.ContentType,
 	}); err != nil {
 		h.log.Error("participant send: append failed", "from", from.String(), "to", to.String(), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)

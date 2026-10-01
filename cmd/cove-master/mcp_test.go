@@ -198,7 +198,7 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.send(context.Background(), "hi", "human:alice"); err != nil {
+	if err := c.send(context.Background(), "hi", "human:alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/squawks" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
@@ -465,5 +465,39 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 	}
 	if strings.Contains(text.String(), secretToken) {
 		t.Fatalf("tool error leaked the token: %q", text.String())
+	}
+}
+
+func TestMCPSendForwardsContentTypeAndReadReturnsIt(t *testing.T) {
+	fh := &fakeJam{inbox: []squawkOut{
+		{ID: "m1", Author: "brent", Body: "a_b_c", At: "2026-09-13T00:00:00Z", ContentType: "text/plain"},
+	}}
+	backend := httptest.NewServer(fh.handler())
+	defer backend.Close()
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": backend.URL, "AT_JAM_IDENTITY_TOKEN": "tok-A"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+
+	// Default: no content_type sent (Jam defaults to markdown).
+	if _, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "**hi**"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fh.gotBody["content_type"]; ok {
+		t.Fatalf("default send should omit content_type; Jam saw %v", fh.gotBody)
+	}
+	// Opt-out: forwarded as-is.
+	if _, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "2 * 3", "content_type": "text/plain"}}); err != nil {
+		t.Fatal(err)
+	}
+	if fh.gotBody["content_type"] != "text/plain" {
+		t.Fatalf("Jam saw %v, want content_type text/plain", fh.gotBody)
+	}
+	// read surfaces each message's content type.
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "read", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
+	if !strings.Contains(string(raw), `"content_type":"text/plain"`) {
+		t.Fatalf("read output %s should carry content_type", raw)
 	}
 }

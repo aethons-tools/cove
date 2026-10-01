@@ -207,3 +207,29 @@ func TestParticipantSend_Errors(t *testing.T) {
 		}
 	})
 }
+
+func TestParticipantSend_ContentType(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+		code             int
+	}{
+		{"default", `{"to":"human:bob","body":"**hi**"}`, "", 204},
+		{"plain opt-out", `{"to":"human:bob","body":"a_b","content_type":"text/plain"}`, intercom.ContentPlain, 204},
+		{"unknown", `{"to":"human:bob","body":"x","content_type":"image/png"}`, "", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &meFakeAppender{}
+			h := jam.NewParticipantSendHandler(meWorld(), app, nil)
+			w := postSend(h, aliceParticipant(), tc.body)
+			if w.Code != tc.code {
+				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.code, w.Body.String())
+			}
+			if tc.code == 204 && (len(app.got) != 1 || app.got[0].ContentType != tc.want) {
+				t.Fatalf("appended = %+v, want content type %q", app.got, tc.want)
+			}
+			if tc.code != 204 && len(app.got) != 0 {
+				t.Fatal("a rejected send must not append")
+			}
+		})
+	}
+}

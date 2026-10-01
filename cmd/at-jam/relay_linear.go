@@ -67,6 +67,7 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 			Body:           c.Body,
 			ReplyToForeign: c.ParentID,
 			At:             c.CreatedAt,
+			ContentType:    intercom.ContentMarkdown, // Linear comment bodies are markdown
 		})
 		if c.CreatedAt.After(max) {
 			max = c.CreatedAt

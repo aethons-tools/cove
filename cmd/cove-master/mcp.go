@@ -44,12 +44,17 @@ type squawkOut struct {
 	Author string `json:"author,omitempty"`
 	Body   string `json:"body,omitempty"`
 	At     string `json:"at,omitempty"`
+	// ContentType: text/markdown, or text/plain (the sender opted out of
+	// markdown; read it literally).
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
 	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to message this cove's default recipient — its ticket, or its owner for a personal session"`
+	// ContentType opts out of the markdown default.
+	ContentType string `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
 }
 
 // readIn is the "read" tool's typed input: optional seek parameters.
@@ -188,11 +193,12 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 
 // send posts a message to the cove's own ticket via Jam, or, when to is
 // non-empty, to the authorized human/channel target it names.
-func (c *messagingClient) send(ctx context.Context, text, to string) error {
+func (c *messagingClient) send(ctx context.Context, text, to, contentType string) error {
 	payload, err := json.Marshal(struct {
-		Body string `json:"body"`
-		To   string `json:"to,omitempty"`
-	}{Body: text, To: to})
+		Body        string `json:"body"`
+		To          string `json:"to,omitempty"`
+		ContentType string `json:"content_type,omitempty"`
+	}{Body: text, To: to, ContentType: contentType})
 	if err != nil {
 		return fmt.Errorf("encoding send payload: %w", err)
 	}
@@ -295,12 +301,12 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to message this cove's default recipient — its ticket, or its owner for a personal session; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel.",
+		Description: "Post a message. Omit 'to' to message this cove's default recipient — its ticket, or its owner for a personal session; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel. The body is markdown by default; set content_type=text/plain to have it shown literally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
 		}
-		if err := client.send(ctx, in.Text, in.To); err != nil {
+		if err := client.send(ctx, in.Text, in.To, in.ContentType); err != nil {
 			return nil, nil, err
 		}
 		return nil, nil, nil

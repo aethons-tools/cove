@@ -25,6 +25,9 @@ type Squawk struct {
 	Author string     `json:"author"`
 	Body   string     `json:"body"`
 	At     *time.Time `json:"at,omitempty"`
+	// ContentType is how Body is meant to be read: text/markdown (default) or
+	// text/plain (show literally).
+	ContentType string `json:"content_type"`
 }
 
 // inboxReader is the narrow read side of the message Log the /squawks GET
@@ -138,8 +141,9 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {
-		Body string `json:"body"`
-		To   string `json:"to"`
+		Body        string `json:"body"`
+		To          string `json:"to"`
+		ContentType string `json:"content_type,omitempty"` // "" = text/markdown
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -152,6 +156,10 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	}
 	if req.Body == "" {
 		http.Error(w, "empty body", http.StatusBadRequest)
+		return
+	}
+	if !intercom.ValidContentType(req.ContentType) {
+		http.Error(w, "unsupported content_type (want text/markdown or text/plain)", http.StatusBadRequest)
 		return
 	}
 
@@ -191,10 +199,11 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		return
 	}
 	if _, err := h.lg.Append(intercom.Squawk{
-		From:    intercom.Target{Kind: "actor", Ref: actor.ID},
-		To:      []intercom.Target{logicalTo},
-		Body:    req.Body, // raw — @handle rendering is the adapter's job at egress
-		Project: inst.Project,
+		From:        intercom.Target{Kind: "actor", Ref: actor.ID},
+		To:          []intercom.Target{logicalTo},
+		Body:        req.Body, // raw — @handle rendering is the adapter's job at egress
+		Project:     inst.Project,
+		ContentType: req.ContentType,
 	}); err != nil {
 		h.log.Error("intercom: append failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
@@ -303,7 +312,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	for i := range msgs {
 		m := msgs[i]
 		at := m.At
-		out = append(out, Squawk{ID: m.ID, Author: m.From.Ref, Body: m.Body, At: &at})
+		out = append(out, Squawk{ID: m.ID, Author: m.From.Ref, Body: m.Body, At: &at, ContentType: m.ContentType})
 	}
 	pageFirst, pageLast := "", ""
 	if len(msgs) > 0 {

@@ -82,7 +82,8 @@ func (s *discordSurface) Poll(ctx context.Context, project, since string) ([]rel
 			AuthorID:       m.AuthorID,
 			AuthorBot:      m.AuthorBot,
 			Body:           m.Content,
-			ReplyToForeign: m.ReferencedID, // "" if not a reply
+			ReplyToForeign: m.ReferencedID,           // "" if not a reply
+			ContentType:    intercom.ContentMarkdown, // Discord message content is (Discord-flavored) markdown
 		})
 	}
 	return events, encodeCursors(next), nil
