@@ -49,6 +49,30 @@ build` first — it does not rebuild), forwarding extra args (e.g. `just dev-ser
 jam …` (e.g. `just jam destination list`). Binding a privileged port such
 as `:443` needs root — run the built binary under `sudo` directly for that.
 
+### Live reload: `just dev-watch`
+
+`just dev-watch` runs [air](https://github.com/air-verse/air) (version pinned in
+the recipe, fetched with `go run`; config in `../.air.toml`). It rebuilds
+`at-jam` and restarts `serve` whenever a `.go`, `.html`, `.js` or `.css` file
+changes. Templates and htmx are `go:embed`ed, so UI edits rebuild too. Browse
+**`http://localhost:8090`** (`/me/`, `/ui/`): air's proxy fronts the admin
+listener and reloads the page after each restart.
+
+- **Plain-HTTP admin listener required.** air's proxy speaks plain HTTP to
+  `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin
+  may be plain HTTP). The recipe refuses to start while `admin-tls` is set.
+  CLI admin URLs then become `http://127.0.0.1:8081`.
+- **sudo.** Jam runs under `sudo` (the broker binds `:443`). The recipe primes
+  `sudo -v`, and sudo prompts on the terminal again if its cached login expires.
+  `JAM_WATCH_SUDO= just dev-watch` runs it as you (non-privileged `listen`).
+- **Failed builds** leave the last good binary serving, so Jam stays up.
+- **`/me` login through the proxy:** the OIDC redirect URI is built from the
+  proxied Host, so the callback lands on `http://localhost:8081/me/auth/callback`
+  (add it to the IdP's allowed callbacks). After login, go back to `:8090`. The
+  session cookie is host-scoped, so it carries over and survives restarts.
+- Edits under `dev/` (including `jam.dev.yml`) don't trigger a restart.
+  `JAM_WATCH_CONFIG=path` points the loop at another config.
+
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and
 resolver-based credentials — is documented in

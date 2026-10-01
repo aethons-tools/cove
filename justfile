@@ -99,6 +99,20 @@ dev-down *ARGS:
 dev-serve *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
 
+# Config in .air.toml; needs a plain-HTTP admin listener (no admin-tls). Runs
+# Jam under sudo for :443; JAM_WATCH_SUDO= runs it as you. See dev/README.md.
+# live-reload at-jam serve (air): rebuild+restart on change, browse http://localhost:8090
+dev-watch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="${JAM_WATCH_CONFIG:-dev/jam.dev.yml}"
+    if grep -q '^admin-tls:' "$cfg"; then
+        echo "dev-watch: $cfg sets admin-tls; air's browser-reload proxy can only front a plain-HTTP admin listener. Comment out admin-tls (loopback admin may be plain HTTP) — see dev/README.md." >&2
+        exit 1
+    fi
+    if [ -n "${JAM_WATCH_SUDO-sudo}" ]; then sudo -v; fi
+    go run github.com/air-verse/air@v1.67.4 -c .air.toml
+
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
