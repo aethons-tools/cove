@@ -287,3 +287,25 @@ func TestComposerOffersPlainTextOptOut(t *testing.T) {
 		t.Error("both the reply composer and the New message composer should offer the opt-out")
 	}
 }
+
+func TestComposerPastesAsCodeBlock(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Cmd-Alt-V (Ctrl-Alt-V off the Mac, never AltGr) pastes the clipboard as a
+	// fenced code block at the cursor, with a fence longer than any backtick
+	// run inside, via an undoable insert. Matched by physical key: Option-V
+	// types a character on a Mac.
+	for _, want := range []string{
+		"e.code!=='KeyV'", "e.getModifierState('AltGraph')", "navigator.clipboard.readText()",
+		"function meFence(", "execCommand('insertText'", "⌘⌥V",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing paste-as-code wiring %q", want)
+		}
+	}
+}

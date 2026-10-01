@@ -204,12 +204,41 @@ document.addEventListener('keydown', function(e){
   }
   t._enterArmed=true;
 });
+// meFence returns a backtick fence longer than any backtick run in s (at least
+// three), so pasted text that has its own fences stays inside the block.
+function meFence(s){
+  var longest=0, run=0;
+  for(var i=0;i<s.length;i++){ if(s[i]==='`'){ run++; if(run>longest){ longest=run; } } else { run=0; } }
+  return '`'.repeat(Math.max(3, longest+1));
+}
+// Paste as code: Cmd-Alt-V (Ctrl-Alt-V off the Mac, but never AltGr, which
+// types characters on many layouts) wraps the clipboard in a fenced code block
+// at the cursor, on its own lines. A non-standard shortcut fires no paste
+// event, so the clipboard is read directly (the browser may ask permission).
+// Matched by physical key: Option-V types a character on a Mac. Inserted via
+// execCommand so Cmd-Z undoes it.
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  if(e.code!=='KeyV' || !e.altKey || e.shiftKey) return;
+  if(mac ? !e.metaKey : (!e.ctrlKey || e.getModifierState('AltGraph'))) return;
+  e.preventDefault();
+  if(!navigator.clipboard || !navigator.clipboard.readText) return;
+  navigator.clipboard.readText().then(function(text){
+    if(!text) return;
+    var f=meFence(text), before=t.value.slice(0, t.selectionStart);
+    var block=(before && before.slice(-1)!=='\n' ? '\n' : '') + f + '\n' + text + (text.slice(-1)==='\n' ? '' : '\n') + f + '\n';
+    t.focus();
+    if(!document.execCommand('insertText', false, block)){ t.setRangeText(block, t.selectionStart, t.selectionEnd, 'end'); }
+  }, function(){ /* permission denied: nothing to paste */ });
+});
 function meCompose(to, label){
   var pane=document.getElementById('pane');
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send)" required></textarea>'
+    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⌘⌥V pastes as code)" required></textarea>'
     +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div></form></div>';
 }
 </script>
