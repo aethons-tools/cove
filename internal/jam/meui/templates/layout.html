@@ -103,6 +103,13 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 </div>
 <script src="/me/static/htmx.min.js"></script>
 <script>
+// meSelecting reports a non-empty text selection touching #stream. It filters
+// the stream's 3s poll: swapping the list would replace the selected text nodes
+// and the browser would drop the selection before it could be copied.
+function meSelecting(){
+  var sel=window.getSelection(), s=document.getElementById('stream');
+  return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));
+}
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
@@ -119,12 +126,34 @@ function meSend(e, to){
    });
   return false;
 }
+// Composer keys: Enter inserts a newline as usual, but a second consecutive
+// Enter sends (dropping the newline the first one added). Shift+Enter always
+// inserts a newline and never arms the send, so deliberate blank lines are
+// possible. Delegated on document so it covers htmx-swapped and meCompose
+// composers alike.
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  if(e.key!=='Enter' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing){
+    t._enterArmed=false;
+    return;
+  }
+  var i=t.selectionStart;
+  if(t._enterArmed && i===t.selectionEnd && t.value.charAt(i-1)==='\n'){
+    e.preventDefault();
+    t._enterArmed=false;
+    t.value=t.value.slice(0,i-1)+t.value.slice(i);
+    t.form.requestSubmit();
+    return;
+  }
+  t._enterArmed=true;
+});
 function meCompose(to, label){
   var pane=document.getElementById('pane');
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'…" required></textarea>'
+    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send)" required></textarea>'
     +'<button type="submit">Send</button></form></div>';
 }
 </script>

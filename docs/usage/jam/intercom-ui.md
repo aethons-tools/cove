@@ -4,7 +4,7 @@ read_when: You want a roster human to read/reply to their studios and channels i
 owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the unread mark-read (`POST /me/read`), the 3s htmx poll, and how it wires to the channel read-model and `/me/send`
 prereqs: ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
 tier: leaf
-updated: 2026-09-28
+updated: 2026-10-01
 ---
 
 # The participant intercom inbox (`/me`)
@@ -38,12 +38,18 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   the composer sends `{to, body}` and, on success, refreshes the pane and rail. A
   reply addressed to a waiting studio **wakes it** exactly as a relayed reply does
   (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
+- **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
+  (the extra newline is dropped). Shift+Enter always inserts a newline and never
+  arms a send, so deliberate blank lines are possible.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.
-- **Refresh is a 3s htmx poll** this slice: the rail and the open pane each
-  re-fetch their fragment (`GET /me/rail`, `GET /me/pane`) every 3 seconds — the
-  same partial/full convention `adminui` uses (branch on the `HX-Request` header).
+- **Refresh is a 3s htmx poll** this slice: the rail and the open conversation's
+  message list each re-fetch their fragment (`GET /me/rail`, `GET /me/stream`)
+  every 3 seconds — the same partial/full convention `adminui` uses (branch on the
+  `HX-Request` header). The pane header and composer never poll, so a half-typed
+  reply survives. The message-list poll **pauses while text in it is selected**,
+  so a squawk can be selected and copied; it resumes once the selection clears.
   A live push (SSE) is a later slice.
 
 ## Enabling it

@@ -97,6 +97,41 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 	}
 }
 
+func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Enter+Enter sends; Shift+Enter never arms it. The handler is delegated on
+	// document so it also covers the meCompose (New message) composer.
+	for _, want := range []string{"Enter twice to send", "document.addEventListener('keydown'", "e.shiftKey", "requestSubmit()"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing composer key wiring %q", want)
+		}
+	}
+}
+
+func TestStreamPollPausesWhileTextSelected(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Swapping #stream replaces the text nodes under a selection, which the
+	// browser then drops — so the poll is filtered off while the viewer has a
+	// selection inside the stream, letting them copy a message.
+	for _, want := range []string{`hx-trigger="every 3s [!meSelecting()]"`, "function meSelecting()"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing selection-safe poll wiring %q", want)
+		}
+	}
+}
+
 func TestStreamFragmentIsMessagesOnly(t *testing.T) {
 	store, log, p := fixture()
 	h := Handler(store, log, nil)

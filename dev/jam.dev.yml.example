@@ -14,7 +14,8 @@
 # cove reaches the host at the VM gateway (e.g. 192.168.5.2), so a listener bound
 # to jam.local.aethons.tools (which resolves to 127.0.0.1 on the host) is
 # loopback-only and the cove's squid CONNECT gets a 503. The TLS cert below still
-# presents the jam.local.aethons.tools name the cove dials (SNI). Needs sudo (:443).
+# presents the jam.local.aethons.tools name the cove dials (SNI). On macOS a
+# wildcard bind of :443 needs no sudo; Linux needs root (or CAP_NET_BIND_SERVICE).
 listen: ":443"
 tls:
   cert: /etc/letsencrypt/live/local.aethons.tools/fullchain.pem
