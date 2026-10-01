@@ -44,9 +44,12 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.
-- **Refresh is a 3s htmx poll** this slice: the rail and the open pane each
-  re-fetch their fragment (`GET /me/rail`, `GET /me/pane`) every 3 seconds — the
-  same partial/full convention `adminui` uses (branch on the `HX-Request` header).
+- **Refresh is a 3s htmx poll** this slice: the rail and the open conversation's
+  message list each re-fetch their fragment (`GET /me/rail`, `GET /me/stream`)
+  every 3 seconds — the same partial/full convention `adminui` uses (branch on the
+  `HX-Request` header). The pane header and composer never poll, so a half-typed
+  reply survives. The message-list poll **pauses while text in it is selected**,
+  so a squawk can be selected and copied; it resumes once the selection clears.
   A live push (SSE) is a later slice.
 
 ## Enabling it

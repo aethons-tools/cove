@@ -20,7 +20,9 @@
 {{end}}
 
 {{/* The pane itself does NOT poll — only #stream does (innerHTML), so the
-     header and composer (and a half-typed reply) survive the 3s refresh. */}}
+     header and composer (and a half-typed reply) survive the 3s refresh. The
+     poll skips while text inside #stream is selected (meSelecting), since a
+     swap would drop the selection mid-copy. */}}
 {{define "pane"}}
 <section class="convo" id="pane">
   {{with .Conv}}
@@ -32,7 +34,7 @@
       <span class="spacer"></span>
       {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
     </div>
-    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="every 3s" hx-swap="innerHTML">
+    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="every 3s [!meSelecting()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>

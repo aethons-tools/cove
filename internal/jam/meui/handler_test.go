@@ -114,6 +114,24 @@ func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
 	}
 }
 
+func TestStreamPollPausesWhileTextSelected(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Swapping #stream replaces the text nodes under a selection, which the
+	// browser then drops — so the poll is filtered off while the viewer has a
+	// selection inside the stream, letting them copy a message.
+	for _, want := range []string{`hx-trigger="every 3s [!meSelecting()]"`, "function meSelecting()"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing selection-safe poll wiring %q", want)
+		}
+	}
+}
+
 func TestStreamFragmentIsMessagesOnly(t *testing.T) {
 	store, log, p := fixture()
 	h := Handler(store, log, nil)

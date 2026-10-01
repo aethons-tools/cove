@@ -103,6 +103,13 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 </div>
 <script src="/me/static/htmx.min.js"></script>
 <script>
+// meSelecting reports a non-empty text selection touching #stream. It filters
+// the stream's 3s poll: swapping the list would replace the selected text nodes
+// and the browser would drop the selection before it could be copied.
+function meSelecting(){
+  var sel=window.getSelection(), s=document.getElementById('stream');
+  return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));
+}
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
