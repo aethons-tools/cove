@@ -41,7 +41,7 @@
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
-        <textarea name="body" placeholder="Reply&#8230; (Enter twice to send · ⇧⌘V pastes as code)" required></textarea>
+        <textarea name="body" placeholder="Reply&#8230; (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>
         <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div>
       </form>
     </div>

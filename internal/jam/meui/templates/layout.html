@@ -88,6 +88,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .composer form{display:flex;gap:10px;align-items:flex-end}
 .composer textarea{flex:1;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;padding:10px 12px;resize:none;min-height:42px;outline:none}
 .composer textarea:focus{border-color:var(--accent)}
+.composer .draft-chip{display:inline-block;margin:0 0 8px;font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
+.composer .draft-chip[hidden]{display:none}
 .composer .send-col{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
@@ -171,6 +173,7 @@ function meSend(e, to){
    .then(function(r){
      if(r.status===204){
        f.reset();
+       mePopDraft(f);
        // Refresh only the message list of an open conversation; the rail's own
        // live-push refresh picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');
@@ -241,9 +244,71 @@ function meCompose(to, label){
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⇧⌘V pastes as code)" required></textarea>'
+    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
     +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div></form></div>';
+  meDraftChip(pane.querySelector('.composer form'));
 }
+// Draft stack: Cmd-Down (Ctrl-Down off the Mac) pushes the composer's draft onto
+// a per-conversation stack and clears the box, so another message can be
+// written and sent first; a successful send pops the top draft back, cursor
+// restored. Cmd-Up, or the chip above the box, pops by hand. A pop never
+// overwrites text in the box, and on an empty box (push) or a non-empty one
+// (pop) the keys keep their usual cursor moves. The stack lives in this tab's
+// sessionStorage (it survives switching conversations and reloads, including
+// dev live-reload), falling back to memory when storage is unavailable; it is
+// never sent anywhere.
+function meDraftKey(form){ return 'me-drafts:'+(form.dataset.to||''); }
+function meDrafts(form){
+  try{ return JSON.parse(sessionStorage.getItem(meDraftKey(form))||'[]'); }
+  catch(_){ return form._drafts||[]; }
+}
+function meSaveDrafts(form, d){
+  form._drafts=d;
+  try{ sessionStorage.setItem(meDraftKey(form), JSON.stringify(d)); }catch(_){}
+  meDraftChip(form);
+}
+function meDraftChip(form){
+  if(!form) return;
+  var chip=form.parentNode.querySelector('.draft-chip');
+  if(!chip){
+    chip=document.createElement('button');
+    chip.type='button'; chip.className='draft-chip';
+    chip.title='Restore the top stacked draft (⌘↑) — the box must be empty';
+    chip.onclick=function(){ mePopDraft(form); };
+    form.parentNode.insertBefore(chip, form);
+  }
+  var n=meDrafts(form).length;
+  chip.hidden = n===0;
+  chip.textContent='↩ '+n+' stacked draft'+(n===1?'':'s');
+}
+function mePushDraft(form){
+  var t=form.body, text=t.value;
+  if(!text.trim()) return false;
+  var d=meDrafts(form);
+  d.push({text:text, sel:t.selectionStart});
+  meSaveDrafts(form, d);
+  t.value=''; t._enterArmed=false; t.focus();
+  return true;
+}
+function mePopDraft(form){
+  var t=form.body;
+  if(t.value.trim()) return false;
+  var d=meDrafts(form), top=d.pop();
+  if(!top) return false;
+  meSaveDrafts(form, d);
+  t.value=top.text; t.focus();
+  var s=Math.min(top.sel, top.text.length); t.setSelectionRange(s, s);
+  return true;
+}
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  if(!(mac ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return;
+  if(e.key==='ArrowDown' && mePushDraft(t.form)){ e.preventDefault(); }
+  else if(e.key==='ArrowUp' && mePopDraft(t.form)){ e.preventDefault(); }
+});
+document.querySelectorAll('.composer form').forEach(meDraftChip);
 </script>
 </body>
 </html>{{end}}

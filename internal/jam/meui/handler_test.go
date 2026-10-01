@@ -312,3 +312,25 @@ func TestComposerPastesAsCodeBlock(t *testing.T) {
 		t.Error("paste-as-code must use the paste event, not a permission-gated clipboard read")
 	}
 }
+
+func TestComposerDraftStack(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Cmd-Down pushes the draft onto a per-conversation stack (tab
+	// sessionStorage, with an in-memory fallback); a successful send pops it
+	// back; Cmd-Up or the chip pops by hand, but never over text in the box.
+	for _, want := range []string{
+		"function mePushDraft(", "function mePopDraft(", "'me-drafts:'", "sessionStorage",
+		"e.key==='ArrowDown'", "e.key==='ArrowUp'", "f.reset();\n       mePopDraft(f);",
+		"if(t.value.trim()) return false;", ".draft-chip[hidden]{display:none}", "⌘↓",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing draft-stack wiring %q", want)
+		}
+	}
+}

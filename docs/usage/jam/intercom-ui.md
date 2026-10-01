@@ -51,6 +51,15 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   "paste as plain text" shortcut, which is a real paste, so no browser asks for
   clipboard permission. On a Mac, Cmd-Alt-Shift-V (Safari's "Paste and Match
   Style") works too, if a browser doesn't bind Cmd-Shift-V.
+- **Draft stack:**
+  - **Cmd-Down** (Ctrl-Down off the Mac) pushes the draft you're writing onto a
+    per-conversation stack and clears the box, so you can write and send another
+    message first.
+  - **Sending pops the top draft back**, with the cursor where you left it.
+  - **Cmd-Up**, or the "↩ N stacked drafts" chip above the box, pops by hand.
+  - A pop never overwrites text already in the box.
+  - Stacks live in the browser tab's session storage: they survive switching
+    conversations and reloads, and are never sent to Jam.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.
