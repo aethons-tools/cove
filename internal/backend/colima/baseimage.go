@@ -116,6 +116,14 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 		"--build-arg", "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
 		"-",
 	)...); err != nil {
+		// Surface docker's own build diagnostic (the failing Dockerfile line, etc.);
+		// a studio context build carries no secrets in its output.
+		if msg := strings.TrimSpace(errBuf.String()); msg != "" {
+			if len(msg) > 4000 {
+				msg = msg[len(msg)-4000:]
+			}
+			return "", fmt.Errorf("docker build - (streamed context): %w\n%s", err, msg)
+		}
 		return "", fmt.Errorf("docker build - (streamed context): %w", err)
 	}
 	id := strings.TrimSpace(out.String())

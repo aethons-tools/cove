@@ -144,17 +144,22 @@ func TestScanContextTarRejectsHardlink(t *testing.T) {
 	}
 }
 
-func TestScanContextTarRejectsDir(t *testing.T) {
+// A hand-authored `tar czf` context carries directory entries (and a `./` root);
+// docker accepts them, so ScanContextTar must too.
+func TestScanContextTarAcceptsDirEntries(t *testing.T) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
+	_ = tw.WriteHeader(&tar.Header{Name: "./", Mode: 0o755, Typeflag: tar.TypeDir})
+	_ = tw.WriteHeader(&tar.Header{Name: "adir/", Mode: 0o755, Typeflag: tar.TypeDir})
 	_ = tw.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: 7, Typeflag: tar.TypeReg})
 	_, _ = tw.Write([]byte("FROM x\n"))
-	_ = tw.WriteHeader(&tar.Header{Name: "adir/", Mode: 0o755, Typeflag: tar.TypeDir})
+	_ = tw.WriteHeader(&tar.Header{Name: "adir/f.txt", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg})
+	_, _ = tw.Write([]byte("x"))
 	_ = tw.Close()
 	_ = gw.Close()
-	if err := ScanContextTar(buf.Bytes()); err == nil {
-		t.Fatal("a non-regular (directory) entry must be rejected (fail-closed)")
+	if err := ScanContextTar(buf.Bytes()); err != nil {
+		t.Fatalf("directory entries must be accepted: %v", err)
 	}
 }
 

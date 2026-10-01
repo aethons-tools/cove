@@ -54,10 +54,15 @@ func ScanContextTar(b []byte) error {
 			return fmt.Errorf("base.context: entry %q is a symlink (not allowed)", hdr.Name)
 		case tar.TypeLink:
 			return fmt.Errorf("base.context: entry %q is a hard link (not allowed)", hdr.Name)
-		case tar.TypeReg:
-			// ok — counted below
+		case tar.TypeDir:
+			// A directory entry carries no data and is accepted (a hand-authored
+			// `tar czf` context includes them, and docker does too). The name was
+			// already safety-checked above.
+			continue
+		case tar.TypeReg, tar.TypeRegA:
+			// a regular file — counted below
 		default:
-			return fmt.Errorf("base.context: entry %q is not a regular file", hdr.Name)
+			return fmt.Errorf("base.context: entry %q is not a regular file or directory", hdr.Name)
 		}
 		if path.Clean(name) == "Dockerfile" {
 			sawDockerfile = true
