@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,7 +35,11 @@ type serveConfig struct {
 	// custom loopback-bound hostname here (e.g. jam.local.example); otherwise
 	// the UI refuses it, defeating DNS-rebinding attempts.
 	UIHosts []string `yaml:"ui-hosts"`
-	TLS     struct {
+	// UIOrigins are extra exact origins (scheme://host[:port]) the browser UI's
+	// CSRF write check accepts besides the request's own Host — e.g. the
+	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
+	UIOrigins []string `yaml:"ui-origins"`
+	TLS       struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"tls"`
@@ -556,7 +561,22 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
 	}
+	for _, o := range c.UIOrigins {
+		if err := validateOrigin(o); err != nil {
+			return serveConfig{}, fmt.Errorf("ui-origins: %w", err)
+		}
+	}
 	return c, nil
+}
+
+// validateOrigin checks o is a bare web origin, scheme://host[:port] with an
+// http(s) scheme and no path — the exact form a browser sends in Origin.
+func validateOrigin(o string) error {
+	u, err := url.Parse(o)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
+		return fmt.Errorf("%q is not an origin (want scheme://host[:port], e.g. http://localhost:8090)", o)
+	}
+	return nil
 }
 
 // credConfigured reports whether n names a credential the broker can resolve: a

@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 # Running Jam (`at-jam serve`)
@@ -26,6 +26,8 @@ listen: ":443"                 # broker listener (coves connect here; TLS in pro
 admin-listen: "127.0.0.1:8081" # admin API listener (operator surface)
 ui-hosts:                      # optional; extra Host values the browser UI accepts on loopback
   - jam.local.example       # a custom name that DNS-binds to 127.0.0.1
+ui-origins:                    # optional; extra origins the UI's write (CSRF) check accepts
+  - http://localhost:8090      # e.g. the `just dev-watch` live-reload proxy
 tls:                           # broker server cert (required for a real :443)
   cert: /etc/jam/tls/fullchain.pem
   key:  /etc/jam/tls/privkey.pem
@@ -82,6 +84,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
+| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write check accepts, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |

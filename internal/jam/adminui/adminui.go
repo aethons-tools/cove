@@ -74,10 +74,29 @@ func mustParse(names ...string) *template.Template {
 	return template.Must(template.ParseFS(files, paths...))
 }
 
+// Option configures Handler.
+type Option func(*options)
+
+type options struct {
+	trustedOrigins []string
+}
+
+// WithTrustedOrigins adds exact origins (scheme://host[:port]) the CSRF write
+// check accepts besides the request's own Host — e.g. a dev live-reload proxy
+// that fronts the admin listener on another port (the serve config's
+// ui-origins).
+func WithTrustedOrigins(origins ...string) Option {
+	return func(o *options) { o.trustedOrigins = append(o.trustedOrigins, origins...) }
+}
+
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
-func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader) http.Handler {
+func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader, opts ...Option) http.Handler {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -116,8 +135,9 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		handleIntercom(w, r, msgs)
 	})
 
-	registerWrites(mux, store, log, sup, credExists)
-	registerRoleRequest(mux, store, log, sup, alloc)
+	guardWrite := originGuard(o.trustedOrigins)
+	registerWrites(mux, store, log, sup, credExists, guardWrite)
+	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
 
 	return mux
 }

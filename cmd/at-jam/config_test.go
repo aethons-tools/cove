@@ -435,6 +435,25 @@ func TestUIHostsParsed(t *testing.T) {
 	}
 }
 
+func TestUIOriginsParsedAndValidated(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("ui-origins:\n  - http://localhost:8090\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.UIOrigins) != 1 || cfg.UIOrigins[0] != "http://localhost:8090" {
+		t.Fatalf("UIOrigins = %v, want [http://localhost:8090]", cfg.UIOrigins)
+	}
+	if got := unknownServeKeys([]byte("ui-origins: [a]\n")); len(got) != 0 {
+		t.Fatalf("ui-origins flagged as unknown: %v", got)
+	}
+	// An origin is scheme://host[:port] — no path, no bare host, no other scheme.
+	for _, bad := range []string{"localhost:8090", "http://localhost:8090/ui", "ftp://x", "http://"} {
+		if _, err := parseServeConfig([]byte("ui-origins: [\"" + bad + "\"]\n")); err == nil {
+			t.Errorf("ui-origins %q accepted, want an error", bad)
+		}
+	}
+}
+
 func TestServeConfigIntercomLog(t *testing.T) {
 	var c serveConfig
 	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/jam/squawks.jsonl\n"), &c); err != nil {

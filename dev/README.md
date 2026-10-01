@@ -63,6 +63,11 @@ listener and reloads the page after each restart.
   `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin
   may be plain HTTP). The recipe refuses to start while `admin-tls` is set.
   CLI admin URLs then become `http://127.0.0.1:8081`.
+- **UI writes need `ui-origins`.** The proxy forwards to Jam with `Host:
+  localhost:8081` while the browser's `Origin` is `http://localhost:8090`, so
+  the UI's CSRF check refuses writes ("cross-origin request refused") unless
+  `jam.dev.yml` lists `ui-origins: [http://localhost:8090]` (as the example
+  does). See `ui-origins` in [serve.md](../docs/usage/jam/serve.md).
 - **No sudo by default.** Jam runs as you. On macOS a wildcard bind of `:443`
   (`listen: ":443"`, as in `jam.dev.yml.example`) needs no root, but a listen
   bound to a specific address (e.g. the hostname) does. `JAM_WATCH_SUDO=1 just

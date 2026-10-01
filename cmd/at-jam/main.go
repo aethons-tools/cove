@@ -1977,7 +1977,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			log.Info("Jam UI auth: loopback-only")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader)))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...))))
 
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler)
 		go func() {

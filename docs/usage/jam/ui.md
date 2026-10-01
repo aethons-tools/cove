@@ -168,7 +168,8 @@ Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the
 operator who made it. Destructive actions ask for confirmation. State-changing
 requests are refused unless they originate from the Jam UI itself (an
-Origin/Referer check), so another site can't drive them through your browser.
+Origin/Referer check, plus any exact origins listed in
+[`ui-origins`](serve.md)), so another site can't drive them through your browser.
 
 The kit registry and destinations are also editable from here — see
 [Config plane (kits & destinations)](#config-plane-kits-destinations) below.

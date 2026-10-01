@@ -253,3 +253,39 @@ func TestEnrollValidationError(t *testing.T) {
 		t.Errorf("expected inline error; got:\n%s", rec.Body.String())
 	}
 }
+
+// TestTrustedOriginsAcceptedForWrites: a configured extra origin (e.g. the
+// dev-watch proxy at :8090 fronting the admin listener at :8081) passes the
+// write check by exact match, via Origin or Referer; anything else is still
+// refused, and without the option the proxied write is refused.
+func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
+	store := newStore(t)
+	write := func(h http.Handler, header, value string) int {
+		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader("project=acme&name=r1"))
+		req.Host = "localhost:8081"
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set(header, value)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	plain := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
+	if got := write(plain, "Origin", "http://localhost:8090"); got != http.StatusForbidden {
+		t.Errorf("proxied write without trusted origins = %d, want 403", got)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithTrustedOrigins("http://localhost:8090"))
+	for _, tc := range []struct {
+		header, value string
+		want          int
+	}{
+		{"Origin", "http://localhost:8090", http.StatusOK},
+		{"Referer", "http://localhost:8090/ui/roles", http.StatusOK},
+		{"Origin", "http://localhost:8091", http.StatusForbidden},  // another port is another origin
+		{"Origin", "https://localhost:8090", http.StatusForbidden}, // so is another scheme
+		{"Origin", "http://evil.example", http.StatusForbidden},
+	} {
+		if got := write(h, tc.header, tc.value); got != tc.want {
+			t.Errorf("%s: %s → %d, want %d", tc.header, tc.value, got, tc.want)
+		}
+	}
+}

@@ -20,7 +20,7 @@ func requestPrompt(owner string) string {
 // loopback request is anonymous "local") and linked to a roster human in the
 // role's project. It shares jam.RequestPersonalSession with POST
 // /admin/sessions/personal, so capacity, delivery checks, and rollback match.
-func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator) {
+func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /ui/roles/{project}/{name}/request", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
