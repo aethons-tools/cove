@@ -732,3 +732,22 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 		t.Fatalf("linear projects = %v, want [gamma]", got)
 	}
 }
+
+// TestLinearDeliverEscapesPlainText: a text/plain squawk is escaped so Linear
+// shows it literally; markdown (the default) is posted byte-for-byte. The
+// prefix (@handle) is ours and never escaped.
+func TestLinearDeliverEscapesPlainText(t *testing.T) {
+	fp := &fakePoster{idByID: map[string]string{"ACME-1": "issue-1"}}
+	s := &linearSurface{poster: fp}
+	d := relay.Delivery{Address: "ACME-1", BodyPrefix: "@alice "}
+	from := tgt("actor", "cove-1")
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "**bold**", ContentType: intercom.ContentMarkdown}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "2 * 3\n- x", ContentType: intercom.ContentPlain}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fp.posts) != 2 || fp.posts[0].body != "@alice **bold**" || fp.posts[1].body != "@alice 2 \\* 3  \n\\- x" {
+		t.Fatalf("posts = %+v", fp.posts)
+	}
+}

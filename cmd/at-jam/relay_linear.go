@@ -79,6 +79,16 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 	return events, next, nil
 }
 
+// deliveredBody is m's body as posted to a markdown-rendering surface of
+// flavor f: markdown (the default) passes through byte-for-byte; text/plain is
+// escaped so the surface shows it literally.
+func deliveredBody(m intercom.Squawk, f intercom.Flavor) string {
+	if m.ContentType == intercom.ContentPlain {
+		return intercom.EscapeMarkdown(m.Body, f)
+	}
+	return m.Body
+}
+
 // Deliver resolves d.Address (a ticket identifier) to an internal id and posts
 // d.BodyPrefix+m.Body. Linear returns no comment id, so foreignID is ""; the
 // engine's EgressMark provides exactly-once (no idempotency footer — it would
@@ -91,7 +101,7 @@ func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m interco
 	if err != nil {
 		return "", fmt.Errorf("linear deliver: resolve %q: %w", d.Address, err)
 	}
-	if err := s.poster.PostComment(ctx, issueID, d.BodyPrefix+m.Body); err != nil {
+	if err := s.poster.PostComment(ctx, issueID, d.BodyPrefix+deliveredBody(m, intercom.FlavorCommonMark)); err != nil {
 		return "", fmt.Errorf("linear deliver: post to %q: %w", d.Address, err)
 	}
 	return "", nil

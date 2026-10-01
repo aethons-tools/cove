@@ -340,3 +340,19 @@ var errBoom = errBoomType("boom")
 type errBoomType string
 
 func (e errBoomType) Error() string { return string(e) }
+
+func TestDiscordDeliverEscapesPlainText(t *testing.T) {
+	fc := &fakeDiscordClient{postID: "D1"}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: mustReceipts(t)}
+	d := relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}
+	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fc.posts) != 2 || fc.posts[0].content != "cove-1: *hi*" || fc.posts[1].content != `cove-1: a\_b \*c\*` {
+		t.Fatalf("posts = %+v", fc.posts)
+	}
+}
