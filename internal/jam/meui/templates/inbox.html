@@ -38,7 +38,7 @@
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
-        <textarea name="body" placeholder="Reply&#8230;" required></textarea>
+        <textarea name="body" placeholder="Reply&#8230; (Enter twice to send)" required></textarea>
         <button type="submit">Send</button>
       </form>
     </div>
