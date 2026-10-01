@@ -52,9 +52,9 @@ type fakeOps struct {
 	resolvedBase string // ResolveKitBase returns this (default "blessed-default")
 	resolvedFrom string // the declaredBase ResolveKitBase was asked about
 
-	resolvedDockerfileBase string // ResolveKitBaseDockerfile returns this (default "blessed-df-base")
-	resolvedDockerfileDir  string // the contextDir ResolveKitBaseDockerfile was asked about
-	resolveDockerfileErr   error  // when set, ResolveKitBaseDockerfile fails (gate-fail simulation)
+	resolvedTarBase string // ResolveKitBaseTar returns this (default "blessed-tar-base")
+	resolvedTar     []byte // the context tar bytes ResolveKitBaseTar was streamed
+	resolveTarErr   error  // when set, ResolveKitBaseTar fails (gate-fail simulation)
 }
 
 func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
@@ -80,15 +80,16 @@ func (f *fakeOps) ResolveKitBase(declaredBase string) (string, error) {
 	}
 	return "blessed-default", nil
 }
-func (f *fakeOps) ResolveKitBaseDockerfile(contextDir string) (string, error) {
-	f.resolvedDockerfileDir = contextDir
-	if f.resolveDockerfileErr != nil {
-		return "", f.resolveDockerfileErr
+func (f *fakeOps) ResolveKitBaseTar(ctx io.Reader) (string, error) {
+	b, _ := io.ReadAll(ctx)
+	f.resolvedTar = b
+	if f.resolveTarErr != nil {
+		return "", f.resolveTarErr
 	}
-	if f.resolvedDockerfileBase != "" {
-		return f.resolvedDockerfileBase, nil
+	if f.resolvedTarBase != "" {
+		return f.resolvedTarBase, nil
 	}
-	return "blessed-df-base", nil
+	return "blessed-tar-base", nil
 }
 func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
