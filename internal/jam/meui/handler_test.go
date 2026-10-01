@@ -132,6 +132,24 @@ func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
 	}
 }
 
+func TestConversationOpensAndSendsAtBottom(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Opening a conversation (a full page load) starts at its end, and a Send
+	// always ends there: the scroll runs once the send's refresh has swapped
+	// (htmx.ajax's promise), whatever the scroll position was.
+	for _, want := range []string{"meScrollToEnd(document.getElementById('stream'))", "}).then(function(){ meScrollToEnd(s, 'smooth'); })"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing open/send-at-bottom wiring %q", want)
+		}
+	}
+}
+
 func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 	store, log, p := fixture()
 	h := Handler(store, log, nil)

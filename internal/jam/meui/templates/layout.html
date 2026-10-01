@@ -121,8 +121,14 @@ document.addEventListener('htmx:beforeSwap', function(e){
 });
 document.addEventListener('htmx:afterSwap', function(e){
   var s=e.detail.target;
-  if(s && s.id==='stream' && s._atBottom){ s.scrollTo({top: s.scrollHeight, behavior: 'smooth'}); }
+  if(s && s.id==='stream' && s._atBottom){ meScrollToEnd(s, 'smooth'); }
 });
+// meScrollToEnd scrolls the message list s (if any) to its last message.
+function meScrollToEnd(s, behavior){
+  if(s){ s.scrollTo({top: s.scrollHeight, behavior: behavior || 'auto'}); }
+}
+// Opening a conversation is a full page load: start at its end.
+meScrollToEnd(document.getElementById('stream'));
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
@@ -134,7 +140,10 @@ function meSend(e, to){
        // Refresh only the message list of an open conversation; the rail's own
        // 3s poll picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');
-       if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}); }
+       // A send always ends at the bottom, wherever the view was: scroll once
+       // this refresh has swapped (not on the next swap, which a 3s poll
+       // without the new message could win).
+       if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}).then(function(){ meScrollToEnd(s, 'smooth'); }); }
      } else { alert('Send failed ('+r.status+')'); }
    });
   return false;
