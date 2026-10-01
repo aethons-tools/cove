@@ -46,8 +46,9 @@ just dev-serve         # runs the built at-jam serve --config dev/jam.dev.yml
 `just dev-serve` runs the **last-built** `dist/<os>-<arch>/at-jam` (run `just
 build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
 --config path/to/other.yml`). For arbitrary subcommands there is also `just
-jam …` (e.g. `just jam destination list`). Binding a privileged port such
-as `:443` needs root — run the built binary under `sudo` directly for that.
+jam …` (e.g. `just jam destination list`). On macOS the wildcard
+`listen: ":443"` binds without root; on Linux (or a specific-address bind) a
+privileged port needs root — run the built binary under `sudo` directly for that.
 
 ### Live reload: `just dev-watch`
 
@@ -62,9 +63,11 @@ listener and reloads the page after each restart.
   `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin
   may be plain HTTP). The recipe refuses to start while `admin-tls` is set.
   CLI admin URLs then become `http://127.0.0.1:8081`.
-- **sudo.** Jam runs under `sudo` (the broker binds `:443`). The recipe primes
-  `sudo -v`, and sudo prompts on the terminal again if its cached login expires.
-  `JAM_WATCH_SUDO= just dev-watch` runs it as you (non-privileged `listen`).
+- **No sudo by default.** Jam runs as you. On macOS a wildcard bind of `:443`
+  (`listen: ":443"`, as in `jam.dev.yml.example`) needs no root, but a listen
+  bound to a specific address (e.g. the hostname) does. `JAM_WATCH_SUDO=1 just
+  dev-watch` runs Jam under sudo instead: the recipe primes `sudo -v`, and sudo
+  prompts on the terminal again if its cached login expires.
 - **Failed builds** leave the last good binary serving, so Jam stays up.
 - **`/me` login through the proxy:** the OIDC redirect URI is built from the
   proxied Host, so the callback lands on `http://localhost:8081/me/auth/callback`

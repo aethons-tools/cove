@@ -8,7 +8,7 @@ tmp_dir = ".air"
 
 [build]
   cmd = "go build -o .air/at-jam ./cmd/at-jam"
-  # The wrapper runs .air/at-jam serve (under sudo for the :443 broker listener).
+  # The wrapper runs .air/at-jam serve (as you; JAM_WATCH_SUDO=1 for sudo).
   entrypoint = ["./dev/watch-serve.sh"]
   # Templates and htmx are go:embed'ed, so UI edits need a rebuild too.
   include_ext = ["go", "html", "js", "css"]
