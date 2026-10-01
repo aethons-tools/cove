@@ -3,6 +3,7 @@ package colima
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -20,12 +21,20 @@ type dockerImg struct {
 }
 
 func (d dockerImg) Build(contextDir string) (string, error) {
-	// Inject the blessed base as the kit Dockerfile's COVE_BASE_IMAGE build arg so
-	// a kit's own image/Dockerfile always builds on the blessed base (its ARG
-	// default is only for a bare manual `docker build`). The DockerfileDir path and
-	// image.base are mutually exclusive, so DefaultRef is the only base to honor.
+	// Standard build args for a kit/studio base Dockerfile:
+	//   COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE — the blessed base ref to build
+	//     FROM (write `FROM ${COVE_BASE_IMAGE}`); the two are aliases so a kit can
+	//     use the at-cove or the jam-studio name. The ARG defaults are only for a
+	//     bare manual `docker build`.
+	//   AT_JAM_STUDIO_TARGET_ARCH — "amd64" | "arm64", the build target arch.
 	// -q: emit only the built image ID (a bare `sha256:<hex>`).
-	out, err := d.c.r.Output("docker", dargs("build", "-q", "--build-arg", "COVE_BASE_IMAGE="+d.baseArg, contextDir)...)
+	out, err := d.c.r.Output("docker", dargs(
+		"build", "-q",
+		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		contextDir,
+	)...)
 	if err != nil {
 		return "", err
 	}
