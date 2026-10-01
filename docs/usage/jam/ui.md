@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios.
+summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
 read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
 owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-09-28
+updated: 2026-10-01
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -49,6 +49,10 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
   reach the UI over a custom name that DNS-binds to loopback (e.g.
   `jam.local.example`), add it to `ui-hosts` (see [serve.md](serve.md)) or the
   UI refuses it as a possible DNS-rebinding attempt.
+  A loopback viewer is the anonymous operator `local`, unless they have signed
+  in via `/ui/auth/login`: a valid session is used even on loopback, so the UI
+  knows *who* you are (the [role Request](#runtime-studios) action needs this).
+  A missing or expired session falls back to `local` without a login redirect.
 - **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
   browser is redirected through an OIDC **Authorization Code + PKCE** login
   (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie
@@ -181,6 +185,15 @@ config — see [coves.md](coves.md)), the Studios page can also:
   they are never shown in the browser (use the CLI `at-jam studio raise` for
   manual wiring).
 - **Tear down a studio** (confirmed).
+
+The Roles page gains a **Request** action per role: it raises a
+[personal session](personal-sessions.md) of that role **for you**, with the
+prompt `Squawk me (human:<your roster name>) and we will get to work.`, so the
+session opens the conversation with you on the intercom. You must be signed in
+(`/ui/auth/login`) as a login linked to a roster human in the role's project.
+As anonymous loopback `local`, the action asks you to sign in. Admission,
+delivery checks, and errors are exactly those of `at-jam session request`, and
+the outcome (the new session id, or the refusal) shows above the roles table.
 
 Without a runtime supervisor, the Studios page is view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions

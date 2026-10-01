@@ -77,7 +77,7 @@ func mustParse(names ...string) *template.Template {
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
-func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, msgs SquawkReader) http.Handler {
+func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader) http.Handler {
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -104,7 +104,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists 
 		render(w, "roster", map[string]any{"Title": "Roster", "Actors": jam.RosterSummaries(store)})
 	})
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "roles", map[string]any{"Title": "Roles", "Roles": roleRows(store)})
+		render(w, "roles", map[string]any{"Title": "Roles", "Roles": roleRows(store), "CanRequest": canEdit})
 	})
 	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "kits", map[string]any{"Title": "Kits", "Kits": store.ListKits()})
@@ -117,6 +117,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists 
 	})
 
 	registerWrites(mux, store, log, sup, credExists)
+	registerRoleRequest(mux, store, log, sup, alloc)
 
 	return mux
 }

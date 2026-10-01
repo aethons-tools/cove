@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-01
 ---
 
 # Personal sessions
@@ -162,7 +162,9 @@ at-jam session release personal-alice-1a2b3c4d
 ```
 
 - **request** grants a slot, then raises the studio with you as its owner, and
-  prints only the session id (`personal-<owner>-<8 hex>`). The prompt file is
+  prints only the session id (`personal-<owner>-<8 hex>`). The admin UI's role
+  **Request** action does the same from the browser (see
+  [ui.md](ui.md#runtime-studios)). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
   `studio raise`, no identity token or launch secret is returned.
 - **list** shows only **your** personal sessions in the project: id, role,

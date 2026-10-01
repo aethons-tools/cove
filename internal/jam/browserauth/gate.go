@@ -29,6 +29,8 @@ const (
 //
 //   - LoopbackTrust, if non-nil, authenticates a loopback request WITHOUT a
 //     session, injecting a principal (the operator god-view: local operator).
+//     A loopback request that does carry a valid session (SessionOK) is
+//     attributed to that session instead, so a signed-in operator is known.
 //     nil ⇒ a loopback request gets no special trust and must present a session
 //     like any other, which is what the participant plane wants (we must know
 //     WHICH human, and loopback cannot say).
@@ -61,6 +63,15 @@ func (g Gate) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			if g.LoopbackTrust != nil {
+				// A signed-in loopback viewer is attributed to their session (so
+				// the UI can tell WHO the operator is); otherwise, or with a bad
+				// cookie, loopback trust applies — never a login redirect.
+				if g.Session != nil {
+					if rr, out := g.Session(r); out == SessionOK {
+						next.ServeHTTP(w, rr)
+						return
+					}
+				}
 				next.ServeHTTP(w, g.LoopbackTrust(r))
 				return
 			}

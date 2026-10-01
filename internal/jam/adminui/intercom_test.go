@@ -28,7 +28,7 @@ func newIntercomLog(t *testing.T, squawks ...intercom.Squawk) *intercom.Log {
 
 func squawkHandler(t *testing.T, l adminui.SquawkReader) http.Handler {
 	t.Helper()
-	return adminui.Handler(newStore(t), testLogger(), nil, anyCred, l)
+	return adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, l)
 }
 
 func actor(ref string) intercom.Target   { return intercom.Target{Kind: "actor", Ref: ref} }

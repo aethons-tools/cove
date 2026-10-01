@@ -175,7 +175,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role put", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
 	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +223,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role removed", "operator", jam.OperatorID(r), "project", project, "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
 	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {

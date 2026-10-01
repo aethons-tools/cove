@@ -35,7 +35,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	rec := post(t, h, "/ui/enrollments", url.Values{"id": {"spider-1"}, "project": {"acme"}, "role": {"worker"}})
 	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
 		t.Fatalf("enroll = %d, want 200/201", rec.Code)
@@ -73,7 +73,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 
 func TestEnrollRejectsCrossOrigin(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	req := httptest.NewRequest(http.MethodPost, "/ui/enrollments", strings.NewReader("id=x&role=worker"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
@@ -107,7 +107,7 @@ func TestRevokeActor(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "h"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	req := httptest.NewRequest(http.MethodDelete, "/ui/enrollments/spider-2", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
@@ -135,7 +135,7 @@ func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: alloc}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
 	if rec.Code != http.StatusOK {
@@ -162,7 +162,7 @@ func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Addressing: addressing, Egress: egress}}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
 	if rec.Code != http.StatusOK {
@@ -182,7 +182,7 @@ func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
 
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
 	if rec.Code != http.StatusOK {
@@ -218,7 +218,7 @@ func TestAddAndRemoveGrant(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-3", TokenHash: "h"}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/actors/spider-3/grants", url.Values{"project": {"acme"}, "role": {"worker"}})
 	if rec.Code != http.StatusOK {
@@ -244,7 +244,7 @@ func TestAddAndRemoveGrant(t *testing.T) {
 
 func TestEnrollValidationError(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	rec := post(t, h, "/ui/enrollments", url.Values{"id": {""}, "role": {"worker"}}) // missing id
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing id = %d, want 400", rec.Code)
