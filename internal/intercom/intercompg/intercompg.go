@@ -61,9 +61,9 @@ func (s *Store) Append(m intercom.Squawk) (intercom.Squawk, error) {
 	}
 	err = pgx.BeginFunc(context.Background(), s.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
-			`INSERT INTO squawks (id, from_kind, from_ref, body, at, project, reply_to, "to")
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING seq`,
-			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON).Scan(&m.Seq); err != nil {
+			`INSERT INTO squawks (id, from_kind, from_ref, body, at, project, reply_to, "to", content_type)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING seq`,
+			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON, m.ContentType).Scan(&m.Seq); err != nil {
 			return err
 		}
 		for _, t := range m.To {
@@ -87,14 +87,14 @@ func (s *Store) Append(m intercom.Squawk) (intercom.Squawk, error) {
 
 func (s *Store) ReadInbox(t intercom.Target) []intercom.Squawk {
 	return s.query(
-		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 		 FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
 		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.seq`, t.Kind, t.Ref)
 }
 
 func (s *Store) ReadThread(rootID string) []intercom.Squawk {
 	return s.query(
-		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
 		 FROM squawks WHERE id = $1 OR reply_to = $1 ORDER BY seq`, rootID)
 }
 
@@ -104,7 +104,7 @@ func (s *Store) List(f intercom.Filter) []intercom.Squawk {
 	// opaque identifiers, not comparable across namespaces, so ordering must
 	// never rely on lexical id order.
 	return s.query(
-		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
+		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
 		 FROM squawks
 		 WHERE ($1 = '' OR project = $1)
 		   AND ($2::timestamptz IS NULL OR at >= $2)
@@ -142,7 +142,7 @@ func (s *Store) SeenIDs(prefix string) []string {
 }
 
 func (s *Store) ListSince(afterSeq int64, limit int) []intercom.Squawk {
-	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to"
+	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
 	        FROM squawks WHERE seq > $1 ORDER BY seq`
 	args := []any{afterSeq}
 	if limit > 0 {
@@ -153,7 +153,7 @@ func (s *Store) ListSince(afterSeq int64, limit int) []intercom.Squawk {
 }
 
 func (s *Store) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
-	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2 AND m.seq > $3 ORDER BY m.seq`
 	args := []any{t.Kind, t.Ref, afterSeq}
@@ -166,7 +166,7 @@ func (s *Store) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []i
 
 func (s *Store) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.Squawk {
 	// nearest-below beforeSeq: order DESC + LIMIT, then reverse to ascending.
-	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to"
+	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2`
 	args := []any{t.Kind, t.Ref}
@@ -232,7 +232,7 @@ func (s *Store) query(sql string, args ...any) []intercom.Squawk {
 }
 
 // scanSquawks scans each row of a message SELECT (columns in the fixed order:
-// seq, id, from_kind, from_ref, body, at, project, reply_to, "to") and
+// seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type) and
 // reconstructs each Squawk, decoding To from the "to" JSONB column. On a scan
 // or decode error it logs and returns nil rather than a partial result. After
 // the loop it checks rows.Err(): in pgx v5 a mid-stream failure can end Next()
@@ -243,7 +243,7 @@ func (s *Store) scanSquawks(rows pgx.Rows) []intercom.Squawk {
 	for rows.Next() {
 		var m intercom.Squawk
 		var toJSON []byte
-		if err := rows.Scan(&m.Seq, &m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON); err != nil {
+		if err := rows.Scan(&m.Seq, &m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON, &m.ContentType); err != nil {
 			s.log.Error("intercompg: scan", "error", err.Error())
 			return nil
 		}

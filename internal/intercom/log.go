@@ -47,6 +47,9 @@ func Open(path string, log *slog.Logger) (*Log, error) {
 				log.Warn("intercom: skipping malformed line", "error", err.Error())
 				continue
 			}
+			if m.ContentType == "" {
+				m.ContentType = ContentMarkdown // a line from before content types
+			}
 			l.msgs = append(l.msgs, m)
 		}
 		data.Close()

@@ -39,6 +39,23 @@ type Squawk struct {
 	At      time.Time `json:"at"`
 	Project string    `json:"project,omitempty"`
 	ReplyTo string    `json:"reply_to,omitempty"`
+	// ContentType says how Body is meant to be read: ContentMarkdown (the
+	// default, assigned by Prepare when empty) or ContentPlain, which every
+	// surface shows literally — never interpreted as markdown.
+	ContentType string `json:"content_type"`
+}
+
+// The squawk content types (MIME). Markdown is the default; plain text is the
+// opt-out for text that would render badly as markdown.
+const (
+	ContentMarkdown = "text/markdown"
+	ContentPlain    = "text/plain"
+)
+
+// ValidContentType reports whether ct is an allowed content type ("" counts,
+// meaning the default).
+func ValidContentType(ct string) bool {
+	return ct == "" || ct == ContentMarkdown || ct == ContentPlain
 }
 
 func (m Squawk) validate() error {
@@ -50,6 +67,9 @@ func (m Squawk) validate() error {
 	}
 	if len(m.To) == 0 {
 		return fmt.Errorf("intercom: empty to")
+	}
+	if !ValidContentType(m.ContentType) {
+		return fmt.Errorf("intercom: unsupported content type %q", m.ContentType)
 	}
 	for _, t := range m.To {
 		if !t.valid() {
