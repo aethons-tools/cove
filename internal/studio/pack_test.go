@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,8 +22,18 @@ func writeCtxDir(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// PackContextDir then MaterializeInto round-trips to the same tree — the packer
-// and the server extractor agree.
+// packed decodes PackContextDir's base64 result into a name→tfile map.
+func packed(t *testing.T, b64 string) map[string]tfile {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("base64: %v", err)
+	}
+	return untarGz(t, raw)
+}
+
+// PackContextDir packs a readable tar.gz with the Dockerfile at the root and
+// nested files under their paths.
 func TestPackContextDirRoundTrip(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{
 		"Dockerfile":  "FROM ${COVE_BASE_IMAGE}\n",
@@ -32,15 +43,48 @@ func TestPackContextDirRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PackContextDir: %v", err)
 	}
-	out := filepath.Join(t.TempDir(), "base")
-	if err := (Base{Context: b64}).MaterializeInto(out); err != nil {
-		t.Fatalf("MaterializeInto (extract): %v", err)
+	files := packed(t, b64)
+	if files["Dockerfile"].body != "FROM ${COVE_BASE_IMAGE}\n" {
+		t.Fatalf("Dockerfile = %q", files["Dockerfile"].body)
 	}
-	if got := readStr(t, filepath.Join(out, "Dockerfile")); got != "FROM ${COVE_BASE_IMAGE}\n" {
-		t.Fatalf("Dockerfile = %q", got)
+	if files["app/main.go"].body != "package main\n" {
+		t.Fatalf("nested file = %q", files["app/main.go"].body)
 	}
-	if got := readStr(t, filepath.Join(out, "app/main.go")); got != "package main\n" {
-		t.Fatalf("nested file = %q", got)
+}
+
+// PackContextDir preserves the unix exec bit (the exit-126 regression): a 0755
+// script stays 0755 in the packed tar, so docker restores +x on extraction.
+func TestPackContextDirPreservesModes(t *testing.T) {
+	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n"})
+	if err := os.WriteFile(filepath.Join(src, "run.sh"), []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b64, err := PackContextDir(src)
+	if err != nil {
+		t.Fatalf("PackContextDir: %v", err)
+	}
+	files := packed(t, b64)
+	if got := files["run.sh"].mode; got != 0o755 {
+		t.Fatalf("run.sh mode = %o, want 0755 (exec bit must survive)", got)
+	}
+	if got := files["Dockerfile"].mode; got != 0o644 {
+		t.Fatalf("Dockerfile mode = %o, want 0644", got)
+	}
+}
+
+// PackContextDir is byte-deterministic: identical trees pack to identical base64.
+func TestPackContextDirDeterministic(t *testing.T) {
+	files := map[string]string{"Dockerfile": "FROM x\n", "z.txt": "Z", "a/b.txt": "B"}
+	one, err := PackContextDir(writeCtxDir(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := PackContextDir(writeCtxDir(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one != two {
+		t.Fatal("PackContextDir must be byte-deterministic across equal trees")
 	}
 }
 
@@ -82,11 +126,7 @@ func TestPackContextDirFollowsSymlinkedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PackContextDir(symlinked root): %v", err)
 	}
-	out := filepath.Join(t.TempDir(), "base")
-	if err := (Base{Context: b64}).MaterializeInto(out); err != nil {
-		t.Fatalf("extract: %v", err)
-	}
-	if got := readStr(t, filepath.Join(out, "a.txt")); got != "A" {
+	if got := packed(t, b64)["a.txt"].body; got != "A" {
 		t.Fatalf("symlinked-root context was not packed: a.txt=%q", got)
 	}
 }
@@ -100,16 +140,12 @@ func TestPackContextDirSizeCap(t *testing.T) {
 	}
 }
 
-func extracted(t *testing.T, b64 string) string {
-	t.Helper()
-	out := filepath.Join(t.TempDir(), "base")
-	if err := (Base{Context: b64}).MaterializeInto(out); err != nil {
-		t.Fatalf("extract: %v", err)
-	}
-	return out
-}
+// extracted decodes PackContextDir's result into a name→tfile map; has reports
+// whether a path is present in it (the tar/stream analogue of the old on-disk
+// extraction these .dockerignore parity cases checked).
+func extracted(t *testing.T, b64 string) map[string]tfile { return packed(t, b64) }
 
-func has(dir, rel string) bool { _, err := os.Stat(filepath.Join(dir, rel)); return err == nil }
+func has(files map[string]tfile, rel string) bool { _, ok := files[rel]; return ok }
 
 func TestPackContextDirHonorsDockerignore(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{

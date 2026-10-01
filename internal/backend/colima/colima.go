@@ -4,6 +4,7 @@ package colima
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -219,12 +220,13 @@ func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
 	return c.resolveBase(backend.BaseSpec{Base: declaredBase})
 }
 
-// ResolveKitBaseDockerfile builds the studio kit's materialized Dockerfile context
-// (Dockerfile at contextDir's root) into a base image and gates it (gate ON), per
-// backend.KitImageBuilder. The build injects the blessed COVE_BASE_IMAGE arg, so a
-// context that does `FROM ${COVE_BASE_IMAGE}` descends from the blessed base.
-func (c *Colima) ResolveKitBaseDockerfile(contextDir string) (string, error) {
-	return c.resolveBase(backend.BaseSpec{DockerfileDir: contextDir})
+// ResolveKitBaseTar streams the studio kit's build context tar to `docker build -`
+// (docker preserves file modes natively), tags the built image, and gates it
+// (gate ON), per backend.KitImageBuilder. The build injects the blessed
+// COVE_BASE_IMAGE arg, so a context that does `FROM ${COVE_BASE_IMAGE}` descends
+// from the blessed base.
+func (c *Colima) ResolveKitBaseTar(ctx io.Reader) (string, error) {
+	return c.resolveBaseTar(ctx)
 }
 
 // HasKitImage reports whether the tagged image exists on the colima daemon.

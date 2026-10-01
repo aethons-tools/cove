@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -42,10 +43,10 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
 	// Resolve the FROM-base on the substrate (gate ON — no --allow-unverified for
-	// brokered coves). Three cases: an authored Dockerfile+context is materialized
-	// and built into a gated base; else a declared Base.Image is resolved+gated; an
-	// empty ref resolves to the blessed default.
-	base, err := l.resolveStudioBase(def, ref)
+	// brokered coves). Three cases: an authored context (inline tree or stored
+	// tar.gz) is streamed to `docker build -` and gated; else a declared Base.Image
+	// is resolved+gated; an empty ref resolves to the blessed default.
+	base, err := l.resolveStudioBase(def)
 	if err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
 	}
@@ -61,23 +62,26 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 }
 
 // resolveStudioBase resolves the gated FROM-base for a studio kit. An authored
-// Dockerfile+context is materialized (by value, no host-dir dependency) into a
-// per-ref base dir and built+gated via the backend; otherwise the declared
-// Base.Image is resolved+gated ("" → blessed default). The gate is ON in both cases.
-func (l *Launcher) resolveStudioBase(def KitDefinition, ref KitRef) (string, error) {
+// context (an inline tree or a stored tar.gz) is produced as context tar bytes,
+// pre-flighted (fail-closed) by studio.ScanContextTar, then streamed to the
+// backend's `docker build -` and gated — no host dir, no extraction. Otherwise
+// the declared Base.Image is resolved+gated ("" → blessed default). The gate is
+// ON in both cases.
+func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
 	kind, err := def.Kit.Base.Kind()
 	if err != nil {
 		return "", err
 	}
 	switch kind {
 	case studio.BaseContextFiles, studio.BaseContextZip:
-		// Materialize the context (inline tree or zip) by value into a per-ref dir,
-		// then build+gate it as the FROM-base (COV-223 path).
-		baseDir := filepath.Join(l.cfg.BuildRoot, ref.Digest+"-base")
-		if err := def.Kit.Base.MaterializeInto(baseDir); err != nil {
+		tarBytes, err := def.Kit.Base.ContextTar()
+		if err != nil {
 			return "", err
 		}
-		return l.cfg.Ops.ResolveKitBaseDockerfile(baseDir)
+		if err := studio.ScanContextTar(tarBytes); err != nil {
+			return "", err
+		}
+		return l.cfg.Ops.ResolveKitBaseTar(bytes.NewReader(tarBytes))
 	default: // BaseImage or BaseDefault: a declared ref, or "" → blessed default.
 		return l.cfg.Ops.ResolveKitBase(def.Kit.Base.Image)
 	}
