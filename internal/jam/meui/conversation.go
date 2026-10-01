@@ -12,6 +12,7 @@ import (
 type MessageRow struct {
 	From string
 	Body template.HTML // rendered per the squawk's content type (squawkrender)
+	Raw  string        // the body as sent, for the Raw view (escaped by the template)
 	// Plain marks a text/plain squawk, shown literally with its whitespace.
 	Plain bool
 	At    string
@@ -73,6 +74,7 @@ func conversation(p jam.Participant, store Store, log jam.LogReader, channelID s
 		conv.Messages = append(conv.Messages, MessageRow{
 			From:  fromLabel(m.From),
 			Body:  squawkrender.Body(m.ContentType, m.Body),
+			Raw:   m.Body,
 			Plain: squawkrender.IsPlain(m.ContentType),
 			At:    m.At.Format("15:04"),
 			Mine:  mine[m.From.String()],

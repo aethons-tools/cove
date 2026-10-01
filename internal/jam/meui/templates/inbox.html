@@ -59,6 +59,7 @@
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
       <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
       <div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>
+      <div class="body raw">{{.Raw}}</div>
       <span class="t">{{.At}}</span>
     </div>
   {{else}}

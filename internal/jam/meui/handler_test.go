@@ -334,3 +334,31 @@ func TestComposerDraftStack(t *testing.T) {
 		}
 	}
 }
+
+func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
+	store, _, p := fixture()
+	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
+	alice := intercom.Target{Kind: "human", Ref: "alice"}
+	log := fakeLog{sq: []intercom.Squawk{{Seq: 1, From: alice, To: eng, Body: "**bold** & <b>", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj"}}}
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Each bubble carries its raw text (escaped) beside the rendered body; a
+	// Rendered/Raw selector flips html.raw, remembered in localStorage and
+	// applied in <head> before first paint. Composers are monospace.
+	for _, want := range []string{
+		`<div class="body raw">**bold** &amp; &lt;b&gt;</div>`, `data-view="rendered"`, `data-view="raw"`,
+		"localStorage.getItem('me-view')", "html.raw .msg .body.raw{display:block}",
+		`.composer textarea{flex:1;`, `font-family:"IBM Plex Mono"`, "IBM+Plex+Mono:wght@400",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	if i, j := strings.Index(body, "localStorage.getItem('me-view')"), strings.Index(body, "</head>"); i < 0 || i > j {
+		t.Error("the saved view must be applied in <head>, before first paint")
+	}
+}

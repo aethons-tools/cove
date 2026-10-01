@@ -31,6 +31,10 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   soliciting a reply, and a composer. Each message renders per its
   [content type](intercom.md#content-type-markdown-or-plain-text): markdown as
   sanitized HTML, plain text as-is with its whitespace.
+- **View selector (top bar):** **Rendered** (the default) or **Raw**, which shows
+  every message as its body text as sent, in monospace. Raw is handy for copying
+  markdown. The choice is remembered per browser. The composers always use a
+  monospace font.
 - **New Message:** a picker of the currently-active recipients (humans, sessions,
   studios, named channels) to start a conversation with.
 
