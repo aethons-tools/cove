@@ -17,6 +17,10 @@
     .empty { color: #777; font-style: italic; }
     .error { color: #b00020; }
     .ok { color: #0a7d2c; }
+    td.body.plain { white-space: pre-wrap; }
+    td.body.md > :first-child { margin-top: 0; } td.body.md > :last-child { margin-bottom: 0; }
+    td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre { margin: 0 0 .4em; }
+    td.body.md pre { overflow-x: auto; background: #f6f6f6; padding: 6px 8px; }
   </style>
 </head>
 <body>

@@ -242,3 +242,48 @@ func TestMarkReadCommitsCursor(t *testing.T) {
 		t.Errorf("cursor = %d, want 1", got)
 	}
 }
+
+func TestStreamRendersMarkdownAndPlain(t *testing.T) {
+	store, _, p := fixture()
+	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
+	alice := intercom.Target{Kind: "human", Ref: "alice"}
+	at := time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC)
+	log := fakeLog{sq: []intercom.Squawk{
+		{Seq: 1, From: alice, To: eng, Body: "**bold** <script>x</script>", At: at, Project: "proj", ContentType: intercom.ContentMarkdown},
+		{Seq: 2, From: alice, To: eng, Body: "**literal** a_b", At: at, Project: "proj", ContentType: intercom.ContentPlain},
+	}}
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{`class="body md"`, "<strong>bold</strong>", `class="body plain"`, "**literal** a_b"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stream missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<script>") {
+		t.Errorf("raw HTML must not reach the page:\n%s", body)
+	}
+}
+
+func TestComposerOffersPlainTextOptOut(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Markdown is the default; a per-message "Plain text" box (in the reply and
+	// New message composers) sends content_type text/plain.
+	for _, want := range []string{`<input type="checkbox" name="plain">`, "content_type: f.plain && f.plain.checked ? 'text/plain' : undefined"} {
+		if strings.Count(body, want) < 1 {
+			t.Errorf("page missing plain-text opt-out wiring %q", want)
+		}
+	}
+	if strings.Count(body, `name="plain"`) < 2 {
+		t.Error("both the reply composer and the New message composer should offer the opt-out")
+	}
+}

@@ -42,7 +42,7 @@
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
         <textarea name="body" placeholder="Reply&#8230; (Enter twice to send)" required></textarea>
-        <button type="submit">Send</button>
+        <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div>
       </form>
     </div>
   {{else}}
@@ -58,7 +58,7 @@
   {{range .Messages}}
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
       <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
-      <div class="body">{{.Body}}</div>
+      <div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>
       <span class="t">{{.At}}</span>
     </div>
   {{else}}

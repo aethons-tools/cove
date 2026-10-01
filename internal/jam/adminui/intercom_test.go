@@ -166,3 +166,20 @@ func TestSquawksMalformedDateNotice(t *testing.T) {
 		t.Errorf("a valid date should not trip the malformed-date notice; got:\n%s", good)
 	}
 }
+
+func TestSquawksRenderPerContentType(t *testing.T) {
+	t0 := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	l := newIntercomLog(t,
+		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**bold** <script>x</script>", At: t0, Project: "acme"},
+		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**literal**\nline2", At: t0.Add(time.Minute), Project: "acme", ContentType: intercom.ContentPlain},
+	)
+	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
+	for _, want := range []string{`class="body md"`, "<strong>bold</strong>", `class="body plain"`, "**literal**\nline2", "text/plain"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("intercom page missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<script>x") {
+		t.Errorf("raw HTML must not reach the page:\n%s", body)
+	}
+}

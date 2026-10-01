@@ -23,7 +23,7 @@
         <td>{{.From}}</td>
         <td>{{range .To}}{{.Target}} <span class="reach">[{{if .External}}external{{else}}internal{{end}}]</span> {{end}}</td>
         <td>{{.Project}}</td>
-        <td class="body">{{.Body}}</td>
+        <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}{{if .Plain}} <span class="reach">[text/plain]</span>{{end}}</td>
       </tr>
     {{else}}
       <tr><td colspan="5" class="empty">{{if .Filtered}}No squawks match.{{else}}No squawks logged yet.{{end}}</td></tr>

@@ -1,17 +1,22 @@
 package meui
 
 import (
+	"html/template"
+
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/squawkrender"
 )
 
 // MessageRow is one squawk in the conversation pane, from the viewer's side.
 type MessageRow struct {
 	From string
-	Body string
-	At   string
-	Mine bool
-	Seq  int64
+	Body template.HTML // rendered per the squawk's content type (squawkrender)
+	// Plain marks a text/plain squawk, shown literally with its whitespace.
+	Plain bool
+	At    string
+	Mine  bool
+	Seq   int64
 }
 
 // Conversation is the right-pane view of one open channel.
@@ -66,11 +71,12 @@ func conversation(p jam.Participant, store Store, log jam.LogReader, channelID s
 	}
 	for _, m := range jam.ChannelSquawks(channelID, log, store.ListInstances()) {
 		conv.Messages = append(conv.Messages, MessageRow{
-			From: fromLabel(m.From),
-			Body: m.Body,
-			At:   m.At.Format("15:04"),
-			Mine: mine[m.From.String()],
-			Seq:  m.Seq,
+			From:  fromLabel(m.From),
+			Body:  squawkrender.Body(m.ContentType, m.Body),
+			Plain: squawkrender.IsPlain(m.ContentType),
+			At:    m.At.Format("15:04"),
+			Mine:  mine[m.From.String()],
+			Seq:   m.Seq,
 		})
 	}
 	conv.HasMessages = len(conv.Messages) > 0
