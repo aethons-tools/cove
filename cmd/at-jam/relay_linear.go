@@ -67,6 +67,7 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 			Body:           c.Body,
 			ReplyToForeign: c.ParentID,
 			At:             c.CreatedAt,
+			ContentType:    intercom.ContentMarkdown, // Linear comment bodies are markdown
 		})
 		if c.CreatedAt.After(max) {
 			max = c.CreatedAt
@@ -76,6 +77,16 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 		next = max.Format(time.RFC3339Nano)
 	}
 	return events, next, nil
+}
+
+// deliveredBody is m's body as posted to a markdown-rendering surface of
+// flavor f: markdown (the default) passes through byte-for-byte; text/plain is
+// escaped so the surface shows it literally.
+func deliveredBody(m intercom.Squawk, f intercom.Flavor) string {
+	if m.ContentType == intercom.ContentPlain {
+		return intercom.EscapeMarkdown(m.Body, f)
+	}
+	return m.Body
 }
 
 // Deliver resolves d.Address (a ticket identifier) to an internal id and posts
@@ -90,7 +101,7 @@ func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m interco
 	if err != nil {
 		return "", fmt.Errorf("linear deliver: resolve %q: %w", d.Address, err)
 	}
-	if err := s.poster.PostComment(ctx, issueID, d.BodyPrefix+m.Body); err != nil {
+	if err := s.poster.PostComment(ctx, issueID, d.BodyPrefix+deliveredBody(m, intercom.FlavorCommonMark)); err != nil {
 		return "", fmt.Errorf("linear deliver: post to %q: %w", d.Address, err)
 	}
 	return "", nil

@@ -35,6 +35,27 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 		}
 	})
 
+	t.Run("content_type_defaults_to_markdown_and_round_trips", func(t *testing.T) {
+		s := newStore(t)
+		md, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "**hi**"})
+		if err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+		if md.ContentType != intercom.ContentMarkdown {
+			t.Fatalf("default content type = %q, want %q", md.ContentType, intercom.ContentMarkdown)
+		}
+		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "2 * 3 = 6", ContentType: intercom.ContentPlain}); err != nil {
+			t.Fatalf("Append plain: %v", err)
+		}
+		got := s.ListSince(0, 0)
+		if len(got) != 2 || got[0].ContentType != intercom.ContentMarkdown || got[1].ContentType != intercom.ContentPlain {
+			t.Fatalf("read back content types = %+v, want [markdown plain]", got)
+		}
+		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "x", ContentType: "text/html"}); err == nil {
+			t.Fatal("a content type outside the allowlist must be rejected")
+		}
+	})
+
 	t.Run("append_validates", func(t *testing.T) {
 		s := newStore(t)
 		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}}); err == nil {

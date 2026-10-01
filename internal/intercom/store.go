@@ -41,7 +41,7 @@ type Store interface {
 	Close() error
 }
 
-// Prepare validates m and assigns an ID and At when unset, returning the message
+// Prepare validates m and assigns an ID, At, and ContentType when unset, returning the message
 // ready to persist. Both backends call it so id/at assignment and validation
 // live in one place.
 func Prepare(m Squawk) (Squawk, error) {
@@ -53,6 +53,9 @@ func Prepare(m Squawk) (Squawk, error) {
 	}
 	if m.ID == "" {
 		m.ID = newID(m.At)
+	}
+	if m.ContentType == "" {
+		m.ContentType = ContentMarkdown
 	}
 	return m, nil
 }

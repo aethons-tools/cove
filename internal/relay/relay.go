@@ -37,6 +37,7 @@ type Event struct {
 	Body           string
 	ReplyToForeign string // Service id of the artifact replied to ("" = top-level)
 	At             time.Time
+	ContentType    string // intercom content type of Body; "" = the default (markdown)
 }
 
 // Surface is the egress+ingress+lifecycle contract for ONE Service; the

@@ -28,19 +28,42 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   also supports a project grouping (a later toggle).
 - **Right pane — the open conversation:** the selected channel's messages (the
   viewer's own on one side), a **"Waiting on you"** chip when a studio is
-  soliciting a reply, and a composer.
+  soliciting a reply, and a composer. Each message renders per its
+  [content type](intercom.md#content-type-markdown-or-plain-text): markdown as
+  sanitized HTML, plain text as-is with its whitespace.
+- **View selector (top bar):** **Rendered** (the default) or **Raw**, which shows
+  every message as its body text as sent, in monospace. Raw is handy for copying
+  markdown. The choice is remembered per browser. The composers always use a
+  monospace font.
 - **New Message:** a picker of the currently-active recipients (humans, sessions,
   studios, named channels) to start a conversation with.
 
 ## Sending, unread, and refresh
 
 - **Sending** posts to [`POST /me/send`](intercom.md) (the participant send path):
-  the composer sends `{to, body}` and, on success, refreshes the pane and rail. A
+  the composer sends `{to, body}` and, on success, refreshes the pane and rail.
+  Messages are markdown by default. Tick the composer's **Plain text** box to
+  send one as `text/plain`, shown literally; it applies to that message only. A
   reply addressed to a waiting studio **wakes it** exactly as a relayed reply does
   (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
 - **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
   (the extra newline is dropped). Shift+Enter always inserts a newline and never
   arms a send, so deliberate blank lines are possible.
+  **Cmd-Shift-V** (Ctrl-Shift-V off the Mac) pastes as a fenced code block at
+  the cursor, on its own lines. The fence is longer than any backtick run in
+  the pasted text, and Cmd-Z undoes the paste. It takes over the browser's own
+  "paste as plain text" shortcut, which is a real paste, so no browser asks for
+  clipboard permission. On a Mac, Cmd-Alt-Shift-V (Safari's "Paste and Match
+  Style") works too, if a browser doesn't bind Cmd-Shift-V.
+- **Draft stack:**
+  - **Cmd-Down** (Ctrl-Down off the Mac) pushes the draft you're writing onto a
+    per-conversation stack and clears the box, so you can write and send another
+    message first.
+  - **Sending pops the top draft back**, with the cursor where you left it.
+  - **Cmd-Up**, or the "↩ N stacked drafts" chip above the box, pops by hand.
+  - A pop never overwrites text already in the box.
+  - Stacks live in the browser tab's session storage: they survive switching
+    conversations and reloads, and are never sent to Jam.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.

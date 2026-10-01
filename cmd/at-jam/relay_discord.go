@@ -44,7 +44,7 @@ func (s *discordSurface) Service() string { return "discord" }
 // an empty response body — a known behavior) is never recorded, since an
 // empty key would be ambiguous across every such post.
 func (s *discordSurface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squawk) (string, error) {
-	id, err := s.dial(nil).PostID(ctx, d.Address, d.BodyPrefix+m.Body)
+	id, err := s.dial(nil).PostID(ctx, d.Address, d.BodyPrefix+deliveredBody(m, intercom.FlavorDiscord))
 	if err != nil {
 		return "", fmt.Errorf("discord deliver: post to %q: %w", d.Address, err)
 	}
@@ -82,7 +82,8 @@ func (s *discordSurface) Poll(ctx context.Context, project, since string) ([]rel
 			AuthorID:       m.AuthorID,
 			AuthorBot:      m.AuthorBot,
 			Body:           m.Content,
-			ReplyToForeign: m.ReferencedID, // "" if not a reply
+			ReplyToForeign: m.ReferencedID,           // "" if not a reply
+			ContentType:    intercom.ContentMarkdown, // Discord message content is (Discord-flavored) markdown
 		})
 	}
 	return events, encodeCursors(next), nil

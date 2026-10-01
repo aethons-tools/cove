@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to its owner; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-01
 ---
 
 # The intercom MCP
@@ -14,13 +14,45 @@ A managed studio's agent gets **Jam-brokered** tools — `read`, `send`,
 
 ## What the tools do
 
-- **`send(text, to?)`** — appends the squawk to Jam's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the studio's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither (e.g. a [standing session](standing-sessions.md#messaging)), the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it).
+- **`send(text, to?, content_type?)`** — appends the squawk to Jam's durable intercom-log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the studio's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither (e.g. a [standing session](standing-sessions.md#messaging)), the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it). The body is markdown unless `content_type` opts out; see [Content type](#content-type-markdown-or-plain-text).
 - **`read(anchor?, id?, dir?, limit?)`** — reads the studio's inbox **as a queue**: by default the next unprocessed squawks after the studio's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the studio's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the studio has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the humans/channels this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
 - **`escalate(category)`** — declares the studio's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.
+
+## Content type: markdown or plain text
+
+Every squawk carries a `content_type` (a MIME type) saying how its body is meant
+to be read:
+
+- **`text/markdown`**: the **default**. A send that omits `content_type`, a
+  Linear comment, and a Discord message are all markdown. Squawks logged before
+  the field existed read back as markdown too.
+- **`text/plain`**: the **opt-out**, for text that would render badly as
+  markdown (logs, ASCII art, stray `*` and `_`). Every surface shows it
+  literally, never interpreted as markdown.
+
+Each side can opt out:
+- an agent passes `content_type: "text/plain"` to `send` (`POST /squawks` takes
+  the same optional field);
+- a human ticks **Plain text** in the [`/me` composer](intercom-ui.md#sending-unread-and-refresh)
+  (`POST /me/send` takes the same field).
+
+Anything else is a `400`, and nothing is appended. `read` (`GET /squawks`)
+returns each squawk's `content_type`, so an agent knows when a reply is meant
+literally.
+
+**Rendering:**
+- The [`/me` inbox](intercom-ui.md) and the [admin intercom view](ui.md#intercom)
+  render markdown as sanitized HTML: raw HTML is omitted, `javascript:`-style
+  link targets are dropped, and links open in a new tab. Plain text is shown
+  as-is.
+- On the relays, markdown is posted byte-for-byte. Plain text is
+  backslash-escaped for the surface's markdown flavor, so Linear and Discord
+  display it literally. For Linear, newlines also become hard breaks and
+  leading indentation is kept, so neither collapses nor turns into a code block.
 
 ## How it's brokered and scoped
 

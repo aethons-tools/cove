@@ -133,3 +133,20 @@ func TestConcurrentAppend(t *testing.T) {
 		t.Fatalf("concurrent append: got %d want 50", n)
 	}
 }
+
+func TestLegacyLineReadsAsMarkdown(t *testing.T) {
+	// Lines written before content_type existed decode with it empty; they read
+	// back as the default, markdown.
+	path := filepath.Join(t.TempDir(), "m.jsonl")
+	line := `{"seq":1,"id":"old","from":{"kind":"actor","ref":"a"},"to":[{"kind":"human","ref":"b"}],"body":"hi","at":"2026-09-01T00:00:00Z"}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := l.ListSince(0, 0); len(got) != 1 || got[0].ContentType != ContentMarkdown {
+		t.Fatalf("legacy line = %+v, want content type %q", got, ContentMarkdown)
+	}
+}

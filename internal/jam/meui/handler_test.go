@@ -242,3 +242,123 @@ func TestMarkReadCommitsCursor(t *testing.T) {
 		t.Errorf("cursor = %d, want 1", got)
 	}
 }
+
+func TestStreamRendersMarkdownAndPlain(t *testing.T) {
+	store, _, p := fixture()
+	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
+	alice := intercom.Target{Kind: "human", Ref: "alice"}
+	at := time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC)
+	log := fakeLog{sq: []intercom.Squawk{
+		{Seq: 1, From: alice, To: eng, Body: "**bold** <script>x</script>", At: at, Project: "proj", ContentType: intercom.ContentMarkdown},
+		{Seq: 2, From: alice, To: eng, Body: "**literal** a_b", At: at, Project: "proj", ContentType: intercom.ContentPlain},
+	}}
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{`class="body md"`, "<strong>bold</strong>", `class="body plain"`, "**literal** a_b"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("stream missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<script>") {
+		t.Errorf("raw HTML must not reach the page:\n%s", body)
+	}
+}
+
+func TestComposerOffersPlainTextOptOut(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Markdown is the default; a per-message "Plain text" box (in the reply and
+	// New message composers) sends content_type text/plain.
+	for _, want := range []string{`<input type="checkbox" name="plain">`, "content_type: f.plain && f.plain.checked ? 'text/plain' : undefined"} {
+		if strings.Count(body, want) < 1 {
+			t.Errorf("page missing plain-text opt-out wiring %q", want)
+		}
+	}
+	if strings.Count(body, `name="plain"`) < 2 {
+		t.Error("both the reply composer and the New message composer should offer the opt-out")
+	}
+}
+
+func TestComposerPastesAsCodeBlock(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Cmd-Shift-V (Ctrl-Shift-V off the Mac) marks the box, and the browser's
+	// own paste event (which needs no clipboard permission, in any browser)
+	// is wrapped in a fenced code block, with a fence longer than any backtick
+	// run inside, via an undoable insert. The clipboard is never read directly.
+	for _, want := range []string{
+		"t._pasteAsCode", "addEventListener('paste'", "e.clipboardData.getData('text/plain')",
+		"function meFence(", "execCommand('insertText'", "⇧⌘V",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing paste-as-code wiring %q", want)
+		}
+	}
+	if strings.Contains(body, "navigator.clipboard.readText") {
+		t.Error("paste-as-code must use the paste event, not a permission-gated clipboard read")
+	}
+}
+
+func TestComposerDraftStack(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Cmd-Down pushes the draft onto a per-conversation stack (tab
+	// sessionStorage, with an in-memory fallback); a successful send pops it
+	// back; Cmd-Up or the chip pops by hand, but never over text in the box.
+	for _, want := range []string{
+		"function mePushDraft(", "function mePopDraft(", "'me-drafts:'", "sessionStorage",
+		"e.key==='ArrowDown'", "e.key==='ArrowUp'", "f.reset();\n       mePopDraft(f);",
+		"if(t.value.trim()) return false;", ".draft-chip[hidden]{display:none}", "⌘↓",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing draft-stack wiring %q", want)
+		}
+	}
+}
+
+func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
+	store, _, p := fixture()
+	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
+	alice := intercom.Target{Kind: "human", Ref: "alice"}
+	log := fakeLog{sq: []intercom.Squawk{{Seq: 1, From: alice, To: eng, Body: "**bold** & <b>", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj"}}}
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Each bubble carries its raw text (escaped) beside the rendered body; a
+	// Rendered/Raw selector flips html.raw, remembered in localStorage and
+	// applied in <head> before first paint. Composers are monospace.
+	for _, want := range []string{
+		`<div class="body raw">**bold** &amp; &lt;b&gt;</div>`, `data-view="rendered"`, `data-view="raw"`,
+		"localStorage.getItem('me-view')", "html.raw .msg .body.raw{display:block}",
+		`.composer textarea{flex:1;`, `font-family:"IBM Plex Mono"`, "IBM+Plex+Mono:wght@400",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	if i, j := strings.Index(body, "localStorage.getItem('me-view')"), strings.Index(body, "</head>"); i < 0 || i > j {
+		t.Error("the saved view must be applied in <head>, before first paint")
+	}
+}

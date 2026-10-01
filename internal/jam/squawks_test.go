@@ -1158,3 +1158,66 @@ func TestSendDefaultsToTicketWhenUnitSet(t *testing.T) {
 		t.Fatalf("status = %d appended = %+v; want 204 to channel:AET-7", rec.Code, ap.got)
 	}
 }
+
+// TestSendCarriesContentType: an agent send defaults to markdown (left to the
+// Log's default), may opt out to text/plain, and an unknown type is a 400.
+func TestSendCarriesContentType(t *testing.T) {
+	newH := func() (*SquawksHandler, *fakeAppender) {
+		store := &fakeStore{
+			actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
+			instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
+			roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
+			rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
+		}
+		ap := &fakeAppender{}
+		return NewSquawksHandler(store, nil, ap, testLogger()), ap
+	}
+	for _, tc := range []struct {
+		name, body, want string
+		code             int
+	}{
+		{"default", `{"body":"**hi**","to":"human:alice"}`, "", http.StatusNoContent},
+		{"plain opt-out", `{"body":"2 * 3","to":"human:alice","content_type":"text/plain"}`, intercom.ContentPlain, http.StatusNoContent},
+		{"explicit markdown", `{"body":"x","to":"human:alice","content_type":"text/markdown"}`, intercom.ContentMarkdown, http.StatusNoContent},
+		{"unknown", `{"body":"x","to":"human:alice","content_type":"text/html"}`, "", http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, ap := newH()
+			req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer tok-A")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.code {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.code, rec.Body.String())
+			}
+			if tc.code == http.StatusNoContent && (len(ap.got) != 1 || ap.got[0].ContentType != tc.want) {
+				t.Fatalf("appended = %+v, want content type %q", ap.got, tc.want)
+			}
+			if tc.code != http.StatusNoContent && len(ap.got) != 0 {
+				t.Fatal("a rejected send must not append")
+			}
+		})
+	}
+}
+
+func TestReadReturnsContentType(t *testing.T) {
+	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
+	alice := intercom.Target{Kind: "human", Ref: "Alice"}
+	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "**md**", Project: "acme"})
+	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "a_b_c", Project: "acme", ContentType: intercom.ContentPlain})
+	h := NewSquawksHandler(newReadTestStore(t, "cove-1", "ACME-7", "acme"), lg, lg, testLogger())
+	rec := doGet(t, h, tokenFor("cove-1"))
+	var resp struct {
+		Messages []Squawk `json:"squawks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) != 2 || resp.Messages[0].ContentType != intercom.ContentMarkdown || resp.Messages[1].ContentType != intercom.ContentPlain {
+		t.Fatalf("read = %+v, want content types [markdown plain]", resp.Messages)
+	}
+}

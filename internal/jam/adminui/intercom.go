@@ -1,12 +1,14 @@
 package adminui
 
 import (
+	"html/template"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/squawkrender"
 )
 
 // SquawkReader is the read-only slice of the intercom.Log the Messages page
@@ -30,7 +32,8 @@ type squawkRow struct {
 	From    string
 	To      []toCell
 	Project string
-	Body    string
+	Body    template.HTML // rendered per the squawk's content type (squawkrender)
+	Plain   bool          // text/plain: shown literally, badged
 }
 
 // squawksData is the Messages page payload. The filter fields are echoed back
@@ -133,6 +136,7 @@ func toRow(m intercom.Squawk) squawkRow {
 		From:    m.From.String(),
 		To:      to,
 		Project: m.Project,
-		Body:    m.Body,
+		Body:    squawkrender.Body(m.ContentType, m.Body),
+		Plain:   squawkrender.IsPlain(m.ContentType),
 	}
 }

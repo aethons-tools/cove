@@ -6,7 +6,11 @@
 <title>Jam Intercom</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script>
+// Apply the saved message view (Rendered / Raw) before first paint.
+try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.classList.add('raw'); } }catch(_){}
+</script>
 <style>
 :root{
   --bg:#F5F6F8; --surface:#fff; --surface-2:#FBF9FA; --ink:#1B1D24; --muted:#61656F; --faint:#8A8F9A;
@@ -68,7 +72,24 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
 .msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px}
-.msg .body{padding:10px 13px;border-radius:13px;white-space:pre-wrap;word-break:break-word}
+.msg .body{padding:10px 13px;border-radius:13px;word-break:break-word}
+.msg .body.plain{white-space:pre-wrap}
+/* Raw view: every bubble shows its body text as sent, in monospace. */
+.msg .body.raw{display:none;white-space:pre-wrap;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
+html.raw .msg .body:not(.raw){display:none}
+html.raw .msg .body.raw{display:block}
+.viewsel{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.viewsel button{background:none;border:0;font:inherit;font-size:12.5px;color:var(--muted);padding:4px 10px;cursor:pointer}
+.viewsel button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.msg .body.md>:first-child{margin-top:0}.msg .body.md>:last-child{margin-bottom:0}
+.msg .body.md p,.msg .body.md ul,.msg .body.md ol,.msg .body.md pre,.msg .body.md blockquote,.msg .body.md table{margin:0 0 .6em}
+.msg .body.md ul,.msg .body.md ol{padding-left:1.3em}
+.msg .body.md code{font:12.5px "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,127,127,.15);padding:1px 4px;border-radius:4px}
+.msg .body.md pre{overflow-x:auto;background:rgba(127,127,127,.12);padding:8px 10px;border-radius:8px}
+.msg .body.md pre code{background:none;padding:0}
+.msg .body.md blockquote{border-left:3px solid var(--border);padding-left:10px;color:var(--faint)}
+.msg .body.md table{border-collapse:collapse}.msg .body.md th,.msg .body.md td{border:1px solid var(--border);padding:3px 8px}
+.msg .body.md a{color:inherit;text-decoration:underline}
 .msg.agent{align-self:flex-start}
 .msg.agent .body{background:var(--agent-bubble);border-top-left-radius:4px}
 .msg.human{align-self:flex-end;align-items:flex-end}
@@ -76,8 +97,12 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .msg .t{font-size:10.5px;color:var(--faint);padding:0 4px}
 .composer{border-top:1px solid var(--border);background:var(--surface);padding:12px 20px}
 .composer form{display:flex;gap:10px;align-items:flex-end}
-.composer textarea{flex:1;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;padding:10px 12px;resize:none;min-height:42px;outline:none}
+.composer textarea{flex:1;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px;padding:10px 12px;resize:none;min-height:42px;outline:none}
 .composer textarea:focus{border-color:var(--accent)}
+.composer .draft-chip{display:inline-block;margin:0 0 8px;font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
+.composer .draft-chip[hidden]{display:none}
+.composer .send-col{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
 @media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
 </style>
@@ -86,6 +111,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 <header class="topbar">
   <span class="brand"><span class="dot"></span>Jam <small>Intercom</small></span>
   <span class="spacer"></span>
+  <div class="viewsel" role="group" aria-label="Message view">
+    <button type="button" data-view="rendered" onclick="meSetView('rendered')" title="Show messages rendered (markdown)">Rendered</button>
+    <button type="button" data-view="raw" onclick="meSetView('raw')" title="Show every message as its raw text, in monospace (for copying markdown)">Raw</button>
+  </div>
   <details class="newmsg" id="newmsg">
     <summary>New message</summary>
     <div class="recips">
@@ -153,10 +182,13 @@ function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
   if(!body) return false;
-  fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body})})
+  fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
+    // Markdown is the default; the per-message "Plain text" box opts out.
+    content_type: f.plain && f.plain.checked ? 'text/plain' : undefined})})
    .then(function(r){
      if(r.status===204){
        f.reset();
+       mePopDraft(f);
        // Refresh only the message list of an open conversation; the rail's own
        // live-push refresh picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');
@@ -190,14 +222,117 @@ document.addEventListener('keydown', function(e){
   }
   t._enterArmed=true;
 });
+// meFence returns a backtick fence longer than any backtick run in s (at least
+// three), so pasted text that has its own fences stays inside the block.
+function meFence(s){
+  var longest=0, run=0;
+  for(var i=0;i<s.length;i++){ if(s[i]==='`'){ run++; if(run>longest){ longest=run; } } else { run=0; } }
+  return '`'.repeat(Math.max(3, longest+1));
+}
+// Paste as code: Cmd-Shift-V (Ctrl-Shift-V off the Mac; on the Mac also
+// Cmd-Alt-Shift-V, Safari's "Paste and Match Style") wraps what is pasted in a
+// fenced code block on its own lines. These are the browsers' own
+// paste-as-plain-text shortcuts — a no-op distinction in a plain textarea — so
+// they fire a real paste event, whose clipboardData needs no permission prompt
+// in any browser. The keydown marks the box (any other keydown clears it, so a
+// later plain paste stays plain); the paste handler does the wrapping, via
+// execCommand so Cmd-Z undoes it.
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  t._pasteAsCode = e.code==='KeyV' && e.shiftKey && (mac ? e.metaKey : (e.ctrlKey && !e.altKey));
+});
+document.addEventListener('paste', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea') || !t._pasteAsCode) return;
+  t._pasteAsCode=false;
+  var text=e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if(!text) return;
+  e.preventDefault();
+  var f=meFence(text), before=t.value.slice(0, t.selectionStart);
+  var block=(before && before.slice(-1)!=='\n' ? '\n' : '') + f + '\n' + text + (text.slice(-1)==='\n' ? '' : '\n') + f + '\n';
+  if(!document.execCommand('insertText', false, block)){ t.setRangeText(block, t.selectionStart, t.selectionEnd, 'end'); }
+});
 function meCompose(to, label){
   var pane=document.getElementById('pane');
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send)" required></textarea>'
-    +'<button type="submit">Send</button></form></div>';
+    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
+    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div></form></div>';
+  meDraftChip(pane.querySelector('.composer form'));
 }
+// Draft stack: Cmd-Down (Ctrl-Down off the Mac) pushes the composer's draft onto
+// a per-conversation stack and clears the box, so another message can be
+// written and sent first; a successful send pops the top draft back, cursor
+// restored. Cmd-Up, or the chip above the box, pops by hand. A pop never
+// overwrites text in the box, and on an empty box (push) or a non-empty one
+// (pop) the keys keep their usual cursor moves. The stack lives in this tab's
+// sessionStorage (it survives switching conversations and reloads, including
+// dev live-reload), falling back to memory when storage is unavailable; it is
+// never sent anywhere.
+function meDraftKey(form){ return 'me-drafts:'+(form.dataset.to||''); }
+function meDrafts(form){
+  try{ return JSON.parse(sessionStorage.getItem(meDraftKey(form))||'[]'); }
+  catch(_){ return form._drafts||[]; }
+}
+function meSaveDrafts(form, d){
+  form._drafts=d;
+  try{ sessionStorage.setItem(meDraftKey(form), JSON.stringify(d)); }catch(_){}
+  meDraftChip(form);
+}
+function meDraftChip(form){
+  if(!form) return;
+  var chip=form.parentNode.querySelector('.draft-chip');
+  if(!chip){
+    chip=document.createElement('button');
+    chip.type='button'; chip.className='draft-chip';
+    chip.title='Restore the top stacked draft (⌘↑) — the box must be empty';
+    chip.onclick=function(){ mePopDraft(form); };
+    form.parentNode.insertBefore(chip, form);
+  }
+  var n=meDrafts(form).length;
+  chip.hidden = n===0;
+  chip.textContent='↩ '+n+' stacked draft'+(n===1?'':'s');
+}
+function mePushDraft(form){
+  var t=form.body, text=t.value;
+  if(!text.trim()) return false;
+  var d=meDrafts(form);
+  d.push({text:text, sel:t.selectionStart});
+  meSaveDrafts(form, d);
+  t.value=''; t._enterArmed=false; t.focus();
+  return true;
+}
+function mePopDraft(form){
+  var t=form.body;
+  if(t.value.trim()) return false;
+  var d=meDrafts(form), top=d.pop();
+  if(!top) return false;
+  meSaveDrafts(form, d);
+  t.value=top.text; t.focus();
+  var s=Math.min(top.sel, top.text.length); t.setSelectionRange(s, s);
+  return true;
+}
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  if(!(mac ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return;
+  if(e.key==='ArrowDown' && mePushDraft(t.form)){ e.preventDefault(); }
+  else if(e.key==='ArrowUp' && mePopDraft(t.form)){ e.preventDefault(); }
+});
+document.querySelectorAll('.composer form').forEach(meDraftChip);
+// Message view: Rendered (default) or Raw, which shows every bubble's body as
+// sent, in monospace. Flips html.raw (each bubble carries both forms, so it is
+// instant and survives refreshes) and is remembered per browser.
+function meSetView(v){
+  document.documentElement.classList.toggle('raw', v==='raw');
+  try{ localStorage.setItem('me-view', v); }catch(_){}
+  document.querySelectorAll('.viewsel button').forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.view===v)); });
+}
+meSetView(document.documentElement.classList.contains('raw') ? 'raw' : 'rendered');
 </script>
 </body>
 </html>{{end}}

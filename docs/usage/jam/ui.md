@@ -107,8 +107,10 @@ let them in.
 ### Sending (`POST /me/send`)
 
 `POST /me/send` is the participant's send — the human analog of the agent
-`send` tool. It takes a JSON body `{"to": "<recipient>", "body": "<text>"}` and
-returns **204** on success. It writes to the **same** durable squawk Log the
+`send` tool. It takes a JSON body `{"to": "<recipient>", "body": "<text>"}`, plus
+an optional `"content_type"` (`text/markdown` by default, or `text/plain`; see
+[content type](intercom.md#content-type-markdown-or-plain-text)), and returns
+**204** on success. It writes to the **same** durable squawk Log the
 agent `send` tool and the relay ingress write (never a parallel path); the UI is
 an in-process Log writer, not an egress engine.
 

@@ -85,3 +85,19 @@ func TestIngressPollErrorSkipsProject(t *testing.T) {
 		t.Fatal("a Poll error must not advance the cursor")
 	}
 }
+
+func TestIngressCarriesContentType(t *testing.T) {
+	// An event's content type is appended as-is; unset is the Log's default
+	// (markdown).
+	surf := &fakeSurface{service: "linear", events: []Event{
+		{ForeignID: "c1", Body: "**md**", At: time.Unix(10, 0)},
+		{ForeignID: "c2", Body: "a_b", At: time.Unix(11, 0), ContentType: intercom.ContentPlain},
+	}, next: "cur1"}
+	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{"c1": routeTo("cove-1"), "c2": routeTo("cove-1")}}
+	e := New(surf, openLog(t), &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil)
+	e.ingressTick(context.Background())
+	inbox := e.lg.ReadInbox(intercom.Target{Kind: "actor", Ref: "cove-1"})
+	if len(inbox) != 2 || inbox[0].ContentType != intercom.ContentMarkdown || inbox[1].ContentType != intercom.ContentPlain {
+		t.Fatalf("content types = %+v, want [markdown plain]", inbox)
+	}
+}
