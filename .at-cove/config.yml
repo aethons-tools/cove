@@ -92,3 +92,6 @@ image:
     - .local.aethons.tools
     # Javascript dependencies
     - cdnjs.cloudflare.com
+
+#jam:
+#  host: jam.local.aethons.tools

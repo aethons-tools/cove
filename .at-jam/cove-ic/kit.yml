@@ -1,0 +1,27 @@
+kind: studio
+name: cove-ic
+base:
+  context-dir: context
+build-args:
+  GO_VERSION: 1.27.1
+  HADOLINT_VERSION: v2.15.1
+  CC_SKILLS_GOLANG_VERSION: 2.0.0
+egress:
+  - github.com
+  # Go dependencies
+  - gopkg.in
+  - proxy.golang.org
+  - storage.googleapis.com
+  # Go toolchain download (GOTOOLCHAIN auto-fetch; agent Go (re)install)
+  - go.dev
+  - dl.google.com
+  # GHCR registry API: resolve cove-image / cove-base-image tag->digest for
+  # base adoption (see cmd/adopt-base) and ad-hoc manifest inspection. Manifest
+  # lookups only; a full image pull would also need the blob CDN host + Docker.
+  - ghcr.io
+  # the project's at-jam domain, so a collaborator sandbox can reach it.
+  - .local.aethons.tools
+  # Javascript dependencies
+  - cdnjs.cloudflare.com
+prompt: |
+  This studio kit has everything you should need to work on the aethons.tools/cove project.

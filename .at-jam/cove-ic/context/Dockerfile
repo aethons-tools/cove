@@ -1,0 +1,62 @@
+# jam-studio-image — FROM jam-studio-base-image + the full build/test/run toolchain.
+#
+# The base image for BOTH cove's CI job containers AND the agent sandboxes: an
+# agent must be able to build/test/run anything CI does. Adds go on top of the lean base.
+# See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
+ARG AT_JAM_STUDIO_BASE_IMAGE=scratch
+FROM ${AT_JAM_STUDIO_BASE_IMAGE}
+ARG AT_JAM_STUDIO_TARGET_ARCH
+# Toolchain versions — pinned for reproducibility; Renovate keeps them current.
+ARG GO_VERSION=1.27.1
+ARG HADOLINT_VERSION=v2.15.1
+
+# hadolint (Dockerfile linter) — no apt package; fetch the release binary.
+RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
+      arm64) HADO_ARCH=arm64 ;; \
+      amd64) HADO_ARCH=x86_64 ;; \
+      *) echo "unsupported AT_JAM_STUDIO_TARGET_ARCH: ${AT_JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-${HADO_ARCH}" \
+      -o /usr/local/bin/hadolint \
+ && chmod 0755 /usr/local/bin/hadolint
+
+# Language toolchain: golang
+COPY image-files/. /.
+WORKDIR /install
+RUN TARGETARCH="${AT_JAM_STUDIO_TARGET_ARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
+WORKDIR /
+RUN rm -rf /install
+
+# Put the go toolchain on PATH via ENV, so it works for BOTH usages with no
+# duplication: a bare `docker run` / CI container reads ENV directly, and at-cove's
+# hardening layer copies the live PATH (intrinsic in COVE_SSHENV) into
+# /etc/environment for SSH agent sessions. One statement, both contexts.
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Go dev env. COVE_SSHENV names the vars the hardening layer transfers from this
+# image's ENV into the SSH-session environment (PATH is intrinsic, so the go bin
+# above already flows through — these are the rest of the Go toolchain env).
+ENV GOROOT=/usr/local/go \
+    GOPATH=/home/agent/go \
+    GOPROXY=direct \
+    GOSUMDB=off \
+    GOFLAGS=-mod=mod
+ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
+
+# Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
+# its skill files into the first-boot skills set. Scoped to cove-image (this
+# repo's toolchain image + agent sandboxes), NOT the shared hardening layer, so
+# other kits are unaffected. entrypoint.sh re-mirrors $SEED/skills ->
+# /agent-data/skills on every boot, so a rebuilt image reaches existing sandboxes
+# on restart. MIT-licensed; the notice is retained under /usr/share/doc.
+# Version pinned for reproducibility; Renovate (github-releases) keeps it current.
+ARG CC_SKILLS_GOLANG_VERSION=v2.0.0
+RUN skills_seed=/home/agent/.init-agent-data/skills \
+ && tmp="$(mktemp -d)" \
+ && git clone --depth 1 --branch "${CC_SKILLS_GOLANG_VERSION}" \
+      https://github.com/samber/cc-skills-golang.git "$tmp" \
+ && mkdir -p "$skills_seed" /usr/share/doc/cc-skills-golang \
+ && cp -a "$tmp/skills/." "$skills_seed/" \
+ && cp -a "$tmp/LICENSE" /usr/share/doc/cc-skills-golang/LICENSE \
+ && chown -R agent:agent "$skills_seed" \
+ && rm -rf "$tmp"
