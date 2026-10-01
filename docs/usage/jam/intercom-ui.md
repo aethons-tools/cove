@@ -28,14 +28,18 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   also supports a project grouping (a later toggle).
 - **Right pane — the open conversation:** the selected channel's messages (the
   viewer's own on one side), a **"Waiting on you"** chip when a studio is
-  soliciting a reply, and a composer.
+  soliciting a reply, and a composer. Each message renders per its
+  [content type](intercom.md#content-type-markdown-or-plain-text): markdown as
+  sanitized HTML, plain text as-is with its whitespace.
 - **New Message:** a picker of the currently-active recipients (humans, sessions,
   studios, named channels) to start a conversation with.
 
 ## Sending, unread, and refresh
 
 - **Sending** posts to [`POST /me/send`](intercom.md) (the participant send path):
-  the composer sends `{to, body}` and, on success, refreshes the pane and rail. A
+  the composer sends `{to, body}` and, on success, refreshes the pane and rail.
+  Messages are markdown by default. Tick the composer's **Plain text** box to
+  send one as `text/plain`, shown literally; it applies to that message only. A
   reply addressed to a waiting studio **wakes it** exactly as a relayed reply does
   (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
 - **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
