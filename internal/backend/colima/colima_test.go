@@ -799,6 +799,33 @@ func dockerCall(calls []runner.Call, sub string) []string {
 	return nil
 }
 
+// dockerCallFull returns the whole recorded Call for the first `docker <sub>`
+// invocation (so a test can read its Stdin), or nil if none matched.
+func dockerCallFull(calls []runner.Call, sub string) *runner.Call {
+	for i := range calls {
+		c := calls[i]
+		if c.Name != "docker" {
+			continue
+		}
+		a := c.Args
+		if len(a) >= 2 && a[0] == "--context" {
+			a = a[2:]
+		}
+		if len(a) > 0 && a[0] == sub {
+			return &calls[i]
+		}
+	}
+	return nil
+}
+
+// stdinOf returns a Call's recorded stdin bytes, tolerating a nil Call.
+func stdinOf(c *runner.Call) string {
+	if c == nil {
+		return ""
+	}
+	return c.Stdin
+}
+
 // allPinned reports whether every docker call begins with `--context colima`.
 func allPinned(calls []runner.Call) bool {
 	for _, c := range calls {

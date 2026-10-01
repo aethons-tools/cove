@@ -1,6 +1,9 @@
 package colima
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -80,16 +83,59 @@ func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 		DefaultRef:      basedigest.DefaultRef(),
 		AllowUnverified: spec.AllowUnverified,
 	}
-	switch {
-	case spec.DockerfileDir != "":
-		// A studio kit's materialized Dockerfile context: the Dockerfile is at the
-		// dir root (no image/ subdir convention). Takes precedence over KitDir.
-		s.DockerfileDir = spec.DockerfileDir
-	case spec.KitDir != "":
+	if spec.KitDir != "" {
 		imageDir := filepath.Join(spec.KitDir, "image")
 		if _, err := os.Stat(filepath.Join(imageDir, "Dockerfile")); err == nil {
 			s.DockerfileDir = imageDir
 		}
 	}
 	return baseimage.Resolve(dockerImg{c: c, baseArg: s.DefaultRef}, s, basedigest.BlessedRefs(), os.Stderr)
+}
+
+// streamDockerImg is a baseimage.Docker whose Build streams a studio kit's build
+// context (a tar, gzip auto-detected) to `docker build -` on stdin instead of
+// building a context directory. Reusing baseimage.Resolve keeps the provenance
+// gate — layer read, blessed-set comparison, the self-explaining reject
+// diagnostic — identical to every other base, specialized only in how the image
+// is built. Layers delegates to the embedded dockerImg (tag/inspect are unchanged).
+type streamDockerImg struct {
+	dockerImg
+	ctx io.Reader
+}
+
+// Build streams the stored context tar to `docker build -q … -`, reading the
+// built image id from stdout, then tags it under a stable local tag so it is
+// usable in `FROM ${BASE}` and inspectable by the gate (see dockerImg.Build for
+// why the bare sha256 id cannot be used directly).
+func (d streamDockerImg) Build(_ string) (string, error) {
+	var out, errBuf bytes.Buffer
+	if err := d.c.r.RunIO(d.ctx, &out, &errBuf, "docker", dargs(
+		"build", "-q",
+		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		"-",
+	)...); err != nil {
+		return "", fmt.Errorf("docker build - (streamed context): %w", err)
+	}
+	id := strings.TrimSpace(out.String())
+	if id == "" {
+		return "", fmt.Errorf("docker build - (streamed context): no image id on stdout")
+	}
+	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	if err := d.c.r.Run("docker", dargs("tag", id, tag)...); err != nil {
+		return "", err
+	}
+	return tag, nil
+}
+
+// resolveBaseTar streams ctxTar to `docker build -`, tags the result, and runs
+// the provenance gate (ON — no --allow-unverified for brokered coves): an
+// unblessed base is a loud error with no tag returned.
+func (c *Colima) resolveBaseTar(ctxTar io.Reader) (string, error) {
+	base := basedigest.DefaultRef()
+	d := streamDockerImg{dockerImg: dockerImg{c: c, baseArg: base}, ctx: ctxTar}
+	// DockerfileDir non-empty selects the build+gate path in baseimage.Resolve; the
+	// value is ignored by streamDockerImg.Build (the context comes from stdin).
+	return baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: base}, basedigest.BlessedRefs(), os.Stderr)
 }

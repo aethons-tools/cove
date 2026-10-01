@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -132,6 +133,71 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	tag := dockerCall(f.Calls, "tag")
 	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
 		t.Fatalf("expected `docker tag %s %s`, calls: %+v", builtID, wantRef, f.Calls)
+	}
+}
+
+// ResolveKitBaseTar streams the context tar to `docker build -q … -` (the tar on
+// stdin), tags the built id under cove-kit-base:<hex>, and runs the provenance
+// gate. The built base must descend from a blessed cove-base-image.
+func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
+	const builtID = "sha256:streamed"
+	const wantRef = "cove-kit-base:streamed"
+	const tarBytes = "FAKE_TAR_GZ_BYTES"
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: builtID + "\n"},                       // docker build -q - (streamed)
+		{Stdout: `["sha256:a","sha256:b","sha256:k"]`}, // the built image's layers
+		{Stdout: `["sha256:a","sha256:b"]`},            // blessed (a prefix → descends)
+	}}
+	c := &Colima{r: f}
+	ref, err := c.ResolveKitBaseTar(strings.NewReader(tarBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != wantRef {
+		t.Fatalf("ref = %q, want %q", ref, wantRef)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil {
+		t.Fatalf("expected a streamed docker build, calls: %+v", f.Calls)
+	}
+	// The argv builds from stdin (`-`) with the three standard studio build args.
+	if !contains(build, "-") {
+		t.Fatalf("build must read the context from stdin (`-`): %+v", build)
+	}
+	if !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) ||
+		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) ||
+		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
+		t.Fatalf("build must inject the three standard build-args: %+v", build)
+	}
+	// The tar must be piped on stdin (Fake records RunIO's stdin bytes).
+	buildCall := dockerCallFull(f.Calls, "build")
+	if buildCall == nil || buildCall.Stdin != tarBytes {
+		t.Fatalf("context tar must be streamed on stdin; got Stdin=%q", stdinOf(buildCall))
+	}
+	// The built id is tagged under the content-derived local tag for FROM/inspect.
+	tag := dockerCall(f.Calls, "tag")
+	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
+		t.Fatalf("expected `docker tag %s %s`, calls: %+v", builtID, wantRef, f.Calls)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// An unblessed streamed base is rejected (gate ON) and no tag is returned.
+func TestResolveKitBaseTarGateRejects(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "sha256:streamed\n"},       // build
+		{Stdout: `["sha256:x","sha256:y"]`}, // unrelated base layers
+		{Stdout: `["sha256:a","sha256:b"]`}, // blessed
+	}}
+	c := &Colima{r: f}
+	ref, err := c.ResolveKitBaseTar(strings.NewReader("tar"))
+	if err == nil {
+		t.Fatal("a non-descendant streamed base must be rejected")
+	}
+	if ref != "" {
+		t.Fatalf("a rejected gate must return no tag, got %q", ref)
 	}
 }
 
