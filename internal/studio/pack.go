@@ -1,7 +1,6 @@
 package studio
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/base64"
 	"fmt"
@@ -14,12 +13,14 @@ import (
 	"github.com/moby/patternmatcher/ignorefile"
 )
 
-// PackContextDir zips the build context rooted at dir into a base64 string
-// suitable for Base.Context. It is the client-side mirror of the server's
-// extractor (MaterializeInto): it requires a root Dockerfile, rejects symlinks
-// and irregular files, and enforces the same caps (entry count, uncompressed
-// size, and the encoded-size cap on the result). Only regular files are packed
-// (their paths carry their directories); empty directories are dropped.
+// PackContextDir packs the build context rooted at dir into a base64 string
+// suitable for Base.Context: a deterministic tar.gz that PRESERVES file modes
+// (the unix exec bit survives, so docker restores it when it extracts the
+// streamed context — no chmod needed). It requires a root Dockerfile, honors a
+// root .dockerignore (moby parity), rejects symlinks and irregular files, and
+// enforces the caps (entry count, uncompressed size, and the encoded-size cap on
+// the result). Only regular files are packed (their paths carry their
+// directories); empty directories are dropped.
 func PackContextDir(dir string) (string, error) {
 	// Resolve a symlinked root to its real path: WalkDir does NOT descend into a
 	// symlinked directory (it would yield an empty zip that only fails later at
@@ -36,8 +37,7 @@ func PackContextDir(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("context-dir %q: .dockerignore: %w", dir, err)
 	}
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	var packed []tarEntry
 	var entries int
 	var total int64
 	var sawDockerfile bool
@@ -90,7 +90,7 @@ func PackContextDir(dir string) (string, error) {
 		if entries > maxZipEntries {
 			return fmt.Errorf("context-dir has more than %d entries", maxZipEntries)
 		}
-		w, err := zw.Create(relSlash)
+		fi, err := d.Info()
 		if err != nil {
 			return err
 		}
@@ -98,10 +98,11 @@ func PackContextDir(dir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		// Bound the copy to the remaining budget (the actual decompressed stream,
-		// not the stat size — the file could grow mid-pack), cumulative across entries.
+		// Read into memory bounded by the remaining budget (the actual stream, not
+		// the stat size — the file could grow mid-pack), cumulative across entries.
 		before := total
-		n, cerr := io.Copy(w, io.LimitReader(f, int64(maxDecompressedZip)-before+1))
+		var body bytes.Buffer
+		n, cerr := io.Copy(&body, io.LimitReader(f, int64(maxDecompressedZip)-before+1))
 		f.Close()
 		if cerr != nil {
 			return cerr
@@ -110,6 +111,8 @@ func PackContextDir(dir string) (string, error) {
 			return fmt.Errorf("context-dir exceeds the %d-byte uncompressed cap", maxDecompressedZip)
 		}
 		total = before + n
+		// Preserve the unix permission bits so docker restores the exec bit.
+		packed = append(packed, tarEntry{name: relSlash, mode: int64(fi.Mode().Perm()), data: body.Bytes()})
 		return nil
 	})
 	if walkErr != nil {
@@ -118,10 +121,11 @@ func PackContextDir(dir string) (string, error) {
 	if !sawDockerfile {
 		return "", fmt.Errorf("pack context-dir %q: no root Dockerfile packed", dir)
 	}
-	if err := zw.Close(); err != nil {
+	raw, err := buildTarGz(packed)
+	if err != nil {
 		return "", fmt.Errorf("pack context-dir %q: %w", dir, err)
 	}
-	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+	b64 := base64.StdEncoding.EncodeToString(raw)
 	if len(b64) > maxEncodedZip {
 		return "", fmt.Errorf("packed context-dir %q is %d base64 bytes, exceeds the %d-byte cap", dir, len(b64), maxEncodedZip)
 	}
@@ -147,7 +151,7 @@ func loadDockerignore(dir string) (*patternmatcher.PatternMatcher, error) {
 }
 
 // ResolveContextDir packs a client-only base.context-dir into base.context (a
-// zip) and clears context-dir, so the resulting kit is an ordinary context-zip
+// tar.gz) and clears context-dir, so the resulting kit is an ordinary context
 // kit ready to serialize + push. A relative context-dir is resolved against
 // baseDir (e.g. the kit file's directory). A no-op when context-dir is unset.
 func (sk *StudioKit) ResolveContextDir(baseDir string) error {
