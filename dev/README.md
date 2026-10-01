@@ -63,16 +63,28 @@ listener and reloads the page after each restart.
   `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin
   may be plain HTTP). The recipe refuses to start while `admin-tls` is set.
   CLI admin URLs then become `http://127.0.0.1:8081`.
+- **UI writes need `ui-origins`.** The proxy forwards to Jam with `Host:
+  localhost:8081` while the browser's `Origin` is `http://localhost:8090`, so
+  the UI's CSRF check refuses writes ("cross-origin request refused") unless
+  `jam.dev.yml` lists `ui-origins: [http://localhost:8090]` (as the example
+  does). See `ui-origins` in [serve.md](../docs/usage/jam/serve.md).
 - **No sudo by default.** Jam runs as you. On macOS a wildcard bind of `:443`
   (`listen: ":443"`, as in `jam.dev.yml.example`) needs no root, but a listen
   bound to a specific address (e.g. the hostname) does. `JAM_WATCH_SUDO=1 just
   dev-watch` runs Jam under sudo instead: the recipe primes `sudo -v`, and sudo
   prompts on the terminal again if its cached login expires.
 - **Failed builds** leave the last good binary serving, so Jam stays up.
-- **`/me` login through the proxy:** the OIDC redirect URI is built from the
-  proxied Host, so the callback lands on `http://localhost:8081/me/auth/callback`
-  (add it to the IdP's allowed callbacks). After login, go back to `:8090`. The
-  session cookie is host-scoped, so it carries over and survives restarts.
+- **Skip login entirely with `dev-identity`** (recommended for UI work). Set
+  `dev-identity: {project: <p>, human: <name>}` in `jam.dev.yml`, and loopback
+  requests to `/ui` and `/me` act as that roster human, with no IdP and no
+  callbacks. The human needs `--login` (for `/ui` actions like Request) and
+  `--oidc` (for `/me`). See `dev-identity` in
+  [serve.md](../docs/usage/jam/serve.md).
+- **Real `/me` login through the proxy** also works, but the OIDC redirect URI
+  is built from the proxied Host. The callback lands on
+  `http://localhost:8081/me/auth/callback` (add it to the IdP's allowed
+  callbacks); after login, go back to `:8090`. The session cookie is
+  host-scoped, so it carries over and survives restarts.
 - Edits under `dev/` (including `jam.dev.yml`) don't trigger a restart.
   `JAM_WATCH_CONFIG=path` points the loop at another config.
 

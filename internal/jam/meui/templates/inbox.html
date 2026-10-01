@@ -1,7 +1,7 @@
 {{define "content"}}{{template "rail" .}}{{template "pane" .}}{{end}}
 
 {{define "rail"}}
-<nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
   {{range .Groups}}
     <div class="group{{if eq (printf "%s" .Bucket) "waiting"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
@@ -19,10 +19,11 @@
 </nav>
 {{end}}
 
-{{/* The pane itself does NOT poll — only #stream does (innerHTML), so the
-     header and composer (and a half-typed reply) survive the 3s refresh. The
-     poll skips while text inside #stream is selected (meSelecting), since a
-     swap would drop the selection mid-copy. */}}
+{{/* The pane itself does NOT refresh — only #stream does (innerHTML), so the
+     header and composer (and a half-typed reply) survive. #stream and the rail
+     refresh on meChanged (live push from /me/events, see layout.html) with a
+     30s poll as the fallback. The refresh skips while text inside #stream is
+     selected (meSelecting), since a swap would drop the selection mid-copy. */}}
 {{define "pane"}}
 <section class="convo" id="pane">
   {{with .Conv}}
@@ -34,7 +35,7 @@
       <span class="spacer"></span>
       {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
     </div>
-    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="every 3s [!meSelecting()]" hx-swap="innerHTML">
+    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>

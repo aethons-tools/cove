@@ -435,6 +435,44 @@ func TestUIHostsParsed(t *testing.T) {
 	}
 }
 
+func TestUIOriginsParsedAndValidated(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("ui-origins:\n  - http://localhost:8090\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.UIOrigins) != 1 || cfg.UIOrigins[0] != "http://localhost:8090" {
+		t.Fatalf("UIOrigins = %v, want [http://localhost:8090]", cfg.UIOrigins)
+	}
+	if got := unknownServeKeys([]byte("ui-origins: [a]\n")); len(got) != 0 {
+		t.Fatalf("ui-origins flagged as unknown: %v", got)
+	}
+	// An origin is scheme://host[:port] — no path, no bare host, no other scheme.
+	for _, bad := range []string{"localhost:8090", "http://localhost:8090/ui", "ftp://x", "http://"} {
+		if _, err := parseServeConfig([]byte("ui-origins: [\"" + bad + "\"]\n")); err == nil {
+			t.Errorf("ui-origins %q accepted, want an error", bad)
+		}
+	}
+}
+
+func TestDevIdentityParsedAndLoopbackOnly(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n  human: you\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DevIdentity == nil || cfg.DevIdentity.Project != "test" || cfg.DevIdentity.Human != "you" {
+		t.Fatalf("DevIdentity = %+v, want test/you", cfg.DevIdentity)
+	}
+	for name, bad := range map[string]string{
+		"off-loopback admin": "admin-listen: 0.0.0.0:8081\ndev-identity:\n  project: test\n  human: you\n",
+		"missing human":      "admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n",
+		"missing project":    "admin-listen: 127.0.0.1:8081\ndev-identity:\n  human: you\n",
+	} {
+		if _, err := parseServeConfig([]byte(bad)); err == nil {
+			t.Errorf("%s: accepted, want an error", name)
+		}
+	}
+}
+
 func TestServeConfigIntercomLog(t *testing.T) {
 	var c serveConfig
 	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/jam/squawks.jsonl\n"), &c); err != nil {

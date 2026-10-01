@@ -90,69 +90,16 @@ type PersonalSessionSummary struct {
 // OperatorID; an unlinked caller is refused (403).
 func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, alloc SessionAllocator, log *slog.Logger) {
 	mux.HandleFunc("POST /admin/sessions/personal", func(w http.ResponseWriter, r *http.Request) {
-		if sup == nil || alloc == nil {
-			http.Error(w, "runtime supervisor or allocator not configured", http.StatusServiceUnavailable)
-			return
-		}
 		var b PersonalSessionBody
 		if !decode(w, r, &b) {
 			return
 		}
-		if b.Role == "" {
-			http.Error(w, "role is required", http.StatusBadRequest)
-			return
-		}
-		project := orDefaultProject(b.Project)
-		human, ok := HumanByLogin(store, project, OperatorID(r))
-		if !ok {
-			http.Error(w, fmt.Sprintf("no roster human in %s is linked to your login", project), http.StatusForbidden)
-			return
-		}
-		if _, ok := store.GetRole(project, b.Role); !ok {
-			http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, b.Role), http.StatusBadRequest)
-			return
-		}
-		// A personal session talks to its owner over the intercom, and a
-		// ticketless cove's messages can only be delivered via Discord (the
-		// Linear fallback needs a ticket): fail now, before any grant, rather
-		// than silently later.
-		if msg := personalDeliveryProblem(store, project, human); msg != "" {
-			http.Error(w, msg, http.StatusBadRequest)
-			return
-		}
-		id, err := personalSessionID(human.Name)
+		res, err := RequestPersonalSession(r.Context(), store, sup, alloc, log, OperatorID(r), b)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), PersonalSessionStatus(err))
 			return
 		}
-		granted, err := alloc.GrantPersonal(r.Context(), project, b.Role, id, human.Name)
-		switch {
-		case errors.Is(err, ErrNeedsLedger):
-			http.Error(w, ErrNeedsLedger.Error(), http.StatusConflict)
-			return
-		case err != nil:
-			log.Warn("personal session grant failed", "operator", OperatorID(r), "project", project, "role", b.Role, "owner", human.Name, "err", err.Error())
-			http.Error(w, "allocation failed: "+err.Error(), http.StatusBadGateway)
-			return
-		case !granted:
-			http.Error(w, fmt.Sprintf("at capacity: no personal session of %s/%s available for %s", project, b.Role, human.Name), http.StatusConflict)
-			return
-		}
-		inst, _, _, err := sup.Raise(r.Context(), RaiseSpec{
-			ActorID: id, Project: project, Role: b.Role, Prompt: personalPrompt(human.Name, b.Prompt),
-			Owner: human.Name, SessionKind: SessionKindPersonal,
-		})
-		if err != nil {
-			// Grant, then raise, then compensate: free the reserved slot.
-			if rerr := alloc.RecordRelease(context.WithoutCancel(r.Context()), project, b.Role, id); rerr != nil {
-				log.Warn("personal session: compensating release failed", "id", id, "err", rerr.Error())
-			}
-			log.Warn("personal session raise failed", "operator", OperatorID(r), "id", id, "err", err.Error())
-			http.Error(w, "raise failed: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		log.Info("admin personal session raised", "operator", OperatorID(r), "id", id, "owner", human.Name, "project", project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, PersonalSessionResult{ID: id, Owner: human.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)})
+		writeJSON(w, http.StatusCreated, res)
 	})
 
 	mux.HandleFunc("GET /admin/sessions/personal", func(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +146,85 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 		log.Info("admin personal session released", "operator", OperatorID(r), "id", id, "owner", inst.Owner)
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// PersonalSessionError is a refused personal-session request: Status is the
+// HTTP status the admin API answers with, Msg the operator-facing reason.
+type PersonalSessionError struct {
+	Status int
+	Msg    string
+}
+
+func (e *PersonalSessionError) Error() string { return e.Msg }
+
+// PersonalSessionStatus maps a RequestPersonalSession error to its HTTP status
+// (500 for an unexpected error).
+func PersonalSessionStatus(err error) int {
+	var pe *PersonalSessionError
+	if errors.As(err, &pe) {
+		return pe.Status
+	}
+	return http.StatusInternalServerError
+}
+
+// RequestPersonalSession admits and raises a personal session of b.Role for the
+// roster Human in b.Project whose Login is login: validate, check delivery,
+// reserve a slot (GrantPersonal), then raise — releasing the slot if the raise
+// fails. It is the one path behind both POST /admin/sessions/personal and the
+// operator UI's role Request action. Refusals are *PersonalSessionError.
+func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, alloc SessionAllocator, log *slog.Logger, login string, b PersonalSessionBody) (PersonalSessionResult, error) {
+	refuse := func(status int, format string, a ...any) (PersonalSessionResult, error) {
+		return PersonalSessionResult{}, &PersonalSessionError{Status: status, Msg: fmt.Sprintf(format, a...)}
+	}
+	if sup == nil || alloc == nil {
+		return refuse(http.StatusServiceUnavailable, "runtime supervisor or allocator not configured")
+	}
+	if b.Role == "" {
+		return refuse(http.StatusBadRequest, "role is required")
+	}
+	project := orDefaultProject(b.Project)
+	human, ok := HumanByLogin(store, project, login)
+	if !ok {
+		return refuse(http.StatusForbidden, "no roster human in %s is linked to your login", project)
+	}
+	if _, ok := store.GetRole(project, b.Role); !ok {
+		return refuse(http.StatusBadRequest, "role %s/%s does not exist", project, b.Role)
+	}
+	// A personal session talks to its owner over the intercom, and a
+	// ticketless cove's messages can only be delivered via Discord (the
+	// Linear fallback needs a ticket): fail now, before any grant, rather
+	// than silently later.
+	if msg := personalDeliveryProblem(store, project, human); msg != "" {
+		return refuse(http.StatusBadRequest, "%s", msg)
+	}
+	id, err := personalSessionID(human.Name)
+	if err != nil {
+		return PersonalSessionResult{}, err
+	}
+	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, human.Name)
+	switch {
+	case errors.Is(err, ErrNeedsLedger):
+		return refuse(http.StatusConflict, "%s", ErrNeedsLedger.Error())
+	case err != nil:
+		log.Warn("personal session grant failed", "operator", login, "project", project, "role", b.Role, "owner", human.Name, "err", err.Error())
+		return refuse(http.StatusBadGateway, "allocation failed: %s", err.Error())
+	case !granted:
+		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.Name)
+	}
+	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
+		ActorID: id, Project: project, Role: b.Role, Prompt: personalPrompt(human.Name, b.Prompt),
+		Owner: human.Name, SessionKind: SessionKindPersonal,
+	})
+	if err != nil {
+		// Grant, then raise, then compensate: free the reserved slot.
+		if rerr := alloc.RecordRelease(context.WithoutCancel(ctx), project, b.Role, id); rerr != nil {
+			log.Warn("personal session: compensating release failed", "id", id, "err", rerr.Error())
+		}
+		log.Warn("personal session raise failed", "operator", login, "id", id, "err", err.Error())
+		return refuse(http.StatusBadGateway, "raise failed: %s", err.Error())
+	}
+	log.Info("admin personal session raised", "operator", login, "id", id, "owner", human.Name, "project", project, "role", b.Role)
+	return PersonalSessionResult{ID: id, Owner: human.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
 }
 
 // personalDeliveryProblem returns why the owner of a personal session in

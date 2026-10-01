@@ -133,6 +133,43 @@ func TestGateAttributesOperator(t *testing.T) {
 	}
 }
 
+func TestGateLoopbackPrefersValidSession(t *testing.T) {
+	// A loopback operator who has signed in is attributed to their login (so
+	// /ui can resolve "me" in a roster); a bad cookie still falls back to the
+	// loopback "local" operator rather than redirecting to login.
+	idp := newFakeIdP(t)
+	auth, err := jam.NewOIDCAuthenticator(context.Background(), idp.url, "aud", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	for _, tc := range []struct {
+		name, cookie, want string
+	}{
+		{"valid session", idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour)), "auth0|alice"},
+		{"expired session", idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(-time.Hour)), "local"},
+		{"no session", "", "local"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/ui/roles", nil)
+			req.RemoteAddr = "127.0.0.1:5000"
+			req.Host = "localhost"
+			if tc.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: tc.cookie})
+			}
+			g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = jam.OperatorID(r)
+				w.WriteHeader(http.StatusOK)
+			})).ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || got != tc.want {
+				t.Errorf("code=%d operator=%q, want 200 %q", rec.Code, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 	idp := newFakeIdP(t)
 	auth, err := jam.NewOIDCAuthenticator(context.Background(), idp.url, "aud", "")

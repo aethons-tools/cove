@@ -12,7 +12,7 @@ import (
 // product is Jam.
 func TestUISaysStudioAndJam(t *testing.T) {
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	page := get(t, h, "/ui/coves")
 	if page.Code != http.StatusOK {

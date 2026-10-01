@@ -9,6 +9,8 @@
   <input name="kit" placeholder="kit (optional)">
   <button type="submit">Add role</button>
 </form>
+{{/* Request results land here, outside #roles so a table swap keeps them. */}}
+<div id="role-request-msg"></div>
 {{template "roles-table" .}}
 {{end}}
 
@@ -21,7 +23,10 @@
       <td>{{range .Destinations}}{{.}} {{end}}</td>
       <td>{{range .Repos}}{{.}} {{end}}</td>
       <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td>
-      <td><button hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-target="#roles" hx-swap="outerHTML"
+      <td>{{if $.CanRequest}}<button hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#role-request-msg" hx-swap="innerHTML"
+              hx-on::response-error="document.getElementById('role-request-msg').innerHTML = event.detail.xhr.responseText"
+              title="Raise a personal session of this role for you">Request</button>
+          {{end}}<button hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-target="#roles" hx-swap="outerHTML"
               hx-confirm="Delete role {{.Name}} from {{.Project}}?">Delete</button></td></tr>
     {{else}}
     <tr><td colspan="7" class="empty">No roles.</td></tr>

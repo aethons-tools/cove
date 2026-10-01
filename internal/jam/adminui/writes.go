@@ -14,14 +14,19 @@ import (
 )
 
 // sameOrigin reports whether a state-changing request's Origin (or, absent that,
-// Referer) host matches the request Host. Fail-closed: neither header → false.
-func sameOrigin(r *http.Request) bool {
+// Referer) is the request's own Host, or exactly one of the trusted extra
+// origins (scheme://host[:port], e.g. a dev proxy fronting the admin listener).
+// Fail-closed: neither header → false.
+func sameOrigin(r *http.Request, trusted map[string]bool) bool {
 	check := func(v string) (bool, bool) {
 		if v == "" {
 			return false, false
 		}
 		u, err := url.Parse(v)
-		return err == nil && u.Host == r.Host, true
+		if err != nil {
+			return false, true
+		}
+		return u.Host == r.Host || trusted[u.Scheme+"://"+u.Host], true
 	}
 	if ok, present := check(r.Header.Get("Origin")); present {
 		return ok
@@ -32,14 +37,20 @@ func sameOrigin(r *http.Request) bool {
 	return false
 }
 
-// guardWrite enforces the CSRF Origin check; it writes a 403 and returns false
-// when the request must be refused.
-func guardWrite(w http.ResponseWriter, r *http.Request) bool {
-	if !sameOrigin(r) {
-		http.Error(w, "cross-origin request refused", http.StatusForbidden)
-		return false
+// originGuard returns the CSRF Origin check for state-changing requests: it
+// writes a 403 and returns false when the request must be refused.
+func originGuard(trustedOrigins []string) func(http.ResponseWriter, *http.Request) bool {
+	trusted := map[string]bool{}
+	for _, o := range trustedOrigins {
+		trusted[o] = true
 	}
-	return true
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		if !sameOrigin(r, trusted) {
+			http.Error(w, "cross-origin request refused", http.StatusForbidden)
+			return false
+		}
+		return true
+	}
 }
 
 // splitCSV parses a comma-separated form field into a trimmed, non-empty slice.
@@ -80,7 +91,7 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write([]byte(`<p class="error">` + template.HTMLEscapeString(msg) + `</p>`))
 }
 
-func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool) {
+func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /ui/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
@@ -175,7 +186,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role put", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
 	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +234,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role removed", "operator", jam.OperatorID(r), "project", project, "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store)})
+		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
 	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {

@@ -17,7 +17,7 @@ func anyCred(string) bool { return true }
 
 func uiHandler(t *testing.T, store jam.Store) http.Handler {
 	t.Helper()
-	return adminui.Handler(store, testLogger(), nil, anyCred, nil)
+	return adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 }
 
 func TestPushKit(t *testing.T) {
