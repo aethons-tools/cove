@@ -296,16 +296,19 @@ func TestComposerPastesAsCodeBlock(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// Cmd-Alt-V (Ctrl-Alt-V off the Mac, never AltGr) pastes the clipboard as a
-	// fenced code block at the cursor, with a fence longer than any backtick
-	// run inside, via an undoable insert. Matched by physical key: Option-V
-	// types a character on a Mac.
+	// Cmd-Shift-V (Ctrl-Shift-V off the Mac) marks the box, and the browser's
+	// own paste event (which needs no clipboard permission, in any browser)
+	// is wrapped in a fenced code block, with a fence longer than any backtick
+	// run inside, via an undoable insert. The clipboard is never read directly.
 	for _, want := range []string{
-		"e.code!=='KeyV'", "e.getModifierState('AltGraph')", "navigator.clipboard.readText()",
-		"function meFence(", "execCommand('insertText'", "⌘⌥V",
+		"t._pasteAsCode", "addEventListener('paste'", "e.clipboardData.getData('text/plain')",
+		"function meFence(", "execCommand('insertText'", "⇧⌘V",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing paste-as-code wiring %q", want)
 		}
+	}
+	if strings.Contains(body, "navigator.clipboard.readText") {
+		t.Error("paste-as-code must use the paste event, not a permission-gated clipboard read")
 	}
 }

@@ -45,10 +45,12 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
 - **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
   (the extra newline is dropped). Shift+Enter always inserts a newline and never
   arms a send, so deliberate blank lines are possible.
-  **Cmd-Alt-V** (Ctrl-Alt-V off the Mac, but not AltGr) pastes the clipboard as
-  a fenced code block at the cursor, on its own lines. The fence is longer than
-  any backtick run in the pasted text. The browser may ask for clipboard
-  permission the first time, and Cmd-Z undoes the paste.
+  **Cmd-Shift-V** (Ctrl-Shift-V off the Mac) pastes as a fenced code block at
+  the cursor, on its own lines. The fence is longer than any backtick run in
+  the pasted text, and Cmd-Z undoes the paste. It takes over the browser's own
+  "paste as plain text" shortcut, which is a real paste, so no browser asks for
+  clipboard permission. On a Mac, Cmd-Alt-Shift-V (Safari's "Paste and Match
+  Style") works too, if a browser doesn't bind Cmd-Shift-V.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.
