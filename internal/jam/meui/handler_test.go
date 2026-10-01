@@ -114,6 +114,28 @@ func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
 	}
 }
 
+func TestInboxRefreshesOnLivePush(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// The page listens on /me/events and fires meChanged, which the rail and
+	// stream refresh on (a 30s poll is the fallback); a push blocked by a text
+	// selection is replayed once the selection clears, and a reconnect catches
+	// up on anything missed while the stream was down.
+	for _, want := range []string{
+		"new EventSource('/me/events')", "addEventListener('changed'", "htmx.trigger(document.body, 'meChanged')",
+		"selectionchange", `hx-trigger="meChanged from:body, every 30s"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing live-push wiring %q", want)
+		}
+	}
+}
+
 func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
 	store, log, p := fixture()
 	h := Handler(store, log, nil)
@@ -161,7 +183,7 @@ func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 	// Swapping #stream replaces the text nodes under a selection, which the
 	// browser then drops — so the poll is filtered off while the viewer has a
 	// selection inside the stream, letting them copy a message.
-	for _, want := range []string{`hx-trigger="every 3s [!meSelecting()]"`, "function meSelecting()"} {
+	for _, want := range []string{`hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]"`, "function meSelecting()"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing selection-safe poll wiring %q", want)
 		}

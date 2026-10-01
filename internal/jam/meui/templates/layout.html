@@ -104,13 +104,13 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 <script src="/me/static/htmx.min.js"></script>
 <script>
 // meSelecting reports a non-empty text selection touching #stream. It filters
-// the stream's 3s poll: swapping the list would replace the selected text nodes
+// the stream's refresh: swapping the list would replace the selected text nodes
 // and the browser would drop the selection before it could be copied.
 function meSelecting(){
   var sel=window.getSelection(), s=document.getElementById('stream');
   return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));
 }
-// Stick to the bottom: a #stream swap (the 3s poll, or the refresh after a
+// Stick to the bottom: a #stream swap (a live-push/poll refresh, or the refresh after a
 // send) keeps the old scrollTop, so a new squawk would land below the fold.
 // Note before the swap whether the view was at the end (within a few px, for
 // fractional scroll offsets); if so, scroll to the new end after it. A viewer
@@ -129,6 +129,26 @@ function meScrollToEnd(s, behavior){
 }
 // Opening a conversation is a full page load: start at its end.
 meScrollToEnd(document.getElementById('stream'));
+// Live push: /me/events sends a payload-free `changed` on each intercom-log
+// append; fire meChanged so the rail and the open conversation refetch their
+// own fragments (the 30s poll is the fallback, e.g. for a session going
+// Waiting, which appends nothing). A push that arrives while text in #stream is
+// selected is held and replayed once the selection clears; a REconnect fires
+// one too, to catch up on anything missed while the stream was down. A server
+// without live push answers 204, which stops EventSource for good.
+(function(){
+  if(!window.EventSource) return;
+  var pending=false, connected=false;
+  function changed(){
+    if(meSelecting()){ pending=true; return; }
+    pending=false;
+    htmx.trigger(document.body, 'meChanged');
+  }
+  var es=new EventSource('/me/events');
+  es.addEventListener('changed', changed);
+  es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
+  document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });
+})();
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
@@ -138,10 +158,10 @@ function meSend(e, to){
      if(r.status===204){
        f.reset();
        // Refresh only the message list of an open conversation; the rail's own
-       // 3s poll picks up a brand-new channel. Never re-render the composer.
+       // live-push refresh picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');
        // A send always ends at the bottom, wherever the view was: scroll once
-       // this refresh has swapped (not on the next swap, which a 3s poll
+       // this refresh has swapped (not on the next swap, which a push/poll refresh
        // without the new message could win).
        if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}).then(function(){ meScrollToEnd(s, 'smooth'); }); }
      } else { alert('Send failed ('+r.status+')'); }

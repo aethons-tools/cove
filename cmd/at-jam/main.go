@@ -1632,7 +1632,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		intercomLog = ml
 		log.Info("Jam message log: file", "path", cfg.IntercomLog)
 	}
+	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
+	// one handle, so wrapping it lets live views (/me/events) see each append.
+	var logChanges *intercom.Notifier
 	if intercomLog != nil {
+		logChanges = intercom.NewNotifier(intercomLog)
+		intercomLog = logChanges
 		sup.SetTailReader(intercomLog)
 	}
 
@@ -1991,7 +1996,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if intercomLog != nil {
 				meLog = intercomLog
 			}
-			meSurface.Handle("/me/", meui.Handler(st, meLog, log))
+			var meOpts []meui.Option
+			if logChanges != nil {
+				meOpts = append(meOpts, meui.WithChanges(logChanges))
+			}
+			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")

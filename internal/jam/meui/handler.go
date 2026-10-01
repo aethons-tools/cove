@@ -49,24 +49,29 @@ type inboxPage struct {
 // Handler serves the participant intercom inbox under /me. It reads identity per
 // request from jam.ParticipantFrom (the /me gate injects it) — never a
 // constructor argument — so one handler serves every participant. lg may be nil.
-func Handler(store Store, log jam.LogReader, lg *slog.Logger) http.Handler {
+func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
 		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	h := &handler{store: store, log: log, lg: lg}
+	for _, opt := range opts {
+		opt(h)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /me/{$}", h.full)
 	mux.HandleFunc("GET /me/rail", h.rail)
 	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
+	mux.HandleFunc("GET /me/events", h.events)
 	mux.Handle("GET /me/static/", http.StripPrefix("/me/static/", http.FileServer(http.FS(staticFS))))
 	return mux
 }
 
 type handler struct {
-	store Store
-	log   jam.LogReader
-	lg    *slog.Logger
+	store   Store
+	log     jam.LogReader
+	lg      *slog.Logger
+	changes Changes // nil = no live push (GET /me/events → 204)
 }
 
 // build assembles the page for the request's participant and ?c selection.
