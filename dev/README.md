@@ -74,10 +74,17 @@ listener and reloads the page after each restart.
   dev-watch` runs Jam under sudo instead: the recipe primes `sudo -v`, and sudo
   prompts on the terminal again if its cached login expires.
 - **Failed builds** leave the last good binary serving, so Jam stays up.
-- **`/me` login through the proxy:** the OIDC redirect URI is built from the
-  proxied Host, so the callback lands on `http://localhost:8081/me/auth/callback`
-  (add it to the IdP's allowed callbacks). After login, go back to `:8090`. The
-  session cookie is host-scoped, so it carries over and survives restarts.
+- **Skip login entirely with `dev-identity`** (recommended for UI work). Set
+  `dev-identity: {project: <p>, human: <name>}` in `jam.dev.yml`, and loopback
+  requests to `/ui` and `/me` act as that roster human, with no IdP and no
+  callbacks. The human needs `--login` (for `/ui` actions like Request) and
+  `--oidc` (for `/me`). See `dev-identity` in
+  [serve.md](../docs/usage/jam/serve.md).
+- **Real `/me` login through the proxy** also works, but the OIDC redirect URI
+  is built from the proxied Host. The callback lands on
+  `http://localhost:8081/me/auth/callback` (add it to the IdP's allowed
+  callbacks); after login, go back to `:8090`. The session cookie is
+  host-scoped, so it carries over and survives restarts.
 - Edits under `dev/` (including `jam.dev.yml`) don't trigger a restart.
   `JAM_WATCH_CONFIG=path` points the loop at another config.
 

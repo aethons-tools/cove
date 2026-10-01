@@ -1920,7 +1920,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			ExpectedHosts: cfg.UIHosts,
 			Log:           log,
 		}
+		// dev-identity (DEV ONLY; parse refuses it off-loopback): loopback
+		// requests act as one roster human with no login, on /ui and /me.
+		var dev *browserauth.DevIdentity
+		if d := cfg.DevIdentity; d != nil {
+			dev = &browserauth.DevIdentity{Store: st, Project: d.Project, Human: d.Human}
+			gate.LoopbackTrust = dev.OperatorLoopbackTrust()
+			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a roster human with no login; never use in production",
+				"project", d.Project, "human", d.Human)
+		}
+
+		// Participant intercom plane (/me): mapped to a roster human (no operator
+		// scope) by browser OIDC login and/or the dev identity. Unlike /ui there
+		// is NO loopback trust: we must know which human, and loopback cannot say
+		// (except under the explicit dev identity).
 		var meHandler http.Handler
+		meMux := http.NewServeMux()
+		var meSession func(*http.Request) (*http.Request, browserauth.SessionOutcome)
+		meLoginPath := ""
 		if bc := cfg.browserAuthConfig(); bc != nil {
 			svc, err := browserauth.New(context.Background(), *bc, browserauth.OperatorUIMount(), nil, log)
 			if err != nil {
@@ -1933,21 +1950,26 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			log.Info("Jam UI auth: browser OIDC login", "client-id", bc.ClientID)
 
-			// Participant intercom plane (/me): the SAME OIDC client, but the
-			// session is mapped to a roster human (no operator scope), and — unlike
-			// /ui — there is NO loopback trust: we must know which human, and
-			// loopback cannot say. The login routes (/me/auth/*) stay ungated.
-			meMount := browserauth.ParticipantMount()
-			meSvc, err := browserauth.New(context.Background(), *bc, meMount, nil, log)
+			// The SAME OIDC client as /ui; the login routes (/me/auth/*) stay ungated.
+			meSvc, err := browserauth.New(context.Background(), *bc, browserauth.ParticipantMount(), nil, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: participant login:", err)
 				return 1
 			}
-			meMux := http.NewServeMux()
 			meMux.Handle("/me/auth/", meSvc.Routes())
+			meSession = meSvc.ParticipantSession(st)
+			meLoginPath = "/me/auth/login"
+			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
+		} else {
+			log.Info("Jam UI auth: loopback-only")
+		}
+		if dev != nil {
+			meSession = dev.ParticipantSession(meSession)
+		}
+		if meSession != nil {
 			meGate := browserauth.Gate{
-				Session:       meSvc.ParticipantSession(st),
-				LoginPath:     "/me/auth/login",
+				Session:       meSession,
+				LoginPath:     meLoginPath,
 				ExpectedHosts: cfg.UIHosts,
 				Log:           log,
 			}
@@ -1973,9 +1995,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
-			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
-		} else {
-			log.Info("Jam UI auth: loopback-only")
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...))))
 

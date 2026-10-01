@@ -27,6 +27,11 @@ ui-hosts:
 # Let the `just dev-watch` live-reload proxy make UI writes (CSRF origin check).
 ui-origins:
   - http://localhost:8090
+# DEV ONLY: loopback /ui and /me act as this roster human with no login (no IdP
+# callbacks needed). The human needs --login (for /ui) and --oidc (for /me).
+# dev-identity:
+#   project: test
+#   human: you
 
 # Loopback admin API — plain HTTP is fine on loopback (no OIDC needed).
 admin-listen: "127.0.0.1:8081"

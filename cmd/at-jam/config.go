@@ -26,6 +26,12 @@ type credSpec struct {
 	Value   string   `yaml:"value"`
 }
 
+// devIdentityConfig names the roster human dev-identity impersonates.
+type devIdentityConfig struct {
+	Project string `yaml:"project"`
+	Human   string `yaml:"human"`
+}
+
 // serveConfig is the on-disk config for `at-jam serve`.
 type serveConfig struct {
 	Listen      string `yaml:"listen"`
@@ -39,7 +45,11 @@ type serveConfig struct {
 	// CSRF write check accepts besides the request's own Host — e.g. the
 	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
 	UIOrigins []string `yaml:"ui-origins"`
-	TLS       struct {
+	// DevIdentity — DEV ONLY: loopback browser requests to /ui and /me act as
+	// this roster human with no login (see browserauth.DevIdentity). serve
+	// refuses it unless admin-listen is loopback.
+	DevIdentity *devIdentityConfig `yaml:"dev-identity"`
+	TLS         struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"tls"`
@@ -560,6 +570,14 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		}
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
+	}
+	if d := c.DevIdentity; d != nil {
+		if d.Project == "" || d.Human == "" {
+			return serveConfig{}, fmt.Errorf("dev-identity: project and human are both required")
+		}
+		if !isLoopbackAddr(c.AdminListen) {
+			return serveConfig{}, fmt.Errorf("dev-identity: admin-listen %q is off-loopback; dev-identity skips login and is only allowed on a loopback admin listener", c.AdminListen)
+		}
 	}
 	for _, o := range c.UIOrigins {
 		if err := validateOrigin(o); err != nil {

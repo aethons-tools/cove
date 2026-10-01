@@ -53,6 +53,8 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
   in via `/ui/auth/login`: a valid session is used even on loopback, so the UI
   knows *who* you are (the [role Request](#runtime-studios) action needs this).
   A missing or expired session falls back to `local` without a login redirect.
+  For UI development, [`dev-identity`](serve.md) makes loopback requests act as
+  a chosen roster human on `/ui` and `/me` with no login at all.
 - **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
   browser is redirected through an OIDC **Authorization Code + PKCE** login
   (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie
