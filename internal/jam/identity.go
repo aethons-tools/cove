@@ -17,10 +17,13 @@ import (
 // role may reach, which repos (for repo-scoped destinations), and the default
 // token lifetime applied at enrollment.
 type Scope struct {
-	Destinations []string      `json:"destinations"`
-	Repos        []string      `json:"repos"`
-	Addressing   []string      `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
-	TTL          time.Duration `json:"ttl"`
+	Destinations []string `json:"destinations"`
+	// Credentials maps a destination name to the credential the broker injects
+	// for it; a destination absent here (or mapped to "") uses its own CredName.
+	Credentials map[string]string `json:"credentials,omitempty"`
+	Repos       []string          `json:"repos"`
+	Addressing  []string          `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
+	TTL         time.Duration     `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
 	// = the kit's default list. Managed only by the egress endpoints
 	// (`at-jam egress set|show|clear`); a role re-put keeps it.
@@ -113,6 +116,8 @@ type Override struct {
 	Destinations []string `json:"destinations,omitempty"`
 	Repos        []string `json:"repos,omitempty"`
 	Addressing   []string `json:"addressing,omitempty"` // REPLACES Scope.Addressing when non-nil
+	// Credentials REPLACES Scope.Credentials when non-nil.
+	Credentials map[string]string `json:"credentials,omitempty"`
 }
 
 // Grant assigns a Role (within a Project) to an Actor, optionally narrowed.
