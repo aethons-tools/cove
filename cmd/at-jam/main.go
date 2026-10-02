@@ -1713,7 +1713,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// read-only reader (further down). Postgres (the shared control-plane pool).
 	ml, err := intercompg.New(context.Background(), pgPool, log)
 	if err != nil {
-		fmt.Fprintln(stderr, "at-jam: intercom-log (postgres):", err)
+		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
 	var intercomLog intercom.Store = ml // Close is a no-op; the store owns the pool
@@ -2000,7 +2000,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// off-loopback needs a browser session when browser login is configured,
 		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
 
-		// Read-only intercom-log view: shares the Log opened once above (the same
+		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
 		// read-only reader.
 		var squawkReader adminui.SquawkReader = intercomLog

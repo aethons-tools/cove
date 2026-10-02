@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-head"><h1>Intercom</h1><span class="sub">The durable squawk Log, newest first</span></div>
 {{if not .Configured}}
-  <div class="banner">Squawk log not configured (set <code>intercom-log:</code> in the serve config).</div>
+  <div class="banner">The message log is unavailable.</div>
 {{else}}
 <form method="get" action="/ui/intercom" class="card" style="padding:14px 16px;margin-bottom:16px;overflow:visible">
   <div class="grid">

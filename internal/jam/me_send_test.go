@@ -194,7 +194,7 @@ func TestParticipantSend_Errors(t *testing.T) {
 			t.Fatalf("status = %d, want 404", w.Code)
 		}
 	})
-	t.Run("no intercom-log configured → 503", func(t *testing.T) {
+	t.Run("nil appender → 503", func(t *testing.T) {
 		h := jam.NewParticipantSendHandler(meWorld(), nil, nil) // nil appender
 		if w := postSend(h, aliceParticipant(), `{"to":"human:bob","body":"x"}`); w.Code != 503 {
 			t.Fatalf("status = %d, want 503", w.Code)

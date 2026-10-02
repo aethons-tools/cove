@@ -71,8 +71,8 @@ func TestSquawksNotConfigured(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/intercom (nil reader) = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "not configured") {
-		t.Errorf("nil reader should render a not-configured notice; got:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "message log is unavailable") {
+		t.Errorf("nil reader should render an unavailable notice; got:\n%s", rec.Body.String())
 	}
 }
 

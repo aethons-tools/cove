@@ -849,11 +849,11 @@ func TestValidateRequisitioner_PoolCredNotAccepted(t *testing.T) {
 }
 
 func TestParseServeConfigSessionEvents(t *testing.T) {
-	c, err := parseServeConfig([]byte("session-events-dir: /var/lib/jam/events\nsession-events-retention: 30d\n"))
+	c, err := parseServeConfig([]byte("session-events-retention: 30d\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.SessionEventsDir != "/var/lib/jam/events" || c.SessionEventsRetention != "30d" {
+	if c.SessionEventsRetention != "30d" {
 		t.Fatalf("%+v", c)
 	}
 	if err := c.validateSessionEvents(); err != nil {

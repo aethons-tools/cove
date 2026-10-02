@@ -70,7 +70,12 @@ func (s *MemStore) Streams(actorID string) ([]StreamInfo, error) {
 		out = append(out, StreamInfo{StreamID: k.stream, FirstAt: evs[0].ReceivedAt, LastAt: evs[len(evs)-1].ReceivedAt,
 			LastSeq: evs[len(evs)-1].Seq, Events: len(evs)})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].FirstAt.After(out[j].FirstAt) })
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].FirstAt.Equal(out[j].FirstAt) {
+			return out[i].FirstAt.After(out[j].FirstAt)
+		}
+		return out[i].StreamID < out[j].StreamID
+	})
 	return out, nil
 }
 
