@@ -1,17 +1,13 @@
 package main
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 func TestLogTailSeq(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	if got := logTailSeq(lg); got != 0 {
 		t.Fatalf("empty log tail = %d, want 0", got)
 	}

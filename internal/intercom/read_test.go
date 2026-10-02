@@ -1,23 +1,18 @@
 package intercom
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func seed(t *testing.T) *Log {
 	t.Helper()
-	l, err := Open(filepath.Join(t.TempDir(), "m.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l := NewMemLog()
 	return l
 }
 
 func TestReadInboxMultiRecipient(t *testing.T) {
 	l := seed(t)
-	defer l.Close()
 	_, _ = l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "actor", Ref: "a"}, {Kind: "human", Ref: "b"}}, Body: "x"})
 	if n := len(l.ReadInbox(Target{Kind: "actor", Ref: "a"})); n != 1 {
 		t.Fatalf("actor:a inbox=%d want 1", n)
@@ -32,7 +27,6 @@ func TestReadInboxMultiRecipient(t *testing.T) {
 
 func TestReadInboxReturnsCopy(t *testing.T) {
 	l := seed(t)
-	defer l.Close()
 	_, _ = l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "actor", Ref: "a"}}, Body: "x"})
 	got := l.ReadInbox(Target{Kind: "actor", Ref: "a"})
 	got[0].To[0].Ref = "mutated" // must not corrupt the store
@@ -43,7 +37,6 @@ func TestReadInboxReturnsCopy(t *testing.T) {
 
 func TestReadThread(t *testing.T) {
 	l := seed(t)
-	defer l.Close()
 	root, _ := l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "root"})
 	_, _ = l.Append(Squawk{From: Target{Kind: "human", Ref: "b"}, To: []Target{{Kind: "actor", Ref: "s"}}, Body: "reply", ReplyTo: root.ID})
 	_, _ = l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "unrelated"})
@@ -55,7 +48,6 @@ func TestReadThread(t *testing.T) {
 
 func TestListFilter(t *testing.T) {
 	l := seed(t)
-	defer l.Close()
 	_, _ = l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "acme", Project: "acme", At: time.Unix(10, 0)})
 	_, _ = l.Append(Squawk{From: Target{Kind: "actor", Ref: "s"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "beta", Project: "beta", At: time.Unix(20, 0)})
 	if n := len(l.List(Filter{Project: "acme"})); n != 1 {

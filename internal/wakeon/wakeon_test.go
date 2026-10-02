@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,11 +30,7 @@ func (s meSendStore) ListInstances() []jam.Instance { return s.instances }
 // jam.ParticipantSendHandler and addressed to a waiting studio's session actor,
 // wakes that studio on the next wake-on tick — exactly as a relayed reply does.
 func TestParticipantSendWakesWaitingStudio(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open log: %v", err)
-	}
-	defer lg.Close()
+	lg := intercom.NewMemLog()
 
 	const issuer, subject = "https://idp.example", "sub-alice"
 	inst := jam.Instance{

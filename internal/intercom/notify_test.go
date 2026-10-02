@@ -1,17 +1,13 @@
 package intercom
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func newNotifier(t *testing.T) *Notifier {
 	t.Helper()
-	l, err := Open(filepath.Join(t.TempDir(), "m.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l := NewMemLog()
 	return NewNotifier(l)
 }
 

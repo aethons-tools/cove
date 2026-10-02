@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +13,7 @@ import (
 
 func openTestLog(t *testing.T) *intercom.Log {
 	t.Helper()
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "intercom.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lg.Close() })
+	lg := intercom.NewMemLog()
 	return lg
 }
 

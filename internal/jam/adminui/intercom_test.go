@@ -13,11 +13,7 @@ import (
 // newIntercomLog opens a hermetic Log in a temp dir and appends the given messages.
 func newIntercomLog(t *testing.T, squawks ...intercom.Squawk) *intercom.Log {
 	t.Helper()
-	l, err := intercom.Open(t.TempDir()+"/squawks.jsonl", testLogger())
-	if err != nil {
-		t.Fatalf("intercom.Open: %v", err)
-	}
-	t.Cleanup(func() { l.Close() })
+	l := intercom.NewMemLog()
 	for _, m := range squawks {
 		if _, err := l.Append(m); err != nil {
 			t.Fatalf("Append: %v", err)

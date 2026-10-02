@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -123,7 +122,6 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cc.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	resp, err := healthpb.NewHealthClient(cc).Check(ctx, &healthpb.HealthCheckRequest{})
@@ -167,11 +165,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	st := jam.NewMemStore()
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lg.Close()
+	lg := intercom.NewMemLog()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
