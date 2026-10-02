@@ -107,7 +107,7 @@ func TestAdminRejectsUnresolvableCredName(t *testing.T) {
 
 func TestAdminEnrollThenRevoke(t *testing.T) {
 	h, store := newTestAdmin(t)
-	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -287,7 +287,7 @@ func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 func TestAdminRolesCRUD(t *testing.T) {
 	h, _ := newTestAdmin(t) // existing helper: returns handler + store
 	// create
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTLSeconds: 3600})
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, TTLSeconds: 3600})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /admin/roles = %d", rec.Code)
 	}
@@ -328,7 +328,7 @@ func TestAdminEnrollRequiresExistingRole(t *testing.T) {
 func TestAdminGrantAddRemove(t *testing.T) {
 	h, _ := newTestAdmin(t)
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}})
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}, Repos: []string{"beta/*"}})
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}})
 	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "guest"})
 	rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "beta", Role: "review"})
 	if rec.Code != http.StatusCreated {
@@ -541,7 +541,7 @@ func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
-	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddActor(Actor{ID: "spider-1", TokenHash: "deadbeef", Grants: []Grant{{Project: "default", Role: "worker"}}}); err != nil {

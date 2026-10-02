@@ -31,7 +31,7 @@ type EnrollResult struct {
 }
 
 // ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
-// carries the effective destinations/repos after overrides.
+// carries the effective destinations/credentials after overrides.
 type ActorSummary struct {
 	ID     string         `json:"id"`
 	Expiry time.Time      `json:"expiry"`
@@ -43,7 +43,6 @@ type GrantSummary struct {
 	Project      string   `json:"project"`
 	Role         string   `json:"role"`
 	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
 	Addressing   []string `json:"addressing,omitempty"`
 }
 
@@ -75,7 +74,6 @@ type RoleBody struct {
 	Project      string   `json:"project"`
 	Name         string   `json:"name"`
 	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
 	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
@@ -97,7 +95,6 @@ type RoleSummary struct {
 	Project      string   `json:"project"`
 	Name         string   `json:"name"`
 	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
 	Addressing   []string `json:"addressing,omitempty"`
 	TTLSeconds   int64    `json:"ttl_seconds"`
 	Kit          string   `json:"kit,omitempty"`
@@ -226,7 +223,7 @@ type OperatorLoginConfig struct {
 }
 
 // RosterSummaries returns one ActorSummary per enrolled actor, each grant
-// carrying its effective destinations/repos after override resolution. It never
+// carrying its effective destinations/credentials after override resolution. It never
 // includes a token or hash. The JSON roster handler and the read-only UI both
 // render from this, so the two surfaces cannot drift.
 func RosterSummaries(store Store) []ActorSummary {
@@ -237,7 +234,7 @@ func RosterSummaries(store Store) []ActorSummary {
 			gs := GrantSummary{Project: g.Project, Role: g.Role}
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
-				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+				gs.Destinations = s.Destinations
 				gs.Addressing = s.Addressing
 			}
 			sum.Grants = append(sum.Grants, gs)
@@ -371,7 +368,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, ro := range store.ListRoles(project) {
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
-				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
+				Destinations:        ro.Scope.Destinations,
 				Addressing:          ro.Scope.Addressing,
 				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
 				Kit:                 ro.Kit,
@@ -412,7 +409,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		role := Role{
 			Name:  b.Name,
-			Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Scope: Scope{Destinations: b.Destinations, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
 			Kit:   b.Kit,
 			Allocation: RoleAllocation{
 				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,

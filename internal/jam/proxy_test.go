@@ -23,7 +23,7 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
-	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddActor(Actor{
@@ -34,7 +34,7 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 	}
 	for _, d := range []Destination{
 		{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword, RepoScoped: true},
+		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -96,14 +96,22 @@ func TestBrokerSwapsGitBasicAuth(t *testing.T) {
 	_ = gotUser
 }
 
-func TestBrokerDeniesOutOfScopeRepo(t *testing.T) {
-	b, _, tok := newTestBroker(t, "http://unused", "http://unused")
-	req := httptest.NewRequest("GET", "/git/someone/secret/info/refs", nil)
+// Repo reach is the credential's own scope, not broker policy: any owner/repo on
+// an allowed git destination is proxied (e.g. a public third-party clone).
+func TestBrokerProxiesAnyRepoOnAllowedGitDestination(t *testing.T) {
+	var gotPath string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		io.WriteString(w, "ok")
+	}))
+	defer up.Close()
+	b, _, tok := newTestBroker(t, "http://unused", up.URL)
+	req := httptest.NewRequest("GET", "/git/chromedp/chromedp/info/refs", nil)
 	req.SetBasicAuth("x-access-token", tok)
 	rec := httptest.NewRecorder()
 	b.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	if rec.Code != 200 || gotPath != "/chromedp/chromedp/info/refs" {
+		t.Fatalf("status = %d, upstream path = %q", rec.Code, gotPath)
 	}
 }
 

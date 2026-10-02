@@ -28,7 +28,7 @@ func putStandingRole(t *testing.T, store Store) Role {
 	t.Helper()
 	role := Role{
 		Name:  "reviewer",
-		Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, Addressing: []string{"human:*"}, TTL: time.Hour},
+		Scope: Scope{Destinations: []string{"git"}, Addressing: []string{"human:*"}, TTL: time.Hour},
 		Allocation: RoleAllocation{
 			MaxEphemeral: 2, MaxPersonal: 3, MaxPersonalPerOwner: 1,
 			IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 3 * time.Hour,

@@ -135,11 +135,11 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 
 func TestRolesView(t *testing.T) {
 	store := newStore(t)
-	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, TTL: time.Hour}, Kit: ""}); err != nil {
+	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Kit: ""}); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roles").Body.String()
-	for _, want := range []string{"acme", "review", "git", "acme/*"} {
+	for _, want := range []string{"acme", "review", "git"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("roles view missing %q", want)
 		}

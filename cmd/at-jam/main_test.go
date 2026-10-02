@@ -72,7 +72,7 @@ func TestEnrollCommandJSON(t *testing.T) {
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
@@ -123,7 +123,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{
 		"role", "add", "--admin-url", ts.URL, "--project", "P",
-		"--name", "guest", "--destinations", "anthropic", "--repos", "acme/*",
+		"--name", "guest", "--destinations", "anthropic",
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
 	}
@@ -134,7 +134,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "guest") || !strings.Contains(out.String(), "dests=anthropic") || !strings.Contains(out.String(), "repos=acme/*") {
+	if !strings.Contains(out.String(), "guest") || !strings.Contains(out.String(), "dests=anthropic") {
 		t.Fatalf("role list output missing expected fields:\n%s", out.String())
 	}
 

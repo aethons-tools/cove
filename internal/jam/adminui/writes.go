@@ -64,14 +64,14 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// overridesFrom builds a *jam.Override from optional comma-separated fields,
-// or nil when both are empty (inherit the role's scope).
-func overridesFrom(dests, repos string) *jam.Override {
-	d, rp := splitCSV(dests), splitCSV(repos)
-	if len(d) == 0 && len(rp) == 0 {
+// overridesFrom builds a *jam.Override from an optional comma-separated
+// destinations field, or nil when empty (inherit the role's scope).
+func overridesFrom(dests string) *jam.Override {
+	d := splitCSV(dests)
+	if len(d) == 0 {
 		return nil
 	}
-	return &jam.Override{Destinations: d, Repos: rp}
+	return &jam.Override{Destinations: d}
 }
 
 // orDefaultProject normalizes an empty project to jam.DefaultProject for
@@ -111,7 +111,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		overrides := overridesFrom(r.FormValue("destinations"), r.FormValue("repos"))
+		overrides := overridesFrom(r.FormValue("destinations"))
 		token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
 		if err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
@@ -168,7 +168,6 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			Name: name,
 			Scope: jam.Scope{
 				Destinations: splitCSV(r.FormValue("destinations")),
-				Repos:        splitCSV(r.FormValue("repos")),
 				TTL:          time.Duration(ttl) * time.Second,
 			},
 			Kit: kit,
@@ -203,7 +202,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		g := jam.Grant{Project: project, Role: role, Overrides: overridesFrom(r.FormValue("destinations"), r.FormValue("repos"))}
+		g := jam.Grant{Project: project, Role: role, Overrides: overridesFrom(r.FormValue("destinations"))}
 		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
 			renderError(w, http.StatusNotFound, err.Error())
 			return
@@ -367,7 +366,6 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			IdentityIn: jam.ApplyMethod(strings.TrimSpace(r.FormValue("identity-in"))),
 			CredName:   strings.TrimSpace(r.FormValue("cred-name")),
 			Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
-			RepoScoped: r.FormValue("repo-scoped") != "",
 		}
 		if d.Name == "" || d.Route == "" || d.Upstream == "" {
 			renderError(w, http.StatusBadRequest, "name, route and upstream are required")

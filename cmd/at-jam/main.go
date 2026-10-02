@@ -298,7 +298,6 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key")
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
-	fs.BoolVar(&d.RepoScoped, "repo-scoped", false, "path is <route>/<owner>/<repo>/…")
 	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -383,7 +382,6 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names")
-	repos := fs.String("repos", "", "comma-separated owner/repo globs")
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
@@ -419,7 +417,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		r := jam.Role{
 			Name: *name, Kit: *kitName,
-			Scope: jam.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Scope: jam.Scope{Destinations: splitCSV(*dests), Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
 				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
@@ -437,7 +435,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1370,7 +1368,7 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	for _, a := range roster {
 		for _, g := range a.Grants {
-			fmt.Fprintf(stdout, "%s\t%s/%s\tdests=%s\trepos=%s\n", a.ID, g.Project, g.Role, strings.Join(g.Destinations, ","), strings.Join(g.Repos, ","))
+			fmt.Fprintf(stdout, "%s\t%s/%s\tdests=%s\n", a.ID, g.Project, g.Role, strings.Join(g.Destinations, ","))
 		}
 	}
 	return 0

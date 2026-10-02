@@ -14,14 +14,13 @@ import (
 )
 
 // Scope is a Role's security envelope: which destinations an actor granted this
-// role may reach, which repos (for repo-scoped destinations), and the default
-// token lifetime applied at enrollment.
+// role may reach, the credential injected for each, and the default token
+// lifetime applied at enrollment.
 type Scope struct {
 	Destinations []string `json:"destinations"`
 	// Credentials maps a destination name to the credential the broker injects
 	// for it; a destination absent here (or mapped to "") uses its own CredName.
 	Credentials map[string]string `json:"credentials,omitempty"`
-	Repos       []string          `json:"repos"`
 	Addressing  []string          `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
 	TTL         time.Duration     `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
@@ -114,7 +113,6 @@ type Kit struct {
 // inherits the Role; a set field REPLACES the Role's field (no merge).
 type Override struct {
 	Destinations []string `json:"destinations,omitempty"`
-	Repos        []string `json:"repos,omitempty"`
 	Addressing   []string `json:"addressing,omitempty"` // REPLACES Scope.Addressing when non-nil
 	// Credentials REPLACES Scope.Credentials when non-nil.
 	Credentials map[string]string `json:"credentials,omitempty"`

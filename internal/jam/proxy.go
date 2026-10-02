@@ -45,11 +45,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown identity", http.StatusUnauthorized)
 		return
 	}
-	var ownerRepo string
-	if dest.RepoScoped {
-		ownerRepo, _ = RepoFromPath(dest.Route, r.URL.Path)
-	}
-	dec, err := Decide(actor, b.resolveScopes(actor), dest, ownerRepo, b.now())
+	dec, err := Decide(actor, b.resolveScopes(actor), dest, b.now())
 	if err != nil {
 		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", err.Error())
 		http.Error(w, "forbidden", http.StatusForbidden)

@@ -9,28 +9,25 @@ import (
 func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
 
 func TestEffectiveScopeInheritsRole(t *testing.T) {
-	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}
+	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Credentials: map[string]string{"git": "pat-a"}}}
 	got := EffectiveScope(Grant{Project: "p", Role: "guest"}, r)
-	if len(got.Destinations) != 2 || got.Repos[0] != "acme/*" {
+	if len(got.Destinations) != 2 || got.Credentials["git"] != "pat-a" {
 		t.Fatalf("inherited scope = %+v", got)
 	}
 }
 
 func TestEffectiveScopeOverrideReplaces(t *testing.T) {
-	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}
-	g := Grant{Project: "p", Role: "guest", Overrides: &Override{Repos: []string{"beta/*"}}}
+	r := Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}}}
+	g := Grant{Project: "p", Role: "guest", Overrides: &Override{Destinations: []string{"git"}}}
 	got := EffectiveScope(g, r)
-	if len(got.Destinations) != 2 { // destinations inherited (override nil)
-		t.Fatalf("destinations should inherit: %+v", got)
-	}
-	if len(got.Repos) != 1 || got.Repos[0] != "beta/*" { // repos replaced
-		t.Fatalf("repos should be replaced: %+v", got)
+	if len(got.Destinations) != 1 || got.Destinations[0] != "git" {
+		t.Fatalf("destinations should be replaced: %+v", got)
 	}
 }
 
 func TestDecideAllowsWhenAGrantAuthorizes(t *testing.T) {
 	dest := testConfig().Destinations[0] // anthropic
-	dec, err := Decide(Actor{ID: "spider-18"}, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), dest, "", time.Now())
+	dec, err := Decide(Actor{ID: "spider-18"}, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), dest, time.Now())
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -40,31 +37,26 @@ func TestDecideAllowsWhenAGrantAuthorizes(t *testing.T) {
 }
 
 func TestDecideAdditiveAcrossGrants(t *testing.T) {
-	git := testConfig().Destinations[1] // repo-scoped
+	git := testConfig().Destinations[1]
 	// first scope lacks git; second authorizes it — additive.
 	scopes := roleScopes(t,
 		Scope{Destinations: []string{"anthropic"}},
-		Scope{Destinations: []string{"git"}, Repos: []string{"beta/*"}},
+		Scope{Destinations: []string{"git"}},
 	)
-	if _, err := Decide(Actor{ID: "x"}, scopes, git, "beta/api", time.Now()); err != nil {
+	if _, err := Decide(Actor{ID: "x"}, scopes, git, time.Now()); err != nil {
 		t.Fatalf("second grant should authorize: %v", err)
 	}
 }
 
-func TestDecideNoCrossGrantRepoBleed(t *testing.T) {
+func TestDecideNoRepoGate(t *testing.T) {
 	git := testConfig().Destinations[1]
-	// grant A: git but only acme/*. grant B: beta/* but NOT git. Must deny git beta/x.
-	scopes := roleScopes(t,
-		Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}},
-		Scope{Destinations: []string{"anthropic"}, Repos: []string{"beta/*"}},
-	)
-	if _, err := Decide(Actor{ID: "x"}, scopes, git, "beta/secret", time.Now()); err == nil {
-		t.Fatal("expected denial: no single grant couples git with beta/*")
+	if _, err := Decide(Actor{ID: "x"}, roleScopes(t, Scope{Destinations: []string{"git"}}), git, time.Now()); err != nil {
+		t.Fatalf("git with no repo policy should be allowed: %v", err)
 	}
 }
 
 func TestDecideDeniesWithNoScopes(t *testing.T) {
-	if _, err := Decide(Actor{ID: "x"}, nil, testConfig().Destinations[0], "", time.Now()); err == nil {
+	if _, err := Decide(Actor{ID: "x"}, nil, testConfig().Destinations[0], time.Now()); err == nil {
 		t.Fatal("expected denial when the actor has no resolvable grant")
 	}
 }
@@ -72,7 +64,7 @@ func TestDecideDeniesWithNoScopes(t *testing.T) {
 func TestDecideRejectsExpired(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	a := Actor{ID: "x", Expiry: past}
-	if _, err := Decide(a, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), testConfig().Destinations[0], "", time.Now()); err == nil {
+	if _, err := Decide(a, roleScopes(t, Scope{Destinations: []string{"anthropic"}}), testConfig().Destinations[0], time.Now()); err == nil {
 		t.Fatal("expected expired actor to be rejected")
 	}
 }
@@ -185,8 +177,8 @@ func TestListTargets(t *testing.T) {
 
 func TestDecideUsesRoleMappedCredential(t *testing.T) {
 	git := testConfig().Destinations[1] // default cred git-pat
-	s := Scope{Destinations: []string{"git"}, Repos: []string{"*/*"}, Credentials: map[string]string{"git": "git-pat-cove"}}
-	dec, err := Decide(Actor{ID: "x"}, roleScopes(t, s), git, "acme/api", time.Now())
+	s := Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat-cove"}}
+	dec, err := Decide(Actor{ID: "x"}, roleScopes(t, s), git, time.Now())
 	if err != nil || dec.CredName != "git-pat-cove" || !dec.NeedCred {
 		t.Fatalf("decision = %+v, %v", dec, err)
 	}
@@ -194,8 +186,8 @@ func TestDecideUsesRoleMappedCredential(t *testing.T) {
 
 func TestDecideUnmappedFallsBackToDestinationDefault(t *testing.T) {
 	git := testConfig().Destinations[1]
-	s := Scope{Destinations: []string{"git"}, Repos: []string{"*/*"}, Credentials: map[string]string{"anthropic": "other"}}
-	dec, err := Decide(Actor{ID: "x"}, roleScopes(t, s), git, "acme/api", time.Now())
+	s := Scope{Destinations: []string{"git"}, Credentials: map[string]string{"anthropic": "other"}}
+	dec, err := Decide(Actor{ID: "x"}, roleScopes(t, s), git, time.Now())
 	if err != nil || dec.CredName != "git-pat" {
 		t.Fatalf("decision = %+v, %v", dec, err)
 	}
@@ -204,10 +196,10 @@ func TestDecideUnmappedFallsBackToDestinationDefault(t *testing.T) {
 func TestDecideConflictingCredentialsDenied(t *testing.T) {
 	git := testConfig().Destinations[1]
 	scopes := roleScopes(t,
-		Scope{Destinations: []string{"git"}, Repos: []string{"*/*"}, Credentials: map[string]string{"git": "pat-a"}},
-		Scope{Destinations: []string{"git"}, Repos: []string{"*/*"}, Credentials: map[string]string{"git": "pat-b"}},
+		Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "pat-a"}},
+		Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "pat-b"}},
 	)
-	if _, err := Decide(Actor{ID: "x"}, scopes, git, "acme/api", time.Now()); err == nil {
+	if _, err := Decide(Actor{ID: "x"}, scopes, git, time.Now()); err == nil {
 		t.Fatal("conflicting credentials across grants must deny")
 	}
 }

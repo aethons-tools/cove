@@ -77,11 +77,11 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatalf("PutRole: %v", err)
 		}
 		// upsert: putting the same name again replaces without error.
-		if err := s.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Repos: []string{"acme/*"}}}); err != nil {
+		if err := s.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat-acme"}}}); err != nil {
 			t.Fatalf("PutRole (upsert): %v", err)
 		}
 		r, ok := s.GetRole("acme", "worker")
-		if !ok || len(r.Scope.Repos) != 1 {
+		if !ok || r.Scope.Credentials["git"] != "git-pat-acme" {
 			t.Fatalf("GetRole = %+v, %v", r, ok)
 		}
 		if got := s.ListRoles("acme"); len(got) != 1 {
