@@ -1212,3 +1212,18 @@ func TestRaiseConnectorConflictRollsBack(t *testing.T) {
 		t.Fatalf("raise must roll back: raised=%v actors=%v", f.raised, store.ListActors())
 	}
 }
+
+// A personal session's Studio layer names its owner as its one target.
+func TestRaiseContextStudioNamesOwner(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	if err := store.AddHuman("default", Human{Name: "alice", Handle: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal, Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`human:alice` — your owner") {
+		t.Fatalf("studio layer must name the owner: %+v", c)
+	}
+}
