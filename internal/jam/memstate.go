@@ -1,7 +1,9 @@
 package jam
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -60,6 +62,7 @@ func (m *memState) ListActors() []Actor {
 	for _, a := range m.actors {
 		out = append(out, a)
 	}
+	slices.SortFunc(out, func(a, b Actor) int { return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(a.TokenHash, b.TokenHash)) })
 	return out
 }
 
@@ -83,6 +86,7 @@ func (m *memState) ListRoles(project string) []Role {
 	for _, r := range m.roles[project] {
 		out = append(out, r)
 	}
+	slices.SortFunc(out, func(a, b Role) int { return cmp.Compare(a.Name, b.Name) })
 	return out
 }
 
@@ -140,6 +144,7 @@ func (m *memState) ListKits() []Kit {
 	for _, k := range m.kits {
 		out = append(out, copyKit(k))
 	}
+	slices.SortFunc(out, func(a, b Kit) int { return cmp.Compare(a.Name, b.Name) })
 	return out
 }
 
@@ -163,6 +168,7 @@ func (m *memState) ListInstances() []Instance {
 	for _, i := range m.instances {
 		out = append(out, i)
 	}
+	slices.SortFunc(out, func(a, b Instance) int { return cmp.Compare(a.ActorID, b.ActorID) })
 	return out
 }
 
@@ -173,6 +179,7 @@ func (m *memState) ListDestinations() []Destination {
 	for _, d := range m.dests {
 		out = append(out, d)
 	}
+	slices.SortFunc(out, func(a, b Destination) int { return cmp.Compare(a.Name, b.Name) })
 	return out
 }
 
