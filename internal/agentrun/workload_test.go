@@ -69,10 +69,26 @@ func (h *recordHandle) count(a covemaster.Activity) int {
 	return n
 }
 
-// scriptedProc runs a closure as its Wait.
-type scriptedProc struct{ wait func() error }
+// scriptedProc runs a closure as its Wait; in (optional) records stdin.
+type scriptedProc struct {
+	wait func() error
+	in   io.WriteCloser
+}
 
 func (p scriptedProc) Wait() error { return p.wait() }
+
+func (p scriptedProc) Input() io.WriteCloser {
+	if p.in != nil {
+		return p.in
+	}
+	return discardInput{}
+}
+
+// discardInput is stdin for fakes that ignore it.
+type discardInput struct{}
+
+func (discardInput) Write(b []byte) (int, error) { return len(b), nil }
+func (discardInput) Close() error                { return nil }
 
 type fakeSpawner struct {
 	bin, dir string
