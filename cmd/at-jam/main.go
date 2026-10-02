@@ -1749,7 +1749,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Ledger cutover (slice 4): with Postgres the allocation event store is the
 	// AUTHORITATIVE cap — admission is an atomic OCC grant (append-iff-under-caps)
 	// scoped per-(project, role) Outstanding, and teardown/compensation release the
-	// slot. With the in-memory test store there is no pool ⇒ ledger is nil ⇒ ephemeral Grant
+	// slot. Without the Postgres allocator ledger (tests only) the ledger is nil ⇒ ephemeral Grant
 	// falls back to the registry live count (global, slice-1 behavior), personal
 	// Grant fails with ErrNeedsLedger, and RecordRelease is a no-op
 	// (SetReleaser(alloc) stays a harmless no-op).

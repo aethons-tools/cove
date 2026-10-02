@@ -63,7 +63,7 @@ credential:
 
 | Reference | Where |
 |---|---|
-| `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-backend-store-postgres)) |
+| `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-store-postgres)) |
 | `runtime.discord.bot-token-cred` | the Discord bot token ([discord.md](discord.md)) |
 | `runtime.requisitioner.tracker-token-cred` | the tracker token ([requisitioner.md](requisitioner.md)) |
 | a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |

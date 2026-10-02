@@ -23,9 +23,9 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## The procedure
 
-1. **Postgres (optional but recommended)** — `just dev-up` raises the dev
-   Postgres; a `store-postgres` block makes both the control plane *and* the
-   intercom log (the durable squawk Log) Postgres-backed. See [serve.md](serve.md#postgres-store-backend-store-postgres)
+1. **Postgres (required)** — `just dev-up` raises the dev
+   Postgres; the `store-postgres` block holds the control plane *and* the
+   intercom log (the durable squawk Log). See [serve.md](serve.md#postgres-store-store-postgres)
    and [`dev/`](../../../dev/README.md).
 2. **`at-jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,

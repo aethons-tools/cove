@@ -721,8 +721,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 // mutation: if the actor is already absent it is a no-op success (a retry after a
 // prior partial teardown); if it is present, any RemoveActor error is a real
 // failure the caller must surface (so teardown is retryable). Checking after the
-// call would be wrong — a store may drop the actor from memory before it
-// persists, so a persist failure would look like "already absent".
+// call would be wrong — a failed removal could look like "already absent".
 func (s *Supervisor) revokeActor(actorID string) error {
 	present := false
 	for _, a := range s.store.ListActors() {

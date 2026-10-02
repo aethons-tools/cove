@@ -117,7 +117,7 @@ type serveConfig struct {
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
-// runs whenever Jam has a Requisitioner (the message log via Postgres is always present).
+// always runs (the Postgres message log is always present).
 // Each field is optional and resolves runtime.wake > the matching runtime.requisitioner field
 // (wake-poll-interval / wait-max / warm-timeout) > the engine default.
 type wakeConfig struct {

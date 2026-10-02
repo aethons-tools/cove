@@ -71,8 +71,11 @@ are bulk admin endpoints (`GET`/`POST /admin/config`) that the CLI streams to an
 from — not a client-side replay over the per-aggregate endpoints (which would
 re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 
-## Migrating between store backends
+## Upgrading a file-store Jam
 
-The snapshot is backend-neutral: export from a file-store Jam and import into a
-Postgres-backed one (or vice versa) — the config aggregates are identical across
-backends. See [serve.md](serve.md#postgres-store-backend-store-postgres) for choosing a store.
+Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
+the **only** upgrade path: run `at-jam export` with the old version, then
+`at-jam import` into a Jam running on `store-postgres`
+([serve.md](serve.md#postgres-store-store-postgres)). Squawk history and session
+events in the old files are not migrated, and the relay cursor/marker/receipt
+files are handled via `state-dir` ([serve.md](serve.md#the-serve-config)).

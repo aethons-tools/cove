@@ -4,7 +4,7 @@ read_when: You are setting up a human's Discord inbox or binding them to their D
 owns: Human.Delivery profiles and the `--delivery service:address[:user-id]` syntax, the Discord user-id binding and its per-project uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bot / bound id / unbound owner's inbox / display name)
 prereqs: comms-addressing.md for the Project roster and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-02
 ---
 
 # Discord delivery & reply attribution
@@ -70,7 +70,7 @@ Discord relay engine's own `EgressMark`, seeded to the Log tail on first
 enable so turning it on never redelivers the backlog) — see
 [intercom.md](intercom.md#enabling-it) for the engine and
 [serve.md](serve.md) for the `runtime.discord.bot-token-cred` config that enables
-it (requires an intercom-log; without one the engine doesn't run).
+it .
 
 **The reply loop:** when a human **replies** (Discord's own reply-to-message
 feature, not a bare follow-up post) to a studio's Discord post, Jam routes

@@ -36,7 +36,7 @@ type intercomNagger struct {
 }
 
 // nagRoster is the slice of jam.Store the nagger reads to decide whether a
-// nag offers keep/release. *jam.MemStore (and fakeStore) satisfy it.
+// nag offers keep/release. Any jam.Store satisfies it (PostgresStore in serve; MemStore in tests).
 type nagRoster interface {
 	GetRoster(project string) (jam.Roster, bool)
 	GetProject(name string) (jam.Project, bool)

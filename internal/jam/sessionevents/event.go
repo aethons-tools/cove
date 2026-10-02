@@ -77,8 +77,8 @@ type Store interface {
 
 var streamIDRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// ValidStreamID reports whether s is a cove-generated stream id. Stores use it
-// as a path segment, so anything else is rejected at ingest.
+// ValidStreamID reports whether s is a cove-generated stream id. It is validated at the
+// ingest, export, and UI boundaries; anything else is rejected.
 func ValidStreamID(s string) bool { return streamIDRe.MatchString(s) }
 
 type wireEvent struct {

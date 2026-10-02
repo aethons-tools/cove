@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-02
 ---
 
 # Standing sessions
@@ -13,7 +13,7 @@ A **standing session** is a named, long-lived agent that an operator declares on
 a role, such as `reviewer/alice-bot`. The declaration is the desired state.
 Jam keeps **exactly one studio running per declared name**. If the studio dies, Jam
 raises it again under the same name. When the name is removed, Jam tears the
-studio down. It works on the file store and on `store-postgres`.
+studio down. Its admission is capped by the allocation ledger.
 
 ## Declaring one
 
@@ -105,14 +105,12 @@ hand (`studio teardown`) only restarts it: the next pass raises it again.
 
 A standing grant must name a declared session. Otherwise it is denied.
 
-- **With `store-postgres`**, the grant goes through the allocation ledger and is
+- The grant goes through the allocation ledger and is
   capped at **the number of names declared on the role**
-  ([serve.md](serve.md#postgres-store-backend-store-postgres)). Standing
+  ([serve.md](serve.md#postgres-store-store-postgres)). Standing
   reservations are counted separately from ephemeral and personal ones, so a dead
   name's slot can't be taken by another kind. A standing reservation leaked by a
   crash between the grant and the raise is reclaimed by the reconcile sweep.
-- **On the file store** there is no ledger. A declared name is admitted by its
-  declaration alone. The one-actor-id-per-name rule is what keeps it to one studio.
 
 ## Messaging
 

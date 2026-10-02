@@ -1,7 +1,7 @@
 ---
-summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store or store-postgres, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
-owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
+owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-10-02
@@ -12,7 +12,7 @@ updated: 2026-10-02
 `at-jam serve --config <file>` runs one process that is both the **broker**
 (the reverse proxy studios send Anthropic/git through) and a **loopback admin API**
 (the control plane the `at-jam` admin verbs talk to). Both are backed by a
-single JSON **store** file. The serve config is bootstrap-only: destinations,
+single **Postgres** store (`store-postgres`, required). The serve config is bootstrap-only: destinations,
 roles, and enrollments are managed at runtime via the admin API, not this file.
 
 ```
@@ -34,7 +34,13 @@ tls:                           # broker server cert (required for a real :443)
 admin-tls:                     # optional; admin-API cert. Falls back to tls: if unset
   cert: /etc/jam/tls/admin-fullchain.pem
   key:  /etc/jam/tls/admin-privkey.pem
-store: /var/lib/jam/store.json   # the live data file (identities, roles, kits, destinations)
+store-postgres:                  # REQUIRED — the live data (identities, roles, kits, destinations, squawks, session events)
+  host: db.internal
+  database: jam
+  user: jam
+  sslmode: verify-full
+  password-cred: jam-db
+state-dir: /var/lib/jam/state    # optional; relay cursors/markers/receipts (default shown in the key table)
 credentials-file: /home/jam/.config/at-jam/credentials.yml  # optional; the XDG default shown
 credentials:                        # name-only DEMANDS — strategies live in the credentials file
   anthropic-key:
@@ -88,31 +94,37 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `dev-identity` | no | **Dev only.** `{project, human}`: loopback browser requests to `/ui` and `/me` act as that roster human with **no login**. `/ui` uses the human's `login`, falling back to `local` if it's unset. `/me` uses their first OIDC identity, so the human needs `--oidc`. A real login session still wins. It never applies off loopback, and the `Host` check still runs. `/me` is mounted even without browser OIDC. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
-| `store` | yes, unless `store-postgres` is set | Path to the JSON store (created on first write; migrated forward across versions). Used when `store-postgres` is absent. |
-| `store-postgres` | no | Selects the Postgres store backend instead of the file `store` (it takes precedence when set). A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. See [Postgres store backend](#postgres-store-backend-store-postgres) below. |
-| `session-events-dir` | no | Directory for the JSONL session-event store (used when `store-postgres` is unset); see [session-events.md](session-events.md). |
+| `store-postgres` | **yes** | The Postgres store: control plane, squawk Log, session events, allocation ledger. A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. `serve` refuses to start without it. See [Postgres store](#postgres-store-store-postgres) below. |
+| `state-dir` | no | Directory for the relay engines' small local files: `relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`. Default `$XDG_STATE_HOME/at-jam`, else `~/.local/state/at-jam`; created `0700` when a relay needs it. Upgraders: move those three files from the old store file's directory, or point `state-dir` at that directory; missing files make the relays re-seed. |
 | `session-events-retention` | no | How long session events are kept (`<N>d` or a Go duration; empty keeps forever); see [session-events.md](session-events.md). |
-| `intercom-log` | no | Filesystem path to Jam's durable squawk Log (JSONL). With a Log (file or `store-postgres`), Jam runs the intercom — `/squawks`, wake-on, and (with `runtime.discord`) the Discord relay — with or without a Requisitioner; see [intercom.md](intercom.md#enabling-it). When set, `serve` opens it (creating it on first open) and the admin UI serves the read-only Intercom view at `/ui/intercom`. Unset disables the view. The Log is append-only and single-writer (the serve process); this field only enables the read side — see [ui.md#intercom](ui.md#intercom). |
 | `credentials-file` | no | Path to the protected file that supplies the demanded credentials. Default `${XDG_CONFIG_HOME:-~/.config}/at-jam/credentials.yml`. See [credentials.md](credentials.md). |
 | `credentials.<name>` | as needed | The credentials the broker injects, **named only** (an empty entry); strategies live in the credentials file — see [credentials.md](credentials.md). Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. A demanded name the file doesn't supply aborts `serve`. |
-| `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `store` and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
+| `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
 | `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), a `linear` block, and `tracker-token-cred` (a demanded credential name). Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `bot-token-cred` (a demanded name in `credentials:`, resolved on the host — never logged/injected) and a configured `intercom-log`; no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `bot-token-cred` (a demanded name in `credentials:`, resolved on the host — never logged/injected) ; no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
-### Postgres store backend (`store-postgres`)
+### Postgres store (`store-postgres`)
 
-By default the control plane lives in the single-file JSON `store`. Setting
-`store-postgres` moves it to Postgres — the source of truth — while `serve`
+The control plane lives in Postgres — the source of truth — while `serve`
 keeps an in-memory read cache (so the broker's hot path never round-trips the
-DB) and writes through to Postgres transactionally. This buys a real datastore
-for ops (backup/monitoring), transactional durability (no whole-file rewrite),
-and headroom to grow. `serve` applies its schema migrations automatically at
-startup and **fails closed** if it can't connect, migrate, or load.
+DB) and writes through to Postgres transactionally. `serve` applies its schema
+migrations automatically at startup and **fails closed** if it can't connect,
+migrate, or load. The squawk Log ([ui.md#intercom](ui.md#intercom)), session
+events, and the allocation ledger live in the same database and pool (tables
+auto-created), so the intercom and session events are always on.
+
+### Removed keys
+
+`store`, `intercom-log`, and `session-events-dir` were removed: setting any of
+them is a **hard startup error** naming the key. To move a file-backed Jam, run
+`at-jam export` with the old version and `at-jam import` into a Postgres Jam
+([backup.md](backup.md)). Squawk history and session events in the old files
+are **not** migrated.
 
 ```yaml
 store-postgres:
@@ -127,31 +139,15 @@ store-postgres:
 No credential is ever inline — the DB password included: `password-cred` names a `credentials:`
 entry (supplied by the [credentials file](credentials.md)), resolved on the host in memory when `serve` assembles the connection
 string — it is never written to disk, put on a command line, or logged (the
-startup log names only the host and database). `store-postgres` takes precedence
-over `store` when both are present.
+startup log names only the host and database).
 
 For a local Postgres to develop against (matching this schema and the CI
 integration setup), see [`dev/`](../../../dev/README.md) — a `docker compose`
 that raises a `postgres:17` on `localhost:15432` with database/user `jam`,
 plus a sample dev serve config (`dev/jam.dev.yml`) wired to it.
 
-**No data migration (Phase 1).** Switching an existing deployment from the file
-`store` to `store-postgres` starts with an **empty control plane** — there is
-no importer. Re-declare actors/roles/kits/destinations via the admin CLI or UI
-after switching; a deployment needing its roster preserved should stay on the
-file backend until it re-enrolls.
-
-**The squawk Log follows the store backend.** `store-postgres` also makes the
-durable squawk Log ([`intercom-log`](#the-serve-config) above,
-[ui.md#intercom](ui.md#intercom)) Postgres-backed, on the same database and
-pool (tables auto-created; `intercom-log:` is ignored) — effectively always-on.
-Without `store-postgres`, the file `intercom-log` path is used as before.
-Either way, switching backends **starts empty** — no data migration.
-
-**The allocation event store follows the store backend too, and with
-`store-postgres` it is now AUTHORITATIVE for the cap.** Jam always runs an
-Allocator (its capacity authority), with or without a Requisitioner. With
-`store-postgres`, it admits each raise through an
+**The allocation event store is AUTHORITATIVE for the cap.** Jam always runs an
+Allocator (its capacity authority), with or without a Requisitioner. It admits each raise through an
 **atomic optimistic-concurrency grant** on an allocation event store on the same
 database and pool (its `alloc_events` table is auto-created): a single conditional
 append that writes a `reservation_granted` *iff* the stream's outstanding count
@@ -160,17 +156,15 @@ stream_revision)`. The grant happens **before** the raise (it reserves the slot,
 so admission cannot overshoot the budget under concurrency), and a
 `reservation_released` is written on teardown **and** as compensation if the
 claim/prompt/raise fails after a grant. The cap is therefore per-normalized-`(project,
-role)` `Outstanding`, not a global instance count. **Without `store-postgres`
-(file backend)** there is no ledger, so the Allocator falls back to the **registry
-live instance count vs budget** (the earlier global behavior) and releases are
-no-ops. A crash *between* a grant and the raise leaves a dangling
-`reservation_granted` (a leaked slot); with Postgres a resident **reconcile sweep**
+role)` `Outstanding`, not a global instance count. `serve` always has the ledger. (A ledger-less Allocator, used only in tests, falls back to the **registry
+live instance count vs budget**.) A crash *between* a grant and the raise leaves a dangling
+`reservation_granted` (a leaked slot); a resident **reconcile sweep**
 reclaims it, so the ledger self-heals. Every minute the Allocator releases each
 outstanding reservation (net `granted − released > 0`) whose latest grant is older
 than a ~5-minute grace window **and** whose actor has no live instance — the grace
 window keeps an in-flight raise (instance not yet in the registry) from being
 swept. The sweep is best-effort (a per-reservation release failure is logged and
-retried on the next tick) and Postgres-only (no ledger ⇒ no sweep). The cap stays
+retried on the next tick) and needs the ledger. The cap stays
 ≤ budget throughout, so an unreclaimed slot is only a transient availability
 nuisance, not a correctness break.
 
@@ -186,8 +180,7 @@ ephemeral and standing reservations, never personal ones. The ephemeral budget i
 back to the Requisitioner's `max-concurrent` ([roster.md](roster.md#roles)). A
 personal grant checks two caps in the same atomic append: the role's
 `max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
-Personal sessions **require** `store-postgres`: the file backend has no
-fallback for them.
+Personal sessions need the ledger, which `serve` always has.
 
 ### The launcher (`runtime.launcher`)
 

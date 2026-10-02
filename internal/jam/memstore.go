@@ -188,8 +188,7 @@ func (fs *MemStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (
 	}
 	i, _ := fs.applyAdvanceCommitCursor(actorID, upToID, upToSeq)
 	if i.CommitSeq == before.CommitSeq {
-		// No-op advance (backward/equal upToSeq): the cache is unchanged, so
-		// skip the write to avoid an unnecessary disk save.
+		// No-op advance (backward/equal upToSeq): nothing changed.
 		return i, nil
 	}
 	return i, nil
@@ -202,8 +201,7 @@ func (fs *MemStore) CommitUnread(participant, channel string, seq int64) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	if _, changed := fs.applyCommitUnread(participant, channel, seq); !changed {
-		// No-op advance (backward/equal seq): the cache is unchanged, so skip the
-		// write to avoid an unnecessary disk save.
+		// No-op advance (backward/equal seq): nothing changed.
 		return nil
 	}
 	return nil

@@ -102,8 +102,9 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 - `JAM_TEST_POSTGRES_DSN=… go test -tags integration ./internal/jam/... ./internal/intercom/...`
   runs the **Postgres store** conformance + fail-closed suite (`PostgresStore`)
   and the **Postgres squawk log** (`intercompg`) conformance suite against a real
-  Postgres; both **skip** when `JAM_TEST_POSTGRES_DSN` is unset (so the hermetic
-  `go test ./...` is unaffected). Example DSN:
+  Postgres; both **skip** when `JAM_TEST_POSTGRES_DSN` is unset. Jam is Postgres-only; hermetic
+  tests (`go test ./...`) use the in-memory stores `jam.NewMemStore`, `intercom.NewMemLog`,
+  and `sessionevents.NewMemStore` (test-only, never constructed by `serve`). Example DSN:
   `host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable`.
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
