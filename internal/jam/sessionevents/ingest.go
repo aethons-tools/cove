@@ -77,7 +77,7 @@ func (in *Ingest) Append(actorID string, stamp Stamp, ev Incoming) (uint64, erro
 		ObservedAt: ev.ObservedAt, ReceivedAt: now, TruncatedBytes: ev.TruncatedBytes,
 		Raw: append([]byte(nil), ev.Raw...), Stamp: stamp, Index: DeriveIndex(ev.Raw)}
 	if err := in.store.Append(e); err != nil {
-		return hw, err // not durable → not acked; the cove resends on reconnect
+		return hw, err // not durable → not acked; the Attach server ends the stream so the cove reconnects and replays from its last ack
 	}
 	in.hw[k] = ev.Seq
 	in.hub.Publish(e)

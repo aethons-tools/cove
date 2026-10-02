@@ -6,6 +6,7 @@ package attach
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -163,7 +164,13 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			if err != nil {
 				// Never log raw content — it is agent output (see session-events.md).
 				s.log.Warn("session event not stored", "actor", actorID, "seq", ev.GetSeq(), "err", err.Error())
-				continue
+				if errors.Is(err, sessionevents.ErrBadStreamID) || errors.Is(err, sessionevents.ErrBadSeq) {
+					continue // validation: this event can never be stored; drop it
+				}
+				// Store failure: end the stream so the cove reconnects and replays
+				// from its last ack. Continuing would let the next seq write a gap
+				// row and its cumulative ack trim the unstored event.
+				return status.Error(codes.Unavailable, "session events: store unavailable")
 			}
 			acks.set(ev.GetStreamId(), hw)
 		}

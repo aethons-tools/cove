@@ -1,6 +1,10 @@
 package attach
 
 import (
+	"errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,5 +76,77 @@ func TestAttachWithoutSessionEventsIgnoresEvents(t *testing.T) {
 	stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Status{Status: attachpb.Activity_WAITING}})
 	if !eventually(func() bool { i, _ := store.GetInstance("w1"); return i.Activity == "waiting" }) {
 		t.Fatal("event without ingest broke the stream")
+	}
+}
+
+// failOnceStore fails the Nth Append call once, then delegates.
+type failOnceStore struct {
+	sessionevents.Store
+	mu    sync.Mutex
+	calls int
+	failN int
+}
+
+func (f *failOnceStore) Append(ev sessionevents.Event) error {
+	f.mu.Lock()
+	f.calls++
+	fail := f.calls == f.failN
+	f.mu.Unlock()
+	if fail {
+		return errors.New("disk on fire")
+	}
+	return f.Store.Append(ev)
+}
+
+func TestAttachStoreErrorEndsStreamAndReplayLeavesNoGap(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	fs, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := &failOnceStore{Store: fs, failN: 2} // seq 2 fails
+	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := uint64(1); i <= 3; i++ {
+		_ = stream.Send(evMsg(i, `{"type":"system"}`))
+	}
+	done := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-done:
+		if status.Code(err) != codes.Unavailable {
+			t.Fatalf("want Unavailable, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream did not end on store error")
+	}
+	// The cove reconnects and replays from its last ack (1).
+	stream2, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stream2.Send(evMsg(2, `{"type":"system"}`))
+	_ = stream2.Send(evMsg(3, `{"type":"system"}`))
+	if !eventually(func() bool {
+		rows, _ := fs.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+		return len(rows) == 3
+	}) {
+		rows, _ := fs.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+		t.Fatalf("rows %+v", rows)
+	}
+	rows, _ := fs.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+	for i, r := range rows {
+		if r.Kind != sessionevents.KindEvent || r.Seq != uint64(i+1) {
+			t.Fatalf("row %d: %+v", i, r)
+		}
 	}
 }
