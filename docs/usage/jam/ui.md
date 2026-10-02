@@ -31,7 +31,10 @@ It renders:
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
   studios — see [Runtime (studios)](#runtime-studios) below and
-  [coves.md](coves.md).
+  [coves.md](coves.md). Each id opens the studio's page (runtime, waiting and
+  escalation state, session streams, squawks — see
+  [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
+  live session timeline.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the durable squawk Log (`intercom-log:` in the serve config). Filter by
   project, participant (`kind:ref`, e.g. `channel:eng`), a body substring, and a
@@ -170,7 +173,7 @@ for the backend-selection rule.
 
 ## Session timeline
 
-`/ui/coves/{id}/session` (linked from the Studios table ID) shows a managed
+`/ui/coves/{id}/session` (linked from the Studios table and the studio's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns, tool calls, tokens in/out, cost), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
