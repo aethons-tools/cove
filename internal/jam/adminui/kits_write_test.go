@@ -23,7 +23,7 @@ func uiHandler(t *testing.T, store jam.Store) http.Handler {
 func TestPushKit(t *testing.T) {
 	store := newStore(t)
 	h := uiHandler(t, store)
-	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {"listen: :443"}})
+	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {"kind: studio\n"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("push kit = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -32,6 +32,13 @@ func TestPushKit(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "base") {
 		t.Errorf("kits fragment should list the kit; got:\n%s", rec.Body.String())
+	}
+	// a config that isn't a studio kit is refused, not stored
+	if rec := post(t, h, "/ui/kits", url.Values{"name": {"y"}, "config": {"listen: :443"}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-studio config = %d, want 400", rec.Code)
+	}
+	if _, ok := store.GetKit("y"); ok {
+		t.Fatal("a refused config must not be stored")
 	}
 	// missing config → 400
 	bad := post(t, h, "/ui/kits", url.Values{"name": {"x"}})
@@ -104,12 +111,13 @@ func TestKitWriteCSRF(t *testing.T) {
 }
 
 // TestPushKitNoConfigLeak asserts the kits-table fragment returned by a
-// successful push shows only name/version/count, never the raw config text.
+// successful push summarizes the kit, never echoing the config text (the
+// kit's own page shows it).
 func TestPushKitNoConfigLeak(t *testing.T) {
 	store := newStore(t)
 	h := uiHandler(t, store)
 	const secretConfig = "SECRET-KIT-CONFIG-XYZ"
-	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {secretConfig}})
+	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {"kind: studio\nprompt: " + secretConfig + "\n"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("push kit = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}

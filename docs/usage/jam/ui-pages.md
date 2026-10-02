@@ -1,8 +1,8 @@
 ---
-summary: The Jam admin UI's per-entity pages — a role's page (/ui/roles/<project>/<name>) and a destination's page (/ui/destinations/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a role or destination in the Jam admin UI — its scope, egress, allocation, standing sessions, client env/connector, or who uses it — or wondering why the list pages only create.
-owns: the role and destination detail pages (what they show, their edit forms, create-only list forms, connector-conflict flags)
-prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; roster.md for roles; connector.md for destination env/git
+summary: The Jam admin UI's per-entity pages — a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a role, destination or kit in the Jam admin UI — its scope, egress, allocation, standing sessions, client env/connector, kit versions/diffs/pinning, or who uses it — or wondering why the list pages only create.
+owns: the role, destination and kit detail pages (what they show, their edit forms, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-02
 ---
@@ -75,3 +75,34 @@ and git routing and oauth-beta are checkboxes. Validation matches the admin API
 (required fields, a configured default credential, env keys and placeholders).
 Changing env on the `/git/` route drops its implied git routing unless **Route
 git** is ticked; the form says so. **Delete** is on the page header.
+
+## Kit pages
+
+Each kit name in the Kits table links to `/ui/kits/<name>`. The table shows the
+current version (of how many), the current version's base kind and egress
+count, and how many roles raise it (for `default`, that includes roles with no
+kit set). A kit whose current version won't parse is marked **invalid**. The
+**New kit** form takes a name and studio-kit YAML and validates it exactly as
+`kit push` does ([kits.md](kits.md)); an existing name is refused — push new
+versions on the kit's page.
+
+The page has a **version rail** — every version with its short build digest
+(versions sharing one reuse one image), **Pin** to make an older or newer
+version current, and links to diff a version against its predecessor or
+against current. `?v=N` views a version; `?v=N&diff=M` adds a line diff of the
+two versions' YAML (long unchanged runs collapsed) and says whether the build
+digest changed — i.e. whether that version builds a new image.
+
+For the viewed version it shows the base (image ref, context-files paths, or a
+packed `context`'s file list with modes and sizes — read from the tar headers,
+nothing extracted), egress with the effective ceiling and anything excluded
+(COV-208), build args, secret demands (name + description; never values), the
+prompt, the build digest, and the YAML rendered back from the stored kit (a
+packed context abbreviated) with **Copy**. A stored version that isn't a valid
+studio kit (a pre-studio row) shows its parse error and raw text instead.
+
+**Push new version** is pre-filled with the viewed version's full YAML; pushing
+makes a new current version, or reports the kit unchanged when it equals
+current. **Used by** links the roles that raise the kit. **Delete** is disabled
+while any role uses the kit, and always for the built-in `default` kit (Jam
+re-seeds it at serve start).

@@ -804,11 +804,27 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("kit push output missing expected text:\n%s", out.String())
 	}
 
-	// kit push again to create a second version, for pin to target
+	// an identical re-push makes no new version
 	out.Reset()
 	errb.Reset()
 	if code := run([]string{
 		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit push (same): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "web unchanged (current v1)") {
+		t.Fatalf("identical kit push output:\n%s", out.String())
+	}
+
+	// a changed kit makes a second version, for pin to target
+	changed := filepath.Join(dir, "changed.yml")
+	if err := os.WriteFile(changed, []byte("kind: studio\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: c\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", changed,
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit push (v2): exit=%d stderr=%s", code, errb.String())
 	}
@@ -832,7 +848,7 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "name: web") ||
+	if strings.Contains(out.String(), "name:") || !strings.Contains(out.String(), "kind: studio") ||
 		!strings.Contains(out.String(), "egress ceiling: github.com") ||
 		!strings.Contains(out.String(), "excluded (COV-208): claude.ai") {
 		t.Fatalf("kit show output missing expected config:\n%s", out.String())

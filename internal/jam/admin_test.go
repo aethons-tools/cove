@@ -581,9 +581,19 @@ func TestAdminKitsCRUD(t *testing.T) {
 		t.Fatalf("push v1 = %+v", r1)
 	}
 	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\negress:\n  - example.com\n"}), &r2)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress:\n  - example.com\n"}), &r2)
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
+	}
+	// re-pushing the current definition makes no new version
+	var r3 KitResult
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress: [example.com]\n"}), &r3)
+	if r3.Version != 2 || !r3.Unchanged {
+		t.Fatalf("unchanged push = %+v, want v2 unchanged", r3)
+	}
+	// a legacy in-file name must match the name it's pushed under
+	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: api\n"}).Code; code != http.StatusBadRequest {
+		t.Fatalf("mismatched legacy name push = %d, want 400", code)
 	}
 	// an invalid config (unknown field) is rejected at ingestion, not stored
 	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nnope: 1\n"}).Code; code != http.StatusBadRequest {
@@ -599,13 +609,13 @@ func TestAdminKitsCRUD(t *testing.T) {
 	var cur KitConfigResult
 	getJSON(t, h, "/admin/kits/web", &cur)
 	if cur.Version != 2 || !json.Valid([]byte(cur.Config)) ||
-		!strings.Contains(cur.Config, `"name":"web"`) || !strings.Contains(cur.Config, "example.com") {
+		strings.Contains(cur.Config, `"name"`) || !strings.Contains(cur.Config, "example.com") {
 		t.Fatalf("show current = %+v (want canonical JSON with example.com)", cur)
 	}
 	var old KitConfigResult
 	getJSON(t, h, "/admin/kits/web?version=1", &old)
 	if old.Version != 1 || !json.Valid([]byte(old.Config)) ||
-		!strings.Contains(old.Config, `"name":"web"`) || strings.Contains(old.Config, "example.com") {
+		strings.Contains(old.Config, `"name"`) || strings.Contains(old.Config, "example.com") {
 		t.Fatalf("show v1 = %+v (want canonical JSON without example.com)", old)
 	}
 	// versions
