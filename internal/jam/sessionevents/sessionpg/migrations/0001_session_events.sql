@@ -1,0 +1,32 @@
+CREATE TABLE session_events (
+    actor_id          text        NOT NULL,
+    stream_id         text        NOT NULL,
+    seq               bigint      NOT NULL,
+    kind              text        NOT NULL,
+    gap_from          bigint      NOT NULL DEFAULT 0,
+    gap_to            bigint      NOT NULL DEFAULT 0,
+    turn              integer     NOT NULL DEFAULT 0,
+    observed_at       timestamptz NOT NULL,
+    received_at       timestamptz NOT NULL,
+    truncated_bytes   bigint      NOT NULL DEFAULT 0,
+    project           text        NOT NULL DEFAULT '',
+    role              text        NOT NULL DEFAULT '',
+    unit              text        NOT NULL DEFAULT '',
+    owner             text        NOT NULL DEFAULT '',
+    session_kind      text        NOT NULL DEFAULT '',
+    raised_at         timestamptz NOT NULL,
+    type              text        NOT NULL DEFAULT '',
+    subtype           text        NOT NULL DEFAULT '',
+    tool_name         text        NOT NULL DEFAULT '',
+    claude_session_id text        NOT NULL DEFAULT '',
+    cost_usd          double precision NOT NULL DEFAULT 0,
+    input_tokens      bigint      NOT NULL DEFAULT 0,
+    output_tokens     bigint      NOT NULL DEFAULT 0,
+    duration_ms       bigint      NOT NULL DEFAULT 0,
+    is_error          boolean     NOT NULL DEFAULT false,
+    raw               jsonb,
+    raw_text          text,
+    PRIMARY KEY (actor_id, stream_id, seq)
+);
+CREATE INDEX session_events_actor_received ON session_events (actor_id, received_at);
+CREATE INDEX session_events_type_tool ON session_events (type, tool_name);
