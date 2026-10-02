@@ -303,13 +303,15 @@ func TestWriteCollaboratorRole(t *testing.T) {
 	}
 }
 
-func TestWriteCollaboratorRoleEmptyWritesPlaceholder(t *testing.T) {
+// An empty prompt still rewrites COLLABORATOR.md (to empty), so a previous
+// role's text never lingers and an absent role adds nothing to the context.
+func TestWriteCollaboratorRoleEmptyClearsFile(t *testing.T) {
 	f := &runner.Fake{}
 	if err := writeCollaboratorRole(f, sshargs.Target{}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Calls) == 0 || f.Calls[0].Stdin == "" {
-		t.Fatalf("empty prompt must still write a placeholder; calls=%+v", f.Calls)
+	if len(f.Calls) != 1 || !strings.Contains(strings.Join(f.Calls[0].Args, " "), "cat > "+collaboratorVMPath) || f.Calls[0].Stdin != "" {
+		t.Fatalf("empty prompt must truncate COLLABORATOR.md to empty; calls=%+v", f.Calls)
 	}
 }
 
