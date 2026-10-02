@@ -17,18 +17,18 @@ func newRoleStore(t *testing.T) Store {
 	return st
 }
 
-func TestRoleStatus(t *testing.T) {
-	if got := RoleStatus(&RoleError{Status: http.StatusConflict, Msg: "x"}, 500); got != http.StatusConflict {
-		t.Errorf("RoleError status = %d", got)
+func TestWriteStatus(t *testing.T) {
+	if got := WriteStatus(&WriteError{Status: http.StatusConflict, Msg: "x"}, 500); got != http.StatusConflict {
+		t.Errorf("WriteError status = %d", got)
 	}
-	if got := RoleStatus(errors.New("disk"), 500); got != 500 {
+	if got := WriteStatus(errors.New("disk"), 500); got != 500 {
 		t.Errorf("plain error status = %d, want the fallback", got)
 	}
 }
 
 func TestUpdateRoleMissingIs404(t *testing.T) {
 	err := UpdateRole(newRoleStore(t), "acme", "nope", func(*Role) error { return nil })
-	if RoleStatus(err, 0) != http.StatusNotFound || err.Error() != "role acme/nope does not exist" {
+	if WriteStatus(err, 0) != http.StatusNotFound || err.Error() != "role acme/nope does not exist" {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -40,7 +40,7 @@ func TestUpdateRoleAppliesAndFnErrorAborts(t *testing.T) {
 	if r, _ := st.GetRole("acme", "w"); r.Scope.TTL != 2 {
 		t.Fatalf("ttl = %v, want 2", r.Scope.TTL)
 	}
-	refuse := &RoleError{Status: http.StatusBadRequest, Msg: "no"}
+	refuse := &WriteError{Status: http.StatusBadRequest, Msg: "no"}
 	if err := UpdateRole(st, "acme", "w", func(r *Role) error { r.Scope.TTL = 3; return refuse }); err != refuse {
 		t.Fatalf("err = %v, want the fn's error", err)
 	}
@@ -52,7 +52,7 @@ func TestUpdateRoleAppliesAndFnErrorAborts(t *testing.T) {
 func TestCreateRoleRefusesExisting(t *testing.T) {
 	st := newRoleStore(t)
 	must(t, CreateRole(st, "acme", Role{Name: "w"}))
-	if err := CreateRole(st, "acme", Role{Name: "w"}); RoleStatus(err, 0) != http.StatusConflict {
+	if err := CreateRole(st, "acme", Role{Name: "w"}); WriteStatus(err, 0) != http.StatusConflict {
 		t.Fatalf("second create = %v, want 409", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestEgressSetAndClear(t *testing.T) {
 	if n != 2 || r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 2 {
 		t.Fatalf("after set: n=%d role=%+v", n, r)
 	}
-	if _, err := SetRoleEgress(st, "acme", "w", []string{"not a domain!"}); RoleStatus(err, 0) != http.StatusBadRequest {
+	if _, err := SetRoleEgress(st, "acme", "w", []string{"not a domain!"}); WriteStatus(err, 0) != http.StatusBadRequest {
 		t.Fatalf("bad domain = %v, want 400", err)
 	}
 	must(t, ClearRoleEgress(st, "acme", "w"))
@@ -99,11 +99,11 @@ func TestStandingAddRemove(t *testing.T) {
 		{StandingSession{Name: "", Prompt: "p"}, http.StatusBadRequest},   // missing name
 		{StandingSession{Name: "n2"}, http.StatusBadRequest},              // missing prompt
 	} {
-		if err := AddStanding(st, "acme", "w", tc.s); RoleStatus(err, 0) != tc.want {
+		if err := AddStanding(st, "acme", "w", tc.s); WriteStatus(err, 0) != tc.want {
 			t.Errorf("add %+v = %v, want %d", tc.s, err, tc.want)
 		}
 	}
-	if err := RemoveStanding(st, "acme", "w", "ghost"); RoleStatus(err, 0) != http.StatusNotFound {
+	if err := RemoveStanding(st, "acme", "w", "ghost"); WriteStatus(err, 0) != http.StatusNotFound {
 		t.Errorf("remove missing = %v, want 404", err)
 	}
 	must(t, RemoveStanding(st, "acme", "w", "n1"))

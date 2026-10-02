@@ -206,10 +206,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		// Create only: an existing role is edited section by section on its page.
 		if err := jam.CreateRole(store, project, role); err != nil {
 			msg := err.Error()
-			if jam.RoleStatus(err, 0) == http.StatusConflict {
+			if jam.WriteStatus(err, 0) == http.StatusConflict {
 				msg += "; edit it on its page"
 			}
-			renderError(w, jam.RoleStatus(err, http.StatusBadRequest), msg)
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
 			return
 		}
 		w.Header().Set("HX-Redirect", roleURL(project, name))
@@ -383,49 +383,5 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		}
 		log.Info("ui kit removed", "operator", jam.OperatorID(r), "kit", name)
 		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
-	})
-
-	mux.HandleFunc("POST /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		d := jam.Destination{
-			Name:       strings.TrimSpace(r.FormValue("name")),
-			Route:      strings.TrimSpace(r.FormValue("route")),
-			Upstream:   strings.TrimSpace(r.FormValue("upstream")),
-			IdentityIn: jam.ApplyMethod(strings.TrimSpace(r.FormValue("identity-in"))),
-			CredName:   strings.TrimSpace(r.FormValue("cred-name")),
-			Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
-		}
-		if d.Name == "" || d.Route == "" || d.Upstream == "" {
-			renderError(w, http.StatusBadRequest, "name, route and upstream are required")
-			return
-		}
-		if d.CredName != "" && !credExists(d.CredName) {
-			renderError(w, http.StatusBadRequest, "cred-name does not resolve to a configured credential")
-			return
-		}
-		if err := store.AddDestination(d); err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
-	})
-
-	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := store.RemoveDestination(r.PathValue("name")); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
 	})
 }

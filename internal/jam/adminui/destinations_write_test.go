@@ -46,8 +46,8 @@ func TestAddDestinationBadCred400(t *testing.T) {
 	rec := post(t, h, "/ui/destinations", url.Values{
 		"name": {"x"}, "route": {"/x/"}, "upstream": {"https://x"}, "cred-name": {"ghost"},
 	})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "cred-name") {
-		t.Fatalf("bad cred = %d %q, want 400 mentioning cred-name", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") {
+		t.Fatalf("bad cred = %d %q, want 400 naming the credential", rec.Code, rec.Body.String())
 	}
 	if len(store.ListDestinations()) != 0 {
 		t.Error("destination with bad cred must not be added")
@@ -74,24 +74,22 @@ func TestDestinationWriteCSRF(t *testing.T) {
 	}
 }
 
-// TestAddDestinationNoCredLeak asserts the destinations-table fragment
-// returned by a successful add shows only name/route/upstream,
-// never the cred-name value. Uses a dedicated credExists stub (rather than
-// the shared credOK, which only accepts "known-cred") so the add succeeds
-// with a distinctive cred-name.
-func TestAddDestinationNoCredLeak(t *testing.T) {
-	const secretCred = "SECRET-CRED-REF"
+// TestAddDestinationShowsCredNameNotValue: credential names are references,
+// so the destinations table shows the default credential's name; the resolver
+// is only ever asked whether it exists, so no value can reach the page.
+func TestAddDestinationShowsCredNameNotValue(t *testing.T) {
+	const credRef = "CRED-REF"
 	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, nil, func(name string) bool { return name == secretCred }, nil)
+	h := adminui.Handler(store, testLogger(), nil, nil, func(name string) bool { return name == credRef }, nil)
 	rec := post(t, h, "/ui/destinations", url.Values{
 		"name": {"anthropic"}, "route": {"/anthropic/"}, "upstream": {"https://api.anthropic.com"},
-		"identity-in": {"x-api-key"}, "cred-name": {secretCred}, "apply": {"x-api-key"},
+		"identity-in": {"x-api-key"}, "cred-name": {credRef}, "apply": {"x-api-key"},
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add destination = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), secretCred) {
-		t.Errorf("add-destination response must not leak cred-name; got:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), credRef) {
+		t.Errorf("destinations table should show the default credential's name; got:\n%s", rec.Body.String())
 	}
 }
 

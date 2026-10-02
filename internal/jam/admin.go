@@ -291,18 +291,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &d) {
 			return
 		}
-		if d.Name == "" || d.Route == "" || d.Upstream == "" {
-			http.Error(w, "name, route and upstream are required", http.StatusBadRequest)
+		if err := ValidateDestination(d, credExists); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
-		if d.CredName != "" && !credExists(d.CredName) {
-			http.Error(w, "cred_name does not resolve to a configured credential", http.StatusBadRequest)
-			return
-		}
-		if err := d.ValidateEnv(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+		// An upsert: `destination add` of an existing name replaces it.
 		if err := store.AddDestination(d); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
