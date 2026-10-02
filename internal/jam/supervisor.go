@@ -285,6 +285,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
 		RaisedAt:         now, LastSeen: now,
+		WaitSeq:   s.tailSeq(), // wake-on baseline: the cove starts Running and reads its inbox itself
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 		Egress:    EgressFingerprint(spec.Egress),
 	}
@@ -398,12 +399,22 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
+	enteringRunning := a == ActivityRunning && inst.Activity != ActivityRunning
 	inst.Activity = a
 	inst.LastSeen = now
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
-	if enteringWaiting {
-		inst.WaitingSince = now
+	if enteringRunning {
+		// The wake-on baseline moves to the log tail when a run starts: the agent
+		// reads its inbox itself, so only later replies need a Wake. While Running,
+		// the wake-on engine wakes the cove on each later reply and advances the
+		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+	}
+	if enteringWaiting {
+		// WaitSeq is deliberately kept: a reply that landed while the cove was
+		// Running (an agent holding its episode open for a background task, or
+		// mid-turn) and was not yet woken for must still wake it now.
+		inst.WaitingSince = now
 		inst.EscalationTier = 0
 		inst.TierPingedAt = time.Time{}
 		inst.LastNagAt = time.Time{} // a new Waiting period restarts the idle ladder

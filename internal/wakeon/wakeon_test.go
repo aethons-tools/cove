@@ -1090,3 +1090,69 @@ func TestReplyToAct_NonPersonalWakes(t *testing.T) {
 		})
 	}
 }
+
+// fakeCursor records SetWaitSeq calls and applies them to a fakeReg.
+type fakeCursor struct {
+	reg *fakeReg
+	set map[string]int64
+}
+
+func (f *fakeCursor) SetWaitSeq(actorID string, seq int64) error {
+	if f.set == nil {
+		f.set = map[string]int64{}
+	}
+	f.set[actorID] = seq
+	for i := range f.reg.insts {
+		if f.reg.insts[i].ActorID == actorID {
+			f.reg.insts[i].WaitSeq = seq
+		}
+	}
+	return nil
+}
+
+// A reply to a Running cove (its agent holding a live episode open for a
+// background task, or mid-turn) must Wake it — the cove delivers the Wake into
+// the live process or coalesces it — and advance its baseline past the reply so
+// the next tick does not Wake again. It is never paused or reaped for it.
+func TestTick_ReplyToRunningCoveWakesOnceAndAdvancesBaseline(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, SessionKind: jam.SessionKindPersonal, Owner: "alice", WaitSeq: 5},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+		"a1": {extInbound("a1", 6, "id-6"), extInbound("a1", 8, "id-8")},
+	}}
+	wake, reap, idler := &fakeWaker{}, &fakeReaper{}, &fakeIdler{}
+	cur := &fakeCursor{reg: reg}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
+	e.SetRunningWake(cur)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.woke[0] != "a1" {
+		t.Fatalf("a reply to a Running cove must Wake it once, got wake=%v", wake.woke)
+	}
+	if cur.set["a1"] != 8 {
+		t.Fatalf("baseline advanced to %d, want 8 (the latest reply woken for)", cur.set["a1"])
+	}
+	e.tick(context.Background())
+	if len(wake.woke) != 1 {
+		t.Fatalf("an already-woken reply must not Wake again, got wake=%v", wake.woke)
+	}
+	if len(idler.idled) != 0 || len(reap.down) != 0 {
+		t.Errorf("a Running cove is never paused or reaped, got idle=%v teardown=%v", idler.idled, reap.down)
+	}
+}
+
+// Without SetRunningWake (no cursor to advance), Running coves are left alone.
+func TestTick_RunningCoveIgnoredWithoutCursor(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, WaitSeq: 5},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 0 {
+		t.Fatalf("no cursor: Running coves must not be woken, got %v", wake.woke)
+	}
+}

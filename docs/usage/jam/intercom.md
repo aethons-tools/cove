@@ -129,6 +129,11 @@ optional reclaim. The owner's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
 A standing session has no owner, so it gets no nags.
 
+A reply that lands while the studio is still **`running`** also wakes it, at once, so a
+reply sent mid-turn is never skipped when the studio later reports `waiting`. cove-master
+holds the wake until the agent can act on it (see [coves.md](coves.md)). A running
+studio is never paused or torn down for this.
+
 While waiting, a studio doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0
 CPU) and moves it to the `idled` [phase](coves.md#the-model) — a paused, intentionally
@@ -152,10 +157,14 @@ existing configs) **> the default**. An invalid `runtime.wake` duration fails `s
 at startup; an invalid Requisitioner value still falls back to the default.
 
 The wake trigger is **an external-origin squawk addressed to the studio landing in
-the durable squawk Log** after a `WaitSeq` baseline: on entering Waiting the
-supervisor stamps `WaitSeq` to the Log's current tail sequence, and any later
+the durable squawk Log** after a `WaitSeq` baseline: when a run starts (at raise, and
+whenever the studio enters `running`) the supervisor stamps `WaitSeq` to the Log's
+current tail sequence — the starting agent reads its inbox itself — and any later
 external-origin squawk addressed to the studio (append `seq` > `WaitSeq`) counts as a
-reply — an append-sequence compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
+reply. Waking a `running` studio advances `WaitSeq` past the replies it was woken for;
+entering `waiting` leaves `WaitSeq` alone, so a reply that landed during the run and was
+not yet woken for wakes the studio as soon as it waits. It is an append-sequence compare,
+not a wall-clock one (`WaitingSince` is unchanged, but now drives only
 `wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
 by the relay ingress engine above, so a Waiting studio wakes on a reply only once a relay
 has ingested it; with no relay configured, it's bounded only by `wait-max` teardown

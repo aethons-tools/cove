@@ -1,6 +1,7 @@
 // Package wakeon is Jam's resident wake-on engine: it watches Waiting managed
 // coves and wakes them (over the Attach ControlSink) when an external-origin
-// reply lands in the message Log addressed to them, or tears them down past a
+// reply lands in the message Log addressed to them (and, with SetRunningWake,
+// Running ones too, so a reply reaches an agent holding a live episode open), or tears them down past a
 // max-wait (personal sessions excepted — they wait on their owner, and instead
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
 // nag with "keep" or "release", which Jam acts on without waking). Wired from
@@ -62,6 +63,13 @@ type Nagger interface {
 	NotifyReleased(ctx context.Context, inst jam.Instance) error
 }
 
+// Cursor advances a cove's wake-on baseline (Supervisor.SetWaitSeq) past the
+// replies it was just woken for while Running, so the next tick does not wake
+// it again for the same reply.
+type Cursor interface {
+	SetWaitSeq(actorID string, seq int64) error
+}
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -85,6 +93,9 @@ type Engine struct {
 	roles  RoleLookup
 	nags   NagRecorder
 	nagger Nagger // nil = no nags or notices (reclaim still runs)
+
+	// cursor, when set (SetRunningWake), lets the engine wake Running coves too.
+	cursor Cursor
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -111,6 +122,14 @@ func (e *Engine) SetIdleLadder(roles RoleLookup, nags NagRecorder, nagger Nagger
 	e.roles, e.nags, e.nagger = roles, nags, nagger
 }
 
+// SetRunningWake turns on waking Running coves: a reply to a Live, Running
+// cove Wakes it at once — its agent may be holding a live episode open for a
+// background task, between turns, where the Wake is written straight in (or,
+// mid-turn, coalesced into one resume at turn end) — and cursor advances its
+// baseline past the reply. Without it a reply landing while the cove runs only
+// wakes it once it reports Waiting. Call before Run.
+func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
+
 func (e *Engine) Run(ctx context.Context) {
 	e.tick(ctx)
 	tk := time.NewTicker(e.cfg.PollInterval)
@@ -127,6 +146,10 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
+		if inst.Activity == jam.ActivityRunning {
+			e.wakeRunning(inst)
+			continue
+		}
 		if inst.Activity != jam.ActivityWaiting {
 			continue
 		}
@@ -168,6 +191,28 @@ func (e *Engine) tick(ctx context.Context) {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
 			}
 		}
+	}
+}
+
+// wakeRunning Wakes a Live, Running cove that has replies past its baseline and
+// advances the baseline past them (see SetRunningWake). A failed advance is
+// logged; the next tick then wakes again, which the cove coalesces.
+func (e *Engine) wakeRunning(inst jam.Instance) {
+	if e.cursor == nil || inst.Phase != jam.PhaseLive {
+		return
+	}
+	rs := e.replies(inst)
+	if len(rs) == 0 {
+		return
+	}
+	last := inst.WaitSeq
+	for _, m := range rs {
+		last = max(last, m.Seq)
+	}
+	e.log.Info("wakeon: reply to a running cove, waking", "actor", inst.ActorID)
+	e.wake.Wake(inst.ActorID)
+	if err := e.cursor.SetWaitSeq(inst.ActorID, last); err != nil {
+		e.log.Warn("wakeon: advance wait baseline failed", "actor", inst.ActorID, "error", err.Error())
 	}
 }
 
@@ -217,7 +262,7 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 
 // replies returns the external-origin inbound messages addressed to the cove
 // after its WaitSeq position (the log tail's append-order Seq, baselined when
-// it entered Waiting). Seq is append order, not a lexical id compare — so this
+// its run started and advanced past each reply it was woken for while Running). Seq is append order, not a lexical id compare — so this
 // is correct regardless of which id-namespaced source (Linear vs. Discord
 // ingress, etc.) produced a reply's id (COV-184: a lexical-id compare could
 // wrongly treat a later reply as "before" the baseline when the two ids come
