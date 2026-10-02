@@ -1,9 +1,12 @@
 package connect
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -234,5 +237,57 @@ func TestLaunchCoveMasterHandsOffConnector(t *testing.T) {
 	}
 	if n := strings.Count(env, "tok-123"); n != 1 {
 		t.Fatalf("raw token appears %d times (must only be the single export)", n)
+	}
+}
+
+func launchWith(t *testing.T, b *sessionctx.Bundle) *runner.Fake {
+	t.Helper()
+	fake := &runner.Fake{}
+	err := LaunchCoveMaster(fake, CoveMasterOptions{
+		Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "jam.example.com",
+		RuntimeAddr: "jam.example.com:443", IdentityToken: "tok", LaunchSecret: "s",
+		WorkDir: "/w", Prompt: "p", Context: b,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fake
+}
+
+// stdinWrites maps each "cat > <path>" ssh target to the stdin piped to it.
+func stdinWrites(f *runner.Fake) map[string]string {
+	out := map[string]string{}
+	for _, c := range f.Calls {
+		argv := strings.Join(c.Args, " ")
+		if i := strings.Index(argv, "cat > "); c.Name == "ssh" && i >= 0 {
+			out[strings.Fields(argv[i+len("cat > "):])[0]] = c.Stdin
+		}
+	}
+	return out
+}
+
+func TestLaunchCoveMasterStagesContext(t *testing.T) {
+	b := &sessionctx.Bundle{Core: "# Session context\n", Files: map[string]string{"INDEX.md": "x"}, Fingerprint: "fp", Layers: map[string]string{}}
+	w := stdinWrites(launchWith(t, b))
+	raw, ok := w[coveMasterContextVMPath]
+	if !ok {
+		t.Fatalf("no write to %s; writes=%v", coveMasterContextVMPath, w)
+	}
+	var got sessionctx.Bundle
+	if err := json.Unmarshal([]byte(raw), &got); err != nil || !reflect.DeepEqual(&got, b) {
+		t.Fatalf("staged bundle = %+v (%v), want %+v", got, err, b)
+	}
+	if env := w[coveMasterEnvVMPath]; !strings.Contains(env, "export AT_COVE_AGENT_CONTEXT_FILE='"+coveMasterContextVMPath+"'") {
+		t.Fatalf("env missing AT_COVE_AGENT_CONTEXT_FILE:\n%s", env)
+	}
+}
+
+func TestLaunchCoveMasterNoContextNoEnv(t *testing.T) {
+	w := stdinWrites(launchWith(t, nil))
+	if _, ok := w[coveMasterContextVMPath]; ok {
+		t.Fatal("nil context must stage nothing")
+	}
+	if strings.Contains(w[coveMasterEnvVMPath], "AT_COVE_AGENT_CONTEXT_FILE") {
+		t.Fatal("nil context must not export AT_COVE_AGENT_CONTEXT_FILE")
 	}
 }
