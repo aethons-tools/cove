@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
+	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -118,5 +120,61 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	}
 	if plain != "xz" {
 		t.Errorf("plain paste after paste as code: box = %q, want %q", plain, "xz")
+	}
+}
+
+func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
+	ctx := browserCtx(t)
+	store, log, p := fixture()
+	wide := "```\n" + strings.Repeat("x", 400) + "\n```"
+	first := log.sq[0]
+	// One wide block from someone else (left-aligned bubble) and one sent by
+	// the viewer (right-aligned, sized to its content rather than stretched).
+	log.sq = append(log.sq,
+		intercom.Squawk{Seq: 2, From: intercom.Target{Kind: "cove", Ref: "bot"}, To: first.To, Body: wide, At: first.At, Project: "proj"},
+		intercom.Squawk{Seq: 3, From: first.From, To: first.To, Body: wide, At: first.At, Project: "proj"},
+	)
+	h := Handler(store, log, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, jam.WithParticipant(r, p))
+	}))
+	t.Cleanup(srv.Close)
+
+	// A code line far wider than the window must stay inside its bubble and the
+	// window, scrolling sideways within the block instead.
+	type box struct {
+		Kind                           string
+		Left, Right, MsgLeft, MsgRight float64
+		Client, Scroll                 float64
+	}
+	var boxes []box
+	var viewport float64
+	err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1000, 700),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.WaitVisible(`.msg .body.md pre`, chromedp.ByQuery),
+		chromedp.Evaluate(`window.innerWidth`, &viewport),
+		chromedp.Evaluate(`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
+			var m=pre.closest('.msg'), r=pre.getBoundingClientRect(), mr=m.getBoundingClientRect();
+			return {Kind: m.className, Left: r.left, Right: r.right, MsgLeft: mr.left, MsgRight: mr.right,
+				Client: pre.clientWidth, Scroll: pre.scrollWidth};
+		})`, &boxes),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boxes) != 2 {
+		t.Fatalf("want 2 code blocks, got %d", len(boxes))
+	}
+	for _, b := range boxes {
+		if b.Left < b.MsgLeft || b.Right > b.MsgRight {
+			t.Errorf("%s: code block [%v, %v] spills out of its bubble [%v, %v]", b.Kind, b.Left, b.Right, b.MsgLeft, b.MsgRight)
+		}
+		if b.Left < 0 || b.Right > viewport {
+			t.Errorf("%s: code block [%v, %v] spills out of the window [0, %v]", b.Kind, b.Left, b.Right, viewport)
+		}
+		if !(b.Scroll > b.Client) {
+			t.Errorf("%s: code block does not scroll: client %v, scroll %v", b.Kind, b.Client, b.Scroll)
+		}
 	}
 }

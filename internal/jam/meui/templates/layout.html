@@ -60,7 +60,10 @@ body{display:flex;flex-direction:column}
 .stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
 .msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px}
-.msg .body{padding:10px 13px;border-radius:13px;word-break:break-word}
+/* max-width caps the body at its bubble: a right-aligned (human) body is sized
+   to its content, not stretched, so a wide code block would otherwise spill out
+   of the bubble instead of scrolling inside its own pre (overflow-x:auto below). */
+.msg .body{padding:10px 13px;border-radius:13px;word-break:break-word;max-width:100%}
 .msg .body.plain{white-space:pre-wrap}
 /* Raw view: every bubble shows its body text as sent, in monospace. */
 .msg .body.raw{display:none;white-space:pre-wrap;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
