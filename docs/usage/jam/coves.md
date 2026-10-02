@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # Managed studios (the supervisor)
@@ -155,6 +155,8 @@ reports up and heartbeats to renew its lease; Jam pushes lifecycle
 cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 (`application/grpc`) — so the stream fits within a hardened studio's 443-only
 egress, no separate port required (see [serve.md](serve.md)).
+The stream also carries the agent's session events up and their acks down; see
+[session-events.md](session-events.md).
 
 ## cove-master (the in-cove client)
 

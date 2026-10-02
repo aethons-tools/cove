@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # `at-jam` — operating the central service
@@ -43,6 +43,7 @@ five pillars), see the design history:
 | [standing-sessions.md](standing-sessions.md) | You want a role to have a permanent, named agent running (a standing teammate) or want to remove one: `standing add\|list\|rm`, how Jam keeps one studio per name alive (restart, backoff), dismissal, admission, and how it messages people. |
 | [requisitioner.md](requisitioner.md) | You are enabling Jam's always-on intake — polling a tracker (Linear) and raising a managed studio per ready ticket — or tuning its concurrency cap / poll interval. |
 | [ui.md](ui.md) | You want to watch a running Jam in a browser — the live studios and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), edit kits/destinations, or raise/tear down a managed studio, from the browser instead of the CLI. |
+| [session-events.md](session-events.md) | You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream, its storage/retention config, redaction, and the export API. |
 | [intercom.md](intercom.md) | You want a raised studio's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `cove-master mcp` delivery, wake-on (`runtime.wake`), or running the intercom without a Requisitioner. |
 | [intercom-ui.md](intercom-ui.md) | You want a roster human to read/reply to their studios and channels in a browser — the two-pane `/me` inbox (attention-grouped rail, conversation pane, New Message, unread) — or you're operating/extending it (routes, the 3s poll, mark-read, its wiring to `/me/send`). |
 | [comms-addressing.md](comms-addressing.md) | You want a studio's agent to send to a named human or channel instead of only its own ticket — the target space, the Project roster, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |

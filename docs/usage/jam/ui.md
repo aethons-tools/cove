@@ -1,10 +1,10 @@
 ---
 summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
 read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -156,6 +156,16 @@ Log — and so this view — is served from Postgres instead of the JSONL file;
 behavior here is unchanged (still a full snapshot per load — pagination is a
 later phase). See [serve.md's Postgres store backend section](serve.md#postgres-store-backend-store-postgres)
 for the backend-selection rule.
+
+## Session timeline
+
+`/ui/coves/{id}/session` (linked from the Studios table ID) shows a managed
+studio's agent session: a stream selector (current and past streams), header
+totals (turns, tool calls, tokens in/out, cost), and events grouped by turn
+(text, thinking, tool use/results expandable, results, gap and truncation
+markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
+behind **show progress events**. It updates live over SSE. Storage, retention,
+and sensitivity: [session-events.md](session-events.md).
 
 ## Editing (day-job mutations)
 
