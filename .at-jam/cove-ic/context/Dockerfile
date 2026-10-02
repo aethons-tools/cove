@@ -10,6 +10,17 @@ ARG AT_JAM_STUDIO_TARGET_ARCH
 ARG GO_VERSION=1.27.1
 ARG HADOLINT_VERSION=v2.15.1
 
+# Fonts for headless-chrome UI testing. The base ships font files but no
+# fontconfig, so /etc/fonts/fonts.conf is missing (chrome logs "Fontconfig
+# error: Cannot load default config file"); fonts-noto-cjk covers CJK glyphs,
+# which otherwise render as tofu.
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      fontconfig \
+      fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/*
+
 # hadolint (Dockerfile linter) — no apt package; fetch the release binary.
 RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
       arm64) HADO_ARCH=arm64 ;; \
