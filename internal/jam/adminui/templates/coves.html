@@ -21,7 +21,7 @@
   <tbody>
     {{range .Coves}}
     <tr>
-      <td>{{.ID}}</td><td>{{.Project}}</td><td>{{.Role}}</td><td>{{.Unit}}</td>
+      <td><a href="/ui/coves/{{.ID}}/session">{{.ID}}</a></td><td>{{.Project}}</td><td>{{.Role}}</td><td>{{.Unit}}</td>
       <td>{{.Phase}}</td><td>{{.Activity}}</td><td>{{.LeaseHolder}}</td>
       <td>{{.RaisedAt.Format "2006-01-02 15:04:05"}}</td>
       <td>{{.LastSeen.Format "2006-01-02 15:04:05"}}</td>

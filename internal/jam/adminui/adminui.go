@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 //go:embed templates/*.html static/htmx.min.js
@@ -39,6 +40,7 @@ var pages = map[string]*template.Template{
 	"kits":         mustParse("kits.html"),
 	"destinations": mustParse("destinations.html"),
 	"intercom":     mustParse("intercom.html"),
+	"session":      mustParse("session.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -79,6 +81,13 @@ type Option func(*options)
 
 type options struct {
 	trustedOrigins []string
+	sessStore      sessionevents.Store
+	sessHub        *sessionevents.Hub
+}
+
+// WithSessions enables the live session-event timeline (/ui/coves/{id}/session).
+func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
+	return func(o *options) { o.sessStore, o.sessHub = store, hub }
 }
 
 // WithTrustedOrigins adds exact origins (scheme://host[:port]) the CSRF write
@@ -134,6 +143,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
 	})
+	registerSession(mux, o.sessStore, o.sessHub)
 
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)

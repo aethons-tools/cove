@@ -1,0 +1,44 @@
+{{define "content"}}
+<h1>Session — {{.ActorID}}</h1>
+{{if not .Enabled}}
+<p class="empty">Session events are not configured on this Jam.</p>
+{{else}}
+<form method="get">
+  <label>Stream
+    <select name="stream" onchange="this.form.submit()">
+      {{range .Streams}}<option value="{{.StreamID}}" {{if eq .StreamID $.Stream}}selected{{end}}>{{.FirstAt.Format "2006-01-02 15:04:05"}} · {{.Events}} events</option>{{end}}
+    </select>
+  </label>
+  <label><input type="checkbox" id="show-progress"> show progress events</label>
+</form>
+<div id="totals"></div>
+<div id="events" data-src="/ui/coves/{{.ActorID}}/session/events?stream={{.Stream}}"></div>
+<style>
+  .ev { border-bottom: 1px solid #eee; padding: 4px 0; }
+  .ev .label { font-weight: 600; margin-right: 8px; }
+  .ev.error .label { color: #b00020; }
+  .ev.gap { color: #b06000; }
+  .ev.progress { display: none; }
+  body.show-progress .ev.progress { display: block; }
+  .ev pre { white-space: pre-wrap; background: #f6f6f6; padding: 6px 8px; }
+</style>
+<script>
+  document.getElementById("show-progress").addEventListener("change", e =>
+    document.body.classList.toggle("show-progress", e.target.checked));
+  // The URL lives in a data attribute: html/template would JS-escape "/" inside a script string.
+  const es = new EventSource(document.getElementById("events").dataset.src);
+  es.addEventListener("ev", e => document.getElementById("events").insertAdjacentHTML("beforeend", e.data));
+  es.addEventListener("totals", e => { document.getElementById("totals").outerHTML = e.data; });
+</script>
+{{end}}
+{{end}}
+
+{{define "session-totals"}}<div id="totals">turns {{.Turns}} · tool calls {{.ToolCalls}} · tokens in {{.InputTokens}} / out {{.OutputTokens}} · cost ${{printf "%.4f" .CostUSD}}</div>{{end}}
+
+{{define "session-event"}}<div class="ev{{if .IsError}} error{{end}}{{if .Progress}} progress{{end}}{{if .Gap}} gap{{end}}">
+  <span class="turn">t{{.Turn}}</span> <span class="label">{{.Label}}</span>{{if .IsError}}<span class="badge">error</span>{{end}}
+  <span class="summary">{{.Summary}}</span>
+  {{if .TruncatedBytes}}<span class="trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}
+  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre></details>{{end}}
+  {{if .Raw}}<details><summary>raw JSON</summary><pre>{{.Raw}}</pre></details>{{end}}
+</div>{{end}}

@@ -1672,7 +1672,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam session events: not stored (no session-events-dir or store-postgres)")
 	}
 	sessHub := sessionevents.NewHub()
-	_ = sessHub // used by the admin UI (Task 11)
 	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
 	if keep, _ := sessionevents.ParseRetention(cfg.SessionEventsRetention); keep > 0 {
 		go sessionevents.RunRetention(context.Background(), sessStore, keep, 24*time.Hour, nil, log)
@@ -2042,7 +2041,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...))))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub))))
 
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)))
