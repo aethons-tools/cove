@@ -39,6 +39,11 @@ It renders:
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
 
+Every table has a fixed order — studios and actors by id; roles by project,
+then name; kits and destinations by name; squawks newest-first — so rows don't
+shuffle across the Studios poll or after an edit. The order comes from the
+store, so the JSON admin API and CLI lists match it.
+
 ## Reaching the UI
 
 The UI has its own gate, separate from the JSON admin API's authenticator (see
