@@ -182,3 +182,24 @@ func TestRaiseCoveCSRF(t *testing.T) {
 		t.Fatalf("cross-origin raise = %d, want 403", rec.Code)
 	}
 }
+
+// A stale connector is flagged visibly (a wait pill), not muted like "—".
+func TestCovesConnectorStaleIsFlagged(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	sup := newSup(t, store)
+	h := adminui.Handler(store, testLogger(), sup, nil, anyCred, nil)
+	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-s"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
+		t.Fatalf("raise = %d", rec.Code)
+	}
+	if err := sup.RecordConnector("cove-s", "not-the-current-fingerprint"); err != nil {
+		t.Fatal(err)
+	}
+	page := get(t, h, "/ui/coves").Body.String()
+	if !strings.Contains(page, `<span class="pill phase-raising">stale</span>`) {
+		t.Fatalf("stale connector not flagged; page:\n%s", page)
+	}
+}

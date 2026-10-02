@@ -36,7 +36,7 @@
       <td><a class="mono" href="/ui/coves/{{.ID}}/session" title="Session timeline">{{.ID}}</a></td>
       <td>{{template "phase" .Phase}}</td>
       <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
-      <td>{{if eq .Connector "ok"}}ok{{else if .Connector}}<span class="none">{{.Connector}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if eq .Connector "stale"}}<span class="pill phase-raising">stale</span>{{else if eq .Connector "error"}}<span class="pill phase-lost">error</span>{{else if eq .Connector "unknown" ""}}<span class="none">{{or .Connector "—"}}</span>{{else}}{{.Connector}}{{end}}</td>
       <td>{{.Project}}</td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>
       <td>{{if .Unit}}<span class="mono">{{.Unit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
