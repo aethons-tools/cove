@@ -240,6 +240,9 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 - `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
   forwarded requests — required for the subscription [pool](pool.md) (a cove on
   `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).
+- `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
+  to use the destination — see [connector.md](connector.md), which also covers
+  the `gh` (GitHub API) destinations.
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
   pool resolves by identity, not from `credentials:`). Validated at add time.
@@ -251,27 +254,6 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   **Upgrading from a repo-scoped Jam widens access:** a role that relied on
   `--repos` to narrow a broad PAT gets that PAT's full reach — re-scope the
   credentials before upgrading. Stored `repo_scoped`/`repos` keys are ignored.
-
-### GitHub API for `gh`
-
-`gh` can reach the GitHub API through the broker by treating Jam as a GitHub
-Enterprise host. It then calls `/api/v3/…` (REST) and `/api/graphql`, sending
-`Authorization: token <x>` — which the broker accepts as a bearer identity.
-Two plain destinations cover it (route-prefix stripping yields the right
-upstream paths; the longer `/api/v3/` route wins for REST):
-
-```
-at-jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
-  --identity-in bearer --cred-name gh-pat --apply bearer
-at-jam destination add --name github-graphql --route /api/ --upstream https://api.github.com \
-  --identity-in bearer --cred-name gh-pat --apply bearer
-at-jam role add --project acme --name dev \
-  --destinations anthropic,git=gh-pat-acme,github-api=gh-pat-acme,github-graphql=gh-pat-acme
-```
-
-In the studio: `GH_HOST=<jam host>` and `GH_ENTERPRISE_TOKEN=$AT_JAM_IDENTITY_TOKEN`.
-Only the API is brokered this way — clone/push with plain `git` (the `/git/`
-destination), not `gh repo clone`.
 
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

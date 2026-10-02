@@ -960,3 +960,35 @@ func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
 		t.Fatalf("grant with valid override = %d, want 201", rec.Code)
 	}
 }
+
+func TestAdminAddDestinationValidatesEnv(t *testing.T) {
+	h, store := newTestAdmin(t)
+	bad := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"AT_JAM_IDENTITY_TOKEN":"{token}"}}`
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", bad))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("reserved env key = %d, want 400", rec.Code)
+	}
+	good := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"GH_HOST":"{host}"},"git":true}`
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", good))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("valid env = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if d := store.ListDestinations(); len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || !d[0].Git {
+		t.Fatalf("stored = %+v", d)
+	}
+}
+
+func TestAdminEnrollReturnsConnector(t *testing.T) {
+	h, store := newTestAdmin(t)
+	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
+		t.Fatal(err)
+	}
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"gh"}})
+	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	var res EnrollResult
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &res) != nil || res.Connector == nil || res.Connector.Env["GH_HOST"] != "{host}" {
+		t.Fatalf("enroll = %d %s", rec.Code, rec.Body.String())
+	}
+}

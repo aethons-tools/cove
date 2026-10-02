@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 )
@@ -139,5 +140,29 @@ func TestLaunchTeammateDetachedTokenNeverOnArgv(t *testing.T) {
 	}
 	if !detached {
 		t.Fatalf("expected a detached setsid at-switchboard launch over ssh; calls=%+v", r.Calls)
+	}
+}
+
+func TestLaunchTeammateUsesJamConnector(t *testing.T) {
+	r := &runner.Fake{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}, GitRoute: "/git/"}
+	if err := LaunchTeammate(r, &fakeBackend{state: backend.StateRunning}, TeammateOptions{
+		Container: "box", BotTokenSpec: secret.Spec{Name: "DISCORD_BOT_TOKEN", Value: "b", Literal: true},
+		Channels: []string{"1"}, IdentityFile: "/id", KnownHostsFile: "/kh",
+		JamHost: "h.test", JamToken: "jam-tok-77", JamConnector: &c,
+	}); err != nil {
+		t.Fatalf("LaunchTeammate: %v", err)
+	}
+	var env bool
+	for _, call := range r.Calls {
+		if strings.Contains(call.Stdin, "GH_HOST") && strings.Contains(call.Stdin, "h.test") {
+			env = true
+		}
+		if strings.Contains(call.Stdin, "ANTHROPIC_BASE_URL") {
+			t.Fatalf("legacy env leaked in alongside the connector: %s", call.Stdin)
+		}
+	}
+	if !env {
+		t.Fatalf("connector env not staged: %+v", r.Calls)
 	}
 }

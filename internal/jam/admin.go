@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -28,6 +29,9 @@ type EnrollBody struct {
 type EnrollResult struct {
 	ID    string `json:"id"`
 	Token string `json:"token"`
+	// Connector is the identity's client env/git (ConnectorFor); nil from a Jam
+	// that predates it — clients then use the legacy contract.
+	Connector *snippet.Connector `json:"connector,omitempty"`
 }
 
 // ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
@@ -299,6 +303,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "cred_name does not resolve to a configured credential", http.StatusBadRequest)
 			return
 		}
+		if err := d.ValidateEnv(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := store.AddDestination(d); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -367,8 +375,17 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// The identity's client connector rides back with the token; a conflict
+		// among its destinations undoes the enrollment (fail closed).
+		actor, _ := store.Lookup(HashToken(tok))
+		conn, err := ConnectorFor(store, actor)
+		if err != nil {
+			_ = store.RemoveActor(b.ID)
+			http.Error(w, "connector conflict: "+err.Error(), http.StatusConflict)
+			return
+		}
 		log.Info("admin enrolled", "operator", OperatorID(r), "id", b.ID, "project", b.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok})
+		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok, Connector: &conn})
 	})
 	mux.HandleFunc("DELETE /admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")

@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +45,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -243,11 +246,17 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
 		// is on stdout only — the caller captures it in memory, never argv/logs.
 		_ = json.NewEncoder(stdout).Encode(struct {
-			ID    string `json:"id"`
-			Token string `json:"token"`
-		}{res.ID, res.Token})
+			ID        string             `json:"id"`
+			Token     string             `json:"token"`
+			Connector *snippet.Connector `json:"connector,omitempty"`
+		}{res.ID, res.Token, res.Connector})
 		return 0
 	}
+	if res.Connector != nil {
+		fmt.Fprint(stdout, res.Connector.Render(baseURL, res.Token))
+		return 0
+	}
+	// A Jam that predates connectors: the legacy Anthropic + git snippet.
 	fmt.Fprint(stdout, jam.RenderEnrollSnippet(baseURL, res.Token))
 	return 0
 }
@@ -299,6 +308,12 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
 	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
+	var envKV []string
+	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
+		envKV = append(envKV, s)
+		return nil
+	})
+	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -312,6 +327,17 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
+		for _, kv := range envKV {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || k == "" {
+				fmt.Fprintf(stderr, "at-jam destination add: --env %q: want KEY=TEMPLATE\n", kv)
+				return 2
+			}
+			if d.Env == nil {
+				d.Env = map[string]string{}
+			}
+			d.Env[k] = v
+		}
 		if err := c.AddDestination(d); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
@@ -327,6 +353,12 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			ob := ""
 			if dd.OAuthBeta {
 				ob = ", oauth-beta"
+			}
+			if len(dd.Env) > 0 {
+				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			}
+			if dd.Git {
+				ob += ", git"
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}

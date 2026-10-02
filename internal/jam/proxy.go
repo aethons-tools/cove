@@ -90,20 +90,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
-// resolveScopes turns an actor's grants into their effective scopes, skipping any
-// grant whose role no longer exists (fail-closed: a deleted role stops
-// authorizing). An actor with no resolvable grant yields nil → Decide denies.
-func (b *Broker) resolveScopes(a Actor) []Scope {
-	var scopes []Scope
-	for _, g := range a.Grants {
-		r, ok := b.store.GetRole(g.Project, g.Role)
-		if !ok {
-			continue
-		}
-		scopes = append(scopes, EffectiveScope(g, r))
-	}
-	return scopes
-}
+// resolveScopes is ScopesFor over the broker's live store.
+func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, actor) }
 
 // presentedToken extracts the caller's identity token from the request per how.
 func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {

@@ -1053,3 +1053,38 @@ func TestRaiseCarriesRoleEgress(t *testing.T) {
 		t.Fatalf("launcher spec egress = %+v, want nil (role has no policy)", f.gotSpec.Egress)
 	}
 }
+
+func TestRaiseHandsTheRolesConnectorToTheLauncher(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if err := store.AddDestination(legacyAnthropic); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.gotSpec.Connector; c == nil || c.Env["ANTHROPIC_API_KEY"] != "{token}" {
+		t.Fatalf("launcher got connector %+v", c)
+	}
+}
+
+func TestRaiseConnectorConflictRollsBack(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	a := Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a", Env: map[string]string{"X": "1"}}
+	b := Destination{Name: "b", Route: "/b/", Upstream: "https://b", Env: map[string]string{"X": "2"}}
+	for _, d := range []Destination{a, b} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err == nil {
+		t.Fatal("conflicting connector must fail the raise")
+	}
+	if len(f.raised) != 0 || len(store.ListActors()) != 0 {
+		t.Fatalf("raise must roll back: raised=%v actors=%v", f.raised, store.ListActors())
+	}
+}

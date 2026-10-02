@@ -50,10 +50,8 @@ at-jam role list [--project acme]
 at-jam role rm   [--project acme] guest
 ```
 
-- `--destinations` is comma-separated; each entry is a destination name,
-  optionally `name=credential` to pick the credential the broker injects for it
-  (a bare name uses the destination's default `cred-name`). `role list` and
-  `roster` print the same syntax.
+- `--destinations` is comma-separated: `name` (the destination's default
+  `cred-name`) or `name=credential`; `role list` and `roster` print the same.
 - A role's per-destination credentials travel on the admin API as
   `credentials` (`{"git": "git-pat-acme"}`) on role put/list, on each roster
   grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
@@ -167,18 +165,19 @@ destination/ttl flags):
 
 ```
 at-jam enroll --id spider-18 --project acme --role guest        # prints the connector snippet
-at-jam enroll --id spider-18 --role guest --json                # prints {"id","token"} (for tooling)
+at-jam enroll --id spider-18 --role guest --json                # prints {"id","token","connector"} (for tooling)
 at-jam revoke --id spider-18                                    # removes the whole Actor
 ```
+
+The snippet is the identity's [connector](connector.md) (also in `--json` as
+`connector`); a conflict among the role's destinations fails the enrollment (409).
 
 - The role must already exist (else `enroll` fails closed).
 - Without `--json`, `enroll` prints a shell **connector snippet** the Guest studio
   sources. The token is exported once as `AT_JAM_IDENTITY_TOKEN` (its deprecated
   name is exported from it, for older images — see
-  [renamed-from-harbor.md](renamed-from-harbor.md)), and both
-  connectors reference it: `ANTHROPIC_BASE_URL=<base>/anthropic` with the token as
-  the key, and git `insteadOf github.com → <base>/git/` with a credential helper
-  that reads the env var at run time. The token never lands in gitconfig on disk.
+  [renamed-from-harbor.md](renamed-from-harbor.md)); everything else references
+  it ([connector.md](connector.md)), and it never lands in gitconfig on disk.
 - `--base-url` (or the app profile's `base-url`) sets the broker base in the
   printed snippet; `--json` needs no base URL.
 - Hardened studios usually **auto-enroll** themselves at session start rather than

@@ -379,8 +379,8 @@ broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
-the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
-helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
+the identity's connector (the env and git routing its role's destinations declare —
+[jam/connector.md](jam/connector.md)) into the session — **superseding** the OAuth/Vertex auth for that cove.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
@@ -405,6 +405,13 @@ reachable to Jam's admin API **and** an operator credential (`at-jam login` or
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
 
+**What the session sets** is the identity's **connector** — the env vars and git
+routing its role's destinations declare ([jam/connector.md](jam/connector.md)).
+Auto-enroll receives it from `at-jam enroll`; a pre-supplied identity fetches it
+from the broker (`GET /connector`). A Jam without that endpoint, or one the host
+can't reach (a warning), gets the legacy Anthropic + git contract; a conflict
+among the role's destinations fails the session.
+
 > **Role prerequisite.** An auto-enrolling cove (no `jam.identity`) enrolls into
 > the `guest` role of Jam's default project; the operator must create it first,
 > e.g. `at-jam role add --name guest --destinations anthropic,git --ttl 24h`.
@@ -419,7 +426,8 @@ next `at-cove recreate`. The broker must listen on **:443** (a non-443 port woul
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
 **teammates**. A dispatched worker routes only its **Anthropic** through Jam (its
 git stays on at-task's minted code-host token — a global Jam rewrite would
-misroute `prepare`/`complete`); chat and teammates route both connectors. A
+misroute `prepare`/`complete`); chat and teammates also route git when the
+connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 
