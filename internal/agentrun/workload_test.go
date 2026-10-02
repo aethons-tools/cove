@@ -19,6 +19,8 @@ type recordHandle struct {
 	got []covemaster.Activity
 }
 
+func (h *recordHandle) Event(uint32, []byte, uint64) {}
+
 func (h *recordHandle) Report(a covemaster.Activity) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
