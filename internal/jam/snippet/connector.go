@@ -1,6 +1,8 @@
 package snippet
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,6 +115,21 @@ func Fetch(hc *http.Client, baseURL, token string) (Connector, error) {
 	}
 	return c, nil
 }
+
+// Fingerprint identifies a connector's content (templates + git route, never a
+// token — a Connector holds none): sha256 of its JSON, whose map keys
+// encoding/json sorts, so it is order-independent; nil and empty Env coincide
+// (omitempty). cove-master reports it after applying a connector and Jam compares
+// it with the role's current one, so both sides must use this function.
+func Fingerprint(c Connector) string {
+	b, _ := json.Marshal(c) // map[string]string + string: never errors
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// GitHelper is the git credential-helper value GitConfig installs, unquoted —
+// for callers that set it via argv (cove-master's per-turn git refresh).
+func GitHelper() string { return gitHelperValue }
 
 func hostOf(baseURL string) string {
 	if _, rest, ok := strings.Cut(baseURL, "://"); ok {

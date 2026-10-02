@@ -104,3 +104,27 @@ func TestRenderBracesTokenReference(t *testing.T) {
 		t.Fatalf("token reference must be braced so trailing name chars aren't absorbed:\n%s", out)
 	}
 }
+
+func TestFingerprintStableAndTokenFree(t *testing.T) {
+	a := Connector{Env: map[string]string{"B": "{base}/x", "A": "{token}"}, GitRoute: "/git/"}
+	b := Connector{Env: map[string]string{"A": "{token}", "B": "{base}/x"}, GitRoute: "/git/"}
+	if Fingerprint(a) != Fingerprint(b) {
+		t.Fatal("fingerprint depends on map order")
+	}
+	if Fingerprint(Connector{}) != Fingerprint(Connector{Env: map[string]string{}}) {
+		t.Fatal("nil and empty env must fingerprint alike")
+	}
+	if Fingerprint(a) == Fingerprint(Connector{Env: a.Env}) {
+		t.Fatal("git route not covered")
+	}
+	if len(Fingerprint(a)) != 64 {
+		t.Fatalf("want 64 hex, got %q", Fingerprint(a))
+	}
+}
+
+func TestGitHelperMatchesRenderedConfig(t *testing.T) {
+	// GitConfig shell-quotes the helper; GitHelper is the same value unquoted.
+	if !strings.Contains(Connector{GitRoute: "/git/"}.GitConfig("https://j"), "'"+GitHelper()+"'") {
+		t.Fatalf("GitHelper %q is not the value GitConfig renders", GitHelper())
+	}
+}

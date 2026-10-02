@@ -23,11 +23,13 @@ const (
 	legacyTokenVar = "AT_HARBOR_IDENTITY_TOKEN"
 	anthropicPath  = "/anthropic"
 	gitPath        = "/git/"
-	// gitHelper is a `!`-prefixed shell helper git runs with the operation as $1;
-	// it emits the identity as username + the env-only token as password, only for
-	// `get`. Single-quoted so nothing expands until git invokes it in the cove. It
-	// reads the new name, falling back to the deprecated one.
-	gitHelper = `'!f() { test "$1" = get && echo username=x-access-token && echo password=${` + tokenVar + `:-$` + legacyTokenVar + `}; }; f'`
+	// gitHelperValue is a `!`-prefixed shell helper git runs with the operation
+	// as $1; it emits the identity as username + the env-only token as password,
+	// only for `get`. It reads the new name, falling back to the deprecated one.
+	gitHelperValue = `!f() { test "$1" = get && echo username=x-access-token && echo password=${` + tokenVar + `:-$` + legacyTokenVar + `}; }; f`
+	// gitHelper is gitHelperValue single-quoted for a shell snippet, so nothing
+	// expands until git invokes it in the cove.
+	gitHelper = `'` + gitHelperValue + `'`
 )
 
 // Env returns the environment variables a client sets to route Anthropic through
