@@ -1,6 +1,9 @@
 package snippet
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,22 +79,46 @@ func (c Connector) Render(baseURL, token string) string {
 
 // GitConfig returns the token-free `git config --global` commands routing
 // github.com through the connector's git route, or "" when it routes no git.
+// The keys come from the builders execGit (cove-master's per-turn refresh) sets
+// via argv, so the two cannot drift; here the subsection is shell-quoted.
 func (c Connector) GitConfig(baseURL string) string {
 	if c.GitRoute == "" {
 		return ""
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	quote := func(sub string) string { return fmt.Sprintf("%q", sub) }
 	var b strings.Builder
-	fmt.Fprintf(&b, "git config --global url.%q.insteadOf https://github.com/\n", baseURL+c.GitRoute)
-	fmt.Fprintf(&b, "git config --global credential.%q.helper %s\n", baseURL, gitHelper)
+	fmt.Fprintf(&b, "git config --global %s %s\n", gitRewriteKey(quote(baseURL+c.GitRoute)), GitRewriteTarget)
+	fmt.Fprintf(&b, "git config --global %s %s\n", gitHelperKey(quote(baseURL)), gitHelper)
 	return b.String()
 }
+
+// GitRewriteTarget is the URL prefix a git route rewrites (the insteadOf value).
+const GitRewriteTarget = "https://github.com/"
+
+// GitRewriteKey is the git config key whose insteadOf rewrites GitRewriteTarget
+// to baseURL+route; GitHelperKey is the key holding GitHelper for baseURL. Both
+// unquoted, for callers that set them via argv.
+func GitRewriteKey(baseURL, route string) string {
+	return gitRewriteKey(strings.TrimRight(baseURL, "/") + route)
+}
+
+// GitHelperKey: see GitRewriteKey.
+func GitHelperKey(baseURL string) string { return gitHelperKey(strings.TrimRight(baseURL, "/")) }
+
+func gitRewriteKey(sub string) string { return "url." + sub + ".insteadOf" }
+func gitHelperKey(sub string) string  { return "credential." + sub + ".helper" }
 
 // Fetch asks the Jam at baseURL for the identity's connector (GET /connector,
 // identity as a bearer). A 404 — a Jam that predates the endpoint — returns
 // ErrNoConnectorEndpoint.
 func Fetch(hc *http.Client, baseURL, token string) (Connector, error) {
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(baseURL, "/")+"/connector", nil)
+	return FetchContext(context.Background(), hc, baseURL, token)
+}
+
+// FetchContext is Fetch bounded by ctx.
+func FetchContext(ctx context.Context, hc *http.Client, baseURL, token string) (Connector, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/connector", nil)
 	if err != nil {
 		return Connector{}, err
 	}
@@ -113,6 +140,21 @@ func Fetch(hc *http.Client, baseURL, token string) (Connector, error) {
 	}
 	return c, nil
 }
+
+// Fingerprint identifies a connector's content (templates + git route, never a
+// token — a Connector holds none): sha256 of its JSON, whose map keys
+// encoding/json sorts, so it is order-independent; nil and empty Env coincide
+// (omitempty). cove-master reports it after applying a connector and Jam compares
+// it with the role's current one, so both sides must use this function.
+func Fingerprint(c Connector) string {
+	b, _ := json.Marshal(c) // map[string]string + string: never errors
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// GitHelper is the git credential-helper value GitConfig installs, unquoted —
+// for callers that set it via argv (cove-master's per-turn git refresh).
+func GitHelper() string { return gitHelperValue }
 
 func hostOf(baseURL string) string {
 	if _, rest, ok := strings.Cut(baseURL, "://"); ok {

@@ -12,7 +12,7 @@ import (
 )
 
 // PrepareKit builds a studio kit's image from its full definition: it assembles
-// the build context and `docker build -t cove-kit:<build-digest>`, so a later
+// the build context and `docker build -t cove-kit:<build-digest>-<asm>`, so a later
 // Raise carrying only the KitRef finds the tagged image. It is the response to a
 // Raise that returned ErrKitNotReady.
 //
@@ -53,11 +53,11 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	// Build on the substrate backend (context-pinned + BASE arg + kit build-args),
 	// so the image lands in the same daemon Raise's RunEphemeral runs it from, and
 	// the Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
-	if _, err := l.cfg.Ops.BuildKitImage(buildDir, imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
+	if _, err := l.cfg.Ops.BuildKitImage(buildDir, l.imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
 	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
-	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", imageTag(ref), "ceiling_excludes", excluded)
+	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", l.imageTag(ref), "asm", shortAsm(l.asm), "ceiling_excludes", excluded)
 	return KitStatus{State: KitReady}, nil
 }
 

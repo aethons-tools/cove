@@ -149,6 +149,8 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			if act, ok := fromPBActivity(m.Status); ok {
 				_ = s.sup.Report(stream.Context(), actorID, act)
 			}
+		case *attachpb.StatusUp_Connector:
+			_ = s.sup.RecordConnector(actorID, m.Connector.GetFingerprint())
 		case *attachpb.StatusUp_Heartbeat:
 			_ = s.sup.Heartbeat(actorID)
 		case *attachpb.StatusUp_Event:

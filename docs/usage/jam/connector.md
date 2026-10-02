@@ -49,8 +49,9 @@ fail closed, never a silent pick.
 
 ## Delivery
 
-- **Jam-raised studios** get their connector at raise (the supervisor computes
-  it and cove-master sources it); nothing to fetch.
+- **Jam-raised studios** get their connector at raise, and cove-master re-fetches
+  it before every agent turn, so edits reach a running studio at its next turn
+  ([coves.md](coves.md#cove-master-the-in-cove-client)).
 - **Host-side clients** (at-cove connect, teammates, dispatch) call
   `GET /connector` on the broker listener with the identity as a bearer (or
   `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still

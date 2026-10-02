@@ -19,7 +19,7 @@ import (
 )
 
 // testKitRef is the prepared studio kit the raise-path tests run from; its image
-// tag is cove-kit:<Digest>.
+// tag is l.imageTag(ref) (cove-kit:<Digest>-<asm>).
 var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind})}
 
 // readyInv is an inventory with testKitRef already prepared.
@@ -141,7 +141,7 @@ func TestRaiseRunsDialsLaunches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != imageTag(testKitRef) {
+	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != l.imageTag(testKitRef) {
 		t.Fatalf("RunEphemeral not called correctly: %+v", ops)
 	}
 	if len(ops.runAddHost) != 1 || ops.runAddHost[0] != "jam.example.com" {
@@ -154,7 +154,7 @@ func TestRaiseRunsDialsLaunches(t *testing.T) {
 
 // A kit-referenced raise whose kit is not in the launcher's inventory returns
 // ErrKitNotReady and creates NO container — the supervisor prepares it and
-// retries. imageTag(spec.Kit) is never run.
+// retries. l.imageTag(spec.Kit) is never run.
 func TestRaiseKitNotReady(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
@@ -210,7 +210,7 @@ func TestRaiseRejectsEmptyDigest(t *testing.T) {
 	}
 }
 
-// A kit-referenced raise whose kit is prepared runs the cove-kit:<build-digest>
+// A kit-referenced raise whose kit is prepared runs the cove-kit:<build-digest>-<asm>
 // image and launches cove-master as usual.
 func TestRaiseFromPreparedKit(t *testing.T) {
 	ops := &fakeOps{}
@@ -227,8 +227,8 @@ func TestRaiseFromPreparedKit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ops.ran || ops.runImage != "cove-kit:cafef00d" {
-		t.Fatalf("kit raise ran image %q, want cove-kit:cafef00d (calls=%+v)", ops.runImage, ops)
+	if !ops.ran || ops.runImage != l.imageTag(ref) {
+		t.Fatalf("kit raise ran image %q, want %q (calls=%+v)", ops.runImage, l.imageTag(ref), ops)
 	}
 	// The kit path must run the tag with NO digest pin — the build-digest tag
 	// already names the exact built image.

@@ -44,7 +44,7 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ```
 at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-jam studio list     # id  role  unit  phase  activity  lease-holder
+at-jam studio list     # id  role  unit  phase  activity  lease-holder  connector
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```
@@ -55,6 +55,7 @@ at-jam studio teardown --id spider-42
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
+- `connector` (in `studio list` and the Studios table) is `ok` when the studio's last agent turn ran with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next turn), `unknown` when it never reported (an image built before the per-turn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later turn.
 
 ### Raising a real managed studio
 
@@ -96,8 +97,9 @@ substrate: each raise carries only the kit reference (`<id>@v<n>`); on an invent
 **miss** the launcher raises no container and reports not-ready; Jam resolves the
 full kit from the [registry](kits.md), calls the launcher's `PrepareKit` to build it
 **on the substrate backend** (the colima daemon, so the image lands where
-`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest,
-so a prompt-only edit reuses the cached image. An in-progress build does not block
+`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest
+plus the launcher's assembly fingerprint ([kits.md](kits.md#the-studiokit)),
+so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. An in-progress build does not block
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the `at-jam` binary and the launcher's key), with
 **no source kit directory**, so the build can move to a remote substrate. The
@@ -149,7 +151,8 @@ A managed studio holds one bidirectional gRPC stream to Jam — its **Attach**
 stream. It authenticates the stream with two credentials: its actor **identity
 token** (the same token the broker checks) **and** its **per-instance launch
 secret**, minted at `raise` time. Over the stream the studio sends Activity
-reports up and heartbeats to renew its lease; Jam pushes lifecycle
+reports up, heartbeats to renew its lease, and the fingerprint of the connector its
+latest agent turn applied (see [cove-master](#cove-master-the-in-cove-client)); Jam pushes lifecycle
 **control** down — teardown or wake. Jam serves the Attach gRPC on its
 cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 (`application/grpc`) — so the stream fits within a hardened studio's 443-only
@@ -179,6 +182,8 @@ AT_JAM_LAUNCH_SECRET      the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
+AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn
+AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 ```
 
 Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
@@ -208,6 +213,14 @@ A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while the agent is still
 running is held (at most one), so the next `needs-input` wait resumes at once;
 further wakes are dropped.
+
+**Connector refresh.** Before every agent spawn — the first turn, a resume, a wake —
+cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
+and starts that turn with the current env and git routing, so a destination or grant
+edit reaches a running studio at its next turn (never mid-turn). If the fetch fails it
+keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every turn until it lands. It reports the applied
+connector's fingerprint up the Attach stream; Jam compares it to the role's current
+connector for the `connector` column ([verbs](#the-studio-verbs)).
 
 **Post-mortem on teardown.** Just before the container (and its `/agent-data`
 volume) is removed, the launcher grabs the **tail of `cove-master`'s log**

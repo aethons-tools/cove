@@ -45,6 +45,10 @@ type Config struct {
 	// mcpConfigPath. Run refuses to start the agent if it is missing/unreadable
 	// (COV-190) so a stale image never yields a silently toolless agent.
 	MCPConfigPath string
+	// Connector, when set, refreshes the agent's connector before every spawn
+	// (GET /connector) and reports the applied fingerprint; nil inherits
+	// cove-master's env unchanged (an older launcher).
+	Connector *ConnectorConfig
 	// Resident keeps the cove alive between turns (personal sessions): after
 	// every turn, whatever its outcome, Run reports Waiting and blocks until a
 	// Wake (resume with --continue) or shutdown — never MaxWait.
@@ -65,6 +69,7 @@ type Workload struct {
 	cfg     Config
 	log     *slog.Logger
 	spawner Spawner
+	conn    *connectorRefresher
 	wake    chan struct{}
 }
 
@@ -87,7 +92,11 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Workload{cfg: cfg, log: log, spawner: sp, wake: make(chan struct{}, 1)}
+	var conn *connectorRefresher
+	if cfg.Connector != nil {
+		conn = newConnectorRefresher(*cfg.Connector, log)
+	}
+	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: make(chan struct{}, 1)}
 }
 
 // claudeArgs builds claude's argv for one turn. continued prepends
@@ -142,7 +151,16 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		if out != nil {
 			sink = io.MultiWriter(out, split)
 		}
-		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, sink)
+		var env []string
+		if w.conn != nil {
+			var fp string
+			var changed bool
+			env, fp, changed = w.conn.prepare(ctx)
+			if changed {
+				h.ConnectorApplied(fp)
+			}
+		}
+		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, env, sink)
 		if err != nil {
 			return fmt.Errorf("agentrun: start claude: %w", err)
 		}

@@ -1,6 +1,7 @@
 package snippet
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"net/http"
@@ -102,5 +103,55 @@ func TestRenderBracesTokenReference(t *testing.T) {
 	out := Connector{Env: map[string]string{"X": "{token}_suffix"}}.Render("https://j", "T")
 	if !strings.Contains(out, `export X="${AT_JAM_IDENTITY_TOKEN}_suffix"`) {
 		t.Fatalf("token reference must be braced so trailing name chars aren't absorbed:\n%s", out)
+	}
+}
+
+func TestFingerprintStableAndTokenFree(t *testing.T) {
+	a := Connector{Env: map[string]string{"B": "{base}/x", "A": "{token}"}, GitRoute: "/git/"}
+	b := Connector{Env: map[string]string{"A": "{token}", "B": "{base}/x"}, GitRoute: "/git/"}
+	if Fingerprint(a) != Fingerprint(b) {
+		t.Fatal("fingerprint depends on map order")
+	}
+	if Fingerprint(Connector{}) != Fingerprint(Connector{Env: map[string]string{}}) {
+		t.Fatal("nil and empty env must fingerprint alike")
+	}
+	if Fingerprint(a) == Fingerprint(Connector{Env: a.Env}) {
+		t.Fatal("git route not covered")
+	}
+	if len(Fingerprint(a)) != 64 {
+		t.Fatalf("want 64 hex, got %q", Fingerprint(a))
+	}
+}
+
+func TestGitHelperMatchesRenderedConfig(t *testing.T) {
+	// GitConfig shell-quotes the helper; GitHelper is the same value unquoted.
+	if !strings.Contains(Connector{GitRoute: "/git/"}.GitConfig("https://j"), "'"+GitHelper()+"'") {
+		t.Fatalf("GitHelper %q is not the value GitConfig renders", GitHelper())
+	}
+}
+
+func TestFetchContextHonorsCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := FetchContext(ctx, srv.Client(), srv.URL, "TOK"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("FetchContext on a cancelled ctx = %v, want context.Canceled", err)
+	}
+}
+
+func TestGitKeysMatchRenderedConfig(t *testing.T) {
+	if got := GitRewriteKey("https://j/", "/git/"); got != "url.https://j/git/.insteadOf" {
+		t.Fatalf("GitRewriteKey = %q", got)
+	}
+	if got := GitHelperKey("https://j/"); got != "credential.https://j.helper" {
+		t.Fatalf("GitHelperKey = %q", got)
+	}
+	want := "git config --global url.\"https://j/git/\".insteadOf " + GitRewriteTarget + "\n" +
+		"git config --global credential.\"https://j\".helper '" + GitHelper() + "'\n"
+	if got := (Connector{GitRoute: "/git/"}).GitConfig("https://j/"); got != want {
+		t.Fatalf("GitConfig =\n%s\nwant\n%s", got, want)
 	}
 }

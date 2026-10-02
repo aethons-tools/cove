@@ -18,12 +18,14 @@ import (
 // fakeRuntime records StatusUp events and acks them when autoAck is set.
 type fakeRuntime struct {
 	attachpb.UnimplementedRuntimeServer
-	mu         sync.Mutex
-	events     []*attachpb.SessionEvent
-	statuses   []attachpb.Activity
-	autoAck    bool
-	dropNext   int    // close the stream after this many events (0 = never)
-	beforeDrop func() // optional: run before ending the RPC on drop
+	mu              sync.Mutex
+	events          []*attachpb.SessionEvent
+	statuses        []attachpb.Activity
+	autoAck         bool
+	dropNext        int    // close the stream after this many events (0 = never)
+	beforeDrop      func() // optional: run before ending the RPC on drop
+	connectors      []string
+	dropOnConnector bool
 }
 
 func (f *fakeRuntime) Attach(s attachpb.Runtime_AttachServer) error {
@@ -34,6 +36,15 @@ func (f *fakeRuntime) Attach(s attachpb.Runtime_AttachServer) error {
 			return err
 		}
 		switch x := m.GetMsg().(type) {
+		case *attachpb.StatusUp_Connector:
+			f.mu.Lock()
+			f.connectors = append(f.connectors, x.Connector.GetFingerprint())
+			drop := f.dropOnConnector
+			f.dropOnConnector = false
+			f.mu.Unlock()
+			if drop {
+				return nil // server ends the RPC → client reconnects
+			}
 		case *attachpb.StatusUp_Event:
 			f.mu.Lock()
 			f.events = append(f.events, x.Event)

@@ -211,3 +211,28 @@ func TestLaunchCoveMasterUsesConnector(t *testing.T) {
 		t.Fatalf("raw token appears %d times", n)
 	}
 }
+
+func TestLaunchCoveMasterHandsOffConnector(t *testing.T) {
+	fake := &runner.Fake{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}, GitRoute: "/git/"}
+	if err := LaunchCoveMaster(fake, CoveMasterOptions{
+		Target: sshargs.Target{Host: "h"}, JamHost: "jam.example.com", IdentityToken: "tok-123", Connector: &c,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var env string
+	for _, call := range fake.Calls {
+		if strings.Contains(strings.Join(call.Args, " "), "cat > "+coveMasterEnvVMPath) {
+			env = call.Stdin
+		}
+	}
+	if !strings.Contains(env, "export AT_JAM_BASE_URL='https://jam.example.com'") {
+		t.Fatalf("no base url:\n%s", env)
+	}
+	if !strings.Contains(env, "export AT_JAM_CONNECTOR=") || !strings.Contains(env, `"git_route":"/git/"`) {
+		t.Fatalf("no connector handoff:\n%s", env)
+	}
+	if n := strings.Count(env, "tok-123"); n != 1 {
+		t.Fatalf("raw token appears %d times (must only be the single export)", n)
+	}
+}

@@ -37,6 +37,8 @@ type Client struct {
 	latest    Activity
 	hasLatest bool
 	activity  chan Activity // coalesced (buffer 1)
+	connector string        // latest applied-connector fingerprint (guarded by mu)
+	connCh    chan string   // coalesced (buffer 1)
 	events    *eventBuf
 }
 
@@ -53,7 +55,7 @@ func New(cfg Config, log *slog.Logger) *Client {
 	if cfg.FlushTimeout <= 0 {
 		cfg.FlushTimeout = defaultFlushTimeout
 	}
-	return &Client{cfg: cfg, log: newLogger(log), activity: make(chan Activity, 1),
+	return &Client{cfg: cfg, log: newLogger(log), activity: make(chan Activity, 1), connCh: make(chan string, 1),
 		events: newEventBuf(newStreamID(), cfg.EventBufferEvents, cfg.EventBufferBytes)}
 }
 
@@ -84,6 +86,26 @@ func (c *Client) redact(raw []byte) []byte {
 		}
 	}
 	return raw
+}
+
+// ConnectorApplied implements Handle: remember the latest fingerprint (for
+// re-send on reconnect) and coalesce it onto connCh for the live session.
+func (c *Client) ConnectorApplied(fp string) {
+	c.mu.Lock()
+	c.connector = fp
+	c.mu.Unlock()
+	select {
+	case c.connCh <- fp:
+	default:
+		select { // drop the stale pending value, then retry once
+		case <-c.connCh:
+		default:
+		}
+		select {
+		case c.connCh <- fp:
+		default:
+		}
+	}
 }
 
 // Report implements Handle. It records the latest activity (for re-send on
@@ -231,6 +253,15 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 		}
 	}
 
+	c.mu.Lock()
+	conn := c.connector
+	c.mu.Unlock()
+	if conn != "" {
+		if err := stream.Send(connectorMsg(conn)); err != nil {
+			return classify(ctx, err, recvErr)
+		}
+	}
+
 	// Replay every unacked event (a reconnect resends exactly the unacked
 	// tail), then keep sending as new events arrive.
 	sent := c.events.ackedSeq()
@@ -255,6 +286,10 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			return outcome{kind: stopParent}
 		case a := <-c.activity:
 			if err := stream.Send(statusMsg(a)); err != nil {
+				return classify(ctx, err, recvErr)
+			}
+		case fp := <-c.connCh:
+			if err := stream.Send(connectorMsg(fp)); err != nil {
 				return classify(ctx, err, recvErr)
 			}
 		case <-c.events.notify:

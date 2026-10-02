@@ -32,6 +32,11 @@ type fakeLauncher struct {
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
 
+	// onProbe / onEgress run inside Probe / ApplyEgress, simulating a concurrent
+	// write (e.g. a cove's connector report) landing mid-Reconcile.
+	onProbe  func(Instance)
+	onEgress func(Instance)
+
 	// Kit-prepare scripting: notReadyOnce makes the first Raise return
 	// ErrKitNotReady until a PrepareKit lands; prepareCalls counts PrepareKit and
 	// preparedDef records the last definition it received; prepareState is the
@@ -63,6 +68,9 @@ func (f *fakeLauncher) Teardown(_ context.Context, inst Instance) error {
 }
 func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error) {
 	f.probed = append(f.probed, inst.ActorID)
+	if f.onProbe != nil {
+		f.onProbe(inst)
+	}
 	return f.liveness, f.probeErr
 }
 func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
@@ -73,8 +81,11 @@ func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 	f.resumed = append(f.resumed, inst.ActorID)
 	return nil
 }
-func (f *fakeLauncher) ApplyEgress(_ context.Context, _ Instance, p *EgressPolicy) error {
+func (f *fakeLauncher) ApplyEgress(_ context.Context, inst Instance, p *EgressPolicy) error {
 	f.egressed = append(f.egressed, p)
+	if f.onEgress != nil {
+		f.onEgress(inst)
+	}
 	return f.egressErr
 }
 func (f *fakeLauncher) PrepareKit(_ context.Context, def KitDefinition) (KitStatus, error) {
@@ -546,6 +557,72 @@ func TestReconcileAdoptsExpiredAlive(t *testing.T) {
 	}
 	if len(f.tornDown) != 0 {
 		t.Fatal("alive instance must not be torn down")
+	}
+}
+
+// A connector report landing while Reconcile is probing must survive the
+// adopt write: the adopt touches only the lease, on a fresh read.
+func TestReconcileAdoptKeepsConcurrentConnectorReport(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	inst, _ := store.GetInstance("w1")
+	inst.Lease = Lease{Holder: "holder-B", Expiry: time.Unix(900, 0).UTC()}
+	store.PutInstance(inst)
+	*clk = clk.Add(1 * time.Minute)
+	f.onProbe = func(inst Instance) {
+		if err := sup.RecordConnector(inst.ActorID, "fp-new"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Connector != "fp-new" {
+		t.Fatalf("connector = %q, want the report that landed mid-pass", got.Connector)
+	}
+	if got.Lease.Holder != "holder-A" {
+		t.Fatalf("lease not adopted: %+v", got.Lease)
+	}
+}
+
+// A connector report landing while Reconcile re-applies another cove's egress
+// must survive that cove's own lease renew (written from the pass's snapshot
+// before the fix).
+func TestReconcileRenewKeepsConcurrentConnectorReport(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w2", Role: "guest"})
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour,
+		Egress: &EgressPolicy{Domains: []string{"a.com"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	*clk = clk.Add(10 * time.Second) // leases still ours and live: the renew path
+	once := false
+	f.onEgress = func(Instance) {
+		if once { // the first re-apply only, so a later one cannot re-record over a clobber
+			return
+		}
+		once = true
+		for _, id := range []string{"w1", "w2"} {
+			if err := sup.RecordConnector(id, "fp-"+id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"w1", "w2"} {
+		got, _ := store.GetInstance(id)
+		if got.Connector != "fp-"+id {
+			t.Fatalf("%s connector = %q, want the report that landed mid-pass", id, got.Connector)
+		}
+		if !got.Lease.Expiry.Equal(time.Unix(1070, 0).UTC()) {
+			t.Fatalf("%s lease not renewed: %+v", id, got.Lease)
+		}
 	}
 }
 

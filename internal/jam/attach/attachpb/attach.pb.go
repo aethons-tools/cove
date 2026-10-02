@@ -88,6 +88,7 @@ type StatusUp struct {
 	//	*StatusUp_Status
 	//	*StatusUp_Heartbeat
 	//	*StatusUp_Event
+	//	*StatusUp_Connector
 	Msg           isStatusUp_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -157,6 +158,15 @@ func (x *StatusUp) GetEvent() *SessionEvent {
 	return nil
 }
 
+func (x *StatusUp) GetConnector() *ConnectorApplied {
+	if x != nil {
+		if x, ok := x.Msg.(*StatusUp_Connector); ok {
+			return x.Connector
+		}
+	}
+	return nil
+}
+
 type isStatusUp_Msg interface {
 	isStatusUp_Msg()
 }
@@ -173,11 +183,64 @@ type StatusUp_Event struct {
 	Event *SessionEvent `protobuf:"bytes,3,opt,name=event,proto3,oneof"`
 }
 
+type StatusUp_Connector struct {
+	Connector *ConnectorApplied `protobuf:"bytes,4,opt,name=connector,proto3,oneof"`
+}
+
 func (*StatusUp_Status) isStatusUp_Msg() {}
 
 func (*StatusUp_Heartbeat) isStatusUp_Msg() {}
 
 func (*StatusUp_Event) isStatusUp_Msg() {}
+
+func (*StatusUp_Connector) isStatusUp_Msg() {}
+
+// ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
+// connector cove-master applied to the agent's most recent spawn. Jam compares it
+// with the role's current connector to flag a stale studio.
+type ConnectorApplied struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fingerprint   string                 `protobuf:"bytes,1,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectorApplied) Reset() {
+	*x = ConnectorApplied{}
+	mi := &file_attach_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectorApplied) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectorApplied) ProtoMessage() {}
+
+func (x *ConnectorApplied) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectorApplied.ProtoReflect.Descriptor instead.
+func (*ConnectorApplied) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ConnectorApplied) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
 
 // SessionEvent is one line of the agent's claude stream-json stdout.
 type SessionEvent struct {
@@ -194,7 +257,7 @@ type SessionEvent struct {
 
 func (x *SessionEvent) Reset() {
 	*x = SessionEvent{}
-	mi := &file_attach_proto_msgTypes[1]
+	mi := &file_attach_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -206,7 +269,7 @@ func (x *SessionEvent) String() string {
 func (*SessionEvent) ProtoMessage() {}
 
 func (x *SessionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[1]
+	mi := &file_attach_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -219,7 +282,7 @@ func (x *SessionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionEvent.ProtoReflect.Descriptor instead.
 func (*SessionEvent) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{1}
+	return file_attach_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SessionEvent) GetStreamId() string {
@@ -272,7 +335,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_attach_proto_msgTypes[2]
+	mi := &file_attach_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +347,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[2]
+	mi := &file_attach_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +360,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{2}
+	return file_attach_proto_rawDescGZIP(), []int{3}
 }
 
 type ControlDown struct {
@@ -316,7 +379,7 @@ type ControlDown struct {
 
 func (x *ControlDown) Reset() {
 	*x = ControlDown{}
-	mi := &file_attach_proto_msgTypes[3]
+	mi := &file_attach_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -328,7 +391,7 @@ func (x *ControlDown) String() string {
 func (*ControlDown) ProtoMessage() {}
 
 func (x *ControlDown) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[3]
+	mi := &file_attach_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -341,7 +404,7 @@ func (x *ControlDown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlDown.ProtoReflect.Descriptor instead.
 func (*ControlDown) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{3}
+	return file_attach_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ControlDown) GetMsg() isControlDown_Msg {
@@ -441,7 +504,7 @@ type EventAck struct {
 
 func (x *EventAck) Reset() {
 	*x = EventAck{}
-	mi := &file_attach_proto_msgTypes[4]
+	mi := &file_attach_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -453,7 +516,7 @@ func (x *EventAck) String() string {
 func (*EventAck) ProtoMessage() {}
 
 func (x *EventAck) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[4]
+	mi := &file_attach_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -466,7 +529,7 @@ func (x *EventAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventAck.ProtoReflect.Descriptor instead.
 func (*EventAck) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{4}
+	return file_attach_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *EventAck) GetStreamId() string {
@@ -491,7 +554,7 @@ type Wake struct {
 
 func (x *Wake) Reset() {
 	*x = Wake{}
-	mi := &file_attach_proto_msgTypes[5]
+	mi := &file_attach_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -503,7 +566,7 @@ func (x *Wake) String() string {
 func (*Wake) ProtoMessage() {}
 
 func (x *Wake) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[5]
+	mi := &file_attach_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -516,7 +579,7 @@ func (x *Wake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Wake.ProtoReflect.Descriptor instead.
 func (*Wake) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{5}
+	return file_attach_proto_rawDescGZIP(), []int{6}
 }
 
 type Teardown struct {
@@ -528,7 +591,7 @@ type Teardown struct {
 
 func (x *Teardown) Reset() {
 	*x = Teardown{}
-	mi := &file_attach_proto_msgTypes[6]
+	mi := &file_attach_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +603,7 @@ func (x *Teardown) String() string {
 func (*Teardown) ProtoMessage() {}
 
 func (x *Teardown) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[6]
+	mi := &file_attach_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,7 +616,7 @@ func (x *Teardown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Teardown.ProtoReflect.Descriptor instead.
 func (*Teardown) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{6}
+	return file_attach_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Teardown) GetReason() string {
@@ -572,7 +635,7 @@ type TierChanged struct {
 
 func (x *TierChanged) Reset() {
 	*x = TierChanged{}
-	mi := &file_attach_proto_msgTypes[7]
+	mi := &file_attach_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -584,7 +647,7 @@ func (x *TierChanged) String() string {
 func (*TierChanged) ProtoMessage() {}
 
 func (x *TierChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[7]
+	mi := &file_attach_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -597,7 +660,7 @@ func (x *TierChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TierChanged.ProtoReflect.Descriptor instead.
 func (*TierChanged) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{7}
+	return file_attach_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *TierChanged) GetTier() int32 {
@@ -616,7 +679,7 @@ type RotateToken struct {
 
 func (x *RotateToken) Reset() {
 	*x = RotateToken{}
-	mi := &file_attach_proto_msgTypes[8]
+	mi := &file_attach_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +691,7 @@ func (x *RotateToken) String() string {
 func (*RotateToken) ProtoMessage() {}
 
 func (x *RotateToken) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[8]
+	mi := &file_attach_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +704,7 @@ func (x *RotateToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateToken.ProtoReflect.Descriptor instead.
 func (*RotateToken) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{8}
+	return file_attach_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RotateToken) GetToken() string {
@@ -655,12 +718,15 @@ var File_attach_proto protoreflect.FileDescriptor
 
 const file_attach_proto_rawDesc = "" +
 	"\n" +
-	"\fattach.proto\x12\x10harbor.attach.v1\"\xbc\x01\n" +
+	"\fattach.proto\x12\x10harbor.attach.v1\"\x80\x02\n" +
 	"\bStatusUp\x124\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1a.harbor.attach.v1.ActivityH\x00R\x06status\x12;\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x1b.harbor.attach.v1.HeartbeatH\x00R\theartbeat\x126\n" +
-	"\x05event\x18\x03 \x01(\v2\x1e.harbor.attach.v1.SessionEventH\x00R\x05eventB\x05\n" +
-	"\x03msg\"\xb6\x01\n" +
+	"\x05event\x18\x03 \x01(\v2\x1e.harbor.attach.v1.SessionEventH\x00R\x05event\x12B\n" +
+	"\tconnector\x18\x04 \x01(\v2\".harbor.attach.v1.ConnectorAppliedH\x00R\tconnectorB\x05\n" +
+	"\x03msg\"4\n" +
+	"\x10ConnectorApplied\x12 \n" +
+	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\"\xb6\x01\n" +
 	"\fSessionEvent\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x12\n" +
@@ -708,35 +774,37 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_attach_proto_goTypes = []any{
-	(Activity)(0),        // 0: harbor.attach.v1.Activity
-	(*StatusUp)(nil),     // 1: harbor.attach.v1.StatusUp
-	(*SessionEvent)(nil), // 2: harbor.attach.v1.SessionEvent
-	(*Heartbeat)(nil),    // 3: harbor.attach.v1.Heartbeat
-	(*ControlDown)(nil),  // 4: harbor.attach.v1.ControlDown
-	(*EventAck)(nil),     // 5: harbor.attach.v1.EventAck
-	(*Wake)(nil),         // 6: harbor.attach.v1.Wake
-	(*Teardown)(nil),     // 7: harbor.attach.v1.Teardown
-	(*TierChanged)(nil),  // 8: harbor.attach.v1.TierChanged
-	(*RotateToken)(nil),  // 9: harbor.attach.v1.RotateToken
+	(Activity)(0),            // 0: harbor.attach.v1.Activity
+	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
+	(*ConnectorApplied)(nil), // 2: harbor.attach.v1.ConnectorApplied
+	(*SessionEvent)(nil),     // 3: harbor.attach.v1.SessionEvent
+	(*Heartbeat)(nil),        // 4: harbor.attach.v1.Heartbeat
+	(*ControlDown)(nil),      // 5: harbor.attach.v1.ControlDown
+	(*EventAck)(nil),         // 6: harbor.attach.v1.EventAck
+	(*Wake)(nil),             // 7: harbor.attach.v1.Wake
+	(*Teardown)(nil),         // 8: harbor.attach.v1.Teardown
+	(*TierChanged)(nil),      // 9: harbor.attach.v1.TierChanged
+	(*RotateToken)(nil),      // 10: harbor.attach.v1.RotateToken
 }
 var file_attach_proto_depIdxs = []int32{
-	0, // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
-	3, // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
-	2, // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
-	6, // 3: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
-	7, // 4: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
-	8, // 5: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
-	9, // 6: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
-	5, // 7: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
-	1, // 8: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	4, // 9: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
+	4,  // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
+	3,  // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
+	2,  // 3: harbor.attach.v1.StatusUp.connector:type_name -> harbor.attach.v1.ConnectorApplied
+	7,  // 4: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
+	8,  // 5: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
+	9,  // 6: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
+	10, // 7: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
+	6,  // 8: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
+	1,  // 9: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	5,  // 10: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -748,8 +816,9 @@ func file_attach_proto_init() {
 		(*StatusUp_Status)(nil),
 		(*StatusUp_Heartbeat)(nil),
 		(*StatusUp_Event)(nil),
+		(*StatusUp_Connector)(nil),
 	}
-	file_attach_proto_msgTypes[3].OneofWrappers = []any{
+	file_attach_proto_msgTypes[4].OneofWrappers = []any{
 		(*ControlDown_Wake)(nil),
 		(*ControlDown_Teardown)(nil),
 		(*ControlDown_Tier)(nil),
@@ -762,7 +831,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

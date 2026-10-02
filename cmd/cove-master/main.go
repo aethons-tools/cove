@@ -16,11 +16,15 @@
 //	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 //	AT_COVE_RESIDENT         "1"/"true" keeps the agent resident between turns
 //	                         (personal sessions): it waits for a Wake after every turn
+//	AT_JAM_BASE_URL          https://<jam host>; when set, the agent's connector is re-fetched
+//	                         (GET /connector) before every spawn
+//	AT_JAM_CONNECTOR         the raise-time connector (JSON, no token): fallback + owned env keys
 package main
 
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -32,6 +36,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/agentrun"
 	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // clientTransportCreds dials Jam over TLS, validating against the system trust
@@ -83,7 +88,20 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 		return agentrun.Config{}, fmt.Errorf("reading AT_COVE_AGENT_PROMPT_FILE: %w", err)
 	}
 	resident := getenv("AT_COVE_RESIDENT")
-	return agentrun.Config{WorkDir: workdir, Prompt: string(prompt), Resident: resident == "1" || resident == "true"}, nil
+	cfg := agentrun.Config{WorkDir: workdir, Prompt: string(prompt), Resident: resident == "1" || resident == "true"}
+	if base := getenv("AT_JAM_BASE_URL"); base != "" {
+		token := jamEnv(getenv, "IDENTITY_TOKEN")
+		var initial snippet.Connector
+		if raw := getenv("AT_JAM_CONNECTOR"); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &initial); err != nil {
+				initial = snippet.Connector{} // the first successful fetch fills it
+			}
+		}
+		cfg.Connector = &agentrun.ConnectorConfig{
+			Source: agentrun.HTTPConnectorSource(base, token), BaseURL: base, Token: token, Initial: initial,
+		}
+	}
+	return cfg, nil
 }
 
 func run(getenv func(string) string, stderr *os.File) int {

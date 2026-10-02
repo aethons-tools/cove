@@ -358,3 +358,20 @@ func TestStreamDropDeregisters(t *testing.T) {
 	// Should not panic even though there's no live stream.
 	srv.RequestTeardown("w1")
 }
+
+func TestAttachRecordsConnector(t *testing.T) {
+	store, _, _, dial, tok, secret := harness(t)
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Connector{Connector: &attachpb.ConnectorApplied{Fingerprint: "fp-1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { i, ok := store.GetInstance("w1"); return ok && i.Connector == "fp-1" }) {
+		i, _ := store.GetInstance("w1")
+		t.Fatalf("connector not recorded: %+v", i)
+	}
+}

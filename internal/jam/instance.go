@@ -66,6 +66,7 @@ type Instance struct {
 	LastNagAt          time.Time `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
 	Nags               int       `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
 	Egress             string    `json:"egress,omitempty"`              // EgressFingerprint of the egress policy the cove is running under; "" = unknown (raised before this was recorded) — the supervisor re-applies once
+	Connector          string    `json:"connector,omitempty"`           // snippet.Fingerprint of the connector the cove last reported applying to an agent spawn; "" = never reported (an older image, or no turn yet)
 	EgressFailures     int       `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
 }
 

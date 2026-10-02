@@ -20,7 +20,7 @@ func needSh(t *testing.T) {
 
 func TestExecSpawnerCleanExit(t *testing.T) {
 	needSh(t)
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "", nil)
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestExecSpawnerCleanExit(t *testing.T) {
 
 func TestExecSpawnerNonzeroExit(t *testing.T) {
 	needSh(t)
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 3"}, "", nil)
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 3"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestExecSpawnerNonzeroExit(t *testing.T) {
 func TestExecSpawnerCancelSIGTERM(t *testing.T) {
 	needSh(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	p, err := execSpawner{grace: 5 * time.Second}.Spawn(ctx, "sh", []string{"-c", "sleep 30"}, "", nil)
+	p, err := execSpawner{grace: 5 * time.Second}.Spawn(ctx, "sh", []string{"-c", "sleep 30"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestExecSpawnerCancelSIGKILLAfterGrace(t *testing.T) {
 	needSh(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	// Ignores SIGTERM, so only the WaitDelay SIGKILL can stop it.
-	p, err := execSpawner{grace: 200 * time.Millisecond}.Spawn(ctx, "sh", []string{"-c", "trap '' TERM; sleep 30"}, "", nil)
+	p, err := execSpawner{grace: 200 * time.Millisecond}.Spawn(ctx, "sh", []string{"-c", "trap '' TERM; sleep 30"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestExecSpawnerCancelSIGKILLAfterGrace(t *testing.T) {
 func TestExecSpawnerStdoutOnlyToProvidedWriter(t *testing.T) {
 	needSh(t)
 	var buf bytes.Buffer
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo hello"}, "", &buf)
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo hello"}, "", nil, &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestExecSpawnerDoesNotEchoToOsStdout(t *testing.T) {
 	old := os.Stdout
 	os.Stdout = w
 	var buf bytes.Buffer
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo secret"}, "", &buf)
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo secret"}, "", nil, &buf)
 	os.Stdout = old
 	if err != nil {
 		t.Fatal(err)

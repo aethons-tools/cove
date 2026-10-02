@@ -5,21 +5,30 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // recordHandle records the activities the workload reports. Safe for
 // concurrent use: Run reports from its own goroutine while a test may poll
 // count() from the test goroutine.
 type recordHandle struct {
-	mu     sync.Mutex
-	got    []covemaster.Activity
-	events []recordedEvent
+	mu         sync.Mutex
+	got        []covemaster.Activity
+	events     []recordedEvent
+	connectors []string
+}
+
+func (h *recordHandle) ConnectorApplied(fp string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.connectors = append(h.connectors, fp)
 }
 
 type recordedEvent struct {
@@ -67,13 +76,14 @@ func (p scriptedProc) Wait() error { return p.wait() }
 type fakeSpawner struct {
 	bin, dir string
 	args     []string
+	env      []string
 	proc     Process
 	err      error
 	stdout   io.Writer
 }
 
-func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
-	f.bin, f.args, f.dir, f.stdout = bin, args, dir, stdout
+func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
+	f.bin, f.args, f.dir, f.env, f.stdout = bin, args, dir, env, stdout
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -278,6 +288,7 @@ func TestControlWakeNoop(t *testing.T) {
 type scriptedCall struct {
 	bin, dir string
 	args     []string
+	env      []string
 }
 
 // scriptedSpawner scripts a worker-result.json body per call: call i's Wait
@@ -291,10 +302,10 @@ type scriptedSpawner struct {
 	calls   []scriptedCall
 }
 
-func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
+func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
 	f.mu.Lock()
 	i := len(f.calls)
-	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir})
+	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir, env: append([]string(nil), env...)})
 	f.mu.Unlock()
 	return scriptedProc{wait: func() error {
 		if i < len(f.lines) && stdout != nil {
@@ -596,5 +607,106 @@ func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
 	}
 	if fi, _ := os.Stat(logPath); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", fi.Mode())
+	}
+}
+
+func TestRunAppliesConnectorPerSpawn(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
+			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	if envMap(f.env)["GH_HOST"] != "jam.example" {
+		t.Fatalf("spawn env = %v", f.env)
+	}
+	if len(h.connectors) != 1 || h.connectors[0] != snippet.Fingerprint(src.c) {
+		t.Fatalf("reported = %v", h.connectors)
+	}
+}
+
+func TestRunWithoutConnectorInherits(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	w, h := newWL(t, dir, f)
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	if f.env != nil || len(h.connectors) != 0 {
+		t.Fatalf("no connector config must inherit env and report nothing: env=%v reports=%v", f.env, h.connectors)
+	}
+}
+
+// seqSource returns connectors[i] on its i-th Fetch (the last one thereafter).
+type seqSource struct {
+	mu         sync.Mutex
+	n          int
+	connectors []snippet.Connector
+}
+
+func (s *seqSource) Fetch(context.Context) (snippet.Connector, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.connectors[min(s.n, len(s.connectors)-1)]
+	s.n++
+	return c, nil
+}
+
+// Across turns (needs-input → wake → needs-input → wake → ok) each spawn gets the
+// connector current at its start: a change between turns reaches the next
+// spawn's env and is reported once; an unchanged one is not re-reported.
+func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
+	dir := t.TempDir()
+	needsInput := `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`
+	f := &scriptedSpawner{results: []string{needsInput, needsInput, `{"status":{"ok":{}}}`}, dir: dir}
+	a := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "OLD": "1"}}
+	b := snippet.Connector{Env: map[string]string{"GH_HOST": "{base}/gh"}}
+	src := &seqSource{connectors: []snippet.Connector{a, b, b}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
+			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
+	h := &recordHandle{}
+	done := make(chan error, 1)
+	go func() { done <- w.Run(context.Background(), h) }()
+	for n := 1; n <= 2; n++ {
+		waitFor(t, func() bool { return h.count(covemaster.Waiting) == n })
+		w.Control(covemaster.Control{Kind: covemaster.Wake})
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 3 {
+		t.Fatalf("want 3 spawns, got %d", len(f.calls))
+	}
+	if m := envMap(f.calls[0].env); m["GH_HOST"] != "jam.example" || m["OLD"] != "1" {
+		t.Fatalf("turn 1 env = %v", m)
+	}
+	for _, i := range []int{1, 2} {
+		m := envMap(f.calls[i].env)
+		if m["GH_HOST"] != "https://jam.example/gh" {
+			t.Fatalf("turn %d env must carry the new connector: %v", i+1, m)
+		}
+		if _, ok := m["OLD"]; ok {
+			t.Fatalf("turn %d env kept a dropped key: %v", i+1, m)
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	want := []string{snippet.Fingerprint(a), snippet.Fingerprint(b)}
+	if !slices.Equal(h.connectors, want) {
+		t.Fatalf("reported %v, want one report per distinct connector %v", h.connectors, want)
 	}
 }
