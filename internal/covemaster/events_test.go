@@ -18,11 +18,12 @@ import (
 // fakeRuntime records StatusUp events and acks them when autoAck is set.
 type fakeRuntime struct {
 	attachpb.UnimplementedRuntimeServer
-	mu       sync.Mutex
-	events   []*attachpb.SessionEvent
-	statuses []attachpb.Activity
-	autoAck  bool
-	dropNext int // close the stream after this many events (0 = never)
+	mu         sync.Mutex
+	events     []*attachpb.SessionEvent
+	statuses   []attachpb.Activity
+	autoAck    bool
+	dropNext   int    // close the stream after this many events (0 = never)
+	beforeDrop func() // optional: run before ending the RPC on drop
 }
 
 func (f *fakeRuntime) Attach(s attachpb.Runtime_AttachServer) error {
@@ -45,7 +46,11 @@ func (f *fakeRuntime) Attach(s attachpb.Runtime_AttachServer) error {
 			if drop > 0 && n == drop {
 				f.mu.Lock()
 				f.dropNext = 0
+				hook := f.beforeDrop
 				f.mu.Unlock()
+				if hook != nil {
+					hook()
+				}
 				return nil // server ends the RPC → client reconnects
 			}
 		case *attachpb.StatusUp_Status:
@@ -174,6 +179,13 @@ func TestEventsAckTrimsReplay(t *testing.T) {
 	f := &fakeRuntime{autoAck: true, dropNext: 2}
 	rel := make(chan struct{})
 	c := fakeClient(t, f, nil)
+	// End the RPC only once the client has applied the ack for seq 2, so the
+	// replay after reconnect is deterministic: acks ignored => 1 and 2 resent.
+	f.beforeDrop = func() {
+		for end := time.Now().Add(3 * time.Second); time.Now().Before(end) && c.events.ackedSeq() < 2; {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	done := make(chan error, 1)
 	go func() {
 		done <- c.Run(context.Background(), &eventWorkload{lines: []string{"1", "2", "3"}, release: rel})
@@ -189,7 +201,7 @@ func TestEventsAckTrimsReplay(t *testing.T) {
 	for _, s := range got {
 		seen[s]++
 	}
-	if seen[3] != 1 || seen[1] > 2 { // seq 1 may race its ack once; seq 3 is sent exactly once
+	if seen[1] != 1 || seen[2] != 1 || seen[3] < 1 {
 		t.Fatalf("unexpected resend pattern %v", got)
 	}
 }

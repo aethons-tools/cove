@@ -193,8 +193,13 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 	}
 
 	// recv goroutine → control/recvErr.
+	// Acks are applied right here (eventBuf is mutex-safe) so a flood of them
+	// can never crowd Teardown/Wake out of controlCh; only non-ack control
+	// messages are forwarded, and those are never dropped.
 	controlCh := make(chan *attachpb.ControlDown, 8)
 	recvErr := make(chan error, 1)
+	sessionDone := make(chan struct{})
+	defer close(sessionDone)
 	go func() {
 		for {
 			cd, err := stream.Recv()
@@ -202,9 +207,16 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 				recvErr <- err
 				return
 			}
+			if a, ok := cd.GetMsg().(*attachpb.ControlDown_Ack); ok {
+				if a.Ack.GetStreamId() == c.events.streamID {
+					c.events.ack(a.Ack.GetSeq())
+				}
+				continue
+			}
 			select {
 			case controlCh <- cd:
-			default:
+			case <-sessionDone:
+				return
 			}
 		}
 	}()
@@ -257,7 +269,7 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			if err := sendEvents(); err != nil {
 				return classify(ctx, err, recvErr)
 			}
-			c.awaitFinalAck(ctx, controlCh)
+			c.awaitFinalAck(ctx, sent, recvErr)
 			if err := stream.Send(statusMsg(Done)); err != nil {
 				return classify(ctx, err, recvErr)
 			}
@@ -274,10 +286,6 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			return outcome{kind: stopDone}
 		case cd := <-controlCh:
 			switch cd.GetMsg().(type) {
-			case *attachpb.ControlDown_Ack:
-				if a := cd.GetAck(); a.GetStreamId() == c.events.streamID {
-					c.events.ack(a.GetSeq())
-				}
 			case *attachpb.ControlDown_Teardown:
 				w.Control(Control{Kind: Teardown})
 				return outcome{kind: stopTeardown}
@@ -292,27 +300,30 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 	}
 }
 
-// awaitFinalAck waits up to FlushTimeout for Jam to ack the last event, so the
-// audit trail is complete before Done tears the cove down. An old Jam never
-// acks; that costs at most FlushTimeout.
-func (c *Client) awaitFinalAck(ctx context.Context, controlCh <-chan *attachpb.ControlDown) {
-	last := c.events.lastSeq()
-	if c.events.ackedSeq() >= last {
+// awaitFinalAck waits up to FlushTimeout for Jam to ack seq `sent` (the last
+// event sent this session), so the audit trail is complete before Done tears
+// the cove down. An old Jam never acks; that costs at most FlushTimeout. It
+// does not read controlCh, so Teardown/Wake stay queued for the main loop.
+func (c *Client) awaitFinalAck(ctx context.Context, sent uint64, recvErr chan error) {
+	if c.events.ackedSeq() >= sent {
 		return
 	}
 	timer := time.NewTimer(c.cfg.FlushTimeout)
 	defer timer.Stop()
-	for c.events.ackedSeq() < last {
+	for c.events.ackedSeq() < sent {
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			c.log.Warn("session events: final ack not received; reporting Done anyway", "last_seq", last, "acked", c.events.ackedSeq())
+			c.log.Warn("session events: final ack not received; reporting Done anyway", "last_seq", sent, "acked", c.events.ackedSeq())
 			return
-		case cd := <-controlCh:
-			if a := cd.GetAck(); a != nil && a.GetStreamId() == c.events.streamID {
-				c.events.ack(a.GetSeq())
+		case err := <-recvErr:
+			select { // stream broke: give the error back for later handling
+			case recvErr <- err:
+			default:
 			}
+			return
+		case <-c.events.ackedCh:
 		}
 	}
 }

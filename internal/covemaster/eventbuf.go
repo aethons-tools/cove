@@ -20,10 +20,11 @@ type eventBuf struct {
 	maxEvents int
 	maxBytes  int
 	notify    chan struct{} // buffer 1, coalescing: "something new to send"
+	ackedCh   chan struct{} // buffer 1, coalescing: "ack high-water advanced"
 }
 
 func newEventBuf(streamID string, maxEvents, maxBytes int) *eventBuf {
-	return &eventBuf{streamID: streamID, maxEvents: maxEvents, maxBytes: maxBytes, notify: make(chan struct{}, 1)}
+	return &eventBuf{streamID: streamID, maxEvents: maxEvents, maxBytes: maxBytes, notify: make(chan struct{}, 1), ackedCh: make(chan struct{}, 1)}
 }
 
 func (b *eventBuf) add(turn uint32, raw []byte, truncated uint64, now time.Time) {
@@ -68,6 +69,10 @@ func (b *eventBuf) ack(seq uint64) {
 		return
 	}
 	b.acked = seq
+	select {
+	case b.ackedCh <- struct{}{}:
+	default:
+	}
 	i := 0
 	for i < len(b.items) && b.items[i].Seq <= seq {
 		b.bytes -= len(b.items[i].Raw)
