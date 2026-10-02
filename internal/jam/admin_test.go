@@ -916,3 +916,47 @@ func TestAdminConfigImportBadVersion(t *testing.T) {
 		t.Fatalf("status = %d, want 400", r.StatusCode)
 	}
 }
+
+func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
+	h, _ := newTestAdmin(t) // credExists: git-pat, anthropic-key
+	bad := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "nope"}})
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("unknown credential = %d, want 400", bad.Code)
+	}
+	notAllowed := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}, Credentials: map[string]string{"git": "git-pat"}})
+	if notAllowed.Code != http.StatusBadRequest {
+		t.Fatalf("credential for a destination not allowed = %d, want 400", notAllowed.Code)
+	}
+	ok := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}})
+	if ok.Code != http.StatusCreated {
+		t.Fatalf("valid credentials = %d, want 201", ok.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].Credentials["git"] != "git-pat" {
+		t.Fatalf("roles = %+v", roles)
+	}
+	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	var roster []ActorSummary
+	getJSON(t, h, "/admin/roster", &roster)
+	if len(roster) != 1 || roster[0].Grants[0].Credentials["git"] != "git-pat" {
+		t.Fatalf("roster = %+v", roster)
+	}
+}
+
+func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}})
+	ov := &Override{Credentials: map[string]string{"git": "git-pat"}} // git not in the effective scope
+	if rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("enroll with bad override = %d, want 400", rec.Code)
+	}
+	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	if rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("grant with bad override = %d, want 400", rec.Code)
+	}
+	good := &Override{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}}
+	if rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "acme", Role: "w", Overrides: good}); rec.Code != http.StatusCreated {
+		t.Fatalf("grant with valid override = %d, want 201", rec.Code)
+	}
+}

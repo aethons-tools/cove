@@ -51,6 +51,11 @@ at-jam role rm   [--project acme] guest
 ```
 
 - `--destinations` is comma-separated.
+- A role's per-destination credentials travel on the admin API as
+  `credentials` (`{"git": "git-pat-acme"}`) on role put/list, on each roster
+  grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
+  Writes are rejected (400) when a mapping names a destination the scope
+  doesn't allow, or a credential the serve config doesn't declare.
 - `--addressing` (comma-separated comms target globs, e.g. `human:*,channel:eng-help`)
   scopes which comms targets the role's actors may `send(to=…)`. This is a
   separate plane from `destinations`; see

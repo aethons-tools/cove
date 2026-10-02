@@ -40,10 +40,11 @@ type ActorSummary struct {
 
 // GrantSummary is one grant with its resolved effective scope.
 type GrantSummary struct {
-	Project      string   `json:"project"`
-	Role         string   `json:"role"`
-	Destinations []string `json:"destinations"`
-	Addressing   []string `json:"addressing,omitempty"`
+	Project      string            `json:"project"`
+	Role         string            `json:"role"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
 }
 
 // EscalationBody is the PUT /admin/projects/{project}/escalation body: the
@@ -71,13 +72,14 @@ type ChatServiceView struct {
 
 // RoleBody is the POST /admin/roles request.
 type RoleBody struct {
-	Project      string   `json:"project"`
-	Name         string   `json:"name"`
-	Destinations []string `json:"destinations"`
-	Addressing   []string `json:"addressing,omitempty"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
-	Kit          string   `json:"kit,omitempty"`
-	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	Project      string            `json:"project"`
+	Name         string            `json:"name"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
+	TTLSeconds   int64             `json:"ttl_seconds"`
+	Kit          string            `json:"kit,omitempty"`
+	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -92,13 +94,14 @@ type RoleBody struct {
 
 // RoleSummary is a GET /admin/roles item.
 type RoleSummary struct {
-	Project      string   `json:"project"`
-	Name         string   `json:"name"`
-	Destinations []string `json:"destinations"`
-	Addressing   []string `json:"addressing,omitempty"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
-	Kit          string   `json:"kit,omitempty"`
-	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	Project      string            `json:"project"`
+	Name         string            `json:"name"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
+	TTLSeconds   int64             `json:"ttl_seconds"`
+	Kit          string            `json:"kit,omitempty"`
+	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -234,7 +237,7 @@ func RosterSummaries(store Store) []ActorSummary {
 			gs := GrantSummary{Project: g.Project, Role: g.Role}
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
-				gs.Destinations = s.Destinations
+				gs.Destinations, gs.Credentials = s.Destinations, s.Credentials
 				gs.Addressing = s.Addressing
 			}
 			sum.Grants = append(sum.Grants, gs)
@@ -242,6 +245,20 @@ func RosterSummaries(store Store) []ActorSummary {
 		out = append(out, sum)
 	}
 	return out
+}
+
+// validateOverride checks a grant override's credentials against the effective
+// scope it produces over its role. A nil override (or one without credentials)
+// is always valid.
+func validateOverride(store Store, project, role string, o *Override, credExists func(string) bool) error {
+	if o == nil || o.Credentials == nil {
+		return nil
+	}
+	r, ok := store.GetRole(orDefaultProject(project), role)
+	if !ok {
+		return fmt.Errorf("role %q not found in project %q", role, orDefaultProject(project))
+	}
+	return ValidateCredentials(EffectiveScope(Grant{Overrides: o}, r), credExists)
 }
 
 // NewAdminHandler builds the loopback admin API. credExists validates that a
@@ -341,6 +358,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "role is required", http.StatusBadRequest)
 			return
 		}
+		if err := validateOverride(store, b.Project, b.Role, b.Overrides, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		tok, err := Enroll(store, b.ID, b.Project, b.Role, b.Overrides, time.Now())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -369,6 +390,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
 				Destinations:        ro.Scope.Destinations,
+				Credentials:         ro.Scope.Credentials,
 				Addressing:          ro.Scope.Addressing,
 				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
 				Kit:                 ro.Kit,
@@ -409,7 +431,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		role := Role{
 			Name:  b.Name,
-			Scope: Scope{Destinations: b.Destinations, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Scope: Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
 			Kit:   b.Kit,
 			Allocation: RoleAllocation{
 				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
@@ -417,6 +439,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
+		}
+		if err := ValidateCredentials(role.Scope, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
@@ -449,6 +475,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		if b.Role == "" {
 			http.Error(w, "role is required", http.StatusBadRequest)
+			return
+		}
+		if err := validateOverride(store, b.Project, b.Role, b.Overrides, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := store.AddGrant(r.PathValue("id"), Grant{Project: b.Project, Role: b.Role, Overrides: b.Overrides}); err != nil {
