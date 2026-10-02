@@ -55,7 +55,7 @@ at-jam studio teardown --id spider-42
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
-- `connector` (in `studio list` and the Studios table) is `ok` when the studio's last agent turn ran with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next turn), `unknown` when it never reported (an image built before the per-turn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later turn.
+- `connector` (in `studio list` and the Studios table) is `ok` when the studio's latest agent episode (agent process) started with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next episode — a wake delivered into a live episode does not refresh it), `unknown` when it never reported (an image built before the per-spawn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later episode.
 
 ### Raising a real managed studio
 
@@ -220,15 +220,16 @@ without `/etc/claude-code/mcp.json`) rather than launch a silently toolless agen
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it
 is written to stdin as the resume prompt at once; mid-turn, any number of wakes are
-coalesced into **one** resume prompt written when the turn ends. A wake coalesced
-but undelivered when the process exits is kept, so the next `needs-input` wait
-resumes at once.
+coalesced into **one** resume prompt written when the turn ends. A wake that is still
+owed when the process exits — coalesced but undelivered, or written but not yet
+acted on (the write failed, or the agent exited before starting that turn) — is
+kept, so the next `needs-input` (or resident) wait resumes at once.
 
 **Connector refresh.** Before every episode (agent spawn) — the first, and each resume after the process exited —
 cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
-and starts that turn with the current env and git routing, so a destination or grant
+and starts that episode with the current env and git routing, so a destination or grant
 edit reaches a running studio at its next episode (never within one: a wake delivered into a live episode runs under the env that episode started with). If the fetch fails it
-keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every turn until it lands. It reports the applied
+keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every episode until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
 
@@ -248,13 +249,15 @@ paused.
 
 **Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
 sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
-own: after **every** turn (`ok`, `needs-input`, `error`, or no worker-result) the
+own: after **every** episode (`ok`, `needs-input`, `error`, or no worker-result) the
 client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
 — there is no `MaxWait`. A turn that **exited non-zero and wrote no worker-result**
 (a crashed or auth/model-failed `claude`) is logged at **WARN** — the session still
 waits for its owner, but the failure is loud, not mistaken for a healthy idle wait;
 the cause is in the agent's own `cove-master.log` (stderr) or `agent-stream.jsonl` (stdout). A wake resumes the agent with `claude --continue` and a prompt
-to `read` the reply and carry on. The session ends only when a teardown cancels the
+to `read` the reply and carry on. While an episode is still live (its turn over but a
+background task outstanding, so the studio is still `running`), a wake is written into
+it instead — see the wake paragraph above. The session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears a resident session down for
 `wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.

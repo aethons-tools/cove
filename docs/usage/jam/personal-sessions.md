@@ -24,13 +24,16 @@ profile for the owner.
    no `to`, which goes to its owner — you — as a message in your Discord inbox
    channel. It may message **only** you: Jam enrolls it with an addressing
    override of exactly `human:<owner>`.
-3. After **every** turn the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
+3. Once its agent is idle — its turn over and no background task still running —
+   the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
    there is no time limit). While it waits past the `warm-timeout` it is paused
-   (`idled`, ≈0 CPU).
+   (`idled`, ≈0 CPU). If it ended its turn with a background task running (say, a
+   dev server), it stays `running` and keeps the agent live instead, for up to 30m.
 4. **Reply to its Discord message** (Discord's reply-to-message feature) to
-   continue. Jam routes the reply to the studio, wakes it (unpausing it first if
-   needed), and it resumes with `claude --continue`, `read`s your reply, and
-   carries on. Repeat from 2.
+   continue. Jam routes the reply to the studio and wakes it. A waiting studio
+   (unpaused first if needed) resumes with `claude --continue`; a still-`running`
+   one gets your reply written straight into its live agent. Either way it `read`s
+   your reply and carries on. Repeat from 2.
 
 **v1 limit:** you can only *reply* to the studio's messages; a new, non-reply message
 in your inbox channel does not reach it. The session is never torn down for

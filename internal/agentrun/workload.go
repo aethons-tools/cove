@@ -31,20 +31,21 @@ const defaultBackgroundWait = 30 * time.Minute
 // project/user-level MCP config.
 const mcpConfigPath = "/etc/claude-code/mcp.json"
 
-// resumePrompt is passed (with --continue) on every turn after the first,
-// once a Wake has broken the unit out of a needs-input wait.
+// resumePrompt is the stdin message a Wake delivers: written into a live
+// episode, or as the first message of a new --continue episode once a Wake has
+// broken the unit out of a needs-input wait.
 const resumePrompt = "New input may have arrived on your ticket — use the messaging `read` tool to fetch it, then continue the task. When finished, write .at-task/worker-result.json as before."
 
-// residentResumePrompt is passed (with --continue) on every turn after the
-// first in resident mode (a personal session), once a Wake — typically the
-// owner replying — has broken the cove out of its wait.
+// residentResumePrompt is resumePrompt's resident-mode (personal or standing
+// session) counterpart, delivered the same way when a Wake — typically the
+// owner replying — arrives.
 const residentResumePrompt = "Your owner may have replied — use the intercom `read` tool to fetch new messages, then continue. " +
 	"Use `send` to message your owner when you have results or need input."
 
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
-	Prompt  string        // the full prompt passed as claude's positional arg
+	Prompt  string        // the full prompt, written as the first stream-json message on claude's stdin
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
 	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
 	// BackgroundWait bounds how long stdin stays open after a turn ends with
@@ -57,12 +58,14 @@ type Config struct {
 	// (COV-190) so a stale image never yields a silently toolless agent.
 	MCPConfigPath string
 	// Connector, when set, refreshes the agent's connector before every spawn
-	// (GET /connector) and reports the applied fingerprint; nil inherits
+	// (episode — not per prompt: a Wake written into a live episode keeps that
+	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
 	// cove-master's env unchanged (an older launcher).
 	Connector *ConnectorConfig
-	// Resident keeps the cove alive between turns (personal sessions): after
-	// every turn, whatever its outcome, Run reports Waiting and blocks until a
-	// Wake (resume with --continue) or shutdown — never MaxWait.
+	// Resident keeps the cove alive between episodes (personal and standing
+	// sessions): after every episode, whatever its outcome, Run reports Waiting
+	// and blocks until a Wake (a new episode with --continue) or shutdown —
+	// never MaxWait.
 	Resident bool
 	// StreamLogPath is the VM-local file claude's stdout (stream-json) is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
