@@ -20,7 +20,7 @@ const (
 
 func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *sessionevents.Hub) {
 	mux.HandleFunc("GET /ui/coves/{id}/session", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Session", "ActorID": r.PathValue("id"), "Enabled": store != nil}
+		data := map[string]any{"Title": "Studios", "ActorID": r.PathValue("id"), "Enabled": store != nil}
 		if store != nil {
 			streams, _ := store.Streams(r.PathValue("id"))
 			selected := r.URL.Query().Get("stream")
