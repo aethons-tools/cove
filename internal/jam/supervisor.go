@@ -46,7 +46,7 @@ type RaiseSpec struct {
 	// Kit is the kit to raise the cove from (its light reference). The launcher
 	// consults its prepared-kit inventory: a miss returns ErrKitNotReady (the
 	// supervisor then prepares the full definition and retries), a hit raises the
-	// cove-kit:<id>-v<version> image. A zero KitRef (empty ID) selects the legacy
+	// cove-kit:<build-digest>-<asm> image. A zero KitRef (empty ID) selects the legacy
 	// path that raises the launcher's statically configured image, so existing
 	// callers are unaffected (Phase-1 additive).
 	Kit KitRef
@@ -571,6 +571,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 // dead (or probe error) ⇒ declare Lost and tear down; alive ⇒ steal + renew
 // (adopt); unknown ⇒ leave for a later tick. Run once at startup (re-adopting
 // instances a crashed/old process left behind) and on every tick.
+//
+// The pass iterates one ListInstances snapshot but does slow work (Probe, egress
+// exec) between instances, so each write is a patchInstance on a fresh read that
+// touches only the field the pass owns — never the snapshot, which would clobber
+// a connector report, activity, or heartbeat that landed meanwhile.
 func (s *Supervisor) Reconcile(ctx context.Context) error {
 	now := s.now()
 	for _, inst := range s.store.ListInstances() {
@@ -591,25 +596,24 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		}
 		if inst.Lease.Expiry.After(now) {
 			if inst.Lease.Holder == s.holder {
-				inst.Lease.Expiry = now.Add(s.ttl) // renew our own lease
-				_ = s.store.PutInstance(inst)
-				// Only the lease holder re-applies, so two Jams never both exec in.
-				s.reconcileEgress(ctx, inst)
+				// Renew our own lease. Only the lease holder re-applies egress, so
+				// two Jams never both exec in.
+				if cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) { c.Lease.Expiry = now.Add(s.ttl) }); ok {
+					s.reconcileEgress(ctx, cur)
+				}
 			}
 			continue // someone else's live lease: not ours to touch
 		}
 		live, err := s.launcher.Probe(ctx, inst)
 		if err != nil || live == LivenessDead {
-			inst.Phase = PhaseLost
-			_ = s.store.PutInstance(inst)
+			s.patchInstance(inst.ActorID, func(c *Instance) { c.Phase = PhaseLost })
 			if derr := s.Teardown(ctx, inst.ActorID); derr != nil && s.log != nil {
 				s.log.Warn("reconcile teardown failed", "id", inst.ActorID, "err", derr.Error())
 			}
 			continue
 		}
 		if live == LivenessAlive {
-			inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)} // steal + renew
-			_ = s.store.PutInstance(inst)
+			s.patchInstance(inst.ActorID, func(c *Instance) { c.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)} }) // steal + renew
 		}
 		// LivenessUnknown: leave for the next tick.
 	}
@@ -678,6 +682,21 @@ func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
 	if tdErr := s.Teardown(ctx, inst.ActorID); tdErr != nil {
 		s.warn("egress teardown failed", "id", inst.ActorID, "err", tdErr.Error())
 	}
+}
+
+// patchInstance applies fn to a fresh read of the instance and writes it back,
+// returning the written instance. An instance gone meanwhile is left alone.
+func (s *Supervisor) patchInstance(actorID string, fn func(*Instance)) (Instance, bool) {
+	cur, ok := s.store.GetInstance(actorID)
+	if !ok || cur.Phase == PhaseGone {
+		return Instance{}, false
+	}
+	fn(&cur)
+	if err := s.store.PutInstance(cur); err != nil {
+		s.warn("reconcile: record instance failed", "id", actorID, "err", err.Error())
+		return Instance{}, false
+	}
+	return cur, true
 }
 
 // patchEgress applies fn to a fresh read of the instance and writes it back,
