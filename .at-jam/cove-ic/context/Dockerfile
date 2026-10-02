@@ -36,12 +36,48 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Go dev env. COVE_SSHENV names the vars the hardening layer transfers from this
 # image's ENV into the SSH-session environment (PATH is intrinsic, so the go bin
 # above already flows through — these are the rest of the Go toolchain env).
+# GOPROXY goes through the module proxy first: a studio's github.com git traffic
+# is routed through the at-jam git proxy, which serves only the studio's own
+# repo, so `direct` alone 403s on every dependency.
 ENV GOROOT=/usr/local/go \
     GOPATH=/home/agent/go \
-    GOPROXY=direct \
+    GOPROXY=https://proxy.golang.org,direct \
     GOSUMDB=off \
     GOFLAGS=-mod=mod
 ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
+
+# Headless Chrome for the browser tests of the /me UI (`just test-browser`) and
+# for agents to screenshot UI changes. The official Chrome for Testing
+# headless-shell build (amd64 and arm64), pinned by version; Ubuntu's own
+# `chromium` is a snap stub that cannot run in a container. The apt list is the
+# shared libraries the binary links against (from the zip's deb.deps, as
+# Ubuntu 24.04 t64 names) plus fonts to render text (DejaVu covers symbols such
+# as the ⇧⌘ in the /me composer placeholder); the ldd check fails the build if
+# the list falls behind a new Chrome.
+ARG CHROME_VERSION=153.0.8010.12
+# hadolint ignore=DL3008
+RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
+      arm64) CFT_PLATFORM=linux-arm64 ;; \
+      amd64) CFT_PLATFORM=linux64 ;; \
+      *) echo "unsupported AT_JAM_STUDIO_TARGET_ARCH: ${AT_JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
+    esac \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      unzip libasound2t64 libatk1.0-0t64 libatspi2.0-0t64 libdbus-1-3 libgbm1 \
+      libglib2.0-0t64 libnspr4 libnss3 libx11-6 libxcb1 libxcomposite1 \
+      libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+      fonts-dejavu-core fonts-liberation fonts-noto-color-emoji \
+ && rm -rf /var/lib/apt/lists/* \
+ && tmp="$(mktemp -d)" \
+ && curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${CFT_PLATFORM}/chrome-headless-shell-${CFT_PLATFORM}.zip" \
+      -o "$tmp/chrome.zip" \
+ && unzip -q "$tmp/chrome.zip" -d "$tmp" \
+ && mv "$tmp/chrome-headless-shell-${CFT_PLATFORM}" /opt/chrome-headless-shell \
+ && rm -rf "$tmp" \
+ && ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome-headless-shell \
+ && ldd /opt/chrome-headless-shell/chrome-headless-shell > /tmp/chrome.ldd \
+ && if grep 'not found' /tmp/chrome.ldd; then exit 1; fi \
+ && rm /tmp/chrome.ldd
 
 # Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
 # its skill files into the first-boot skills set. Scoped to cove-image (this
