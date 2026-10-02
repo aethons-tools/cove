@@ -110,7 +110,9 @@ func (t *idleTracker) Wrote() {
 }
 
 // Wake reports whether a Wake can be delivered now (claude is between turns);
-// otherwise it is coalesced into the pending wake.
+// otherwise it is coalesced into the pending wake. Delivering now also serves
+// any wake coalesced earlier (one resume prompt answers every Wake so far), so
+// it clears the pending wake rather than leave it to send a second prompt.
 func (t *idleTracker) Wake() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -118,6 +120,7 @@ func (t *idleTracker) Wake() bool {
 		t.pendingWake = true
 		return false
 	}
+	t.pendingWake = false
 	return true
 }
 

@@ -159,3 +159,24 @@ func TestIdleTrackerSignalsChange(t *testing.T) {
 	default:
 	}
 }
+
+// A wake delivered at a turn boundary (between turns, with one already
+// coalesced mid-turn) serves that pending wake too: the resumed turn's result
+// must close, not send a second resume prompt.
+func TestIdleTrackerWakeAtTurnBoundaryServesPendingWake(t *testing.T) {
+	tr := newIdleTracker(nil)
+	feed(tr, lnInit)
+	if tr.Wake() {
+		t.Fatal("Wake while busy must not deliver now")
+	}
+	feed(tr, lnResult)
+	if !tr.Wake() { // the episode loop picked this wake before the result's change signal
+		t.Fatal("Wake between turns must deliver now")
+	}
+	tr.Wrote()
+	if tr.PendingWake() {
+		t.Fatal("the delivered resume must consume the coalesced wake")
+	}
+	feed(tr, lnInit, lnResult)
+	wantAct(t, tr, actClose)
+}
