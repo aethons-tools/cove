@@ -42,6 +42,7 @@ var pages = map[string]*template.Template{
 	"intercom":     mustParse("intercom.html"),
 	"role":         mustParse("coves.html", "role.html"),
 	"destination":  mustParse("dest_fields.html", "destination.html"),
+	"kit":          mustParse("kit.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -89,6 +90,7 @@ var funcs = template.FuncMap{
 	},
 	"roleURL": roleURL,
 	"destURL": destURL,
+	"kitURL":  kitURL,
 }
 
 // fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
@@ -157,9 +159,6 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoleDetail(w, r, store, canEdit)
 	})
-	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "kits", map[string]any{"Title": "Kits", "Kits": store.ListKits()})
-	})
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
 	})
@@ -167,6 +166,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
+	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
 

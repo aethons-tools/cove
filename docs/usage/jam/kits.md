@@ -101,6 +101,9 @@ at-jam kit rm web                                           # remove the kit (al
   (the command reports the referencing role); `ungrant`/rebind the role first, or
   point the role at another kit.
 
+The admin UI does the same from each kit's page — versions, diffs, pin, push
+([ui-pages.md](ui-pages.md#kit-pages)).
+
 All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md).
 

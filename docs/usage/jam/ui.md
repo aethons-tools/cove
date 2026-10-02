@@ -227,9 +227,9 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 
 ### Config plane (kits & destinations)
 
-- **Kits** — push a new version (name + config), pin the current pointer to an
-  existing version (chosen from a list of the kit's versions), and delete a kit. A kit still referenced by a role cannot be
-  deleted (the UI reports a conflict). See [kits.md](kits.md).
+- **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
+  and delete an unused one; each kit's page shows its versions, diffs them,
+  pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages).
 - **Destinations** — create one (every field, including client env, git
   routing and oauth-beta) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).

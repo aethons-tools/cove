@@ -98,18 +98,20 @@ func TestEnrollResultHasCopyButton(t *testing.T) {
 	}
 }
 
-func TestKitsPinOffersVersionSelect(t *testing.T) {
+// The kit page's version rail offers Pin on every non-current version.
+func TestKitPageOffersPinPerVersion(t *testing.T) {
 	store := newStore(t)
-	for _, c := range []string{"a: 1\n", "a: 2\n"} {
-		if _, err := store.PushKit("base", c); err != nil {
+	for _, c := range []string{"kind: studio\nprompt: one\n", "kind: studio\nprompt: two\n"} {
+		if _, _, err := jam.PushStudioKit(store, "base", c); err != nil {
 			t.Fatal(err)
 		}
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/kits").Body.String()
-	for _, want := range []string{`<select name="version"`, `<option value="1"`, `<option value="2"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("kits page missing %q", want)
-		}
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/kits/base").Body.String()
+	if n := strings.Count(body, `hx-post="/ui/kits/base/pin"`); n != 1 {
+		t.Errorf("want one Pin (v1; v2 is current), got %d", n)
+	}
+	if !strings.Contains(body, `name="version" value="1"`) {
+		t.Errorf("pin form should target v1")
 	}
 }
 
