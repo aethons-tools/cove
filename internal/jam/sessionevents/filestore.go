@@ -2,9 +2,11 @@ package sessionevents
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,9 +16,10 @@ import (
 	"time"
 )
 
-// maxRecordBytes bounds one JSONL record: a 1 MiB raw line can roughly double
-// when JSON-escaped as raw_text, plus the envelope.
-const maxRecordBytes = 4 << 20
+// maxRecordBytes bounds one JSONL record. json.Marshal escapes <, >, & (and
+// control characters) to 6 bytes, so a 1 MiB raw_text line can reach ~6 MiB.
+// A longer line is skipped on read, never fatal.
+const maxRecordBytes = 8 << 20
 
 var safeActorRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
@@ -55,19 +58,37 @@ func readAll(path string) ([]Event, error) {
 	}
 	defer f.Close()
 	var out []Event
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), maxRecordBytes)
-	for sc.Scan() {
-		if len(sc.Bytes()) == 0 {
+	br := bufio.NewReaderSize(f, 64*1024)
+	var line []byte
+	skipping := false // inside an over-long line: discard through its '\n'
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if !skipping {
+			if len(line)+len(chunk) > maxRecordBytes {
+				skipping, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
-		var e Event
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			continue // a torn final line from a crash: skip, never fail the read
+		if !skipping {
+			if rec := bytes.TrimRight(line, "\r\n"); len(rec) > 0 {
+				var e Event
+				if json.Unmarshal(rec, &e) == nil { // else a torn line: skip, never fail the read
+					out = append(out, e)
+				}
+			}
 		}
-		out = append(out, e)
+		line, skipping = line[:0], false
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return out, nil
+			}
+			return out, err
+		}
 	}
-	return out, sc.Err()
 }
 
 func (s *FileStore) highLocked(path string) (uint64, error) {
