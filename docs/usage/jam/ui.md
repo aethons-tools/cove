@@ -51,6 +51,13 @@ then name; kits and destinations by name; squawks newest-first — so rows don't
 shuffle across the Studios poll or after an edit. The order comes from the
 store, so the JSON admin API and CLI lists match it.
 
+**One look for `/ui` and `/me`.** Both UIs take their colors (light and dark,
+following the OS setting) and typography from one stylesheet, `jam.css`, in
+`internal/jam/uiassets`, which also holds the single `htmx` copy. Each UI serves
+them under its own prefix (`/ui/static/`, `/me/static/`), so neither gate
+reaches the other. Change a color there and both UIs follow; each UI keeps its
+own component styles in its layout.
+
 ## Reaching the UI
 
 The UI has its own gate, separate from the JSON admin API's authenticator (see

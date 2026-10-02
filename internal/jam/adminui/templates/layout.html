@@ -7,24 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="{{stylesheet}}">
   <script src="/ui/static/htmx.min.js"></script>
   <style>
-    /* Tokens mirror the /me intercom (meui) so Jam reads as one product. */
-    :root{
-      --bg:#F5F6F8; --surface:#fff; --surface-2:#FBF9FA; --ink:#1B1D24; --muted:#61656F; --faint:#8A8F9A;
-      --border:#E3E5EA; --border-strong:#D2D5DC; --accent:#B5306A; --accent-soft:#FBEAF1;
-      --wait:#9C5E00; --wait-soft:#FBF0DC; --live:#1A7F58; --live-soft:#E1F1E9;
-      --idle:#6E7686; --idle-soft:#EDEEF1; --bad:#B42318; --bad-soft:#FDECEA;
-      color-scheme:light;
-    }
-    @media (prefers-color-scheme:dark){:root{
-      --bg:#0F1116; --surface:#171A21; --surface-2:#1C1F27; --ink:#E8EAEE; --muted:#A0A5B0; --faint:#757B87;
-      --border:#262A33; --border-strong:#333844; --accent:#E86AA0; --accent-soft:#34202B;
-      --wait:#E8B15A; --wait-soft:#322914; --live:#4FC28C; --live-soft:#17281F;
-      --idle:#8B93A3; --idle-soft:#23262F; --bad:#F27A6E; --bad-soft:#3A1A17; color-scheme:dark;
-    }}
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+    /* Tokens and base: jam.css (shared with /me). Admin components below. */
     code,.mono,td.id{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
     a{color:var(--accent)}
 

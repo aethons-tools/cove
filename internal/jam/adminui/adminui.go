@@ -8,27 +8,17 @@ package adminui
 import (
 	"embed"
 	"html/template"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
-//go:embed templates/*.html static/htmx.min.js
+//go:embed templates/*.html
 var files embed.FS
-
-// staticFS scopes the static route to the static/ subtree only — templates
-// live under templates/ and must never be reachable via /ui/static/.
-var staticFS = func() fs.FS {
-	sub, err := fs.Sub(files, "static")
-	if err != nil {
-		panic(err)
-	}
-	return sub
-}()
 
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
@@ -107,6 +97,7 @@ var funcs = template.FuncMap{
 		return fmtDur(d)
 	},
 	"roleURL":    roleURL,
+	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
 	"kitURL":     kitURL,
 	"projectURL": projectURL,
@@ -152,7 +143,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
-	mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServer(http.FS(staticFS))))
+	// The shared assets (jam.css, htmx) — templates are never reachable here.
+	mux.Handle("GET /ui/static/", uiassets.Handler("/ui/static/"))
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
