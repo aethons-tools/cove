@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +35,7 @@ func TestServeBrokersOverTLS(t *testing.T) {
 	}))
 	defer up.Close()
 
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: jam.ApplyXAPIKey, CredName: "anthropic-key", Apply: jam.ApplyXAPIKey}); err != nil {
 		t.Fatal(err)
 	}

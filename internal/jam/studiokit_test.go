@@ -1,7 +1,6 @@
 package jam
 
 import (
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -10,10 +9,7 @@ import (
 
 func newKitTestStore(t *testing.T) Store {
 	t.Helper()
-	st, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	return st
 }
 

@@ -76,12 +76,9 @@ func TestLinearSurfacePollSetSinceParses(t *testing.T) {
 	}
 }
 
-func newTestStore(t *testing.T) *jam.FileStore {
+func newTestStore(t *testing.T) *jam.MemStore {
 	t.Helper()
-	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatalf("NewFileStore: %v", err)
-	}
+	st := jam.NewMemStore()
 	return st
 }
 
@@ -287,7 +284,7 @@ func TestDiscordReplyJoinsThread(t *testing.T) {
 }
 
 // fakeStore is a minimal instanceRoster: canned instances, rosters and
-// projects, so Resolve/Deliver tests don't need a real *jam.FileStore.
+// projects, so Resolve/Deliver tests don't need a real *jam.MemStore.
 type fakeStore struct {
 	insts    []jam.Instance
 	roster   map[string]jam.Roster

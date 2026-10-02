@@ -43,11 +43,7 @@ func TestPhaseActivityConstants(t *testing.T) {
 }
 
 func TestInstanceCounter_LiveCount(t *testing.T) {
-	dir := t.TempDir()
-	st, err := NewFileStore(dir + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	// two live, one gone → count is 2 (global, ignoring project/role, as today)
 	must := func(err error) {
 		if err != nil {
@@ -64,11 +60,7 @@ func TestInstanceCounter_LiveCount(t *testing.T) {
 }
 
 func TestInstanceCounter_IsLive(t *testing.T) {
-	dir := t.TempDir()
-	st, err := NewFileStore(dir + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)

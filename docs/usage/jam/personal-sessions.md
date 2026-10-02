@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # Personal sessions
@@ -89,8 +89,7 @@ at-jam role add --project acme --name pair --max-personal 3 \
 ```
 
 `0` (unset) means the default; negative values are refused
-([roster.md](roster.md#roles)). Nags need an `intercom-log` (and the Discord relay
-to deliver them); without one there are no nags, but a configured reclaim still
+([roster.md](roster.md#roles)). Nags need the Discord relay to deliver them; without it there are no nags, but a configured reclaim still
 happens.
 
 ## Discord is required
@@ -104,7 +103,7 @@ refused with **400** (before any slot is granted) unless both hold:
   bound to your Discord user id ([discord.md](discord.md)):
   `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>:<your-user-id>`.
 
-Jam must also run the Discord relay (`runtime.discord` plus an `intercom-log`,
+Jam must also run the Discord relay (`runtime.discord`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
 polls every project whose chat service is `discord`
 ([intercom.md](intercom.md#enabling-it)).
@@ -144,10 +143,9 @@ The flags themselves are described in [roster.md](roster.md#roles). In this
 release any linked operator may request any role, bounded by these caps.
 
 Jam's Allocator checks both caps inside the allocation ledger's single atomic
-grant (see [serve.md](serve.md#postgres-store-backend-store-postgres)), so concurrent requests
-cannot overshoot either cap. Personal sessions **require the ledger**. On the
-file store there is no fallback, and a request answers **409** naming
-`store-postgres`. Jam always runs the Allocator, so personal sessions work
+grant (see [serve.md](serve.md#postgres-store-store-postgres)), so concurrent requests
+cannot overshoot either cap. Personal sessions **require the ledger**, which
+`serve` always has (without it a request answers **409**; tests only). Jam always runs the Allocator, so personal sessions work
 without a Requisitioner.
 
 ## The verbs

@@ -2,7 +2,6 @@ package relay
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,10 +10,7 @@ import (
 
 func openLog(t *testing.T) *intercom.Log {
 	t.Helper()
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "m.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lg := intercom.NewMemLog()
 	return lg
 }
 

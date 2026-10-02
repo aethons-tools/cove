@@ -8,10 +8,7 @@ import (
 )
 
 func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
-	st, err := jam.NewFileStore(t.TempDir() + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := jam.NewMemStore()
 	if err := st.CreateProject("acme"); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +31,7 @@ func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
 	}
 
 	got := dashboardStats(st)
-	want := stats{Live: 2, Raising: 1, Attention: 2, Idled: 1, Studios: 6, Actors: 1, Roles: 1, Kits: 1}
+	want := stats{Live: 2, Raising: 1, Attention: 2, Idled: 1, Studios: 6, Projects: 1, Actors: 1, Roles: 1, Kits: 1}
 	if got != want {
 		t.Fatalf("dashboardStats = %+v, want %+v", got, want)
 	}

@@ -1,0 +1,133 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Studio not found</h1></div>
+<div class="banner">Nothing is known about studio <span class="mono">{{.ID}}</span> — it isn't running and has no session or squawks. <a href="/ui/coves">Back to studios</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>header .spacer{flex:1}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-word}
+  .unset{color:var(--faint)}
+  .reach{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:var(--idle-soft);color:var(--idle)}
+  .reach.ext{background:var(--accent-soft);color:var(--accent)}
+  td.body{max-width:620px;word-break:break-word;vertical-align:top}
+  td.body.plain{white-space:pre-wrap}
+  td.body.md > :first-child{margin-top:0} td.body.md > :last-child{margin-bottom:0}
+  td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre{margin:0 0 .4em}
+  td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/coves">Studios</a></div>
+<div class="page-head">
+  <h1 class="mono">{{.ID}}</h1>
+  {{if .Running}}
+  {{template "phase" .Inst.Phase}}
+  <div class="facts">
+    {{if .Inst.Activity}}<span>{{.Inst.Activity}}</span>{{end}}
+    <span class="chip">{{.Kind}}{{if .Inst.Owner}} · {{.Inst.Owner}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
+    <a class="chip" href="{{projectURL .Inst.Project}}">{{.Inst.Project}}</a>
+    <a class="chip" href="{{roleURL .Inst.Project .Inst.Role}}">{{.Inst.Role}}</a>
+    {{if .Inst.Unit}}<span class="mono">{{.Inst.Unit}}</span>{{end}}
+  </div>
+  {{end}}
+  <span class="spacer"></span>
+  {{if .SessionsEnabled}}<a class="btn" href="/ui/coves/{{.ID}}/session">Open live timeline</a>{{end}}
+  {{if and .Running .CanEdit}}<button class="danger" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+      hx-confirm="Tear down {{.ID}}?"
+      hx-on::after-request="if(event.detail.successful) location.reload()">Teardown</button>{{end}}
+</div>
+
+{{if not .Running}}
+<div class="banner">This studio is not running — it was torn down and left the registry. Its session and squawks remain below as an audit trail.</div>
+{{end}}
+
+<div class="sections">
+  {{if .Running}}{{with .Inst}}
+  <section class="card">
+    <header><h2>Runtime</h2></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Raised</dt><dd><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></dd>
+        <dt>Last seen</dt><dd>{{if .LastSeen.IsZero}}<span class="unset">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</dd>
+        <dt>Lease</dt><dd>{{if .Lease.Holder}}<span class="mono">{{.Lease.Holder}}</span>{{else}}<span class="unset">—</span>{{end}}</dd>
+        <dt>Backend</dt><dd>{{if .Backend}}{{.Backend}}{{else}}<span class="unset">—</span>{{end}}{{if .Location}} <span class="mono unset">{{.Location}}</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Waiting &amp; escalation</h2><span class="sub">wake-on and who has been pinged</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Waiting</dt><dd>{{if .WaitingSince.IsZero}}<span class="unset">not waiting</span>{{else}}since <time title="{{.WaitingSince.Format "2006-01-02 15:04:05 MST"}}">{{.WaitingSince.Format "Jan 2 15:04"}}</time> <span class="unset">· wakes on a reply past wait seq {{.WaitSeq}}</span>{{end}}</dd>
+        <dt>Escalation</dt><dd>{{if .TierPingedAt.IsZero}}<span class="unset">none open</span>{{else}}tier {{.EscalationTier}} pinged <time title="{{.TierPingedAt.Format "2006-01-02 15:04:05 MST"}}">{{.TierPingedAt.Format "Jan 2 15:04"}}</time> · {{if .EscalationCategory}}category <span class="mono">{{.EscalationCategory}}</span>{{else}}default chain{{end}}{{end}}</dd>
+        {{if .Owner}}<dt>Owner nags</dt><dd>{{if .Nags}}{{.Nags}} nag(s){{if not .LastNagAt.IsZero}}, last <time>{{.LastNagAt.Format "Jan 2 15:04"}}</time>{{end}}{{else}}<span class="unset">none this wait</span>{{end}}</dd>{{end}}
+        <dt>Inbox</dt><dd><span class="unset">committed through seq {{.CommitSeq}}</span></dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Egress</h2><span class="sub">the role policy this studio runs under</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Policy</dt><dd>{{if .Egress}}<span class="mono" title="{{.Egress}}">{{$.EgressID}}</span>{{else}}<span class="unset">unknown — re-applied on the next reconcile</span>{{end}}</dd>
+        <dt>Re-apply</dt><dd>{{if .EgressFailures}}<span class="pill phase-lost">{{.EgressFailures}} failure(s)</span> <span class="unset">the supervisor tears the studio down at its limit</span>{{else}}<span class="unset">ok</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+  {{end}}{{end}}
+
+  <section class="card{{if .Running}}{{else}} full{{end}}">
+    <header><h2>Session</h2><span class="sub">captured agent event streams, newest first</span></header>
+    {{if not .SessionsEnabled}}<div class="body unset">Session capture is not configured on this Jam.</div>
+    {{else}}
+    <table>
+      <thead><tr><th>Stream</th><th>Started</th><th>Last event</th><th>Events</th></tr></thead>
+      <tbody>
+        {{range .Streams}}<tr>
+          <td><a class="mono" href="/ui/coves/{{$.ID}}/session?stream={{.StreamID}}">{{slice .StreamID 0 12}}</a></td>
+          <td><time title="{{.FirstAt.Format "2006-01-02 15:04:05 MST"}}">{{.FirstAt.Format "Jan 2 15:04"}}</time></td>
+          <td><time title="{{.LastAt.Format "2006-01-02 15:04:05 MST"}}">{{.LastAt.Format "Jan 2 15:04:05"}}</time></td>
+          <td>{{.Events}} event(s)</td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No session captured yet.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </section>
+
+  <section class="card full">
+    <header><h2>Squawks</h2><span class="sub">to or from <span class="mono">actor:{{.ID}}</span>, newest first</span><span class="spacer"></span>
+      {{if .SquawksConfigured}}<a class="sub" href="{{.IntercomURL}}">{{if .SquawksMore}}all {{end}}in Intercom</a>{{end}}</header>
+    {{if not .SquawksConfigured}}<div class="body unset">Squawk log not configured.</div>
+    {{else}}
+    <table>
+      <thead><tr><th>Time</th><th>From</th><th>To</th><th>Body</th></tr></thead>
+      <tbody>
+        {{range .Squawks}}<tr>
+          <td><time>{{.At}}</time></td>
+          <td><span class="mono">{{.From}}</span></td>
+          <td>{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
+          <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No squawks.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{if .SquawksMore}}<div class="body unset">Showing the newest {{len .Squawks}}; the rest are in <a href="{{.IntercomURL}}">Intercom</a>.</div>{{end}}
+    {{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

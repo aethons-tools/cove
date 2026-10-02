@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -33,10 +32,7 @@ func pgImportStore(t *testing.T) (*jam.PostgresStore, string) {
 
 func importSnapshot(t *testing.T) jam.ConfigSnapshot {
 	t.Helper()
-	fs, err := jam.NewFileStore(filepath.Join(t.TempDir(), "src.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	fs := jam.NewMemStore()
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -45,7 +41,7 @@ func importSnapshot(t *testing.T) jam.ConfigSnapshot {
 	}
 	must(fs.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}}}))
 	must(fs.AddActor(jam.Actor{ID: "spider-18", TokenHash: jam.HashToken("tok"), Grants: []jam.Grant{{Project: jam.DefaultProject, Role: "guest"}}}))
-	_, err = fs.PushKit("base", "image: x")
+	_, err := fs.PushKit("base", "image: x")
 	must(err)
 	must(fs.AddDestination(jam.Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}))
 	must(fs.AddHuman(jam.DefaultProject, jam.Human{Name: "alice", Handle: "@alice"}))

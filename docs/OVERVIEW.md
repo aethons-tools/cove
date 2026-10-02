@@ -837,7 +837,7 @@ and `at-jam` (a standalone **host** credential-broker + control-plane service �
 identity token for Jam's real Anthropic/git credentials, plus a loopback admin
 API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are
 admin-API clients that manage actors, roles, grants, destinations, and kits at
-runtime against one live file-backed store — no restart. An actor is granted
+runtime against one live Postgres store — no restart (Jam is Postgres-only; `store-postgres` is required). An actor is granted
 roles within projects, a role owns the security scope (`destinations` and the credential injected for each, `ttl`)
 and, optionally, a named kit (resolved to that kit's current version); the broker
 authorizes each request additively across the actor's grants (conflicting
@@ -846,7 +846,7 @@ coming from the role rather than inline flags. See the
 [Jam actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
 and the [Jam kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).
 The `jam.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
-`admin-tls`, `store`, `credentials`, optional `operator-auth`); destinations and
+`admin-tls`, `store-postgres`, `state-dir`, `credentials`, optional `operator-auth`); destinations and
 enrollments are managed via the API/CLI. `serve` **warns** on any unrecognized
 top-level key (e.g. a stray `destinations:` block, which it points at `at-jam
 destination import`) so a silently-ignored key isn't a debugging trap. The admin API's operator auth defaults to loopback-only,

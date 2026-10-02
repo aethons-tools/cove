@@ -31,7 +31,7 @@
   .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/roles">Roles</a> / {{.Project}}</div>
+<div class="crumbs"><a href="/ui/projects">Projects</a> / <a href="{{projectURL .Project}}">{{.Project}}</a> / <a href="/ui/roles">Roles</a></div>
 {{template "role-body" .}}
 {{end}}
 {{end}}
@@ -44,7 +44,7 @@
 <div class="page-head">
   <h1>{{.Name}}</h1>
   <div class="facts">
-    <span class="chip">{{.Project}}</span>
+    <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
     {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>
@@ -81,12 +81,12 @@
       <form hx-post="{{$base}}/scope" hx-target="#role" hx-swap="outerHTML">
         <div class="grid">
           <label class="wide">Destinations <span class="hint">comma-separated; <code>name=credential</code> maps a credential, a bare name uses the destination's default</span>
-            <input name="destinations" value="{{.Form.Destinations}}" spellcheck="false"></label>
+            <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" value="{{.Form.Destinations}}" autocomplete="off" spellcheck="false"></label>
           <label class="wide">Addressing <span class="hint">comms target globs, e.g. <code>human:*,channel:eng</code>; empty = can't squawk anyone</span>
-            <input name="addressing" value="{{.Form.Addressing}}" spellcheck="false"></label>
+            <input name="addressing" data-ta="targets" data-ta-list data-ta-project="{{.Project}}" value="{{.Form.Addressing}}" autocomplete="off" spellcheck="false"></label>
           <label>TTL <span class="hint">e.g. 1h, 90m; blank = none</span><input name="ttl" value="{{.Form.TTL}}"></label>
           <label>Kit
-            <select name="kit"><option value="">— no kit —</option>{{$k := .Role.Kit}}{{range .Kits}}<option value="{{.}}"{{if eq . $k}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+            <input name="kit" data-ta="kits" value="{{.Role.Kit}}" placeholder="blank = no kit (the default kit)" autocomplete="off" spellcheck="false"></label>
         </div>
         <div class="form-actions"><button type="submit" class="primary">Save scope</button></div>
       </form>

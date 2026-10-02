@@ -1,5 +1,5 @@
 ---
-summary: Session events — Jam's operator-only capture of a managed studio agent's Claude Code stream-json output; how it is captured, buffered, redacted, stored (Postgres or JSONL), retained, exported (NDJSON), and what its sensitivity means.
+summary: Session events — Jam's operator-only capture of a managed studio agent's Claude Code stream-json output; how it is captured, buffered, redacted, stored (Postgres), retained, exported (NDJSON), and what its sensitivity means.
 read_when: You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream — or you are configuring its storage/retention, wondering what is redacted or lost, or deciding who may see it.
 owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the operator-only sensitivity stance
 prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui.md#session-timeline for the browser view
@@ -44,24 +44,16 @@ per stream on a 250 ms tick, only after persistence. See
 
 ## Storage and config
 
-Selected at `at-jam serve` start, in this order:
-
-| Condition | Backend |
-|-----------|---------|
-| `store-postgres` set | Postgres table `session_events` (own migrations table `session_events_schema_migrations`, shared pool) |
-| else `session-events-dir` set | JSONL file per stream: `<dir>/<actor>/<stream>.jsonl` (dirs 0700, files 0600; a torn tail line is terminated before each append; durability is "written to the OS page cache" — no fsync, so a host crash can lose recent events) |
-| neither | no-op: events are acked and dropped. This is the kill switch. |
+Session events are always stored in the Postgres table `session_events` (own migrations table `session_events_schema_migrations`, shared pool); `store-postgres` is required by `serve`.
 
 | Key | Meaning |
 |-----|---------|
-| `session-events-dir` | Directory for the JSONL backend. Ignored when `store-postgres` is set. |
 | `session-events-retention` | `<N>d` or a Go duration; empty keeps forever. |
 
 ## Encoding guarantee
 
 Each event stores `raw` (when the line is valid JSON) or `raw_text` (anything
-else). The guarantee is **content-equal, not byte-exact**: the JSONL encoder
-compacts JSON and escapes `<`, `>`, `&`; `jsonb` normalizes; `raw_text` is
+else). The guarantee is **content-equal, not byte-exact**: `jsonb` normalizes; `raw_text` is
 UTF-8-normalized (invalid bytes become U+FFFD) and, in Postgres, NUL becomes
 U+FFFD (the derived index text columns are sanitized the same way). Any Postgres data exception (SQLSTATE class 22, e.g. a `\u0000` escape,
 lone surrogate, or invalid UTF-8) falls back to sanitized `raw_text`. Exact
@@ -69,9 +61,7 @@ bytes remain in the cove's `/agent-data/agent-stream.jsonl`.
 
 ## Retention
 
-A sweeper runs at start, then every 24 h. The file backend deletes whole stream
-files whose last event is older than the cutoff; Postgres deletes rows by
-`received_at`.
+A sweeper runs at start, then every 24 h. Rows are deleted by `received_at`.
 
 ## Export API
 
@@ -95,7 +85,8 @@ Fields: `actor_id`, `stream_id`, `seq`, `kind`, `gap_from`, `gap_to`, `turn`,
 ## UI
 
 The browser timeline lives at `/ui/coves/{id}/session`; see
-[ui.md](ui.md#session-timeline). There is no `/me` exposure.
+[ui.md](ui.md#session-timeline). The studio's page lists its streams
+([ui-pages.md](ui-pages.md#studio-pages)). There is no `/me` exposure.
 
 ## Sensitivity
 

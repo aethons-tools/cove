@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,10 +17,7 @@ func (f fakeCreds) Resolve(name string) (string, error) { return f[name], nil }
 
 func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker, *bytes.Buffer, string) {
 	t.Helper()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	tok, _ := MintToken()
 	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
@@ -120,10 +116,7 @@ func TestBrokerProxiesAnyRepoOnAllowedGitDestination(t *testing.T) {
 // broker resolves grants to scopes live off the store, not off a snapshot taken
 // at enrollment time.
 func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	tok, _ := MintToken()
 	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
@@ -201,7 +194,7 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 	}))
 	defer up.Close()
 
-	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	store := NewMemStore()
 	tok, _ := MintToken()
 	if err := store.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
@@ -241,10 +234,7 @@ func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
 		io.WriteString(w, "{}")
 	}))
 	defer up.Close()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	tok, _ := MintToken()
 	scope := Scope{Destinations: []string{"github-api", "github-graphql"}, Credentials: map[string]string{"github-api": "gh-pat-acme", "github-graphql": "gh-pat-acme"}}
 	mustCreateProject(t, store, "acme")

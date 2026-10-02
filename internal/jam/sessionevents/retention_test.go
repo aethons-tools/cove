@@ -24,7 +24,7 @@ func TestParseRetention(t *testing.T) {
 }
 
 func TestRunRetentionSweepsOnStart(t *testing.T) {
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	st.Append(sessionevents.Event{ActorID: "w1", StreamID: sid, Seq: 1, Kind: sessionevents.KindEvent, ReceivedAt: old, Raw: []byte(`{}`)})
 	ctx, cancel := context.WithCancel(context.Background())

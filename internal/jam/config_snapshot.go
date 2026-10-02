@@ -196,14 +196,13 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	}
 }
 
-// ImportConfig restores a snapshot into an empty FileStore (fail-closed) and
-// persists it.
-func (fs *FileStore) ImportConfig(s ConfigSnapshot) error {
+// ImportConfig restores a snapshot into an empty MemStore (fail-closed).
+func (fs *MemStore) ImportConfig(s ConfigSnapshot) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	if err := checkImport(fs.memState, s); err != nil {
 		return err
 	}
 	applyImport(fs.memState, s)
-	return fs.save()
+	return nil
 }

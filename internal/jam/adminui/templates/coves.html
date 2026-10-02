@@ -6,8 +6,8 @@
   <form hx-post="/ui/coves" hx-target="#coves" hx-swap="outerHTML" data-reset>
     <div class="grid">
       <label>Studio id <span class="req">required</span><input name="id" required autocomplete="off"></label>
-      <label>Role <span class="req">required</span><input name="role" required></label>
-      <label>Project <span class="hint">blank = default</span><input name="project"></label>
+      <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
+      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
       <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>
       <label class="wide">Workload prompt <span class="hint">optional</span><textarea name="prompt"></textarea></label>
     </div>
@@ -33,11 +33,11 @@
   <tbody>
     {{range .Coves}}
     <tr data-id="{{.ID}}">
-      <td><a class="mono" href="/ui/coves/{{.ID}}/session" title="Session timeline">{{.ID}}</a></td>
+      <td><a class="mono" href="/ui/coves/{{.ID}}"><b>{{.ID}}</b></a> <a class="sub" href="/ui/coves/{{.ID}}/session" title="Live session timeline">timeline</a></td>
       <td>{{template "phase" .Phase}}</td>
       <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if eq .Connector "stale"}}<span class="pill phase-raising">stale</span>{{else if eq .Connector "error"}}<span class="pill phase-lost">error</span>{{else if eq .Connector "unknown" ""}}<span class="none">{{or .Connector "—"}}</span>{{else}}{{.Connector}}{{end}}</td>
-      <td>{{.Project}}</td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>
+      <td><a href="{{projectURL .Project}}">{{.Project}}</a></td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>
       <td>{{if .Unit}}<span class="mono">{{.Unit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></td>

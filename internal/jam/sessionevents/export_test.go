@@ -18,7 +18,7 @@ func exportServer(t *testing.T, st sessionevents.Store) http.Handler {
 }
 
 func TestExportNDJSONLatestStreamByDefault(t *testing.T) {
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	older, newer := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	t0 := time.Unix(1000, 0)
 	st.Append(sessionevents.Event{ActorID: "w1", StreamID: older, Seq: 1, Kind: "event", ReceivedAt: t0, Raw: []byte(`{"n":0}`)})
@@ -48,7 +48,7 @@ func TestExportNDJSONLatestStreamByDefault(t *testing.T) {
 }
 
 func TestExportErrors(t *testing.T) {
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	h := exportServer(t, st)
 	for path, code := range map[string]int{
 		"/admin/sessions/nobody/events":           404,

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,10 +39,7 @@ func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStat
 
 func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 	t.Helper()
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +60,7 @@ func mustCreateProject(t *testing.T, store jam.Store, name string) {
 }
 
 // TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
-// real Jam admin handler + FileStore (not just a wire-format mock), proving
+// real Jam admin handler + MemStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
 // now comes entirely from the role, so the role must be put before Enroll.
 func TestClientRoundTrip(t *testing.T) {
@@ -107,10 +103,7 @@ func TestClientAddDestinationRejected(t *testing.T) {
 }
 
 func TestClientLoginConfig(t *testing.T) {
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	lc := &jam.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -212,7 +205,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 
 // TestClientRosterAndAddressing exercises AddHuman/AddChannel/GetRoster/
 // RemoveHuman/RemoveChannel and role Addressing round-trips against a real
-// Jam admin handler + FileStore (not just a wire-format mock).
+// Jam admin handler + MemStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
@@ -286,7 +279,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 }
 
 // TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
-// against a real Jam admin handler + FileStore.
+// against a real Jam admin handler + MemStore.
 func TestClientEscalationPolicy(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
@@ -342,7 +335,7 @@ func TestClientEscalationCategory(t *testing.T) {
 }
 
 // TestClientChatService exercises SetChatService/GetChatService (set, get,
-// clear) against a real Jam admin handler + FileStore.
+// clear) against a real Jam admin handler + MemStore.
 func TestClientChatService(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
@@ -540,10 +533,7 @@ func (g *grantAll) RecordRelease(context.Context, string, string, string) error 
 // session through the client against a real admin handler. The loopback
 // operator is "local", so the roster human is linked to that login.
 func TestClientPersonalSessionRoundTrip(t *testing.T) {
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
