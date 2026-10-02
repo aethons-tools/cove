@@ -30,12 +30,14 @@ const (
 const (
 	LayerBoilerplate = "boilerplate"
 	LayerKit         = "kit"
+	LayerStudio      = "studio"
 )
 
 // Core budgets in bytes.
 const (
 	BudgetBoilerplate = 2400
 	BudgetKit         = 800
+	BudgetStudio      = 1600
 )
 
 // Precedence is stated once, verbatim, at the top of every core.
@@ -73,6 +75,7 @@ type SessionFacts struct {
 type Inputs struct {
 	Session SessionFacts
 	Kit     Layer
+	Studio  StudioFacts
 }
 
 // Bundle is the compiled context. Files are relative to Dir.
@@ -108,6 +111,7 @@ func Compile(in Inputs) Bundle {
 	sections := []section{
 		{LayerBoilerplate, "Boilerplate", Boilerplate(in.Session), BudgetBoilerplate},
 		{LayerKit, kitTitle, in.Kit, BudgetKit},
+		{LayerStudio, "Studio", Studio(in.Studio), BudgetStudio},
 	}
 	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}}
 	var core strings.Builder
