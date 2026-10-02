@@ -316,6 +316,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		return nil
 	})
 	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
+	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -361,6 +362,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			}
 			if dd.Git {
 				ob += ", git"
+			}
+			if dd.Note != "" {
+				ob += ", note"
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}

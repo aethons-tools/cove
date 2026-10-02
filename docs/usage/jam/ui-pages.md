@@ -131,7 +131,8 @@ The page shows:
 
 **Edit destination** is one pre-filled form for every field but the name:
 client env is one `KEY=TEMPLATE` per line (empty = the route's legacy default),
-and git routing and oauth-beta are checkboxes. Validation matches the admin API
+git routing and oauth-beta are checkboxes, and the note is the usage hint
+sessions see ([connector.md](connector.md#notes-for-sessions)). Validation matches the admin API
 (required fields, a configured default credential, env keys and placeholders).
 Changing env on the `/git/` route drops its implied git routing unless **Route
 git** is ticked; the form says so. **Delete** is on the page header.

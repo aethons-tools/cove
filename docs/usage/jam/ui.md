@@ -270,7 +270,7 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
   and delete an unused one; each kit's page shows its versions, diffs them,
   pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages).
 - **Destinations** — create one (every field, including client env, git
-  routing and oauth-beta) and remove one; each destination's page shows and
+  routing, oauth-beta and the session note) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).
 
 A kit config references credentials by name only (no secret values), and a

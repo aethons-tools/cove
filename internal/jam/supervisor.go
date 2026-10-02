@@ -246,12 +246,16 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
 		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
 	}}
+	var kitEgress []string
+	haveKit := false
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
 		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
 			in.Kit = sessionctx.Layer{Core: def.Kit.Prompt}
+			kitEgress, haveKit = def.Kit.Egress, true
 		}
 	}
+	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
 	bundle := sessionctx.Compile(in)
 	for _, w := range bundle.Warnings {
 		if s.log != nil {

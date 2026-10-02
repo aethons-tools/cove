@@ -30,12 +30,14 @@ const (
 const (
 	LayerBoilerplate = "boilerplate"
 	LayerKit         = "kit"
+	LayerStudio      = "studio"
 )
 
 // Core budgets in bytes.
 const (
 	BudgetBoilerplate = 2400
 	BudgetKit         = 800
+	BudgetStudio      = 1600
 )
 
 // Precedence is stated once, verbatim, at the top of every core.
@@ -73,6 +75,7 @@ type SessionFacts struct {
 type Inputs struct {
 	Session SessionFacts
 	Kit     Layer
+	Studio  StudioFacts
 }
 
 // Bundle is the compiled context. Files are relative to Dir.
@@ -108,6 +111,7 @@ func Compile(in Inputs) Bundle {
 	sections := []section{
 		{LayerBoilerplate, "Boilerplate", Boilerplate(in.Session), BudgetBoilerplate},
 		{LayerKit, kitTitle, in.Kit, BudgetKit},
+		{LayerStudio, "Studio", Studio(in.Studio), BudgetStudio},
 	}
 	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}}
 	var core strings.Builder
@@ -153,6 +157,7 @@ func Compile(in Inputs) Bundle {
 		fmt.Fprintf(&idx, "| %s | %s |\n", r.path, r.when)
 	}
 	b.Files["INDEX.md"] = idx.String()
+	b.Warnings = append(b.Warnings, lintAuthored(LayerKit, in.Kit.Core, in.Studio)...)
 	b.Core = core.String()
 	b.Fingerprint = fingerprint(b.Core, b.Files)
 	return b
@@ -189,4 +194,21 @@ func fingerprint(core string, files map[string]string) string {
 		h.Write([]byte(k + "\x00" + files[k] + "\x00"))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// lintAuthored flags an authored core restating a fact the Studio layer owns
+// (an egress host or a message target). Heuristic and advisory: it only warns.
+func lintAuthored(layer, core string, f StudioFacts) []string {
+	var out []string
+	for _, h := range f.Egress {
+		if strings.Contains(core, strings.TrimPrefix(h, ".")) {
+			out = append(out, fmt.Sprintf("%s core restates egress host %s (owned by the studio layer)", layer, h))
+		}
+	}
+	for _, t := range f.Targets {
+		if strings.Contains(core, t.Target) {
+			out = append(out, fmt.Sprintf("%s core restates message target %s (owned by the studio layer)", layer, t.Target))
+		}
+	}
+	return out
 }

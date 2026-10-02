@@ -122,13 +122,13 @@ func TestCreateDestinationAllFields(t *testing.T) {
 	rec := post(t, h, "/ui/destinations", url.Values{
 		"name": {"gh"}, "route": {"/api/v3/"}, "upstream": {"https://api.github.com"},
 		"identity-in": {"bearer"}, "cred-name": {"gh-pat"}, "apply": {"bearer"},
-		"env": {"GH_HOST={host}\r\n\r\nGH_ENTERPRISE_TOKEN={token}\n"}, "git": {"on"}, "oauth-beta": {"on"},
+		"env": {"GH_HOST={host}\r\n\r\nGH_ENTERPRISE_TOKEN={token}\n"}, "git": {"on"}, "oauth-beta": {"on"}, "note": {"use git over https"},
 	})
 	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/destinations/gh" {
 		t.Fatalf("create = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 	d := store.ListDestinations()[0]
-	if d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || !d.OAuthBeta {
+	if d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || !d.OAuthBeta || d.Note != "use git over https" {
 		t.Fatalf("stored = %+v", d)
 	}
 	if rec := post(t, h, "/ui/destinations", url.Values{"name": {"gh"}, "route": {"/x/"}, "upstream": {"https://x"}}); rec.Code != http.StatusConflict {
@@ -163,5 +163,22 @@ func TestEditDestinationReplacesEveryField(t *testing.T) {
 	}
 	if rec := post(t, h, "/ui/destinations/ghost", url.Values{"route": {"/g/"}, "upstream": {"https://g"}}); rec.Code != http.StatusNotFound {
 		t.Errorf("edit missing = %d, want 404", rec.Code)
+	}
+}
+
+func TestDestinationDetailShowsNote(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	if rec := post(t, h, "/ui/destinations", url.Values{
+		"name": {"gh"}, "route": {"/api/v3/"}, "upstream": {"https://api.github.com"},
+		"identity-in": {"bearer"}, "apply": {"bearer"}, "note": {"pass -R $GH_HOST/owner/repo"},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := get(t, h, "/ui/destinations/gh").Body.String()
+	for _, want := range []string{"pass -R $GH_HOST/owner/repo", `name="note"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail page missing %q", want)
+		}
 	}
 }

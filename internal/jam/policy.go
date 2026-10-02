@@ -36,6 +36,10 @@ type Destination struct {
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// Git routes a studio's https://github.com/ through this destination's route.
 	Git bool `json:"git,omitempty" yaml:"git,omitempty"`
+	// Note is an optional human-written usage hint shown to sessions granted
+	// this destination (the Studio layer of their session context), e.g. how a
+	// tool must be pointed at the route. Not a secret; ≤ MaxDestinationNote bytes.
+	Note string `json:"note,omitempty" yaml:"note,omitempty"`
 }
 
 // ClientEnv is the env a studio sets for this destination, with {url} resolved
