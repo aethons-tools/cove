@@ -37,6 +37,7 @@ var pages = map[string]*template.Template{
 	"projects":     mustParse("projects.html"),
 	"project":      mustParse("coves.html", "project.html"),
 	"studio":       mustParse("studio.html"),
+	"search":       mustParse("search.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -97,6 +98,7 @@ var funcs = template.FuncMap{
 		return fmtDur(d)
 	},
 	"roleURL":    roleURL,
+	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
 	"kitURL":     kitURL,
@@ -182,6 +184,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
 	registerStudio(mux, store, msgs, o.sessStore, canEdit)
+	registerSearch(mux, store, msgs)
 
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
