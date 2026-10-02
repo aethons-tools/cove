@@ -40,10 +40,7 @@ func studioFixture(t *testing.T, sup *jam.Supervisor) http.Handler {
 		intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("sess-1")}, Body: "go ahead", At: t0.Add(time.Minute), Project: "acme"},
 		intercom.Squawk{From: human("bob"), To: []intercom.Target{channel("eng")}, Body: "unrelated chatter", At: t0, Project: "acme"},
 	)
-	st, err := sessionevents.OpenFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := sessionevents.NewMemStore()
 	hub := sessionevents.NewHub()
 	ing := sessionevents.NewIngest(st, hub, nil)
 	ing.Append("sess-1", sessionevents.Stamp{}, sessIn(1, `{"type":"system","subtype":"init"}`))
@@ -103,7 +100,7 @@ func TestStudioPageSessionAndSquawks(t *testing.T) {
 func TestStudioPageGoneStillShowsAudit(t *testing.T) {
 	store := newStore(t)
 	l := newIntercomLog(t, intercom.Squawk{From: actor("old-1"), To: []intercom.Target{human("alice")}, Body: "last words", At: time.Now(), Project: "acme"})
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, l, adminui.WithSessions(st, sessionevents.NewHub()))
 	rec := get(t, h, "/ui/coves/old-1")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "not running") || !strings.Contains(rec.Body.String(), "last words") {
