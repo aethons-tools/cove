@@ -54,7 +54,7 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
 		`export AT_HARBOR_LAUNCH_SECRET="$AT_JAM_LAUNCH_SECRET"`,
 		`export AT_HARBOR_RUNTIME_ADDR="$AT_JAM_RUNTIME_ADDR"`,
-		"ANTHROPIC_BASE_URL=https://jam.example.com/anthropic",
+		"ANTHROPIC_BASE_URL=\"https://jam.example.com/anthropic\"",
 		"git config --global",
 	} {
 		if !strings.Contains(envWrite, want) {
@@ -118,10 +118,10 @@ func TestLaunchCoveMasterSubscription(t *testing.T) {
 	if strings.Contains(env, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription env must NOT set ANTHROPIC_API_KEY:\n%s", env)
 	}
-	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=$AT_JAM_IDENTITY_TOKEN") {
+	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=\"$AT_JAM_IDENTITY_TOKEN\"") {
 		t.Fatalf("subscription env must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", env)
 	}
-	if !strings.Contains(env, "ANTHROPIC_BASE_URL=https://jam.example.com/anthropic") {
+	if !strings.Contains(env, "ANTHROPIC_BASE_URL=\"https://jam.example.com/anthropic\"") {
 		t.Fatalf("env missing base URL:\n%s", env)
 	}
 	if !strings.Contains(env, "export AT_JAM_IDENTITY_TOKEN=cove-identity") {

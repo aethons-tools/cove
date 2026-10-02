@@ -89,7 +89,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=https://jam.local.aethons.tools/anthropic") {
+	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"") {
 		t.Fatalf("stdout missing snippet:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "AT_JAM_IDENTITY_TOKEN=") {

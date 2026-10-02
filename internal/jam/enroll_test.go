@@ -40,8 +40,8 @@ func TestRenderEnrollSnippetIncludesEndpointsNotSecrets(t *testing.T) {
 	for _, want := range []string{
 		"export AT_JAM_IDENTITY_TOKEN=TOK123",
 		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
-		"ANTHROPIC_BASE_URL=https://jam.local.aethons.tools/anthropic",
-		"ANTHROPIC_API_KEY=$AT_JAM_IDENTITY_TOKEN",
+		"ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"",
+		"ANTHROPIC_API_KEY=\"$AT_JAM_IDENTITY_TOKEN\"",
 		`url."https://jam.local.aethons.tools/git/".insteadOf`,
 		// git must have a working, headless credential (username + env-only password),
 		// so `git clone` through Jam doesn't prompt.
