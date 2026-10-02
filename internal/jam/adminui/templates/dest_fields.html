@@ -10,7 +10,7 @@
     <select name="identity-in">{{$v := .Dest.IdentityIn}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Apply as <span class="hint">how the credential is sent upstream</span>
     <select name="apply">{{$v := .Dest.Apply}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
-  <label>Default credential <span class="hint">cred-name; a role can map its own</span><input name="cred-name" value="{{.Dest.CredName}}"></label>
+  <label>Default credential <span class="hint">cred-name; a role can map its own</span><input name="cred-name" data-ta="credentials" value="{{.Dest.CredName}}" autocomplete="off" spellcheck="false"></label>
   <label class="wide">Client env <span class="hint">one <code>KEY=TEMPLATE</code> per line; placeholders <code>{url}</code> <code>{base}</code> <code>{host}</code> <code>{token}</code>. Leave empty for the route's legacy default (<code>/anthropic/</code>, <code>/git/</code>).{{if and (eq .Dest.Route "/git/") (not .Dest.Env)}} Adding env here drops <code>/git/</code>'s implied git routing — tick “Route git” to keep it.{{end}}</span>
     <textarea name="env" spellcheck="false" placeholder="GH_HOST={host}">{{.Form.Env}}</textarea></label>
   <label class="check"><input type="checkbox" name="git"{{if .Dest.Git}} checked{{end}}> Route git <span class="hint">studios send <code>https://github.com/</code> through this route</span></label>

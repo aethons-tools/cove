@@ -74,18 +74,18 @@ func mustParse(names ...string) *template.Template {
 	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
 }
 
-// covesData, rosterData and rolesData are the payloads of the pages (and
-// their swapped tables) whose forms carry a project picker.
+// covesData, rosterData and rolesData are the payloads of those pages and
+// their swapped tables.
 func covesData(store jam.Store, canEdit bool) map[string]any {
-	return map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": canEdit, "Projects": projectChoices(store)}
+	return map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": canEdit}
 }
 
 func rosterData(store jam.Store) map[string]any {
-	return map[string]any{"Actors": jam.RosterSummaries(store), "Projects": projectChoices(store)}
+	return map[string]any{"Actors": jam.RosterSummaries(store)}
 }
 
 func rolesData(store jam.Store, canRequest bool) map[string]any {
-	return map[string]any{"Roles": roleRows(store), "CanRequest": canRequest, "Projects": projectChoices(store)}
+	return map[string]any{"Roles": roleRows(store), "CanRequest": canRequest}
 }
 
 // funcs are the template helpers shared by every page.
@@ -119,6 +119,7 @@ type options struct {
 	trustedOrigins []string
 	sessStore      sessionevents.Store
 	sessHub        *sessionevents.Hub
+	credNames      []string
 }
 
 // WithSessions enables the live session-event timeline (/ui/coves/{id}/session).
@@ -185,6 +186,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerSession(mux, o.sessStore, o.sessHub)
 	registerStudio(mux, store, msgs, o.sessStore, canEdit)
 	registerSearch(mux, store, msgs)
+	registerSuggest(mux, store, o.credNames)
 
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)

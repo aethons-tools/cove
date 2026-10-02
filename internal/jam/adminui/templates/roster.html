@@ -5,9 +5,9 @@
   <form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML" data-reset>
     <div class="grid">
       <label>Actor id <span class="req">required</span><input name="id" required autocomplete="off"></label>
-      <label>Role <span class="req">required</span><input name="role" required></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select" .Projects}}</label>
-      <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations"></label>
+      <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
+      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
   </form>
@@ -35,9 +35,9 @@
           <details class="grant-add">
             <summary>+ Grant</summary>
             <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
-              <input name="role" placeholder="role" required aria-label="Role">
-              {{template "project-select" $.Projects}}
-              <input name="destinations" placeholder="overrides, e.g. git=git-pat" aria-label="Destination overrides">
+              <input name="role" data-ta="roles" data-ta-project="@form" placeholder="role" required autocomplete="off" aria-label="Role">
+              {{template "project-select"}}
+              <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" placeholder="overrides, e.g. git=git-pat" autocomplete="off" spellcheck="false" aria-label="Destination overrides">
               <button type="submit" class="primary small">Add</button>
             </form>
           </details>

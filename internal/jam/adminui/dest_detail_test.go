@@ -108,7 +108,7 @@ func TestDestinationEditFormPrefilled(t *testing.T) {
 		`hx-post="/ui/destinations/github-api"`,
 		"GH_ENTERPRISE_TOKEN={token}\nGH_HOST={host}",
 		`name="upstream" value="https://api.github.com"`,
-		`name="cred-name" value="gh-pat"`,
+		`data-ta="credentials" value="gh-pat"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("edit form missing %q", want)

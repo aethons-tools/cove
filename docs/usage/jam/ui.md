@@ -219,9 +219,16 @@ verbs in [roster.md](roster.md):
   or a mapping for a destination not in scope is rejected. Credential *names*
   are references, not secrets, so the UI shows them (the Roles table renders
   `git → git-pat`); credential *values* never appear.
-- Project fields (raise studio, enroll, add grant, new role) are pickers of
-  existing projects, `default` preselected — a project must exist before
-  anything is put in it ([projects.md](projects.md)).
+- Every field that names another entity is a **type-ahead**: projects, roles
+  (of the project in the same form), kits, destinations and — after `=` in a
+  destinations list — credentials, roster targets (`human:`/`channel:` in
+  addressing and escalation tiers), Intercom participants, and chat services.
+  In list fields it completes the entry under the cursor. ↑/↓ move, Enter or
+  Tab accept, Esc closes. Suggestions guide but don't restrict: the server
+  still validates, so a glob like `human:*` is fine and an unknown project is
+  refused (a project must exist first — [projects.md](projects.md)). Project
+  fields start at `default`. Credential suggestions are the names `at-jam serve`
+  is configured with (names only, never values).
 
 Create forms sit in collapsed **+ Add …** panels above each table. The
 outcome of a write shows in a banner at the top of the page: a refused write

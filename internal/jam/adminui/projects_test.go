@@ -162,25 +162,25 @@ func TestProjectPageNotFound(t *testing.T) {
 	}
 }
 
-// Project fields are pickers of existing projects (default always offered and
-// preselected), so a typo can't 404.
+// Project fields are type-aheads over existing projects (suggested from
+// /ui/suggest), prefilled with default — the server still refuses an unknown
+// project, so a typo can't land anything.
 func TestProjectPickers(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	for _, path := range []string{"/ui/roles", "/ui/roster", "/ui/coves"} {
 		body := get(t, h, path).Body.String()
-		if !strings.Contains(body, `<select name="project"`) || strings.Contains(body, `<input name="project"`) {
-			t.Errorf("%s: project should be a select, not free text", path)
-		}
-		for _, want := range []string{`<option value="acme"`, `<option value="beta"`, `<option value="default" selected`} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s: picker missing %q", path, want)
-			}
+		if !strings.Contains(body, `<input name="project" data-ta="projects" value="default"`) || strings.Contains(body, `<select name="project"`) {
+			t.Errorf("%s: project should be a type-ahead prefilled with default", path)
 		}
 	}
-	// the roster's per-actor add-grant form, re-rendered after a write, keeps its picker
+	// the roster's per-actor add-grant form, re-rendered after a write, keeps it
 	rec := post(t, h, "/ui/actors/a1/grants", url.Values{"project": {"acme"}, "role": {"ops"}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<option value="acme"`) {
-		t.Errorf("roster fragment after add-grant lost the project picker: %d", rec.Code)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `name="project" data-ta="projects"`) {
+		t.Errorf("roster fragment after add-grant lost the project type-ahead: %d", rec.Code)
+	}
+	// an unknown project is still refused
+	if rec := post(t, h, "/ui/roles", url.Values{"project": {"nope"}, "name": {"r"}}); rec.Code != http.StatusNotFound {
+		t.Errorf("role in unknown project = %d, want 404", rec.Code)
 	}
 }
 

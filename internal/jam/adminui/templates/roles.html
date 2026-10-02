@@ -5,10 +5,10 @@
   <form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML" data-reset>
     <div class="grid">
       <label>Role name <span class="req">required</span><input name="name" required></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select" .Projects}}</label>
-      <label>Destinations <span class="hint">comma-separated, e.g. git=git-pat,anthropic</span><input name="destinations"></label>
+      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Destinations <span class="hint">comma-separated, e.g. git=git-pat,anthropic</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
       <label>TTL <span class="hint">seconds, optional</span><input name="ttl-seconds" type="number" min="0" inputmode="numeric"></label>
-      <label>Kit <span class="hint">optional</span><input name="kit"></label>
+      <label>Kit <span class="hint">optional</span><input name="kit" data-ta="kits" autocomplete="off" spellcheck="false"></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Create role</button></div>
   </form>
