@@ -53,7 +53,7 @@ type httpSource struct {
 }
 
 func (s httpSource) Fetch(ctx context.Context) (snippet.Connector, error) {
-	return snippet.Fetch(s.hc, s.base, s.token)
+	return snippet.FetchContext(ctx, s.hc, s.base, s.token)
 }
 
 // connectorRefresher applies the current connector before each agent spawn. It
@@ -80,15 +80,18 @@ func newConnectorRefresher(cfg ConnectorConfig, log *slog.Logger) *connectorRefr
 }
 
 // prepare fetches the current connector (falling back to the last applied one
-// on any error), applies its git route if changed, and returns the spawn env,
-// the applied connector's fingerprint, and whether that fingerprint is new
-// since the last report. Logs carry key counts and fingerprints, never values.
+// on any error), applies its git route if it differs from the one configured
+// (so a failed rewrite is retried every turn, fetch failure or not), and returns
+// the spawn env, the fingerprint of what is actually in effect, and whether that
+// fingerprint is new since the last report. Logs carry key counts and
+// fingerprints, never values.
 func (r *connectorRefresher) prepare(ctx context.Context) (env []string, fp string, changed bool) {
 	cur, err := r.cfg.Source.Fetch(ctx)
 	if err != nil {
 		r.log.Warn("agentrun: connector refresh failed; using the last applied connector", "err", err.Error())
 		cur = r.last
-	} else if cur.GitRoute != r.route {
+	}
+	if cur.GitRoute != r.route {
 		if gerr := r.cfg.Git.Route(r.cfg.BaseURL, r.route, cur.GitRoute); gerr != nil {
 			// Env still applies; the route is retried next turn (r.route unchanged).
 			r.log.Warn("agentrun: git route refresh failed", "err", gerr.Error())
@@ -98,7 +101,11 @@ func (r *connectorRefresher) prepare(ctx context.Context) (env []string, fp stri
 	}
 	env = r.spawnEnv(cur)
 	r.last = cur
-	fp = snippet.Fingerprint(cur)
+	// Report what is in effect: cur's env with the route git actually has, so a
+	// failed rewrite shows as stale in Jam rather than ok.
+	applied := cur
+	applied.GitRoute = r.route
+	fp = snippet.Fingerprint(applied)
 	if fp != r.reported {
 		r.log.Info("agentrun: connector applied", "fingerprint", fp[:12], "env_keys", len(cur.Env))
 		r.reported, changed = fp, true
@@ -139,27 +146,30 @@ func (r *connectorRefresher) spawnEnv(cur snippet.Connector) []string {
 }
 
 // execGit is the production GitRouter: `git config --global` via argv (no shell),
-// mirroring what snippet.Connector.GitConfig renders at raise.
+// with the keys snippet.Connector.GitConfig renders at raise.
 type execGit struct{}
 
 func (execGit) Route(base, oldRoute, newRoute string) error {
-	base = strings.TrimRight(base, "/")
 	if oldRoute != "" {
-		// Exit 5 = key absent: fine, nothing to remove.
-		if err := exec.Command("git", "config", "--global", "--unset-all", "url."+base+oldRoute+".insteadOf").Run(); err != nil && !isExit(err, 5) {
+		if err := gitUnset(snippet.GitRewriteKey(base, oldRoute)); err != nil {
 			return err
 		}
 	}
 	if newRoute == "" {
-		if err := exec.Command("git", "config", "--global", "--unset-all", "credential."+base+".helper").Run(); err != nil && !isExit(err, 5) {
-			return err
-		}
-		return nil
+		return gitUnset(snippet.GitHelperKey(base))
 	}
-	if err := exec.Command("git", "config", "--global", "url."+base+newRoute+".insteadOf", "https://github.com/").Run(); err != nil {
+	if err := exec.Command("git", "config", "--global", snippet.GitRewriteKey(base, newRoute), snippet.GitRewriteTarget).Run(); err != nil {
 		return err
 	}
-	return exec.Command("git", "config", "--global", "credential."+base+".helper", snippet.GitHelper()).Run()
+	return exec.Command("git", "config", "--global", snippet.GitHelperKey(base), snippet.GitHelper()).Run()
+}
+
+// gitUnset removes every value of key; exit 5 (key absent) is fine.
+func gitUnset(key string) error {
+	if err := exec.Command("git", "config", "--global", "--unset-all", key).Run(); err != nil && !isExit(err, 5) {
+		return err
+	}
+	return nil
 }
 
 func isExit(err error, code int) bool {

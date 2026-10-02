@@ -1,6 +1,7 @@
 package snippet
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"net/http"
@@ -126,5 +127,31 @@ func TestGitHelperMatchesRenderedConfig(t *testing.T) {
 	// GitConfig shell-quotes the helper; GitHelper is the same value unquoted.
 	if !strings.Contains(Connector{GitRoute: "/git/"}.GitConfig("https://j"), "'"+GitHelper()+"'") {
 		t.Fatalf("GitHelper %q is not the value GitConfig renders", GitHelper())
+	}
+}
+
+func TestFetchContextHonorsCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := FetchContext(ctx, srv.Client(), srv.URL, "TOK"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("FetchContext on a cancelled ctx = %v, want context.Canceled", err)
+	}
+}
+
+func TestGitKeysMatchRenderedConfig(t *testing.T) {
+	if got := GitRewriteKey("https://j/", "/git/"); got != "url.https://j/git/.insteadOf" {
+		t.Fatalf("GitRewriteKey = %q", got)
+	}
+	if got := GitHelperKey("https://j/"); got != "credential.https://j.helper" {
+		t.Fatalf("GitHelperKey = %q", got)
+	}
+	want := "git config --global url.\"https://j/git/\".insteadOf " + GitRewriteTarget + "\n" +
+		"git config --global credential.\"https://j\".helper '" + GitHelper() + "'\n"
+	if got := (Connector{GitRoute: "/git/"}).GitConfig("https://j/"); got != want {
+		t.Fatalf("GitConfig =\n%s\nwant\n%s", got, want)
 	}
 }

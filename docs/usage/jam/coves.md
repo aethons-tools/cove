@@ -55,7 +55,7 @@ at-jam studio teardown --id spider-42
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
-- `connector` (in `studio list` and the Studios table) is `ok` when the studio's last agent turn ran with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next turn), `unknown` when it never reported (an image built before the per-turn refresh — re-raise it), `error` when the role's destinations conflict.
+- `connector` (in `studio list` and the Studios table) is `ok` when the studio's last agent turn ran with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next turn), `unknown` when it never reported (an image built before the per-turn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later turn.
 
 ### Raising a real managed studio
 
@@ -151,7 +151,8 @@ A managed studio holds one bidirectional gRPC stream to Jam — its **Attach**
 stream. It authenticates the stream with two credentials: its actor **identity
 token** (the same token the broker checks) **and** its **per-instance launch
 secret**, minted at `raise` time. Over the stream the studio sends Activity
-reports up and heartbeats to renew its lease; Jam pushes lifecycle
+reports up, heartbeats to renew its lease, and the fingerprint of the connector its
+latest agent turn applied (see [cove-master](#cove-master-the-in-cove-client)); Jam pushes lifecycle
 **control** down — teardown or wake. Jam serves the Attach gRPC on its
 cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 (`application/grpc`) — so the stream fits within a hardened studio's 443-only
@@ -217,7 +218,7 @@ further wakes are dropped.
 cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
 and starts that turn with the current env and git routing, so a destination or grant
 edit reaches a running studio at its next turn (never mid-turn). If the fetch fails it
-keeps the last connector it applied and logs a warning. It reports the applied
+keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every turn until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
 
