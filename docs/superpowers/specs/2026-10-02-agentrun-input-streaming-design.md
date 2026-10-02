@@ -69,18 +69,21 @@ recognition; an unparseable line is ignored with a warning). State:
 
 | field | set by |
 |---|---|
-| `tasks` | the latest `background_tasks_changed.tasks` snapshot |
+| `tasks` | the latest `background_tasks_changed.tasks` snapshot (by `task_id`) |
+| `awaiting` | tasks that left that snapshot but whose `task_notification` (by `task_id`) has not arrived — claude empties the list *before* notifying |
 | `busy` | `true` on any stdin write, `system/init`, `assistant`, `user`, `task_notification`; `false` on `result` with `queued_turn_count == 0` (absent → 0) |
 | `pendingWake` | a Wake arriving while `busy` |
 
 Derived:
 
 - **turn ended** = `!busy`
-- **idle** = `!busy && len(tasks) == 0 && !pendingWake`
+- **idle** = `!busy && len(tasks) == 0 && len(awaiting) == 0 && !pendingWake`
 
-`task_notification` re-arming `busy` covers behaviour 5: when the last task finishes,
-`tasks` empties *before* the self-started turn's `result`, so idle is not reached until
-that turn ends.
+`awaiting` plus `task_notification` re-arming `busy` cover behaviour 5: claude emits
+`background_tasks_changed:[]` *before* the completing task's `task_notification`, so
+the task is held as awaiting until the notification starts the self-started turn,
+and idle is not reached until that turn's `result`. A task that never gets a
+notification keeps the episode on hold; the `BackgroundWait` cap is the backstop.
 
 ### 3a. Wakes are coalesced into one prompt
 
