@@ -184,7 +184,7 @@ Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
 also sets for older images — see [renamed-from-harbor.md](renamed-from-harbor.md).
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
-it spawns `claude -p --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
+it spawns `claude -p --output-format stream-json --verbose --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
 reports `running`, and when the agent exits reads `.at-task/worker-result.json`
 (the same contract as the dispatch worker). Before spawning, it **fails loud if
 the `--mcp-config` file is missing** (a stale image without

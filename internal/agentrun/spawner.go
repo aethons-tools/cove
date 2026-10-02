@@ -7,6 +7,7 @@ package agentrun
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -16,7 +17,9 @@ import (
 // Spawner launches the agent process. Production uses execSpawner; tests inject
 // a fake. Spawn returns once the process has started (or failed to start).
 type Spawner interface {
-	Spawn(ctx context.Context, bin string, args []string, dir string) (Process, error)
+	// Spawn starts bin. stdout, when non-nil, receives a copy of the process's
+	// stdout (cove-master's own stdout — the agent log — always gets it too).
+	Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error)
 }
 
 // Process is a started agent process. Wait blocks until it exits, returning the
@@ -32,12 +35,17 @@ type execSpawner struct{ grace time.Duration }
 
 type execProcess struct{ cmd *exec.Cmd }
 
-func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir string) (Process, error) {
+func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = s.grace
 	cmd.Stdout = os.Stdout
+	if stdout != nil {
+		// Not an *os.File, so exec copies through a pipe and Wait returns only
+		// after the copy drains — every line reaches stdout before Wait returns.
+		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err

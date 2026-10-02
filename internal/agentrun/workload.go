@@ -91,6 +91,8 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 	if continued {
 		args = append(args, "--continue")
 	}
+	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
+	args = append(args, "--output-format", "stream-json", "--verbose")
 	return append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config", prompt)
 }
 
@@ -113,9 +115,13 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	}
 	prompt := w.cfg.Prompt
 	continued := false
+	var turn uint32
 	for {
 		args := w.claudeArgs(prompt, continued)
-		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir)
+		turn++
+		t := turn
+		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
+		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, split)
 		if err != nil {
 			return fmt.Errorf("agentrun: start claude: %w", err)
 		}
@@ -123,6 +129,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 
 		waitErr := proc.Wait()
+		split.Flush()
 		if ctx.Err() != nil {
 			// Teardown / parent shutdown interrupted the run; the result (if any) is
 			// not meaningful. The client's Done/exit path owns the ctx error.
