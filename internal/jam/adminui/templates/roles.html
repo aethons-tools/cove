@@ -23,8 +23,8 @@
   <tbody>
     {{range .Roles}}
     <tr data-id="{{.Project}}/{{.Name}}">
-      <td>{{template "entity" .Name}}</td><td>{{.Project}}</td>
-      <td>{{range .Destinations}}<span class="chip">{{.}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a></td><td>{{.Project}}</td>
+      <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{ttl .TTL}}</td>
       <td>{{if .Kit}}<span class="chip">{{.Kit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td class="actions">{{if $.CanRequest}}<button class="primary small" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"

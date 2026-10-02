@@ -20,6 +20,12 @@
 
 {{define "coves-table"}}
 <div class="card" id="coves" hx-get="/ui/coves" hx-trigger="every 3s" hx-swap="outerHTML">
+{{template "coves-tbl" .}}
+</div>
+{{end}}
+
+{{/* coves-tbl is the bare table: .Coves rows, teardown actions when .CanEdit. */}}
+{{define "coves-tbl"}}
 <table>
   <thead>
     <tr><th>Studio</th><th>Phase</th><th>Activity</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
@@ -30,7 +36,7 @@
       <td>{{template "entity" .ID}}</td>
       <td>{{template "phase" .Phase}}</td>
       <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
-      <td>{{.Project}}</td><td>{{.Role}}</td>
+      <td>{{.Project}}</td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>
       <td>{{if .Unit}}<span class="mono">{{.Unit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></td>
@@ -43,5 +49,4 @@
     {{end}}
   </tbody>
 </table>
-</div>
 {{end}}

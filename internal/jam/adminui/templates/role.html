@@ -1,0 +1,119 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Role not found</h1></div>
+<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="/ui/roles">Back to roles</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0}
+  .unset{color:var(--faint)}
+  .prompt{white-space:pre-wrap;color:var(--muted);font-size:13px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/roles">Roles</a> / {{.Project}}</div>
+<div class="page-head">
+  <h1>{{.Name}}</h1>
+  <div class="facts">
+    <span class="chip">{{.Project}}</span>
+    {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    <span>TTL {{ttl .Role.Scope.TTL}}</span>
+  </div>
+  <span class="spacer"></span>
+  {{if .CanRequest}}<button class="primary" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
+      title="Raise a personal session of this role for you">Request session</button>{{end}}
+  <button class="danger" hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-swap="none"
+      hx-confirm="Delete role {{.Name}} from {{.Project}}?"
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/roles'">Delete</button>
+</div>
+
+<div class="sections">
+  <section class="card">
+    <header><h2>Destinations</h2><span class="sub">what the broker lets it reach, and with which credential</span></header>
+    <table>
+      <thead><tr><th>Destination</th><th>Credential</th><th>Route</th></tr></thead>
+      <tbody>
+        {{range .Dests}}
+        <tr>
+          <td><span class="mono">{{.Name}}</span>{{if .Missing}} <span class="pill phase-lost" title="Not a registered destination">unregistered</span>{{end}}</td>
+          <td>{{if .Cred}}<span class="mono">{{.Cred}}</span> <span class="unset">{{if .CredIsRole}}role mapping{{else}}destination default{{end}}</span>{{else}}<span class="unset">none</span>{{end}}</td>
+          <td>{{if .Route}}<span class="mono">{{.Route}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3" class="empty">No destinations.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <header><h2>Addressing</h2><span class="sub">comms targets it may squawk</span></header>
+    <div class="body">
+      {{range .Role.Scope.Addressing}}<span class="chip">{{.}}</span>{{else}}<span class="unset">No comms targets — it can't squawk anyone.</span>{{end}}
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Egress</h2><span class="sub">raw outbound domains, within the kit's ceiling</span></header>
+    <div class="body">
+      {{if .EgressManaged}}
+        {{range .Role.Scope.Egress.Domains}}<span class="chip">{{.}}</span>{{else}}<span class="unset">Managed, empty — nothing beyond the sealed base and the kit's infra domains.</span>{{end}}
+      {{else}}
+        <span class="unset">Kit default — the role sets no egress policy.</span>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Allocation</h2><span class="sub">session caps and the personal-session idle ladder</span></header>
+    <div class="body">
+      <dl class="kv">
+        {{range .Allocation}}<dt>{{.Label}}</dt><dd{{if .Unset}} class="unset"{{end}}>{{.Value}}</dd>{{end}}
+      </dl>
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Standing sessions</h2><span class="sub">kept running, one studio per name</span></header>
+    <table>
+      <thead><tr><th>Name</th><th>Prompt</th><th>Studio</th></tr></thead>
+      <tbody>
+        {{range .Standing}}
+        <tr data-id="{{.Name}}">
+          <td><span class="mono">{{.Name}}</span></td>
+          <td class="prompt">{{.Prompt}}</td>
+          <td>{{if .Phase}}{{template "phase" .Phase}}{{else}}<span class="unset">not running</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3" class="empty">No standing sessions.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <header><h2>Holders</h2><span class="sub">actors granted this role</span></header>
+    <div class="body">
+      {{range .Holders}}<span class="chip">{{.ID}}{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No actors hold this role.</span>{{end}}
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Studios</h2><span class="sub">running studios of this role</span></header>
+    {{template "coves-tbl" .}}
+  </section>
+</div>
+{{end}}
+{{end}}

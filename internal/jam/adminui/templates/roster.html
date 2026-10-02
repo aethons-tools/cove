@@ -28,7 +28,7 @@
         <td>{{if .Expiry.IsZero}}<span class="none">—</span>{{else}}<time title="{{.Expiry.Format "2006-01-02 15:04:05 MST"}}">{{.Expiry.Format "2006-01-02"}}</time>{{end}}</td>
         <td>
           {{range .Grants}}
-            <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}">{{.Project}}/{{.Role}}
+            <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}"><a href="{{roleURL .Project .Role}}" style="color:inherit">{{.Project}}/{{.Role}}</a>
               <button type="button" aria-label="Remove grant" hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-target="#roster" hx-swap="outerHTML"
                 hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?">×</button></span>
           {{else}}<span class="none">no grants</span>{{end}}
