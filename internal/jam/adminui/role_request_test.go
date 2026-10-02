@@ -37,6 +37,7 @@ func (l *promptLauncher) Raise(ctx context.Context, spec jam.RaiseSpec, c jam.La
 func requestKit(t *testing.T) (jam.Store, *promptLauncher, *grantingAlloc, http.Handler) {
 	t.Helper()
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}

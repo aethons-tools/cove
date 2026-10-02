@@ -107,6 +107,7 @@ func TestAdminRejectsUnresolvableCredName(t *testing.T) {
 
 func TestAdminEnrollThenRevoke(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +204,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
 	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil, nil)
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +287,8 @@ func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 }
 
 func TestAdminRolesCRUD(t *testing.T) {
-	h, _ := newTestAdmin(t) // existing helper: returns handler + store
+	h, store := newTestAdmin(t) // existing helper: returns handler + store
+	mustCreateProject(t, store, "acme")
 	// create
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, TTLSeconds: 3600})
 	if rec.Code != http.StatusCreated {
@@ -326,7 +329,8 @@ func TestAdminEnrollRequiresExistingRole(t *testing.T) {
 }
 
 func TestAdminGrantAddRemove(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}})
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}})
 	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "guest"})
@@ -346,7 +350,8 @@ func TestAdminGrantAddRemove(t *testing.T) {
 }
 
 func TestAdminRosterRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST human = %d", rec.Code)
@@ -381,7 +386,8 @@ func TestAdminRosterRoutes(t *testing.T) {
 // TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
 // asserting a round-trip through a real FileStore + admin handler.
 func TestAdminEscalationRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
 		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 	})
@@ -398,7 +404,8 @@ func TestAdminEscalationRoutes(t *testing.T) {
 // TestAdminEscalationCategoryRoutes PUTs a category-scoped chain alongside the
 // default chain, asserting GET returns both in EscalationView.
 func TestAdminEscalationCategoryRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
 		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 	})
@@ -429,6 +436,7 @@ func TestAdminEscalationCategoryRoutes(t *testing.T) {
 // /admin/* route.
 func TestChatServiceRoute(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord"})
 	if rec.Code != http.StatusNoContent {
@@ -455,7 +463,8 @@ func TestChatServiceRoute(t *testing.T) {
 }
 
 func TestAdminRoleAddressingRoundTrips(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -471,6 +480,7 @@ func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 // /admin/roles; a negative cap is rejected.
 func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", Destinations: []string{"anthropic"}, MaxEphemeral: 4})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -492,6 +502,7 @@ func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 // cap is rejected.
 func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", MaxPersonal: 3, MaxPersonalPerOwner: 1})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -515,6 +526,7 @@ func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 // seconds; a negative setting is rejected.
 func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", IdleAfterSeconds: 3600, NagEverySeconds: 7200, ReclaimAfterSeconds: 259200})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -643,7 +655,8 @@ func TestAdminKitsCRUD(t *testing.T) {
 }
 
 func TestAdminKitRemoveBlockedByRole(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
 		t.Fatalf("role add = %d", rec.Code)
@@ -655,11 +668,12 @@ func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 }
 
 func TestAdminRoleRejectsMissingKit(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "impl", Kit: "ghost"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
 	}
 	// roster/role summary reflects a valid kit
+	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
 	var roles []RoleSummary
@@ -776,7 +790,8 @@ func mustJSON(t *testing.T, v any) []byte {
 // A roster human's login (the admin operator identity) round-trips through the
 // roster routes, and a login may link at most one human per project.
 func TestAdminRosterHumanLogin(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
 		t.Fatalf("POST human = %d %s", rec.Code, rec.Body.String())
 	}
@@ -802,7 +817,8 @@ func TestAdminRosterHumanLogin(t *testing.T) {
 // A roster human's Discord user id binds at most one human per project, must be
 // a snowflake (all digits), and only a discord profile may carry one.
 func TestAdminRosterHumanDiscordUser(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	bound := func(name, ch, uid string) Human {
 		return Human{Name: name, Handle: name + ".h", Delivery: []DeliveryProfile{{Service: "discord", Address: ch, UserID: uid}}}
 	}
@@ -847,7 +863,8 @@ func TestAdminRosterHumanDiscordUser(t *testing.T) {
 // A roster human's OIDC identity binding round-trips, and a malformed one
 // (empty issuer or subject) is rejected with 400, leaving the roster unchanged.
 func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	good := Human{Name: "alice", Handle: "alice.h", Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}}
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", good); rec.Code != http.StatusCreated {
 		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
@@ -928,7 +945,8 @@ func TestAdminConfigImportBadVersion(t *testing.T) {
 }
 
 func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
-	h, _ := newTestAdmin(t) // credExists: git-pat, anthropic-key
+	h, store := newTestAdmin(t) // credExists: git-pat, anthropic-key
+	mustCreateProject(t, store, "acme")
 	bad := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "nope"}})
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("unknown credential = %d, want 400", bad.Code)
@@ -955,7 +973,8 @@ func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
 }
 
 func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}})
 	ov := &Override{Credentials: map[string]string{"git": "git-pat"}} // git not in the effective scope
 	if rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
@@ -992,6 +1011,7 @@ func TestAdminAddDestinationValidatesEnv(t *testing.T) {
 
 func TestAdminEnrollReturnsConnector(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
 		t.Fatal(err)
 	}

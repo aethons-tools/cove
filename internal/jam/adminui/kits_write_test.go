@@ -128,6 +128,7 @@ func TestPushKitNoConfigLeak(t *testing.T) {
 
 func TestDeleteKitReferenced409(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if _, err := store.PushKit("base", "v1"); err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,7 @@ func covePost(t *testing.T, h http.Handler, path string, form url.Values) *httpt
 
 func TestRaiseCove(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +102,7 @@ func TestRaiseCoveNoRuntime503(t *testing.T) {
 
 func TestTeardownCove(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +141,7 @@ func TestTeardownCoveNoRuntime503(t *testing.T) {
 
 func TestCovesControlsRenderWithSupervisor(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}

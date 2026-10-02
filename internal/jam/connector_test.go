@@ -17,6 +17,7 @@ func connectorStore(t *testing.T, dests []Destination, roles map[string]Scope) S
 			t.Fatal(err)
 		}
 	}
+	mustCreateProject(t, st, "p")
 	for name, s := range roles {
 		if err := st.PutRole("p", Role{Name: name, Scope: s}); err != nil {
 			t.Fatal(err)

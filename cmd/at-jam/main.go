@@ -74,7 +74,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -499,6 +499,9 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // subcommands nest under "chat-service" and are handled by
 // cmdProjectChatService: `project chat-service set|clear|show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm") {
+		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
+	}
 	if len(args) >= 1 && args[0] == "escalation" {
 		return cmdProjectEscalation(args[1:], stdout, stderr)
 	}
@@ -506,7 +509,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return cmdProjectChatService(args[1:], stdout, stderr)
 	}
 	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-jam project: expected roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
+		fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
 		return 2
 	}
 	sub, rest := args[1], args[2:]
@@ -697,6 +700,58 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintln(stderr, "at-jam project escalation: unknown subcommand", sub)
 		return 2
+	}
+	return 0
+}
+
+// cmdProjectLifecycle creates, lists or removes projects via the admin API:
+// `project create <name>`, `project list`, `project rm <name>`. A project must
+// exist before roles, grants or its roster can name it (except "default").
+func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("project "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if want := map[string]int{"create": 1, "list": 0, "rm": 1}[sub]; len(pos) != want {
+		if want == 1 {
+			fmt.Fprintf(stderr, "at-jam project %s: expected <project>\n", sub)
+		} else {
+			fmt.Fprintf(stderr, "at-jam project %s: unexpected arguments\n", sub)
+		}
+		return 2
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-jam project:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "create":
+		if err := c.CreateProject(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "created project", pos[0])
+	case "rm":
+		if err := c.RemoveProject(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed project", pos[0])
+	case "list":
+		names, err := c.ListProjects()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		for _, n := range names {
+			fmt.Fprintln(stdout, n)
+		}
 	}
 	return 0
 }

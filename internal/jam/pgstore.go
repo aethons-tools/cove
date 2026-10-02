@@ -272,6 +272,42 @@ func (s *PostgresStore) exec(op, sql string, args ...any) error {
 	return nil
 }
 
+// execWithProjects runs one write statement in a transaction that first inserts
+// the given project rows (the DefaultProject a write materializes), so the
+// project and the row referencing it commit together or not at all.
+func (s *PostgresStore) execWithProjects(op string, projects []Project, sql string, args ...any) error {
+	if len(projects) == 0 {
+		return s.exec(op, sql, args...)
+	}
+	ctx := context.Background()
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		for _, p := range projects {
+			doc, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(ctx, sql, args...)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("pgstore: %s: %w", op, err)
+	}
+	return nil
+}
+
+// createdProjects is the 0-or-1 project list a requireProject result asks the
+// caller to persist.
+func createdProjects(p Project, created bool) []Project {
+	if created {
+		return []Project{p}
+	}
+	return nil
+}
+
 // ImportConfig restores a config snapshot into an empty Postgres store in a
 // single transaction: either every aggregate row is inserted or none is. It is
 // fail-closed (checkImport) and never touches instances or unread cursors.
@@ -282,7 +318,18 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 		return err
 	}
 	ctx := context.Background()
+	snap = withReferencedProjects(snap)
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// Projects first: roles.project references projects.name.
+		for _, p := range snap.Projects {
+			doc, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+				return err
+			}
+		}
 		for _, a := range snap.Actors {
 			doc, err := json.Marshal(a)
 			if err != nil {
@@ -321,15 +368,6 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 		}
-		for _, p := range snap.Projects {
-			doc, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 	if err != nil {
@@ -347,12 +385,19 @@ func (s *PostgresStore) AddActor(a Actor) error {
 	if s.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
+	created, err := s.grantProjects(a)
+	if err != nil {
+		return err
+	}
 	doc, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
-	if err := s.exec("AddActor", `INSERT INTO actors (token_hash, id, doc) VALUES ($1,$2,$3)`, a.TokenHash, a.ID, doc); err != nil {
+	if err := s.execWithProjects("AddActor", created, `INSERT INTO actors (token_hash, id, doc) VALUES ($1,$2,$3)`, a.TokenHash, a.ID, doc); err != nil {
 		return err
+	}
+	for _, p := range created {
+		s.applyPutProject(p)
 	}
 	s.applyPutActor(a)
 	return nil
@@ -379,9 +424,16 @@ func (s *PostgresStore) AddGrant(actorID string, g Grant) error {
 	if !ok {
 		return actorNotFoundErr(actorID)
 	}
-	updated := upsertGrant(a, g)
-	if err := s.putActorDoc(h, updated); err != nil {
+	p, created, err := s.requireProject(g.Project)
+	if err != nil {
 		return err
+	}
+	updated := upsertGrant(a, g)
+	if err := s.putActorDoc(h, updated, createdProjects(p, created)...); err != nil {
+		return err
+	}
+	if created {
+		s.applyPutProject(p)
 	}
 	s.applyPutActor(updated)
 	return nil
@@ -409,13 +461,14 @@ func (s *PostgresStore) RemoveGrant(actorID, project, role string) error {
 }
 
 // putActorDoc writes the actor's row (grants live in the doc); the token_hash
-// key is immutable, so this is always an UPDATE of the existing row.
-func (s *PostgresStore) putActorDoc(tokenHash string, a Actor) error {
+// key is immutable, so this is always an UPDATE of the existing row. Any
+// projects given are inserted in the same transaction.
+func (s *PostgresStore) putActorDoc(tokenHash string, a Actor, projects ...Project) error {
 	doc, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
-	return s.exec("putActor", `UPDATE actors SET doc = $2, version = version + 1, updated_at = now() WHERE token_hash = $1`, tokenHash, doc)
+	return s.execWithProjects("putActor", projects, `UPDATE actors SET doc = $2, version = version + 1, updated_at = now() WHERE token_hash = $1`, tokenHash, doc)
 }
 
 func (s *PostgresStore) PutRole(project string, r Role) error {
@@ -427,17 +480,55 @@ func (s *PostgresStore) PutRole(project string, r Role) error {
 	if project == "" {
 		project = DefaultProject
 	}
+	p, created, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
 	doc, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	if err := s.exec("PutRole",
+	if err := s.execWithProjects("PutRole", createdProjects(p, created),
 		`INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)
 		 ON CONFLICT (project, name) DO UPDATE SET doc = EXCLUDED.doc, version = roles.version + 1, updated_at = now()`,
 		project, r.Name, doc); err != nil {
 		return err
 	}
+	if created {
+		s.applyPutProject(p)
+	}
 	s.applyPutRole(project, r)
+	return nil
+}
+
+func (s *PostgresStore) CreateProject(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.checkCreateProject(name); err != nil {
+		return err
+	}
+	p := Project{Name: name}
+	doc, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	if err := s.exec("CreateProject", `INSERT INTO projects (name, doc) VALUES ($1,$2)`, name, doc); err != nil {
+		return err
+	}
+	s.applyPutProject(p)
+	return nil
+}
+
+func (s *PostgresStore) RemoveProject(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.checkRemoveProject(name); err != nil {
+		return err
+	}
+	if err := s.exec("RemoveProject", `DELETE FROM projects WHERE name = $1`, name); err != nil {
+		return err
+	}
+	s.applyRemoveProject(name)
 	return nil
 }
 
@@ -631,7 +722,11 @@ func (s *PostgresStore) AddHuman(project string, h Human) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.putProject(upsertHuman(copyProject(s.rawProject(project)), h))
+	p, _, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
+	return s.putProject(upsertHuman(copyProject(p), h))
 }
 
 func (s *PostgresStore) AddChannel(project string, c Channel) error {
@@ -640,7 +735,11 @@ func (s *PostgresStore) AddChannel(project string, c Channel) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.putProject(upsertChannel(copyProject(s.rawProject(project)), c))
+	p, _, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
+	return s.putProject(upsertChannel(copyProject(p), c))
 }
 
 func (s *PostgresStore) RemoveHuman(project, name string) error {
@@ -666,13 +765,21 @@ func (s *PostgresStore) RemoveChannel(project, name string) error {
 func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.putProject(setEscalation(copyProject(s.rawProject(project)), category, tiers))
+	p, _, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
+	return s.putProject(setEscalation(copyProject(p), category, tiers))
 }
 
 func (s *PostgresStore) SetChatService(project, service string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.putProject(setChatService(copyProject(s.rawProject(project)), service))
+	p, _, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
+	return s.putProject(setChatService(copyProject(p), service))
 }
 
 // putProject upserts a project's row and, on success, updates the cache.

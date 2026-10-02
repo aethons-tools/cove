@@ -31,6 +31,7 @@ func post(t *testing.T, h http.Handler, path string, form url.Values) *httptest.
 
 func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +125,7 @@ func TestRevokeActor(t *testing.T) {
 
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
@@ -154,6 +156,7 @@ func TestCreateAndDeleteRole(t *testing.T) {
 
 func TestAddAndRemoveGrant(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +205,7 @@ func TestEnrollValidationError(t *testing.T) {
 // refused, and without the option the proxied write is refused.
 func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	n := 0
 	write := func(h http.Handler, header, value string) int {
 		n++ // a fresh role per write: the Roles form only creates
@@ -236,6 +240,7 @@ func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 
 func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil) // accepts "known-cred"
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}})
 	if rec.Code != http.StatusOK {
@@ -258,6 +263,7 @@ func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 
 func TestEnrollOverrideCredentialsValidated(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +284,7 @@ func TestEnrollOverrideCredentialsValidated(t *testing.T) {
 
 func TestAddGrantOverrideCredentialsValidated(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -296,6 +303,7 @@ func TestAddGrantOverrideCredentialsValidated(t *testing.T) {
 
 func TestCredentialErrorsDoNotEchoName(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
 	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "SECRET-TYPO") {

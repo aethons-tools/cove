@@ -137,11 +137,39 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	return names
 }
 
+// withReferencedProjects returns s with an empty record added for every project
+// a role or grant names but s.Projects lacks — a snapshot exported before
+// projects were first-class — so an import never leaves a dangling reference.
+func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
+	have := map[string]bool{}
+	for _, p := range s.Projects {
+		have[p.Name] = true
+	}
+	add := func(name string) {
+		if name == "" {
+			name = DefaultProject
+		}
+		if !have[name] {
+			have[name] = true
+			s.Projects = append(s.Projects, Project{Name: name})
+		}
+	}
+	for p := range s.Roles {
+		add(p)
+	}
+	for _, a := range s.Actors {
+		for _, g := range a.Grants {
+			add(g.Project)
+		}
+	}
+	return s
+}
+
 // applyImport overwrites the config maps from a (deep-copied) snapshot. Caller
 // holds the write lock and has already validated with checkImport. State maps
 // (instances, unread) are untouched.
 func applyImport(m *memState, s ConfigSnapshot) {
-	s = deepCopySnapshot(s)
+	s = withReferencedProjects(deepCopySnapshot(s))
 	m.actors = map[string]Actor{}
 	for _, a := range s.Actors {
 		m.actors[a.TokenHash] = a

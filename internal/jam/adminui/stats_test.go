@@ -12,6 +12,9 @@ func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
 	for id, ph := range map[string]jam.Phase{
 		"a": jam.PhaseLive, "b": jam.PhaseLive, "c": jam.PhaseRaising,
 		"d": jam.PhaseLost, "e": jam.PhaseTerminating, "f": jam.PhaseIdled,

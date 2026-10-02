@@ -1,3 +1,12 @@
+---
+summary: Loose backlog of known follow-ups not yet filed as tickets.
+read_when: You want the loose backlog of known follow-ups not yet filed as tickets.
+owns: the informal TODO backlog
+prereqs: none
+tier: leaf
+updated: 2026-10-02
+---
+
 * Special `.claude.json` file handling:
   * the `claude` install writes a `.claude.json` file to the home directory; it has valuable information in it
   * in the dockerfile, we should blend it into the `.init-agent-files/.claude.json`.

@@ -18,6 +18,7 @@ func credAny(string) bool { return true }
 func seedDestinations(t *testing.T) jam.Store {
 	t.Helper()
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	for _, d := range []jam.Destination{
 		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyBearer, CredName: "anth-key", Apply: jam.ApplyBearer, OAuthBeta: true},
 		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword},

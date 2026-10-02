@@ -55,7 +55,13 @@ ENV GOROOT=/usr/local/go \
     GOPROXY=https://proxy.golang.org,direct \
     GOSUMDB=off \
     GOFLAGS=-mod=mod
-ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
+# Git commit identity for the agent working in this studio. Set via git's env
+# overrides rather than /etc/gitconfig, which the hardening layer owns.
+ENV GIT_AUTHOR_NAME=claude-aethon \
+    GIT_AUTHOR_EMAIL=claude+brent@lcbm.life \
+    GIT_COMMITTER_NAME=claude-aethon \
+    GIT_COMMITTER_EMAIL=claude+brent@lcbm.life
+ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS:GIT_AUTHOR_NAME:GIT_AUTHOR_EMAIL:GIT_COMMITTER_NAME:GIT_COMMITTER_EMAIL"
 
 # Headless Chrome for the browser tests of the /me UI (`just test-browser`) and
 # for agents to screenshot UI changes. The official Chrome for Testing

@@ -72,6 +72,11 @@ type ChatServiceView struct {
 	Service string `json:"service"`
 }
 
+// ProjectBody is the POST /admin/projects request.
+type ProjectBody struct {
+	Name string `json:"name"`
+}
+
 // RoleBody is the POST /admin/roles request.
 type RoleBody struct {
 	Project      string            `json:"project"`
@@ -391,6 +396,27 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/projects", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListProjects())
 	})
+	mux.HandleFunc("POST /admin/projects", func(w http.ResponseWriter, r *http.Request) {
+		var b ProjectBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.CreateProject(b.Name); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if err := store.RemoveProject(project); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project removed", "operator", OperatorID(r), "project", project)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /admin/roles", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		var out []RoleSummary
@@ -455,7 +481,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
 		if err := PutRoleKeeping(store, b.Project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
@@ -535,7 +561,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 		}
 		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
@@ -547,7 +573,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
@@ -580,7 +606,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Category, b.Tiers); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "category", b.Category, "tiers", len(b.Tiers))
@@ -597,7 +623,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.SetChatService(r.PathValue("project"), b.Service); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin chat-service", "operator", OperatorID(r), "project", r.PathValue("project"), "service", b.Service)
@@ -777,6 +803,18 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		parent.Handle("/me/", me)
 	}
 	return parent
+}
+
+// projectErrStatus maps a store error to its HTTP status: an unknown project is
+// 404, a duplicate or still-referenced one 409, anything else fallback.
+func projectErrStatus(err error, fallback int) int {
+	switch {
+	case errors.Is(err, ErrProjectNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, ErrProjectExists), errors.Is(err, ErrProjectInUse):
+		return http.StatusConflict
+	}
+	return fallback
 }
 
 func orDefaultProject(p string) string {

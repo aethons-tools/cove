@@ -23,6 +23,7 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +125,7 @@ func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +247,7 @@ func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
 	}
 	tok, _ := MintToken()
 	scope := Scope{Destinations: []string{"github-api", "github-graphql"}, Credentials: map[string]string{"github-api": "gh-pat-acme", "github-graphql": "gh-pat-acme"}}
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", Role{Name: "dev", Scope: scope}); err != nil {
 		t.Fatal(err)
 	}

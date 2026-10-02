@@ -90,23 +90,13 @@ func (m *memState) ListRoles(project string) []Role {
 	return out
 }
 
+// ListProjects lists the project records, sorted. Roles and grants can only
+// name a recorded project, so this is every project in use.
 func (m *memState) ListProjects() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	set := map[string]struct{}{}
-	for p := range m.roles {
-		set[p] = struct{}{}
-	}
-	for _, a := range m.actors {
-		for _, g := range a.Grants {
-			set[g.Project] = struct{}{}
-		}
-	}
+	out := make([]string, 0, len(m.projects))
 	for p := range m.projects {
-		set[p] = struct{}{}
-	}
-	out := make([]string, 0, len(set))
-	for p := range set {
 		out = append(out, p)
 	}
 	sort.Strings(out)
@@ -265,12 +255,97 @@ func (m *memState) roleReferencingKit(name string) (string, string, bool) {
 	return "", "", false
 }
 
-// rawProject returns the stored Project (no copy) with Name defaulted, for a
-// mutator that is about to modify and re-store it.
-func (m *memState) rawProject(name string) Project {
-	p := m.projects[name]
-	p.Name = name
-	return p
+// requireProject resolves the project a write targets ("" means
+// DefaultProject): the stored record (no copy), or — for DefaultProject only — a
+// fresh record the caller must persist along with its write (created reports
+// that). Any other unknown name is ErrProjectNotFound.
+func (m *memState) requireProject(name string) (p Project, created bool, err error) {
+	if name == "" {
+		name = DefaultProject
+	}
+	if p, ok := m.projects[name]; ok {
+		return p, false, nil
+	}
+	if name == DefaultProject {
+		return Project{Name: name}, true, nil
+	}
+	return Project{}, false, fmt.Errorf("%w: %q (create it with `at-jam project create %s`)", ErrProjectNotFound, name, name)
+}
+
+// grantProjects resolves every project a's grants name, returning the records
+// the caller must persist first (at most the materialized DefaultProject).
+func (m *memState) grantProjects(a Actor) ([]Project, error) {
+	var created []Project
+	for _, g := range a.Grants {
+		p, isNew, err := m.requireProject(g.Project)
+		if err != nil {
+			return nil, err
+		}
+		if isNew && len(created) == 0 {
+			created = append(created, p)
+		}
+	}
+	return created, nil
+}
+
+// projectReference names a role or grant that still references project, for
+// RemoveProject's in-use refusal.
+func (m *memState) projectReference(project string) (string, bool) {
+	for name := range m.roles[project] {
+		return fmt.Sprintf("role %s/%s", project, name), true
+	}
+	for _, a := range m.actors {
+		for _, g := range a.Grants {
+			if orDefaultProject(g.Project) == project {
+				return fmt.Sprintf("actor %q's grant of %s/%s", a.ID, project, g.Role), true
+			}
+		}
+	}
+	return "", false
+}
+
+// checkCreateProject validates a CreateProject. Caller holds the lock.
+func (m *memState) checkCreateProject(name string) error {
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if _, ok := m.projects[name]; ok {
+		return fmt.Errorf("%w: %q", ErrProjectExists, name)
+	}
+	return nil
+}
+
+// checkRemoveProject validates a RemoveProject. Caller holds the lock.
+func (m *memState) checkRemoveProject(name string) error {
+	if _, ok := m.projects[name]; !ok {
+		return fmt.Errorf("%w: %q", ErrProjectNotFound, name)
+	}
+	if ref, ok := m.projectReference(name); ok {
+		return fmt.Errorf("%w: %q is referenced by %s", ErrProjectInUse, name, ref)
+	}
+	return nil
+}
+
+// backfillProjects gives every project named by a role or grant a record, so a
+// store written before projects were first-class loads with no dangling
+// references. Construction time only (no lock).
+func (m *memState) backfillProjects() {
+	add := func(name string) {
+		if name == "" {
+			name = DefaultProject
+		}
+		if _, ok := m.projects[name]; !ok {
+			m.projects[name] = Project{Name: name}
+		}
+	}
+	for p := range m.roles {
+		add(p)
+	}
+	for _, a := range m.actors {
+		for _, g := range a.Grants {
+			add(g.Project)
+		}
+	}
 }
 
 // ---- pure apply* mutators (caller holds mu.Lock(); no persistence) ----
@@ -400,6 +475,8 @@ func (m *memState) applyRemoveDestination(name string) bool {
 }
 
 func (m *memState) applyPutProject(p Project) { m.projects[p.Name] = p }
+
+func (m *memState) applyRemoveProject(name string) { delete(m.projects, name) }
 
 // ---- pure compute helpers for aggregate (doc) edits ----
 

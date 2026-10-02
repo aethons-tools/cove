@@ -163,11 +163,22 @@ func (c *Client) RemoveRole(project, name string) error {
 	return c.do("DELETE", "/admin/roles/"+project+"/"+name, nil, nil)
 }
 
-// ListProjects lists every project that has at least one role or actor grant.
+// ListProjects lists every project record.
 func (c *Client) ListProjects() ([]string, error) {
 	var out []string
 	err := c.do("GET", "/admin/projects", nil, &out)
 	return out, err
+}
+
+// CreateProject records a new, empty project (ErrConflict if it exists).
+func (c *Client) CreateProject(name string) error {
+	return c.do("POST", "/admin/projects", jam.ProjectBody{Name: name}, nil)
+}
+
+// RemoveProject deletes a project; ErrConflict while a role or grant still
+// references it, ErrNotFound if absent.
+func (c *Client) RemoveProject(name string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(name), nil, nil)
 }
 
 // Roster lists every enrolled actor with its resolved effective grants — never
