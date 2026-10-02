@@ -30,6 +30,9 @@ func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, boo
 	if err := sk.Validate(); err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
+	if err := sk.CheckPrompt(); err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
 	text, err := sk.ToJSON()
 	if err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())

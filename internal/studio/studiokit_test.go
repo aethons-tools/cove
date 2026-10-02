@@ -183,13 +183,22 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsOverBudgetPrompt(t *testing.T) {
+func TestCheckPromptRejectsOverBudget(t *testing.T) {
 	sk := StudioKit{Kind: Kind, Prompt: strings.Repeat("x", sessionctx.BudgetKit+1)}
-	if err := sk.Validate(); err == nil || !strings.Contains(err.Error(), "801 bytes") {
+	if err := sk.CheckPrompt(); err == nil || !strings.Contains(err.Error(), "801 bytes") {
 		t.Fatalf("want a budget error naming the size, got %v", err)
 	}
 	sk.Prompt = strings.Repeat("x", sessionctx.BudgetKit)
-	if err := sk.Validate(); err != nil {
+	if err := sk.CheckPrompt(); err != nil {
 		t.Fatalf("at budget must pass: %v", err)
+	}
+}
+
+// The budget is an authoring rule: a kit stored before it existed must still
+// parse (and so still raise, its prompt truncated by Compile).
+func TestValidateAcceptsOverBudgetPrompt(t *testing.T) {
+	sk := StudioKit{Kind: Kind, Prompt: strings.Repeat("x", sessionctx.BudgetKit+1)}
+	if err := sk.Validate(); err != nil {
+		t.Fatalf("Validate must not enforce the authoring budget: %v", err)
 	}
 }
