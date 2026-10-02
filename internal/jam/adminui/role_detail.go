@@ -49,7 +49,6 @@ type roleDetail struct {
 	Holders              []holderRow
 	Coves                []jam.CoveSummary
 	Form                 roleForm // current values in the edit forms' syntax
-	Kits                 []string // kit names for the scope form's select
 	CanRequest           bool
 	CanEdit              bool // always false: the role page's studio table is read-only
 	NotFound             bool
@@ -63,9 +62,6 @@ func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
 	}
 	project = orDefaultProject(project)
 	d := roleDetail{Title: "Roles", Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role)}
-	for _, k := range store.ListKits() {
-		d.Kits = append(d.Kits, k.Name)
-	}
 
 	dests := map[string]jam.Destination{}
 	for _, x := range store.ListDestinations() {

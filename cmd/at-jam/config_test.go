@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -876,5 +877,25 @@ func TestParseServeConfigSessionEvents(t *testing.T) {
 	bad, _ := parseServeConfig([]byte("session-events-retention: forever\n"))
 	if err := bad.validateSessionEvents(); err == nil {
 		t.Fatal("want a validation error")
+	}
+}
+
+// credNames (what the UI suggests) lists exactly what credConfigured accepts.
+func TestCredNamesMatchCredConfigured(t *testing.T) {
+	c := serveConfig{Credentials: map[string]credSpec{"gh-pat": {}, "anth-key": {}}, Pool: &poolConfig{CredName: "pool-cred"}}
+	got := c.credNames()
+	want := []string{"anth-key", "gh-pat", "pool-cred"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("credNames = %v, want %v", got, want)
+	}
+	for _, n := range got {
+		if !c.credConfigured(n) {
+			t.Errorf("suggested %q is not configured", n)
+		}
+	}
+	// a pool reusing a listed credential isn't listed twice
+	c.Pool.CredName = "gh-pat"
+	if got := c.credNames(); !slices.Equal(got, []string{"anth-key", "gh-pat"}) {
+		t.Errorf("credNames with shared pool cred = %v", got)
 	}
 }
