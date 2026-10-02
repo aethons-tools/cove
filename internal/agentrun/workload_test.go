@@ -230,7 +230,8 @@ func TestRunSpawnArgs(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	mcp := mcpConfigFile(t, dir)
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	in := newPipeInput()
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }, in: in}}
 	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcp, Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
@@ -239,7 +240,7 @@ func TestRunSpawnArgs(t *testing.T) {
 	if f.bin != "claude" {
 		t.Errorf("bin: want claude, got %q", f.bin)
 	}
-	want := []string{"-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config", "do the thing"}
+	want := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config"}
 	if len(f.args) != len(want) {
 		t.Fatalf("args: want %v, got %v", want, f.args)
 	}
@@ -250,6 +251,9 @@ func TestRunSpawnArgs(t *testing.T) {
 	}
 	if f.dir != dir {
 		t.Errorf("dir: want %q, got %q", dir, f.dir)
+	}
+	if got := in.next(t); got != "do the thing" {
+		t.Errorf("stdin prompt = %q", got)
 	}
 }
 
@@ -301,11 +305,12 @@ func TestControlWakeNoop(t *testing.T) {
 	w.Control(covemaster.Control{Kind: covemaster.Wake}) // must not panic
 }
 
-// scriptedCall records one Spawn call's arguments.
+// scriptedCall records one Spawn call's arguments and its stdin.
 type scriptedCall struct {
 	bin, dir string
 	args     []string
 	env      []string
+	in       *pipeInput
 }
 
 // scriptedSpawner scripts a worker-result.json body per call: call i's Wait
@@ -320,11 +325,12 @@ type scriptedSpawner struct {
 }
 
 func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
+	in := newPipeInput()
 	f.mu.Lock()
 	i := len(f.calls)
-	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir, env: append([]string(nil), env...)})
+	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir, env: append([]string(nil), env...), in: in})
 	f.mu.Unlock()
-	return scriptedProc{wait: func() error {
+	return scriptedProc{in: in, wait: func() error {
 		if i < len(f.lines) && stdout != nil {
 			for _, l := range f.lines[i] {
 				io.WriteString(stdout, l+"\n")
@@ -399,7 +405,7 @@ func TestRunResumesOnWake(t *testing.T) {
 	if !hasArg(f.calls[1].args, "--continue") {
 		t.Fatalf("2nd turn missing --continue: %v", f.calls[1].args)
 	}
-	if got := strings.Join(f.calls[1].args[:5], " "); got != "-p --continue --output-format stream-json --verbose" {
+	if got := strings.Join(f.calls[1].args[:6], " "); got != "-p --continue --input-format stream-json --output-format stream-json" {
 		t.Fatalf("2nd turn argv prefix = %q", got)
 	}
 }
@@ -533,14 +539,17 @@ func TestResidentResumesOnWake(t *testing.T) {
 	if len(f.calls) != 3 {
 		t.Fatalf("want 3 spawns, got %d", len(f.calls))
 	}
-	if hasArg(f.calls[0].args, "--continue") || f.calls[0].args[len(f.calls[0].args)-1] != "p" {
-		t.Fatalf("1st turn: want the original prompt without --continue, got %v", f.calls[0].args)
+	if hasArg(f.calls[0].args, "--continue") {
+		t.Fatalf("1st turn: want no --continue, got %v", f.calls[0].args)
+	}
+	if got := f.calls[0].in.next(t); got != "p" {
+		t.Fatalf("1st turn prompt = %q; want the original prompt", got)
 	}
 	for _, c := range f.calls[1:] {
 		if !hasArg(c.args, "--continue") {
 			t.Fatalf("resumed turn missing --continue: %v", c.args)
 		}
-		if got := c.args[len(c.args)-1]; got != residentResumePrompt {
+		if got := c.in.next(t); got != residentResumePrompt {
 			t.Fatalf("resumed turn prompt = %q; want residentResumePrompt", got)
 		}
 	}
@@ -739,8 +748,8 @@ func TestRunSpawnArgsWithContext(t *testing.T) {
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config",
-		"--append-system-prompt-file", filepath.Join(cdir, "CORE.md"), "--system-prompt-snapshot", "off", "do the thing"}
+	want := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config",
+		"--append-system-prompt-file", filepath.Join(cdir, "CORE.md"), "--system-prompt-snapshot", "off"}
 	if !slices.Equal(f.args, want) {
 		t.Fatalf("args:\nwant %v\ngot  %v", want, f.args)
 	}

@@ -1,8 +1,10 @@
 // Package agentrun is cove-master's agent wrapper: a covemaster.Workload that
-// runs the claude agent as a headless one-shot and maps its lifecycle onto the
-// Attach Activity stream. It depends on internal/covemaster (the Workload seam)
-// and internal/dispatch/worker (the worker-result.json contract); it never
-// imports internal/jam.
+// runs the claude agent headless (claude -p, stream-json in and out) as a
+// sequence of episodes and maps its lifecycle onto the Attach Activity stream.
+// An episode stays open while the agent works or has background tasks, and
+// takes Wakes as stdin messages. It depends on internal/covemaster (the
+// Workload seam) and internal/dispatch/worker (the worker-result.json
+// contract); it never imports internal/jam.
 package agentrun
 
 import (
