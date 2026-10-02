@@ -15,12 +15,9 @@ import (
 
 const sessSID = "0123456789abcdef0123456789abcdef"
 
-func sessionUI(t *testing.T) (http.Handler, *sessionevents.FileStore, *sessionevents.Hub, *sessionevents.Ingest) {
+func sessionUI(t *testing.T) (http.Handler, *sessionevents.MemStore, *sessionevents.Hub, *sessionevents.Ingest) {
 	t.Helper()
-	st, err := sessionevents.OpenFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := sessionevents.NewMemStore()
 	hub := sessionevents.NewHub()
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil, adminui.WithSessions(st, hub))
 	return h, st, hub, sessionevents.NewIngest(st, hub, nil)

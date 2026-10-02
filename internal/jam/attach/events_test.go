@@ -20,7 +20,7 @@ func evMsg(seq uint64, raw string) *attachpb.StatusUp {
 
 func TestAttachIngestsEventsAndAcks(t *testing.T) {
 	_, _, srv, dial, tok, secret := harness(t)
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
 	cc := dial()
 	defer cc.Close()
@@ -55,7 +55,7 @@ func TestAttachIngestsEventsAndAcks(t *testing.T) {
 
 func TestAttachDropsBadStreamIDWithoutBreakingStream(t *testing.T) {
 	store, _, srv, dial, tok, secret := harness(t)
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
 	cc := dial()
 	defer cc.Close()
@@ -100,7 +100,7 @@ func (f *failOnceStore) Append(ev sessionevents.Event) error {
 
 func TestAttachStoreErrorEndsStreamAndReplayLeavesNoGap(t *testing.T) {
 	_, _, srv, dial, tok, secret := harness(t)
-	fs, _ := sessionevents.OpenFileStore(t.TempDir())
+	fs := sessionevents.NewMemStore()
 	st := &failOnceStore{Store: fs, failN: 2} // seq 2 fails
 	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
 	cc := dial()

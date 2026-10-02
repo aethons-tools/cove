@@ -229,7 +229,7 @@ func TestClientHeartbeatRenewsLease(t *testing.T) {
 
 func TestEventsEndToEndWithRealAttachServer(t *testing.T) {
 	_, srv, dialOpt, tok, secret := serverHarness(t)
-	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	st := sessionevents.NewMemStore()
 	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
 	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{dialOpt, grpc.WithTransportCredentials(insecure.NewCredentials())}}, nil)
