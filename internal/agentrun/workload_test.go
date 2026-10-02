@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -708,5 +709,44 @@ func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 	want := []string{snippet.Fingerprint(a), snippet.Fingerprint(b)}
 	if !slices.Equal(h.connectors, want) {
 		t.Fatalf("reported %v, want one report per distinct connector %v", h.connectors, want)
+	}
+}
+
+func TestRunSpawnArgsWithContext(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	mcp := mcpConfigFile(t, dir)
+	cdir := filepath.Join(dir, "context")
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	b := &sessionctx.Bundle{Core: "CORE", Files: map[string]string{"INDEX.md": "I"}}
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcp, Spawner: f, Context: b, ContextDir: cdir}, nil)
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config",
+		"--append-system-prompt-file", filepath.Join(cdir, "CORE.md"), "--system-prompt-snapshot", "off", "do the thing"}
+	if !slices.Equal(f.args, want) {
+		t.Fatalf("args:\nwant %v\ngot  %v", want, f.args)
+	}
+	if got, _ := os.ReadFile(filepath.Join(cdir, "CORE.md")); string(got) != "CORE" {
+		t.Fatalf("CORE.md = %q", got)
+	}
+}
+
+// If the bundle cannot be written, run without the flags: claude hard-fails
+// on a missing --append-system-prompt-file.
+func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	blocker := filepath.Join(dir, "file")
+	os.WriteFile(blocker, nil, 0o644)
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Context: &sessionctx.Bundle{Core: "C"}, ContextDir: filepath.Join(blocker, "context")}, nil)
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	if hasArg(f.args, "--append-system-prompt-file") || hasArg(f.args, "--system-prompt-snapshot") {
+		t.Fatalf("flags must be absent when the bundle was not written: %v", f.args)
 	}
 }

@@ -36,6 +36,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/agentrun"
 	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -99,6 +100,15 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 		}
 		cfg.Connector = &agentrun.ConnectorConfig{
 			Source: agentrun.HTTPConnectorSource(base, token), BaseURL: base, Token: token, Initial: initial,
+		}
+	}
+	if cf := getenv("AT_COVE_AGENT_CONTEXT_FILE"); cf != "" {
+		// Not fatal: a missing or bad bundle runs the agent without context.
+		if raw, err := os.ReadFile(cf); err == nil {
+			var b sessionctx.Bundle
+			if json.Unmarshal(raw, &b) == nil {
+				cfg.Context = &b
+			}
 		}
 	}
 	return cfg, nil

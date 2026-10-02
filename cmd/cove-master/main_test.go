@@ -128,3 +128,31 @@ func TestBuildAgentConfigConnector(t *testing.T) {
 		t.Fatalf("malformed AT_JAM_CONNECTOR must start empty, not fail: %+v %v", cfg.Connector, err)
 	}
 }
+
+func TestBuildAgentConfigLoadsContext(t *testing.T) {
+	dir := t.TempDir()
+	pf := filepath.Join(dir, "prompt")
+	os.WriteFile(pf, []byte("P"), 0o600)
+	cf := filepath.Join(dir, "ctx")
+	os.WriteFile(cf, []byte(`{"core":"C","files":{"INDEX.md":"I"},"fingerprint":"f"}`), 0o600)
+	env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": pf, "AT_COVE_AGENT_CONTEXT_FILE": cf}
+	cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+	if err != nil || cfg.Context == nil || cfg.Context.Core != "C" {
+		t.Fatalf("cfg.Context = %+v, err %v", cfg.Context, err)
+	}
+}
+
+func TestBuildAgentConfigBadOrMissingContextIsNotFatal(t *testing.T) {
+	dir := t.TempDir()
+	pf := filepath.Join(dir, "prompt")
+	os.WriteFile(pf, []byte("P"), 0o600)
+	bad := filepath.Join(dir, "bad")
+	os.WriteFile(bad, []byte("{not json"), 0o600)
+	for _, cf := range []string{"", filepath.Join(dir, "missing"), bad} {
+		env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": pf, "AT_COVE_AGENT_CONTEXT_FILE": cf}
+		cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+		if err != nil || cfg.Context != nil {
+			t.Errorf("%q: want no context and no error, got %+v, %v", cf, cfg.Context, err)
+		}
+	}
+}
