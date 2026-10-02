@@ -13,7 +13,6 @@
 // enroll` prints for a Guest); at-cove consumes Env + GitConfig directly.
 package snippet
 
-
 const (
 	// tokenVar is the env var holding the identity token; the git credential helper
 	// reads it at run time so the token never lands in gitconfig on disk.

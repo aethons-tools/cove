@@ -299,6 +299,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "cred_name does not resolve to a configured credential", http.StatusBadRequest)
 			return
 		}
+		if err := d.ValidateEnv(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := store.AddDestination(d); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

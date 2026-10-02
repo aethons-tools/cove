@@ -1340,3 +1340,27 @@ func TestRoleAddDestinationCredentials(t *testing.T) {
 		t.Fatalf("malformed --destinations: exit=%d, want 2 (stderr=%s)", code, errb.String())
 	}
 }
+
+func TestDestinationAddEnvAndGit(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "gh", "--route", "/api/v3/", "--upstream", "https://api.github.com",
+		"--identity-in", "bearer", "--apply", "bearer", "--env", "GH_HOST={host}", "--env", "GH_ENTERPRISE_TOKEN={token}", "--git"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("destination add: exit=%d stderr=%s", code, errb.String())
+	}
+	d := store.ListDestinations()
+	if len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || d[0].Env["GH_ENTERPRISE_TOKEN"] != "{token}" || !d[0].Git {
+		t.Fatalf("stored = %+v", d)
+	}
+	out.Reset()
+	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "env=GH_ENTERPRISE_TOKEN,GH_HOST") || !strings.Contains(out.String(), "git") {
+		t.Fatalf("destination list: exit=%d out=%s", code, out.String())
+	}
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "x", "--route", "/x/", "--upstream", "https://x", "--env", "NOEQUALS"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("malformed --env: exit=%d, want 2", code)
+	}
+}
