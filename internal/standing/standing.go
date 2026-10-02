@@ -10,7 +10,6 @@ package standing
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -199,7 +198,7 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s jam.Sta
 	}
 	_, _, _, err = r.sup.Raise(ctx, jam.RaiseSpec{
 		ActorID: id, Project: project, Role: role, Name: s.Name,
-		Prompt: Prompt(project, role, s), SessionKind: jam.SessionKindStanding,
+		Prompt: s.Prompt, SessionKind: jam.SessionKindStanding,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.
@@ -216,13 +215,4 @@ func (r *Reconciler) ensure(ctx context.Context, project, role string, s jam.Sta
 	}
 	delete(r.backoff, id)
 	r.log.Info("standing: session raised", "id", id, "project", project, "role", role, "name", s.Name)
-}
-
-// Prompt is the prompt a standing session is raised with: a preamble telling
-// the agent how a standing session works, then the declared prompt.
-func Prompt(project, role string, s jam.StandingSession) string {
-	return fmt.Sprintf("You are the standing session %q for role %s in project %s. You run until an operator\n"+
-		"removes you. When you have results or need input, message people with the intercom `send` tool — you\n"+
-		"must name the recipient (`to`); replies wake you and are available via `read`.\n"+
-		"---\n%s", s.Name, role, project, s.Prompt)
 }

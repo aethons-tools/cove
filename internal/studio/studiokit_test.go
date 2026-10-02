@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -179,5 +180,16 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	}
 	if parsed.Prompt != "p" {
 		t.Errorf("Prompt = %q, want p", parsed.Prompt)
+	}
+}
+
+func TestValidateRejectsOverBudgetPrompt(t *testing.T) {
+	sk := StudioKit{Kind: Kind, Prompt: strings.Repeat("x", sessionctx.BudgetKit+1)}
+	if err := sk.Validate(); err == nil || !strings.Contains(err.Error(), "801 bytes") {
+		t.Fatalf("want a budget error naming the size, got %v", err)
+	}
+	sk.Prompt = strings.Repeat("x", sessionctx.BudgetKit)
+	if err := sk.Validate(); err != nil {
+		t.Fatalf("at budget must pass: %v", err)
 	}
 }

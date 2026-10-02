@@ -8,7 +8,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/kit"
 	"gopkg.in/yaml.v3"
 )
@@ -68,6 +70,10 @@ func (sk StudioKit) Validate() error {
 		if kit.IsReservedSecretName(k) {
 			return fmt.Errorf("studio kit: build-arg %q is a reserved secret name", k)
 		}
+	}
+	// The prompt is the session context's always-on kit core (sessionctx).
+	if n := len(strings.TrimSpace(sk.Prompt)); n > sessionctx.BudgetKit {
+		return fmt.Errorf("studio kit: prompt is %d bytes; the kit core budget is %d — move detail out of the prompt", n, sessionctx.BudgetKit)
 	}
 	return nil
 }

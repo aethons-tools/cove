@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -120,10 +119,9 @@ func TestTick_RaisesDeclaredName(t *testing.T) {
 	if spec.ActorID != botID || spec.Project != "acme" || spec.Role != "reviewer" || spec.Name != "alice-bot" || spec.SessionKind != jam.SessionKindStanding || spec.Owner != "" {
 		t.Fatalf("spec = %+v", spec)
 	}
-	wantPrompt := "You are the standing session \"alice-bot\" for role reviewer in project acme. You run until an operator\n" +
-		"removes you. When you have results or need input, message people with the intercom `send` tool — you\n" +
-		"must name the recipient (`to`); replies wake you and are available via `read`.\n" +
-		"---\nreview every PR"
+	// The declared prompt is delivered as-is; the standing preamble is now the
+	// Boilerplate layer of the session context (sessionctx).
+	wantPrompt := "review every PR"
 	if spec.Prompt != wantPrompt {
 		t.Fatalf("prompt =\n%s\nwant\n%s", spec.Prompt, wantPrompt)
 	}
@@ -297,7 +295,7 @@ func TestRun_TicksAndStops(t *testing.T) {
 	}
 	cancel()
 	<-done
-	if len(w.raised) != 1 || !strings.HasPrefix(w.raised[0].Prompt, "You are the standing session") {
+	if len(w.raised) != 1 || w.raised[0].SessionKind != jam.SessionKindStanding {
 		t.Fatalf("raised = %+v", w.raised)
 	}
 }

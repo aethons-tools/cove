@@ -108,7 +108,7 @@ func TestPersonalSessionRequest_LinkedHuman(t *testing.T) {
 	if want := "acme/pair/" + res.ID + "/alice"; len(k.alloc.grants) != 1 || k.alloc.grants[0] != want {
 		t.Fatalf("grants = %v, want [%s]", k.alloc.grants, want)
 	}
-	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || !strings.HasSuffix(s.Prompt, "\nhelp me") || s.Project != "acme" || s.Role != "pair" {
+	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || s.Prompt != "help me" || s.Project != "acme" || s.Role != "pair" {
 		t.Fatalf("raise spec = %+v", s)
 	}
 	inst, ok := k.store.GetInstance(res.ID)
@@ -315,19 +315,19 @@ func TestPersonalSessionRequest_OwnerWithoutDiscordProfile400(t *testing.T) {
 
 // The raised prompt starts with the personal-session preamble (naming the
 // owner and the intercom flow) followed by the owner's own prompt.
-func TestPersonalSessionRequest_PromptPreamble(t *testing.T) {
+// The owner's prompt is delivered as-is; who the session is and how it
+// reaches its owner come from the session context's Boilerplate.
+func TestPersonalSessionRequest_ContextNamesOwner(t *testing.T) {
 	k := newSessionKit(t)
 	if _, code, body := k.request(t); code != http.StatusCreated {
 		t.Fatalf("request = %d %s", code, body)
 	}
-	p := k.launcher.gotSpec.Prompt
-	if !strings.HasPrefix(p, "You are a personal session for alice.") {
-		t.Fatalf("prompt does not start with the preamble: %q", p)
+	spec := k.launcher.gotSpec
+	if spec.Prompt != "help me" {
+		t.Fatalf("prompt = %q, want the owner's prompt alone", spec.Prompt)
 	}
-	for _, want := range []string{"intercom `send` tool (omit `to`)", "until alice releases it", "\n---\nhelp me"} {
-		if !strings.Contains(p, want) {
-			t.Fatalf("prompt missing %q: %q", want, p)
-		}
+	if spec.Context == nil || !strings.Contains(spec.Context.Core, "a personal session for alice") || !strings.Contains(spec.Context.Core, "until alice releases") {
+		t.Fatalf("context must name the owner: %+v", spec.Context)
 	}
 }
 

@@ -273,20 +273,34 @@ func TestRaiseUsesRoleStudioKit(t *testing.T) {
 	}
 }
 
-// The session prompt is composed from ordered layers (Jam boilerplate → kit →
-// launch) before the launcher sees it.
-func TestRaiseComposesPrompt(t *testing.T) {
+// The session context is compiled at raise; the prompt stays the launch text.
+func TestRaiseCompilesContext(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
 	sk := studio.StudioKit{Kind: studio.Kind, Prompt: "KITLAYER"}
 	ref, _ := EnsureStudioKit(store, "web", sk)
 	sup.SetDefaultStudioKit(ref)
-	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER"}); err != nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER", Name: "bot", SessionKind: SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(fl.gotSpec.Prompt, studio.JamBoilerplate) ||
-		!strings.Contains(fl.gotSpec.Prompt, "KITLAYER") || !strings.Contains(fl.gotSpec.Prompt, "LAUNCHLAYER") {
-		t.Fatalf("composed prompt missing layers: %q", fl.gotSpec.Prompt)
+	if fl.gotSpec.Prompt != "LAUNCHLAYER" {
+		t.Fatalf("prompt must be the launch text only, got %q", fl.gotSpec.Prompt)
+	}
+	c := fl.gotSpec.Context
+	if c == nil || !strings.Contains(c.Core, "KITLAYER") || !strings.Contains(c.Core, `standing session "bot"`) || !strings.Contains(c.Core, "## Kit — web@v") {
+		t.Fatalf("context missing layers: %+v", c)
+	}
+}
+
+// A raise with no kit still gets the boilerplate.
+func TestRaiseContextWithoutKit(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, _, _ := supTestKit(t, fl)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "## Boilerplate") || strings.Contains(c.Core, "## Kit") {
+		t.Fatalf("want boilerplate only: %+v", c)
 	}
 }
 
