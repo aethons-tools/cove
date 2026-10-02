@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -543,34 +542,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &b) {
 			return
 		}
-		// A login links at most one human per project, so ownership (e.g. of a
-		// personal session) is unambiguous.
-		if other, ok := HumanByLogin(store, r.PathValue("project"), b.Login); ok && other.Name != b.Name {
-			http.Error(w, fmt.Sprintf("login is already linked to roster human %q in this project", other.Name), http.StatusBadRequest)
-			return
-		}
-		// A Discord user id binds at most one human per project, so attribution
-		// of a Discord reply by its author id is unambiguous.
-		if err := ValidateDelivery(b.Delivery); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := ValidateIdentity(b.Identity); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if rr, ok := store.GetRoster(r.PathValue("project")); ok {
-			for _, id := range b.discordUserIDs() {
-				for _, other := range rr.Humans {
-					if other.Name != b.Name && slices.Contains(other.discordUserIDs(), id) {
-						http.Error(w, fmt.Sprintf("discord user id is already bound to roster human %q in this project", other.Name), http.StatusBadRequest)
-						return
-					}
-				}
-			}
-		}
-		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+		// Login / Discord-id uniqueness and delivery/identity validation are
+		// shared with the UI (PutRosterHuman).
+		if err := PutRosterHuman(store, r.PathValue("project"), b); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)

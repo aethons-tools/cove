@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -110,19 +109,14 @@ var funcs = template.FuncMap{
 	"destURL":    destURL,
 	"kitURL":     kitURL,
 	"projectURL": projectURL,
+	"blankHuman": func() humanRow { return humanRow{} },
+	"chainForm": func(project string, c chainView) map[string]any {
+		return map[string]any{"Project": project, "Chain": c}
+	},
 }
 
 // fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
-func fmtDur(d time.Duration) string {
-	s := d.String()
-	if strings.HasSuffix(s, "m0s") {
-		s = strings.TrimSuffix(s, "0s")
-	}
-	if strings.HasSuffix(s, "h0m") {
-		s = strings.TrimSuffix(s, "0m")
-	}
-	return s
-}
+func fmtDur(d time.Duration) string { return jam.FormatDuration(d) }
 
 // Option configures Handler.
 type Option func(*options)
@@ -199,6 +193,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
 	registerProjects(mux, store, log, guardWrite)
+	registerProjectEdits(mux, store, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
