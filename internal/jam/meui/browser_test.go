@@ -120,3 +120,55 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 		t.Errorf("plain paste after paste as code: box = %q, want %q", plain, "xz")
 	}
 }
+
+func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
+	ctx := browserCtx(t)
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	// /me/send lives outside this package; answer it as a successful send.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/me/send" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.ServeHTTP(w, jam.WithParticipant(r, p))
+	}))
+	t.Cleanup(srv.Close)
+	box := `.composer textarea`
+	conv := srv.URL + "/me/?c=" + url.QueryEscape("named:eng")
+
+	// A half-typed reply survives leaving the conversation (a full page load)
+	// and coming back.
+	var kept string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(conv),
+		chromedp.WaitVisible(box, chromedp.ByQuery),
+		chromedp.SendKeys(box, "half typed", chromedp.ByQuery),
+		chromedp.Navigate(srv.URL+"/me/"),
+		chromedp.Navigate(conv),
+		chromedp.WaitVisible(box, chromedp.ByQuery),
+		chromedp.Value(box, &kept, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept != "half typed" {
+		t.Errorf("after navigating away and back: box = %q, want %q", kept, "half typed")
+	}
+
+	// A successful send forgets it.
+	var after string
+	err = chromedp.Run(ctx,
+		chromedp.Click(`.composer button[type=submit]`, chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector('.composer textarea').value===''`, nil),
+		chromedp.Navigate(conv),
+		chromedp.WaitVisible(box, chromedp.ByQuery),
+		chromedp.Value(box, &after, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != "" {
+		t.Errorf("after send and reload: box = %q, want empty", after)
+	}
+}

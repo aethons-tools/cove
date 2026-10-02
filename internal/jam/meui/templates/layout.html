@@ -176,6 +176,7 @@ function meSend(e, to){
    .then(function(r){
      if(r.status===204){
        f.reset();
+       meKeepReply(f.body);
        mePopDraft(f);
        // Refresh only the message list of an open conversation; the rail's own
        // live-push refresh picks up a brand-new channel. Never re-render the composer.
@@ -240,7 +241,7 @@ document.addEventListener('paste', function(e){
   e.preventDefault();
   var f=meFence(text), before=t.value.slice(0, t.selectionStart);
   var block=(before && before.slice(-1)!=='\n' ? '\n' : '') + f + '\n' + text + (text.slice(-1)==='\n' ? '' : '\n') + f + '\n';
-  if(!document.execCommand('insertText', false, block)){ t.setRangeText(block, t.selectionStart, t.selectionEnd, 'end'); }
+  if(!document.execCommand('insertText', false, block)){ t.setRangeText(block, t.selectionStart, t.selectionEnd, 'end'); meKeepReply(t); }
 });
 function meCompose(to, label){
   var pane=document.getElementById('pane');
@@ -249,7 +250,9 @@ function meCompose(to, label){
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
     +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
     +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div></form></div>';
-  meDraftChip(pane.querySelector('.composer form'));
+  var form=pane.querySelector('.composer form');
+  meRestoreReply(form);
+  meDraftChip(form);
 }
 // Draft stack: Cmd-Down (Ctrl-Down off the Mac) pushes the composer's draft onto
 // a per-conversation stack and clears the box, so another message can be
@@ -291,6 +294,7 @@ function mePushDraft(form){
   d.push({text:text, sel:t.selectionStart});
   meSaveDrafts(form, d);
   t.value=''; t._enterArmed=false; t.focus();
+  meKeepReply(t);
   return true;
 }
 function mePopDraft(form){
@@ -301,8 +305,29 @@ function mePopDraft(form){
   meSaveDrafts(form, d);
   t.value=top.text; t.focus();
   var s=Math.min(top.sel, top.text.length); t.setSelectionRange(s, s);
+  meKeepReply(t);
   return true;
 }
+// Reply persistence: the text in a conversation's reply box is kept per
+// recipient in this tab's sessionStorage as it is typed (like the draft stack),
+// so leaving the conversation (a full page load) and coming back restores it.
+// Emptying the box or a successful send forgets it. Code that sets the box's
+// value directly (no input event) calls meKeepReply itself.
+function meReplyKey(form){ return 'me-reply:'+(form.dataset.to||''); }
+function meKeepReply(t){
+  try{
+    if(t.value){ sessionStorage.setItem(meReplyKey(t.form), t.value); }
+    else{ sessionStorage.removeItem(meReplyKey(t.form)); }
+  }catch(_){}
+}
+function meRestoreReply(form){
+  if(!form || form.body.value) return;
+  try{ form.body.value=sessionStorage.getItem(meReplyKey(form))||''; }catch(_){}
+}
+document.addEventListener('input', function(e){
+  var t=e.target;
+  if(t.matches && t.matches('.composer textarea')){ meKeepReply(t); }
+});
 document.addEventListener('keydown', function(e){
   var t=e.target;
   if(!t.matches || !t.matches('.composer textarea')) return;
@@ -311,7 +336,7 @@ document.addEventListener('keydown', function(e){
   if(e.key==='ArrowDown' && mePushDraft(t.form)){ e.preventDefault(); }
   else if(e.key==='ArrowUp' && mePopDraft(t.form)){ e.preventDefault(); }
 });
-document.querySelectorAll('.composer form').forEach(meDraftChip);
+document.querySelectorAll('.composer form').forEach(function(f){ meRestoreReply(f); meDraftChip(f); });
 // Message view: Rendered (default) or Raw, which shows every bubble's body as
 // sent, in monospace. Flips html.raw (each bubble carries both forms, so it is
 // instant and survives refreshes) and is remembered per browser.
