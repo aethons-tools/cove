@@ -1673,7 +1673,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	sessHub := sessionevents.NewHub()
 	_ = sessHub // used by the admin UI (Task 11)
-	_ = sessStore
 	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
 	if keep, _ := sessionevents.ParseRetention(cfg.SessionEventsRetention); keep > 0 {
 		go sessionevents.RunRetention(context.Background(), sessStore, keep, 24*time.Hour, nil, log)
@@ -2045,7 +2044,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...))))
 
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler)
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
+			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)))
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

@@ -916,3 +916,24 @@ func TestAdminConfigImportBadVersion(t *testing.T) {
 		t.Fatalf("status = %d, want 400", r.StatusCode)
 	}
 }
+
+func TestWithAdminRouteIsGuarded(t *testing.T) {
+	store, _ := NewFileStore(t.TempDir() + "/s.json")
+	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("extra")) })
+	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/sessions/w1/events", nil))
+	if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated request reached the route: %d", rec.Code)
+	}
+	h = NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/admin/sessions/w1/events", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	h.ServeHTTP(rec, req)
+	if rec.Body.String() != "extra" {
+		t.Fatalf("route not mounted: %d %q", rec.Code, rec.Body.String())
+	}
+}
