@@ -46,6 +46,7 @@ var pages = map[string]*template.Template{
 	"kit":          mustParse("kit.html"),
 	"projects":     mustParse("projects.html"),
 	"project":      mustParse("coves.html", "project.html"),
+	"studio":       mustParse("studio.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -188,6 +189,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
+	registerStudio(mux, store, msgs, o.sessStore, canEdit)
 
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
