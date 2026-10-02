@@ -171,9 +171,8 @@ at-jam enroll --id spider-18 --role guest --json                # prints {"id","
 at-jam revoke --id spider-18                                    # removes the whole Actor
 ```
 
-The printed snippet is the identity's **connector** — the env and git routing
-its role's destinations declare ([connector.md](connector.md)); `--json` adds it
-as `connector`. A conflict among those destinations fails the enrollment (409).
+The snippet is the identity's [connector](connector.md) (also in `--json` as
+`connector`); a conflict among the role's destinations fails the enrollment (409).
 
 - The role must already exist (else `enroll` fails closed).
 - Without `--json`, `enroll` prints a shell **connector snippet** the Guest studio
