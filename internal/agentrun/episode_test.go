@@ -171,7 +171,12 @@ func TestEpisodeHoldsStdinUntilBackgroundTasksDone(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnStarted, lnResult)
 	p.in.staysOpen(t, 50*time.Millisecond)
-	p.emit(lnTasks0, lnUpdated, lnNotify)
+	// claude empties the task list BEFORE notifying: with the task awaiting its
+	// notification, stdin must stay open (emitted apart from lnNotify so the
+	// loop sees this state before the notification re-arms busy).
+	p.emit(lnTasks0, lnUpdated)
+	p.in.staysOpen(t, 50*time.Millisecond)
+	p.emit(lnNotify) // starts the self-started turn
 	p.in.staysOpen(t, 50*time.Millisecond)
 	p.emit(lnInit, lnAssistant, lnResult)
 	p.in.waitClosed(t)
