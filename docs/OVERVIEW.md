@@ -555,9 +555,10 @@ A second volume, **`<instance>-agent-data`**, is always a persistent backend vol
 It preserves Claude session history and the saved OAuth login across recreates.
 The full seed runs once (guarded by a `.seeded` marker), which now holds only for
 the **runtime-owned** set (`.claude.json`, `settings.json`, `plugins/`,
-`COLLABORATOR.md`, and user state). The image-owned **reference set** — `skills/`,
+`COLLABORATOR.md` — empty by default — and user state). The image-owned **reference set** — `skills/`,
 `reference/`, and the CLAUDE doc tree (`CLAUDE.md`, `PROGRESSIVE_DISCLOSURE.md`,
-`SANDBOX.md`) — instead **refreshes every boot** (image authoritative, prune
+`SANDBOX.md`, which defers to a Jam session's [session context](usage/jam/session-context.md)
+when `/agent-data/context/CORE.md` exists) — instead **refreshes every boot** (image authoritative, prune
 semantics), so a rebuilt image's updated skills/docs reach an existing sandbox. The
 suffix matches the mount (`-agent-data`, not the historical `-state`).
 
