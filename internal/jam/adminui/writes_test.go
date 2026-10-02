@@ -289,3 +289,44 @@ func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateRoleWithDestinationCredentials(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil) // accepts "known-cred"
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create role = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	r, _ := store.GetRole("acme", "w")
+	if r.Scope.Credentials["git"] != "known-cred" || len(r.Scope.Destinations) != 2 {
+		t.Fatalf("stored role = %+v", r)
+	}
+	if strings.Contains(rec.Body.String(), "known-cred") {
+		t.Errorf("roles table must not show credential names; got:\n%s", rec.Body.String())
+	}
+	for _, bad := range []string{"git=unknown-cred", "git="} {
+		if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {
+			t.Errorf("destinations %q = %d, want 400", bad, rec.Code)
+		}
+	}
+}
+
+func TestEnrollOverrideCredentialsValidated(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	rec := post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("enroll with unknown override credential = %d, want 400", rec.Code)
+	}
+	rec = post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=known-cred"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enroll with valid override = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	a, _ := store.Lookup(store.ListActors()[0].TokenHash)
+	if a.Grants[0].Overrides == nil || a.Grants[0].Overrides.Credentials["git"] != "known-cred" {
+		t.Fatalf("grant overrides = %+v", a.Grants[0].Overrides)
+	}
+}

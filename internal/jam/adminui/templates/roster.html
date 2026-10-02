@@ -4,7 +4,7 @@
   <input name="id" placeholder="actor id" required>
   <input name="project" placeholder="project (default)">
   <input name="role" placeholder="role" required>
-  <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+  <input name="destinations" placeholder="destination overrides (optional, e.g. git=git-pat)">
   <button type="submit">Enroll</button>
 </form>
 <div id="roster-panel"></div>
@@ -36,7 +36,7 @@
         <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
           <input name="project" placeholder="project">
           <input name="role" placeholder="role" required>
-          <input name="destinations" placeholder="destination overrides (optional, comma-separated)">
+          <input name="destinations" placeholder="destination overrides (optional, e.g. git=git-pat)">
           <button type="submit">Add grant to {{$id}}</button>
         </form>
       </td></tr>

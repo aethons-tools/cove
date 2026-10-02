@@ -64,14 +64,25 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// overridesFrom builds a *jam.Override from an optional comma-separated
-// destinations field, or nil when empty (inherit the role's scope).
-func overridesFrom(dests string) *jam.Override {
-	d := splitCSV(dests)
-	if len(d) == 0 {
-		return nil
+// overridesFrom builds a *jam.Override from an optional destinations field in
+// jam.ParseDestinations syntax ("git=cred,anthropic"), or nil when empty
+// (inherit the role's scope). Mapped credentials are validated against the
+// effective scope over the grant's role; a missing role is left to the write.
+func overridesFrom(store jam.Store, project, role, dests string, credExists func(string) bool) (*jam.Override, error) {
+	d, creds, err := jam.ParseDestinations(dests)
+	if err != nil {
+		return nil, err
 	}
-	return &jam.Override{Destinations: d}
+	if len(d) == 0 {
+		return nil, nil
+	}
+	o := &jam.Override{Destinations: d, Credentials: creds}
+	if r, ok := store.GetRole(orDefaultProject(project), role); ok {
+		if err := jam.ValidateCredentials(jam.EffectiveScope(jam.Grant{Overrides: o}, r), credExists); err != nil {
+			return nil, err
+		}
+	}
+	return o, nil
 }
 
 // orDefaultProject normalizes an empty project to jam.DefaultProject for
@@ -111,7 +122,11 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		overrides := overridesFrom(r.FormValue("destinations"))
+		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
 		if err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
@@ -164,10 +179,16 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			ttl = n
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
+		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		role := jam.Role{
 			Name: name,
 			Scope: jam.Scope{
-				Destinations: splitCSV(r.FormValue("destinations")),
+				Destinations: dests,
+				Credentials:  creds,
 				TTL:          time.Duration(ttl) * time.Second,
 			},
 			Kit: kit,
@@ -179,6 +200,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			role.Allocation = existing.Allocation
 			role.Scope.Addressing = existing.Scope.Addressing
 			role.Scope.Egress = existing.Scope.Egress
+		}
+		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 		if err := store.PutRole(project, role); err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
@@ -202,7 +227,12 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		g := jam.Grant{Project: project, Role: role, Overrides: overridesFrom(r.FormValue("destinations"))}
+		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		g := jam.Grant{Project: project, Role: role, Overrides: overrides}
 		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
 			renderError(w, http.StatusNotFound, err.Error())
 			return

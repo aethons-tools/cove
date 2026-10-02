@@ -162,11 +162,15 @@ for the backend-selection rule.
 Beyond viewing, the UI can do the roster day-job — the same actions as the CLI
 verbs in [roster.md](roster.md):
 
-- **Enroll** an actor (id, project, role, optional destination/repo overrides).
+- **Enroll** an actor (id, project, role, optional destination overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
 - **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
+- Destination fields (role, enroll/grant overrides) take the CLI's
+  `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
+  or a mapping for a destination not in scope is rejected. Tables show
+  destination names only — credential names are never rendered in the UI.
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the

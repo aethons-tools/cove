@@ -3,7 +3,7 @@
 <form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML">
   <input name="project" placeholder="project (default)">
   <input name="name" placeholder="role name" required>
-  <input name="destinations" placeholder="destinations (comma-separated)">
+  <input name="destinations" placeholder="destinations (e.g. git=git-pat,anthropic)">
   <input name="ttl-seconds" placeholder="ttl seconds">
   <input name="kit" placeholder="kit (optional)">
   <button type="submit">Add role</button>

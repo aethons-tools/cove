@@ -41,7 +41,7 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 
 ```
 at-jam role add --project acme --name guest \
-  --destinations anthropic,git --ttl 24h
+  --destinations anthropic,git=git-pat-acme --ttl 24h
 at-jam role add --project acme --name reviewer --destinations anthropic --kit review-kit
 at-jam role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
 at-jam role add --project acme --name pair --destinations anthropic,git \
@@ -50,7 +50,10 @@ at-jam role list [--project acme]
 at-jam role rm   [--project acme] guest
 ```
 
-- `--destinations` is comma-separated.
+- `--destinations` is comma-separated; each entry is a destination name,
+  optionally `name=credential` to pick the credential the broker injects for it
+  (a bare name uses the destination's default `cred-name`). `role list` and
+  `roster` print the same syntax.
 - A role's per-destination credentials travel on the admin API as
   `credentials` (`{"git": "git-pat-acme"}`) on role put/list, on each roster
   grant, and on a grant/enroll `overrides` (which **replaces** the role's map).

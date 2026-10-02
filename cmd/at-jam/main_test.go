@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1313,5 +1314,29 @@ func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
 	}
 	if len(excluded) != 1 || excluded[0] != "claude.ai" {
 		t.Fatalf("excluded=%v", excluded)
+	}
+}
+
+func TestRoleAddDestinationCredentials(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--destinations", "git=git-pat-cove,anthropic"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	}
+	r, ok := store.GetRole("P", "w")
+	if !ok || !slices.Equal(r.Scope.Destinations, []string{"git", "anthropic"}) || r.Scope.Credentials["git"] != "git-pat-cove" {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	out.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "dests=git=git-pat-cove,anthropic") {
+		t.Fatalf("role list: exit=%d out=%s", code, out.String())
+	}
+	errb.Reset()
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "x", "--destinations", "git="}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("malformed --destinations: exit=%d, want 2 (stderr=%s)", code, errb.String())
 	}
 }
