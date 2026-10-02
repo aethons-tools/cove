@@ -1,6 +1,6 @@
 # jam: capture managed-cove session event streams
 
-**Status:** design approved section-by-section (2026-10-02), pre-plan
+**Status:** design approved section-by-section (2026-10-02); amended during planning (sessionpg package, raw/raw_text, ack tick, stream_id validation, thinking_tokens hidden, /admin export path)
 **Scope:** Jam-managed coves only (cove-master / `agentrun` — ticket, personal, standing sessions). The agent's Claude Code session events (`claude -p --output-format stream-json --verbose`) flow up the existing Attach stream to Jam, are persisted losslessly, and are watchable live in the admin UI.
 **Goals, in order:** (1) live watching, (2) a durable audit trail that outlives the cove, (3) automated feedback (stuck/loop detection, budgets, escalation). This spec delivers (1) and (2) and builds the seam for (3); feedback rules are a later spec.
 **Builds on:** the Attach gRPC stream (`internal/jam/attach`, `internal/covemaster`), the `agentrun` turn loop, the file-or-Postgres store split, the `/me/events` SSE pattern, the admin UI's operator gate.
@@ -11,6 +11,7 @@
 - **Source:** stream-json stdout of `claude -p`. Not hooks, not transcript tailing (neither is live + complete for `-p` coves; transcripts die with `--rm` containers).
 - **Transport:** the existing Attach stream — already authenticated (identity token + launch secret), ordered, reconnecting. No new endpoint, no new egress.
 - **Store raw, derive later.** The audit record is the exact stream-json line. Jam derives a thin index at ingest for the UI and for feedback; index parse failures never block storage.
+- **A deliberate exception to "raw agent output stays VM-local"** (`docs/usage/observability.md` rule 3, which governs the structured log sink): session events are a separate, operator-only audit channel. `observability.md` gains a note pointing at `session-events.md`.
 - **Sensitive by default.** Events carry tool inputs/outputs (file contents, command output, possibly secrets the agent read). Viewing is operator-only; retention is configurable.
 
 ## 1. Wire (attach.proto, package stays `harbor.attach.v1`)
@@ -24,7 +25,7 @@ message StatusUp {
   }
 }
 message SessionEvent {
-  string stream_id        = 1; // random per cove-master process
+  string stream_id        = 1; // random per cove-master process: 32 lowercase hex chars
   uint64 seq              = 2; // monotonic per stream_id, from 1
   uint32 turn             = 3; // claude invocation number, from 1
   int64  observed_unix_ms = 4; // when cove-master read the line
@@ -44,6 +45,8 @@ message EventAck {
 }
 ```
 
+Jam rejects (drops, logs) any event whose `stream_id` does not match `^[0-9a-f]{32}$` — the file store uses it as a path segment.
+
 Compatibility: an old Jam ignores `event` (its recv switch has no case); an old cove-master never sends one and logs-and-ignores `ack`. Any mix is safe. Original line size = `len(raw) + truncated_bytes`.
 
 ## 2. Cove side
@@ -60,6 +63,7 @@ Compatibility: an old Jam ignores `event` (its recv switch has no case); an old 
 ### covemaster client
 
 - Generates `stream_id` at `New`.
+- **Redaction:** before buffering, `Event` replaces every exact occurrence of the client's own `Token` and `LaunchSecret` with `«redacted»` (the `logging.Scrub` marker; contains no `"` or `\`, so valid JSON stays valid). These are the only secrets a Jam cove holds — Anthropic/git credentials are broker-injected. Edge: a secret straddling the 1 MiB truncation cut may leave a prefix. **Follow-up ticket (deferred by the owner):** guarantee the token and launch secret carry enough entropy/length that exact-match redaction can never hit ordinary text (a short secret would both over-redact and, by its redaction pattern, reveal itself).
 - `Event` assigns `seq` and appends to an **in-memory bounded buffer** (default 10 000 events or 64 MiB, whichever first). No disk spool: claude is cove-master's child, so a cove-master death ends the session anyway.
 - Each session (connection) sends buffered events from `lastAcked+1`, then live. `EventAck` trims the buffer. A reconnect therefore replays exactly the unacked tail.
 - **Overflow:** drop oldest. Jam sees the seq hole and records a gap (§3) — loss is explicit, never silent.
@@ -75,7 +79,7 @@ type Event struct {
     Seq               uint64
     Turn              uint32
     ObservedAt, ReceivedAt time.Time
-    Raw               []byte
+    Raw               []byte // exact line bytes; encoded as `raw` (valid JSON) or `raw_text` (anything else) in JSONL and export
     TruncatedBytes    uint64
     Kind              string // "event" | "gap"
     GapFrom, GapTo    uint64 // Kind == "gap"
@@ -110,15 +114,15 @@ type Store interface {
 4. Publish to the Hub.
 5. Return the new high-water.
 
-The Attach server coalesces acks: at most one `EventAck` per stream every 250 ms or 100 events, always after persistence — acked means durable.
+The Attach server coalesces acks: the per-connection send loop emits one `EventAck` per stream with a new high-water on a 250 ms tick (not via the drop-on-full control channel), always after persistence — acked means durable. Acks are cumulative, so a lost one is repaired by the next.
 
 ### Backends (same selection rule as the intercom log)
 
 - **File:** serve-config `session-events-dir: <path>` — one append-only JSONL file per `(actor_id, stream_id)`; high-water recovered by scanning the tail at open.
-- **Postgres:** when `store-postgres` is set — migration `0003_session_events.sql`:
-  - table `session_events`: `actor_id`, `stream_id`, `seq` (PK of the three), `kind`, `gap_from`, `gap_to`, `turn`, `observed_at`, `received_at`, `project`, `role`, `unit`, `owner`, `session_kind`, `raised_at`, `type`, `subtype`, `tool_name`, `claude_session_id`, `cost_usd`, `input_tokens`, `output_tokens`, `duration_ms`, `is_error`, `truncated_bytes`, `raw jsonb`.
+- **Postgres:** when `store-postgres` is set — package `internal/jam/sessionevents/sessionpg`, following the `intercompg` pattern (own embedded `migrations/0001_session_events.sql`, own `session_events_schema_migrations` table and advisory lock, shares the control-plane pool):
+  - table `session_events`: `actor_id`, `stream_id`, `seq` (PK of the three), `kind`, `gap_from`, `gap_to`, `turn`, `observed_at`, `received_at`, `project`, `role`, `unit`, `owner`, `session_kind`, `raised_at`, `type`, `subtype`, `tool_name`, `claude_session_id`, `cost_usd`, `input_tokens`, `output_tokens`, `duration_ms`, `is_error`, `truncated_bytes`, `raw jsonb` (NULL when not valid JSON), `raw_text text` (set only then).
   - indexes: `(actor_id, received_at)`, `(type, tool_name)`.
-  - `raw` stored as `jsonb`; a line that is not valid JSON (e.g. truncated) is stored wrapped as `{"cove_unparsed": "<text>"}` — the original bytes are never lost.
+  - A line that is not valid JSON (e.g. truncated) goes to `raw_text` — the original bytes are never lost. Both backends are content-equal, not byte-exact (`jsonb` normalizes key order/whitespace; the JSONL encoder compacts and escapes `<>&`); the exact bytes remain in `cove-master.log`. `jsonb` rejects `\u0000` escapes — such lines fall back to `raw_text`.
 - **Neither configured:** a no-op store — events are acked and dropped, so coves never back up. This is the kill switch.
 
 ### Retention
@@ -136,12 +140,13 @@ In-memory per-actor fan-out; one buffered channel per subscriber. A full subscri
 - `GET /ui/coves/{id}/session` — timeline for one cove, linked from each Studios row; a stream selector lists current and past streams (`Store.Streams`), so torn-down coves remain viewable — the audit viewer.
   - Header: running totals — turns, tool calls, tokens, cost — updated live.
   - Body grouped by turn: assistant text (escaped); `tool_use` → tool name + one-line input summary, expandable to full input; `tool_result` collapsed with size + error badge; `result` → cost/tokens/duration; per-event raw-JSON toggle (`<pre>`, escaped).
+  - `system/thinking_tokens` progress ticks (≈40 per short turn in a real capture) are hidden by default behind a "show progress events" toggle.
   - Inline markers: gaps ("⚠ N events lost") and truncation ("✂ X dropped").
 - `GET /ui/coves/{id}/session/events?stream=` — SSE of server-rendered HTML fragments (the `/me/events` pattern). On connect: backfill from the Store, then subscribe to the Hub. SSE id = `stream_id:seq`; `Last-Event-ID` resumes with no dups or holes.
 
 ### Export (admin JSON API, existing authenticator)
 
-`GET /sessions/{actor_id}/events?stream=&after_seq=&limit=` → NDJSON, one object per event: raw event plus stamp and index fields. The audit trail is usable without the UI and is the hook for feedback tooling.
+`GET /admin/sessions/{actor_id}/events?stream=&after_seq=&limit=` (behind the existing `/admin/*` operator authenticator) → NDJSON, one object per event: raw event plus stamp and index fields. The audit trail is usable without the UI and is the hook for feedback tooling.
 
 ### Access
 
@@ -159,14 +164,14 @@ Operators only. All rendering HTML-escaped. Nothing pushed to `/me`, Discord, or
 
 ## 6. Rollout
 
-Jam first (ingest + ack), then rebuild cove images. Storage is on only when `session-events-dir` or `store-postgres` is configured. Docs updated in the same PRs: `docs/usage/jam/coves.md` (Attach wire + events), `serve.md` (config keys, retention), `ui.md` (session view), the admin API export; `docs/` index kept in sync, docs-audit run.
+Jam first (ingest + ack), then rebuild cove images. Storage is on only when `session-events-dir` or `store-postgres` is configured. Docs updated in the same PRs: a new leaf `docs/usage/jam/session-events.md` owns the feature (what is captured, storage, retention, sensitivity, export); `coves.md` (Attach wire), `serve.md` (config rows) and `ui.md` (session view) link to it; `docs/usage/jam/INDEX.md` gains its row; docs-audit run.
 
 ## Slices
 
 1. Proto + covemaster buffer/seq/ack/replay.
 2. agentrun stream-json + tee + `Handle.Event`.
 3. `sessionevents`: ingest, file store, Hub; wired into Attach and serve config.
-4. Postgres store, migration `0003`, retention sweeper.
+4. Postgres store (`sessionpg`), retention sweeper.
 5. Admin UI session view + SSE.
 6. NDJSON export endpoint.
 
