@@ -1781,6 +1781,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// past reclaim-after.
 	nagger := intercomNagger{log: intercomLog, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
+	// Wake Running coves on a reply too: an agent holding its episode open for
+	// a background task is Running, and its owner's reply must reach it then.
+	eng.SetRunningWake(sup /*Cursor*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 
