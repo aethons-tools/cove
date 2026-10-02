@@ -22,6 +22,17 @@ It renders:
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
   idled studios, and counts of projects, actors, roles, kits, destinations),
   each linking to its page, above the studio table.
+- **Search** — the box in the top bar (press `/` from anywhere) searches every
+  page's objects at once: studios (id, unit, owner, standing name,
+  project/role), roles (project/name, kit, destinations), projects, kits (name,
+  current prompt and egress), destinations (name, route, upstream, env keys),
+  actors (id, grants), roster humans (name, handle, login, delivery, identity)
+  and channels, and squawk bodies (newest 10; the rest via Intercom's `q=`).
+  Matching is case-insensitive substring, at least 2 characters; results are
+  grouped and link to each object's page. **Enter** jumps straight to the page
+  when exactly one object's name is the whole query (e.g. a studio id or
+  `acme/dev`); otherwise it opens `/ui/search?q=…`, which updates as you type.
+  Session event streams are not searched.
 - **Projects** (`/ui/projects`) — every project with its roles, actors,
   studios, roster size and chat service; create one, or delete one nothing
   references. Each project's page is the "everything in this project" view —

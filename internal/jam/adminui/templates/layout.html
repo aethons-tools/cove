@@ -23,6 +23,8 @@
     nav a{color:var(--muted);text-decoration:none;padding:14px 10px 12px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
     nav a:hover{color:var(--ink)}
     nav a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    .topsearch{margin-left:auto;padding:8px 0}
+    .topsearch input{width:200px;padding:5px 10px;font-size:12.5px;border-radius:999px}
     main{max-width:1200px;margin:0 auto;padding:22px 20px 60px}
     .page-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
     h1{font-size:20px;margin:0;font-weight:600}
@@ -109,6 +111,10 @@
       <a href="/ui/destinations"{{if eq $t "Destinations"}} aria-current="page"{{end}}>Destinations</a>
       <a href="/ui/intercom"{{if eq $t "Intercom"}} aria-current="page"{{end}}>Intercom</a>
     </nav>
+    <form class="topsearch" action="/ui/search" method="get" role="search">
+      <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
+      <input type="hidden" name="go" value="1">
+    </form>
   </header>
   <main>
     <div id="flash" aria-live="polite"></div>
@@ -141,6 +147,14 @@
     document.body.addEventListener('htmx:afterRequest', function(e){
       var f = e.detail.elt;
       if (e.detail.successful && f.tagName === 'FORM' && f.hasAttribute('data-reset')) f.reset();
+    });
+    // "/" focuses search from anywhere except a text field.
+    document.addEventListener('keydown', function(e){
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      var t = e.target, tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return;
+      var q = document.getElementById('q-page') || document.getElementById('q-top');
+      if (q) { e.preventDefault(); q.focus(); q.select(); }
     });
     // Copy buttons: data-copy="<selector>" copies that element's text.
     document.body.addEventListener('click', function(e){
