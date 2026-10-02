@@ -49,7 +49,13 @@ type Config struct {
 	// every turn, whatever its outcome, Run reports Waiting and blocks until a
 	// Wake (resume with --continue) or shutdown — never MaxWait.
 	Resident bool
+	// StreamLogPath is the VM-local file claude's stdout (stream-json) is
+	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
+	// not cove-master's stdout, which Jam reads into its own log.
+	StreamLogPath string
 }
+
+const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
 // the covemaster Activity stream: a needs-input turn suspends (reports
@@ -113,6 +119,17 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
 		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
 	}
+	var out io.Writer // nil-able extra sink under the line splitter
+	logPath := w.cfg.StreamLogPath
+	if logPath == "" {
+		logPath = defaultStreamLogPath
+	}
+	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err != nil {
+		w.log.Warn("agentrun: stream log unavailable; events only", "path", logPath, "err", err.Error())
+	} else {
+		defer f.Close()
+		out = f
+	}
 	prompt := w.cfg.Prompt
 	continued := false
 	var turn uint32
@@ -121,7 +138,11 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		turn++
 		t := turn
 		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
-		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, split)
+		var sink io.Writer = split
+		if out != nil {
+			sink = io.MultiWriter(out, split)
+		}
+		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, sink)
 		if err != nil {
 			return fmt.Errorf("agentrun: start claude: %w", err)
 		}

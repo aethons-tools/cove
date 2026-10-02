@@ -17,8 +17,8 @@ import (
 // Spawner launches the agent process. Production uses execSpawner; tests inject
 // a fake. Spawn returns once the process has started (or failed to start).
 type Spawner interface {
-	// Spawn starts bin. stdout, when non-nil, receives a copy of the process's
-	// stdout (cove-master's own stdout — the agent log — always gets it too).
+	// Spawn starts bin. stdout, when non-nil, receives the process's stdout
+	// instead of cove-master's own stdout; nil falls back to os.Stdout.
 	Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error)
 }
 
@@ -44,7 +44,9 @@ func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir s
 	if stdout != nil {
 		// Not an *os.File, so exec copies through a pipe and Wait returns only
 		// after the copy drains — every line reaches stdout before Wait returns.
-		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
+		// Deliberately NOT also os.Stdout: that is cove-master.log, which Jam
+		// tails into its own log; raw agent output must stay out of it.
+		cmd.Stdout = stdout
 	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

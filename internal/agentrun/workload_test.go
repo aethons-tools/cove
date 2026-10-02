@@ -572,3 +572,29 @@ func TestRunForwardsTrailingPartialLine(t *testing.T) {
 		t.Fatalf("events: %+v", ev)
 	}
 }
+
+func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "agent-stream.jsonl")
+	f := &scriptedSpawner{dir: dir,
+		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}},
+		results: []string{`{"status":{"ok":{}}}`}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f, StreamLogPath: logPath}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "{\"type\":\"system\"}\n{\"type\":\"result\"}\n" {
+		t.Fatalf("stream log %q", b)
+	}
+	if n := len(h.eventList()); n != 2 {
+		t.Fatalf("events: %+v", h.eventList())
+	}
+	if fi, _ := os.Stat(logPath); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode())
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -80,7 +82,7 @@ func TestExecSpawnerCancelSIGKILLAfterGrace(t *testing.T) {
 	}
 }
 
-func TestExecSpawnerTeesStdout(t *testing.T) {
+func TestExecSpawnerStdoutOnlyToProvidedWriter(t *testing.T) {
 	needSh(t)
 	var buf bytes.Buffer
 	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo hello"}, "", &buf)
@@ -91,6 +93,32 @@ func TestExecSpawnerTeesStdout(t *testing.T) {
 		t.Fatal(err)
 	}
 	if buf.String() != "hello\n" {
-		t.Fatalf("tee got %q", buf.String())
+		t.Fatalf("stdout got %q", buf.String())
+	}
+}
+
+// With a writer provided, the child's stdout must NOT also reach cove-master's
+// own stdout (cove-master.log is Jam-visible; agent output must stay out of it).
+func TestExecSpawnerDoesNotEchoToOsStdout(t *testing.T) {
+	needSh(t)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	var buf bytes.Buffer
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo secret"}, "", &buf)
+	os.Stdout = old
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	leaked, _ := io.ReadAll(r)
+	if len(leaked) != 0 {
+		t.Fatalf("leaked to os.Stdout: %q", leaked)
 	}
 }

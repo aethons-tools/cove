@@ -17,11 +17,12 @@ and carries agent output by design (see [Sensitivity](#sensitivity)).
 
 ## Cove side (cove-master)
 
-- `internal/agentrun` tees each agent stdout line to `cove-master.log` and to a
-  line splitter; each line goes to `covemaster` as an event tagged with its
+- `internal/agentrun` writes the agent's stdout to the VM-local
+  `/agent-data/agent-stream.jsonl` (append, 0600; never `cove-master.log`, which
+  Jam reads on teardown) and to a line splitter; each line goes to `covemaster` as an event tagged with its
   **turn** (the claude invocation number, from 1).
 - **Truncation:** a line over 1 MiB is cut; `truncated_bytes` counts the rest.
-  The full line stays in `/agent-data/cove-master.log`.
+  The full line stays in `/agent-data/agent-stream.jsonl`.
 - **Redaction:** exact occurrences of the cove's own identity token and launch
   secret become `«redacted»` before buffering. Edge case: a secret straddling
   the 1 MiB cut can leave a prefix behind. Redaction is exact-match, so it
@@ -64,7 +65,7 @@ compacts JSON and escapes `<`, `>`, `&`; `jsonb` normalizes; `raw_text` is
 UTF-8-normalized (invalid bytes become U+FFFD) and, in Postgres, NUL becomes
 U+FFFD. Any Postgres data exception (SQLSTATE class 22, e.g. a `\u0000` escape,
 lone surrogate, or invalid UTF-8) falls back to sanitized `raw_text`. Exact
-bytes remain in the cove's `cove-master.log`.
+bytes remain in the cove's `/agent-data/agent-stream.jsonl`.
 
 ## Retention
 
