@@ -257,6 +257,15 @@ func RosterSummaries(store Store) []ActorSummary {
 	return out
 }
 
+// AdminOption mounts extra routes on the /admin/* mux, inside the operator
+// authenticator — for features whose packages jam must not import (e.g. the
+// session-events export).
+type AdminOption func(*http.ServeMux)
+
+func WithAdminRoute(pattern string, h http.Handler) AdminOption {
+	return func(m *http.ServeMux) { m.Handle(pattern, h) }
+}
+
 // validateOverride checks a grant override's credentials against the effective
 // scope it produces over its role. A nil override (or one without credentials)
 // is always valid.
@@ -275,7 +284,7 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
-func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler) http.Handler {
+func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -782,6 +791,9 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerStanding(mux, store, log)
 	registerEgress(mux, store, log)
 
+	for _, o := range opts {
+		o(mux)
+	}
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil && me == nil {
 		return guarded

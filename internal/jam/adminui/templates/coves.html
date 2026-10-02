@@ -33,7 +33,7 @@
   <tbody>
     {{range .Coves}}
     <tr data-id="{{.ID}}">
-      <td>{{template "entity" .ID}}</td>
+      <td><a class="mono" href="/ui/coves/{{.ID}}/session" title="Session timeline">{{.ID}}</a></td>
       <td>{{template "phase" .Phase}}</td>
       <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{.Project}}</td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>

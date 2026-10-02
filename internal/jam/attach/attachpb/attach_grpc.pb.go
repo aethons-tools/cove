@@ -4,6 +4,11 @@
 // - protoc             (unknown)
 // source: attach.proto
 
+// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
+// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
+// already-built cove images dials, so renaming it would break running coves.
+// See docs/usage/jam/renamed-from-harbor.md.
+
 package attachpb
 
 import (

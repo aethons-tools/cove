@@ -1,0 +1,74 @@
+{{define "content"}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .facts b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .spacer{flex:1}
+  label.check{flex-direction:row;align-items:center;gap:6px;font-weight:500;cursor:pointer}
+  label.check input{width:auto;margin:0}
+  #events:empty::after{content:"No events yet — waiting for the agent.";display:block;padding:22px;text-align:center;color:var(--faint);font-style:italic}
+  .ev{display:grid;grid-template-columns:44px minmax(0,1fr);gap:2px 12px;padding:8px 16px;border-bottom:1px solid var(--border)}
+  .ev:last-child{border-bottom:0}
+  .ev:hover{background:var(--surface-2)}
+  .ev .turn{grid-row:span 2;color:var(--faint);padding-top:1px}
+  .ev .head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+  .ev .label{font-weight:600;font-size:12.5px;white-space:nowrap}
+  .ev .summary{color:var(--muted);overflow-wrap:anywhere}
+  .ev .trunc{font-size:12px;color:var(--wait)}
+  .ev.error{box-shadow:inset 3px 0 0 var(--bad)}
+  .ev.error .label{color:var(--bad)}
+  .ev.gap{background:var(--wait-soft);color:var(--wait)}
+  .ev.gap .summary{color:var(--wait)}
+  .ev.progress{display:none}
+  body.show-progress .ev.progress{display:grid}
+  .ev details{grid-column:2;font-size:12.5px}
+  .ev details>summary{cursor:pointer;color:var(--accent);font-weight:600;user-select:none;width:max-content}
+  .ev pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 2px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font:12px/1.5 "IBM Plex Mono",ui-monospace,monospace;max-height:480px;overflow:auto}
+</style>
+<div class="crumbs"><a href="/ui/coves">Studios</a> / session</div>
+<div class="page-head">
+  <h1 class="mono">{{.ActorID}}</h1>
+  {{if .Enabled}}<div id="totals" class="facts"><span class="none">loading…</span></div>{{end}}
+</div>
+{{if not .Enabled}}
+<div class="banner">Session events are not configured on this Jam. <a href="/ui/coves">Back to studios</a></div>
+{{else}}
+<section class="card">
+  <header>
+    <h2>Timeline</h2>
+    <form method="get" class="inline">
+      {{if .Streams}}<select name="stream" aria-label="Stream" onchange="this.form.submit()">
+        {{range .Streams}}<option value="{{.StreamID}}" {{if eq .StreamID $.Stream}}selected{{end}}>{{.FirstAt.Format "2006-01-02 15:04:05"}} · {{.Events}} events</option>{{end}}
+      </select>{{else}}<span class="sub">no streams yet — following the first one</span>{{end}}
+    </form>
+    <span class="spacer"></span>
+    <label class="check"><input type="checkbox" id="show-progress"> show progress events</label>
+  </header>
+  <div id="events" data-src="/ui/coves/{{.ActorID}}/session/events?stream={{.Stream}}"></div>
+</section>
+<script>
+  document.getElementById("show-progress").addEventListener("change", e =>
+    document.body.classList.toggle("show-progress", e.target.checked));
+  // The URL lives in a data attribute: html/template would JS-escape "/" inside a script string.
+  const es = new EventSource(document.getElementById("events").dataset.src);
+  es.addEventListener("ev", e => document.getElementById("events").insertAdjacentHTML("beforeend", e.data));
+  es.addEventListener("totals", e => { document.getElementById("totals").outerHTML = e.data; });
+</script>
+{{end}}
+{{end}}
+
+{{define "session-totals"}}<div id="totals" class="facts"><span>turns <b>{{.Turns}}</b></span><span>tool calls <b>{{.ToolCalls}}</b></span><span>tokens <b>{{.InputTokens}}</b> in / <b>{{.OutputTokens}}</b> out</span><span class="chip">${{printf "%.4f" .CostUSD}}</span></div>{{end}}
+
+{{define "session-event"}}<div class="ev{{if .IsError}} error{{end}}{{if .Progress}} progress{{end}}{{if .Gap}} gap{{end}}">
+  <span class="turn mono">t{{.Turn}}</span>
+  <div class="head"><span class="label mono">{{.Label}}</span>{{if .IsError}}<span class="pill phase-lost">error</span>{{end}}
+  <span class="summary">{{.Summary}}</span>
+  {{if .TruncatedBytes}}<span class="trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}</div>
+  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre></details>{{end}}
+  {{if .Raw}}<details><summary>raw JSON</summary><pre>{{.Raw}}</pre></details>{{end}}
+</div>{{end}}

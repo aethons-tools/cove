@@ -12,9 +12,20 @@ service Runtime {
 
 message StatusUp {
   oneof msg {
-    Activity  status    = 1;
-    Heartbeat heartbeat = 2;
+    Activity     status    = 1;
+    Heartbeat    heartbeat = 2;
+    SessionEvent event     = 3;
   }
+}
+
+// SessionEvent is one line of the agent's claude stream-json stdout.
+message SessionEvent {
+  string stream_id        = 1; // random per cove-master process: 32 lowercase hex chars
+  uint64 seq              = 2; // monotonic per stream_id, from 1
+  uint32 turn             = 3; // claude invocation number, from 1
+  int64  observed_unix_ms = 4; // when cove-master read the line
+  bytes  raw              = 5; // the line, no trailing newline, secrets redacted
+  uint64 truncated_bytes  = 6; // bytes dropped from raw; 0 = intact
 }
 enum Activity {
   ACTIVITY_UNSPECIFIED = 0;
@@ -31,7 +42,14 @@ message ControlDown {
     Teardown    teardown = 2;
     TierChanged tier     = 3;
     RotateToken rotate   = 4; // reserved
+    EventAck    ack      = 5;
   }
+}
+
+// EventAck is cumulative: every event of stream_id with seq <= this is durable.
+message EventAck {
+  string stream_id = 1;
+  uint64 seq       = 2;
 }
 message Wake {}
 message Teardown    { string reason = 1; }

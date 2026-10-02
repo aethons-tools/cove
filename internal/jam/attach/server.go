@@ -6,9 +6,11 @@ package attach
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 const (
@@ -34,6 +37,41 @@ type Server struct {
 	log   *slog.Logger
 	mu    sync.Mutex
 	conns map[string]chan *attachpb.ControlDown
+
+	events *sessionevents.Ingest
+}
+
+// ackEvery is how often a connection flushes cumulative EventAcks.
+var ackEvery = 250 * time.Millisecond
+
+// SetSessionEvents enables session-event ingest. Call before serving. Without
+// it, events are ignored (never acked) — at-jam always sets one, using a
+// no-op store when storage is not configured.
+func (s *Server) SetSessionEvents(in *sessionevents.Ingest) { s.events = in }
+
+// ackState collects the latest durable seq per stream for one connection.
+type ackState struct {
+	mu      sync.Mutex
+	pending map[string]uint64
+}
+
+func (a *ackState) set(stream string, seq uint64) {
+	a.mu.Lock()
+	a.pending[stream] = seq
+	a.mu.Unlock()
+}
+
+func (a *ackState) drain() map[string]uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := a.pending
+	a.pending = map[string]uint64{}
+	return out
+}
+
+func stampOf(inst jam.Instance) sessionevents.Stamp {
+	return sessionevents.Stamp{Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner,
+		SessionKind: inst.SessionKind, RaisedAt: inst.RaisedAt}
 }
 
 var _ jam.ControlSink = (*Server)(nil)
@@ -76,7 +114,10 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 	defer s.deregister(actorID, ch)
 	_ = s.sup.Heartbeat(actorID) // the cove is talking to us now
 
-	go func() { // send loop
+	acks := &ackState{pending: map[string]uint64{}}
+	go func() { // send loop: control messages + coalesced event acks
+		tick := time.NewTicker(ackEvery)
+		defer tick.Stop()
 		for {
 			select {
 			case <-stream.Context().Done():
@@ -87,6 +128,12 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 				}
 				if err := stream.Send(cd); err != nil {
 					return
+				}
+			case <-tick.C:
+				for id, seq := range acks.drain() {
+					if err := stream.Send(&attachpb.ControlDown{Msg: &attachpb.ControlDown_Ack{Ack: &attachpb.EventAck{StreamId: id, Seq: seq}}}); err != nil {
+						return
+					}
 				}
 			}
 		}
@@ -104,6 +151,28 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			}
 		case *attachpb.StatusUp_Heartbeat:
 			_ = s.sup.Heartbeat(actorID)
+		case *attachpb.StatusUp_Event:
+			if s.events == nil {
+				continue
+			}
+			ev := m.Event
+			inst, _ := s.store.GetInstance(actorID)
+			hw, err := s.events.Append(actorID, stampOf(inst), sessionevents.Incoming{
+				StreamID: ev.GetStreamId(), Seq: ev.GetSeq(), Turn: ev.GetTurn(),
+				ObservedAt: time.UnixMilli(ev.GetObservedUnixMs()), Raw: ev.GetRaw(), TruncatedBytes: ev.GetTruncatedBytes(),
+			})
+			if err != nil {
+				// Never log raw content — it is agent output (see session-events.md).
+				s.log.Warn("session event not stored", "actor", actorID, "seq", ev.GetSeq(), "err", err.Error())
+				if errors.Is(err, sessionevents.ErrBadStreamID) || errors.Is(err, sessionevents.ErrBadSeq) {
+					continue // validation: this event can never be stored; drop it
+				}
+				// Store failure: end the stream so the cove reconnects and replays
+				// from its last ack. Continuing would let the next seq write a gap
+				// row and its cumulative ack trim the unstored event.
+				return status.Error(codes.Unavailable, "session events: store unavailable")
+			}
+			acks.set(ev.GetStreamId(), hw)
 		}
 	}
 }

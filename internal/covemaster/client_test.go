@@ -18,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 type aliveLauncher struct{}
@@ -227,5 +228,24 @@ func TestClientHeartbeatRenewsLease(t *testing.T) {
 	})
 	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Lease.Expiry.After(first) }) {
 		t.Fatal("heartbeat did not renew the lease over time")
+	}
+}
+
+func TestEventsEndToEndWithRealAttachServer(t *testing.T) {
+	_, srv, dialOpt, tok, secret := serverHarness(t)
+	st, _ := sessionevents.OpenFileStore(t.TempDir())
+	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
+		DialOptions: []grpc.DialOption{dialOpt, grpc.WithTransportCredentials(insecure.NewCredentials())}}, nil)
+	start := time.Now()
+	if err := c.Run(context.Background(), &eventWorkload{lines: []string{`{"type":"system"}`, `{"type":"result"}`}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.List(sessionevents.Filter{ActorID: "w1", StreamID: c.StreamID()})
+	if len(rows) != 2 {
+		t.Fatalf("rows %+v", rows)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("Done waited for the flush timeout — real server did not ack")
 	}
 }

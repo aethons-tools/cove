@@ -2,8 +2,10 @@ package agentrun
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,8 +17,27 @@ import (
 // concurrent use: Run reports from its own goroutine while a test may poll
 // count() from the test goroutine.
 type recordHandle struct {
-	mu  sync.Mutex
-	got []covemaster.Activity
+	mu     sync.Mutex
+	got    []covemaster.Activity
+	events []recordedEvent
+}
+
+type recordedEvent struct {
+	turn    uint32
+	raw     string
+	dropped uint64
+}
+
+func (h *recordHandle) Event(turn uint32, raw []byte, dropped uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.events = append(h.events, recordedEvent{turn, string(raw), dropped})
+}
+
+func (h *recordHandle) eventList() []recordedEvent {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]recordedEvent(nil), h.events...)
 }
 
 func (h *recordHandle) Report(a covemaster.Activity) {
@@ -48,10 +69,11 @@ type fakeSpawner struct {
 	args     []string
 	proc     Process
 	err      error
+	stdout   io.Writer
 }
 
-func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string) (Process, error) {
-	f.bin, f.args, f.dir = bin, args, dir
+func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
+	f.bin, f.args, f.dir, f.stdout = bin, args, dir, stdout
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -190,7 +212,7 @@ func TestRunSpawnArgs(t *testing.T) {
 	if f.bin != "claude" {
 		t.Errorf("bin: want claude, got %q", f.bin)
 	}
-	want := []string{"-p", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config", "do the thing"}
+	want := []string{"-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config", "do the thing"}
 	if len(f.args) != len(want) {
 		t.Fatalf("args: want %v, got %v", want, f.args)
 	}
@@ -264,16 +286,22 @@ type scriptedCall struct {
 type scriptedSpawner struct {
 	mu      sync.Mutex
 	results []string
+	lines   [][]string // per call: stdout lines written before the result file
 	dir     string
 	calls   []scriptedCall
 }
 
-func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string) (Process, error) {
+func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
 	f.mu.Lock()
 	i := len(f.calls)
 	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir})
 	f.mu.Unlock()
 	return scriptedProc{wait: func() error {
+		if i < len(f.lines) && stdout != nil {
+			for _, l := range f.lines[i] {
+				io.WriteString(stdout, l+"\n")
+			}
+		}
 		if i < len(f.results) {
 			atTask := filepath.Join(f.dir, ".at-task")
 			if err := os.MkdirAll(atTask, 0o755); err != nil {
@@ -342,6 +370,9 @@ func TestRunResumesOnWake(t *testing.T) {
 	}
 	if !hasArg(f.calls[1].args, "--continue") {
 		t.Fatalf("2nd turn missing --continue: %v", f.calls[1].args)
+	}
+	if got := strings.Join(f.calls[1].args[:5], " "); got != "-p --continue --output-format stream-json --verbose" {
+		t.Fatalf("2nd turn argv prefix = %q", got)
 	}
 }
 
@@ -499,5 +530,71 @@ func TestNonResidentOKStillEnds(t *testing.T) {
 	}
 	if h.count(covemaster.Waiting) != 0 {
 		t.Fatalf("non-resident ok must not wait; got %v", h.got)
+	}
+}
+
+func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{dir: dir,
+		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}, {`{"type":"assistant"}`}},
+		results: []string{`{"status":{"needs-input":{}}}`, `{"status":{"ok":{}}}`}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	h := &recordHandle{}
+	done := runAsync(context.Background(), w, h)
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got := h.eventList()
+	want := []recordedEvent{{1, `{"type":"system"}`, 0}, {1, `{"type":"result"}`, 0}, {2, `{"type":"assistant"}`, 0}}
+	if len(got) != len(want) {
+		t.Fatalf("events: %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("event %d: got %+v want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestRunForwardsTrailingPartialLine(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	f := &fakeSpawner{}
+	f.proc = scriptedProc{wait: func() error { io.WriteString(f.stdout, `{"no":"newline"}`); return nil }}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	if ev := h.eventList(); len(ev) != 1 || ev[0].raw != `{"no":"newline"}` {
+		t.Fatalf("events: %+v", ev)
+	}
+}
+
+func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "agent-stream.jsonl")
+	f := &scriptedSpawner{dir: dir,
+		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}},
+		results: []string{`{"status":{"ok":{}}}`}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f, StreamLogPath: logPath}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "{\"type\":\"system\"}\n{\"type\":\"result\"}\n" {
+		t.Fatalf("stream log %q", b)
+	}
+	if n := len(h.eventList()); n != 2 {
+		t.Fatalf("events: %+v", h.eventList())
+	}
+	if fi, _ := os.Stat(logPath); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode())
 	}
 }

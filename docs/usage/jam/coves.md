@@ -154,6 +154,8 @@ reports up and heartbeats to renew its lease; Jam pushes lifecycle
 cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 (`application/grpc`) — so the stream fits within a hardened studio's 443-only
 egress, no separate port required (see [serve.md](serve.md)).
+The stream also carries the agent's session events up and their acks down; see
+[session-events.md](session-events.md).
 
 ## cove-master (the in-cove client)
 
@@ -183,7 +185,7 @@ Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
 also sets for older images — see [renamed-from-harbor.md](renamed-from-harbor.md).
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
-it spawns `claude -p --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
+it spawns `claude -p --output-format stream-json --verbose --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
 reports `running`, and when the agent exits reads `.at-task/worker-result.json`
 (the same contract as the dispatch worker). Before spawning, it **fails loud if
 the `--mcp-config` file is missing** (a stale image without
@@ -209,7 +211,7 @@ further wakes are dropped.
 
 **Post-mortem on teardown.** Just before the container (and its `/agent-data`
 volume) is removed, the launcher grabs the **tail of `cove-master`'s log**
-(`/agent-data/cove-master.log`, the agent's combined stdout+stderr) over SSH and
+(`/agent-data/cove-master.log`, cove-master's own log plus `claude`'s stderr; the agent's stdout stream lives in `/agent-data/agent-stream.jsonl`, which is never read) over SSH and
 records it at `WARN` (`cove agent log (tail, captured on teardown)`, keyed by
 `id`). So a cove that died — a crash, a `claude` auth failure, an egress-blocked
 model call, or a one-shot exit from a stale image — leaves its reason in Jam's
@@ -228,7 +230,7 @@ client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardo
 — there is no `MaxWait`. A turn that **exited non-zero and wrote no worker-result**
 (a crashed or auth/model-failed `claude`) is logged at **WARN** — the session still
 waits for its owner, but the failure is loud, not mistaken for a healthy idle wait;
-the cause is in the agent's own `cove-master.log`. A wake resumes the agent with `claude --continue` and a prompt
+the cause is in the agent's own `cove-master.log` (stderr) or `agent-stream.jsonl` (stdout). A wake resumes the agent with `claude --continue` and a prompt
 to `read` the reply and carry on. The session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears a resident session down for

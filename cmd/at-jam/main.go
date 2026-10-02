@@ -45,6 +45,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -1574,6 +1576,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateSessionEvents(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validatePool(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1738,6 +1744,36 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		logChanges = intercom.NewNotifier(intercomLog)
 		intercomLog = logChanges
 		sup.SetTailReader(intercomLog)
+	}
+
+	// Session events (docs/usage/jam/session-events.md): backend follows the
+	// store backend like the message log; unset → a no-op store, so coves are
+	// still acked and never back up.
+	var sessStore sessionevents.Store = sessionevents.NopStore{}
+	switch {
+	case pgPool != nil:
+		ss, err := sessionpg.New(context.Background(), pgPool, log)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: session events (postgres):", err)
+			return 1
+		}
+		sessStore = ss
+		log.Info("Jam session events: postgres (shared control-plane database)")
+	case cfg.SessionEventsDir != "":
+		fstore, err := sessionevents.OpenFileStore(cfg.SessionEventsDir)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		sessStore = fstore
+		log.Info("Jam session events: file", "dir", cfg.SessionEventsDir)
+	default:
+		log.Info("Jam session events: not stored (no session-events-dir or store-postgres)")
+	}
+	sessHub := sessionevents.NewHub()
+	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
+	if keep, _ := sessionevents.ParseRetention(cfg.SessionEventsRetention); keep > 0 {
+		go sessionevents.RunRetention(context.Background(), sessStore, keep, 24*time.Hour, nil, log)
 	}
 
 	// The Allocator is Jam's capacity authority, built whenever Jam serves
@@ -2104,9 +2140,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...))))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub))))
 
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler)
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
+			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)))
 		go func() {
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()

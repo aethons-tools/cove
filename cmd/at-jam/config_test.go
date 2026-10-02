@@ -861,3 +861,20 @@ func TestValidateRequisitioner_PoolCredNotAccepted(t *testing.T) {
 		t.Fatal("want error: the pool cred is not a demanded credentials: key")
 	}
 }
+
+func TestParseServeConfigSessionEvents(t *testing.T) {
+	c, err := parseServeConfig([]byte("session-events-dir: /var/lib/jam/events\nsession-events-retention: 30d\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SessionEventsDir != "/var/lib/jam/events" || c.SessionEventsRetention != "30d" {
+		t.Fatalf("%+v", c)
+	}
+	if err := c.validateSessionEvents(); err != nil {
+		t.Fatal(err)
+	}
+	bad, _ := parseServeConfig([]byte("session-events-retention: forever\n"))
+	if err := bad.validateSessionEvents(); err == nil {
+		t.Fatal("want a validation error")
+	}
+}

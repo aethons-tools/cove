@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -62,6 +63,14 @@ type serveConfig struct {
 	// `serve` opens it and the admin UI serves the read-only Intercom view
 	// (/ui/intercom). Created on first open. Empty disables the view.
 	IntercomLog string `yaml:"intercom-log"`
+	// SessionEventsDir is the file backend for managed-cove session events
+	// (one JSONL per stream). Ignored when store-postgres is set (events then
+	// go to Postgres). Neither → events are acked and dropped. See
+	// docs/usage/jam/session-events.md.
+	SessionEventsDir string `yaml:"session-events-dir"`
+	// SessionEventsRetention bounds how long session events are kept: "<N>d"
+	// or a Go duration; empty keeps forever.
+	SessionEventsRetention string `yaml:"session-events-retention"`
 	// StorePostgres, when set, selects the Postgres store backend and takes
 	// precedence over the file `store`. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
@@ -142,6 +151,12 @@ func (c serveConfig) wakeSettings() wakeon.Config {
 		MaxWait:      dur(firstNonEmpty(w.WaitMax, d.WaitMax)),
 		WarmTimeout:  dur(firstNonEmpty(w.WarmTimeout, d.WarmTimeout)),
 	}
+}
+
+// validateSessionEvents checks session-events-retention parses.
+func (c serveConfig) validateSessionEvents() error {
+	_, err := sessionevents.ParseRetention(c.SessionEventsRetention)
+	return err
 }
 
 // validateWake checks runtime.wake's durations parse. A no-op when unset.

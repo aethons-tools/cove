@@ -38,8 +38,13 @@ const (
 
 type Control struct{ Kind ControlKind }
 
-// Handle lets the workload report activity to the client.
-type Handle interface{ Report(Activity) }
+// Handle lets the workload report activity and session events to the client.
+type Handle interface {
+	Report(Activity)
+	// Event hands one line of the agent's stream-json stdout to the client.
+	// It never blocks. raw is only valid during the call; the client copies it.
+	Event(turn uint32, raw []byte, truncatedBytes uint64)
+}
 
 // Workload is what cove-master supervises (the agent, in a later slice).
 type Workload interface {
@@ -60,6 +65,10 @@ type Config struct {
 	LaunchSecret string
 	Heartbeat    time.Duration     // default 10s
 	DialOptions  []grpc.DialOption // injected (bufconn in tests); must include transport creds
+
+	EventBufferEvents int           // max buffered unacked events; default 10000
+	EventBufferBytes  int           // max buffered unacked raw bytes; default 64 MiB
+	FlushTimeout      time.Duration // Done waits this long for the final ack; default 5s
 }
 
 func toPBActivity(a Activity) attachpb.Activity {
@@ -78,6 +87,9 @@ func toPBActivity(a Activity) attachpb.Activity {
 
 func statusMsg(a Activity) *attachpb.StatusUp {
 	return &attachpb.StatusUp{Msg: &attachpb.StatusUp_Status{Status: toPBActivity(a)}}
+}
+func eventMsg(ev *attachpb.SessionEvent) *attachpb.StatusUp {
+	return &attachpb.StatusUp{Msg: &attachpb.StatusUp_Event{Event: ev}}
 }
 func heartbeatMsg() *attachpb.StatusUp {
 	return &attachpb.StatusUp{Msg: &attachpb.StatusUp_Heartbeat{Heartbeat: &attachpb.Heartbeat{}}}
