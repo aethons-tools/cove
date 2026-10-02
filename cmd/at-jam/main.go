@@ -1829,8 +1829,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	)
 	dir := &directory{store: st, log: log}
 	runDiscord := cfg.Runtime.Discord != nil
-	stateDir := cfg.stateDir()
+	var stateDir string
 	if dc != nil || runDiscord {
+		if stateDir, err = cfg.stateDir(); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
 		if err := os.MkdirAll(stateDir, 0o700); err != nil {
 			fmt.Fprintln(stderr, "at-jam: state-dir:", err)
 			return 1

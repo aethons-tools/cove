@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -319,6 +320,9 @@ func (c serveConfig) validateStorage() error {
 		{"store", c.Store}, {"intercom-log", c.IntercomLog}, {"session-events-dir", c.SessionEventsDir},
 	} {
 		if k.val != "" {
+			if c.StorePostgres != nil {
+				return fmt.Errorf("%s is no longer supported; remove it — it was ignored because store-postgres is set, so no migration is needed", k.name)
+			}
 			return fmt.Errorf("%s is no longer supported. %s", k.name, removedStorageHint)
 		}
 	}
@@ -328,22 +332,36 @@ func (c serveConfig) validateStorage() error {
 	return nil
 }
 
+// errStateDirNotAbsolute is returned when no absolute state directory can be
+// resolved, so relay files are never written relative to the working directory.
+var errStateDirNotAbsolute = errors.New("state-dir: cannot resolve an absolute directory (set state-dir: in the serve config)")
+
 // atJamStateDir is $XDG_STATE_HOME/at-jam, else ~/.local/state/at-jam.
-func atJamStateDir() string {
+func atJamStateDir() (string, error) {
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "at-jam")
+		return filepath.Join(x, "at-jam"), nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "at-jam")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", errStateDirNotAbsolute
+	}
+	return filepath.Join(home, ".local", "state", "at-jam"), nil
 }
 
 // stateDir is where Jam keeps its remaining file state (relay cursors,
-// markers, receipts).
-func (c serveConfig) stateDir() string {
-	if c.StateDir != "" {
-		return c.StateDir
+// markers, receipts). It must resolve to an absolute path.
+func (c serveConfig) stateDir() (string, error) {
+	dir := c.StateDir
+	if dir == "" {
+		var err error
+		if dir, err = atJamStateDir(); err != nil {
+			return "", err
+		}
 	}
-	return atJamStateDir()
+	if !filepath.IsAbs(dir) {
+		return "", errStateDirNotAbsolute
+	}
+	return dir, nil
 }
 
 // relayStatePaths returns the relay cursor, marker and receipt files under dir.

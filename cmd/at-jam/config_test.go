@@ -868,14 +868,24 @@ func TestParseServeConfigSessionEvents(t *testing.T) {
 func TestValidateRemovedStorageKeys(t *testing.T) {
 	pg := "store-postgres: {host: h, port: 5432, database: d, user: u, password-cred: p, sslmode: disable}\n"
 	for _, key := range []string{"store: /var/lib/jam/store.json", "intercom-log: /var/lib/jam/log.jsonl", "session-events-dir: /var/lib/jam/events"} {
-		c, err := parseServeConfig([]byte(pg + key + "\n"))
+		name := strings.SplitN(key, ":", 2)[0]
+		// Without store-postgres: export/import migration hint.
+		c, err := parseServeConfig([]byte(key + "\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		err = c.validateStorage()
-		name := strings.SplitN(key, ":", 2)[0]
 		if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "at-jam export") || !strings.Contains(err.Error(), "not migrated") {
 			t.Errorf("%s: want removed-key error naming it with the export/import hint, got %v", name, err)
+		}
+		// With store-postgres: the key was ignored, so just delete it.
+		c, err = parseServeConfig([]byte(pg + key + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.validateStorage()
+		if err == nil || !strings.Contains(err.Error(), name+" is no longer supported; remove it") || !strings.Contains(err.Error(), "no migration") || strings.Contains(err.Error(), "at-jam export") {
+			t.Errorf("%s (postgres set): want remove-it/no-migration error without export hint, got %v", name, err)
 		}
 	}
 }
@@ -893,17 +903,33 @@ func TestValidateStorageRequiresPostgres(t *testing.T) {
 
 func TestStateDirDefault(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	if got := (serveConfig{}).stateDir(); got != "/xdg/state/at-jam" {
-		t.Fatalf("XDG: got %q", got)
+	if got, err := (serveConfig{}).stateDir(); err != nil || got != "/xdg/state/at-jam" {
+		t.Fatalf("XDG: got %q, %v", got, err)
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	home, _ := os.UserHomeDir()
-	if got := (serveConfig{}).stateDir(); got != filepath.Join(home, ".local", "state", "at-jam") {
-		t.Fatalf("home default: got %q", got)
+	if got, err := (serveConfig{}).stateDir(); err != nil || got != filepath.Join(home, ".local", "state", "at-jam") {
+		t.Fatalf("home default: got %q, %v", got, err)
 	}
 	c, _ := parseServeConfig([]byte("state-dir: /srv/jam-state\n"))
-	if got := c.stateDir(); got != "/srv/jam-state" {
-		t.Fatalf("explicit: got %q", got)
+	if got, err := c.stateDir(); err != nil || got != "/srv/jam-state" {
+		t.Fatalf("explicit: got %q, %v", got, err)
+	}
+}
+
+func TestStateDirRejectsRelative(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "rel/state")
+	if _, err := (serveConfig{}).stateDir(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative XDG: want error, got %v", err)
+	}
+	t.Setenv("XDG_STATE_HOME", "")
+	c, _ := parseServeConfig([]byte("state-dir: rel/state\n"))
+	if _, err := c.stateDir(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative explicit: want error, got %v", err)
+	}
+	t.Setenv("HOME", "")
+	if _, err := (serveConfig{}).stateDir(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("HOME unset: want error, got %v", err)
 	}
 }
 
