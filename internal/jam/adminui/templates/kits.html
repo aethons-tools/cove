@@ -1,32 +1,44 @@
 {{define "content"}}
-<h1>Kits</h1>
-<form hx-post="/ui/kits" hx-target="#kits" hx-swap="outerHTML">
-  <input name="name" placeholder="kit name" required>
-  <textarea name="config" placeholder="kit config (config.yml)" required></textarea>
-  <button type="submit">Push kit</button>
-</form>
+<div class="page-head"><h1>Kits</h1><span class="sub">Versioned studio kit configs</span></div>
+<details class="panel">
+  <summary>Push kit version</summary>
+  <form hx-post="/ui/kits" hx-target="#kits" hx-swap="outerHTML" data-reset>
+    <div class="grid">
+      <label>Kit name <span class="req">required</span><input name="name" required></label>
+      <label class="wide">Config <span class="hint">config.yml — pushing an existing name adds a new version</span><textarea class="tall" name="config" required spellcheck="false"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Push kit</button></div>
+  </form>
+</details>
 {{template "kits-table" .}}
 {{end}}
 
 {{define "kits-table"}}
-<table id="kits">
-  <thead><tr><th>Name</th><th>Current version</th><th>Versions</th><th>Actions</th></tr></thead>
+<div class="card" id="kits">
+<table>
+  <thead><tr><th>Kit</th><th>Current</th><th>Versions</th><th>Pin</th><th></th></tr></thead>
   <tbody>
     {{range .Kits}}
-    <tr>
-      <td>{{.Name}}</td><td>{{.Current}}</td><td>{{len .Versions}}</td>
+    {{$cur := .Current}}
+    <tr data-id="{{.Name}}">
+      <td>{{template "entity" .Name}}</td>
+      <td><span class="chip accent">v{{.Current}}</span></td>
+      <td>{{len .Versions}}</td>
       <td>
-        <form hx-post="/ui/kits/{{.Name}}/pin" hx-target="#kits" hx-swap="outerHTML" style="display:inline">
-          <input name="version" type="number" min="1" placeholder="ver">
-          <button type="submit">Pin</button>
+        <form class="inline" hx-post="/ui/kits/{{.Name}}/pin" hx-target="#kits" hx-swap="outerHTML">
+          <select name="version" aria-label="Version to pin">
+            {{range $v, $_ := .Versions}}<option value="{{$v}}"{{if eq $v $cur}} selected{{end}}>v{{$v}}</option>{{end}}
+          </select>
+          <button type="submit" class="small">Pin</button>
         </form>
-        <button hx-delete="/ui/kits/{{.Name}}" hx-target="#kits" hx-swap="outerHTML"
-                hx-confirm="Delete kit {{.Name}}?">Delete</button>
       </td>
+      <td class="actions"><button class="danger small" hx-delete="/ui/kits/{{.Name}}" hx-target="#kits" hx-swap="outerHTML"
+                hx-confirm="Delete kit {{.Name}}?">Delete</button></td>
     </tr>
     {{else}}
-    <tr><td colspan="4" class="empty">No kits.</td></tr>
+    <tr><td colspan="5" class="empty">No kits.</td></tr>
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}

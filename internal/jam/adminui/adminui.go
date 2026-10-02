@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -70,7 +71,25 @@ func mustParse(names ...string) *template.Template {
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.ParseFS(files, paths...))
+	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
+}
+
+// funcs are the template helpers shared by every page.
+var funcs = template.FuncMap{
+	// ttl renders a role TTL compactly ("1h", "90m"), or "—" when unset.
+	"ttl": func(d time.Duration) string {
+		if d <= 0 {
+			return "—"
+		}
+		s := d.String() // "1h0m0s", "1h30m0s", "45s"
+		if strings.HasSuffix(s, "m0s") {
+			s = strings.TrimSuffix(s, "0s")
+		}
+		if strings.HasSuffix(s, "h0m") {
+			s = strings.TrimSuffix(s, "0m")
+		}
+		return s
+	},
 }
 
 // Option configures Handler.
@@ -103,9 +122,9 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title":  "Dashboard",
-			"Coves":  jam.CoveSummaries(store),
-			"Actors": jam.RosterSummaries(store),
+			"Title": "Dashboard",
+			"Coves": jam.CoveSummaries(store),
+			"Stats": dashboardStats(store),
 		})
 	})
 

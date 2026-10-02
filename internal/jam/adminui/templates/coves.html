@@ -1,31 +1,41 @@
 {{define "content"}}
-<h1>Studios</h1>
+<div class="page-head"><h1>Studios</h1><span class="sub">Refreshes every 3s</span></div>
 {{if .CanEdit}}
-<form hx-post="/ui/coves" hx-target="#coves" hx-swap="outerHTML">
-  <input name="id" placeholder="studio id" required>
-  <input name="project" placeholder="project (default)">
-  <input name="role" placeholder="role" required>
-  <input name="unit" placeholder="unit (optional)">
-  <textarea name="prompt" placeholder="workload prompt (optional)"></textarea>
-  <button type="submit">Raise studio</button>
-</form>
+<details class="panel">
+  <summary>Raise studio</summary>
+  <form hx-post="/ui/coves" hx-target="#coves" hx-swap="outerHTML" data-reset>
+    <div class="grid">
+      <label>Studio id <span class="req">required</span><input name="id" required autocomplete="off"></label>
+      <label>Role <span class="req">required</span><input name="role" required></label>
+      <label>Project <span class="hint">blank = default</span><input name="project"></label>
+      <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>
+      <label class="wide">Workload prompt <span class="hint">optional</span><textarea name="prompt"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Raise studio</button></div>
+  </form>
+</details>
 {{end}}
 {{template "coves-table" .}}
 {{end}}
 
 {{define "coves-table"}}
-<table id="coves" hx-get="/ui/coves" hx-trigger="every 3s" hx-swap="outerHTML">
+<div class="card" id="coves" hx-get="/ui/coves" hx-trigger="every 3s" hx-swap="outerHTML">
+<table>
   <thead>
-    <tr><th>ID</th><th>Project</th><th>Role</th><th>Unit</th><th>Phase</th><th>Activity</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th>Actions</th>{{end}}</tr>
+    <tr><th>Studio</th><th>Phase</th><th>Activity</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
   </thead>
   <tbody>
     {{range .Coves}}
-    <tr>
-      <td>{{.ID}}</td><td>{{.Project}}</td><td>{{.Role}}</td><td>{{.Unit}}</td>
-      <td>{{.Phase}}</td><td>{{.Activity}}</td><td>{{.LeaseHolder}}</td>
-      <td>{{.RaisedAt.Format "2006-01-02 15:04:05"}}</td>
-      <td>{{.LastSeen.Format "2006-01-02 15:04:05"}}</td>
-      {{if $.CanEdit}}<td><button hx-delete="/ui/coves/{{.ID}}" hx-target="#coves" hx-swap="outerHTML"
+    <tr data-id="{{.ID}}">
+      <td>{{template "entity" .ID}}</td>
+      <td>{{template "phase" .Phase}}</td>
+      <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{.Project}}</td><td>{{.Role}}</td>
+      <td>{{if .Unit}}<span class="mono">{{.Unit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "15:04:05"}}</time>{{end}}</td>
+      {{if $.CanEdit}}<td class="actions"><button class="danger small" hx-delete="/ui/coves/{{.ID}}" hx-target="#coves" hx-swap="outerHTML"
           hx-confirm="Tear down {{.ID}}?">Teardown</button></td>{{end}}
     </tr>
     {{else}}
@@ -33,4 +43,5 @@
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}

@@ -4,35 +4,169 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jam — {{.Title}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <script src="/ui/static/htmx.min.js"></script>
   <style>
-    body { font: 14px system-ui, sans-serif; margin: 0; color: #1a1a1a; }
-    nav { background: #111; padding: 10px 16px; }
-    nav a { color: #ddd; margin-right: 14px; text-decoration: none; }
-    nav a:hover { color: #fff; }
-    main { padding: 16px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e4e4e4; }
-    th { background: #f6f6f6; }
-    .empty { color: #777; font-style: italic; }
-    .error { color: #b00020; }
-    .ok { color: #0a7d2c; }
-    td.body.plain { white-space: pre-wrap; }
-    td.body.md > :first-child { margin-top: 0; } td.body.md > :last-child { margin-bottom: 0; }
-    td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre { margin: 0 0 .4em; }
-    td.body.md pre { overflow-x: auto; background: #f6f6f6; padding: 6px 8px; }
+    /* Tokens mirror the /me intercom (meui) so Jam reads as one product. */
+    :root{
+      --bg:#F5F6F8; --surface:#fff; --surface-2:#FBF9FA; --ink:#1B1D24; --muted:#61656F; --faint:#8A8F9A;
+      --border:#E3E5EA; --border-strong:#D2D5DC; --accent:#B5306A; --accent-soft:#FBEAF1;
+      --wait:#9C5E00; --wait-soft:#FBF0DC; --live:#1A7F58; --live-soft:#E1F1E9;
+      --idle:#6E7686; --idle-soft:#EDEEF1; --bad:#B42318; --bad-soft:#FDECEA;
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme:dark){:root{
+      --bg:#0F1116; --surface:#171A21; --surface-2:#1C1F27; --ink:#E8EAEE; --muted:#A0A5B0; --faint:#757B87;
+      --border:#262A33; --border-strong:#333844; --accent:#E86AA0; --accent-soft:#34202B;
+      --wait:#E8B15A; --wait-soft:#322914; --live:#4FC28C; --live-soft:#17281F;
+      --idle:#8B93A3; --idle-soft:#23262F; --bad:#F27A6E; --bad-soft:#3A1A17; color-scheme:dark;
+    }}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+    code,.mono,td.id{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
+    a{color:var(--accent)}
+
+    /* Chrome */
+    .topbar{display:flex;align-items:center;gap:20px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;overflow-x:auto}
+    .brand{display:flex;align-items:baseline;gap:8px;font-weight:600;white-space:nowrap;padding:12px 0}
+    .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);align-self:center}
+    .brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
+    nav{display:flex;gap:2px}
+    nav a{color:var(--muted);text-decoration:none;padding:14px 10px 12px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+    nav a:hover{color:var(--ink)}
+    nav a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    main{max-width:1200px;margin:0 auto;padding:22px 20px 60px}
+    .page-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+    h1{font-size:20px;margin:0;font-weight:600}
+    h2{font-size:13px;margin:26px 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600}
+    .sub{color:var(--muted);font-size:13px}
+
+    /* Flash: write errors and results land here. */
+    #flash:empty{display:none}
+    #flash{margin-bottom:16px}
+    .banner,#flash>p{display:flex;align-items:flex-start;gap:10px;margin:0 0 8px;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface)}
+    .banner.error,#flash>p.error{border-color:color-mix(in srgb,var(--bad) 40%,transparent);background:var(--bad-soft);color:var(--bad)}
+    #flash>p.ok{border-color:color-mix(in srgb,var(--live) 40%,transparent);background:var(--live-soft);color:var(--live)}
+    .banner .x{margin-left:auto;background:none;border:0;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}
+
+    /* Cards + tables */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto}
+    table{border-collapse:collapse;width:100%}
+    th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+    tbody tr:last-child td{border-bottom:0}
+    th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:600;background:var(--surface-2);white-space:nowrap}
+    tbody tr:hover{background:var(--surface-2)}
+    td.actions{text-align:right;white-space:nowrap}
+    .empty{color:var(--faint);font-style:italic;text-align:center;padding:22px}
+    .error{color:var(--bad)} .ok{color:var(--live)}
+    time{white-space:nowrap}
+
+    /* Pills + chips */
+    .pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--idle-soft);color:var(--idle);white-space:nowrap}
+    .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+    .phase-live{background:var(--live-soft);color:var(--live)}
+    .phase-raising,.phase-terminating{background:var(--wait-soft);color:var(--wait)}
+    .phase-lost,.phase-gone{background:var(--bad-soft);color:var(--bad)}
+    .chip{display:inline-flex;align-items:center;gap:4px;font:12px "IBM Plex Mono",ui-monospace,monospace;padding:2px 8px;border-radius:6px;background:var(--idle-soft);color:var(--ink);margin:2px 4px 2px 0;white-space:nowrap}
+    .chip.accent{background:var(--accent-soft);color:var(--accent);font-weight:600}
+    .chip button{background:none;border:0;color:var(--faint);cursor:pointer;padding:0 0 0 2px;font-size:14px;line-height:1}
+    .chip button:hover{color:var(--bad)}
+    .none{color:var(--faint)}
+
+    /* Buttons */
+    button,.btn{font:inherit;font-size:13px;font-weight:600;border-radius:8px;padding:6px 12px;cursor:pointer;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink)}
+    button:hover,.btn:hover{border-color:var(--faint)}
+    button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    button.primary:hover{filter:brightness(1.08)}
+    button.danger{color:var(--bad)}
+    button.danger:hover{background:var(--bad-soft);border-color:var(--bad)}
+    button.small{padding:3px 9px;font-size:12px}
+    .htmx-request button,button.htmx-request{opacity:.6;pointer-events:none}
+
+    /* Forms */
+    details.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:16px}
+    details.panel>summary{cursor:pointer;list-style:none;padding:11px 16px;font-weight:600;color:var(--accent);user-select:none}
+    details.panel>summary::-webkit-details-marker{display:none}
+    details.panel>summary::before{content:"+ "}
+    details.panel[open]>summary::before{content:"− "}
+    details.panel[open]>summary{border-bottom:1px solid var(--border)}
+    details.panel form{padding:16px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 14px}
+    .grid .wide{grid-column:1/-1}
+    label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+    label .hint{font-weight:400;color:var(--faint)}
+    label .req{color:var(--accent)}
+    input,select,textarea{font:inherit;font-size:13px;color:var(--ink);background:var(--bg);border:1px solid var(--border-strong);border-radius:8px;padding:7px 9px;outline:none;width:100%}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+    textarea{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;min-height:90px;resize:vertical}
+    textarea.tall{min-height:220px}
+    .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+    form.inline{display:inline-flex;gap:6px;align-items:center}
+    form.inline select,form.inline input{width:auto;padding:4px 8px}
+
+    @media (max-width:720px){main{padding:16px}.topbar{gap:12px;padding:0 16px}th,td{padding:8px 10px}}
   </style>
 </head>
 <body>
-  <nav>
-    <a href="/ui/">Dashboard</a>
-    <a href="/ui/coves">Studios</a>
-    <a href="/ui/roster">Roster</a>
-    <a href="/ui/roles">Roles</a>
-    <a href="/ui/kits">Kits</a>
-    <a href="/ui/destinations">Destinations</a>
-    <a href="/ui/intercom">Intercom</a>
-  </nav>
-  <main>{{template "content" .}}</main>
+  <header class="topbar">
+    <span class="brand"><span class="dot"></span>Jam <small>Admin</small></span>
+    <nav>
+      {{- $t := .Title}}
+      <a href="/ui/"{{if eq $t "Dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/ui/coves"{{if eq $t "Studios"}} aria-current="page"{{end}}>Studios</a>
+      <a href="/ui/roster"{{if eq $t "Roster"}} aria-current="page"{{end}}>Roster</a>
+      <a href="/ui/roles"{{if eq $t "Roles"}} aria-current="page"{{end}}>Roles</a>
+      <a href="/ui/kits"{{if eq $t "Kits"}} aria-current="page"{{end}}>Kits</a>
+      <a href="/ui/destinations"{{if eq $t "Destinations"}} aria-current="page"{{end}}>Destinations</a>
+      <a href="/ui/intercom"{{if eq $t "Intercom"}} aria-current="page"{{end}}>Intercom</a>
+    </nav>
+  </header>
+  <main>
+    <div id="flash" aria-live="polite"></div>
+    {{template "content" .}}
+  </main>
+  <script>
+  (function(){
+    var flash = document.getElementById('flash');
+    // htmx 2 does not swap 4xx/5xx bodies, so without this a refused write
+    // fails silently. Show the response as text (parsed inertly, never
+    // injected as markup) in a dismissible banner.
+    document.body.addEventListener('htmx:responseError', function(e){
+      var xhr = e.detail.xhr, txt = '';
+      try { txt = new DOMParser().parseFromString(xhr.responseText, 'text/html').body.textContent.trim(); } catch(_) {}
+      var p = document.createElement('div'); p.className = 'banner error';
+      var m = document.createElement('span'); m.textContent = txt || ('Request failed (' + xhr.status + ')');
+      var x = document.createElement('button'); x.className = 'x'; x.type = 'button'; x.setAttribute('aria-label','Dismiss'); x.textContent = '×';
+      x.onclick = function(){ p.remove(); };
+      p.append(m, x); flash.replaceChildren(p);
+    });
+    document.body.addEventListener('htmx:sendError', function(){
+      var p = document.createElement('div'); p.className = 'banner error'; p.textContent = 'Jam is unreachable.';
+      flash.replaceChildren(p);
+    });
+    // A new write clears the previous outcome; background polling does not.
+    document.body.addEventListener('htmx:beforeRequest', function(e){
+      if ((e.detail.requestConfig.verb || 'get') !== 'get') flash.replaceChildren();
+    });
+    // Reset a create form after it succeeds.
+    document.body.addEventListener('htmx:afterRequest', function(e){
+      var f = e.detail.elt;
+      if (e.detail.successful && f.tagName === 'FORM' && f.hasAttribute('data-reset')) f.reset();
+    });
+    // Copy buttons: data-copy="<selector>" copies that element's text.
+    document.body.addEventListener('click', function(e){
+      var b = e.target.closest('[data-copy]'); if (!b) return;
+      var el = document.querySelector(b.getAttribute('data-copy')); if (!el) return;
+      var done = function(){ b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1500); };
+      if (navigator.clipboard) { navigator.clipboard.writeText(el.textContent.trim()).then(done); }
+      else { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+    });
+  })();
+  </script>
 </body>
 </html>{{end}}
+
+{{define "phase"}}<span class="pill phase-{{.}}">{{.}}</span>{{end}}
+{{define "entity"}}<span class="mono">{{.}}</span>{{end}}
