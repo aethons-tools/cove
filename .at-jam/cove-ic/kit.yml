@@ -24,5 +24,9 @@ egress:
   - .local.aethons.tools
   # Javascript dependencies
   - cdnjs.cloudflare.com
+  # Web fonts the /me page loads (the stylesheet from googleapis, the font files
+  # from gstatic), so headless-Chrome screenshots render the real typeface
+  - fonts.googleapis.com
+  - fonts.gstatic.com
 prompt: |
   This studio kit has everything you should need to work on the aethons.tools/cove project.
