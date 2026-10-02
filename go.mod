@@ -3,21 +3,21 @@ module github.com/aethons-tools/cove
 go 1.26.0
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f
+	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
 	github.com/chromedp/chromedp v0.16.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/moby/patternmatcher v0.6.0
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/moby/patternmatcher v0.6.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/net v0.59.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
@@ -34,7 +34,7 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
 
 require (

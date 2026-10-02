@@ -15,7 +15,7 @@ name: jam-dev
 
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_USER: jam
       POSTGRES_PASSWORD: jam
@@ -23,7 +23,7 @@ services:
     ports:
       - "15432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jam"]
       interval: 5s
