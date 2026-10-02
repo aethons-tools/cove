@@ -12,8 +12,9 @@ import (
 // studioFacts gathers what a raised session can actually reach, for its
 // session context's Studio layer: the destinations in its scopes (unknown names
 // skipped, as ConnectorFor does), its effective egress (the role's policy, else
-// the kit's ceiling, else unknown), and its message targets. Only names, upstreams,
-// env KEYS and notes leave here — never credentials or env values.
+// the kit's ceiling, else unknown), and its message targets (by name — handles
+// stay out, as GET /squawks/targets omits them). Only names, upstreams, env KEYS
+// and notes leave here — never credentials or env values.
 func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, kitEgress []string, haveKit bool, now time.Time) sessionctx.StudioFacts {
 	var f sessionctx.StudioFacts
 	byName := map[string]Destination{}
@@ -49,8 +50,6 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 			who = "channel"
 		case t.Name == owner:
 			who = "your owner"
-		case t.Handle != "":
-			who = "project contact @" + t.Handle
 		}
 		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: t.Kind + ":" + t.Name, Who: who})
 	}

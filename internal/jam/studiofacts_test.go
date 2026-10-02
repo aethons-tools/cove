@@ -59,3 +59,19 @@ func TestStudioFactsEgressSources(t *testing.T) {
 		t.Errorf("no policy and no kit = unknown: %+v", f)
 	}
 }
+
+// Targets are addressed by name; handles stay out (as GET /squawks/targets
+// omits them — see comms-addressing.md).
+func TestStudioFactsOmitHandles(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	if err := store.AddHuman("default", Human{Name: "bob", Handle: "bob-gh"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{Addressing: []string{"human:*"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	f := studioFacts(store, Actor{ID: "w1", Grants: []Grant{{Project: "default", Role: "dev"}}}, "", nil, nil, false, time.Now())
+	if len(f.Targets) != 1 || f.Targets[0].Target != "human:bob" || strings.Contains(f.Targets[0].Who, "bob-gh") {
+		t.Fatalf("targets = %+v; want human:bob without its handle", f.Targets)
+	}
+}
