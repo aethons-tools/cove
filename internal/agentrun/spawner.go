@@ -19,7 +19,7 @@ import (
 type Spawner interface {
 	// Spawn starts bin. stdout, when non-nil, receives the process's stdout
 	// instead of cove-master's own stdout; nil falls back to os.Stdout.
-	Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error)
+	Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error)
 }
 
 // Process is a started agent process. Wait blocks until it exits, returning the
@@ -35,9 +35,10 @@ type execSpawner struct{ grace time.Duration }
 
 type execProcess struct{ cmd *exec.Cmd }
 
-func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
+func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	cmd.Env = env // nil inherits cove-master's env
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = s.grace
 	cmd.Stdout = os.Stdout

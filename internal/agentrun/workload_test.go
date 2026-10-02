@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // recordHandle records the activities the workload reports. Safe for
@@ -74,13 +75,14 @@ func (p scriptedProc) Wait() error { return p.wait() }
 type fakeSpawner struct {
 	bin, dir string
 	args     []string
+	env      []string
 	proc     Process
 	err      error
 	stdout   io.Writer
 }
 
-func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
-	f.bin, f.args, f.dir, f.stdout = bin, args, dir, stdout
+func (f *fakeSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
+	f.bin, f.args, f.dir, f.env, f.stdout = bin, args, dir, env, stdout
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -298,7 +300,7 @@ type scriptedSpawner struct {
 	calls   []scriptedCall
 }
 
-func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, stdout io.Writer) (Process, error) {
+func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, _ []string, stdout io.Writer) (Process, error) {
 	f.mu.Lock()
 	i := len(f.calls)
 	f.calls = append(f.calls, scriptedCall{bin: bin, args: append([]string(nil), args...), dir: dir})
@@ -603,5 +605,38 @@ func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
 	}
 	if fi, _ := os.Stat(logPath); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", fi.Mode())
+	}
+}
+
+func TestRunAppliesConnectorPerSpawn(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
+			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
+	h := &recordHandle{}
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	if envMap(f.env)["GH_HOST"] != "jam.example" {
+		t.Fatalf("spawn env = %v", f.env)
+	}
+	if len(h.connectors) != 1 || h.connectors[0] != snippet.Fingerprint(src.c) {
+		t.Fatalf("reported = %v", h.connectors)
+	}
+}
+
+func TestRunWithoutConnectorInherits(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	w, h := newWL(t, dir, f)
+	if err := w.Run(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	if f.env != nil || len(h.connectors) != 0 {
+		t.Fatalf("no connector config must inherit env and report nothing: env=%v reports=%v", f.env, h.connectors)
 	}
 }
