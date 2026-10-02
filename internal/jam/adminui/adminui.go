@@ -109,6 +109,10 @@ var funcs = template.FuncMap{
 	"destURL":    destURL,
 	"kitURL":     kitURL,
 	"projectURL": projectURL,
+	"blankHuman": func() humanRow { return humanRow{} },
+	"chainForm": func(project string, c chainView) map[string]any {
+		return map[string]any{"Project": project, "Chain": c}
+	},
 }
 
 // fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
@@ -189,6 +193,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
 	registerProjects(mux, store, log, guardWrite)
+	registerProjectEdits(mux, store, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)

@@ -91,24 +91,21 @@ func projectHolders(store jam.Store, project string) []projectHolder {
 	return out
 }
 
-// escalationChain is one named chain of the project's escalation policy.
-type escalationChain struct {
-	Category string // "" = the default chain
-	Tiers    []jam.EscalationTier
-}
-
 // projectDetail is the project page payload.
 type projectDetail struct {
-	Title       string
-	Project     jam.Project
-	Roles       []roleRow
-	Holders     []projectHolder
-	Coves       []jam.CoveSummary
-	CanEdit     bool // always false: the page's studio table is read-only
-	Escalation  []escalationChain
-	InUseBy     string
-	NotFound    bool
-	NotFoundFor string
+	Title        string
+	Project      jam.Project
+	Roles        []roleRow
+	Holders      []projectHolder
+	Coves        []jam.CoveSummary
+	CanEdit      bool // always false: the page's studio table is read-only
+	Humans       []humanRow
+	Escalation   []chainView // chains with at least one tier
+	DefaultChain chainView   // the default chain, possibly empty (its editor is always offered)
+	ChatServices []string
+	InUseBy      string
+	NotFound     bool
+	NotFoundFor  string
 }
 
 func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
@@ -127,11 +124,23 @@ func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
 			d.Coves = append(d.Coves, c)
 		}
 	}
+	for _, h := range p.Roster.Humans {
+		d.Humans = append(d.Humans, humanRow{Human: h,
+			DeliverySpec: lines(h.Delivery, jam.FormatDeliverySpec),
+			IdentitySpec: lines(h.Identity, jam.FormatOIDCSpec)})
+	}
+	d.DefaultChain = chain("", p.Escalation, p.Roster)
 	if len(p.Escalation) > 0 {
-		d.Escalation = append(d.Escalation, escalationChain{Tiers: p.Escalation})
+		d.Escalation = append(d.Escalation, d.DefaultChain)
 	}
 	for _, c := range slices.Sorted(maps.Keys(p.EscalationByCategory)) {
-		d.Escalation = append(d.Escalation, escalationChain{Category: c, Tiers: p.EscalationByCategory[c]})
+		if tiers := p.EscalationByCategory[c]; len(tiers) > 0 { // a cleared chain has none
+			d.Escalation = append(d.Escalation, chain(c, tiers, p.Roster))
+		}
+	}
+	d.ChatServices = chatServices
+	if !slices.Contains(d.ChatServices, p.ChatService) {
+		d.ChatServices = append(slices.Clone(chatServices), p.ChatService)
 	}
 	return d, true
 }
