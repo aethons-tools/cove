@@ -11,19 +11,36 @@
   .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
   .sections .full{grid-column:1/-1}
   section.card{overflow:visible}
-  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
   section.card>header h2{margin:0}
   section.card>header .sub{font-size:12px}
   section.card>.body{padding:12px 16px}
+  section.card .row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:8px}
+  section.card .row>b{font-size:12px;color:var(--muted);font-weight:600;min-width:80px}
   section.card table th:first-child,section.card table td:first-child{padding-left:16px}
   dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
   dl.kv dt{color:var(--muted);font-size:13px}
   dl.kv dd{margin:0}
   .unset{color:var(--faint)}
   .prompt{white-space:pre-wrap;color:var(--muted);font-size:13px}
+  details.edit{border-top:1px dashed var(--border)}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit[open]>summary{background:var(--surface-2)}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
 <div class="crumbs"><a href="/ui/roles">Roles</a> / {{.Project}}</div>
+{{template "role-body" .}}
+{{end}}
+{{end}}
+
+{{/* role-body is the swappable part of the role page: every section write
+     answers with it re-rendered. */}}
+{{define "role-body"}}
+{{$base := printf "/ui/roles/%s/%s" .Project .Name}}
+<div id="role">
 <div class="page-head">
   <h1>{{.Name}}</h1>
   <div class="facts">
@@ -32,16 +49,16 @@
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>
   <span class="spacer"></span>
-  {{if .CanRequest}}<button class="primary" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
+  {{if .CanRequest}}<button class="primary" hx-post="{{$base}}/request" hx-target="#flash" hx-swap="innerHTML"
       title="Raise a personal session of this role for you">Request session</button>{{end}}
-  <button class="danger" hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-swap="none"
+  <button class="danger" hx-delete="{{$base}}" hx-swap="none"
       hx-confirm="Delete role {{.Name}} from {{.Project}}?"
       hx-on::after-request="if(event.detail.successful) location.href='/ui/roles'">Delete</button>
 </div>
 
 <div class="sections">
-  <section class="card">
-    <header><h2>Destinations</h2><span class="sub">what the broker lets it reach, and with which credential</span></header>
+  <section class="card full">
+    <header><h2>Scope</h2><span class="sub">what the broker lets it reach, with which credential, and who it may squawk</span></header>
     <table>
       <thead><tr><th>Destination</th><th>Credential</th><th>Route</th></tr></thead>
       <tbody>
@@ -56,13 +73,24 @@
         {{end}}
       </tbody>
     </table>
-  </section>
-
-  <section class="card">
-    <header><h2>Addressing</h2><span class="sub">comms targets it may squawk</span></header>
     <div class="body">
-      {{range .Role.Scope.Addressing}}<span class="chip">{{.}}</span>{{else}}<span class="unset">No comms targets — it can't squawk anyone.</span>{{end}}
+      <div class="row"><b>Addressing</b><span>{{range .Role.Scope.Addressing}}<span class="chip">{{.}}</span>{{else}}<span class="unset">No comms targets — it can't squawk anyone.</span>{{end}}</span></div>
     </div>
+    <details class="edit">
+      <summary>Edit scope</summary>
+      <form hx-post="{{$base}}/scope" hx-target="#role" hx-swap="outerHTML">
+        <div class="grid">
+          <label class="wide">Destinations <span class="hint">comma-separated; <code>name=credential</code> maps a credential, a bare name uses the destination's default</span>
+            <input name="destinations" value="{{.Form.Destinations}}" spellcheck="false"></label>
+          <label class="wide">Addressing <span class="hint">comms target globs, e.g. <code>human:*,channel:eng</code>; empty = can't squawk anyone</span>
+            <input name="addressing" value="{{.Form.Addressing}}" spellcheck="false"></label>
+          <label>TTL <span class="hint">e.g. 1h, 90m; blank = none</span><input name="ttl" value="{{.Form.TTL}}"></label>
+          <label>Kit
+            <select name="kit"><option value="">— no kit —</option>{{$k := .Role.Kit}}{{range .Kits}}<option value="{{.}}"{{if eq . $k}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Save scope</button></div>
+      </form>
+    </details>
   </section>
 
   <section class="card">
@@ -74,6 +102,18 @@
         <span class="unset">Kit default — the role sets no egress policy.</span>
       {{end}}
     </div>
+    <details class="edit">
+      <summary>Edit egress</summary>
+      <form hx-post="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML">
+        <label>Domains <span class="hint">one per line; a leading dot adds subdomains (<code>.example.com</code>); saving an empty list allows nothing extra</span>
+          <textarea name="domains" spellcheck="false">{{.Form.Egress}}</textarea></label>
+        <div class="form-actions">
+          {{if .EgressManaged}}<button type="button" class="danger left" hx-delete="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Drop {{.Name}}'s egress policy and use the kit default?">Reset to kit default</button>{{end}}
+          <button type="submit" class="primary">Save egress</button>
+        </div>
+      </form>
+    </details>
   </section>
 
   <section class="card">
@@ -83,28 +123,55 @@
         {{range .Allocation}}<dt>{{.Label}}</dt><dd{{if .Unset}} class="unset"{{end}}>{{.Value}}</dd>{{end}}
       </dl>
     </div>
+    <details class="edit">
+      <summary>Edit allocation</summary>
+      <form hx-post="{{$base}}/allocation" hx-target="#role" hx-swap="outerHTML">
+        <p class="sub" style="margin:0 0 10px">Leave a field blank to unset it (the value shown above for unset applies).</p>
+        <div class="grid">
+          <label>Max ephemeral<input name="max-ephemeral" value="{{.Form.MaxEphemeral}}" inputmode="numeric"></label>
+          <label>Max personal<input name="max-personal" value="{{.Form.MaxPersonal}}" inputmode="numeric"></label>
+          <label>Max personal per owner<input name="max-personal-per-owner" value="{{.Form.MaxPersonalPerOwner}}" inputmode="numeric"></label>
+          <label>Idle after<input name="idle-after" value="{{.Form.IdleAfter}}" placeholder="4h"></label>
+          <label>Nag every<input name="nag-every" value="{{.Form.NagEvery}}" placeholder="24h"></label>
+          <label>Reclaim after<input name="reclaim-after" value="{{.Form.ReclaimAfter}}" placeholder="never"></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Save allocation</button></div>
+      </form>
+    </details>
   </section>
 
   <section class="card full">
     <header><h2>Standing sessions</h2><span class="sub">kept running, one studio per name</span></header>
     <table>
-      <thead><tr><th>Name</th><th>Prompt</th><th>Studio</th></tr></thead>
+      <thead><tr><th>Name</th><th>Prompt</th><th>Studio</th><th></th></tr></thead>
       <tbody>
         {{range .Standing}}
         <tr data-id="{{.Name}}">
           <td><span class="mono">{{.Name}}</span></td>
           <td class="prompt">{{.Prompt}}</td>
           <td>{{if .Phase}}{{template "phase" .Phase}}{{else}}<span class="unset">not running</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
+          <td class="actions"><button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Dismiss standing session {{.Name}}? Its studio is torn down.">Dismiss</button></td>
         </tr>
         {{else}}
-        <tr><td colspan="3" class="empty">No standing sessions.</td></tr>
+        <tr><td colspan="4" class="empty">No standing sessions.</td></tr>
         {{end}}
       </tbody>
     </table>
+    <details class="edit">
+      <summary>Declare standing session</summary>
+      <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML">
+        <div class="grid">
+          <label>Name <span class="req">required</span><input name="name" required></label>
+          <label class="wide">Prompt <span class="req">required</span><textarea name="prompt" required></textarea></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Declare</button></div>
+      </form>
+    </details>
   </section>
 
   <section class="card">
-    <header><h2>Holders</h2><span class="sub">actors granted this role</span></header>
+    <header><h2>Holders</h2><span class="sub">actors granted this role — manage grants on the <a href="/ui/roster">Roster</a></span></header>
     <div class="body">
       {{range .Holders}}<span class="chip">{{.ID}}{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No actors hold this role.</span>{{end}}
     </div>
@@ -115,5 +182,5 @@
     {{template "coves-tbl" .}}
   </section>
 </div>
-{{end}}
+</div>
 {{end}}

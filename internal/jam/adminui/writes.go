@@ -199,34 +199,21 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			},
 			Kit: kit,
 		}
-		// The form doesn't edit the allocation policy (set via `role add
-		// --max-ephemeral`), the addressing allow-list, or the egress policy (set via
-		// `at-jam egress set`); keep the existing role's instead of resetting them.
-		if existing, ok := store.GetRole(orDefaultProject(project), name); ok {
-			role.Allocation = existing.Allocation
-			role.Scope.Addressing = existing.Scope.Addressing
-			role.Scope.Egress = existing.Scope.Egress
-			// The UI never shows credential mappings, so a bare destination name
-			// on a re-put keeps the role's existing mapping rather than silently
-			// falling back to the destination's (possibly broader) default.
-			for _, d := range role.Scope.Destinations {
-				if c := existing.Scope.Credentials[d]; c != "" && role.Scope.Credentials[d] == "" {
-					if role.Scope.Credentials == nil {
-						role.Scope.Credentials = map[string]string{}
-					}
-					role.Scope.Credentials[d] = c
-				}
-			}
-		}
 		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := store.PutRole(project, role); err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
+		// Create only: an existing role is edited section by section on its page.
+		if err := jam.CreateRole(store, project, role); err != nil {
+			msg := err.Error()
+			if jam.RoleStatus(err, 0) == http.StatusConflict {
+				msg += "; edit it on its page"
+			}
+			renderError(w, jam.RoleStatus(err, http.StatusBadRequest), msg)
 			return
 		}
-		log.Info("ui role put", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
+		w.Header().Set("HX-Redirect", roleURL(project, name))
+		log.Info("ui role created", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
 		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
