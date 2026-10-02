@@ -343,11 +343,11 @@ func TestComposerKeepsReply(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// The reply box is kept per recipient in localStorage as it is typed and
+	// The reply box is kept per recipient in sessionStorage as it is typed and
 	// restored on load (and in a New message composer); emptying it or a
 	// successful send forgets it.
 	for _, want := range []string{
-		"function meKeepReply(", "function meRestoreReply(", "'me-reply:'", "localStorage.removeItem(meReplyKey(t.form))",
+		"function meKeepReply(", "function meRestoreReply(", "'me-reply:'", "sessionStorage.removeItem(meReplyKey(t.form))",
 		"document.addEventListener('input'", "meRestoreReply(form);", "meRestoreReply(f); meDraftChip(f);",
 	} {
 		if !strings.Contains(body, want) {

@@ -308,21 +308,21 @@ function mePopDraft(form){
   meKeepReply(t);
   return true;
 }
-// Reply persistence: the text in a conversation's reply box is kept in
-// localStorage per recipient as it is typed, so leaving the conversation (a
-// full page load) and coming back restores it. Emptying the box or a
-// successful send forgets it. Code that sets the box's value directly (no input
-// event) calls meKeepReply itself.
+// Reply persistence: the text in a conversation's reply box is kept per
+// recipient in this tab's sessionStorage as it is typed (like the draft stack),
+// so leaving the conversation (a full page load) and coming back restores it.
+// Emptying the box or a successful send forgets it. Code that sets the box's
+// value directly (no input event) calls meKeepReply itself.
 function meReplyKey(form){ return 'me-reply:'+(form.dataset.to||''); }
 function meKeepReply(t){
   try{
-    if(t.value){ localStorage.setItem(meReplyKey(t.form), t.value); }
-    else{ localStorage.removeItem(meReplyKey(t.form)); }
+    if(t.value){ sessionStorage.setItem(meReplyKey(t.form), t.value); }
+    else{ sessionStorage.removeItem(meReplyKey(t.form)); }
   }catch(_){}
 }
 function meRestoreReply(form){
   if(!form || form.body.value) return;
-  try{ form.body.value=localStorage.getItem(meReplyKey(form))||''; }catch(_){}
+  try{ form.body.value=sessionStorage.getItem(meReplyKey(form))||''; }catch(_){}
 }
 document.addEventListener('input', function(e){
   var t=e.target;
