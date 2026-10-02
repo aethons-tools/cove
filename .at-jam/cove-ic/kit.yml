@@ -6,6 +6,7 @@ build-args:
   GO_VERSION: 1.27.1
   HADOLINT_VERSION: v2.15.1
   CC_SKILLS_GOLANG_VERSION: 2.0.0
+  CHROME_VERSION: 153.0.8010.12
 egress:
   - github.com
   # Go dependencies
@@ -23,5 +24,9 @@ egress:
   - .local.aethons.tools
   # Javascript dependencies
   - cdnjs.cloudflare.com
+  # Web fonts the /me page loads (the stylesheet from googleapis, the font files
+  # from gstatic), so headless-Chrome screenshots render the real typeface
+  - fonts.googleapis.com
+  - fonts.gstatic.com
 prompt: |
   This studio kit has everything you should need to work on the aethons.tools/cove project.
