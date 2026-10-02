@@ -54,23 +54,32 @@ type eventView struct {
 }
 
 type totals struct {
-	Turns                     uint32
+	Turns                     uint32 // results seen: prompts answered
+	Episodes                  uint32 // claude processes: max turn
 	ToolCalls                 int
 	InputTokens, OutputTokens int64
 	CostUSD                   float64
+	// episodeCost is the latest total_cost_usd per episode (turn). claude
+	// reports it cumulatively per process, so only the last one counts.
+	episodeCost map[uint32]float64
 }
 
 func (t *totals) add(ev sessionevents.Event) {
-	if ev.Turn > t.Turns {
-		t.Turns = ev.Turn
+	if ev.Turn > t.Episodes {
+		t.Episodes = ev.Turn
 	}
 	if ev.Index.Type == "assistant" && ev.Index.ToolName != "" {
 		t.ToolCalls++
 	}
 	if ev.Index.Type == "result" {
+		t.Turns++
 		t.InputTokens += ev.Index.InputTokens
 		t.OutputTokens += ev.Index.OutputTokens
-		t.CostUSD += ev.Index.CostUSD
+		if t.episodeCost == nil {
+			t.episodeCost = map[uint32]float64{}
+		}
+		t.CostUSD += ev.Index.CostUSD - t.episodeCost[ev.Turn]
+		t.episodeCost[ev.Turn] = ev.Index.CostUSD
 	}
 }
 
@@ -169,7 +178,7 @@ func viewOf(ev sessionevents.Event) eventView {
 		}
 	case "result":
 		v.Label = "result"
-		v.Summary = fmt.Sprintf("$%.4f · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
+		v.Summary = fmt.Sprintf("$%.4f episode total · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
 			ev.Index.OutputTokens, time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Detail = env.Result
 	default:
