@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -937,5 +938,25 @@ func TestRelayStatePaths(t *testing.T) {
 	c, m, r := relayStatePaths("/srv/state")
 	if c != "/srv/state/relay-cursors.json" || m != "/srv/state/relay-markers.json" || r != "/srv/state/relay-receipts.json" {
 		t.Fatalf("%s %s %s", c, m, r)
+	}
+}
+
+// credNames (what the UI suggests) lists exactly what credConfigured accepts.
+func TestCredNamesMatchCredConfigured(t *testing.T) {
+	c := serveConfig{Credentials: map[string]credSpec{"gh-pat": {}, "anth-key": {}}, Pool: &poolConfig{CredName: "pool-cred"}}
+	got := c.credNames()
+	want := []string{"anth-key", "gh-pat", "pool-cred"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("credNames = %v, want %v", got, want)
+	}
+	for _, n := range got {
+		if !c.credConfigured(n) {
+			t.Errorf("suggested %q is not configured", n)
+		}
+	}
+	// a pool reusing a listed credential isn't listed twice
+	c.Pool.CredName = "gh-pat"
+	if got := c.credNames(); !slices.Equal(got, []string{"anth-key", "gh-pat"}) {
+		t.Errorf("credNames with shared pool cred = %v", got)
 	}
 }

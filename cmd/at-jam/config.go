@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -705,6 +706,18 @@ func (c serveConfig) demandedCredentials() []string {
 		out = append(out, name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// credNames lists every configured credential name — exactly what
+// credConfigured accepts (the credentials: keys plus the pool's credential) —
+// for the admin UI's type-ahead. Names only; never values.
+func (c serveConfig) credNames() []string {
+	out := c.demandedCredentials()
+	if c.Pool != nil && c.Pool.CredName != "" && !slices.Contains(out, c.Pool.CredName) {
+		out = append(out, c.Pool.CredName)
+		sort.Strings(out)
+	}
 	return out
 }
 

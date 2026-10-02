@@ -94,6 +94,12 @@
     form.inline{display:inline-flex;gap:6px;align-items:center}
     form.inline select,form.inline input{width:auto;padding:4px 8px}
 
+    /* Type-ahead menu for reference fields (see the script below). */
+    .ta-menu{position:fixed;z-index:60;min-width:160px;max-width:420px;max-height:264px;overflow-y:auto;padding:4px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+    .ta-menu[hidden]{display:none}
+    .ta-menu .ta-opt{padding:5px 9px;border-radius:7px;cursor:pointer;font:12.5px "IBM Plex Mono",ui-monospace,monospace;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ta-menu .ta-opt[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+
     @media (max-width:720px){main{padding:16px}.topbar{gap:12px;padding:0 16px}th,td{padding:8px 10px}}
   </style>
 </head>
@@ -148,6 +154,127 @@
       var f = e.detail.elt;
       if (e.detail.successful && f.tagName === 'FORM' && f.hasAttribute('data-reset')) f.reset();
     });
+    // Type-ahead for fields that name another entity. An input or textarea with
+    // data-ta="<kind>" suggests from /ui/suggest?kind=<kind>&project=<p>:
+    //   data-ta-list     complete the comma-separated token under the cursor
+    //                    (within the line, in a textarea; from "@" on is a
+    //                    tier's timeout and is never completed);
+    //   data-ta-eq=K     after "=" in the token, suggest kind K instead
+    //                    (credentials in a destinations list);
+    //   data-ta-project  the project to scope by; "@form" = the form's own
+    //                    [name=project] field.
+    // Suggestions guide, never restrict: the server validates what is sent.
+    var ta = {cache: {}, menu: null, el: null, tok: null, items: [], active: -1, seq: 0, quiet: false};
+    function taFetch(kind, project){
+      var key = kind + '|' + project;
+      if (!ta.cache[key]) {
+        ta.cache[key] = fetch('/ui/suggest?kind=' + encodeURIComponent(kind) + '&project=' + encodeURIComponent(project))
+          .then(function(r){ return r.ok ? r.json() : []; })
+          .catch(function(){ delete ta.cache[key]; return []; });
+      }
+      return ta.cache[key];
+    }
+    function taProject(el){
+      var p = el.getAttribute('data-ta-project') || '';
+      if (p === '@form') { var f = el.form && el.form.querySelector('[name=project]'); p = f ? f.value.trim() : ''; }
+      return p;
+    }
+    // taToken is the part of el's value being completed: {start, end, text, kind},
+    // or null when the cursor isn't in a completable spot.
+    function taToken(el){
+      var v = el.value, pos = el.selectionStart == null ? v.length : el.selectionStart;
+      var kind = el.getAttribute('data-ta');
+      if (!el.hasAttribute('data-ta-list')) return {start: 0, end: v.length, text: v, kind: kind};
+      var lineStart = v.lastIndexOf('\n', pos - 1) + 1, lineEnd = v.indexOf('\n', pos);
+      if (lineEnd < 0) lineEnd = v.length;
+      var start = Math.max(lineStart, v.lastIndexOf(',', pos - 1) + 1);
+      while (start < pos && /\s/.test(v[start])) start++;
+      var end = pos;
+      while (end < lineEnd && v[end] !== ',' && v[end] !== '@') end++;
+      var text = v.slice(start, pos);
+      if (text.indexOf('@') >= 0) return null; // in a timeout
+      var eq = el.getAttribute('data-ta-eq'), i = text.indexOf('=');
+      if (eq && i >= 0) return {start: start + i + 1, end: end, text: text.slice(i + 1), kind: eq};
+      if (eq) { var e = v.indexOf('=', start); if (e >= 0 && e < end) end = e; }
+      return {start: start, end: end, text: text, kind: kind};
+    }
+    function taMenu(){
+      if (!ta.menu) {
+        ta.menu = document.createElement('div');
+        ta.menu.id = 'ta-menu'; ta.menu.className = 'ta-menu'; ta.menu.hidden = true;
+        ta.menu.setAttribute("role", "listbox");
+        // mousedown, not click: picking must not blur the field first.
+        ta.menu.addEventListener('mousedown', function(e){
+          var o = e.target.closest('.ta-opt'); if (!o) return;
+          e.preventDefault(); taAccept(+o.dataset.i);
+        });
+        document.body.appendChild(ta.menu);
+      }
+      return ta.menu;
+    }
+    function taClose(){
+      if (ta.menu) ta.menu.hidden = true;
+      if (ta.el) { ta.el.setAttribute("aria-expanded", "false"); ta.el.removeAttribute("aria-activedescendant"); }
+      ta.items = []; ta.active = -1;
+    }
+    function taHighlight(i){
+      ta.active = i;
+      var opts = ta.menu.querySelectorAll('.ta-opt');
+      opts.forEach(function(o, j){ o.setAttribute("aria-selected", j === i ? "true" : "false"); });
+      if (i >= 0 && opts[i]) { ta.el.setAttribute("aria-activedescendant", opts[i].id); opts[i].scrollIntoView({block: 'nearest'}); }
+      else ta.el.removeAttribute("aria-activedescendant");
+    }
+    function taShow(el){
+      var tok = taToken(el);
+      if (!tok) { taClose(); return; }
+      var n = ++ta.seq;
+      taFetch(tok.kind, taProject(el)).then(function(all){
+        if (n !== ta.seq || document.activeElement !== el) return; // a newer keystroke won
+        var q = tok.text.trim().toLowerCase();
+        var hits = all.filter(function(s){ return s.toLowerCase().indexOf(q) >= 0 && s.toLowerCase() !== q; });
+        hits.sort(function(a, b){ return (a.toLowerCase().indexOf(q) !== 0) - (b.toLowerCase().indexOf(q) !== 0); });
+        hits = hits.slice(0, 12);
+        if (!hits.length) { taClose(); return; }
+        ta.el = el; ta.tok = tok; ta.items = hits;
+        var m = taMenu();
+        m.replaceChildren.apply(m, hits.map(function(s, i){
+          var o = document.createElement('div');
+          o.className = 'ta-opt'; o.id = 'ta-opt-' + i; o.dataset.i = i; o.textContent = s;
+          o.setAttribute("role", "option");
+          return o;
+        }));
+        var r = el.getBoundingClientRect();
+        m.style.left = r.left + 'px'; m.style.top = (r.bottom + 4) + 'px'; m.style.minWidth = Math.min(r.width, 420) + 'px';
+        m.hidden = false;
+        el.setAttribute("role", "combobox"); el.setAttribute("aria-autocomplete", "list");
+        el.setAttribute("aria-controls", "ta-menu"); el.setAttribute("aria-expanded", "true");
+        taHighlight(-1);
+      });
+    }
+    function taAccept(i){
+      var el = ta.el, tok = ta.tok, s = ta.items[i];
+      if (!el || s == null) return;
+      var v = el.value;
+      el.value = v.slice(0, tok.start) + s + v.slice(tok.end);
+      var caret = tok.start + s.length;
+      el.setSelectionRange(caret, caret);
+      taClose();
+      el.focus();
+    }
+    document.addEventListener('input', function(e){ if (e.target.matches && e.target.matches('[data-ta]')) taShow(e.target); });
+    document.addEventListener('focusin', function(e){ if (e.target.matches && e.target.matches('[data-ta]')) taShow(e.target); });
+    document.addEventListener('focusout', function(e){ if (e.target === ta.el) setTimeout(function(){ if (document.activeElement !== ta.el) taClose(); }, 120); });
+    document.addEventListener('keydown', function(e){
+      if (!ta.menu || ta.menu.hidden || e.target !== ta.el) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); taHighlight(Math.min(ta.active + 1, ta.items.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); taHighlight(Math.max(ta.active - 1, -1)); }
+      else if (e.key === 'Enter' && ta.active >= 0) { e.preventDefault(); taAccept(ta.active); }
+      else if (e.key === 'Tab' && ta.items.length) { e.preventDefault(); taAccept(ta.active >= 0 ? ta.active : 0); }
+      else if (e.key === 'Escape') { e.preventDefault(); taClose(); }
+    });
+    window.addEventListener('scroll', taClose, true);
+    window.addEventListener('resize', taClose);
+
     // "/" focuses search from anywhere except a text field.
     document.addEventListener('keydown', function(e){
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -170,7 +297,7 @@
 </html>{{end}}
 
 {{define "phase"}}<span class="pill phase-{{.}}">{{.}}</span>{{end}}
-{{/* project-select is the project picker: every project plus default
-     (preselected). Takes the list of names; links out to create a new one. */}}
-{{define "project-select"}}<select name="project">{{range .}}<option value="{{.}}"{{if eq . "default"}} selected{{end}}>{{.}}</option>{{end}}</select>{{end}}
+{{/* project-select is the project field: a type-ahead over every project,
+     prefilled with default. */}}
+{{define "project-select"}}<input name="project" data-ta="projects" value="default" autocomplete="off" spellcheck="false" aria-label="Project">{{end}}
 {{define "entity"}}<span class="mono">{{.}}</span>{{end}}
