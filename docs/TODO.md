@@ -12,7 +12,8 @@ updated: 2026-10-02
   * in the dockerfile, we should blend it into the `.init-agent-files/.claude.json`.
   * it will still be copied to its final destination by the existing script
   * the existing `.init-agent-files/.claude.json` file should be pruned down to just the entries we need to clean up
-    the startup experience.* Studio kits: resolve a tag-form `base.image` to its `@sha256` digest before `BuildDigest`,
+    the startup experience.
+* Studio kits: resolve a tag-form `base.image` to its `@sha256` digest before `BuildDigest`,
   so a moved tag rebuilds (spec 2026-10-02-kit-build-drift).
 * Studio kits: garbage-collect superseded `cove-kit:*` images on the substrate
   (every assembly-fingerprint change leaves the old tags).
