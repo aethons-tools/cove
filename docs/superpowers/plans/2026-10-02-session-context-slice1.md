@@ -766,6 +766,8 @@ func TestLaunchCoveMasterNoContextNoEnv(t *testing.T) {
 }
 ```
 
+Add imports `encoding/json`, `reflect`, and `github.com/aethons-tools/cove/internal/jam/sessionctx`.
+
 
 - [ ] **Step 2: Run to verify failure**
 
