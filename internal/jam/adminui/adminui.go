@@ -45,6 +45,8 @@ var pages = map[string]*template.Template{
 	"role":         mustParse("coves.html", "role.html"),
 	"destination":  mustParse("dest_fields.html", "destination.html"),
 	"kit":          mustParse("kit.html"),
+	"projects":     mustParse("projects.html"),
+	"project":      mustParse("coves.html", "project.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -81,6 +83,20 @@ func mustParse(names ...string) *template.Template {
 	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
 }
 
+// covesData, rosterData and rolesData are the payloads of the pages (and
+// their swapped tables) whose forms carry a project picker.
+func covesData(store jam.Store, canEdit bool) map[string]any {
+	return map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": canEdit, "Projects": projectChoices(store)}
+}
+
+func rosterData(store jam.Store) map[string]any {
+	return map[string]any{"Actors": jam.RosterSummaries(store), "Projects": projectChoices(store)}
+}
+
+func rolesData(store jam.Store, canRequest bool) map[string]any {
+	return map[string]any{"Roles": roleRows(store), "CanRequest": canRequest, "Projects": projectChoices(store)}
+}
+
 // funcs are the template helpers shared by every page.
 var funcs = template.FuncMap{
 	// ttl renders a role TTL compactly, or "—" when unset.
@@ -90,9 +106,10 @@ var funcs = template.FuncMap{
 		}
 		return fmtDur(d)
 	},
-	"roleURL": roleURL,
-	"destURL": destURL,
-	"kitURL":  kitURL,
+	"roleURL":    roleURL,
+	"destURL":    destURL,
+	"kitURL":     kitURL,
+	"projectURL": projectURL,
 }
 
 // fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
@@ -151,7 +168,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Studios", "Coves": jam.CoveSummaries(store), "CanEdit": canEdit}
+		data := covesData(store, canEdit)
+		data["Title"] = "Studios"
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, "coves", "coves-table", data)
 			return
@@ -160,10 +178,14 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	mux.HandleFunc("GET /ui/roster", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "roster", map[string]any{"Title": "Roster", "Actors": jam.RosterSummaries(store)})
+		data := rosterData(store)
+		data["Title"] = "Roster"
+		render(w, "roster", data)
 	})
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "roles", map[string]any{"Title": "Roles", "Roles": roleRows(store), "CanRequest": canEdit})
+		data := rolesData(store, canEdit)
+		data["Title"] = "Roles"
+		render(w, "roles", data)
 	})
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoleDetail(w, r, store, canEdit)
@@ -176,6 +198,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
+	registerProjects(mux, store, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)

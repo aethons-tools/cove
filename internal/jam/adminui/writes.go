@@ -152,7 +152,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui revoked", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": jam.RosterSummaries(store)})
+		renderFragment(w, "roster", "roster-table", rosterData(store))
 	})
 
 	mux.HandleFunc("POST /ui/roles", func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +214,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		}
 		w.Header().Set("HX-Redirect", roleURL(project, name))
 		log.Info("ui role created", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
+		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
 	})
 
 	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +242,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant added", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": jam.RosterSummaries(store)})
+		renderFragment(w, "roster", "roster-table", rosterData(store))
 	})
 
 	mux.HandleFunc("DELETE /ui/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +254,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant removed", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
-		renderFragment(w, "roster", "roster-table", map[string]any{"Actors": jam.RosterSummaries(store)})
+		renderFragment(w, "roster", "roster-table", rosterData(store))
 	})
 
 	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +267,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role removed", "operator", jam.OperatorID(r), "project", project, "role", name)
-		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
+		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
 	})
 
 	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +304,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": true})
+		renderFragment(w, "coves", "coves-table", covesData(store, true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +321,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove torn down", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": true})
+		renderFragment(w, "coves", "coves-table", covesData(store, true))
 	})
 
 }

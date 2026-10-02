@@ -6,7 +6,7 @@
     <div class="grid">
       <label>Actor id <span class="req">required</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" required></label>
-      <label>Project <span class="hint">blank = default</span><input name="project"></label>
+      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select" .Projects}}</label>
       <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations"></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
@@ -36,7 +36,7 @@
             <summary>+ Grant</summary>
             <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
               <input name="role" placeholder="role" required aria-label="Role">
-              <input name="project" placeholder="project (default)" aria-label="Project">
+              {{template "project-select" $.Projects}}
               <input name="destinations" placeholder="overrides, e.g. git=git-pat" aria-label="Destination overrides">
               <button type="submit" class="primary small">Add</button>
             </form>
@@ -56,7 +56,7 @@
   details.grant-add>summary::-webkit-details-marker{display:none}
   details.grant-add[open]{display:block;margin-top:8px}
   details.grant-add form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-  details.grant-add input{width:auto;flex:1 1 140px;padding:5px 8px}
+  details.grant-add input,details.grant-add select{width:auto;flex:1 1 140px;padding:5px 8px}
 </style>
 </div>
 {{end}}

@@ -115,6 +115,7 @@
     <nav>
       {{- $t := .Title}}
       <a href="/ui/"{{if eq $t "Dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/ui/projects"{{if eq $t "Projects"}} aria-current="page"{{end}}>Projects</a>
       <a href="/ui/coves"{{if eq $t "Studios"}} aria-current="page"{{end}}>Studios</a>
       <a href="/ui/roster"{{if eq $t "Roster"}} aria-current="page"{{end}}>Roster</a>
       <a href="/ui/roles"{{if eq $t "Roles"}} aria-current="page"{{end}}>Roles</a>
@@ -169,4 +170,7 @@
 </html>{{end}}
 
 {{define "phase"}}<span class="pill phase-{{.}}">{{.}}</span>{{end}}
+{{/* project-select is the project picker: every project plus default
+     (preselected). Takes the list of names; links out to create a new one. */}}
+{{define "project-select"}}<select name="project">{{range .}}<option value="{{.}}"{{if eq . "default"}} selected{{end}}>{{.}}</option>{{end}}</select>{{end}}
 {{define "entity"}}<span class="mono">{{.}}</span>{{end}}
