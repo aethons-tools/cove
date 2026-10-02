@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
+	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -170,5 +172,110 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	}
 	if after != "" {
 		t.Errorf("after send and reload: box = %q, want empty", after)
+	}
+}
+
+func TestBrowserCopyButtons(t *testing.T) {
+	ctx := browserCtx(t)
+	store, log, p := fixture()
+	src := "Intro **bold**\n\n- one\n- two\n\n```\nline 1\nline 2\n```\n"
+	first := log.sq[0]
+	log.sq = append(log.sq, intercom.Squawk{
+		Seq: 2, From: intercom.Target{Kind: "cove", Ref: "bot"}, To: first.To, Body: src, At: first.At, Project: "proj",
+	})
+	h := Handler(store, log, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, jam.WithParticipant(r, p))
+	}))
+	t.Cleanup(srv.Close)
+
+	// clip clicks the button sel (hovering its bubble first, as a user would)
+	// and returns what landed on the clipboard.
+	clip := func(sel string) string {
+		t.Helper()
+		var got string
+		err := chromedp.Run(ctx,
+			copy(srv.URL, "-"),
+			chromedp.ScrollIntoView(sel, chromedp.ByQuery),
+			chromedp.Click(sel, chromedp.ByQuery),
+			chromedp.Poll(`navigator.clipboard.readText().then(function(s){ return s!=='-' ? s : null; })`, &got,
+				chromedp.WithPollingTimeout(5*time.Second)),
+		)
+		if err != nil {
+			t.Fatalf("copy via %s: %v", sel, err)
+		}
+		return got
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.WaitVisible(`.msg.agent pre`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Text: what the bubble shows, formatting stripped, line structure kept.
+	if got := clip(`.msg.agent .copy-text`); strings.Contains(got, "**") ||
+		!strings.Contains(got, "Intro bold") || !strings.Contains(got, "one\ntwo") || !strings.Contains(got, "line 1\nline 2") {
+		t.Errorf("copy text = %q", got)
+	}
+	// Markdown: the body exactly as sent.
+	if got := clip(`.msg.agent .copy-md`); got != src {
+		t.Errorf("copy markdown = %q, want %q", got, src)
+	}
+	// A code block: just its code.
+	if got := clip(`.msg.agent .copy-code`); got != "line 1\nline 2" {
+		t.Errorf("copy code = %q, want %q", got, "line 1\nline 2")
+	}
+	// Text still copies the rendered text while the Raw view hides it.
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`meSetView('raw')`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := clip(`.msg.agent .copy-text`); strings.Contains(got, "**") || !strings.Contains(got, "one\ntwo") {
+		t.Errorf("copy text in Raw view = %q", got)
+	}
+	// On a screen that can hover, the controls stay hidden until the bubble or
+	// code block is hovered. Headless Chrome reports hover:none (a touch
+	// screen, which shows them always) and ignores emulating hover, so drop
+	// that rule to get the stylesheet a desktop browser applies.
+	opacity := `[getComputedStyle(document.querySelector('.msg.agent .acts')).opacity, getComputedStyle(document.querySelector('.msg.agent .copy-code')).opacity].join()`
+	// settle moves the mouse to (x, y) and waits for the controls to reach
+	// want (opacities of the bubble's pair and the code button).
+	settle := func(x, y float64, want string) {
+		t.Helper()
+		var ok bool
+		err := chromedp.Run(ctx,
+			chromedp.MouseEvent(input.MouseMoved, x, y),
+			chromedp.Poll(opacity+`===`+strconv.Quote(want), &ok, chromedp.WithPollingTimeout(3*time.Second)),
+		)
+		if err != nil {
+			var got string
+			_ = chromedp.Run(ctx, chromedp.Evaluate(opacity, &got))
+			t.Errorf("controls opacity (bubble, code) with the mouse at (%v, %v) = %s, want %s", x, y, got, want)
+		}
+	}
+	var pre []float64
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(`meSetView('rendered');
+			Array.from(document.styleSheets).forEach(function(ss){
+				try{ for(var i=ss.cssRules.length-1;i>=0;i--){ var r=ss.cssRules[i]; if(r.media && r.media.mediaText.indexOf('hover')>=0){ ss.deleteRule(i); } } }catch(_){}
+			});
+			document.activeElement.blur()`, nil),
+		chromedp.Evaluate(`(function(){ var r=document.querySelector('.msg.agent pre').getBoundingClientRect(); return [r.left+5, r.top+5]; })()`, &pre),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settle(1, 1, "0,0")
+	settle(pre[0], pre[1], "1,1")
+
+	// A stream refresh re-renders the bubbles; the code buttons come back.
+	var n int
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelector('.msg.agent pre').parentNode.dataset.old='1'; htmx.trigger(document.body,'meChanged')`, nil),
+		chromedp.Poll(`!document.querySelector('[data-old]') && document.querySelectorAll('.msg.agent .copy-code').length`, &n,
+			chromedp.WithPollingTimeout(5*time.Second)),
+	)
+	if err != nil || n != 1 {
+		t.Errorf("code copy buttons after a stream refresh: %d (err %v)", n, err)
 	}
 }

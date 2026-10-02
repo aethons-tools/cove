@@ -59,7 +59,24 @@ body{display:flex;flex-direction:column}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--wait-line);background:var(--wait-soft);color:var(--wait)}
 .stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
-.msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px}
+.msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px;position:relative}
+/* Copy controls: shown on hover or keyboard focus (always on touch screens). The bubble's
+   pair sits beside the sender, outside the bubble's box so it never resizes it;
+   a code block's button floats over its top-right corner. */
+.msg .acts{position:absolute;top:50%;transform:translateY(-50%);left:100%;display:flex;gap:4px;margin-left:4px;white-space:nowrap}
+.msg.human .acts{left:auto;right:100%;margin:0 4px 0 0}
+.msg.agent .from{align-self:flex-start}
+.msg .acts button,.codebox .copy-code{font:inherit;font-size:11px;font-weight:600;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1px 7px;cursor:pointer}
+.msg .acts button:hover,.codebox .copy-code:hover{color:var(--accent);border-color:var(--accent)}
+.msg .acts button.copied::after{content:" ✓"}
+.msg .acts,.codebox .copy-code{opacity:0;transition:opacity .12s}
+.msg:hover .acts,.msg .acts:has(:focus-visible),.codebox:hover .copy-code,.codebox .copy-code:focus-visible{opacity:1}
+@media (hover:none){.msg .acts,.codebox .copy-code{opacity:1}}
+.codebox{position:relative}
+.codebox>pre{margin:0}
+.codebox .copy-code{position:absolute;top:5px;right:5px;padding:3px 5px;line-height:0}
+.codebox .copy-code .ok,.codebox .copy-code.copied .cp{display:none}
+.codebox .copy-code.copied .ok{display:inline}
 .msg .body{padding:10px 13px;border-radius:13px;word-break:break-word}
 .msg .body.plain{white-space:pre-wrap}
 /* Raw view: every bubble shows its body text as sent, in monospace. */
@@ -70,7 +87,7 @@ html.raw .msg .body.raw{display:block}
 .viewsel button{background:none;border:0;font:inherit;font-size:12.5px;color:var(--muted);padding:4px 10px;cursor:pointer}
 .viewsel button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .msg .body.md>:first-child{margin-top:0}.msg .body.md>:last-child{margin-bottom:0}
-.msg .body.md p,.msg .body.md ul,.msg .body.md ol,.msg .body.md pre,.msg .body.md blockquote,.msg .body.md table{margin:0 0 .6em}
+.msg .body.md p,.msg .body.md ul,.msg .body.md ol,.msg .body.md pre,.msg .body.md .codebox,.msg .body.md blockquote,.msg .body.md table{margin:0 0 .6em}
 .msg .body.md ul,.msg .body.md ol{padding-left:1.3em}
 .msg .body.md code{font:12.5px "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,127,127,.15);padding:1px 4px;border-radius:4px}
 .msg .body.md pre{overflow-x:auto;background:rgba(127,127,127,.12);padding:8px 10px;border-radius:8px}
@@ -138,6 +155,7 @@ document.addEventListener('htmx:beforeSwap', function(e){
 });
 document.addEventListener('htmx:afterSwap', function(e){
   var s=e.detail.target;
+  if(s && s.id==='stream'){ meCodeButtons(s); }
   if(s && s.id==='stream' && s._atBottom){ meScrollToEnd(s, 'smooth'); }
 });
 // meScrollToEnd scrolls the message list s (if any) to its last message.
@@ -346,6 +364,49 @@ function meSetView(v){
   document.querySelectorAll('.viewsel button').forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.view===v)); });
 }
 meSetView(document.documentElement.classList.contains('raw') ? 'raw' : 'rendered');
+// Copy controls. meCopy writes text to the clipboard (the async API where the
+// page is a secure context, else a hidden textarea and execCommand) and flashes
+// a ✓ on the button that asked.
+function meCopy(text, btn){
+  function done(){ btn.classList.add('copied'); clearTimeout(btn._t); btn._t=setTimeout(function(){ btn.classList.remove('copied'); }, 1200); }
+  if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(text).then(done); return; }
+  var ta=document.createElement('textarea');
+  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ if(document.execCommand('copy')){ done(); } }finally{ ta.remove(); }
+}
+// meCopyBubble copies a whole message: as markdown, its body exactly as sent
+// (the Raw view's text); as text, what the rendered bubble shows. innerText
+// needs the rendered body laid out, so in the Raw view the class is lifted for
+// the (synchronous, never painted) read.
+function meCopyBubble(btn, markdown){
+  var m=btn.closest('.msg'), html=document.documentElement;
+  if(markdown){ meCopy(m.querySelector('.body.raw').textContent, btn); return; }
+  var raw=html.classList.contains('raw');
+  if(raw){ html.classList.remove('raw'); }
+  var text=m.querySelector('.body:not(.raw)').innerText;
+  if(raw){ html.classList.add('raw'); }
+  meCopy(text.replace(/\n+$/, ''), btn);
+}
+// meCodeButtons gives each code block under root a copy button, in a wrapper
+// so the button stays put while the block scrolls sideways. The markdown HTML
+// comes from the server renderer, so this runs on load and after each #stream
+// swap. The button is icon-only: no text of its own to leak into a bubble's
+// "Text" copy.
+function meCodeButtons(root){
+  root.querySelectorAll('.msg .body.md pre').forEach(function(pre){
+    if(pre.parentNode.classList.contains('codebox')) return;
+    var box=document.createElement('div'), b=document.createElement('button');
+    box.className='codebox';
+    b.type='button'; b.className='copy-code'; b.title='Copy code'; b.setAttribute('aria-label', 'Copy code');
+    b.innerHTML='<svg class="cp" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>'
+      +'<svg class="ok" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+    b.onclick=function(){ meCopy(pre.textContent.replace(/\n$/, ''), b); };
+    pre.parentNode.insertBefore(box, pre);
+    box.appendChild(pre); box.appendChild(b);
+  });
+}
+meCodeButtons(document);
 </script>
 </body>
 </html>{{end}}
