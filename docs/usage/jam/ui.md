@@ -20,8 +20,12 @@ http://127.0.0.1:8081/ui/
 It renders:
 
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
-  idled studios, and counts of actors, roles, kits, destinations), each linking
-  to its page, above the studio table.
+  idled studios, and counts of projects, actors, roles, kits, destinations),
+  each linking to its page, above the studio table.
+- **Projects** (`/ui/projects`) — every project with its roles, actors,
+  studios, roster size and chat service; create one, or delete one nothing
+  references. Each project's page is the "everything in this project" view —
+  see [ui-pages.md](ui-pages.md#project-pages).
 - **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
@@ -194,6 +198,9 @@ verbs in [roster.md](roster.md):
   or a mapping for a destination not in scope is rejected. Credential *names*
   are references, not secrets, so the UI shows them (the Roles table renders
   `git → git-pat`); credential *values* never appear.
+- Project fields (raise studio, enroll, add grant, new role) are pickers of
+  existing projects, `default` preselected — a project must exist before
+  anything is put in it ([projects.md](projects.md)).
 
 Create forms sit in collapsed **+ Add …** panels above each table. The
 outcome of a write shows in a banner at the top of the page: a refused write

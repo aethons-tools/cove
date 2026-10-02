@@ -31,7 +31,7 @@
   .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/roles">Roles</a> / {{.Project}}</div>
+<div class="crumbs"><a href="/ui/projects">Projects</a> / <a href="{{projectURL .Project}}">{{.Project}}</a> / <a href="/ui/roles">Roles</a></div>
 {{template "role-body" .}}
 {{end}}
 {{end}}
@@ -44,7 +44,7 @@
 <div class="page-head">
   <h1>{{.Name}}</h1>
   <div class="facts">
-    <span class="chip">{{.Project}}</span>
+    <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
     {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>

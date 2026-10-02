@@ -1,8 +1,8 @@
 ---
-summary: The Jam admin UI's per-entity pages — a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a role, destination or kit in the Jam admin UI — its scope, egress, allocation, standing sessions, client env/connector, kit versions/diffs/pinning, or who uses it — or wondering why the list pages only create.
-owns: the role, destination and kit detail pages (what they show, their edit forms, create-only list forms, connector-conflict flags, kit version rail/diff/push)
-prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
+summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a project, role, destination or kit in the Jam admin UI — a project's roster, escalation or chat service; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the project, role, destination and kit detail pages (what they show, their edit forms, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-02
 ---
@@ -14,6 +14,23 @@ object and edits it in place. The list pages' forms only **create** (an
 existing name is refused with "edit it on its page") and then open the new
 object's page, where every field is pre-filled — so an edit can't silently drop
 a field the form didn't show.
+
+## Project pages
+
+Each project name (in the Projects table, a role's breadcrumb, or a table cell)
+links to `/ui/projects/<name>`, the "everything in this project" view: its
+roles (linked, with destinations and kit), the actors holding a grant into it
+and which roles they hold, its roster — humans (handle, linked login, delivery
+per service with address and user id, OIDC identities) and channels (service,
+ref) — its escalation policy (the default chain and each category's chain, as
+ordered tiers of targets with their wait), its chat service, and its running
+studios. The page is view-only for now; roster, escalation and chat service are
+changed with the CLI (`project roster`, `project escalation set`,
+`project chat-service set`).
+
+**Delete** (here and in the table) is disabled while a role or an actor's grant
+still references the project, and names what does — the same rule as
+`project rm` ([projects.md](projects.md)).
 
 ## Role pages
 
