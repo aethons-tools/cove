@@ -4,6 +4,11 @@
 // 	protoc        (unknown)
 // source: attach.proto
 
+// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
+// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
+// already-built cove images dials, so renaming it would break running coves.
+// See docs/usage/jam/renamed-from-harbor.md.
+
 package attachpb
 
 import (
@@ -82,6 +87,7 @@ type StatusUp struct {
 	//
 	//	*StatusUp_Status
 	//	*StatusUp_Heartbeat
+	//	*StatusUp_Event
 	Msg           isStatusUp_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -142,6 +148,15 @@ func (x *StatusUp) GetHeartbeat() *Heartbeat {
 	return nil
 }
 
+func (x *StatusUp) GetEvent() *SessionEvent {
+	if x != nil {
+		if x, ok := x.Msg.(*StatusUp_Event); ok {
+			return x.Event
+		}
+	}
+	return nil
+}
+
 type isStatusUp_Msg interface {
 	isStatusUp_Msg()
 }
@@ -154,9 +169,100 @@ type StatusUp_Heartbeat struct {
 	Heartbeat *Heartbeat `protobuf:"bytes,2,opt,name=heartbeat,proto3,oneof"`
 }
 
+type StatusUp_Event struct {
+	Event *SessionEvent `protobuf:"bytes,3,opt,name=event,proto3,oneof"`
+}
+
 func (*StatusUp_Status) isStatusUp_Msg() {}
 
 func (*StatusUp_Heartbeat) isStatusUp_Msg() {}
+
+func (*StatusUp_Event) isStatusUp_Msg() {}
+
+// SessionEvent is one line of the agent's claude stream-json stdout.
+type SessionEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	StreamId       string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                      // random per cove-master process: 32 lowercase hex chars
+	Seq            uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`                                               // monotonic per stream_id, from 1
+	Turn           uint32                 `protobuf:"varint,3,opt,name=turn,proto3" json:"turn,omitempty"`                                             // claude invocation number, from 1
+	ObservedUnixMs int64                  `protobuf:"varint,4,opt,name=observed_unix_ms,json=observedUnixMs,proto3" json:"observed_unix_ms,omitempty"` // when cove-master read the line
+	Raw            []byte                 `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`                                                // the line, no trailing newline, secrets redacted
+	TruncatedBytes uint64                 `protobuf:"varint,6,opt,name=truncated_bytes,json=truncatedBytes,proto3" json:"truncated_bytes,omitempty"`   // bytes dropped from raw; 0 = intact
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SessionEvent) Reset() {
+	*x = SessionEvent{}
+	mi := &file_attach_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionEvent) ProtoMessage() {}
+
+func (x *SessionEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionEvent.ProtoReflect.Descriptor instead.
+func (*SessionEvent) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SessionEvent) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *SessionEvent) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *SessionEvent) GetTurn() uint32 {
+	if x != nil {
+		return x.Turn
+	}
+	return 0
+}
+
+func (x *SessionEvent) GetObservedUnixMs() int64 {
+	if x != nil {
+		return x.ObservedUnixMs
+	}
+	return 0
+}
+
+func (x *SessionEvent) GetRaw() []byte {
+	if x != nil {
+		return x.Raw
+	}
+	return nil
+}
+
+func (x *SessionEvent) GetTruncatedBytes() uint64 {
+	if x != nil {
+		return x.TruncatedBytes
+	}
+	return 0
+}
 
 type Heartbeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -166,7 +272,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_attach_proto_msgTypes[1]
+	mi := &file_attach_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -178,7 +284,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[1]
+	mi := &file_attach_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -191,7 +297,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{1}
+	return file_attach_proto_rawDescGZIP(), []int{2}
 }
 
 type ControlDown struct {
@@ -202,6 +308,7 @@ type ControlDown struct {
 	//	*ControlDown_Teardown
 	//	*ControlDown_Tier
 	//	*ControlDown_Rotate
+	//	*ControlDown_Ack
 	Msg           isControlDown_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -209,7 +316,7 @@ type ControlDown struct {
 
 func (x *ControlDown) Reset() {
 	*x = ControlDown{}
-	mi := &file_attach_proto_msgTypes[2]
+	mi := &file_attach_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -221,7 +328,7 @@ func (x *ControlDown) String() string {
 func (*ControlDown) ProtoMessage() {}
 
 func (x *ControlDown) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[2]
+	mi := &file_attach_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +341,7 @@ func (x *ControlDown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlDown.ProtoReflect.Descriptor instead.
 func (*ControlDown) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{2}
+	return file_attach_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ControlDown) GetMsg() isControlDown_Msg {
@@ -280,6 +387,15 @@ func (x *ControlDown) GetRotate() *RotateToken {
 	return nil
 }
 
+func (x *ControlDown) GetAck() *EventAck {
+	if x != nil {
+		if x, ok := x.Msg.(*ControlDown_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
 type isControlDown_Msg interface {
 	isControlDown_Msg()
 }
@@ -300,6 +416,10 @@ type ControlDown_Rotate struct {
 	Rotate *RotateToken `protobuf:"bytes,4,opt,name=rotate,proto3,oneof"` // reserved
 }
 
+type ControlDown_Ack struct {
+	Ack *EventAck `protobuf:"bytes,5,opt,name=ack,proto3,oneof"`
+}
+
 func (*ControlDown_Wake) isControlDown_Msg() {}
 
 func (*ControlDown_Teardown) isControlDown_Msg() {}
@@ -307,6 +427,61 @@ func (*ControlDown_Teardown) isControlDown_Msg() {}
 func (*ControlDown_Tier) isControlDown_Msg() {}
 
 func (*ControlDown_Rotate) isControlDown_Msg() {}
+
+func (*ControlDown_Ack) isControlDown_Msg() {}
+
+// EventAck is cumulative: every event of stream_id with seq <= this is durable.
+type EventAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	Seq           uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventAck) Reset() {
+	*x = EventAck{}
+	mi := &file_attach_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventAck) ProtoMessage() {}
+
+func (x *EventAck) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventAck.ProtoReflect.Descriptor instead.
+func (*EventAck) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *EventAck) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *EventAck) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
 
 type Wake struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -316,7 +491,7 @@ type Wake struct {
 
 func (x *Wake) Reset() {
 	*x = Wake{}
-	mi := &file_attach_proto_msgTypes[3]
+	mi := &file_attach_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -328,7 +503,7 @@ func (x *Wake) String() string {
 func (*Wake) ProtoMessage() {}
 
 func (x *Wake) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[3]
+	mi := &file_attach_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -341,7 +516,7 @@ func (x *Wake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Wake.ProtoReflect.Descriptor instead.
 func (*Wake) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{3}
+	return file_attach_proto_rawDescGZIP(), []int{5}
 }
 
 type Teardown struct {
@@ -353,7 +528,7 @@ type Teardown struct {
 
 func (x *Teardown) Reset() {
 	*x = Teardown{}
-	mi := &file_attach_proto_msgTypes[4]
+	mi := &file_attach_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +540,7 @@ func (x *Teardown) String() string {
 func (*Teardown) ProtoMessage() {}
 
 func (x *Teardown) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[4]
+	mi := &file_attach_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +553,7 @@ func (x *Teardown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Teardown.ProtoReflect.Descriptor instead.
 func (*Teardown) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{4}
+	return file_attach_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Teardown) GetReason() string {
@@ -397,7 +572,7 @@ type TierChanged struct {
 
 func (x *TierChanged) Reset() {
 	*x = TierChanged{}
-	mi := &file_attach_proto_msgTypes[5]
+	mi := &file_attach_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -409,7 +584,7 @@ func (x *TierChanged) String() string {
 func (*TierChanged) ProtoMessage() {}
 
 func (x *TierChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[5]
+	mi := &file_attach_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -422,7 +597,7 @@ func (x *TierChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TierChanged.ProtoReflect.Descriptor instead.
 func (*TierChanged) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{5}
+	return file_attach_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TierChanged) GetTier() int32 {
@@ -441,7 +616,7 @@ type RotateToken struct {
 
 func (x *RotateToken) Reset() {
 	*x = RotateToken{}
-	mi := &file_attach_proto_msgTypes[6]
+	mi := &file_attach_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -453,7 +628,7 @@ func (x *RotateToken) String() string {
 func (*RotateToken) ProtoMessage() {}
 
 func (x *RotateToken) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[6]
+	mi := &file_attach_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -466,7 +641,7 @@ func (x *RotateToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateToken.ProtoReflect.Descriptor instead.
 func (*RotateToken) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{6}
+	return file_attach_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RotateToken) GetToken() string {
@@ -480,18 +655,30 @@ var File_attach_proto protoreflect.FileDescriptor
 
 const file_attach_proto_rawDesc = "" +
 	"\n" +
-	"\fattach.proto\x12\x10harbor.attach.v1\"\x84\x01\n" +
+	"\fattach.proto\x12\x10harbor.attach.v1\"\xbc\x01\n" +
 	"\bStatusUp\x124\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1a.harbor.attach.v1.ActivityH\x00R\x06status\x12;\n" +
-	"\theartbeat\x18\x02 \x01(\v2\x1b.harbor.attach.v1.HeartbeatH\x00R\theartbeatB\x05\n" +
-	"\x03msg\"\v\n" +
-	"\tHeartbeat\"\xea\x01\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x1b.harbor.attach.v1.HeartbeatH\x00R\theartbeat\x126\n" +
+	"\x05event\x18\x03 \x01(\v2\x1e.harbor.attach.v1.SessionEventH\x00R\x05eventB\x05\n" +
+	"\x03msg\"\xb6\x01\n" +
+	"\fSessionEvent\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x12\n" +
+	"\x04turn\x18\x03 \x01(\rR\x04turn\x12(\n" +
+	"\x10observed_unix_ms\x18\x04 \x01(\x03R\x0eobservedUnixMs\x12\x10\n" +
+	"\x03raw\x18\x05 \x01(\fR\x03raw\x12'\n" +
+	"\x0ftruncated_bytes\x18\x06 \x01(\x04R\x0etruncatedBytes\"\v\n" +
+	"\tHeartbeat\"\x9a\x02\n" +
 	"\vControlDown\x12,\n" +
 	"\x04wake\x18\x01 \x01(\v2\x16.harbor.attach.v1.WakeH\x00R\x04wake\x128\n" +
 	"\bteardown\x18\x02 \x01(\v2\x1a.harbor.attach.v1.TeardownH\x00R\bteardown\x123\n" +
 	"\x04tier\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TierChangedH\x00R\x04tier\x127\n" +
-	"\x06rotate\x18\x04 \x01(\v2\x1d.harbor.attach.v1.RotateTokenH\x00R\x06rotateB\x05\n" +
-	"\x03msg\"\x06\n" +
+	"\x06rotate\x18\x04 \x01(\v2\x1d.harbor.attach.v1.RotateTokenH\x00R\x06rotate\x12.\n" +
+	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ackB\x05\n" +
+	"\x03msg\"9\n" +
+	"\bEventAck\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\"\x06\n" +
 	"\x04Wake\"\"\n" +
 	"\bTeardown\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"!\n" +
@@ -521,31 +708,35 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_attach_proto_goTypes = []any{
-	(Activity)(0),       // 0: harbor.attach.v1.Activity
-	(*StatusUp)(nil),    // 1: harbor.attach.v1.StatusUp
-	(*Heartbeat)(nil),   // 2: harbor.attach.v1.Heartbeat
-	(*ControlDown)(nil), // 3: harbor.attach.v1.ControlDown
-	(*Wake)(nil),        // 4: harbor.attach.v1.Wake
-	(*Teardown)(nil),    // 5: harbor.attach.v1.Teardown
-	(*TierChanged)(nil), // 6: harbor.attach.v1.TierChanged
-	(*RotateToken)(nil), // 7: harbor.attach.v1.RotateToken
+	(Activity)(0),        // 0: harbor.attach.v1.Activity
+	(*StatusUp)(nil),     // 1: harbor.attach.v1.StatusUp
+	(*SessionEvent)(nil), // 2: harbor.attach.v1.SessionEvent
+	(*Heartbeat)(nil),    // 3: harbor.attach.v1.Heartbeat
+	(*ControlDown)(nil),  // 4: harbor.attach.v1.ControlDown
+	(*EventAck)(nil),     // 5: harbor.attach.v1.EventAck
+	(*Wake)(nil),         // 6: harbor.attach.v1.Wake
+	(*Teardown)(nil),     // 7: harbor.attach.v1.Teardown
+	(*TierChanged)(nil),  // 8: harbor.attach.v1.TierChanged
+	(*RotateToken)(nil),  // 9: harbor.attach.v1.RotateToken
 }
 var file_attach_proto_depIdxs = []int32{
 	0, // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
-	2, // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
-	4, // 2: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
-	5, // 3: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
-	6, // 4: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
-	7, // 5: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
-	1, // 6: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	3, // 7: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
+	2, // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
+	6, // 3: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
+	7, // 4: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
+	8, // 5: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
+	9, // 6: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
+	5, // 7: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
+	1, // 8: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	4, // 9: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -556,12 +747,14 @@ func file_attach_proto_init() {
 	file_attach_proto_msgTypes[0].OneofWrappers = []any{
 		(*StatusUp_Status)(nil),
 		(*StatusUp_Heartbeat)(nil),
+		(*StatusUp_Event)(nil),
 	}
-	file_attach_proto_msgTypes[2].OneofWrappers = []any{
+	file_attach_proto_msgTypes[3].OneofWrappers = []any{
 		(*ControlDown_Wake)(nil),
 		(*ControlDown_Teardown)(nil),
 		(*ControlDown_Tier)(nil),
 		(*ControlDown_Rotate)(nil),
+		(*ControlDown_Ack)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -569,7 +762,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
