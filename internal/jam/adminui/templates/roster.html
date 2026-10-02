@@ -1,55 +1,73 @@
 {{define "content"}}
-<h1>Roster</h1>
-<form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML">
-  <input name="id" placeholder="actor id" required>
-  <input name="project" placeholder="project (default)">
-  <input name="role" placeholder="role" required>
-  <input name="destinations" placeholder="destination overrides (optional, e.g. git=git-pat)">
-  <button type="submit">Enroll</button>
-</form>
+<div class="page-head"><h1>Roster</h1><span class="sub">Actors and the role grants they hold</span></div>
+<details class="panel">
+  <summary>Enroll actor</summary>
+  <form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML" data-reset>
+    <div class="grid">
+      <label>Actor id <span class="req">required</span><input name="id" required autocomplete="off"></label>
+      <label>Role <span class="req">required</span><input name="role" required></label>
+      <label>Project <span class="hint">blank = default</span><input name="project"></label>
+      <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
+  </form>
+</details>
 <div id="roster-panel"></div>
 {{template "roster-table" .}}
 {{end}}
 
 {{define "roster-table"}}
-<table id="roster">
-  <thead><tr><th>Actor</th><th>Expiry</th><th>Project</th><th>Role</th><th>Destinations</th><th>Actions</th></tr></thead>
+<div class="card" id="roster">
+<table>
+  <thead><tr><th>Actor</th><th>Expiry</th><th>Grants</th><th></th></tr></thead>
   <tbody>
     {{range .Actors}}
-      {{$id := .ID}}{{$exp := .Expiry}}
-      {{if .Grants}}
-        {{range .Grants}}
-        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td>
-          <td>{{.Project}}</td><td>{{.Role}}</td>
-          <td>{{range .Destinations}}{{.}} {{end}}</td>
-          <td><button hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-target="#roster" hx-swap="outerHTML"
-                  hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?">Remove</button>
-              <button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
-                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
-        {{end}}
-      {{else}}
-        <tr><td>{{$id}}</td><td>{{if $exp.IsZero}}—{{else}}{{$exp.Format "2006-01-02"}}{{end}}</td><td colspan="4" class="empty">no grants</td>
-          <td><button hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
-                  hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td></tr>
-      {{end}}
-      <tr class="add-grant"><td colspan="7">
-        <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
-          <input name="project" placeholder="project">
-          <input name="role" placeholder="role" required>
-          <input name="destinations" placeholder="destination overrides (optional, e.g. git=git-pat)">
-          <button type="submit">Add grant to {{$id}}</button>
-        </form>
-      </td></tr>
+      {{$id := .ID}}
+      <tr data-id="{{$id}}">
+        <td>{{template "entity" $id}}</td>
+        <td>{{if .Expiry.IsZero}}<span class="none">—</span>{{else}}<time title="{{.Expiry.Format "2006-01-02 15:04:05 MST"}}">{{.Expiry.Format "2006-01-02"}}</time>{{end}}</td>
+        <td>
+          {{range .Grants}}
+            <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}">{{.Project}}/{{.Role}}
+              <button type="button" aria-label="Remove grant" hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-target="#roster" hx-swap="outerHTML"
+                hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?">×</button></span>
+          {{else}}<span class="none">no grants</span>{{end}}
+          <details class="grant-add">
+            <summary>+ Grant</summary>
+            <form hx-post="/ui/actors/{{$id}}/grants" hx-target="#roster" hx-swap="outerHTML">
+              <input name="role" placeholder="role" required aria-label="Role">
+              <input name="project" placeholder="project (default)" aria-label="Project">
+              <input name="destinations" placeholder="overrides, e.g. git=git-pat" aria-label="Destination overrides">
+              <button type="submit" class="primary small">Add</button>
+            </form>
+          </details>
+        </td>
+        <td class="actions"><button class="danger small" hx-delete="/ui/enrollments/{{$id}}" hx-target="#roster" hx-swap="outerHTML"
+            hx-confirm="Revoke {{$id}}? This invalidates its token.">Revoke</button></td>
+      </tr>
     {{else}}
-      <tr><td colspan="7" class="empty">No actors enrolled.</td></tr>
+      <tr><td colspan="4" class="empty">No actors enrolled.</td></tr>
     {{end}}
   </tbody>
 </table>
+<style>
+  details.grant-add{display:inline-block;vertical-align:middle}
+  details.grant-add>summary{display:inline-block;cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--accent);padding:2px 6px;border-radius:6px}
+  details.grant-add>summary::-webkit-details-marker{display:none}
+  details.grant-add[open]{display:block;margin-top:8px}
+  details.grant-add form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  details.grant-add input{width:auto;flex:1 1 140px;padding:5px 8px}
+</style>
+</div>
 {{end}}
 
 {{define "enroll-result"}}
-<div class="token-panel">
-  <p><strong>Enrolled {{.ID}}.</strong> Copy this identity token now — it is not shown again:</p>
-  <code>{{.Token}}</code>
+<div class="banner token-panel">
+  <div style="flex:1;min-width:0">
+    <p style="margin:0 0 6px"><strong>Enrolled {{.ID}}.</strong> Copy this identity token now — it is not shown again.</p>
+    <div id="enroll-token" class="mono" style="word-break:break-all;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px"><code>{{.Token}}</code></div>
+  </div>
+  <button type="button" class="primary small" data-copy="#enroll-token">Copy</button>
 </div>
+<div hx-get="/ui/roster" hx-trigger="load" hx-select="#roster" hx-target="#roster" hx-swap="outerHTML"></div>
 {{end}}

@@ -19,7 +19,9 @@ http://127.0.0.1:8081/ui/
 
 It renders:
 
-- **Dashboard** (`/ui/`) — the live studio fleet + a roster summary.
+- **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
+  idled studios, and counts of actors, roles, kits, destinations), each linking
+  to its page, above the studio table.
 - **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
@@ -167,12 +169,20 @@ verbs in [roster.md](roster.md):
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
 - **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
+  On the Roster page each actor's grants are chips (`project/role`, with a ×
+  to remove; hover for the effective destinations), and **+ Grant** on the
+  actor's row opens its add-grant form.
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Tables show
   destination names only — credential names are never rendered in the UI, so
   re-saving a role with a bare destination name **keeps** its existing mapping
   (use the CLI's `role list` to see mappings, and `role add` to clear one).
+
+Create forms sit in collapsed **+ Add …** panels above each table. The
+outcome of a write shows in a banner at the top of the page: a refused write
+(validation error, conflict, CSRF refusal) appears as a dismissible error with
+the server's message, rather than failing silently.
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the
@@ -204,7 +214,7 @@ session opens the conversation with you on the intercom. You must be signed in
 (`/ui/auth/login`) as a login linked to a roster human in the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
-the outcome (the new session id, or the refusal) shows above the roles table.
+the outcome (the new session id, or the refusal) shows in the page's banner.
 
 Without a runtime supervisor, the Studios page is view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions
@@ -213,7 +223,7 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 ### Config plane (kits & destinations)
 
 - **Kits** — push a new version (name + config), pin the current pointer to an
-  existing version, and delete a kit. A kit still referenced by a role cannot be
+  existing version (chosen from a list of the kit's versions), and delete a kit. A kit still referenced by a role cannot be
   deleted (the UI reports a conflict). See [kits.md](kits.md).
 - **Destinations** — add a brokered destination (name, route, upstream,
   identity-in, cred-name, apply) and remove one. A `cred-name` must
