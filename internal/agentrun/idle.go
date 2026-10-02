@@ -38,8 +38,8 @@ type idleTracker struct {
 	// resumeOwed: a resume prompt was written but claude has not started the
 	// turn it asked for (no init/assistant/user/result seen since).
 	resumeOwed bool
-	changed         chan struct{} // cap 1; signalled on every state change from Observe
-	warn            func(msg string, args ...any)
+	changed    chan struct{} // cap 1; signalled on every state change from Observe
+	warn       func(msg string, args ...any)
 }
 
 func newIdleTracker(warn func(msg string, args ...any)) *idleTracker {
