@@ -57,7 +57,7 @@
 {{with .Conv}}
   {{range .Messages}}
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
-      <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}</span>
+      <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}<span class="acts"><button type="button" class="copy-text" onclick="meCopyBubble(this, false)" title="Copy the message as text">Text</button><button type="button" class="copy-md" onclick="meCopyBubble(this, true)" title="Copy the message as markdown, exactly as sent">Markdown</button></span></span>
       <div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>
       <div class="body raw">{{.Raw}}</div>
       <span class="t">{{.At}}</span>
