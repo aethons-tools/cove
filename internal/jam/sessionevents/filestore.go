@@ -95,7 +95,6 @@ func (s *FileStore) Append(ev Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, warm := s.high[p]
 	hw, err := s.highLocked(p)
 	if err != nil {
 		return err
@@ -114,13 +113,11 @@ func (s *FileStore) Append(ev Event) error {
 	if err != nil {
 		return err
 	}
-	if !warm {
-		// First append since open: a crash may have left a torn tail with no
-		// newline; terminate it so it stays an isolated skipped line.
-		if err := terminateTail(f); err != nil {
-			f.Close()
-			return err
-		}
+	// A crash or an earlier short write may have left a torn tail with no
+	// newline; terminate it so it stays an isolated skipped line.
+	if err := terminateTail(f); err != nil {
+		f.Close()
+		return err
 	}
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		f.Close()

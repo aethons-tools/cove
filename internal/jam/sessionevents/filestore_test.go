@@ -77,3 +77,29 @@ func TestNopStore(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestFileStoreAppendAfterTornTailWarmCache(t *testing.T) {
+	dir := t.TempDir()
+	const sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	s, _ := sessionevents.OpenFileStore(dir)
+	if err := s.Append(sessionevents.Event{ActorID: "w1", StreamID: sid, Seq: 1, Kind: sessionevents.KindEvent, Raw: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an in-process short write: fragment left on disk, same store (warm cache).
+	f, err := os.OpenFile(filepath.Join(dir, "w1", sid+".jsonl"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"ActorID":"w1","Seq":2,"Ki`)
+	f.Close()
+	if err := s.Append(sessionevents.Event{ActorID: "w1", StreamID: sid, Seq: 2, Kind: sessionevents.KindEvent, Raw: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Seq != 1 || evs[1].Seq != 2 {
+		t.Fatalf("want seqs 1,2 got %+v", evs)
+	}
+}
