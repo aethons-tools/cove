@@ -64,7 +64,7 @@ func parseDur(field, v string) (time.Duration, error) {
 		d, err = time.Duration(n)*time.Second, nil
 	}
 	if err != nil || d < 0 {
-		return 0, &jam.RoleError{Status: http.StatusBadRequest, Msg: field + ` must be a duration like "30m" or "1h30m"`}
+		return 0, &jam.WriteError{Status: http.StatusBadRequest, Msg: field + ` must be a duration like "30m" or "1h30m"`}
 	}
 	return d, nil
 }
@@ -77,7 +77,7 @@ func parseCount(field, v string) (int, error) {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil || n < 0 {
-		return 0, &jam.RoleError{Status: http.StatusBadRequest, Msg: field + " must be a whole number ≥ 0"}
+		return 0, &jam.WriteError{Status: http.StatusBadRequest, Msg: field + " must be a whole number ≥ 0"}
 	}
 	return n, nil
 }
@@ -87,7 +87,7 @@ func splitList(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 }
 
-func badRequest(msg string) error { return &jam.RoleError{Status: http.StatusBadRequest, Msg: msg} }
+func badRequest(msg string) error { return &jam.WriteError{Status: http.StatusBadRequest, Msg: msg} }
 
 // registerRoleEdits mounts the role page's per-section writes. Each goes
 // through jam's role read-modify-write functions (one shared lock with the JSON
@@ -106,7 +106,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, cr
 			}
 			project, name := r.PathValue("project"), r.PathValue("name")
 			if err := apply(r, project, name); err != nil {
-				renderError(w, jam.RoleStatus(err, http.StatusInternalServerError), err.Error())
+				renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 				return
 			}
 			log.Info("ui role "+what, "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)

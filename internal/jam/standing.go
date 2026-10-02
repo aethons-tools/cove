@@ -53,7 +53,7 @@ func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger) {
 			return
 		}
 		if err := AddStanding(store, project, roleName, b); err != nil {
-			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name, "id", StandingActorID(project, roleName, b.Name))
@@ -63,7 +63,7 @@ func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger) {
 	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/standing/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName, name := r.PathValue("project"), r.PathValue("role"), r.PathValue("name")
 		if err := RemoveStanding(store, project, roleName, name); err != nil {
-			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin standing session dismissed", "operator", OperatorID(r), "project", project, "role", roleName, "name", name)

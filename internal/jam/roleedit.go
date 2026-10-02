@@ -1,8 +1,6 @@
 package jam
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"slices"
 	"sync"
@@ -14,29 +12,8 @@ import (
 // the functions in this file.
 var roleMu sync.Mutex
 
-// RoleError is a refused role write, carrying the HTTP status it maps to.
-type RoleError struct {
-	Status int
-	Msg    string
-}
-
-func (e *RoleError) Error() string { return e.Msg }
-
-func roleErr(status int, format string, a ...any) error {
-	return &RoleError{Status: status, Msg: fmt.Sprintf(format, a...)}
-}
-
-// RoleStatus is err's HTTP status: a *RoleError's own, else fallback (the
-// caller's status for a store failure).
-func RoleStatus(err error, fallback int) int {
-	if re, ok := errors.AsType[*RoleError](err); ok {
-		return re.Status
-	}
-	return fallback
-}
-
 // UpdateRole applies fn to the stored role and stores the result, under the
-// role lock. A missing role is a 404 RoleError; an error from fn aborts the
+// role lock. A missing role is a 404 WriteError; an error from fn aborts the
 // write and is returned as is. fn edits a copy, but its slices and maps may
 // alias the stored role's, so it must replace them, never mutate in place.
 func UpdateRole(store Store, project, name string, fn func(*Role) error) error {
@@ -44,7 +21,7 @@ func UpdateRole(store Store, project, name string, fn func(*Role) error) error {
 	defer roleMu.Unlock()
 	role, ok := store.GetRole(project, name)
 	if !ok {
-		return roleErr(http.StatusNotFound, "role %s/%s does not exist", project, name)
+		return writeErr(http.StatusNotFound, "role %s/%s does not exist", project, name)
 	}
 	if err := fn(&role); err != nil {
 		return err
@@ -52,12 +29,12 @@ func UpdateRole(store Store, project, name string, fn func(*Role) error) error {
 	return store.PutRole(project, role)
 }
 
-// CreateRole stores a new role; an existing one is a 409 RoleError.
+// CreateRole stores a new role; an existing one is a 409 WriteError.
 func CreateRole(store Store, project string, role Role) error {
 	roleMu.Lock()
 	defer roleMu.Unlock()
 	if _, ok := store.GetRole(project, role.Name); ok {
-		return roleErr(http.StatusConflict, "role %s/%s already exists", orDefaultProject(project), role.Name)
+		return writeErr(http.StatusConflict, "role %s/%s already exists", orDefaultProject(project), role.Name)
 	}
 	return store.PutRole(project, role)
 }
@@ -76,13 +53,13 @@ func PutRoleKeeping(store Store, project string, role Role) error {
 }
 
 // SetRoleEgress replaces the role's egress policy with the normalized domains
-// and returns how many it kept. A bad domain is a 400 RoleError.
+// and returns how many it kept. A bad domain is a 400 WriteError.
 func SetRoleEgress(store Store, project, name string, domains []string) (int, error) {
 	n := 0
 	err := UpdateRole(store, project, name, func(r *Role) error {
 		norm, err := NormalizeEgress(domains)
 		if err != nil {
-			return &RoleError{Status: http.StatusBadRequest, Msg: err.Error()}
+			return &WriteError{Status: http.StatusBadRequest, Msg: err.Error()}
 		}
 		// A fresh policy, so the stored role never aliases one a reader holds.
 		r.Scope.Egress = &EgressPolicy{Domains: norm}
@@ -103,20 +80,20 @@ func ClearRoleEgress(store Store, project, name string) error {
 
 // AddStanding declares a standing session on the role. A missing name or
 // prompt, a duplicate name, or an actor id that collides with another
-// declaration (in any role or project) is a 400 RoleError.
+// declaration (in any role or project) is a 400 WriteError.
 func AddStanding(store Store, project, name string, s StandingSession) error {
 	if s.Name == "" || s.Prompt == "" {
-		return roleErr(http.StatusBadRequest, "name and prompt are required")
+		return writeErr(http.StatusBadRequest, "name and prompt are required")
 	}
 	return UpdateRole(store, project, name, func(r *Role) error {
 		if slices.ContainsFunc(r.Allocation.Standing, func(x StandingSession) bool { return x.Name == s.Name }) {
-			return roleErr(http.StatusBadRequest, "standing session %q is already declared on %s/%s", s.Name, project, name)
+			return writeErr(http.StatusBadRequest, "standing session %q is already declared on %s/%s", s.Name, project, name)
 		}
 		// The reconciler keys each cove on its actor id, so it must be unique across
 		// every declaration, in any role or project.
 		id := StandingActorID(project, name, s.Name)
 		if owner, ok := standingIDHolder(store, id); ok {
-			return roleErr(http.StatusBadRequest, "standing session %q would share actor id %s with declared %s; pick a name that differs in [A-Za-z0-9._-]", s.Name, id, owner)
+			return writeErr(http.StatusBadRequest, "standing session %q would share actor id %s with declared %s; pick a name that differs in [A-Za-z0-9._-]", s.Name, id, owner)
 		}
 		r.Allocation.Standing = append(slices.Clone(r.Allocation.Standing), s)
 		return nil
@@ -124,12 +101,12 @@ func AddStanding(store Store, project, name string, s StandingSession) error {
 }
 
 // RemoveStanding dismisses a declared standing session; an unknown one is a
-// 404 RoleError.
+// 404 WriteError.
 func RemoveStanding(store Store, project, name, session string) error {
 	return UpdateRole(store, project, name, func(r *Role) error {
 		i := slices.IndexFunc(r.Allocation.Standing, func(s StandingSession) bool { return s.Name == session })
 		if i < 0 {
-			return roleErr(http.StatusNotFound, "no standing session %q on %s/%s", session, project, name)
+			return writeErr(http.StatusNotFound, "no standing session %q on %s/%s", session, project, name)
 		}
 		r.Allocation.Standing = slices.Delete(slices.Clone(r.Allocation.Standing), i, i+1)
 		if len(r.Allocation.Standing) == 0 {

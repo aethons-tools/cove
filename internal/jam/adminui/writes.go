@@ -206,10 +206,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		// Create only: an existing role is edited section by section on its page.
 		if err := jam.CreateRole(store, project, role); err != nil {
 			msg := err.Error()
-			if jam.RoleStatus(err, 0) == http.StatusConflict {
+			if jam.WriteStatus(err, 0) == http.StatusConflict {
 				msg += "; edit it on its page"
 			}
-			renderError(w, jam.RoleStatus(err, http.StatusBadRequest), msg)
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
 			return
 		}
 		w.Header().Set("HX-Redirect", roleURL(project, name))

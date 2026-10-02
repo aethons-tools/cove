@@ -108,7 +108,7 @@ func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		n, err := SetRoleEgress(store, project, roleName, b.Domains)
 		if err != nil {
-			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin role egress set", "operator", OperatorID(r), "project", project, "role", roleName, "domains", n)
@@ -118,7 +118,7 @@ func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger) {
 	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/egress", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName := r.PathValue("project"), r.PathValue("role")
 		if err := ClearRoleEgress(store, project, roleName); err != nil {
-			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin role egress cleared", "operator", OperatorID(r), "project", project, "role", roleName)
