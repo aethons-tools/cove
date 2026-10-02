@@ -58,21 +58,19 @@ type serveConfig struct {
 		Cert string `yaml:"cert"`
 		Key  string `yaml:"key"`
 	} `yaml:"admin-tls"`
-	Store string `yaml:"store"`
-	// IntercomLog is an optional path to the durable intercom JSONL log file. When set,
-	// `serve` opens it and the admin UI serves the read-only Intercom view
-	// (/ui/intercom). Created on first open. Empty disables the view.
-	IntercomLog string `yaml:"intercom-log"`
-	// SessionEventsDir is the file backend for managed-cove session events
-	// (one JSONL per stream). Ignored when store-postgres is set (events then
-	// go to Postgres). Neither → events are acked and dropped. See
-	// docs/usage/jam/session-events.md.
+	// Store, IntercomLog and SessionEventsDir are REMOVED file backends
+	// (Postgres-only Jam, docs/usage/jam/serve.md). They are kept only so
+	// validateStorage can reject a config that still sets them.
+	Store            string `yaml:"store"`
+	IntercomLog      string `yaml:"intercom-log"`
 	SessionEventsDir string `yaml:"session-events-dir"`
+	// StateDir holds Jam's remaining file state (relay cursors, markers,
+	// receipts — no Postgres equivalent yet). Empty → atJamStateDir().
+	StateDir string `yaml:"state-dir"`
 	// SessionEventsRetention bounds how long session events are kept: "<N>d"
 	// or a Go duration; empty keeps forever.
 	SessionEventsRetention string `yaml:"session-events-retention"`
-	// StorePostgres, when set, selects the Postgres store backend and takes
-	// precedence over the file `store`. The DB password is never inline — it is a
+	// StorePostgres is required: Postgres is Jam's only store backend. The DB password is never inline — it is a
 	// named credential resolved on the host in memory (see password-cred).
 	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
 	// CredentialsFile is the protected supply file that resolves each demanded
@@ -119,8 +117,8 @@ type serveConfig struct {
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
-// runs whenever Jam has an intercom log or a Requisitioner. Each field is
-// optional and resolves runtime.wake > the matching runtime.requisitioner field
+// runs whenever Jam has a Requisitioner (the message log via Postgres is always present).
+// Each field is optional and resolves runtime.wake > the matching runtime.requisitioner field
 // (wake-poll-interval / wait-max / warm-timeout) > the engine default.
 type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
@@ -312,6 +310,47 @@ type requisitionerConfig struct {
 	EscalationPollInterval string `yaml:"escalation-poll-interval"`
 }
 
+const removedStorageHint = "Jam is Postgres-only: set store-postgres instead. To keep an existing file Jam's config, run `at-jam export` against it (on the old version) and `at-jam import` into the Postgres Jam (docs/usage/jam/backup.md); squawk history and session events in the old files are not migrated"
+
+// validateStorage requires store-postgres and rejects the removed file-backend
+// keys with a migration hint.
+func (c serveConfig) validateStorage() error {
+	for _, k := range []struct{ name, val string }{
+		{"store", c.Store}, {"intercom-log", c.IntercomLog}, {"session-events-dir", c.SessionEventsDir},
+	} {
+		if k.val != "" {
+			return fmt.Errorf("%s is no longer supported. %s", k.name, removedStorageHint)
+		}
+	}
+	if c.StorePostgres == nil {
+		return fmt.Errorf("store-postgres is required (Jam is Postgres-only; see docs/usage/jam/serve.md)")
+	}
+	return nil
+}
+
+// atJamStateDir is $XDG_STATE_HOME/at-jam, else ~/.local/state/at-jam.
+func atJamStateDir() string {
+	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+		return filepath.Join(x, "at-jam")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "at-jam")
+}
+
+// stateDir is where Jam keeps its remaining file state (relay cursors,
+// markers, receipts).
+func (c serveConfig) stateDir() string {
+	if c.StateDir != "" {
+		return c.StateDir
+	}
+	return atJamStateDir()
+}
+
+// relayStatePaths returns the relay cursor, marker and receipt files under dir.
+func relayStatePaths(dir string) (cursors, markers, receipts string) {
+	return filepath.Join(dir, "relay-cursors.json"), filepath.Join(dir, "relay-markers.json"), filepath.Join(dir, "relay-receipts.json")
+}
+
 // storePostgresConfig selects and configures the Postgres store backend. The
 // password is never inline: PasswordCred names an entry in `credentials`,
 // resolved on the host in memory when serve assembles the DSN.
@@ -325,8 +364,8 @@ type storePostgresConfig struct {
 }
 
 // validateStorePostgres checks store-postgres when present: required fields set,
-// and password-cred names a configured credential. A no-op when unset (the file
-// backend is used).
+// and password-cred names a configured credential. A no-op when unset (use
+// validateStorage to require it).
 func (c serveConfig) validateStorePostgres() error {
 	p := c.StorePostgres
 	if p == nil {

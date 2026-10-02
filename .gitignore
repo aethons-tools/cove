@@ -19,3 +19,6 @@
 /at-task
 /cove-master
 /gen-blessed
+
+# Per-command build outputs in cmd/*/
+/cmd/*/at-*

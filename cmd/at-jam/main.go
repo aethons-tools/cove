@@ -1564,6 +1564,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateStorage(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validateStorePostgres(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1595,12 +1599,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// Select the store backend. store-postgres wins when set; otherwise the file
-	// store. The DB password is resolved on the host in memory and assembled into
+	// Postgres is the only store backend (validateStorage guarantees
+	// store-postgres is set). The DB password is resolved on the host in memory and assembled into
 	// the DSN — never written to disk/argv, never logged.
 	var st jam.Store
-	var pgPool *pgxpool.Pool // non-nil ⇒ Postgres backend; shared with the message log
-	if pc := cfg.StorePostgres; pc != nil {
+	var pgPool *pgxpool.Pool // shared with the message log and session events
+	{
+		pc := cfg.StorePostgres
 		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: store-postgres password:", err)
@@ -1617,14 +1622,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		st = ps
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
-	} else {
-		fs, err := jam.NewFileStore(cfg.Store)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		st = fs
-		log.Info("Jam store: file", "path", cfg.Store)
 	}
 
 	base := jam.NewSecretResolver(runner.OS{}, specs)
@@ -1713,63 +1710,28 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Message Log: opened once (handle held for the serve lifetime) and shared
 	// between the /squawks writer (dual-write shadow, below) and the admin UI's
-	// read-only reader (further down). Backend follows the store backend:
-	// Postgres (shared control-plane pool) when store-postgres is set, else the
-	// file log at intercom-log. Unset config → nil → the writer's dual-write is
-	// disabled and the admin view renders a "not configured" notice.
-	var intercomLog intercom.Store
-	switch {
-	case pgPool != nil:
-		ml, err := intercompg.New(context.Background(), pgPool, log)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: intercom-log (postgres):", err)
-			return 1
-		}
-		intercomLog = ml // Close is a no-op; the store owns the pool
-		log.Info("Jam message log: postgres (shared control-plane database)")
-	case cfg.IntercomLog != "":
-		ml, err := intercom.Open(cfg.IntercomLog, log)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: intercom-log:", err)
-			return 1
-		}
-		defer ml.Close()
-		intercomLog = ml
-		log.Info("Jam message log: file", "path", cfg.IntercomLog)
+	// read-only reader (further down). Postgres (the shared control-plane pool).
+	ml, err := intercompg.New(context.Background(), pgPool, log)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam: intercom-log (postgres):", err)
+		return 1
 	}
+	var intercomLog intercom.Store = ml // Close is a no-op; the store owns the pool
+	log.Info("Jam message log: postgres (shared control-plane database)")
 	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
 	// one handle, so wrapping it lets live views (/me/events) see each append.
-	var logChanges *intercom.Notifier
-	if intercomLog != nil {
-		logChanges = intercom.NewNotifier(intercomLog)
-		intercomLog = logChanges
-		sup.SetTailReader(intercomLog)
-	}
+	logChanges := intercom.NewNotifier(intercomLog)
+	intercomLog = logChanges
+	sup.SetTailReader(intercomLog)
 
-	// Session events (docs/usage/jam/session-events.md): backend follows the
-	// store backend like the message log; unset → a no-op store, so coves are
-	// still acked and never back up.
-	var sessStore sessionevents.Store = sessionevents.NopStore{}
-	switch {
-	case pgPool != nil:
-		ss, err := sessionpg.New(context.Background(), pgPool, log)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: session events (postgres):", err)
-			return 1
-		}
-		sessStore = ss
-		log.Info("Jam session events: postgres (shared control-plane database)")
-	case cfg.SessionEventsDir != "":
-		fstore, err := sessionevents.OpenFileStore(cfg.SessionEventsDir)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		sessStore = fstore
-		log.Info("Jam session events: file", "dir", cfg.SessionEventsDir)
-	default:
-		log.Info("Jam session events: not stored (no session-events-dir or store-postgres)")
+	// Session events (docs/usage/jam/session-events.md): stored in the shared
+	// control-plane Postgres.
+	sessStore, err := sessionpg.New(context.Background(), pgPool, log)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam: session events (postgres):", err)
+		return 1
 	}
+	log.Info("Jam session events: postgres (shared control-plane database)")
 	sessHub := sessionevents.NewHub()
 	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
 	if keep, _ := sessionevents.ParseRetention(cfg.SessionEventsRetention); keep > 0 {
@@ -1831,14 +1793,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
-	// the Discord relay — runs whenever Jam has an intercom log, Requisitioner or
-	// not: a personal session converses with its owner over it. The tracker, the
+	// the Discord relay — runs always (message log via Postgres is always present):
+	// a personal session converses with its owner over it. The tracker, the
 	// Requisitioner, the escalation engine and the Linear relay need the tracker, so
 	// they stay in the Requisitioner block below.
 	dc := cfg.Runtime.Requisitioner
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below:
-	// the broker, plus /squawks and /escalate with an intercom log or a Requisitioner.
+	// the broker, plus /squawks and /escalate (always available).
 	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, log)
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
@@ -1847,28 +1809,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tears down non-personal ones past wait-max, and runs the personal-session
 	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
 	// of the process. Settings: runtime.wake > runtime.requisitioner > defaults.
-	if intercomLog != nil || dc != nil {
-		// Pass intercomLog as the Inbox only when it's genuinely non-nil (a plain
-		// nil check — no typed-nil hazard).
-		var inbox wakeon.Inbox
-		if intercomLog != nil {
-			inbox = intercomLog
-		} else {
-			log.Warn("Jam wake-on: intercom-log not configured — studios will not wake on replies (teardown/pause only)")
-		}
-		wcfg := cfg.wakeSettings()
-		eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, inbox /*Inbox, may be nil*/, wcfg, log)
-		// Personal-session idle ladder: nag the owner past the role's idle-after
-		// (squawks sent as the cove, delivered by the relay), optionally reclaim
-		// past reclaim-after. No intercom log → no nags, reclaim still runs.
-		var nagger wakeon.Nagger
-		if intercomLog != nil {
-			nagger = intercomNagger{log: intercomLog, roster: st}
-		}
-		eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
-		go eng.Run(context.Background())
-		log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
-	}
+	wcfg := cfg.wakeSettings()
+	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, intercomLog /*Inbox*/, wcfg, log)
+	// Personal-session idle ladder: nag the owner past the role's idle-after
+	// (squawks sent as the cove, delivered by the relay), optionally reclaim
+	// past reclaim-after.
+	nagger := intercomNagger{log: intercomLog, roster: st}
+	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
+	go eng.Run(context.Background())
+	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 
 	// Relay state shared by the Linear and Discord relay engines (one cursors
 	// file, one markers file, one directory). Every directory field is set
@@ -1879,26 +1828,33 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		discordTok   string
 	)
 	dir := &directory{store: st, log: log}
-	runDiscord := intercomLog != nil && cfg.Runtime.Discord != nil
-	if intercomLog != nil && (dc != nil || runDiscord) {
-		if relayCursors, err = newFileCursors(filepath.Join(filepath.Dir(cfg.Store), "relay-cursors.json")); err != nil {
+	runDiscord := cfg.Runtime.Discord != nil
+	stateDir := cfg.stateDir()
+	if dc != nil || runDiscord {
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
+			fmt.Fprintln(stderr, "at-jam: state-dir:", err)
+			return 1
+		}
+		cursorsPath, markersPath, _ := relayStatePaths(stateDir)
+		if relayCursors, err = newFileCursors(cursorsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
 			return 1
 		}
-		if relayMarkers, err = newFileMarkers(filepath.Join(filepath.Dir(cfg.Store), "relay-markers.json")); err != nil {
+		if relayMarkers, err = newFileMarkers(markersPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay markers:", err)
 			return 1
 		}
 	}
 	var discordReceipts *fileReceipts
 	if runDiscord {
+		_, _, receiptsPath := relayStatePaths(stateDir)
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Runtime.Discord.BotTokenCred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: discord bot-token:", err)
 			return 1
 		}
 		discordTok = tokEnv[cfg.Runtime.Discord.BotTokenCred]
-		if discordReceipts, err = newFileReceipts(filepath.Join(filepath.Dir(cfg.Store), "relay-receipts.json")); err != nil {
+		if discordReceipts, err = newFileReceipts(receiptsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
 		}
@@ -1949,44 +1905,40 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// appends inbound human replies to the intercomLog opened above
 		// (ingress), and delivers outbound Log messages to Linear (egress,
 		// COV-176 Task 4) — the Log is the single source of truth for both
-		// directions. Nil-guarded on intercomLog: without a configured
-		// intercom-log there is nothing to ingest into or deliver from, so no
-		// engine runs.
-		if intercomLog != nil {
-			self, err := tracker.Viewer(context.Background())
-			if err != nil {
-				log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
-			}
-			dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
-			dir.selfIdentity = self
-			surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
-			// Seed once: skip everything the 1a dual-write already delivered live,
-			// so turning egress on never re-posts the Log's shadow history.
-			// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
-			// newer tail would drop messages appended-but-not-yet-delivered since
-			// the first cutover). needsSeed also re-seeds a marker whose LastSeq
-			// is zero, which covers a pre-COV-184 marker file (persisted the
-			// low-water as LastMsg, a string) upgrading in place — see
-			// fileMarkers.needsSeed.
-			if relayMarkers.needsSeed("linear") {
-				if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
-					fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
-					return 1
-				}
-			}
-			eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
-			go eng.Run(context.Background())
-			log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
+		// directions.
+		self, err := tracker.Viewer(context.Background())
+		if err != nil {
+			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 		}
-	}
+		dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
+		dir.selfIdentity = self
+		surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
+		// Seed once: skip everything the 1a dual-write already delivered live,
+		// so turning egress on never re-posts the Log's shadow history.
+		// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
+		// newer tail would drop messages appended-but-not-yet-delivered since
+		// the first cutover). needsSeed also re-seeds a marker whose LastSeq
+		// is zero, which covers a pre-COV-184 marker file (persisted the
+		// low-water as LastMsg, a string) upgrading in place — see
+		// fileMarkers.needsSeed.
+		if relayMarkers.needsSeed("linear") {
+			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+				fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
+				return 1
+			}
+		}
+		eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		go eng.Run(context.Background())
+		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
+	}
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for
 	// human replies, routing a reply back to the cove it answers via the receipt
 	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
-	// "discord" marks live side by side in the one markers file. Gated on an
-	// intercom log and runtime.discord; no Requisitioner needed.
+	// "discord" marks live side by side in the one markers file. Gated on
+	// runtime.discord; no Requisitioner needed.
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {
@@ -2046,12 +1998,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 		// Read-only intercom-log view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
-		// read-only reader. Unset config → intercomLog nil → squawkReader stays its
-		// zero value and the view renders a "not configured" notice.
-		var squawkReader adminui.SquawkReader
-		if intercomLog != nil {
-			squawkReader = intercomLog
-		}
+		// read-only reader.
+		var squawkReader adminui.SquawkReader = intercomLog
 
 		uiMux := http.NewServeMux()
 		gate := browserauth.Gate{
@@ -2116,25 +2064,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// The gated participant surface: the landing view and the send
 			// endpoint (POST /me/send), the human analog of the agent send tool.
 			// It writes to the same intercom Log the agent send + relay ingress
-			// use (nil Log → send 503), so a reply wakes a waiting studio.
+			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
-			var sendH *jam.ParticipantSendHandler
-			if intercomLog != nil {
-				sendH = jam.NewParticipantSendHandler(st, intercomLog, log)
-			} else {
-				sendH = jam.NewParticipantSendHandler(st, nil, log)
-			}
+			sendH := jam.NewParticipantSendHandler(st, intercomLog, log)
 			meSurface.Handle("/me/send", sendH)
-			// The inbox reads the same intercom Log; a nil Log (unconfigured)
-			// renders an empty inbox rather than failing.
-			var meLog jam.LogReader
-			if intercomLog != nil {
-				meLog = intercomLog
-			}
+			// The inbox reads the same intercom Log.
+			var meLog jam.LogReader = intercomLog
 			var meOpts []meui.Option
-			if logChanges != nil {
-				meOpts = append(meOpts, meui.WithChanges(logChanges))
-			}
+			meOpts = append(meOpts, meui.WithChanges(logChanges))
 			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux

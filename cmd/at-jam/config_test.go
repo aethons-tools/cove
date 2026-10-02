@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +15,7 @@ import (
 
 func TestUnknownServeKeys(t *testing.T) {
 	// a clean config → no unknowns
-	if got := unknownServeKeys([]byte("listen: \":8443\"\nadmin-listen: \"127.0.0.1:8081\"\nstore: /s.json\n")); len(got) != 0 {
+	if got := unknownServeKeys([]byte("listen: \":8443\"\nadmin-listen: \"127.0.0.1:8081\"\nstore-postgres: {}\n")); len(got) != 0 {
 		t.Fatalf("clean config unknowns = %v", got)
 	}
 	// a stray destinations block + a hyphen/underscore typo → both reported, sorted
@@ -21,7 +24,7 @@ func TestUnknownServeKeys(t *testing.T) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)
-	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nintercom-log: m\nstore-postgres: {}\n"
+	known := "listen: a\nadmin-listen: b\ntls: {}\nadmin-tls: {}\nstore: s\ncredentials: {}\noperator-auth: {}\nintercom-log: m\nsession-events-dir: e\nstate-dir: d\nstore-postgres: {}\n"
 	if got := unknownServeKeys([]byte(known)); len(got) != 0 {
 		t.Fatalf("all-known config flagged: %v", got)
 	}
@@ -133,7 +136,7 @@ func TestParseServeConfigOIDC(t *testing.T) {
 	cfg, err := parseServeConfig([]byte(`
 listen: ":8443"
 admin-listen: "127.0.0.1:8081"
-store: /s.json
+store-postgres: {}
 operator-auth:
   oidc:
     issuer: https://acme.us.auth0.com/
@@ -154,7 +157,7 @@ func TestParseServeConfig(t *testing.T) {
 listen: ":8443"
 admin-listen: "127.0.0.1:8081"
 tls: { cert: /c.pem, key: /k.pem }
-store: /var/lib/jam/store.json
+state-dir: /var/lib/jam/state
 credentials:
   anthropic-key: {}
   git-pat: {}
@@ -163,7 +166,7 @@ credentials:
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.Store != "/var/lib/jam/store.json" {
+	if cfg.Listen != ":8443" || cfg.AdminListen != "127.0.0.1:8081" || cfg.StateDir != "/var/lib/jam/state" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	// Credentials are name-only demands; values come from the credentials file.
@@ -177,7 +180,7 @@ credentials:
 }
 
 func TestRuntimeDurationsDefaults(t *testing.T) {
-	c, err := parseServeConfig([]byte("listen: \":443\"\nstore: /tmp/s.json\n"))
+	c, err := parseServeConfig([]byte("listen: \":443\"\nstate-dir: /tmp/s\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,23 +476,6 @@ func TestDevIdentityParsedAndLoopbackOnly(t *testing.T) {
 	}
 }
 
-func TestServeConfigIntercomLog(t *testing.T) {
-	var c serveConfig
-	if err := yaml.Unmarshal([]byte("intercom-log: /var/lib/jam/squawks.jsonl\n"), &c); err != nil {
-		t.Fatal(err)
-	}
-	if c.IntercomLog != "/var/lib/jam/squawks.jsonl" {
-		t.Fatalf("IntercomLog = %q, want the configured path", c.IntercomLog)
-	}
-	var empty serveConfig
-	if err := yaml.Unmarshal([]byte("listen: \":443\"\n"), &empty); err != nil {
-		t.Fatal(err)
-	}
-	if empty.IntercomLog != "" {
-		t.Fatalf("IntercomLog default = %q, want empty", empty.IntercomLog)
-	}
-}
-
 func TestServeConfigStorePostgres(t *testing.T) {
 	y := "store-postgres:\n  host: db\n  port: 5432\n  database: jam\n  user: jam\n  sslmode: verify-full\n  password-cred: jam-db\n"
 	var c serveConfig
@@ -505,7 +491,7 @@ func TestServeConfigStorePostgres(t *testing.T) {
 	}
 	// Absent block => nil.
 	var empty serveConfig
-	if err := yaml.Unmarshal([]byte("store: /s.json\n"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte("listen: \":443\"\n"), &empty); err != nil {
 		t.Fatal(err)
 	}
 	if empty.StorePostgres != nil {
@@ -514,7 +500,7 @@ func TestServeConfigStorePostgres(t *testing.T) {
 }
 
 func TestValidateStorePostgres(t *testing.T) {
-	// nil block is valid (file backend).
+	// nil block passes validateStorePostgres; presence is enforced by validateStorage.
 	if err := (serveConfig{}).validateStorePostgres(); err != nil {
 		t.Fatalf("nil store-postgres should be valid: %v", err)
 	}
@@ -876,5 +862,54 @@ func TestParseServeConfigSessionEvents(t *testing.T) {
 	bad, _ := parseServeConfig([]byte("session-events-retention: forever\n"))
 	if err := bad.validateSessionEvents(); err == nil {
 		t.Fatal("want a validation error")
+	}
+}
+
+func TestValidateRemovedStorageKeys(t *testing.T) {
+	pg := "store-postgres: {host: h, port: 5432, database: d, user: u, password-cred: p, sslmode: disable}\n"
+	for _, key := range []string{"store: /var/lib/jam/store.json", "intercom-log: /var/lib/jam/log.jsonl", "session-events-dir: /var/lib/jam/events"} {
+		c, err := parseServeConfig([]byte(pg + key + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.validateStorage()
+		name := strings.SplitN(key, ":", 2)[0]
+		if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "at-jam export") || !strings.Contains(err.Error(), "not migrated") {
+			t.Errorf("%s: want removed-key error naming it with the export/import hint, got %v", name, err)
+		}
+	}
+}
+
+func TestValidateStorageRequiresPostgres(t *testing.T) {
+	c, _ := parseServeConfig([]byte("listen: \":443\"\n"))
+	if err := c.validateStorage(); err == nil || !strings.Contains(err.Error(), "store-postgres") {
+		t.Fatalf("want store-postgres required, got %v", err)
+	}
+	ok, _ := parseServeConfig([]byte("store-postgres: {host: h, port: 5432, database: d, user: u, password-cred: p, sslmode: disable}\n"))
+	if err := ok.validateStorage(); err != nil {
+		t.Fatalf("valid postgres config: %v", err)
+	}
+}
+
+func TestStateDirDefault(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/xdg/state")
+	if got := (serveConfig{}).stateDir(); got != "/xdg/state/at-jam" {
+		t.Fatalf("XDG: got %q", got)
+	}
+	t.Setenv("XDG_STATE_HOME", "")
+	home, _ := os.UserHomeDir()
+	if got := (serveConfig{}).stateDir(); got != filepath.Join(home, ".local", "state", "at-jam") {
+		t.Fatalf("home default: got %q", got)
+	}
+	c, _ := parseServeConfig([]byte("state-dir: /srv/jam-state\n"))
+	if got := c.stateDir(); got != "/srv/jam-state" {
+		t.Fatalf("explicit: got %q", got)
+	}
+}
+
+func TestRelayStatePaths(t *testing.T) {
+	c, m, r := relayStatePaths("/srv/state")
+	if c != "/srv/state/relay-cursors.json" || m != "/srv/state/relay-markers.json" || r != "/srv/state/relay-receipts.json" {
+		t.Fatalf("%s %s %s", c, m, r)
 	}
 }
