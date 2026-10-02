@@ -95,6 +95,7 @@ func (s *FileStore) Append(ev Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	_, warm := s.high[p]
 	hw, err := s.highLocked(p)
 	if err != nil {
 		return err
@@ -109,9 +110,17 @@ func (s *FileStore) Append(ev Event) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
+	}
+	if !warm {
+		// First append since open: a crash may have left a torn tail with no
+		// newline; terminate it so it stays an isolated skipped line.
+		if err := terminateTail(f); err != nil {
+			f.Close()
+			return err
+		}
 	}
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		f.Close()
@@ -122,6 +131,23 @@ func (s *FileStore) Append(ev Event) error {
 	}
 	s.high[p] = ev.Seq
 	return nil
+}
+
+// terminateTail writes '\n' if f is non-empty and its last byte isn't one.
+func terminateTail(f *os.File) error {
+	st, err := f.Stat()
+	if err != nil || st.Size() == 0 {
+		return err
+	}
+	var last [1]byte
+	if _, err := f.ReadAt(last[:], st.Size()-1); err != nil {
+		return err
+	}
+	if last[0] == '\n' {
+		return nil
+	}
+	_, err = f.Write([]byte{'\n'})
+	return err
 }
 
 func (s *FileStore) HighWater(actorID, streamID string) (uint64, error) {

@@ -1,6 +1,8 @@
 package sessionevents_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
@@ -37,6 +39,32 @@ func TestFileStoreHighWaterSurvivesReopen(t *testing.T) {
 	s2, _ := sessionevents.OpenFileStore(dir)
 	if hw, _ := s2.HighWater("w1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); hw != 4 {
 		t.Fatalf("hw after reopen %d", hw)
+	}
+}
+
+func TestFileStoreAppendAfterTornTail(t *testing.T) {
+	dir := t.TempDir()
+	const sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	s, _ := sessionevents.OpenFileStore(dir)
+	if err := s.Append(sessionevents.Event{ActorID: "w1", StreamID: sid, Seq: 1, Kind: sessionevents.KindEvent, Raw: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "w1", sid+".jsonl"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"ActorID":"w1","Seq":2,"Ki`)
+	f.Close()
+	s2, _ := sessionevents.OpenFileStore(dir)
+	if err := s2.Append(sessionevents.Event{ActorID: "w1", StreamID: sid, Seq: 2, Kind: sessionevents.KindEvent, Raw: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s2.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Seq != 1 || evs[1].Seq != 2 {
+		t.Fatalf("want seqs 1,2 got %+v", evs)
 	}
 }
 
