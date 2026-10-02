@@ -256,6 +256,8 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 - `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
   to use the destination — see [connector.md](connector.md), which also covers
   the `gh` (GitHub API) destinations.
+- `--note` (≤ 300 bytes) is a usage hint shown to sessions granted the destination —
+  see [connector.md](connector.md#notes-for-sessions).
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
   pool resolves by identity, not from `credentials:`). Validated at add time.

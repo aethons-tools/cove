@@ -18,6 +18,10 @@ layers, in delivery order:
 | Kit | the studio kit's `prompt` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
 | Studio | generated at raise: granted destinations (upstream, env keys, git routing, each destination's [note](connector.md#notes-for-sessions)), effective egress (the role's policy, else the kit ceiling), message targets | 1600 B — never truncated: long lists move to `studio/destinations.md`, `egress.md`, `targets.md` |
 
+The Studio layer is a snapshot taken at raise: grant, destination and egress edits
+(including an egress-drift reapply) reach a running session only when it is raised
+again, until per-turn refresh lands.
+
 Raise logs a warning when the kit prompt restates an egress host or a message
 target — those belong to the Studio layer.
 
