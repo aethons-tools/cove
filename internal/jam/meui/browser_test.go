@@ -13,10 +13,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -61,29 +64,37 @@ func serveInbox(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// pasteJS fires a paste event carrying text at the focused element, as the
-// browser does for a real paste; headless Chrome has no system clipboard.
-const pasteJS = `(function(text){
-  var dt=new DataTransfer(); dt.setData('text/plain', text);
-  document.activeElement.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt, bubbles:true, cancelable:true}));
-})`
+// copy puts text on the browser's clipboard (headless Chrome keeps its own,
+// in-process), so a paste shortcut pastes it as a real, trusted paste event.
+// writeText is refused on later calls unless clipboard-read is granted too.
+func copy(origin, text string) chromedp.Action {
+	return chromedp.Tasks{
+		browser.SetPermission(&browser.PermissionDescriptor{Name: "clipboard-write"}, browser.PermissionSettingGranted).WithOrigin(origin),
+		browser.SetPermission(&browser.PermissionDescriptor{Name: "clipboard-read"}, browser.PermissionSettingGranted).WithOrigin(origin),
+		chromedp.Evaluate(`navigator.clipboard.writeText(`+strconv.Quote(text)+`)`, nil,
+			func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
+	}
+}
 
 func TestBrowserComposerPastesAsCode(t *testing.T) {
 	ctx := browserCtx(t)
 	srv := serveInbox(t)
+	// ByQuery throughout: chromedp's default BySearch never matches on this
+	// Chrome, so every selector action would wait out the deadline.
 	box := `.composer textarea`
 
 	// Ctrl-Shift-V (the non-Mac binding: headless Chrome reports a Linux
-	// platform) marks the box, so the next paste is wrapped. The pasted text
-	// has its own ``` run, so the fence must grow to four backticks.
+	// platform) is itself a paste shortcut, so the browser fires the paste and
+	// the composer wraps it. The pasted text has its own ``` run, so the fence
+	// must grow to four backticks.
 	var wrapped string
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
-		chromedp.WaitVisible(box),
-		chromedp.SendKeys(box, "see:"),
+		chromedp.WaitVisible(box, chromedp.ByQuery),
+		copy(srv.URL, "a ```b``` c"),
+		chromedp.SendKeys(box, "see:", chromedp.ByQuery),
 		chromedp.KeyEvent("V", chromedp.KeyModifiers(input.ModifierCtrl, input.ModifierShift)),
-		chromedp.Evaluate(pasteJS+"('a ```b``` c')", nil),
-		chromedp.Value(box, &wrapped),
+		chromedp.Value(box, &wrapped, chromedp.ByQuery),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -92,20 +103,20 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 		t.Errorf("paste as code: box = %q, want %q", wrapped, want)
 	}
 
-	// Any other key clears the mark: a later plain paste is left to the
-	// browser (and a synthetic paste inserts nothing), so the box is unchanged.
+	// A plain Ctrl-V does not mark the box, so the browser's paste goes in
+	// unwrapped.
 	var plain string
 	err = chromedp.Run(ctx,
-		chromedp.SetValue(box, "x"),
-		chromedp.KeyEvent("V", chromedp.KeyModifiers(input.ModifierCtrl, input.ModifierShift)),
-		chromedp.SendKeys(box, "y"),
-		chromedp.Evaluate(pasteJS+"('z')", nil),
-		chromedp.Value(box, &plain),
+		chromedp.Focus(box, chromedp.ByQuery),
+		copy(srv.URL, "z"),
+		chromedp.SetValue(box, "x", chromedp.ByQuery),
+		chromedp.KeyEvent("v", chromedp.KeyModifiers(input.ModifierCtrl)),
+		chromedp.Value(box, &plain, chromedp.ByQuery),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plain != "xy" {
-		t.Errorf("plain paste after another key: box = %q, want %q", plain, "xy")
+	if plain != "xz" {
+		t.Errorf("plain paste after paste as code: box = %q, want %q", plain, "xz")
 	}
 }

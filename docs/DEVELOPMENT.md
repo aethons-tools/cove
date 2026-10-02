@@ -30,6 +30,11 @@ Two host constraints shape how `go` is run here:
   `GOPATH` to `/home/agent/workspace/.gopath` because `~` was not writable; that
   override is now unnecessary — harmless if a stale `settings.json` still sets it.)
 
+The `cove-ic` studio kit ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml))
+differs: it sets `GOPROXY=https://proxy.golang.org,direct`. A studio's
+`github.com` git traffic goes through the at-jam git proxy, which serves only the
+studio's own repo, so `direct` alone fails every dependency with a 403.
+
 These are already exported in this environment (via `COVE_SSHENV`), and `go` is on
 `PATH`. If you need to set them inline (e.g. a non-session shell that didn't read
 `/etc/environment`), prefix the command:
