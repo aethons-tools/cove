@@ -9,10 +9,9 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/studio"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -28,10 +27,13 @@ type EnrollBody struct {
 type EnrollResult struct {
 	ID    string `json:"id"`
 	Token string `json:"token"`
+	// Connector is the identity's client env/git (ConnectorFor); nil from a Jam
+	// that predates it — clients then use the legacy contract.
+	Connector *snippet.Connector `json:"connector,omitempty"`
 }
 
 // ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
-// carries the effective destinations/repos after overrides.
+// carries the effective destinations/credentials after overrides.
 type ActorSummary struct {
 	ID     string         `json:"id"`
 	Expiry time.Time      `json:"expiry"`
@@ -40,11 +42,11 @@ type ActorSummary struct {
 
 // GrantSummary is one grant with its resolved effective scope.
 type GrantSummary struct {
-	Project      string   `json:"project"`
-	Role         string   `json:"role"`
-	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
-	Addressing   []string `json:"addressing,omitempty"`
+	Project      string            `json:"project"`
+	Role         string            `json:"role"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
 }
 
 // EscalationBody is the PUT /admin/projects/{project}/escalation body: the
@@ -70,16 +72,21 @@ type ChatServiceView struct {
 	Service string `json:"service"`
 }
 
+// ProjectBody is the POST /admin/projects request.
+type ProjectBody struct {
+	Name string `json:"name"`
+}
+
 // RoleBody is the POST /admin/roles request.
 type RoleBody struct {
-	Project      string   `json:"project"`
-	Name         string   `json:"name"`
-	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
-	Addressing   []string `json:"addressing,omitempty"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
-	Kit          string   `json:"kit,omitempty"`
-	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	Project      string            `json:"project"`
+	Name         string            `json:"name"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
+	TTLSeconds   int64             `json:"ttl_seconds"`
+	Kit          string            `json:"kit,omitempty"`
+	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -94,14 +101,14 @@ type RoleBody struct {
 
 // RoleSummary is a GET /admin/roles item.
 type RoleSummary struct {
-	Project      string   `json:"project"`
-	Name         string   `json:"name"`
-	Destinations []string `json:"destinations"`
-	Repos        []string `json:"repos"`
-	Addressing   []string `json:"addressing,omitempty"`
-	TTLSeconds   int64    `json:"ttl_seconds"`
-	Kit          string   `json:"kit,omitempty"`
-	MaxEphemeral int      `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	Project      string            `json:"project"`
+	Name         string            `json:"name"`
+	Destinations []string          `json:"destinations"`
+	Credentials  map[string]string `json:"credentials,omitempty"`
+	Addressing   []string          `json:"addressing,omitempty"`
+	TTLSeconds   int64             `json:"ttl_seconds"`
+	Kit          string            `json:"kit,omitempty"`
+	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -126,6 +133,9 @@ type KitBody struct {
 type KitResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
+	// Unchanged reports the pushed definition equalled the current version, so
+	// no new version was made (Version is the existing current).
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // KitSummary is a GET /admin/kits item.
@@ -226,7 +236,7 @@ type OperatorLoginConfig struct {
 }
 
 // RosterSummaries returns one ActorSummary per enrolled actor, each grant
-// carrying its effective destinations/repos after override resolution. It never
+// carrying its effective destinations/credentials after override resolution. It never
 // includes a token or hash. The JSON roster handler and the read-only UI both
 // render from this, so the two surfaces cannot drift.
 func RosterSummaries(store Store) []ActorSummary {
@@ -237,7 +247,7 @@ func RosterSummaries(store Store) []ActorSummary {
 			gs := GrantSummary{Project: g.Project, Role: g.Role}
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
-				gs.Destinations, gs.Repos = s.Destinations, s.Repos
+				gs.Destinations, gs.Credentials = s.Destinations, s.Credentials
 				gs.Addressing = s.Addressing
 			}
 			sum.Grants = append(sum.Grants, gs)
@@ -256,15 +266,26 @@ func WithAdminRoute(pattern string, h http.Handler) AdminOption {
 	return func(m *http.ServeMux) { m.Handle(pattern, h) }
 }
 
+// validateOverride checks a grant override's credentials against the effective
+// scope it produces over its role. A nil override (or one without credentials)
+// is always valid.
+func validateOverride(store Store, project, role string, o *Override, credExists func(string) bool) error {
+	if o == nil || o.Credentials == nil {
+		return nil
+	}
+	r, ok := store.GetRole(orDefaultProject(project), role)
+	if !ok {
+		return fmt.Errorf("role %q not found in project %q", role, orDefaultProject(project))
+	}
+	return ValidateCredentials(EffectiveScope(Grant{Overrides: o}, r), credExists)
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
-	// Every read-modify-write of a Role (role put, standing, egress) takes this
-	// lock, so no writer can drop another's change.
-	var roleMu sync.Mutex
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -286,14 +307,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &d) {
 			return
 		}
-		if d.Name == "" || d.Route == "" || d.Upstream == "" {
-			http.Error(w, "name, route and upstream are required", http.StatusBadRequest)
+		if err := ValidateDestination(d, credExists); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
-		if d.CredName != "" && !credExists(d.CredName) {
-			http.Error(w, "cred_name does not resolve to a configured credential", http.StatusBadRequest)
-			return
-		}
+		// An upsert: `destination add` of an existing name replaces it.
 		if err := store.AddDestination(d); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -353,13 +371,26 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "role is required", http.StatusBadRequest)
 			return
 		}
+		if err := validateOverride(store, b.Project, b.Role, b.Overrides, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		tok, err := Enroll(store, b.ID, b.Project, b.Role, b.Overrides, time.Now())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// The identity's client connector rides back with the token; a conflict
+		// among its destinations undoes the enrollment (fail closed).
+		actor, _ := store.Lookup(HashToken(tok))
+		conn, err := ConnectorFor(store, actor)
+		if err != nil {
+			_ = store.RemoveActor(b.ID)
+			http.Error(w, "connector conflict: "+err.Error(), http.StatusConflict)
+			return
+		}
 		log.Info("admin enrolled", "operator", OperatorID(r), "id", b.ID, "project", b.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok})
+		writeJSON(w, http.StatusCreated, EnrollResult{ID: b.ID, Token: tok, Connector: &conn})
 	})
 	mux.HandleFunc("DELETE /admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -374,13 +405,35 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/projects", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListProjects())
 	})
+	mux.HandleFunc("POST /admin/projects", func(w http.ResponseWriter, r *http.Request) {
+		var b ProjectBody
+		if !decode(w, r, &b) {
+			return
+		}
+		if err := store.CreateProject(b.Name); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
+		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if err := store.RemoveProject(project); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project removed", "operator", OperatorID(r), "project", project)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /admin/roles", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		var out []RoleSummary
 		for _, ro := range store.ListRoles(project) {
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
-				Destinations: ro.Scope.Destinations, Repos: ro.Scope.Repos,
+				Destinations:        ro.Scope.Destinations,
+				Credentials:         ro.Scope.Credentials,
 				Addressing:          ro.Scope.Addressing,
 				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
 				Kit:                 ro.Kit,
@@ -421,7 +474,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		role := Role{
 			Name:  b.Name,
-			Scope: Scope{Destinations: b.Destinations, Repos: b.Repos, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Scope: Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
 			Kit:   b.Kit,
 			Allocation: RoleAllocation{
 				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
@@ -430,16 +483,14 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
 		}
+		if err := ValidateCredentials(role.Scope, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
-		roleMu.Lock()
-		defer roleMu.Unlock()
-		if existing, ok := store.GetRole(b.Project, b.Name); ok {
-			role.Allocation.Standing = existing.Allocation.Standing
-			role.Scope.Egress = existing.Scope.Egress
-		}
-		if err := store.PutRole(b.Project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := PutRoleKeeping(store, b.Project, role); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
@@ -461,6 +512,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		if b.Role == "" {
 			http.Error(w, "role is required", http.StatusBadRequest)
+			return
+		}
+		if err := validateOverride(store, b.Project, b.Role, b.Overrides, credExists); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := store.AddGrant(r.PathValue("id"), Grant{Project: b.Project, Role: b.Role, Overrides: b.Overrides}); err != nil {
@@ -515,7 +570,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 		}
 		if err := store.AddHuman(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
@@ -527,7 +582,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
@@ -560,7 +615,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Category, b.Tiers); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "category", b.Category, "tiers", len(b.Tiers))
@@ -577,7 +632,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		if err := store.SetChatService(r.PathValue("project"), b.Service); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin chat-service", "operator", OperatorID(r), "project", r.PathValue("project"), "service", b.Service)
@@ -594,27 +649,17 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		// Config rule of engagement: parse the (human-input) config as YAML and
-		// store it as canonical JSON. The jam kit registry holds STUDIO kits only;
-		// studio.ParseStudioKit validates strictly (kind, KnownFields), so a
-		// malformed, typo'd or non-studio config is rejected here at ingestion
-		// rather than surfacing later at a raise.
-		sk, err := studio.ParseStudioKit([]byte(b.Config))
+		// store it as canonical JSON. The jam kit registry holds STUDIO kits only,
+		// validated strictly (kind, KnownFields), so a malformed, typo'd or
+		// non-studio config is rejected here at ingestion rather than at a raise.
+		// An unchanged definition keeps the current version.
+		v, unchanged, err := PushStudioKit(store, b.Name, b.Config)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
-		jsonCfg, err := sk.ToJSON()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		v, err := store.PushKit(b.Name, string(jsonCfg))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v)
-		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v})
+		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
+		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
 	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
@@ -743,8 +788,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	registerStanding(mux, store, log, &roleMu)
-	registerEgress(mux, store, log, &roleMu)
+	registerStanding(mux, store, log)
+	registerEgress(mux, store, log)
 
 	for _, o := range opts {
 		o(mux)
@@ -770,6 +815,18 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		parent.Handle("/me/", me)
 	}
 	return parent
+}
+
+// projectErrStatus maps a store error to its HTTP status: an unknown project is
+// 404, a duplicate or still-referenced one 409, anything else fallback.
+func projectErrStatus(err error, fallback int) int {
+	switch {
+	case errors.Is(err, ErrProjectNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, ErrProjectExists), errors.Is(err, ErrProjectInUse):
+		return http.StatusConflict
+	}
+	return fallback
 }
 
 func orDefaultProject(p string) string {

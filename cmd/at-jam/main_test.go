@@ -7,9 +7,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +40,17 @@ func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolic
 }
 func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
 	return jam.KitStatus{State: jam.KitReady}, nil
+}
+
+// mustCreateProject records each named project directly on store: every
+// project-scoped write needs its project to exist first.
+func mustCreateProject(t *testing.T, store jam.Store, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := store.CreateProject(n); err != nil {
+			t.Fatalf("CreateProject(%q): %v", n, err)
+		}
+	}
 }
 
 func TestEnrollCommandJSON(t *testing.T) {
@@ -72,8 +85,18 @@ func TestEnrollCommandJSON(t *testing.T) {
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+	mustCreateProject(t, store, "ACME")
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git", "github-api"}}}); err != nil {
 		t.Fatal(err)
+	}
+	for _, d := range []jam.Destination{
+		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyXAPIKey, Apply: jam.ApplyXAPIKey},
+		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword},
+		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, Env: map[string]string{"GH_HOST": "{host}"}},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -88,11 +111,14 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=https://jam.local.aethons.tools/anthropic") {
+	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"") {
 		t.Fatalf("stdout missing snippet:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "AT_JAM_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
+	}
+	if !strings.Contains(out.String(), `export GH_HOST="jam.local.aethons.tools"`) || !strings.Contains(out.String(), "insteadOf") {
+		t.Fatalf("snippet must carry the role's connector (destination env + git):\n%s", out.String())
 	}
 	if len(store.ListActors()) != 1 {
 		t.Fatal("identity was not created via the admin API")
@@ -112,6 +138,7 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "P")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -123,7 +150,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{
 		"role", "add", "--admin-url", ts.URL, "--project", "P",
-		"--name", "guest", "--destinations", "anthropic", "--repos", "acme/*",
+		"--name", "guest", "--destinations", "anthropic",
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
 	}
@@ -134,7 +161,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "guest") || !strings.Contains(out.String(), "dests=anthropic") || !strings.Contains(out.String(), "repos=acme/*") {
+	if !strings.Contains(out.String(), "guest") || !strings.Contains(out.String(), "dests=anthropic") {
 		t.Fatalf("role list output missing expected fields:\n%s", out.String())
 	}
 
@@ -204,6 +231,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 
 func TestProjectRosterCommands(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -363,6 +391,7 @@ func TestProjectRosterCommands(t *testing.T) {
 // 'targets@timeout' parse and its missing-'@' error.
 func TestProjectEscalationCommands(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -422,6 +451,7 @@ func TestProjectEscalationCommands(t *testing.T) {
 // then clearing just the category and confirming the default survives.
 func TestProjectEscalationCategoryCommands(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -485,6 +515,7 @@ func TestProjectEscalationCategoryCommands(t *testing.T) {
 // set|show|clear` end-to-end through httptest.Server + FileStore.
 func TestProjectChatServiceCommands(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -552,6 +583,7 @@ func TestProjectChatServiceCommands(t *testing.T) {
 // malformed-input errors.
 func TestProjectRosterAddHumanDelivery(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -613,6 +645,7 @@ func TestProjectRosterAddHumanDelivery(t *testing.T) {
 // the bindings.
 func TestProjectRosterAddHumanOIDC(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -683,6 +716,7 @@ func TestProjectRosterAddHumanOIDC(t *testing.T) {
 // list` shows the binding.
 func TestProjectRosterAddHumanDiscordUser(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -790,11 +824,27 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("kit push output missing expected text:\n%s", out.String())
 	}
 
-	// kit push again to create a second version, for pin to target
+	// an identical re-push makes no new version
 	out.Reset()
 	errb.Reset()
 	if code := run([]string{
 		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
+	}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("kit push (same): exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "web unchanged (current v1)") {
+		t.Fatalf("identical kit push output:\n%s", out.String())
+	}
+
+	// a changed kit makes a second version, for pin to target
+	changed := filepath.Join(dir, "changed.yml")
+	if err := os.WriteFile(changed, []byte("kind: studio\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: c\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{
+		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", changed,
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit push (v2): exit=%d stderr=%s", code, errb.String())
 	}
@@ -818,7 +868,7 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "name: web") ||
+	if strings.Contains(out.String(), "name:") || !strings.Contains(out.String(), "kind: studio") ||
 		!strings.Contains(out.String(), "egress ceiling: github.com") ||
 		!strings.Contains(out.String(), "excluded (COV-208): claude.ai") {
 		t.Fatalf("kit show output missing expected config:\n%s", out.String())
@@ -990,6 +1040,7 @@ func (grantAllSessions) RecordRelease(context.Context, string, string, string) e
 // end. The loopback operator is "local", so alice is linked to that login.
 func TestSessionCommandsRoundTrip(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1099,6 +1150,7 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 // the prompt is read from a file host-side, and the role's other fields are kept.
 func TestStandingCommandsRoundTrip(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1169,6 +1221,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 // (kit default, none, or the list), and the role's other fields are kept.
 func TestEgressCommandsRoundTrip(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1313,5 +1366,71 @@ func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
 	}
 	if len(excluded) != 1 || excluded[0] != "claude.ai" {
 		t.Fatalf("excluded=%v", excluded)
+	}
+}
+
+func TestRoleAddDestinationCredentials(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	mustCreateProject(t, store, "P")
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--destinations", "git=git-pat-cove,anthropic"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	}
+	r, ok := store.GetRole("P", "w")
+	if !ok || !slices.Equal(r.Scope.Destinations, []string{"git", "anthropic"}) || r.Scope.Credentials["git"] != "git-pat-cove" {
+		t.Fatalf("stored role = %+v, %v", r, ok)
+	}
+	out.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "dests=git=git-pat-cove,anthropic") {
+		t.Fatalf("role list: exit=%d out=%s", code, out.String())
+	}
+	errb.Reset()
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "x", "--destinations", "git="}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("malformed --destinations: exit=%d, want 2 (stderr=%s)", code, errb.String())
+	}
+}
+
+func TestDestinationAddEnvAndGit(t *testing.T) {
+	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "gh", "--route", "/api/v3/", "--upstream", "https://api.github.com",
+		"--identity-in", "bearer", "--apply", "bearer", "--env", "GH_HOST={host}", "--env", "GH_ENTERPRISE_TOKEN={token}", "--git"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("destination add: exit=%d stderr=%s", code, errb.String())
+	}
+	d := store.ListDestinations()
+	if len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || d[0].Env["GH_ENTERPRISE_TOKEN"] != "{token}" || !d[0].Git {
+		t.Fatalf("stored = %+v", d)
+	}
+	out.Reset()
+	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "env=GH_ENTERPRISE_TOKEN,GH_HOST") || !strings.Contains(out.String(), "git") {
+		t.Fatalf("destination list: exit=%d out=%s", code, out.String())
+	}
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "x", "--route", "/x/", "--upstream", "https://x", "--env", "NOEQUALS"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("malformed --env: exit=%d, want 2", code)
+	}
+}
+
+// An older Jam returns no connector with the enrollment: the CLI falls back to
+// the legacy Anthropic + git snippet.
+func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"x","token":"TOK"}`))
+	}))
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	if code := run([]string{"enroll", "--admin-url", ts.URL, "--id", "x", "--role", "guest", "--base-url", "https://jam.example"}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), `ANTHROPIC_BASE_URL="https://jam.example/anthropic"`) || !strings.Contains(out.String(), "insteadOf") {
+		t.Fatalf("legacy snippet expected:\n%s", out.String())
 	}
 }

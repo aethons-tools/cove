@@ -23,7 +23,8 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
-	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, Repos: []string{"acme/*"}}}); err != nil {
+	mustCreateProject(t, store, "ACME")
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddActor(Actor{
@@ -34,7 +35,7 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 	}
 	for _, d := range []Destination{
 		{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword, RepoScoped: true},
+		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -96,14 +97,22 @@ func TestBrokerSwapsGitBasicAuth(t *testing.T) {
 	_ = gotUser
 }
 
-func TestBrokerDeniesOutOfScopeRepo(t *testing.T) {
-	b, _, tok := newTestBroker(t, "http://unused", "http://unused")
-	req := httptest.NewRequest("GET", "/git/someone/secret/info/refs", nil)
+// Repo reach is the credential's own scope, not broker policy: any owner/repo on
+// an allowed git destination is proxied (e.g. a public third-party clone).
+func TestBrokerProxiesAnyRepoOnAllowedGitDestination(t *testing.T) {
+	var gotPath string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		io.WriteString(w, "ok")
+	}))
+	defer up.Close()
+	b, _, tok := newTestBroker(t, "http://unused", up.URL)
+	req := httptest.NewRequest("GET", "/git/chromedp/chromedp/info/refs", nil)
 	req.SetBasicAuth("x-access-token", tok)
 	rec := httptest.NewRecorder()
 	b.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	if rec.Code != 200 || gotPath != "/chromedp/chromedp/info/refs" {
+		t.Fatalf("status = %d, upstream path = %q", rec.Code, gotPath)
 	}
 }
 
@@ -116,6 +125,7 @@ func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -217,5 +227,49 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 	}
 	if gotAuth != "" {
 		t.Fatalf("upstream Authorization = %q, want empty", gotAuth)
+	}
+}
+
+// gh pointed at Jam (GH_HOST=<jam>) treats it as GitHub Enterprise: it sends
+// "Authorization: token <x>" to /api/v3/… (REST) and /api/graphql. Two plain
+// destinations over api.github.com serve it, with the role-mapped credential.
+func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
+	type hit struct{ path, auth string }
+	var got hit
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = hit{r.URL.Path, r.Header.Get("Authorization")}
+		io.WriteString(w, "{}")
+	}))
+	defer up.Close()
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := MintToken()
+	scope := Scope{Destinations: []string{"github-api", "github-graphql"}, Credentials: map[string]string{"github-api": "gh-pat-acme", "github-graphql": "gh-pat-acme"}}
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", Role{Name: "dev", Scope: scope}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "s", TokenHash: HashToken(tok), Grants: []Grant{{Project: "acme", Role: "dev"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []Destination{
+		{Name: "github-api", Route: "/api/v3/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
+		{Name: "github-graphql", Route: "/api/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := NewBroker(store, fakeCreds{"gh-pat-acme": "REAL-GH", "gh-default": "WRONG"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for path, want := range map[string]string{"/api/graphql": "/graphql", "/api/v3/repos/acme/api": "/repos/acme/api"} {
+		req := httptest.NewRequest("POST", path, nil)
+		req.Header.Set("Authorization", "token "+tok)
+		rec := httptest.NewRecorder()
+		b.ServeHTTP(rec, req)
+		if rec.Code != 200 || got.path != want || got.auth != "Bearer REAL-GH" {
+			t.Fatalf("%s: status=%d upstream=%+v, want path %s with Bearer REAL-GH", path, rec.Code, got, want)
+		}
 	}
 }

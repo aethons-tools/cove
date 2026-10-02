@@ -27,6 +27,7 @@ func runOAuthBetaCase(t *testing.T, oauthBeta bool, betaIn string) string {
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}

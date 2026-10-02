@@ -5,7 +5,7 @@ import "testing"
 func testConfig() Config {
 	return Config{Destinations: []Destination{
 		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword, RepoScoped: true},
+		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword},
 	}}
 }
 
@@ -17,15 +17,5 @@ func TestConfigMatch(t *testing.T) {
 	}
 	if _, ok := c.Match("/nope/x"); ok {
 		t.Fatal("unexpected match for /nope/x")
-	}
-}
-
-func TestRepoFromPath(t *testing.T) {
-	got, ok := RepoFromPath("/git/", "/git/acme/api.git/info/refs")
-	if !ok || got != "acme/api" {
-		t.Fatalf("RepoFromPath = %q, %v", got, ok)
-	}
-	if _, ok := RepoFromPath("/git/", "/git/acme"); ok {
-		t.Fatal("expected failure for missing repo segment")
 	}
 }

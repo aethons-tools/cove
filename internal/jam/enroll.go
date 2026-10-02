@@ -43,8 +43,9 @@ func Enroll(store Store, id, project, role string, overrides *Override, now time
 	return tok, nil
 }
 
-// RenderEnrollSnippet renders the env + gitconfig a Guest cove sources to route
-// Anthropic and git through Jam. The identity token is written once (as
+// RenderEnrollSnippet renders the legacy env + gitconfig (Anthropic + git) a
+// Guest cove sources to route through Jam — the fallback when an enrollment
+// carries no connector (an older Jam); see snippet.Connector. The identity token is written once (as
 // AT_JAM_IDENTITY_TOKEN; the deprecated AT_HARBOR_IDENTITY_TOKEN is exported from
 // it) and both connectors reference it; Jam swaps it for the real credentials.
 //

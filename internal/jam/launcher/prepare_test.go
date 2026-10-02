@@ -120,8 +120,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	asm := func(def KitDefinition, buildDir string) error { return nil } // assemble seam
 	l := newPrepareLauncher(ops, inv, asm)
 
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web",
-		Egress: []string{"github.com", ".anthropic.com"}, BuildArgs: map[string]string{"X": "1"}}
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com", ".anthropic.com"}, BuildArgs: map[string]string{"X": "1"}}
 	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err != nil || st.State != KitReady {
@@ -156,7 +155,7 @@ func TestPrepareStudioKitContextFilesBase(t *testing.T) {
 		sleep:    func(time.Duration) {},
 	})
 	df := "FROM ${COVE_BASE_IMAGE}\nRUN echo hi"
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
 		ContextFiles: studio.ContextTree{
 			"dockerfile": {File: sp(df)},
 			"scripts":    {Dir: studio.ContextTree{"setup.sh": {File: sp("echo setup")}}},
@@ -216,7 +215,7 @@ func TestPrepareStudioKitTarContextBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := buf.Bytes()
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
 		Context: base64.StdEncoding.EncodeToString(raw),
 	}}
 	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
@@ -246,7 +245,7 @@ func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
 		assemble: func(KitDefinition, string) error { return nil },
 		sleep:    func(time.Duration) {},
 	})
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Base: studio.Base{
+	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
 		ContextFiles: studio.ContextTree{"dockerfile": {File: sp("FROM scratch")}},
 	}}
 	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
@@ -262,7 +261,7 @@ func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
 func TestPrepareKitIdempotentWhenPresent(t *testing.T) {
 	ops := &fakeOps{}
 	inv := &fakeInv{}
-	def := studioKitDef("web", 4, studio.StudioKit{Kind: studio.Kind, Name: "web"})
+	def := studioKitDef("web", 4, studio.StudioKit{Kind: studio.Kind})
 	inv.set(def.Ref, true) // already prepared
 	asmCalled := false
 	asm := func(def KitDefinition, buildDir string) error { asmCalled = true; return nil }
@@ -282,7 +281,7 @@ func TestPrepareKitIdempotentWhenPresent(t *testing.T) {
 
 func TestPrepareKitDedupesConcurrentBuilds(t *testing.T) {
 	inv := &fakeInv{}
-	def := studioKitDef("web", 7, studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com"}})
+	def := studioKitDef("web", 7, studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}})
 	ops := &countingOps{}
 	// The assembler simulates the build's effect (the tagged image now exists) so a
 	// serialized later prepare short-circuits; the small sleep widens the race
@@ -316,7 +315,7 @@ func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 	asm := func(def KitDefinition, buildDir string) error { return nil }
 	l := newPrepareLauncher(ops, inv, asm)
 
-	st, err := l.PrepareKit(context.Background(), studioKitDef("web", 2, studio.StudioKit{Kind: studio.Kind, Name: "web"}))
+	st, err := l.PrepareKit(context.Background(), studioKitDef("web", 2, studio.StudioKit{Kind: studio.Kind}))
 	if err == nil {
 		t.Fatal("PrepareKit must surface a build failure")
 	}

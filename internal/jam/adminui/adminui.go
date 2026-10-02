@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -38,9 +39,12 @@ var pages = map[string]*template.Template{
 	"roster":       mustParse("roster.html"),
 	"roles":        mustParse("roles.html"),
 	"kits":         mustParse("kits.html"),
-	"destinations": mustParse("destinations.html"),
+	"destinations": mustParse("dest_fields.html", "destinations.html"),
 	"intercom":     mustParse("intercom.html"),
 	"session":      mustParse("session.html"),
+	"role":         mustParse("coves.html", "role.html"),
+	"destination":  mustParse("dest_fields.html", "destination.html"),
+	"kit":          mustParse("kit.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -48,7 +52,7 @@ type roleRow struct {
 	Project      string
 	Name         string
 	Destinations []string
-	Repos        []string
+	Credentials  map[string]string // destination → credential name (a reference, not a secret)
 	TTL          time.Duration
 	Kit          string
 }
@@ -59,8 +63,9 @@ func roleRows(store jam.Store) []roleRow {
 		for _, r := range store.ListRoles(p) {
 			out = append(out, roleRow{
 				Project: p, Name: r.Name,
-				Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
-				TTL: r.Scope.TTL, Kit: r.Kit,
+				Destinations: r.Scope.Destinations,
+				Credentials:  r.Scope.Credentials,
+				TTL:          r.Scope.TTL, Kit: r.Kit,
 			})
 		}
 	}
@@ -73,7 +78,33 @@ func mustParse(names ...string) *template.Template {
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.ParseFS(files, paths...))
+	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
+}
+
+// funcs are the template helpers shared by every page.
+var funcs = template.FuncMap{
+	// ttl renders a role TTL compactly, or "—" when unset.
+	"ttl": func(d time.Duration) string {
+		if d <= 0 {
+			return "—"
+		}
+		return fmtDur(d)
+	},
+	"roleURL": roleURL,
+	"destURL": destURL,
+	"kitURL":  kitURL,
+}
+
+// fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
+func fmtDur(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // Option configures Handler.
@@ -113,9 +144,9 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title":  "Dashboard",
-			"Coves":  jam.CoveSummaries(store),
-			"Actors": jam.RosterSummaries(store),
+			"Title": "Dashboard",
+			"Coves": jam.CoveSummaries(store),
+			"Stats": dashboardStats(store),
 		})
 	})
 
@@ -134,11 +165,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "roles", map[string]any{"Title": "Roles", "Roles": roleRows(store), "CanRequest": canEdit})
 	})
-	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "kits", map[string]any{"Title": "Kits", "Kits": store.ListKits()})
-	})
-	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "destinations", map[string]any{"Title": "Destinations", "Destinations": store.ListDestinations()})
+	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		handleRoleDetail(w, r, store, canEdit)
 	})
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
@@ -148,18 +176,27 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
+	registerKits(mux, store, log, guardWrite)
+	registerDestinations(mux, store, log, credExists, guardWrite)
+	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
 
 	return mux
 }
 
 // render executes the named page's "layout" template.
 func render(w http.ResponseWriter, page string, data any) {
+	renderStatus(w, http.StatusOK, page, data)
+}
+
+// renderStatus is render with an explicit status code.
+func renderStatus(w http.ResponseWriter, status int, page string, data any) {
 	t, ok := pages[page]
 	if !ok {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

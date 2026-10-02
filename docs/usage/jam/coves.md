@@ -60,8 +60,8 @@ at-jam studio teardown --id spider-42
 
 With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
 `studio raise --prompt-file <f>` runs the whole lifecycle end to end: Jam starts a
-Colima studio from the configured image, injects the agent connector (Anthropic + git
-through Jam) plus the cove-master env + your prompt over SSH, and starts
+Colima studio from the configured image, injects the agent connector — the client env
+and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the cove-master env + your prompt over SSH, and starts
 `cove-master`, which runs `claude -p` on the prompt. The studio reports
 `running` → `done` over the [Attach stream](#the-attach-stream), and the supervisor
 tears it down when the agent finishes (or on `error`/`needs-input`, which report a
@@ -71,14 +71,13 @@ lifecycle; automated result-handling (commit/push/PR after the agent) comes with
 Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Instance only
 (no real studio).
 
-> **Anthropic credentialing.** How the agent's `claude` authenticates depends on
-> the serve config: by default the connector sets `ANTHROPIC_API_KEY` (the identity
-> on `x-api-key`), but with a [`pool:`](pool.md) block the connector sets
-> `ANTHROPIC_AUTH_TOKEN` instead (the identity as a static bearer, no credentials
-> file), and the broker swaps in a pooled subscription token. The launcher chooses
-> the mode; the cove is unaware.
+> **Anthropic credentialing.** How the agent's `claude` authenticates follows the
+> anthropic destination: identity-in `x-api-key` gives `ANTHROPIC_API_KEY`, and the
+> [`pool:`](pool.md) configuration (identity-in `bearer`) gives `ANTHROPIC_AUTH_TOKEN`
+> (a static bearer, no credentials file) and the broker swaps in a pooled
+> subscription token. The connector carries the mode; the cove is unaware.
 
-The raise sequence is: enroll the identity → start the container → wait for sshd →
+The raise sequence is: enroll the identity → assemble its connector (a conflict among the role's destinations fails the raise and revokes the identity) → start the container → wait for sshd →
 **apply the role's egress policy** → start cove-master (and so the agent). The egress
 step runs only for a role with a [policy](roster.md#role-egress) and lands before the
 agent exists. It runs the sealed in-box helper as root, which enforces the kit's

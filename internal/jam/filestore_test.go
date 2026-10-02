@@ -10,12 +10,24 @@ import (
 	"time"
 )
 
+// mustCreateProject records each named project on s, failing the test on error.
+// Every project-scoped write needs its project to exist first.
+func mustCreateProject(t *testing.T, s Store, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := s.CreateProject(n); err != nil {
+			t.Fatalf("CreateProject(%q): %v", n, err)
+		}
+	}
+}
+
 func TestFileStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ids.json")
 	s, err := NewFileStore(path)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
+	mustCreateProject(t, s, "ACME")
 	a := Actor{ID: "spider-18", TokenHash: HashToken("tok"), Grants: []Grant{{Project: "ACME", Role: "guest"}}}
 	if err := s.AddActor(a); err != nil {
 		t.Fatalf("AddActor: %v", err)
@@ -43,7 +55,8 @@ func TestFileStoreDestinationsAndMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	d := Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword, RepoScoped: true}
+	mustCreateProject(t, s, "ACME")
+	d := Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword}
 	if err := s.AddDestination(d); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
@@ -91,7 +104,8 @@ func TestFileStoreRoleAndActorCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	if err := fs.PutRole("acme", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
+	mustCreateProject(t, fs, "acme", "beta")
+	if err := fs.PutRole("acme", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	if r, ok := fs.GetRole("acme", "guest"); !ok || r.Scope.Destinations[0] != "anthropic" {
@@ -145,20 +159,19 @@ func TestFileStoreMigratesV2Identities(t *testing.T) {
 		t.Fatal("migration should synthesize role (acme,guest)")
 	}
 	// Both actors resolve to their ORIGINAL effective scope.
-	check := func(hash string, wantDests, wantRepos []string) {
+	check := func(hash string, wantDests []string) {
 		a, ok := fs.Lookup(hash)
 		if !ok || len(a.Grants) != 1 {
 			t.Fatalf("actor %s = %+v", hash, a)
 		}
 		r, _ := fs.GetRole(a.Grants[0].Project, a.Grants[0].Role)
 		got := EffectiveScope(a.Grants[0], r)
-		if strings.Join(got.Destinations, ",") != strings.Join(wantDests, ",") ||
-			strings.Join(got.Repos, ",") != strings.Join(wantRepos, ",") {
-			t.Fatalf("actor %s effective scope = %+v, want dests=%v repos=%v", hash, got, wantDests, wantRepos)
+		if strings.Join(got.Destinations, ",") != strings.Join(wantDests, ",") {
+			t.Fatalf("actor %s effective scope = %+v, want dests=%v", hash, got, wantDests)
 		}
 	}
-	check("hashA", []string{"anthropic", "git"}, []string{"acme/*"})
-	check("hashB", []string{"anthropic"}, []string{"acme/api"})
+	check("hashA", []string{"anthropic", "git"})
+	check("hashB", []string{"anthropic"})
 }
 
 func TestFileStoreKitPushPinResolve(t *testing.T) {
@@ -216,6 +229,7 @@ func TestPutRoleValidatesKitExists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.json")
 	fs, _ := NewFileStore(path)
 	// Binding a non-existent kit is rejected (fail closed).
+	mustCreateProject(t, fs, "acme")
 	if err := fs.PutRole("acme", Role{Name: "impl", Kit: "ghost"}); err == nil {
 		t.Fatal("PutRole with a non-existent kit should fail")
 	}
@@ -264,9 +278,9 @@ func TestFileStoreV3LoadsWithEmptyKitRegistry(t *testing.T) {
 }
 
 func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
-	// Two legacy identities share (acme, guest) and both name the same
-	// destinations, but one has an empty (nil/omitted) repos list — a legacy
-	// deny-all-repos identity — while the other has a real repo scope. Whichever
+	// Two legacy identities share (acme, guest), but one has an empty
+	// (nil/omitted) destinations list — a legacy deny-all identity — while the
+	// other has a real scope. (Legacy "repos" keys are ignored.) Whichever
 	// identity map-iteration picks first becomes the synthesized role; the other
 	// gets an Override. Migration must express the *exact* original scope in that
 	// override, not something EffectiveScope will treat as "inherit the role".
@@ -274,7 +288,7 @@ func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
 	v2 := `{
 	  "identities": {
 	    "hashA": {"id":"a","token_hash":"hashA","project":"acme","role":"guest","destinations":["git"],"repos":["acme/*"]},
-	    "hashB": {"id":"b","token_hash":"hashB","project":"acme","role":"guest","destinations":["git"]}
+	    "hashB": {"id":"b","token_hash":"hashB","project":"acme","role":"guest","repos":["acme/api"]}
 	  },
 	  "destinations": {}
 	}`
@@ -287,21 +301,21 @@ func TestFileStoreMigratesV2IdentitiesPreservesEmptyLegacyScope(t *testing.T) {
 	}
 	// Look up by token hash (not by "which one defined the role") since map
 	// iteration order is nondeterministic — the assertion must hold either way.
-	effectiveRepos := func(hash string) []string {
+	effectiveDests := func(hash string) []string {
 		a, ok := fs.Lookup(hash)
 		if !ok || len(a.Grants) != 1 {
 			t.Fatalf("actor %s = %+v, %v", hash, a, ok)
 		}
 		r, _ := fs.GetRole(a.Grants[0].Project, a.Grants[0].Role)
-		return EffectiveScope(a.Grants[0], r).Repos
+		return EffectiveScope(a.Grants[0], r).Destinations
 	}
-	if got := effectiveRepos("hashA"); strings.Join(got, ",") != "acme/*" {
-		t.Fatalf("hashA effective repos = %v, want [acme/*]", got)
+	if got := effectiveDests("hashA"); strings.Join(got, ",") != "git" {
+		t.Fatalf("hashA effective destinations = %v, want [git]", got)
 	}
-	// hashB's legacy repos were empty (deny-all); migration must not let it
-	// inherit hashA's ["acme/*"] via a nil override field.
-	if got := effectiveRepos("hashB"); len(got) != 0 {
-		t.Fatalf("hashB effective repos = %v, want empty (deny-all), not inherited from role", got)
+	// hashB's legacy destinations were empty (deny-all); migration must not let
+	// it inherit hashA's ["git"] via a nil override field.
+	if got := effectiveDests("hashB"); len(got) != 0 {
+		t.Fatalf("hashB effective destinations = %v, want empty (deny-all), not inherited from role", got)
 	}
 }
 
@@ -418,6 +432,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, fs, "acme")
 	if err := fs.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +448,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 	if !ok || len(rr.Humans) != 1 || rr.Humans[0].Handle != "alice.h" || len(rr.Channels) != 1 || rr.Channels[0].Ref != "ACME-1" {
 		t.Fatalf("roster not persisted: %+v ok=%v", rr, ok)
 	}
-	// a project with a roster shows up in ListProjects even without roles
+	// a created project shows up in ListProjects even without roles
 	found := false
 	for _, p := range fs2.ListProjects() {
 		if p == "acme" {
@@ -447,6 +462,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 
 func TestAddHumanUpsertsByName(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.AddHuman("p", Human{Name: "a", Handle: "old"})
 	_ = fs.AddHuman("p", Human{Name: "a", Handle: "new"})
 	rr, _ := fs.GetRoster("p")
@@ -458,6 +474,7 @@ func TestAddHumanUpsertsByName(t *testing.T) {
 func TestEscalationPolicyRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	tiers := []EscalationTier{
 		{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:bob"}, Timeout: time.Hour},
@@ -474,6 +491,7 @@ func TestEscalationPolicyRoundTrip(t *testing.T) {
 
 func TestSetEscalationPolicyReplaces(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:b"}, Timeout: 2 * time.Minute}})
 	p, _ := fs.GetProject("p")
@@ -484,6 +502,7 @@ func TestSetEscalationPolicyReplaces(t *testing.T) {
 
 func TestGetProjectCopiesEscalation(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	p, _ := fs.GetProject("p")
 	p.Escalation[0].Targets[0] = "mutated" // must not corrupt the store
@@ -495,6 +514,7 @@ func TestGetProjectCopiesEscalation(t *testing.T) {
 
 func TestGetProjectCopiesDelivery(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -511,6 +531,7 @@ func TestGetProjectCopiesDelivery(t *testing.T) {
 
 func TestGetRosterCopiesDelivery(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -527,6 +548,7 @@ func TestGetRosterCopiesDelivery(t *testing.T) {
 
 func TestGetRosterCopiesIdentity(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -544,6 +566,7 @@ func TestGetRosterCopiesIdentity(t *testing.T) {
 func TestEscalationByCategoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	def := []EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
 	infra := []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
 	if err := fs.SetEscalationPolicy("acme", "", def); err != nil {
@@ -564,6 +587,7 @@ func TestEscalationByCategoryRoundTrip(t *testing.T) {
 
 func TestGetProjectDeepCopiesCategoryMap(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "infra", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	p, _ := fs.GetProject("p")
 	p.EscalationByCategory["infra"][0].Targets[0] = "mutated" // must not corrupt the store
@@ -620,6 +644,7 @@ func TestFileStoreRoleEgressPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, s, "acme")
 	for name, eg := range map[string]*EgressPolicy{"kit": nil, "none": {Domains: []string{}}, "set": {Domains: []string{"a.com"}}} {
 		if err := s.PutRole("acme", Role{Name: name, Scope: Scope{Egress: eg}}); err != nil {
 			t.Fatal(err)
@@ -662,6 +687,7 @@ func TestFileStoreInstanceEgressPersists(t *testing.T) {
 func TestRosterDiscordUserIDRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	if err := fs.AddHuman("acme", Human{Name: "dave", Handle: "@dave", Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}}); err != nil {
 		t.Fatal(err)
 	}

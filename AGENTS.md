@@ -4,6 +4,7 @@
 
 **Start here:** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) —
 what the project is, the kit format, the command surface, the security model, the architecture, and how to build/test/run.
+For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Quick orientation
 

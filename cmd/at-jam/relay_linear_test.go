@@ -87,6 +87,7 @@ func newTestStore(t *testing.T) *jam.FileStore {
 
 func TestDirectoryRoute(t *testing.T) {
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Unit: "ACME-42", Project: "acme"}); err != nil {
 		t.Fatalf("PutInstance: %v", err)
 	}
@@ -155,6 +156,7 @@ func TestRouteDiscord(t *testing.T) {
 // name.
 func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
 	for _, h := range []jam.Human{
 		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
 		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
@@ -192,6 +194,7 @@ func TestRouteDiscordAttributesInboxOwner(t *testing.T) {
 // human.
 func TestRouteDiscordAttributesByAuthorID(t *testing.T) {
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
 	for _, h := range []jam.Human{
 		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A", UserID: "111"}}},
 		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "222"}}},
@@ -710,6 +713,7 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 // Linear keeps its single Requisitioner project.
 func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme", "beta", "gamma", "delta")
 	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": "", "delta": "slack"} {
 		if err := st.SetChatService(p, svc); err != nil {
 			t.Fatal(err)

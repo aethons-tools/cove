@@ -40,6 +40,7 @@ func TestServeBrokersOverTLS(t *testing.T) {
 	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: jam.ApplyXAPIKey, CredName: "anthropic-key", Apply: jam.ApplyXAPIKey}); err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}

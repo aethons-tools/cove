@@ -1,36 +1,40 @@
 {{define "content"}}
-<h1>Roles</h1>
-<form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML">
-  <input name="project" placeholder="project (default)">
-  <input name="name" placeholder="role name" required>
-  <input name="destinations" placeholder="destinations (comma-separated)">
-  <input name="repos" placeholder="repos (comma-separated)">
-  <input name="ttl-seconds" placeholder="ttl seconds">
-  <input name="kit" placeholder="kit (optional)">
-  <button type="submit">Add role</button>
-</form>
-{{/* Request results land here, outside #roles so a table swap keeps them. */}}
-<div id="role-request-msg"></div>
+<div class="page-head"><h1>Roles</h1><span class="sub">What a grant of each role lets an actor reach — open a role to edit it</span></div>
+<details class="panel">
+  <summary>New role</summary>
+  <form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML" data-reset>
+    <div class="grid">
+      <label>Role name <span class="req">required</span><input name="name" required></label>
+      <label>Project <span class="hint">blank = default</span><input name="project"></label>
+      <label>Destinations <span class="hint">comma-separated, e.g. git=git-pat,anthropic</span><input name="destinations"></label>
+      <label>TTL <span class="hint">seconds, optional</span><input name="ttl-seconds" type="number" min="0" inputmode="numeric"></label>
+      <label>Kit <span class="hint">optional</span><input name="kit"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Create role</button></div>
+  </form>
+</details>
 {{template "roles-table" .}}
 {{end}}
 
 {{define "roles-table"}}
-<table id="roles">
-  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>TTL</th><th>Kit</th><th>Actions</th></tr></thead>
+<div class="card" id="roles">
+<table>
+  <thead><tr><th>Role</th><th>Project</th><th>Destinations</th><th>TTL</th><th>Kit</th><th></th></tr></thead>
   <tbody>
     {{range .Roles}}
-    <tr><td>{{.Project}}</td><td>{{.Name}}</td>
-      <td>{{range .Destinations}}{{.}} {{end}}</td>
-      <td>{{range .Repos}}{{.}} {{end}}</td>
-      <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td>
-      <td>{{if $.CanRequest}}<button hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#role-request-msg" hx-swap="innerHTML"
-              hx-on::response-error="document.getElementById('role-request-msg').innerHTML = event.detail.xhr.responseText"
+    <tr data-id="{{.Project}}/{{.Name}}">
+      <td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a></td><td>{{.Project}}</td>
+      <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{ttl .TTL}}</td>
+      <td>{{if .Kit}}<span class="chip">{{.Kit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td class="actions">{{if $.CanRequest}}<button class="primary small" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
               title="Raise a personal session of this role for you">Request</button>
-          {{end}}<button hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-target="#roles" hx-swap="outerHTML"
+          {{end}}<button class="danger small" hx-delete="/ui/roles/{{.Project}}/{{.Name}}" hx-target="#roles" hx-swap="outerHTML"
               hx-confirm="Delete role {{.Name}} from {{.Project}}?">Delete</button></td></tr>
     {{else}}
-    <tr><td colspan="7" class="empty">No roles.</td></tr>
+    <tr><td colspan="6" class="empty">No roles.</td></tr>
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}

@@ -22,6 +22,7 @@ func newPolicyStore(t *testing.T) *jam.FileStore {
 // fallback, and is read live (a later edit is seen on the next grant).
 func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 	st := newPolicyStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 7}}); err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +41,7 @@ func TestRosterPolicy_RoleWinsOverFallback(t *testing.T) {
 // A role that sets no max-ephemeral uses the Requisitioner's fallback.
 func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 	st := newPolicyStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +55,7 @@ func TestRosterPolicy_UnsetRoleUsesFallback(t *testing.T) {
 // Requisitioner's ephemeral fallback when the role sets no max-ephemeral.
 func TestRosterPolicy_PersonalCaps(t *testing.T) {
 	st := newPolicyStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +100,7 @@ func TestNewRosterPolicy_FallbackOnlyWithRequisitioner(t *testing.T) {
 // that declares only standing sessions still has a policy.
 func TestRosterPolicy_StandingNames(t *testing.T) {
 	st := newPolicyStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.PutRole("acme", jam.Role{Name: "reviewer", Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "p"}, {Name: "bob-bot", Prompt: "q"}}}}); err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,15 @@ func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 	return ts, store
 }
 
+// mustCreateProject records project name directly on the server's store: every
+// project-scoped write needs its project to exist first.
+func mustCreateProject(t *testing.T, store jam.Store, name string) {
+	t.Helper()
+	if err := store.CreateProject(name); err != nil {
+		t.Fatalf("CreateProject(%q): %v", name, err)
+	}
+}
+
 // TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
 // real Jam admin handler + FileStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
@@ -62,14 +71,15 @@ func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword, RepoScoped: true}); err != nil {
+	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	ds, err := c.ListDestinations()
 	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
 		t.Fatalf("ListDestinations = %+v, %v", ds, err)
 	}
-	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+	mustCreateProject(t, store, "ACME")
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	res, err := c.Enroll(EnrollParams{ID: "spider-18", Project: "ACME", Role: "guest"})
@@ -139,7 +149,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 		gotBody = string(b)
 		switch {
 		case r.URL.Path == "/admin/roles" && r.Method == "GET":
-			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"repos":["acme/*"],"ttl_seconds":3600}]`))
+			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"credentials":{"anthropic":"anthropic-sub"},"repos":["acme/*"],"ttl_seconds":3600}]`))
 		case r.URL.Path == "/admin/projects":
 			_, _ = w.Write([]byte(`["acme"]`))
 		case r.URL.Path == "/admin/roster":
@@ -151,14 +161,14 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTL: time.Hour}}); err != nil {
+	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Credentials: map[string]string{"anthropic": "anthropic-sub"}, TTL: time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
-	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) {
+	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) || !strings.Contains(gotBody, `"credentials":{"anthropic":"anthropic-sub"}`) {
 		t.Fatalf("PutRole wire = %s %s %s", gotMethod, gotPath, gotBody)
 	}
 	roles, err := c.ListRoles("acme")
-	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour {
+	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour || roles[0].Scope.Credentials["anthropic"] != "anthropic-sub" {
 		t.Fatalf("ListRoles = %+v, %v", roles, err)
 	}
 	if gotPath != "/admin/roles?project=acme" {
@@ -204,7 +214,8 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 // RemoveHuman/RemoveChannel and role Addressing round-trips against a real
 // Jam admin handler + FileStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	if err := c.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h"}); err != nil {
@@ -277,7 +288,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 // TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
 // against a real Jam admin handler + FileStore.
 func TestClientEscalationPolicy(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	tiers := []jam.EscalationTier{
@@ -304,7 +316,8 @@ func TestClientEscalationPolicy(t *testing.T) {
 // with a category, asserting the view carries both the default and the category
 // chain without disturbing each other.
 func TestClientEscalationCategory(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	def := []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
@@ -331,7 +344,8 @@ func TestClientEscalationCategory(t *testing.T) {
 // TestClientChatService exercises SetChatService/GetChatService (set, get,
 // clear) against a real Jam admin handler + FileStore.
 func TestClientChatService(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	if err := c.SetChatService("acme", "discord"); err != nil {
@@ -361,7 +375,8 @@ func TestClientChatService(t *testing.T) {
 // human's per-service Delivery profiles through to the server, round-tripped
 // via GetRoster.
 func TestClientAddHumanCarriesDelivery(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	h := jam.Human{
@@ -433,9 +448,9 @@ func TestClientKitRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	v, err := c.PushKit("web", "name: web\n")
-	if err != nil || v != 3 {
-		t.Fatalf("PushKit = %d, %v (body=%s)", v, err, gotBody)
+	res, err := c.PushKit("web", "name: web\n")
+	if err != nil || res.Version != 3 {
+		t.Fatalf("PushKit = %+v, %v (body=%s)", res, err, gotBody)
 	}
 	if gotMethod != "POST" || gotPath != "/admin/kits" || !strings.Contains(gotBody, `"config":"name: web\n"`) {
 		t.Fatalf("push wire = %s %s %s", gotMethod, gotPath, gotBody)
@@ -529,6 +544,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}

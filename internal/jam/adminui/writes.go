@@ -64,14 +64,31 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// overridesFrom builds a *jam.Override from optional comma-separated fields,
-// or nil when both are empty (inherit the role's scope).
-func overridesFrom(dests, repos string) *jam.Override {
-	d, rp := splitCSV(dests), splitCSV(repos)
-	if len(d) == 0 && len(rp) == 0 {
-		return nil
+// overridesFrom builds a *jam.Override from an optional destinations field in
+// jam.ParseDestinations syntax ("git=cred,anthropic"), or nil when empty
+// (inherit the role's scope). Mapped credentials are validated against the
+// effective scope over the grant's role, so mapping credentials onto a role
+// that doesn't exist is rejected (as the admin API does).
+func overridesFrom(store jam.Store, project, role, dests string, credExists func(string) bool) (*jam.Override, error) {
+	d, creds, err := jam.ParseDestinations(dests)
+	if err != nil {
+		return nil, err
 	}
-	return &jam.Override{Destinations: d, Repos: rp}
+	if len(d) == 0 {
+		return nil, nil
+	}
+	o := &jam.Override{Destinations: d, Credentials: creds}
+	if creds == nil {
+		return o, nil
+	}
+	r, ok := store.GetRole(orDefaultProject(project), role)
+	if !ok {
+		return nil, fmt.Errorf("role %q not found in project %q", role, orDefaultProject(project))
+	}
+	if err := jam.ValidateCredentials(jam.EffectiveScope(jam.Grant{Overrides: o}, r), credExists); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // orDefaultProject normalizes an empty project to jam.DefaultProject for
@@ -111,7 +128,11 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		overrides := overridesFrom(r.FormValue("destinations"), r.FormValue("repos"))
+		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
 		if err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
@@ -164,28 +185,35 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			ttl = n
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
+		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		role := jam.Role{
 			Name: name,
 			Scope: jam.Scope{
-				Destinations: splitCSV(r.FormValue("destinations")),
-				Repos:        splitCSV(r.FormValue("repos")),
+				Destinations: dests,
+				Credentials:  creds,
 				TTL:          time.Duration(ttl) * time.Second,
 			},
 			Kit: kit,
 		}
-		// The form doesn't edit the allocation policy (set via `role add
-		// --max-ephemeral`), the addressing allow-list, or the egress policy (set via
-		// `at-jam egress set`); keep the existing role's instead of resetting them.
-		if existing, ok := store.GetRole(orDefaultProject(project), name); ok {
-			role.Allocation = existing.Allocation
-			role.Scope.Addressing = existing.Scope.Addressing
-			role.Scope.Egress = existing.Scope.Egress
-		}
-		if err := store.PutRole(project, role); err != nil {
+		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Info("ui role put", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
+		// Create only: an existing role is edited section by section on its page.
+		if err := jam.CreateRole(store, project, role); err != nil {
+			msg := err.Error()
+			if jam.WriteStatus(err, 0) == http.StatusConflict {
+				msg += "; edit it on its page"
+			}
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
+			return
+		}
+		w.Header().Set("HX-Redirect", roleURL(project, name))
+		log.Info("ui role created", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
 		renderFragment(w, "roles", "roles-table", map[string]any{"Roles": roleRows(store), "CanRequest": sup != nil})
 	})
 
@@ -203,7 +231,12 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		project := strings.TrimSpace(r.FormValue("project"))
-		g := jam.Grant{Project: project, Role: role, Overrides: overridesFrom(r.FormValue("destinations"), r.FormValue("repos"))}
+		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		g := jam.Grant{Project: project, Role: role, Overrides: overrides}
 		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
 			renderError(w, http.StatusNotFound, err.Error())
 			return
@@ -291,109 +324,4 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		renderFragment(w, "coves", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": true})
 	})
 
-	mux.HandleFunc("POST /ui/kits", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		config := r.FormValue("config")
-		if name == "" || config == "" {
-			renderError(w, http.StatusBadRequest, "name and config are required")
-			return
-		}
-		v, err := store.PushKit(name, config)
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		log.Info("ui kit pushed", "operator", jam.OperatorID(r), "kit", name, "version", v)
-		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
-	})
-
-	mux.HandleFunc("POST /ui/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("version")))
-		if err != nil {
-			renderError(w, http.StatusBadRequest, "version must be an integer")
-			return
-		}
-		if err := store.PinKit(r.PathValue("name"), v); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		log.Info("ui kit pinned", "operator", jam.OperatorID(r), "kit", r.PathValue("name"), "version", v)
-		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
-	})
-
-	mux.HandleFunc("DELETE /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		name := r.PathValue("name")
-		if project, role, ok := store.RoleReferencingKit(name); ok {
-			renderError(w, http.StatusConflict, fmt.Sprintf("kit %q is referenced by role %s/%s", name, project, role))
-			return
-		}
-		if err := store.RemoveKit(name); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		log.Info("ui kit removed", "operator", jam.OperatorID(r), "kit", name)
-		renderFragment(w, "kits", "kits-table", map[string]any{"Kits": store.ListKits()})
-	})
-
-	mux.HandleFunc("POST /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		d := jam.Destination{
-			Name:       strings.TrimSpace(r.FormValue("name")),
-			Route:      strings.TrimSpace(r.FormValue("route")),
-			Upstream:   strings.TrimSpace(r.FormValue("upstream")),
-			IdentityIn: jam.ApplyMethod(strings.TrimSpace(r.FormValue("identity-in"))),
-			CredName:   strings.TrimSpace(r.FormValue("cred-name")),
-			Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
-			RepoScoped: r.FormValue("repo-scoped") != "",
-		}
-		if d.Name == "" || d.Route == "" || d.Upstream == "" {
-			renderError(w, http.StatusBadRequest, "name, route and upstream are required")
-			return
-		}
-		if d.CredName != "" && !credExists(d.CredName) {
-			renderError(w, http.StatusBadRequest, "cred-name does not resolve to a configured credential")
-			return
-		}
-		if err := store.AddDestination(d); err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
-	})
-
-	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := store.RemoveDestination(r.PathValue("name")); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "destinations", "destinations-table", map[string]any{"Destinations": store.ListDestinations()})
-	})
 }

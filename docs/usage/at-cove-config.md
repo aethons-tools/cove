@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-02
 ---
 
 # at-cove `config.yml`
@@ -379,8 +379,8 @@ broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
-the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
-helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
+the identity's connector (the env and git routing its role's destinations declare —
+[jam/connector.md](jam/connector.md)) into the session — **superseding** the OAuth/Vertex auth for that cove.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
@@ -398,18 +398,25 @@ jam:
 **Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
 at-cove auto-enrolls the cove: it shells a sibling `at-jam enroll` at session
 start to mint a fresh per-cove identity (id = the instance name, role `guest`;
-destinations, repos, and TTL all come from that role, not from this config) and
+destinations, credentials, and TTL all come from that role, not from this config) and
 `at-jam revoke`s it on exit. This needs the launching host to have `at-jam`
 reachable to Jam's admin API **and** an operator credential (`at-jam login` or
 `AT_JAM_ADMIN_TOKEN`). When that's not available (e.g. Jam isn't co-located),
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
 
+**What the session sets** is the identity's **connector** — the env vars and git
+routing its role's destinations declare ([jam/connector.md](jam/connector.md)).
+Auto-enroll receives it from `at-jam enroll`; a pre-supplied identity fetches it
+from the broker (`GET /connector`). A Jam without that endpoint, or one the host
+can't reach (a warning), gets the legacy Anthropic + git contract; a conflict
+among the role's destinations fails the session.
+
 > **Role prerequisite.** An auto-enrolling cove (no `jam.identity`) enrolls into
 > the `guest` role of Jam's default project; the operator must create it first,
-> e.g. `at-jam role add --name guest --destinations anthropic,git --repos
-> 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
-> into it — per-cove repo narrowing is a planned follow-up, not available yet.
+> e.g. `at-jam role add --name guest --destinations anthropic,git --ttl 24h`.
+> The role's scope governs every cove that enrolls into it; repo reach is the
+> mapped git credential's own scope.
 > **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
 > that never expire. See [jam/roster.md](jam/roster.md) for the role/enroll
 > surface and [jam/INDEX.md](jam/INDEX.md) for running Jam itself.
@@ -419,7 +426,8 @@ next `at-cove recreate`. The broker must listen on **:443** (a non-443 port woul
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
 **teammates**. A dispatched worker routes only its **Anthropic** through Jam (its
 git stays on at-task's minted code-host token — a global Jam rewrite would
-misroute `prepare`/`complete`); chat and teammates route both connectors. A
+misroute `prepare`/`complete`); chat and teammates also route git when the
+connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 

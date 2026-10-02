@@ -231,7 +231,7 @@ at-jam destination add \
   --identity-in x-api-key --cred-name anthropic-key --apply x-api-key
 at-jam destination add \
   --name git --route /git/ --upstream https://github.com \
-  --identity-in basic-password --cred-name git-pat --apply basic-password --repo-scoped
+  --identity-in basic-password --cred-name git-pat --apply basic-password
 at-jam destination list
 at-jam destination rm <name>
 at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
@@ -239,14 +239,23 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 
 - `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —
   how the studio presents its identity, and how Jam applies the real credential.
-- `--repo-scoped` marks a git-style destination whose path is `<route>/<owner>/<repo>/…`,
-  so a role's `repos` globs can scope it.
 - `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
   forwarded requests — required for the subscription [pool](pool.md) (a cove on
   `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).
+- `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
+  to use the destination — see [connector.md](connector.md), which also covers
+  the `gh` (GitHub API) destinations.
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
   pool resolves by identity, not from `credentials:`). Validated at add time.
+  It is the destination's **default** credential: a role may map the
+  destination to a different one ([roster.md](roster.md)).
+- **No repo policy.** Jam does not scope a git destination by `owner/repo`; the
+  injected credential's own scope is the boundary. Use a fine-grained PAT per
+  project (one `credentials:` entry each) and map it per role.
+  **Upgrading from a repo-scoped Jam widens access:** a role that relied on
+  `--repos` to narrow a broad PAT gets that PAT's full reach — re-scope the
+  credentials before upgrading. Stored `repo_scoped`/`repos` keys are ignored.
 
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

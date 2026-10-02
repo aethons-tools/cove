@@ -192,8 +192,8 @@ func TestRaiseRollsBackIdentityWhenLauncherFails(t *testing.T) {
 func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
 	sup, store, _ := supTestKit(t, fl)
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "base", Egress: []string{"github.com"}}
-	ref, err := EnsureStudioKit(store, sk)
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}}
+	ref, err := EnsureStudioKit(store, "base", sk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitPreparing}
 	sup, store, _ := supTestKit(t, fl)
-	ref, err := EnsureStudioKit(store, studio.StudioKit{Kind: studio.Kind, Name: "base", Egress: []string{"github.com"}})
+	ref, err := EnsureStudioKit(store, "base", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,8 +251,8 @@ func TestSupervisorDefersWhenKitPreparing(t *testing.T) {
 func TestRaiseUsesRoleStudioKit(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com"}}
-	if _, err := EnsureStudioKit(store, sk); err != nil {
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}}
+	if _, err := EnsureStudioKit(store, "web", sk); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", Scope: Scope{TTL: time.Hour}}); err != nil {
@@ -271,8 +271,8 @@ func TestRaiseUsesRoleStudioKit(t *testing.T) {
 func TestRaiseComposesPrompt(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Prompt: "KITLAYER"}
-	ref, _ := EnsureStudioKit(store, sk)
+	sk := studio.StudioKit{Kind: studio.Kind, Prompt: "KITLAYER"}
+	ref, _ := EnsureStudioKit(store, "web", sk)
 	sup.SetDefaultStudioKit(ref)
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER"}); err != nil {
 		t.Fatal(err)
@@ -1051,5 +1051,40 @@ func TestRaiseCarriesRoleEgress(t *testing.T) {
 	}
 	if f.gotSpec.Egress != nil {
 		t.Fatalf("launcher spec egress = %+v, want nil (role has no policy)", f.gotSpec.Egress)
+	}
+}
+
+func TestRaiseHandsTheRolesConnectorToTheLauncher(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	if err := store.AddDestination(legacyAnthropic); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.gotSpec.Connector; c == nil || c.Env["ANTHROPIC_API_KEY"] != "{token}" {
+		t.Fatalf("launcher got connector %+v", c)
+	}
+}
+
+func TestRaiseConnectorConflictRollsBack(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	a := Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a", Env: map[string]string{"X": "1"}}
+	b := Destination{Name: "b", Route: "/b/", Upstream: "https://b", Env: map[string]string{"X": "2"}}
+	for _, d := range []Destination{a, b} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err == nil {
+		t.Fatal("conflicting connector must fail the raise")
+	}
+	if len(f.raised) != 0 || len(store.ListActors()) != 0 {
+		t.Fatalf("raise must roll back: raised=%v actors=%v", f.raised, store.ListActors())
 	}
 }

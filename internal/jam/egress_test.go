@@ -142,6 +142,7 @@ func TestAdminRolePutKeepsEgress(t *testing.T) {
 // GET /admin/roles reports each role's egress policy (nil = kit default).
 func TestAdminRoleListCarriesEgress(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", Role{Name: "a", Scope: Scope{Egress: &EgressPolicy{Domains: []string{"x.com"}}}}); err != nil {
 		t.Fatal(err)
 	}

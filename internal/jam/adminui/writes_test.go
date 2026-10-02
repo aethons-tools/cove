@@ -1,14 +1,13 @@
 package adminui_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
@@ -32,6 +31,7 @@ func post(t *testing.T, h http.Handler, path string, form url.Values) *httptest.
 
 func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -123,65 +123,9 @@ func TestRevokeActor(t *testing.T) {
 	}
 }
 
-// The UI role form doesn't edit the allocation policy, so saving a role from the
-// UI must keep the policy the role already has (set via `role add --max-ephemeral`)
-// rather than resetting it to zero.
-func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
-	store := newStore(t)
-	alloc := jam.RoleAllocation{
-		MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour,
-		Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "review PRs"}},
-	}
-	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: alloc}); err != nil {
-		t.Fatal(err)
-	}
-	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("edit role = %d, want 200", rec.Code)
-	}
-	got, ok := store.GetRole("acme", "worker")
-	if !ok {
-		t.Fatal("role acme/worker missing after edit")
-	}
-	if !reflect.DeepEqual(got.Allocation, alloc) {
-		t.Fatalf("allocation after UI edit = %+v, want %+v (kept, standing declarations included)", got.Allocation, alloc)
-	}
-	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
-		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
-	}
-}
-
-// The UI role form edits neither the egress policy nor the addressing allow-list,
-// so saving a role from the UI must keep both rather than wiping them.
-func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
-	store := newStore(t)
-	egress := &jam.EgressPolicy{Domains: []string{".b.org", "a.com"}}
-	addressing := []string{"human:*", "channel:ops"}
-	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Addressing: addressing, Egress: egress}}); err != nil {
-		t.Fatal(err)
-	}
-	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("edit role = %d, want 200", rec.Code)
-	}
-	got, _ := store.GetRole("acme", "worker")
-	if !reflect.DeepEqual(got.Scope.Egress, egress) {
-		t.Fatalf("egress after UI edit = %+v, want %+v (kept)", got.Scope.Egress, egress)
-	}
-	if !reflect.DeepEqual(got.Scope.Addressing, addressing) {
-		t.Fatalf("addressing after UI edit = %v, want %v (kept)", got.Scope.Addressing, addressing)
-	}
-	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
-		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
-	}
-}
-
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
@@ -212,6 +156,7 @@ func TestCreateAndDeleteRole(t *testing.T) {
 
 func TestAddAndRemoveGrant(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -260,8 +205,11 @@ func TestEnrollValidationError(t *testing.T) {
 // refused, and without the option the proxied write is refused.
 func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	n := 0
 	write := func(h http.Handler, header, value string) int {
-		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader("project=acme&name=r1"))
+		n++ // a fresh role per write: the Roles form only creates
+		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader(fmt.Sprintf("project=acme&name=r%d", n)))
 		req.Host = "localhost:8081"
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set(header, value)
@@ -287,5 +235,78 @@ func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 		if got := write(h, tc.header, tc.value); got != tc.want {
 			t.Errorf("%s: %s → %d, want %d", tc.header, tc.value, got, tc.want)
 		}
+	}
+}
+
+func TestCreateRoleWithDestinationCredentials(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil) // accepts "known-cred"
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create role = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	r, _ := store.GetRole("acme", "w")
+	if r.Scope.Credentials["git"] != "known-cred" || len(r.Scope.Destinations) != 2 {
+		t.Fatalf("stored role = %+v", r)
+	}
+	// Credential names are references, not secret values: the table shows the mapping.
+	if !strings.Contains(rec.Body.String(), "known-cred") {
+		t.Errorf("roles table should show the credential mapping; got:\n%s", rec.Body.String())
+	}
+	for _, bad := range []string{"git=unknown-cred", "git="} {
+		if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {
+			t.Errorf("destinations %q = %d, want 400", bad, rec.Code)
+		}
+	}
+}
+
+func TestEnrollOverrideCredentialsValidated(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	rec := post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("enroll with unknown override credential = %d, want 400", rec.Code)
+	}
+	rec = post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=known-cred"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enroll with valid override = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	a, _ := store.Lookup(store.ListActors()[0].TokenHash)
+	if a.Grants[0].Overrides == nil || a.Grants[0].Overrides.Credentials["git"] != "known-cred" {
+		t.Fatalf("grant overrides = %+v", a.Grants[0].Overrides)
+	}
+}
+
+func TestAddGrantOverrideCredentialsValidated(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(jam.Actor{ID: "m", TokenHash: "h", Grants: []jam.Grant{{Project: "acme", Role: "w"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	// a role that doesn't exist yet: mapped credentials can't be checked → 400.
+	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"later"}, "destinations": {"git=known-cred"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("grant of missing role with mapped credential = %d, want 400", rec.Code)
+	}
+	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("grant with unknown credential = %d, want 400", rec.Code)
+	}
+}
+
+func TestCredentialErrorsDoNotEchoName(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "SECRET-TYPO") {
+		t.Fatalf("status=%d; error must not echo the credential name; body:\n%s", rec.Code, rec.Body.String())
 	}
 }

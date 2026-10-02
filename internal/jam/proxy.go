@@ -45,11 +45,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown identity", http.StatusUnauthorized)
 		return
 	}
-	var ownerRepo string
-	if dest.RepoScoped {
-		ownerRepo, _ = RepoFromPath(dest.Route, r.URL.Path)
-	}
-	dec, err := Decide(actor, b.resolveScopes(actor), dest, ownerRepo, b.now())
+	dec, err := Decide(actor, b.resolveScopes(actor), dest, b.now())
 	if err != nil {
 		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", err.Error())
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -94,27 +90,19 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
-// resolveScopes turns an actor's grants into their effective scopes, skipping any
-// grant whose role no longer exists (fail-closed: a deleted role stops
-// authorizing). An actor with no resolvable grant yields nil → Decide denies.
-func (b *Broker) resolveScopes(a Actor) []Scope {
-	var scopes []Scope
-	for _, g := range a.Grants {
-		r, ok := b.store.GetRole(g.Project, g.Role)
-		if !ok {
-			continue
-		}
-		scopes = append(scopes, EffectiveScope(g, r))
-	}
-	return scopes
-}
+// resolveScopes is ScopesFor over the broker's live store.
+func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, actor) }
 
 // presentedToken extracts the caller's identity token from the request per how.
 func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 	switch how {
 	case ApplyBearer:
-		if s, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s != "" {
-			return s, true
+		// "token <x>" is what gh sends to a GitHub Enterprise host (GH_HOST=<jam>).
+		auth := r.Header.Get("Authorization")
+		for _, scheme := range []string{"Bearer ", "token "} {
+			if s, ok := strings.CutPrefix(auth, scheme); ok && s != "" {
+				return s, true
+			}
 		}
 	case ApplyBasicPassword:
 		if _, pass, ok := r.BasicAuth(); ok && pass != "" {

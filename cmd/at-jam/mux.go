@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -53,10 +54,23 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 // intercom endpoints (/squawks and its subpaths) and /escalate whenever Jam
 // has an intercom log (with or without a Requisitioner — a personal session needs
 // the intercom too) or a Requisitioner (whose coves have always had /escalate; with
-// no log their sends fail with a clean 503). With neither, the broker alone.
+// no log their sends fail with a clean 503). With neither, the broker alone —
+// plus GET /connector, which is always mounted.
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, log *slog.Logger) http.Handler {
+	// GET /connector (the identity's client env) is always served, ahead of the
+	// broker's destination routes.
+	connH := jam.NewConnectorHandler(st, time.Now, log)
+	withConnector := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/connector" {
+				connH.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	if lg == nil && !requisitioner {
-		return broker
+		return withConnector(broker)
 	}
 	// Pass lg as both the reader and the appender only when it's genuinely
 	// non-nil: it is an intercom.Store interface value holding a real backend or
@@ -70,5 +84,5 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")
 	log.Info("Jam escalate: mounted", "path", "/escalate")
-	return squawksMux(squawksH, escH, broker)
+	return withConnector(squawksMux(squawksH, escH, broker))
 }

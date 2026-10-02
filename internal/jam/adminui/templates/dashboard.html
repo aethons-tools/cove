@@ -1,9 +1,26 @@
 {{define "content"}}
-<h1>Dashboard</h1>
-<h2>Live studios</h2>
+<div class="page-head"><h1>Dashboard</h1></div>
+<style>
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .tile{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;text-decoration:none;color:var(--ink)}
+  .tile:hover{border-color:var(--border-strong)}
+  .tile b{font-size:26px;font-weight:600;line-height:1.1}
+  .tile span{font-size:12px;color:var(--muted);font-weight:500}
+  .tile.live b{color:var(--live)} .tile.wait b{color:var(--wait)}
+  .tile.bad{border-color:color-mix(in srgb,var(--bad) 40%,transparent);background:var(--bad-soft)} .tile.bad b{color:var(--bad)}
+</style>
+{{with .Stats}}
+<div class="tiles">
+  <a class="tile live" href="/ui/coves" data-stat="live"><b>{{.Live}}</b><span>Live studios</span></a>
+  <a class="tile{{if .Raising}} wait{{end}}" href="/ui/coves" data-stat="raising"><b>{{.Raising}}</b><span>Raising</span></a>
+  <a class="tile{{if .Attention}} bad{{end}}" href="/ui/coves" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
+  <a class="tile" href="/ui/coves" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
+  <a class="tile" href="/ui/roster" data-stat="actors"><b>{{.Actors}}</b><span>Actors</span></a>
+  <a class="tile" href="/ui/roles" data-stat="roles"><b>{{.Roles}}</b><span>Roles</span></a>
+  <a class="tile" href="/ui/kits" data-stat="kits"><b>{{.Kits}}</b><span>Kits</span></a>
+  <a class="tile" href="/ui/destinations" data-stat="destinations"><b>{{.Destinations}}</b><span>Destinations</span></a>
+</div>
+{{end}}
+<h2>Studios</h2>
 {{template "coves-table" .}}
-<h2>Roster</h2>
-<ul>
-  {{range .Actors}}<li>{{.ID}} — {{len .Grants}} grant(s)</li>{{else}}<li class="empty">No actors enrolled.</li>{{end}}
-</ul>
 {{end}}

@@ -24,6 +24,15 @@ func newStore(t *testing.T) jam.Store {
 	return st
 }
 
+// mustCreateProject records project name on st: every project-scoped write
+// needs its project to exist first.
+func mustCreateProject(t *testing.T, st jam.Store, name string) {
+	t.Helper()
+	if err := st.CreateProject(name); err != nil {
+		t.Fatalf("CreateProject(%q): %v", name, err)
+	}
+}
+
 func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -42,7 +51,7 @@ func TestDashboard(t *testing.T) {
 		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, "mgr-1"} {
+	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, `data-stat="actors"><b>1</b>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
@@ -109,6 +118,7 @@ func TestCovesNoSecretLeak(t *testing.T) {
 
 func TestRosterView(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +145,12 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 
 func TestRolesView(t *testing.T) {
 	store := newStore(t)
-	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, TTL: time.Hour}, Kit: ""}); err != nil {
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Kit: ""}); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roles").Body.String()
-	for _, want := range []string{"acme", "review", "git", "acme/*"} {
+	for _, want := range []string{"acme", "review", "git"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("roles view missing %q", want)
 		}

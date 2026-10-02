@@ -19,7 +19,7 @@ func TestUISaysStudioAndJam(t *testing.T) {
 		t.Fatalf("GET /ui/coves = %d", page.Code)
 	}
 	body := page.Body.String()
-	for _, want := range []string{"<title>Jam — Studios</title>", "<h1>Studios</h1>", `<a href="/ui/coves">Studios</a>`, "No studios."} {
+	for _, want := range []string{"<title>Jam — Studios</title>", "<h1>Studios</h1>", `<a href="/ui/coves" aria-current="page">Studios</a>`, "No studios."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("studios page missing %q; got:\n%s", want, body)
 		}
@@ -31,7 +31,7 @@ func TestUISaysStudioAndJam(t *testing.T) {
 	}
 
 	dash := get(t, h, "/ui/").Body.String()
-	if !strings.Contains(dash, "<h2>Live studios</h2>") || strings.Contains(dash, "Live coves") {
-		t.Errorf("dashboard heading should say Live studios; got:\n%s", dash)
+	if !strings.Contains(dash, "Live studios") || strings.Contains(dash, "Live coves") {
+		t.Errorf("dashboard should say Live studios; got:\n%s", dash)
 	}
 }

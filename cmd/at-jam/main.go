@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +47,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -73,7 +76,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -245,11 +248,17 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
 		// is on stdout only — the caller captures it in memory, never argv/logs.
 		_ = json.NewEncoder(stdout).Encode(struct {
-			ID    string `json:"id"`
-			Token string `json:"token"`
-		}{res.ID, res.Token})
+			ID        string             `json:"id"`
+			Token     string             `json:"token"`
+			Connector *snippet.Connector `json:"connector,omitempty"`
+		}{res.ID, res.Token, res.Connector})
 		return 0
 	}
+	if res.Connector != nil {
+		fmt.Fprint(stdout, res.Connector.Render(baseURL, res.Token))
+		return 0
+	}
+	// A Jam that predates connectors: the legacy Anthropic + git snippet.
 	fmt.Fprint(stdout, jam.RenderEnrollSnippet(baseURL, res.Token))
 	return 0
 }
@@ -300,8 +309,13 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key")
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
-	fs.BoolVar(&d.RepoScoped, "repo-scoped", false, "path is <route>/<owner>/<repo>/…")
 	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
+	var envKV []string
+	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
+		envKV = append(envKV, s)
+		return nil
+	})
+	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -315,6 +329,17 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	switch sub {
 	case "add":
 		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
+		for _, kv := range envKV {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || k == "" {
+				fmt.Fprintf(stderr, "at-jam destination add: --env %q: want KEY=TEMPLATE\n", kv)
+				return 2
+			}
+			if d.Env == nil {
+				d.Env = map[string]string{}
+			}
+			d.Env[k] = v
+		}
 		if err := c.AddDestination(d); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
@@ -330,6 +355,12 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			ob := ""
 			if dd.OAuthBeta {
 				ob = ", oauth-beta"
+			}
+			if len(dd.Env) > 0 {
+				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			}
+			if dd.Git {
+				ob += ", git"
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
@@ -384,8 +415,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
-	dests := fs.String("destinations", "", "comma-separated destination names")
-	repos := fs.String("repos", "", "comma-separated owner/repo globs")
+	dests := fs.String("destinations", "", "comma-separated destination names, each optionally name=credential (the credential the broker injects; default: the destination's cred-name)")
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
@@ -419,9 +449,14 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
 			return 2
 		}
+		ds, creds, err := jam.ParseDestinations(*dests)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam role add:", err)
+			return 2
+		}
 		r := jam.Role{
 			Name: *name, Kit: *kitName,
-			Scope: jam.Scope{Destinations: splitCSV(*dests), Repos: splitCSV(*repos), Addressing: splitCSV(*addressing), TTL: *ttl},
+			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
 				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
@@ -439,7 +474,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\trepos=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, strings.Join(r.Scope.Destinations, ","), strings.Join(r.Scope.Repos, ","), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -466,6 +501,9 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // subcommands nest under "chat-service" and are handled by
 // cmdProjectChatService: `project chat-service set|clear|show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm") {
+		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
+	}
 	if len(args) >= 1 && args[0] == "escalation" {
 		return cmdProjectEscalation(args[1:], stdout, stderr)
 	}
@@ -473,7 +511,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return cmdProjectChatService(args[1:], stdout, stderr)
 	}
 	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-jam project: expected roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
+		fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
 		return 2
 	}
 	sub, rest := args[1], args[2:]
@@ -668,6 +706,58 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// cmdProjectLifecycle creates, lists or removes projects via the admin API:
+// `project create <name>`, `project list`, `project rm <name>`. A project must
+// exist before roles, grants or its roster can name it (except "default").
+func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("project "+sub, flag.ContinueOnError)
+	app := fs.String("app", defaultApp, "settings/token profile")
+	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	if want := map[string]int{"create": 1, "list": 0, "rm": 1}[sub]; len(pos) != want {
+		if want == 1 {
+			fmt.Fprintf(stderr, "at-jam project %s: expected <project>\n", sub)
+		} else {
+			fmt.Fprintf(stderr, "at-jam project %s: unexpected arguments\n", sub)
+		}
+		return 2
+	}
+	if err := validateApp(*app); err != nil {
+		fmt.Fprintln(stderr, "at-jam project:", err)
+		return 2
+	}
+	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
+	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
+	switch sub {
+	case "create":
+		if err := c.CreateProject(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "created project", pos[0])
+	case "rm":
+		if err := c.RemoveProject(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed project", pos[0])
+	case "list":
+		names, err := c.ListProjects()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		for _, n := range names {
+			fmt.Fprintln(stdout, n)
+		}
+	}
+	return 0
+}
+
 // cmdProjectChatService manages a project's chat service (the service backing
 // its humans' DMs) via the admin API: `project chat-service set|clear|show`.
 func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
@@ -843,6 +933,10 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
 			return 1
 		}
+		if err := sk.CheckName(*name); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
 		// Resolve a client-only base.context-dir by packing that host directory
 		// into base.context (a zip) before sending — the server can't read the
 		// operator's filesystem. A relative context-dir is resolved against the
@@ -860,12 +954,16 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
 			return 1
 		}
-		v, err := c.PushKit(*name, string(resolved))
+		res, err := c.PushKit(*name, string(resolved))
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "pushed %s v%d\n", *name, v)
+		if res.Unchanged {
+			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", *name, res.Version)
+		} else {
+			fmt.Fprintf(stdout, "pushed %s v%d\n", *name, res.Version)
+		}
 	case "list":
 		kits, err := c.ListKits()
 		if err != nil {
@@ -892,6 +990,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit show: stored config is not a valid studio kit:", err)
 			return 1
 		}
+		sk.LegacyName = "" // the registry names the kit; a legacy row's name isn't shown
 		y, err := yaml.Marshal(sk)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
@@ -1372,7 +1471,7 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	for _, a := range roster {
 		for _, g := range a.Grants {
-			fmt.Fprintf(stdout, "%s\t%s/%s\tdests=%s\trepos=%s\n", a.ID, g.Project, g.Role, strings.Join(g.Destinations, ","), strings.Join(g.Repos, ","))
+			fmt.Fprintf(stdout, "%s\t%s/%s\tdests=%s\n", a.ID, g.Project, g.Role, jam.FormatDestinations(g.Destinations, g.Credentials))
 		}
 	}
 	return 0

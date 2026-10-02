@@ -278,7 +278,7 @@ func TestPackContextDirDockerignoreSymlinkHandling(t *testing.T) {
 
 func TestResolveContextDirPacks(t *testing.T) {
 	src := writeCtxDir(t, map[string]string{"Dockerfile": "FROM x\n"})
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextDir: src}}
+	sk := StudioKit{Kind: Kind, Base: Base{ContextDir: src}}
 	if err := sk.ResolveContextDir(""); err != nil {
 		t.Fatalf("ResolveContextDir: %v", err)
 	}
@@ -294,14 +294,14 @@ func TestResolveContextDirPacks(t *testing.T) {
 }
 
 func TestToJSONRejectsUnresolvedContextDir(t *testing.T) {
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextDir: "/some/dir"}}
+	sk := StudioKit{Kind: Kind, Base: Base{ContextDir: "/some/dir"}}
 	if _, err := sk.ToJSON(); err == nil {
 		t.Fatal("ToJSON must reject an unresolved context-dir (server can't read the operator's disk)")
 	}
 }
 
 func TestValidateContextDirExactlyOne(t *testing.T) {
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{Image: "r", ContextDir: "/d"}}
+	sk := StudioKit{Kind: Kind, Base: Base{Image: "r", ContextDir: "/d"}}
 	if err := sk.Validate(); err == nil {
 		t.Fatal("image + context-dir must be rejected (exactly-one)")
 	}

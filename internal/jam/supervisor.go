@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -49,6 +50,10 @@ type RaiseSpec struct {
 	// path that raises the launcher's statically configured image, so existing
 	// callers are unaffected (Phase-1 additive).
 	Kit KitRef
+	// Connector is the client env/git the raised cove sets up to use its role's
+	// destinations (ConnectorFor). Supervisor.Raise always fills it; nil (a
+	// caller bypassing the supervisor) = the legacy built-in contract.
+	Connector *snippet.Connector
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
@@ -190,6 +195,17 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if err != nil {
 		return Instance{}, "", "", err
 	}
+	// The cove's client connector comes from its own grants' destinations; a
+	// conflict among them fails the raise (fail closed), revoking the identity.
+	actor, _ := s.store.Lookup(HashToken(tok))
+	conn, err := ConnectorFor(s.store, actor)
+	if err != nil {
+		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+			s.log.Warn("raise rollback: failed to revoke identity after connector conflict", "id", spec.ActorID, "error", rmErr)
+		}
+		return Instance{}, "", "", fmt.Errorf("raise: connector for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, err)
+	}
+	spec.Connector = &conn
 	// The role, not the caller, decides the cove's egress policy AND its kit
 	// (Enroll just proved the role exists). Callers — the Requisitioner, sessions,
 	// standing — need no change, and none can widen a role's egress or pick its kit

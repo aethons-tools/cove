@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 )
 
 // EgressView is the GET /admin/roles/{project}/{role}/egress response. Managed
@@ -77,11 +76,11 @@ func EgressFingerprint(p *EgressPolicy) string {
 }
 
 // registerEgress mounts a role's egress-policy routes. Each write is a
-// read-modify-write of the Role that keeps every other field, under mu (shared
-// with the standing routes). The routes only write the Role: the supervisor's
+// read-modify-write of the Role that keeps every other field, under the shared
+// role lock (SetRoleEgress/ClearRoleEgress). The routes only write the Role: the supervisor's
 // reconcile pass notices the drift and re-applies it to the role's running coves
 // (a paused cove gets it when it resumes).
-func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger, mu *sync.Mutex) {
+func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger) {
 	notFound := func(w http.ResponseWriter, project, role string) {
 		http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, role), http.StatusNotFound)
 	}
@@ -107,40 +106,19 @@ func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger, mu *sync.
 		if !decode(w, r, &b) {
 			return
 		}
-		mu.Lock()
-		defer mu.Unlock()
-		role, ok := store.GetRole(project, roleName)
-		if !ok {
-			notFound(w, project, roleName)
-			return
-		}
-		domains, err := NormalizeEgress(b.Domains)
+		n, err := SetRoleEgress(store, project, roleName, b.Domains)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
-		// A fresh policy, so the stored role never aliases one a reader holds.
-		role.Scope.Egress = &EgressPolicy{Domains: domains}
-		if err := store.PutRole(project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Info("admin role egress set", "operator", OperatorID(r), "project", project, "role", roleName, "domains", len(domains))
+		log.Info("admin role egress set", "operator", OperatorID(r), "project", project, "role", roleName, "domains", n)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/egress", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName := r.PathValue("project"), r.PathValue("role")
-		mu.Lock()
-		defer mu.Unlock()
-		role, ok := store.GetRole(project, roleName)
-		if !ok {
-			notFound(w, project, roleName)
-			return
-		}
-		role.Scope.Egress = nil
-		if err := store.PutRole(project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err := ClearRoleEgress(store, project, roleName); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin role egress cleared", "operator", OperatorID(r), "project", project, "role", roleName)

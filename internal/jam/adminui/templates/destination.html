@@ -1,0 +1,112 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Destination not found</h1></div>
+<div class="banner">No destination <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/destinations">Back to destinations</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-all}
+  .unset{color:var(--faint)}
+  .banner.conflict{flex-direction:column;gap:4px}
+  .banner.conflict ul{margin:4px 0 0;padding-left:18px}
+  details.edit{border-top:1px dashed var(--border)}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit[open]>summary{background:var(--surface-2)}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/destinations">Destinations</a></div>
+{{template "dest-body" .}}
+{{end}}
+{{end}}
+
+{{define "dest-body"}}
+<div id="dest">
+<div class="page-head">
+  <h1>{{.Dest.Name}}</h1>
+  <span class="mono sub">{{.Dest.Route}} → {{.Dest.Upstream}}</span>
+  <span class="spacer"></span>
+  <button class="danger" hx-delete="/ui/destinations/{{.Dest.Name}}" hx-swap="none"
+      hx-confirm="Delete destination {{.Dest.Name}}?{{with .Uses}} {{len .}} role(s) list it.{{end}}"
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/destinations'">Delete</button>
+</div>
+
+{{if .Conflicts}}
+<div class="banner error conflict">
+  <strong>Connector conflict in {{len .ConflictRoles}} role(s):
+    {{range $i, $r := .ConflictRoles}}{{if $i}}, {{end}}<span class="conflict-role mono">{{$r}}</span>{{end}}</strong>
+  <span>Studios holding these roles can't assemble a connector (Jam fails closed with 409) until one side changes:</span>
+  <ul>{{range .Conflicts}}<li><a href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}</a>: this and <a href="{{destURL .Other}}">{{.Other}}</a> {{.What}}</li>{{end}}</ul>
+</div>
+{{end}}
+
+<div class="sections">
+  <section class="card">
+    <header><h2>Broker</h2><span class="sub">how Jam proxies and authenticates the request</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Route</dt><dd class="mono">{{.Dest.Route}}</dd>
+        <dt>Upstream</dt><dd class="mono">{{.Dest.Upstream}}</dd>
+        <dt>Identity in</dt><dd>{{if .Dest.IdentityIn}}<span class="mono">{{.Dest.IdentityIn}}</span>{{else}}<span class="unset">—</span>{{end}}</dd>
+        <dt>Apply as</dt><dd>{{if .Dest.Apply}}<span class="mono">{{.Dest.Apply}}</span>{{else}}<span class="unset">—</span>{{end}}</dd>
+        <dt>Default credential</dt><dd>{{if .Dest.CredName}}<span class="mono">{{.Dest.CredName}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>OAuth beta</dt><dd>{{if .Dest.OAuthBeta}}<span class="chip accent">oauth-beta</span> adds <code>oauth-2025-04-20</code>{{else}}<span class="unset">off</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Studio connector</h2><span class="sub">what a studio sets to use this destination</span></header>
+    <table>
+      <thead><tr><th>Env</th><th>Template</th></tr></thead>
+      <tbody>
+        {{range .Env}}<tr><td><span class="mono">{{.Key}}</span></td><td><span class="mono">{{.Template}}</span></td></tr>
+        {{else}}<tr><td colspan="2" class="empty">No client env.</td></tr>{{end}}
+      </tbody>
+    </table>
+    <div class="body">
+      {{if .EnvImplied}}<p class="sub" style="margin:0 0 6px">No env declared — implied by the {{.Dest.Route}} route (legacy default).</p>{{end}}
+      <p class="sub" style="margin:0">Git routing:
+        {{if .GitImplied}}<span class="chip accent">git</span> implied by the /git/ route
+        {{else if .GitRouted}}<span class="chip accent">git</span> on
+        {{else}}<span class="unset">off</span>{{end}}</p>
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Used by</h2><span class="sub">roles whose scope lists this destination, and the credential each injects</span></header>
+    <table>
+      <thead><tr><th>Role</th><th>Credential</th></tr></thead>
+      <tbody>
+        {{range .Uses}}
+        <tr><td><a class="mono" href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}</a></td>
+          <td>{{if .CredIsRole}}<span class="mono">{{.Cred}}</span> <span class="unset">role mapping</span>{{else if $.Dest.CredName}}<span class="mono">{{$.Dest.CredName}}</span> <span class="unset">default</span>{{else}}<span class="unset">none</span>{{end}}</td></tr>
+        {{else}}
+        <tr><td colspan="2" class="empty">No role lists this destination.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+    <details class="edit">
+      <summary>Edit destination</summary>
+      <form hx-post="/ui/destinations/{{.Dest.Name}}" hx-target="#dest" hx-swap="outerHTML">
+        {{template "dest-fields" .}}
+        <div class="form-actions"><button type="submit" class="primary">Save destination</button></div>
+      </form>
+    </details>
+  </section>
+</div>
+</div>
+{{end}}

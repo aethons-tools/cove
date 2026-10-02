@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # Backing up and restoring Jam config
@@ -55,6 +55,10 @@ half-merge or clobber a running server). Format is sniffed from the content when
 ```
 at-jam import backup.json
 ```
+
+A backup taken before projects were first-class may have roles or grants that
+name a project it has no record for. Import adds an empty record for each one
+(see [projects.md](projects.md#upgrading-an-existing-jam)).
 
 Because existing tokens keep working after a restore, there is nothing to
 re-hand-out: point the studios at the restored Jam and they authenticate as

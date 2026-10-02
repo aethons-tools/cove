@@ -5,6 +5,7 @@
 package storetest
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,17 @@ import (
 // RunConformance exercises the full jam.Store contract. newStore must return
 // a fresh, empty store on each call.
 func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
+	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
+	// which most subtests write into.
+	newStoreWithAcme := func(t *testing.T) jam.Store {
+		t.Helper()
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatalf("CreateProject acme: %v", err)
+		}
+		return s
+	}
+
 	t.Run("actors_add_lookup_remove", func(t *testing.T) {
 		s := newStore(t)
 		a := jam.Actor{ID: "cove-1", TokenHash: "hash-1"}
@@ -43,7 +55,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	})
 
 	t.Run("grants_upsert_remove", func(t *testing.T) {
-		s := newStore(t)
+		s := newStoreWithAcme(t)
 		if err := s.AddActor(jam.Actor{ID: "cove-1", TokenHash: "h"}); err != nil {
 			t.Fatal(err)
 		}
@@ -72,16 +84,16 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	})
 
 	t.Run("roles_crud_projects", func(t *testing.T) {
-		s := newStore(t)
+		s := newStoreWithAcme(t)
 		if err := s.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 			t.Fatalf("PutRole: %v", err)
 		}
 		// upsert: putting the same name again replaces without error.
-		if err := s.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Repos: []string{"acme/*"}}}); err != nil {
+		if err := s.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat-acme"}}}); err != nil {
 			t.Fatalf("PutRole (upsert): %v", err)
 		}
 		r, ok := s.GetRole("acme", "worker")
-		if !ok || len(r.Scope.Repos) != 1 {
+		if !ok || r.Scope.Credentials["git"] != "git-pat-acme" {
 			t.Fatalf("GetRole = %+v, %v", r, ok)
 		}
 		if got := s.ListRoles("acme"); len(got) != 1 {
@@ -101,7 +113,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	// A role's egress policy distinguishes nil (the kit default), set-but-empty
 	// (nothing beyond base + infra) and a set list; all three must round-trip.
 	t.Run("role_egress_policy_round_trip", func(t *testing.T) {
-		s := newStore(t)
+		s := newStoreWithAcme(t)
 		cases := map[string]*jam.EgressPolicy{
 			"kit-default": nil,
 			"empty":       {Domains: []string{}},
@@ -129,7 +141,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	})
 
 	t.Run("role_kit_reference_validation", func(t *testing.T) {
-		s := newStore(t)
+		s := newStoreWithAcme(t)
 		// PutRole referencing a kit that does not exist must error.
 		if err := s.PutRole("acme", jam.Role{Name: "r", Kit: "ghost"}); err == nil {
 			t.Fatal("PutRole with an unknown kit must error")
@@ -342,7 +354,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	})
 
 	t.Run("roster_and_escalation", func(t *testing.T) {
-		s := newStore(t)
+		s := newStoreWithAcme(t)
 		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
 			t.Fatalf("AddHuman: %v", err)
 		}
@@ -424,6 +436,111 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 		if p, ok := s.GetProject("acme"); !ok || p.ChatService != "" {
 			t.Fatalf("ChatService after clear = %q, want empty", p.ChatService)
+		}
+	})
+
+	t.Run("projects_lifecycle", func(t *testing.T) {
+		s := newStore(t)
+		if got := s.ListProjects(); len(got) != 0 {
+			t.Fatalf("ListProjects on a fresh store = %v, want none", got)
+		}
+		if err := s.CreateProject(""); err == nil {
+			t.Fatal("CreateProject with an empty name must error")
+		}
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatalf("CreateProject: %v", err)
+		}
+		if err := s.CreateProject("acme"); !errors.Is(err, jam.ErrProjectExists) {
+			t.Fatalf("CreateProject of an existing project = %v, want ErrProjectExists", err)
+		}
+		if got := s.ListProjects(); len(got) != 1 || got[0] != "acme" {
+			t.Fatalf("ListProjects = %v, want [acme]", got)
+		}
+		if p, ok := s.GetProject("acme"); !ok || p.Name != "acme" {
+			t.Fatalf("GetProject = %+v, %v", p, ok)
+		}
+
+		// Every project-scoped write into an unknown project is refused — no
+		// implicit creation.
+		writes := map[string]func() error{
+			"PutRole":             func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
+			"AddHuman":            func() error { return s.AddHuman("ghost", jam.Human{Name: "h"}) },
+			"AddChannel":          func() error { return s.AddChannel("ghost", jam.Channel{Name: "c"}) },
+			"SetEscalationPolicy": func() error { return s.SetEscalationPolicy("ghost", "", nil) },
+			"SetChatService":      func() error { return s.SetChatService("ghost", "discord") },
+			"AddActor": func() error {
+				return s.AddActor(jam.Actor{ID: "a2", TokenHash: "h2", Grants: []jam.Grant{{Project: "ghost", Role: "r"}}})
+			},
+		}
+		if err := s.AddActor(jam.Actor{ID: "a1", TokenHash: "h1"}); err != nil {
+			t.Fatal(err)
+		}
+		writes["AddGrant"] = func() error { return s.AddGrant("a1", jam.Grant{Project: "ghost", Role: "r"}) }
+		for name, w := range writes {
+			if err := w(); !errors.Is(err, jam.ErrProjectNotFound) {
+				t.Errorf("%s into an unknown project = %v, want ErrProjectNotFound", name, err)
+			}
+		}
+		if got := s.ListProjects(); len(got) != 1 {
+			t.Fatalf("a refused write created a project: ListProjects = %v", got)
+		}
+		if _, ok := s.Lookup("h2"); ok {
+			t.Fatal("a refused AddActor left the actor behind")
+		}
+
+		// RemoveProject refuses while a role or a grant references the project.
+		if err := s.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("acme"); !errors.Is(err, jam.ErrProjectInUse) {
+			t.Fatalf("RemoveProject with a role = %v, want ErrProjectInUse", err)
+		}
+		if err := s.AddGrant("a1", jam.Grant{Project: "acme", Role: "worker"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveRole("acme", "worker"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("acme"); !errors.Is(err, jam.ErrProjectInUse) {
+			t.Fatalf("RemoveProject with a grant = %v, want ErrProjectInUse", err)
+		}
+		if err := s.RemoveGrant("a1", "acme", "worker"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("acme"); err != nil {
+			t.Fatalf("RemoveProject: %v", err)
+		}
+		if _, ok := s.GetProject("acme"); ok {
+			t.Fatal("project still present after RemoveProject")
+		}
+		if got := s.ListProjects(); len(got) != 0 {
+			t.Fatalf("ListProjects after RemoveProject = %v", got)
+		}
+		if err := s.RemoveProject("acme"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("RemoveProject of an absent project = %v, want ErrProjectNotFound", err)
+		}
+	})
+
+	// The default project is the one exception to explicit creation: a write
+	// that names it (or names no project) materializes it, so a zero-config Jam
+	// keeps working.
+	t.Run("default_project_materializes_on_first_use", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.PutRole("", jam.Role{Name: "worker"}); err != nil {
+			t.Fatalf("PutRole into the default project: %v", err)
+		}
+		if got := s.ListProjects(); len(got) != 1 || got[0] != jam.DefaultProject {
+			t.Fatalf("ListProjects = %v, want [%s]", got, jam.DefaultProject)
+		}
+		if _, ok := s.GetProject(jam.DefaultProject); !ok {
+			t.Fatal("the default project has no record after first use")
+		}
+		s2 := newStore(t)
+		if err := s2.AddActor(jam.Actor{ID: "a", TokenHash: "h", Grants: []jam.Grant{{Role: "worker"}}}); err != nil {
+			t.Fatalf("AddActor granting into the default project: %v", err)
+		}
+		if _, ok := s2.GetProject(jam.DefaultProject); !ok {
+			t.Fatal("AddActor did not materialize the default project")
 		}
 	})
 

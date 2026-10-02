@@ -12,7 +12,6 @@ const DefaultStudioKitID = "default"
 func DefaultStudioKit() StudioKit {
 	return StudioKit{
 		Kind:   Kind,
-		Name:   DefaultStudioKitID,
 		Egress: []string{"github.com", "pkg.go.dev"},
 		Prompt: "You are a studio agent running in a brokered at-cove sandbox. " +
 			"Follow the task you are given; reach external services only through the approved allow-list.",

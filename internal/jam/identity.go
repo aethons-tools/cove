@@ -9,18 +9,21 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 )
 
 // Scope is a Role's security envelope: which destinations an actor granted this
-// role may reach, which repos (for repo-scoped destinations), and the default
-// token lifetime applied at enrollment.
+// role may reach, the credential injected for each, and the default token
+// lifetime applied at enrollment.
 type Scope struct {
-	Destinations []string      `json:"destinations"`
-	Repos        []string      `json:"repos"`
-	Addressing   []string      `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
-	TTL          time.Duration `json:"ttl"`
+	Destinations []string `json:"destinations"`
+	// Credentials maps a destination name to the credential the broker injects
+	// for it; a destination absent here (or mapped to "") uses its own CredName.
+	Credentials map[string]string `json:"credentials,omitempty"`
+	Addressing  []string          `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
+	TTL         time.Duration     `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
 	// = the kit's default list. Managed only by the egress endpoints
 	// (`at-jam egress set|show|clear`); a role re-put keeps it.
@@ -111,8 +114,9 @@ type Kit struct {
 // inherits the Role; a set field REPLACES the Role's field (no merge).
 type Override struct {
 	Destinations []string `json:"destinations,omitempty"`
-	Repos        []string `json:"repos,omitempty"`
 	Addressing   []string `json:"addressing,omitempty"` // REPLACES Scope.Addressing when non-nil
+	// Credentials REPLACES Scope.Credentials when non-nil.
+	Credentials map[string]string `json:"credentials,omitempty"`
 }
 
 // Grant assigns a Role (within a Project) to an Actor, optionally narrowed.
@@ -368,8 +372,11 @@ type EscalationTier struct {
 	Timeout time.Duration `json:"timeout"` // wait after pinging this tier before advancing
 }
 
-// Project is the top of the config tree: it owns its Roster and its escalation
-// policy. Roles remain keyed by (project, name).
+// Project is the top of the config tree: it owns its Roster, its escalation
+// policy, and (by key) its Roles and the Grants into them. A project exists only
+// once created (CreateProject) — every project-scoped write into an unknown
+// project fails with ErrProjectNotFound — except DefaultProject, which a write
+// naming it (or naming no project) materializes on first use.
 type Project struct {
 	Name                 string                      `json:"name"`
 	Roster               Roster                      `json:"roster"`
@@ -382,6 +389,14 @@ type Project struct {
 
 // DefaultProject backs Jam-side default enrollment when no project is named.
 const DefaultProject = "default"
+
+// Project lifecycle errors, shared by every Store so callers can map them with
+// errors.Is (e.g. to HTTP 404/409).
+var (
+	ErrProjectNotFound = errors.New("project not found")
+	ErrProjectExists   = errors.New("project already exists")
+	ErrProjectInUse    = errors.New("project is still referenced")
+)
 
 // MintToken returns a new high-entropy bearer token (URL-safe, no padding).
 func MintToken() (string, error) {

@@ -1,7 +1,8 @@
 package jam
 
 import (
-	"path"
+	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -24,12 +25,74 @@ type Destination struct {
 	IdentityIn ApplyMethod `json:"identity_in" yaml:"identity_in"`
 	CredName   string      `json:"cred_name"   yaml:"cred_name"`
 	Apply      ApplyMethod `json:"apply"       yaml:"apply"`
-	RepoScoped bool        `json:"repo_scoped" yaml:"repo_scoped"`
 	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
 	// present in the forwarded `anthropic-beta` header. Used by the subscription
 	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
 	// Anthropic requires it to accept a subscription-OAuth token.
 	OAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
+	// Env is the client env a studio sets to use this destination: values are
+	// templates over {url} (broker base + this route), {base}, {host} and
+	// {token} — see snippet.Connector. nil = the legacy default (ClientEnv).
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// Git routes a studio's https://github.com/ through this destination's route.
+	Git bool `json:"git,omitempty" yaml:"git,omitempty"`
+}
+
+// ClientEnv is the env a studio sets for this destination, with {url} resolved
+// to {base}<route>. A destination without Env keeps the pre-env contract: the
+// /anthropic/ route sets ANTHROPIC_BASE_URL plus the identity on
+// ANTHROPIC_API_KEY (identity-in x-api-key) or ANTHROPIC_AUTH_TOKEN (bearer —
+// the subscription pool's configuration).
+func (d Destination) ClientEnv() map[string]string {
+	env := d.Env
+	if env == nil && d.Route == "/anthropic/" {
+		env = map[string]string{"ANTHROPIC_BASE_URL": "{url}"}
+		switch d.IdentityIn {
+		case ApplyXAPIKey:
+			env["ANTHROPIC_API_KEY"] = "{token}"
+		case ApplyBearer:
+			env["ANTHROPIC_AUTH_TOKEN"] = "{token}"
+		}
+	}
+	url := "{base}" + strings.TrimSuffix(d.Route, "/")
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		out[k] = strings.ReplaceAll(v, "{url}", url)
+	}
+	return out
+}
+
+// GitRouted reports whether studios route github.com through this destination:
+// set explicitly, or implied by the legacy /git/ route on a destination without Env.
+func (d Destination) GitRouted() bool {
+	return d.Git || (d.Env == nil && d.Route == "/git/")
+}
+
+var (
+	envKeyRe       = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	envPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
+)
+
+// ValidateEnv checks Env at write time: keys are env-var names outside the
+// reserved AT_JAM_/AT_HARBOR_ namespace, and templates use only the known
+// placeholders.
+func (d Destination) ValidateEnv() error {
+	for k, v := range d.Env {
+		if !envKeyRe.MatchString(k) {
+			return fmt.Errorf("env key %q is not an env-var name", k)
+		}
+		if strings.HasPrefix(k, "AT_JAM_") || strings.HasPrefix(k, "AT_HARBOR_") {
+			return fmt.Errorf("env key %q is reserved", k)
+		}
+		for _, ph := range envPlaceholder.FindAllString(v, -1) {
+			switch ph {
+			case "{url}", "{base}", "{host}", "{token}":
+			default:
+				return fmt.Errorf("env %s: unknown placeholder %s (want {url}, {base}, {host} or {token})", k, ph)
+			}
+		}
+	}
+	return nil
 }
 
 // Config is the broker's destination table.
@@ -48,25 +111,4 @@ func (c Config) Match(reqPath string) (Destination, bool) {
 		}
 	}
 	return bestDest, best >= 0
-}
-
-// RepoFromPath extracts "owner/repo" from a repo-scoped path after the route:
-// route "/git/", path "/git/acme/api.git/info/refs" → "acme/api".
-func RepoFromPath(route, reqPath string) (string, bool) {
-	rest := strings.TrimPrefix(reqPath, route)
-	parts := strings.SplitN(rest, "/", 3)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", false
-	}
-	return parts[0] + "/" + strings.TrimSuffix(parts[1], ".git"), true
-}
-
-// repoAllowed reports whether ownerRepo matches any glob in allowed.
-func repoAllowed(ownerRepo string, allowed []string) bool {
-	for _, g := range allowed {
-		if ok, _ := path.Match(g, ownerRepo); ok {
-			return true
-		}
-	}
-	return false
 }

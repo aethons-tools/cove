@@ -75,6 +75,7 @@ type Options struct {
 	// (a global Jam insteadOf would misroute prepare/complete).
 	JamHost       string
 	JamToken      string
+	JamConnector  *snippet.Connector // the identity's client connector (env only here); nil = legacy
 	IdentityFile  string
 	KnownHostsDir string
 	InputPath     string
@@ -271,7 +272,11 @@ func Dispatch(ctx context.Context, o Options) error {
 		// Route the agent's Anthropic through Jam (COV-142) — env-only; git
 		// stays on at-task's minted-token path (no Jam insteadOf here).
 		if o.JamHost != "" {
-			for k, v := range snippet.Env("https://"+o.JamHost, o.JamToken) {
+			c := snippet.Legacy(false)
+			if o.JamConnector != nil {
+				c = *o.JamConnector
+			}
+			for k, v := range c.Expand("https://"+o.JamHost, o.JamToken) {
 				agentEnv[k] = v
 			}
 		}

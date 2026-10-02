@@ -19,7 +19,9 @@ http://127.0.0.1:8081/ui/
 
 It renders:
 
-- **Dashboard** (`/ui/`) — the live studio fleet + a roster summary.
+- **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
+  idled studios, and counts of actors, roles, kits, destinations), each linking
+  to its page, above the studio table.
 - **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
   activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
@@ -36,6 +38,11 @@ It renders:
 - **Roster / Roles / Kits / Destinations** — the control-plane objects as
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
+
+Every table has a fixed order — studios and actors by id; roles by project,
+then name; kits and destinations by name; squawks newest-first — so rows don't
+shuffle across the Studios poll or after an edit. The order comes from the
+store, so the JSON admin API and CLI lists match it.
 
 ## Reaching the UI
 
@@ -173,11 +180,25 @@ and sensitivity: [session-events.md](session-events.md).
 Beyond viewing, the UI can do the roster day-job — the same actions as the CLI
 verbs in [roster.md](roster.md):
 
-- **Enroll** an actor (id, project, role, optional destination/repo overrides).
+- **Enroll** an actor (id, project, role, optional destination overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
-- **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
+- **Revoke** an actor, **create/delete** a role (and edit it on its
+  [role page](ui-pages.md#role-pages)), and **add/remove** a grant.
+  On the Roster page each actor's grants are chips (`project/role`, with a ×
+  to remove; hover for the effective destinations), and **+ Grant** on the
+  actor's row opens its add-grant form.
+- Destination fields (role, enroll/grant overrides) take the CLI's
+  `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
+  or a mapping for a destination not in scope is rejected. Credential *names*
+  are references, not secrets, so the UI shows them (the Roles table renders
+  `git → git-pat`); credential *values* never appear.
+
+Create forms sit in collapsed **+ Add …** panels above each table. The
+outcome of a write shows in a banner at the top of the page: a refused write
+(validation error, conflict, CSRF refusal) appears as a dismissible error with
+the server's message, rather than failing silently.
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the
@@ -209,7 +230,7 @@ session opens the conversation with you on the intercom. You must be signed in
 (`/ui/auth/login`) as a login linked to a roster human in the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
-the outcome (the new session id, or the refusal) shows above the roles table.
+the outcome (the new session id, or the refusal) shows in the page's banner.
 
 Without a runtime supervisor, the Studios page is view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions
@@ -217,15 +238,14 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 
 ### Config plane (kits & destinations)
 
-- **Kits** — push a new version (name + config), pin the current pointer to an
-  existing version, and delete a kit. A kit still referenced by a role cannot be
-  deleted (the UI reports a conflict). See [kits.md](kits.md).
-- **Destinations** — add a brokered destination (name, route, upstream,
-  identity-in, cred-name, apply, repo-scoped) and remove one. A `cred-name` must
-  resolve to a configured credential, or the add is rejected. See
-  [serve.md#destinations](serve.md#destinations).
+- **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
+  and delete an unused one; each kit's page shows its versions, diffs them,
+  pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages).
+- **Destinations** — create one (every field, including client env, git
+  routing and oauth-beta) and remove one; each destination's page shows and
+  edits it — see [ui-pages.md](ui-pages.md#destination-pages).
 
 A kit config references credentials by name only (no secret values), and a
-destination's `cred-name` is a reference, not a secret — the UI shows and logs
-neither secret values nor the credential itself. These actions obey the same
+destination's `cred-name` is a reference, not a secret — the UI shows the name
+but never a credential value. These actions obey the same
 gate, CSRF, and audit-logging as the other edits.

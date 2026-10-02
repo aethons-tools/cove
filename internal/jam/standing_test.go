@@ -22,18 +22,19 @@ func TestStandingActorID(t *testing.T) {
 	}
 }
 
-// putStandingRole seeds role acme/reviewer with scope, kit-free, and a full
+// putStandingRole creates project acme and seeds role acme/reviewer with scope, kit-free, and a full
 // allocation so tests can check add/rm keep every other field.
 func putStandingRole(t *testing.T, store Store) Role {
 	t.Helper()
 	role := Role{
 		Name:  "reviewer",
-		Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}, Addressing: []string{"human:*"}, TTL: time.Hour},
+		Scope: Scope{Destinations: []string{"git"}, Addressing: []string{"human:*"}, TTL: time.Hour},
 		Allocation: RoleAllocation{
 			MaxEphemeral: 2, MaxPersonal: 3, MaxPersonalPerOwner: 1,
 			IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 3 * time.Hour,
 		},
 	}
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", role); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +131,7 @@ func TestAdminRolePutKeepsStanding(t *testing.T) {
 // name whose StandingActorID another role's declaration already holds is 400.
 func TestAdminStandingRejectsCrossRoleIDCollision(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	for _, r := range []string{"a-b", "a"} {
 		if err := store.PutRole("acme", Role{Name: r}); err != nil {
 			t.Fatal(err)

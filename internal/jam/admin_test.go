@@ -107,7 +107,8 @@ func TestAdminRejectsUnresolvableCredName(t *testing.T) {
 
 func TestAdminEnrollThenRevoke(t *testing.T) {
 	h, store := newTestAdmin(t)
-	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+	mustCreateProject(t, store, "ACME")
+	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -203,6 +204,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
 	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil, nil)
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -285,9 +287,10 @@ func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 }
 
 func TestAdminRolesCRUD(t *testing.T) {
-	h, _ := newTestAdmin(t) // existing helper: returns handler + store
+	h, store := newTestAdmin(t) // existing helper: returns handler + store
+	mustCreateProject(t, store, "acme")
 	// create
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTLSeconds: 3600})
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, TTLSeconds: 3600})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /admin/roles = %d", rec.Code)
 	}
@@ -326,9 +329,10 @@ func TestAdminEnrollRequiresExistingRole(t *testing.T) {
 }
 
 func TestAdminGrantAddRemove(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}})
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}, Repos: []string{"beta/*"}})
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}})
 	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "guest"})
 	rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "beta", Role: "review"})
 	if rec.Code != http.StatusCreated {
@@ -346,7 +350,8 @@ func TestAdminGrantAddRemove(t *testing.T) {
 }
 
 func TestAdminRosterRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST human = %d", rec.Code)
@@ -381,7 +386,8 @@ func TestAdminRosterRoutes(t *testing.T) {
 // TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
 // asserting a round-trip through a real FileStore + admin handler.
 func TestAdminEscalationRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
 		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 	})
@@ -398,7 +404,8 @@ func TestAdminEscalationRoutes(t *testing.T) {
 // TestAdminEscalationCategoryRoutes PUTs a category-scoped chain alongside the
 // default chain, asserting GET returns both in EscalationView.
 func TestAdminEscalationCategoryRoutes(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
 		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 	})
@@ -429,6 +436,7 @@ func TestAdminEscalationCategoryRoutes(t *testing.T) {
 // /admin/* route.
 func TestChatServiceRoute(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 
 	rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord"})
 	if rec.Code != http.StatusNoContent {
@@ -455,7 +463,8 @@ func TestChatServiceRoute(t *testing.T) {
 }
 
 func TestAdminRoleAddressingRoundTrips(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -471,6 +480,7 @@ func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 // /admin/roles; a negative cap is rejected.
 func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", Destinations: []string{"anthropic"}, MaxEphemeral: 4})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -492,6 +502,7 @@ func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 // cap is rejected.
 func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", MaxPersonal: 3, MaxPersonalPerOwner: 1})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -515,6 +526,7 @@ func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 // seconds; a negative setting is rejected.
 func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", IdleAfterSeconds: 3600, NagEverySeconds: 7200, ReclaimAfterSeconds: 259200})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
@@ -541,7 +553,7 @@ func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 
 func TestRosterSummaries(t *testing.T) {
 	_, store := newTestAdmin(t)
-	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("default", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AddActor(Actor{ID: "spider-1", TokenHash: "deadbeef", Grants: []Grant{{Project: "default", Role: "worker"}}}); err != nil {
@@ -581,9 +593,19 @@ func TestAdminKitsCRUD(t *testing.T) {
 		t.Fatalf("push v1 = %+v", r1)
 	}
 	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\negress:\n  - example.com\n"}), &r2)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress:\n  - example.com\n"}), &r2)
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
+	}
+	// re-pushing the current definition makes no new version
+	var r3 KitResult
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress: [example.com]\n"}), &r3)
+	if r3.Version != 2 || !r3.Unchanged {
+		t.Fatalf("unchanged push = %+v, want v2 unchanged", r3)
+	}
+	// a legacy in-file name must match the name it's pushed under
+	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: api\n"}).Code; code != http.StatusBadRequest {
+		t.Fatalf("mismatched legacy name push = %d, want 400", code)
 	}
 	// an invalid config (unknown field) is rejected at ingestion, not stored
 	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nnope: 1\n"}).Code; code != http.StatusBadRequest {
@@ -599,13 +621,13 @@ func TestAdminKitsCRUD(t *testing.T) {
 	var cur KitConfigResult
 	getJSON(t, h, "/admin/kits/web", &cur)
 	if cur.Version != 2 || !json.Valid([]byte(cur.Config)) ||
-		!strings.Contains(cur.Config, `"name":"web"`) || !strings.Contains(cur.Config, "example.com") {
+		strings.Contains(cur.Config, `"name"`) || !strings.Contains(cur.Config, "example.com") {
 		t.Fatalf("show current = %+v (want canonical JSON with example.com)", cur)
 	}
 	var old KitConfigResult
 	getJSON(t, h, "/admin/kits/web?version=1", &old)
 	if old.Version != 1 || !json.Valid([]byte(old.Config)) ||
-		!strings.Contains(old.Config, `"name":"web"`) || strings.Contains(old.Config, "example.com") {
+		strings.Contains(old.Config, `"name"`) || strings.Contains(old.Config, "example.com") {
 		t.Fatalf("show v1 = %+v (want canonical JSON without example.com)", old)
 	}
 	// versions
@@ -633,7 +655,8 @@ func TestAdminKitsCRUD(t *testing.T) {
 }
 
 func TestAdminKitRemoveBlockedByRole(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
 		t.Fatalf("role add = %d", rec.Code)
@@ -645,11 +668,12 @@ func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 }
 
 func TestAdminRoleRejectsMissingKit(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
 	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "impl", Kit: "ghost"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
 	}
 	// roster/role summary reflects a valid kit
+	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
 	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
 	var roles []RoleSummary
@@ -766,7 +790,8 @@ func mustJSON(t *testing.T, v any) []byte {
 // A roster human's login (the admin operator identity) round-trips through the
 // roster routes, and a login may link at most one human per project.
 func TestAdminRosterHumanLogin(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "alice", Handle: "alice.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
 		t.Fatalf("POST human = %d %s", rec.Code, rec.Body.String())
 	}
@@ -792,7 +817,8 @@ func TestAdminRosterHumanLogin(t *testing.T) {
 // A roster human's Discord user id binds at most one human per project, must be
 // a snowflake (all digits), and only a discord profile may carry one.
 func TestAdminRosterHumanDiscordUser(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme", "beta")
 	bound := func(name, ch, uid string) Human {
 		return Human{Name: name, Handle: name + ".h", Delivery: []DeliveryProfile{{Service: "discord", Address: ch, UserID: uid}}}
 	}
@@ -837,7 +863,8 @@ func TestAdminRosterHumanDiscordUser(t *testing.T) {
 // A roster human's OIDC identity binding round-trips, and a malformed one
 // (empty issuer or subject) is rejected with 400, leaving the roster unchanged.
 func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
 	good := Human{Name: "alice", Handle: "alice.h", Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}}
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", good); rec.Code != http.StatusCreated {
 		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
@@ -935,5 +962,84 @@ func TestWithAdminRouteIsGuarded(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Body.String() != "extra" {
 		t.Fatalf("route not mounted: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
+	h, store := newTestAdmin(t) // credExists: git-pat, anthropic-key
+	mustCreateProject(t, store, "acme")
+	bad := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "nope"}})
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("unknown credential = %d, want 400", bad.Code)
+	}
+	notAllowed := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}, Credentials: map[string]string{"git": "git-pat"}})
+	if notAllowed.Code != http.StatusBadRequest {
+		t.Fatalf("credential for a destination not allowed = %d, want 400", notAllowed.Code)
+	}
+	ok := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}})
+	if ok.Code != http.StatusCreated {
+		t.Fatalf("valid credentials = %d, want 201", ok.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].Credentials["git"] != "git-pat" {
+		t.Fatalf("roles = %+v", roles)
+	}
+	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	var roster []ActorSummary
+	getJSON(t, h, "/admin/roster", &roster)
+	if len(roster) != 1 || roster[0].Grants[0].Credentials["git"] != "git-pat" {
+		t.Fatalf("roster = %+v", roster)
+	}
+}
+
+func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}})
+	ov := &Override{Credentials: map[string]string{"git": "git-pat"}} // git not in the effective scope
+	if rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("enroll with bad override = %d, want 400", rec.Code)
+	}
+	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	if rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("grant with bad override = %d, want 400", rec.Code)
+	}
+	good := &Override{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}}
+	if rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "acme", Role: "w", Overrides: good}); rec.Code != http.StatusCreated {
+		t.Fatalf("grant with valid override = %d, want 201", rec.Code)
+	}
+}
+
+func TestAdminAddDestinationValidatesEnv(t *testing.T) {
+	h, store := newTestAdmin(t)
+	bad := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"AT_JAM_IDENTITY_TOKEN":"{token}"}}`
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", bad))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("reserved env key = %d, want 400", rec.Code)
+	}
+	good := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"GH_HOST":"{host}"},"git":true}`
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", good))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("valid env = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if d := store.ListDestinations(); len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || !d[0].Git {
+		t.Fatalf("stored = %+v", d)
+	}
+}
+
+func TestAdminEnrollReturnsConnector(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
+		t.Fatal(err)
+	}
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"gh"}})
+	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	var res EnrollResult
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &res) != nil || res.Connector == nil || res.Connector.Env["GH_HOST"] != "{host}" {
+		t.Fatalf("enroll = %d %s", rec.Code, rec.Body.String())
 	}
 }

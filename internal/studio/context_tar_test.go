@@ -190,7 +190,7 @@ func TestScanContextTarRejectsNonGzip(t *testing.T) {
 func TestValidateContextCheapEncodedCap(t *testing.T) {
 	defer func(o int) { maxEncodedZip = o }(maxEncodedZip)
 	maxEncodedZip = 8 // bytes of base64
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}}
+	sk := StudioKit{Kind: Kind, Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}}
 	if err := sk.Validate(); err == nil {
 		t.Fatal("an over-cap encoded context must be rejected at validate")
 	}
@@ -202,23 +202,23 @@ func TestValidateContextCheapRejectsNonTar(t *testing.T) {
 	gw := gzip.NewWriter(&buf)
 	_, _ = gw.Write([]byte("definitely not a tar stream"))
 	_ = gw.Close()
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{Context: base64.StdEncoding.EncodeToString(buf.Bytes())}}
+	sk := StudioKit{Kind: Kind, Base: Base{Context: base64.StdEncoding.EncodeToString(buf.Bytes())}}
 	if err := sk.Validate(); err == nil {
 		t.Fatal("a non-tar gzip payload must be rejected at validate")
 	}
 }
 
 func TestBuildDigestDiffersByBaseForm(t *testing.T) {
-	img := BuildDigest(StudioKit{Kind: Kind, Name: "w", Base: Base{Image: "r"}})
-	files := BuildDigest(StudioKit{Kind: Kind, Name: "w", Base: Base{ContextFiles: ContextTree{"dockerfile": fileNode("FROM x")}}})
-	ctx := BuildDigest(StudioKit{Kind: Kind, Name: "w", Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}})
+	img := BuildDigest(StudioKit{Kind: Kind, Base: Base{Image: "r"}})
+	files := BuildDigest(StudioKit{Kind: Kind, Base: Base{ContextFiles: ContextTree{"dockerfile": fileNode("FROM x")}}})
+	ctx := BuildDigest(StudioKit{Kind: Kind, Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}})
 	if img == files || img == ctx || files == ctx {
 		t.Fatalf("digests must differ per base form: image=%s files=%s context=%s", img, files, ctx)
 	}
 }
 
 func TestValidateContextFilesRejectsDockerfileClash(t *testing.T) {
-	sk := StudioKit{Kind: Kind, Name: "web", Base: Base{ContextFiles: ContextTree{
+	sk := StudioKit{Kind: Kind, Base: Base{ContextFiles: ContextTree{
 		"dockerfile": fileNode("FROM x"),
 		"Dockerfile": fileNode("FROM y"),
 	}}}

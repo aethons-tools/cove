@@ -20,14 +20,19 @@ const Kind = "studio"
 // StudioKit is the parsed contents of a studio kit's config. Build-affecting
 // fields (Base, Egress, BuildArgs) key the built image (see BuildDigest);
 // raise-time fields (Secrets, Prompt) do not.
+//
+// A kit does not name itself: the registry key (the push's name) is its name.
 type StudioKit struct {
-	Kind      string                      `yaml:"kind" json:"kind"`
-	Name      string                      `yaml:"name" json:"name"`
-	Base      Base                        `yaml:"base,omitempty" json:"base,omitempty"`
-	Egress    []string                    `yaml:"egress,omitempty" json:"egress,omitempty"`
-	BuildArgs map[string]string           `yaml:"build-args,omitempty" json:"build-args,omitempty"`
-	Secrets   map[string]kit.SecretConfig `yaml:"secrets,omitempty" json:"secrets,omitempty"`
-	Prompt    string                      `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Kind string `yaml:"kind" json:"kind"`
+	// LegacyName is the deprecated `name:` field. It is accepted on input so
+	// kit files and registry rows from before names left the schema still
+	// parse, checked against the pushed name (CheckName), and never stored.
+	LegacyName string                      `yaml:"name,omitempty" json:"-"`
+	Base       Base                        `yaml:"base,omitempty" json:"base,omitempty"`
+	Egress     []string                    `yaml:"egress,omitempty" json:"egress,omitempty"`
+	BuildArgs  map[string]string           `yaml:"build-args,omitempty" json:"build-args,omitempty"`
+	Secrets    map[string]kit.SecretConfig `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Prompt     string                      `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 }
 
 // ParseStudioKit unmarshals and validates studio-kit YAML. Unknown fields are
@@ -51,23 +56,17 @@ func (sk StudioKit) Validate() error {
 	if sk.Kind != Kind {
 		return fmt.Errorf("studio kit: kind must be %q, got %q", Kind, sk.Kind)
 	}
-	if sk.Name == "" {
-		return fmt.Errorf("studio kit: name is required")
-	}
-	if !TagSafeName(sk.Name) {
-		return fmt.Errorf("studio kit: name %q is not tag-safe (allowed: [A-Za-z0-9_.-])", sk.Name)
-	}
 	if err := sk.Base.validate(); err != nil {
-		return fmt.Errorf("studio kit %q: %w", sk.Name, err)
+		return fmt.Errorf("studio kit: %w", err)
 	}
 	// Build-args must never collide with a secret demand or a reserved secret
 	// name — secrets reach the session at raise, never the build (argv/logs).
 	for k := range sk.BuildArgs {
 		if _, ok := sk.Secrets[k]; ok {
-			return fmt.Errorf("studio kit %q: build-arg %q collides with a secret demand", sk.Name, k)
+			return fmt.Errorf("studio kit: build-arg %q collides with a secret demand", k)
 		}
 		if kit.IsReservedSecretName(k) {
-			return fmt.Errorf("studio kit %q: build-arg %q is a reserved secret name", sk.Name, k)
+			return fmt.Errorf("studio kit: build-arg %q is a reserved secret name", k)
 		}
 	}
 	return nil
@@ -84,9 +83,22 @@ func (sk StudioKit) ToJSON() ([]byte, error) {
 	// at push. It must be resolved (see (*StudioKit).ResolveContextDir) before a
 	// kit is serialized for storage — the server can't read the operator's disk.
 	if sk.Base.ContextDir != "" {
-		return nil, fmt.Errorf("studio kit %q: base.context-dir must be resolved (packed) before serializing", sk.Name)
+		return nil, fmt.Errorf("studio kit: base.context-dir must be resolved (packed) before serializing")
 	}
 	return json.Marshal(sk)
+}
+
+// CheckName validates the name a kit is pushed (registered) under: it must be
+// tag-safe, and a deprecated in-file `name:` must agree with it, so a file
+// written for one kit can't silently land on another.
+func (sk StudioKit) CheckName(name string) error {
+	if !TagSafeName(name) {
+		return fmt.Errorf("kit name %q is not tag-safe (allowed: [A-Za-z0-9_.-])", name)
+	}
+	if sk.LegacyName != "" && sk.LegacyName != name {
+		return fmt.Errorf("kit file names itself %q but is being pushed as %q; drop its name: field (kits are named by the registry)", sk.LegacyName, name)
+	}
+	return nil
 }
 
 // TagSafeName reports whether name may be a docker-tag / registry-id component.

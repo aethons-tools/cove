@@ -1,34 +1,51 @@
 {{define "content"}}
-<h1>Intercom</h1>
+<div class="page-head"><h1>Intercom</h1><span class="sub">The durable squawk Log, newest first</span></div>
 {{if not .Configured}}
-  <p class="empty">Squawk log not configured (set <code>intercom-log:</code> in the serve config).</p>
+  <div class="banner">Squawk log not configured (set <code>intercom-log:</code> in the serve config).</div>
 {{else}}
-<form method="get" action="/ui/intercom">
-  <input name="project" value="{{.Project}}" placeholder="project">
-  <input name="participant" value="{{.Participant}}" placeholder="participant (kind:ref)">
-  <input name="q" value="{{.Q}}" placeholder="body contains">
-  <input name="since" value="{{.Since}}" type="date">
-  <input name="until" value="{{.Until}}" type="date">
-  <button type="submit">Filter</button>
-  <a href="/ui/intercom">Reset</a>
-  <a href="/ui/intercom{{if .RawQuery}}?{{.RawQuery}}{{end}}">Refresh</a>
+<form method="get" action="/ui/intercom" class="card" style="padding:14px 16px;margin-bottom:16px;overflow:visible">
+  <div class="grid">
+    <label>Project<input name="project" value="{{.Project}}"></label>
+    <label>Participant <span class="hint">kind:ref</span><input name="participant" value="{{.Participant}}" placeholder="channel:eng"></label>
+    <label>Body contains<input name="q" value="{{.Q}}"></label>
+    <label>Since<input name="since" value="{{.Since}}" type="date"></label>
+    <label>Until<input name="until" value="{{.Until}}" type="date"></label>
+  </div>
+  <div class="form-actions">
+    <a class="btn" href="/ui/intercom">Reset</a>
+    <a class="btn" href="/ui/intercom{{if .RawQuery}}?{{.RawQuery}}{{end}}">Refresh</a>
+    <button type="submit" class="primary">Filter</button>
+  </div>
 </form>
-{{if .BadDate}}<p class="empty">Ignored an unparseable date (expected YYYY-MM-DD).</p>{{end}}
+{{if .BadDate}}<div class="banner error">Ignored an unparseable date (expected YYYY-MM-DD).</div>{{end}}
+<style>
+  #squawks td{vertical-align:top}
+  .reach{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:var(--idle-soft);color:var(--idle)}
+  .reach.ext{background:var(--accent-soft);color:var(--accent)}
+  td.body{max-width:560px;word-break:break-word}
+  td.body.plain{white-space:pre-wrap}
+  td.body.md > :first-child{margin-top:0} td.body.md > :last-child{margin-bottom:0}
+  td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre{margin:0 0 .4em}
+  td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
+  td.body.md code{background:var(--idle-soft);padding:1px 4px;border-radius:4px}
+</style>
+<div class="card">
 <table id="squawks">
   <thead><tr><th>Time</th><th>From</th><th>To</th><th>Project</th><th>Body</th></tr></thead>
   <tbody>
     {{range .Rows}}
       <tr>
-        <td>{{.At}}</td>
-        <td>{{.From}}</td>
-        <td>{{range .To}}{{.Target}} <span class="reach">[{{if .External}}external{{else}}internal{{end}}]</span> {{end}}</td>
+        <td><time>{{.At}}</time></td>
+        <td><span class="mono">{{.From}}</span></td>
+        <td>{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
         <td>{{.Project}}</td>
-        <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}{{if .Plain}} <span class="reach">[text/plain]</span>{{end}}</td>
+        <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}{{if .Plain}} <span class="reach">text/plain</span>{{end}}</td>
       </tr>
     {{else}}
       <tr><td colspan="5" class="empty">{{if .Filtered}}No squawks match.{{else}}No squawks logged yet.{{end}}</td></tr>
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}
 {{end}}

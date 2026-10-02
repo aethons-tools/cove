@@ -1,31 +1,36 @@
 {{define "content"}}
-<h1>Destinations</h1>
-<form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML">
-  <input name="name" placeholder="name" required>
-  <input name="route" placeholder="route (e.g. /anthropic/)" required>
-  <input name="upstream" placeholder="upstream URL" required>
-  <select name="identity-in"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select>
-  <input name="cred-name" placeholder="cred-name (optional)">
-  <select name="apply"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select>
-  <label><input type="checkbox" name="repo-scoped" value="1"> repo-scoped</label>
-  <button type="submit">Add destination</button>
-</form>
+<div class="page-head"><h1>Destinations</h1><span class="sub">Upstreams the broker routes studio traffic to — open one to edit it</span></div>
+<details class="panel">
+  <summary>New destination</summary>
+  <form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML">
+    {{template "dest-fields" .New}}
+    <div class="form-actions"><button type="submit" class="primary">Create destination</button></div>
+  </form>
+</details>
 {{template "destinations-table" .}}
 {{end}}
 
 {{define "destinations-table"}}
-<table id="destinations">
-  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Repo-scoped</th><th>Actions</th></tr></thead>
+<div class="card" id="destinations">
+<table>
+  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Auth</th><th>Credential</th><th>Studio connector</th><th>Roles</th><th></th></tr></thead>
   <tbody>
     {{range .Destinations}}
-    <tr>
-      <td>{{.Name}}</td><td>{{.Route}}</td><td>{{.Upstream}}</td><td>{{if .RepoScoped}}yes{{else}}no{{end}}</td>
-      <td><button hx-delete="/ui/destinations/{{.Name}}" hx-target="#destinations" hx-swap="outerHTML"
-          hx-confirm="Delete destination {{.Name}}?">Delete</button></td>
+    <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">
+      <td><a class="mono" href="{{destURL .Name}}"><b>{{.Name}}</b></a></td>
+      <td><span class="mono">{{.Route}}</span></td>
+      <td><span class="mono">{{.Upstream}}</span></td>
+      <td>{{if or .IdentityIn .Apply}}<span class="mono">{{.IdentityIn}} → {{.Apply}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .CredName}}<span class="mono">{{.CredName}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{range .EnvKeys}}<span class="chip">{{.}}</span>{{end}}{{if .GitRouted}}<span class="chip accent">git</span>{{end}}{{if .OAuthBeta}}<span class="chip accent">oauth-beta</span>{{end}}{{if not (or .EnvKeys .GitRouted .OAuthBeta)}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .UsedBy}}{{.UsedBy}}{{else}}<span class="none">0</span>{{end}}</td>
+      <td class="actions"><button class="danger small" hx-delete="/ui/destinations/{{.Name}}" hx-target="#destinations" hx-swap="outerHTML"
+          hx-confirm="Delete destination {{.Name}}?{{if .UsedBy}} {{.UsedBy}} role(s) list it.{{end}}">Delete</button></td>
     </tr>
     {{else}}
-    <tr><td colspan="5" class="empty">No destinations.</td></tr>
+    <tr><td colspan="8" class="empty">No destinations.</td></tr>
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}
