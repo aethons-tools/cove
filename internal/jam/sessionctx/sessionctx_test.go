@@ -87,10 +87,17 @@ func TestCompileTruncatesOverBudget(t *testing.T) {
 }
 
 func TestTruncateNeverSplitsARune(t *testing.T) {
-	s := strings.Repeat("é", 1000) // 2000 bytes, no newline
-	got := truncateCore(s, 800)
-	if !utf8.ValidString(got) || len(got) > 800 {
-		t.Fatalf("invalid or over-budget: len=%d valid=%v", len(got), utf8.ValidString(got))
+	s := strings.Repeat("é", 1000) // 2-byte runes, no newline: an odd cut lands mid-rune
+	got := truncateCore(s, 799)
+	if !utf8.ValidString(got) || len(got) != 798 {
+		t.Fatalf("want 798 valid bytes, got len=%d valid=%v", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestTruncatePrefersLineBoundary(t *testing.T) {
+	got := truncateCore("first line\nsecond line that is long", 15)
+	if got != "first line" {
+		t.Fatalf("want the cut at the newline, got %q", got)
 	}
 }
 
