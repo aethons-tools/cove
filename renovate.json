@@ -49,6 +49,13 @@
         "https://download.docker.com/linux/ubuntu?suite=noble&components=stable&binaryArch=amd64"
       ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "goldmark majors stay off. A Go major is a new module path (github.com/yuin/goldmark/v2), and without gomodUpdateImportPaths Renovate only adds a require line the code never imports — a no-op PR (#282). v2 also renders our squawks byte-identically for no benefit we use, and upstream keeps fixing v1 while v2 is current. Move majors deliberately (internal/jam/squawkrender), e.g. when a v3 ends v1 support.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/yuin/goldmark"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "customManagers": [
