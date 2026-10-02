@@ -326,11 +326,32 @@ func TestComposerDraftStack(t *testing.T) {
 	// back; Cmd-Up or the chip pops by hand, but never over text in the box.
 	for _, want := range []string{
 		"function mePushDraft(", "function mePopDraft(", "'me-drafts:'", "sessionStorage",
-		"e.key==='ArrowDown'", "e.key==='ArrowUp'", "f.reset();\n       mePopDraft(f);",
+		"e.key==='ArrowDown'", "e.key==='ArrowUp'", "f.reset();\n       meKeepReply(f.body);\n       mePopDraft(f);",
 		"if(t.value.trim()) return false;", ".draft-chip[hidden]{display:none}", "⌘↓",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing draft-stack wiring %q", want)
+		}
+	}
+}
+
+func TestComposerKeepsReply(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// The reply box is kept per recipient in localStorage as it is typed and
+	// restored on load (and in a New message composer); emptying it or a
+	// successful send forgets it.
+	for _, want := range []string{
+		"function meKeepReply(", "function meRestoreReply(", "'me-reply:'", "localStorage.removeItem(meReplyKey(t.form))",
+		"document.addEventListener('input'", "meRestoreReply(form);", "meRestoreReply(f); meDraftChip(f);",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing reply-persistence wiring %q", want)
 		}
 	}
 }
