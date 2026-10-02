@@ -54,6 +54,15 @@ func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 	return ts, store
 }
 
+// mustCreateProject records project name directly on the server's store: every
+// project-scoped write needs its project to exist first.
+func mustCreateProject(t *testing.T, store jam.Store, name string) {
+	t.Helper()
+	if err := store.CreateProject(name); err != nil {
+		t.Fatalf("CreateProject(%q): %v", name, err)
+	}
+}
+
 // TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
 // real Jam admin handler + FileStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
@@ -69,6 +78,7 @@ func TestClientRoundTrip(t *testing.T) {
 	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
 		t.Fatalf("ListDestinations = %+v, %v", ds, err)
 	}
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
@@ -204,7 +214,8 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 // RemoveHuman/RemoveChannel and role Addressing round-trips against a real
 // Jam admin handler + FileStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	if err := c.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h"}); err != nil {
@@ -277,7 +288,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 // TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
 // against a real Jam admin handler + FileStore.
 func TestClientEscalationPolicy(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	tiers := []jam.EscalationTier{
@@ -304,7 +316,8 @@ func TestClientEscalationPolicy(t *testing.T) {
 // with a category, asserting the view carries both the default and the category
 // chain without disturbing each other.
 func TestClientEscalationCategory(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	def := []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
@@ -331,7 +344,8 @@ func TestClientEscalationCategory(t *testing.T) {
 // TestClientChatService exercises SetChatService/GetChatService (set, get,
 // clear) against a real Jam admin handler + FileStore.
 func TestClientChatService(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	if err := c.SetChatService("acme", "discord"); err != nil {
@@ -361,7 +375,8 @@ func TestClientChatService(t *testing.T) {
 // human's per-service Delivery profiles through to the server, round-tripped
 // via GetRoster.
 func TestClientAddHumanCarriesDelivery(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
+	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
 	h := jam.Human{
@@ -529,6 +544,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}

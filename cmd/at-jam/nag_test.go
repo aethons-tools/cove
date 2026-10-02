@@ -178,6 +178,7 @@ func TestFormatIdle(t *testing.T) {
 func nagRosterStore(t *testing.T) *jam.FileStore {
 	t.Helper()
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
 	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -250,6 +251,7 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 // reply under their display name.
 func TestBoundOwnerReleaseFromSharedInbox(t *testing.T) {
 	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
 	for _, h := range []jam.Human{
 		{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}},
 		{Name: "bob", Handle: "bob.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},

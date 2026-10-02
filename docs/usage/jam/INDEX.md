@@ -36,6 +36,7 @@ five pillars), see the design history:
 | [connector.md](connector.md) | Adding a destination a studio needs client-side setup for (env vars like GH_HOST, git routing), wondering why a studio has some ANTHROPIC_*/GH_* variable, or wiring `gh` through Jam. |
 | [pool.md](pool.md) | Running coves on a subscription-OAuth account pool: identity→account binding + bearer injection, the `at-jam pool` verb, broker-owned token refresh, and the egress/rollout it needs. |
 | [operators.md](operators.md) | Signing an operator in: `operator-auth.oidc`, `login`/`logout`/`whoami`, the `--token`/env fallback, and `settings.yml` app profiles (`--app`). |
+| [projects.md](projects.md) | You are starting a new project on a Jam, a role/grant/roster/escalation write failed with "project not found", you want to delete a project, or you upgraded a Jam whose projects used to exist only as names. |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Authoring or versioning a studio kit (base, egress, build-args, secrets, prompt; the Anthropic-excluding egress ceiling): `kit push\|list\|show\|versions\|pin\|rm`, and binding one to a role with `role add --kit` (unset → `default`). |
 | [backup.md](backup.md) | Backing up or restoring a Jam's config (actors, roles, kits, destinations, projects) with `at-jam export`/`import` — the file's scope, the refuse-unless-empty restore, and the token-hash sensitivity note. |
@@ -57,13 +58,14 @@ five pillars), see the design history:
 
 1. **Run it** — write a serve config and start `at-jam serve` ([serve.md](serve.md)).
 2. **Gate the admin API** (beyond loopback) and sign in ([operators.md](operators.md)).
-3. **Declare destinations + roles**, then **enroll** studios or grant roles to
+3. **Create the project** ([projects.md](projects.md); skip it to use `default`),
+   **declare destinations + roles**, then **enroll** studios or grant roles to
    standing actors ([roster.md](roster.md)).
 4. **Register kits** a role can fulfil ([kits.md](kits.md)).
 5. **Raise managed studios** against a role and track them through the runtime
    registry ([coves.md](coves.md)).
 
-Every admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
+Every admin verb (`destination`, `project`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
 `revoke`, `kit`, `studio`, `session`, `standing`) is a thin client of the running Jam's admin API: it takes
 `--app`/`--admin-url` to pick the target and `--token` (or a cached login) to
 authenticate. That client story lives in [operators.md](operators.md); the

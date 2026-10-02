@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -371,8 +372,11 @@ type EscalationTier struct {
 	Timeout time.Duration `json:"timeout"` // wait after pinging this tier before advancing
 }
 
-// Project is the top of the config tree: it owns its Roster and its escalation
-// policy. Roles remain keyed by (project, name).
+// Project is the top of the config tree: it owns its Roster, its escalation
+// policy, and (by key) its Roles and the Grants into them. A project exists only
+// once created (CreateProject) — every project-scoped write into an unknown
+// project fails with ErrProjectNotFound — except DefaultProject, which a write
+// naming it (or naming no project) materializes on first use.
 type Project struct {
 	Name                 string                      `json:"name"`
 	Roster               Roster                      `json:"roster"`
@@ -385,6 +389,14 @@ type Project struct {
 
 // DefaultProject backs Jam-side default enrollment when no project is named.
 const DefaultProject = "default"
+
+// Project lifecycle errors, shared by every Store so callers can map them with
+// errors.Is (e.g. to HTTP 404/409).
+var (
+	ErrProjectNotFound = errors.New("project not found")
+	ErrProjectExists   = errors.New("project already exists")
+	ErrProjectInUse    = errors.New("project is still referenced")
+)
 
 // MintToken returns a new high-entropy bearer token (URL-safe, no padding).
 func MintToken() (string, error) {

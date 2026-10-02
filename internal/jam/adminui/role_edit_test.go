@@ -151,6 +151,7 @@ func TestEditStandingAddRemove(t *testing.T) {
 // The Roles page form only creates: an existing role is edited on its page.
 func TestCreateRoleRedirectsAndRefusesExisting(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}})
 	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/roles/acme/w" {

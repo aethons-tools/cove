@@ -1,3 +1,12 @@
+---
+summary: What at-cove is and how it fits together — the kit format, the command surface, the security model, the architecture, and how to build/test/run.
+read_when: You need what at-cove is, the kit format, the `at-cove` command surface, the security model, or the architecture before changing or running it.
+owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
+prereqs: none
+tier: leaf
+updated: 2026-10-02
+---
+
 # at-cove — Project Overview
 
 `at-cove` is a small, dependency-light Go CLI that runs **hardened Claude Code sandboxes**.

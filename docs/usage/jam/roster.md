@@ -13,7 +13,8 @@ Jam authorizes every brokered request against a **role-based** model:
 
 - **Actor** — one enrolled identity (an `id` + a minted token). A studio or a
   standing teammate is an Actor. Jam stores only the token *hash*.
-- **Role** — a named, reusable security class within a **Project** (a namespace).
+- **Role** — a named, reusable security class within a **Project** (which must
+  exist first, except `default` — see [projects.md](projects.md)).
   A Role owns the **scope**: which `destinations` it may reach, the
   **credential** the broker injects for each (`credentials`; a destination
   without one uses its own default `cred-name` — see

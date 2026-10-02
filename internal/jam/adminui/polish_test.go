@@ -63,6 +63,7 @@ func TestPhasePill(t *testing.T) {
 // removable chips, not a full form row under every grant table.
 func TestRosterPerActorGrantForm(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +86,7 @@ func TestRosterPerActorGrantForm(t *testing.T) {
 
 func TestEnrollResultHasCopyButton(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +120,7 @@ func TestKitPageOffersPinPerVersion(t *testing.T) {
 // Role Request reports into the page's shared flash region, not a bespoke one.
 func TestRoleRequestTargetsFlash(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}

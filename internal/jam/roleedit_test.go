@@ -35,6 +35,7 @@ func TestUpdateRoleMissingIs404(t *testing.T) {
 
 func TestUpdateRoleAppliesAndFnErrorAborts(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	must(t, st.PutRole("acme", Role{Name: "w", Scope: Scope{TTL: 1}}))
 	must(t, UpdateRole(st, "acme", "w", func(r *Role) error { r.Scope.TTL = 2; return nil }))
 	if r, _ := st.GetRole("acme", "w"); r.Scope.TTL != 2 {
@@ -51,6 +52,7 @@ func TestUpdateRoleAppliesAndFnErrorAborts(t *testing.T) {
 
 func TestCreateRoleRefusesExisting(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	must(t, CreateRole(st, "acme", Role{Name: "w"}))
 	if err := CreateRole(st, "acme", Role{Name: "w"}); WriteStatus(err, 0) != http.StatusConflict {
 		t.Fatalf("second create = %v, want 409", err)
@@ -59,6 +61,7 @@ func TestCreateRoleRefusesExisting(t *testing.T) {
 
 func TestPutRoleKeepingKeepsStandingAndEgress(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	eg := &EgressPolicy{Domains: []string{"a.com"}}
 	stand := []StandingSession{{Name: "n", Prompt: "p"}}
 	must(t, st.PutRole("acme", Role{Name: "w", Scope: Scope{Egress: eg}, Allocation: RoleAllocation{Standing: stand}}))
@@ -71,6 +74,7 @@ func TestPutRoleKeepingKeepsStandingAndEgress(t *testing.T) {
 
 func TestEgressSetAndClear(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	must(t, st.PutRole("acme", Role{Name: "w"}))
 	n, err := SetRoleEgress(st, "acme", "w", []string{"B.com", "a.com"})
 	must(t, err)
@@ -89,6 +93,7 @@ func TestEgressSetAndClear(t *testing.T) {
 
 func TestStandingAddRemove(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	must(t, st.PutRole("acme", Role{Name: "w"}))
 	must(t, AddStanding(st, "acme", "w", StandingSession{Name: "n1", Prompt: "p"}))
 	for _, tc := range []struct {
@@ -115,6 +120,7 @@ func TestStandingAddRemove(t *testing.T) {
 // Concurrent read-modify-writes through the shared lock never drop each other.
 func TestConcurrentStandingAddsAllLand(t *testing.T) {
 	st := newRoleStore(t)
+	mustCreateProject(t, st, "acme")
 	must(t, st.PutRole("acme", Role{Name: "w"}))
 	var wg sync.WaitGroup
 	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {

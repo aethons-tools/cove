@@ -10,18 +10,26 @@ import (
 // Store records enrolled actors (by token hash), roles (by project+name), and the
 // destination table.
 type Store interface {
-	AddActor(a Actor) error // error if the id already exists
+	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)
 	RemoveActor(id string) error
 	ListActors() []Actor
 
-	AddGrant(actorID string, g Grant) error // upsert by (project,role); error if actor absent
+	AddGrant(actorID string, g Grant) error // upsert by (project,role); error if actor or project absent
 	RemoveGrant(actorID, project, role string) error
 
-	PutRole(project string, r Role) error // upsert; auto-creates the project namespace
+	PutRole(project string, r Role) error // upsert; ErrProjectNotFound for an unknown project
 	GetRole(project, name string) (Role, bool)
 	RemoveRole(project, name string) error
 	ListRoles(project string) []Role
+
+	// CreateProject records a new, empty project (ErrProjectExists if present).
+	// RemoveProject deletes one, refusing with ErrProjectInUse while a role or
+	// grant references it. ListProjects lists the records. Project-scoped
+	// writes (roles, grants, roster, escalation, chat service) require the
+	// project to exist, except DefaultProject, which they materialize.
+	CreateProject(name string) error
+	RemoveProject(name string) error
 	ListProjects() []string
 
 	PushKit(name, config string) (int, error)
@@ -148,6 +156,7 @@ func NewFileStore(path string) (*FileStore, error) {
 		if v3.UnreadCursors != nil {
 			fs.unread = v3.UnreadCursors
 		}
+		fs.backfillProjects()
 		return fs, nil
 	}
 
@@ -164,6 +173,7 @@ func NewFileStore(path string) (*FileStore, error) {
 			fs.dests = v2.Destinations
 		}
 		fs.migrateIdentities(v2.Identities)
+		fs.backfillProjects()
 		return fs, nil
 	}
 
@@ -173,6 +183,7 @@ func NewFileStore(path string) (*FileStore, error) {
 		return nil, fmt.Errorf("load store %s (v1): %w", path, err)
 	}
 	fs.migrateIdentities(v1)
+	fs.backfillProjects()
 	return fs, nil
 }
 
@@ -249,6 +260,13 @@ func (fs *FileStore) AddActor(a Actor) error {
 	if fs.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
+	created, err := fs.grantProjects(a)
+	if err != nil {
+		return err
+	}
+	for _, p := range created {
+		fs.applyPutProject(p)
+	}
 	fs.applyPutActor(a)
 	return fs.save()
 }
@@ -268,6 +286,13 @@ func (fs *FileStore) AddGrant(actorID string, g Grant) error {
 	_, a, ok := fs.actorByID(actorID)
 	if !ok {
 		return actorNotFoundErr(actorID)
+	}
+	p, created, err := fs.requireProject(g.Project)
+	if err != nil {
+		return err
+	}
+	if created {
+		fs.applyPutProject(p)
 	}
 	fs.applyPutActor(upsertGrant(a, g))
 	return fs.save()
@@ -297,7 +322,34 @@ func (fs *FileStore) PutRole(project string, r Role) error {
 	if r.Kit != "" && !fs.kitExists(r.Kit) {
 		return fmt.Errorf("kit %q not found", r.Kit)
 	}
+	p, created, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	if created {
+		fs.applyPutProject(p)
+	}
 	fs.applyPutRole(project, r)
+	return fs.save()
+}
+
+func (fs *FileStore) CreateProject(name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := fs.checkCreateProject(name); err != nil {
+		return err
+	}
+	fs.applyPutProject(Project{Name: name})
+	return fs.save()
+}
+
+func (fs *FileStore) RemoveProject(name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := fs.checkRemoveProject(name); err != nil {
+		return err
+	}
+	fs.applyRemoveProject(name)
 	return fs.save()
 }
 
@@ -417,7 +469,11 @@ func (fs *FileStore) AddHuman(project string, h Human) error {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.applyPutProject(upsertHuman(fs.rawProject(project), h))
+	p, _, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	fs.applyPutProject(upsertHuman(p, h))
 	return fs.save()
 }
 
@@ -427,7 +483,11 @@ func (fs *FileStore) AddChannel(project string, c Channel) error {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.applyPutProject(upsertChannel(fs.rawProject(project), c))
+	p, _, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	fs.applyPutProject(upsertChannel(p, c))
 	return fs.save()
 }
 
@@ -456,13 +516,21 @@ func (fs *FileStore) RemoveChannel(project, name string) error {
 func (fs *FileStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.applyPutProject(setEscalation(fs.rawProject(project), category, tiers))
+	p, _, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	fs.applyPutProject(setEscalation(p, category, tiers))
 	return fs.save()
 }
 
 func (fs *FileStore) SetChatService(project, service string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.applyPutProject(setChatService(fs.rawProject(project), service))
+	p, _, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	fs.applyPutProject(setChatService(p, service))
 	return fs.save()
 }

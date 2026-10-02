@@ -16,6 +16,7 @@ import (
 func seedRichRole(t *testing.T) jam.Store {
 	t.Helper()
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	for _, d := range []jam.Destination{
 		{Name: "git", Route: "/git/", Upstream: "https://git.example", CredName: "git-default"},
 		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anth-key"},
@@ -101,6 +102,7 @@ func TestRoleDetailShowsEverything(t *testing.T) {
 
 func TestRoleDetailUnmanagedEgressAndEmptyAddressing(t *testing.T) {
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "bare"}); err != nil {
 		t.Fatal(err)
 	}

@@ -39,6 +39,7 @@ prompt: You work on the web and api services.
 func seedKits(t *testing.T) jam.Store {
 	t.Helper()
 	store := newStore(t)
+	mustCreateProject(t, store, "acme")
 	for _, c := range []string{kitV1, kitV2} {
 		if _, _, err := jam.PushStudioKit(store, "web", c); err != nil {
 			t.Fatal(err)

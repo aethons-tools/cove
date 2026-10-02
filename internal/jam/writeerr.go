@@ -24,5 +24,5 @@ func WriteStatus(err error, fallback int) int {
 	if we, ok := errors.AsType[*WriteError](err); ok {
 		return we.Status
 	}
-	return fallback
+	return projectErrStatus(err, fallback)
 }

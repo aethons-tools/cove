@@ -63,6 +63,7 @@ func TestValidateIdentity(t *testing.T) {
 
 func TestHumanByLogin(t *testing.T) {
 	store := newFileStoreT(t)
+	mustCreateProject(t, store, "acme")
 	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "@alice", Login: "auth0|abc"}); err != nil {
 		t.Fatal(err)
 	}

@@ -63,6 +63,7 @@ func TestBrokerInjectsPoolTokenAndPreservesBeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, _ := MintToken()
+	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}

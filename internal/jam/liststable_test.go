@@ -13,6 +13,7 @@ func TestListsAreSortedByKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, st, "acme")
 	names := []string{"m", "c", "x", "a", "q", "f", "z", "b"}
 	for _, n := range names {
 		must(t, st.AddActor(Actor{ID: n, TokenHash: "h-" + n}))

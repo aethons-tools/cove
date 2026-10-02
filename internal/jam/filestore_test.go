@@ -10,12 +10,24 @@ import (
 	"time"
 )
 
+// mustCreateProject records each named project on s, failing the test on error.
+// Every project-scoped write needs its project to exist first.
+func mustCreateProject(t *testing.T, s Store, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := s.CreateProject(n); err != nil {
+			t.Fatalf("CreateProject(%q): %v", n, err)
+		}
+	}
+}
+
 func TestFileStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ids.json")
 	s, err := NewFileStore(path)
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
+	mustCreateProject(t, s, "ACME")
 	a := Actor{ID: "spider-18", TokenHash: HashToken("tok"), Grants: []Grant{{Project: "ACME", Role: "guest"}}}
 	if err := s.AddActor(a); err != nil {
 		t.Fatalf("AddActor: %v", err)
@@ -43,6 +55,7 @@ func TestFileStoreDestinationsAndMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
+	mustCreateProject(t, s, "ACME")
 	d := Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword}
 	if err := s.AddDestination(d); err != nil {
 		t.Fatalf("AddDestination: %v", err)
@@ -91,6 +104,7 @@ func TestFileStoreRoleAndActorCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
+	mustCreateProject(t, fs, "acme", "beta")
 	if err := fs.PutRole("acme", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
@@ -215,6 +229,7 @@ func TestPutRoleValidatesKitExists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.json")
 	fs, _ := NewFileStore(path)
 	// Binding a non-existent kit is rejected (fail closed).
+	mustCreateProject(t, fs, "acme")
 	if err := fs.PutRole("acme", Role{Name: "impl", Kit: "ghost"}); err == nil {
 		t.Fatal("PutRole with a non-existent kit should fail")
 	}
@@ -417,6 +432,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, fs, "acme")
 	if err := fs.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +448,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 	if !ok || len(rr.Humans) != 1 || rr.Humans[0].Handle != "alice.h" || len(rr.Channels) != 1 || rr.Channels[0].Ref != "ACME-1" {
 		t.Fatalf("roster not persisted: %+v ok=%v", rr, ok)
 	}
-	// a project with a roster shows up in ListProjects even without roles
+	// a created project shows up in ListProjects even without roles
 	found := false
 	for _, p := range fs2.ListProjects() {
 		if p == "acme" {
@@ -446,6 +462,7 @@ func TestRosterRoundTripAndPersist(t *testing.T) {
 
 func TestAddHumanUpsertsByName(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.AddHuman("p", Human{Name: "a", Handle: "old"})
 	_ = fs.AddHuman("p", Human{Name: "a", Handle: "new"})
 	rr, _ := fs.GetRoster("p")
@@ -457,6 +474,7 @@ func TestAddHumanUpsertsByName(t *testing.T) {
 func TestEscalationPolicyRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	tiers := []EscalationTier{
 		{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:bob"}, Timeout: time.Hour},
@@ -473,6 +491,7 @@ func TestEscalationPolicyRoundTrip(t *testing.T) {
 
 func TestSetEscalationPolicyReplaces(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:b"}, Timeout: 2 * time.Minute}})
 	p, _ := fs.GetProject("p")
@@ -483,6 +502,7 @@ func TestSetEscalationPolicyReplaces(t *testing.T) {
 
 func TestGetProjectCopiesEscalation(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	p, _ := fs.GetProject("p")
 	p.Escalation[0].Targets[0] = "mutated" // must not corrupt the store
@@ -494,6 +514,7 @@ func TestGetProjectCopiesEscalation(t *testing.T) {
 
 func TestGetProjectCopiesDelivery(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -510,6 +531,7 @@ func TestGetProjectCopiesDelivery(t *testing.T) {
 
 func TestGetRosterCopiesDelivery(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -526,6 +548,7 @@ func TestGetRosterCopiesDelivery(t *testing.T) {
 
 func TestGetRosterCopiesIdentity(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "acme")
 	_ = fs.AddHuman("acme", Human{
 		Name:     "dave",
 		Handle:   "@dave",
@@ -543,6 +566,7 @@ func TestGetRosterCopiesIdentity(t *testing.T) {
 func TestEscalationByCategoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	def := []EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
 	infra := []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
 	if err := fs.SetEscalationPolicy("acme", "", def); err != nil {
@@ -563,6 +587,7 @@ func TestEscalationByCategoryRoundTrip(t *testing.T) {
 
 func TestGetProjectDeepCopiesCategoryMap(t *testing.T) {
 	fs, _ := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+	mustCreateProject(t, fs, "p")
 	_ = fs.SetEscalationPolicy("p", "infra", []EscalationTier{{Targets: []string{"human:a"}, Timeout: time.Minute}})
 	p, _ := fs.GetProject("p")
 	p.EscalationByCategory["infra"][0].Targets[0] = "mutated" // must not corrupt the store
@@ -619,6 +644,7 @@ func TestFileStoreRoleEgressPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, s, "acme")
 	for name, eg := range map[string]*EgressPolicy{"kit": nil, "none": {Domains: []string{}}, "set": {Domains: []string{"a.com"}}} {
 		if err := s.PutRole("acme", Role{Name: name, Scope: Scope{Egress: eg}}); err != nil {
 			t.Fatal(err)
@@ -661,6 +687,7 @@ func TestFileStoreInstanceEgressPersists(t *testing.T) {
 func TestRosterDiscordUserIDRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	fs, _ := NewFileStore(path)
+	mustCreateProject(t, fs, "acme")
 	if err := fs.AddHuman("acme", Human{Name: "dave", Handle: "@dave", Delivery: []DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}}); err != nil {
 		t.Fatal(err)
 	}

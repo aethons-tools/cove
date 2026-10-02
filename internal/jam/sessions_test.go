@@ -60,6 +60,7 @@ func newSessionKit(t *testing.T) *sessionKit {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", Role{Name: "pair", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
