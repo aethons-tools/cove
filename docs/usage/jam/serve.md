@@ -252,6 +252,27 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   `--repos` to narrow a broad PAT gets that PAT's full reach — re-scope the
   credentials before upgrading. Stored `repo_scoped`/`repos` keys are ignored.
 
+### GitHub API for `gh`
+
+`gh` can reach the GitHub API through the broker by treating Jam as a GitHub
+Enterprise host. It then calls `/api/v3/…` (REST) and `/api/graphql`, sending
+`Authorization: token <x>` — which the broker accepts as a bearer identity.
+Two plain destinations cover it (route-prefix stripping yields the right
+upstream paths; the longer `/api/v3/` route wins for REST):
+
+```
+at-jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
+  --identity-in bearer --cred-name gh-pat --apply bearer
+at-jam destination add --name github-graphql --route /api/ --upstream https://api.github.com \
+  --identity-in bearer --cred-name gh-pat --apply bearer
+at-jam role add --project acme --name dev \
+  --destinations anthropic,git=gh-pat-acme,github-api=gh-pat-acme,github-graphql=gh-pat-acme
+```
+
+In the studio: `GH_HOST=<jam host>` and `GH_ENTERPRISE_TOKEN=$AT_JAM_IDENTITY_TOKEN`.
+Only the API is brokered this way — clone/push with plain `git` (the `/git/`
+destination), not `gh repo clone`.
+
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
 

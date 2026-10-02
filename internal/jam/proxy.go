@@ -109,8 +109,12 @@ func (b *Broker) resolveScopes(a Actor) []Scope {
 func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 	switch how {
 	case ApplyBearer:
-		if s, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s != "" {
-			return s, true
+		// "token <x>" is what gh sends to a GitHub Enterprise host (GH_HOST=<jam>).
+		auth := r.Header.Get("Authorization")
+		for _, scheme := range []string{"Bearer ", "token "} {
+			if s, ok := strings.CutPrefix(auth, scheme); ok && s != "" {
+				return s, true
+			}
 		}
 	case ApplyBasicPassword:
 		if _, pass, ok := r.BasicAuth(); ok && pass != "" {
