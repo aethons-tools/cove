@@ -22,6 +22,17 @@ It renders:
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
   idled studios, and counts of projects, actors, roles, kits, destinations),
   each linking to its page, above the studio table.
+- **Search** — the box in the top bar (press `/` from anywhere) searches every
+  page's objects at once: studios (id, unit, owner, standing name,
+  project/role), roles (project/name, kit, destinations), projects, kits (name,
+  current prompt and egress), destinations (name, route, upstream, env keys),
+  actors (id, grants), roster humans (name, handle, login, delivery, identity)
+  and channels, and squawk bodies (newest 10; the rest via Intercom's `q=`).
+  Matching is case-insensitive substring, at least 2 characters; results are
+  grouped and link to each object's page. **Enter** jumps straight to the page
+  when exactly one object's name is the whole query (e.g. a studio id or
+  `acme/dev`); otherwise it opens `/ui/search?q=…`, which updates as you type.
+  Session event streams are not searched.
 - **Projects** (`/ui/projects`) — every project with its roles, actors,
   studios, roster size and chat service; create one, or delete one nothing
   references. Each project's page is the "everything in this project" view —
@@ -31,7 +42,10 @@ It renders:
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
   studios — see [Runtime (studios)](#runtime-studios) below and
-  [coves.md](coves.md).
+  [coves.md](coves.md). Each id opens the studio's page (runtime, waiting and
+  escalation state, session streams, squawks — see
+  [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
+  live session timeline.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the durable squawk Log. Filter by
   project, participant (`kind:ref`, e.g. `channel:eng`), a body substring, and a
@@ -47,6 +61,13 @@ Every table has a fixed order — studios and actors by id; roles by project,
 then name; kits and destinations by name; squawks newest-first — so rows don't
 shuffle across the Studios poll or after an edit. The order comes from the
 store, so the JSON admin API and CLI lists match it.
+
+**One look for `/ui` and `/me`.** Both UIs take their colors (light and dark,
+following the OS setting) and typography from one stylesheet, `jam.css`, in
+`internal/jam/uiassets`, which also holds the single `htmx` copy. Each UI serves
+them under its own prefix (`/ui/static/`, `/me/static/`), so neither gate
+reaches the other. Change a color there and both UIs follow; each UI keeps its
+own component styles in its layout.
 
 ## Reaching the UI
 
@@ -163,7 +184,7 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 
-`/ui/coves/{id}/session` (linked from the Studios table ID) shows a managed
+`/ui/coves/{id}/session` (linked from the Studios table and the studio's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns, tool calls, tokens in/out, cost), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation

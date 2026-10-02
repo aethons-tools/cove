@@ -4,7 +4,7 @@ read_when: You want a raised studio's Waiting state to actively nudge humans ins
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.requisitioner.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
-updated: 2026-09-26
+updated: 2026-10-02
 ---
 
 # Escalation (human tiers)
@@ -132,9 +132,12 @@ at-jam project escalation list  <project>
 at-jam project escalation clear <project> [--category <name>]
 ```
 
+The admin UI's project page edits the same chains ([ui-pages.md](ui-pages.md#project-pages)).
+
 - `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
   `comma,separated,targets@duration` — a comma-separated list of `human:<name>`
-  targets, an `@`, then a `time.ParseDuration` timeout (e.g. `15m`, `1h`). Repeat
+  targets, an `@`, then a positive `time.ParseDuration` timeout (e.g. `15m`,
+  `1h`); a tier with no targets is refused. Repeat
   `--tier` in order; the first is tier 0.
 - `list` prints the default chain (labeled `default`), then each configured
   category's chain (labeled by category name), each tier's index, targets, and

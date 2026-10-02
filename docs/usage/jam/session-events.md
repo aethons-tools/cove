@@ -85,7 +85,8 @@ Fields: `actor_id`, `stream_id`, `seq`, `kind`, `gap_from`, `gap_to`, `turn`,
 ## UI
 
 The browser timeline lives at `/ui/coves/{id}/session`; see
-[ui.md](ui.md#session-timeline). There is no `/me` exposure.
+[ui.md](ui.md#session-timeline). The studio's page lists its streams
+([ui-pages.md](ui-pages.md#studio-pages)). There is no `/me` exposure.
 
 ## Sensitivity
 

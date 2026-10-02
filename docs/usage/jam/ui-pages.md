@@ -1,7 +1,7 @@
 ---
-summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a project, role, destination or kit in the Jam admin UI — a project's roster, escalation or chat service; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the project, role, destination and kit detail pages (what they show, their edit forms, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a project, studio, role, destination or kit in the Jam admin UI — a project's roster, escalation or chat service; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the project, studio, role, destination and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-02
@@ -24,13 +24,56 @@ and which roles they hold, its roster — humans (handle, linked login, delivery
 per service with address and user id, OIDC identities) and channels (service,
 ref) — its escalation policy (the default chain and each category's chain, as
 ordered tiers of targets with their wait), its chat service, and its running
-studios. The page is view-only for now; roster, escalation and chat service are
-changed with the CLI (`project roster`, `project escalation set`,
-`project chat-service set`).
+studios.
+
+The roster, escalation and chat service are edited in place; each write answers
+with the re-rendered page:
+
+- **Humans** — **Add human** (name, handle, login, delivery and OIDC identity)
+  and, per human, **Edit** (pre-filled; every field comes from the form, so a
+  removed line is removed) and **Remove**. Delivery is one
+  `service:address[:user-id]` per line (a user id is discord-only) and identity
+  one `issuer:subject` per line — the CLI's `--delivery`/`--oidc` syntax. The
+  rules match `project roster add-human`: a login, and a Discord user id, link at
+  most one human per project.
+- **Channels** — **Add channel** (name, service, ref; an existing name is
+  replaced) and **Remove**.
+- **Escalation** — edit the default chain or any category's chain as one
+  `targets@timeout` per line (the CLI's `--tier`; the first line is tier 0, the
+  timeout a positive duration), add a category chain, or **Clear** one. A target
+  that names nobody on this project's roster (e.g. after removing that human) is
+  flagged red — flagged, not blocked.
+- **Chat service** — none (tracker @-mentions only) or `discord`.
 
 **Delete** (here and in the table) is disabled while a role or an actor's grant
 still references the project, and names what does — the same rule as
 `project rm` ([projects.md](projects.md)).
+
+## Studio pages
+
+Each studio id in the Studios table opens `/ui/coves/<id>`, the hub for one
+studio. The header shows its phase, activity, kind (ephemeral, personal with
+its owner, or standing with its name), project, role and unit (linked), with
+**Open live timeline** (the [session timeline](ui.md#session-timeline)) and,
+when a runtime supervisor is configured, **Teardown**.
+
+- **Runtime** — raised and last seen, lease holder, backend and location.
+- **Waiting & escalation** — whether it is waiting and since when (wake-on
+  resumes it on a reply past its wait seq), the open escalation (which tier was
+  pinged, when, and on which chain), a personal session's owner nags, and how far
+  its inbox is committed.
+- **Egress** — the fingerprint of the role egress policy it runs under, and
+  consecutive re-apply failures, flagged (the supervisor tears the studio down
+  at its limit — see [roster.md](roster.md)).
+- **Session** — its captured event streams (start, last event, count), each
+  opening the timeline on that stream ([session-events.md](session-events.md)).
+- **Squawks** — the newest 50 squawks to or from `actor:<id>`, rendered as on
+  the Intercom page, with a link to the Intercom page pre-filtered to it for
+  the rest.
+
+A torn-down studio leaves the registry, but its session and squawks remain, so
+its page still renders them under a "not running" banner. An id with no record,
+session or squawks is a 404.
 
 ## Role pages
 

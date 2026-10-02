@@ -546,7 +546,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		var profiles []jam.DeliveryProfile
 		for _, d := range delivery {
-			p, err := parseDelivery(d)
+			p, err := jam.ParseDeliverySpec(d)
 			if err != nil {
 				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --delivery %q: %v\n", d, err)
 				return 2
@@ -555,7 +555,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		var identities []jam.OIDCIdentity
 		for _, o := range oidc {
-			id, err := parseOIDC(o)
+			id, err := jam.ParseOIDCSpec(o)
 			if err != nil {
 				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --oidc %q: %v\n", o, err)
 				return 2
@@ -828,44 +828,6 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// parseDelivery parses one --delivery value, `service:address[:user-id]`. The
-// optional user id is discord-only (the human's Discord user id, all digits);
-// any other service given one is an error.
-func parseDelivery(d string) (jam.DeliveryProfile, error) {
-	svc, rest, ok := strings.Cut(d, ":")
-	if !ok || svc == "" || rest == "" {
-		return jam.DeliveryProfile{}, fmt.Errorf("want service:address[:user-id]")
-	}
-	addr, uid, hasUID := strings.Cut(rest, ":")
-	if addr == "" {
-		return jam.DeliveryProfile{}, fmt.Errorf("want service:address[:user-id]")
-	}
-	p := jam.DeliveryProfile{Service: svc, Address: addr, UserID: uid}
-	if hasUID && uid == "" {
-		return jam.DeliveryProfile{}, fmt.Errorf("empty user id")
-	}
-	if err := jam.ValidateDelivery([]jam.DeliveryProfile{p}); err != nil {
-		return jam.DeliveryProfile{}, err
-	}
-	return p, nil
-}
-
-// parseOIDC parses one --oidc value, `issuer:subject`. The issuer is commonly a
-// URL that itself contains colons, so the split is on the final colon: the
-// subject is the text after it, the issuer everything before. Both must be
-// non-empty.
-func parseOIDC(v string) (jam.OIDCIdentity, error) {
-	i := strings.LastIndex(v, ":")
-	if i < 0 {
-		return jam.OIDCIdentity{}, fmt.Errorf("want issuer:subject")
-	}
-	id := jam.OIDCIdentity{Issuer: v[:i], Subject: v[i+1:]}
-	if err := jam.ValidateIdentity([]jam.OIDCIdentity{id}); err != nil {
-		return jam.OIDCIdentity{}, err
-	}
-	return id, nil
-}
-
 // multiFlag collects repeatable string flag values (e.g. --delivery
 // service:address, repeatable).
 type multiFlag []string
@@ -881,16 +843,11 @@ type tierFlags []jam.EscalationTier
 
 func (t *tierFlags) String() string { return fmt.Sprintf("%d tiers", len(*t)) }
 func (t *tierFlags) Set(v string) error {
-	at := strings.LastIndex(v, "@")
-	if at < 0 {
-		return fmt.Errorf("tier %q missing '@timeout'", v)
-	}
-	d, err := time.ParseDuration(v[at+1:])
+	tier, err := jam.ParseEscalationTierSpec(v)
 	if err != nil {
-		return fmt.Errorf("tier %q: bad timeout: %w", v, err)
+		return err
 	}
-	targets := strings.Split(v[:at], ",")
-	*t = append(*t, jam.EscalationTier{Targets: targets, Timeout: d})
+	*t = append(*t, tier)
 	return nil
 }
 
