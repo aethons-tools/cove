@@ -161,6 +161,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			// Subscription mode seeds a dummy claudeAiOauth credential so the
 			// cove's claude authenticates as a pooled subscription principal.
 			Subscription: l.cfg.Subscription,
+			Connector:    spec.Connector,
 		})
 	}
 	if err := launch(); err != nil {

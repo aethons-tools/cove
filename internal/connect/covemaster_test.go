@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
@@ -182,5 +183,31 @@ func TestLaunchCoveMasterResident(t *testing.T) {
 		if got := strings.Contains(env, "export AT_COVE_RESIDENT=1\n"); got != resident {
 			t.Fatalf("resident=%v: env exports AT_COVE_RESIDENT=%v; env:\n%s", resident, got, env)
 		}
+	}
+}
+
+func TestLaunchCoveMasterUsesConnector(t *testing.T) {
+	fake := &runner.Fake{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}}
+	if err := LaunchCoveMaster(fake, CoveMasterOptions{
+		Target: sshargs.Target{Host: "h"}, JamHost: "jam.example.com", IdentityToken: "tok-123",
+		Connector: &c, Subscription: true, // the connector wins over the legacy subscription render
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var env string
+	for _, call := range fake.Calls {
+		if strings.Contains(strings.Join(call.Args, " "), "cat > "+coveMasterEnvVMPath) {
+			env = call.Stdin
+		}
+	}
+	if !strings.Contains(env, `export GH_HOST="jam.example.com"`) || !strings.Contains(env, `export ANTHROPIC_API_KEY="$AT_JAM_IDENTITY_TOKEN"`) {
+		t.Fatalf("env script lacks connector vars:\n%s", env)
+	}
+	if strings.Contains(env, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(env, "git config") {
+		t.Fatalf("legacy contract leaked in alongside the connector:\n%s", env)
+	}
+	if n := strings.Count(env, "tok-123"); n != 1 {
+		t.Fatalf("raw token appears %d times", n)
 	}
 }

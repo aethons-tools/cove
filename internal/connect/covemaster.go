@@ -33,6 +33,9 @@ type CoveMasterOptions struct {
 	Prompt        string // written to tmpfs; AT_COVE_AGENT_PROMPT_FILE points at it
 	Resident      bool   // AT_COVE_RESIDENT=1: a personal session's agent waits for a Wake after every turn
 	Subscription  bool   // subscription-pool render: identity on ANTHROPIC_AUTH_TOKEN (static bearer), no ANTHROPIC_API_KEY, no credentials file
+	// Connector, when set, is the cove's client env/git from its role's
+	// destinations and replaces the legacy Anthropic+git render (and Subscription).
+	Connector *snippet.Connector
 }
 
 // LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
@@ -48,9 +51,12 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	// exported here and shared with cove-master below. In subscription-pool mode
 	// the identity rides on ANTHROPIC_AUTH_TOKEN (a static bearer — no credentials
 	// file, no OAuth session); otherwise it rides on x-api-key (ANTHROPIC_API_KEY).
-	if o.Subscription {
+	switch {
+	case o.Connector != nil:
+		script.WriteString(o.Connector.Render("https://"+o.JamHost, o.IdentityToken))
+	case o.Subscription:
 		script.WriteString(snippet.RenderSubscription("https://"+o.JamHost, o.IdentityToken))
-	} else {
+	default:
 		script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
 	}
 	// cove-master's own env (AT_JAM_IDENTITY_TOKEN already exported by Render).
