@@ -179,10 +179,25 @@ verbs in [roster.md](roster.md):
   actor's row opens its add-grant form.
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
-  or a mapping for a destination not in scope is rejected. Tables show
-  destination names only — credential names are never rendered in the UI, so
-  re-saving a role with a bare destination name **keeps** its existing mapping
-  (use the CLI's `role list` to see mappings, and `role add` to clear one).
+  or a mapping for a destination not in scope is rejected. Credential *names*
+  are references, not secrets, so the UI shows them (the Roles table renders
+  `git → git-pat`); credential *values* never appear. Re-saving a role with a
+  bare destination name **keeps** its existing mapping (use the CLI's
+  `role add` to clear one).
+
+### Role pages
+
+Each role name (in the Roles table, a roster grant chip, or a studio row) links
+to its page, `/ui/roles/<project>/<name>`, which shows the whole role:
+destinations with the credential the broker injects for each (the role's
+mapping, or the destination's default), addressing, the egress policy (or "kit
+default" when the role sets none), allocation caps and the personal-session
+idle ladder (unset values say what applies), declared standing sessions with
+their studio's phase, the actors holding a grant (marked where the grant
+overrides the scope), and the role's running studios. **Request session** and
+**Delete** are on the page header. The page is view-only for now; fields the
+Roles form doesn't edit are changed with the CLI (`role add`, `egress set`,
+`standing add`).
 
 Create forms sit in collapsed **+ Add …** panels above each table. The
 outcome of a write shows in a banner at the top of the page: a refused write
