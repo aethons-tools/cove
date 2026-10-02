@@ -32,7 +32,7 @@ func TestNavMarksCurrentPage(t *testing.T) {
 // write response is shown to the operator instead of silently dropped.
 func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
 	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/roles").Body.String()
-	for _, want := range []string{`id="flash"`, "htmx:responseError", "prefers-color-scheme:dark"} {
+	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/ui/static/jam.css`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing %q", want)
 		}

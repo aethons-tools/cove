@@ -11,23 +11,11 @@
 // Apply the saved message view (Rendered / Raw) before first paint.
 try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.classList.add('raw'); } }catch(_){}
 </script>
+<link rel="stylesheet" href="{{stylesheet}}">
 <style>
-:root{
-  --bg:#F5F6F8; --surface:#fff; --surface-2:#FBF9FA; --ink:#1B1D24; --muted:#61656F; --faint:#8A8F9A;
-  --border:#E3E5EA; --border-strong:#D2D5DC; --accent:#B5306A; --accent-soft:#FBEAF1;
-  --wait:#9C5E00; --wait-soft:#FBF0DC; --wait-line:#E6A93B; --live:#1A7F58; --live-soft:#E1F1E9;
-  --idle:#6E7686; --idle-soft:#EDEEF1; --agent-bubble:#F1F2F5; --human-bubble:#FBEAF1;
-  color-scheme:light;
-}
-@media (prefers-color-scheme:dark){:root{
-  --bg:#0F1116; --surface:#171A21; --surface-2:#1C1F27; --ink:#E8EAEE; --muted:#A0A5B0; --faint:#757B87;
-  --border:#262A33; --border-strong:#333844; --accent:#E86AA0; --accent-soft:#34202B;
-  --wait:#E8B15A; --wait-soft:#322914; --wait-line:#B98A2E; --live:#4FC28C; --live-soft:#17281F;
-  --idle:#8B93A3; --idle-soft:#23262F; --agent-bubble:#1F232B; --human-bubble:#34202B; color-scheme:dark;
-}}
-*{box-sizing:border-box}
+/* Tokens and base: jam.css (shared with /ui). Intercom components below. */
 html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+body{display:flex;flex-direction:column}
 .mono,.cove,.tkt{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
 .topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
 .brand{display:flex;align-items:baseline;gap:8px;font-weight:600}

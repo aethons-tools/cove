@@ -4,26 +4,16 @@ import (
 	"embed"
 	"html/template"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
-//go:embed templates/*.html static/htmx.min.js
+//go:embed templates/*.html
 var files embed.FS
-
-// staticFS scopes the static route to static/ only — templates must never be
-// fetchable via /me/static/.
-var staticFS = func() fs.FS {
-	sub, err := fs.Sub(files, "static")
-	if err != nil {
-		panic(err)
-	}
-	return sub
-}()
 
 var pages = map[string]*template.Template{
 	"inbox": mustParse("inbox.html"),
@@ -35,7 +25,9 @@ func mustParse(names ...string) *template.Template {
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.ParseFS(files, paths...))
+	return template.Must(template.New("").Funcs(template.FuncMap{
+		"stylesheet": func() string { return uiassets.StylesheetHref("/me/static/") },
+	}).ParseFS(files, paths...))
 }
 
 // inboxPage is the full data for the two-pane inbox.
@@ -63,7 +55,8 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
 	mux.HandleFunc("GET /me/events", h.events)
-	mux.Handle("GET /me/static/", http.StripPrefix("/me/static/", http.FileServer(http.FS(staticFS))))
+	// The shared assets (jam.css, htmx) — templates are never reachable here.
+	mux.Handle("GET /me/static/", uiassets.Handler("/me/static/"))
 	return mux
 }
 
