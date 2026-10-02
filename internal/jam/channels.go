@@ -57,6 +57,9 @@ type ChannelView struct {
 	Waiting bool   // backing session is waiting/idled (the attention signal)
 	Unread  int    // messages on this channel with Seq > cursor, not authored by the viewer
 	LastSeq int64  // highest append Seq seen on this channel
+	// Sessions are the actor ids of the sessions taking part (sent or were
+	// addressed here, or back it), sorted.
+	Sessions []string
 }
 
 // Bucket places the channel in the attention-ordered rail. Waiting wins; a
@@ -176,6 +179,12 @@ func ProjectChannels(participant intercom.Target, log LogReader, roster Roster, 
 		if a.ch.Kind == ChannelDM {
 			a.ch.Label = dmLabel(a.members, self)
 		}
+		for m := range a.members {
+			if kind, ref, ok := strings.Cut(m, ":"); ok && kind == "actor" {
+				a.ch.Sessions = append(a.ch.Sessions, ref)
+			}
+		}
+		sort.Strings(a.ch.Sessions)
 		out = append(out, a.ch)
 	}
 	sortChannels(out)

@@ -1,8 +1,8 @@
 ---
-summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/me` where a roster human reads and replies to their intercom channels, grouped by attention (Waiting on you → Active → Channels), with a New Message picker and per-(participant,channel) unread. It reads the channel read-model and writes through the `/me/send` endpoint; it refreshes live over an SSE push (`GET /me/events`), with a 30s poll as fallback.
-read_when: You want a roster human to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/me` inbox — its routes, the live push and fallback poll, the mark-read cursor, or its wiring to the send path.
-owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the unread mark-read (`POST /me/read`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
-prereqs: ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
+summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/me` where a roster human reads and replies to their intercom channels, grouped by attention (Waiting on you → Active → Channels), with a New Message picker, per-(participant,channel) unread, and a live status strip for the sessions in each conversation. It reads the channel read-model and writes through the `/me/send` endpoint; it refreshes live over an SSE push (`GET /me/events`), with a 30s poll as fallback.
+read_when: You want a roster human to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/me` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
+owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /me/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /me/read`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
+prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
 tier: leaf
 updated: 2026-10-02
 ---
@@ -30,7 +30,15 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   viewer's own on one side), a **"Waiting on you"** chip when a studio is
   soliciting a reply, and a composer. Each message renders per its
   [content type](intercom.md#content-type-markdown-or-plain-text): markdown as
-  sanitized HTML, plain text as-is with its whitespace.
+  sanitized HTML, plain text as-is with its whitespace. A wide code block
+  scrolls sideways inside its bubble.
+- **Copy controls:** hovering a message (or tabbing to its controls) shows
+  **Text** and **Markdown** beside the sender. Text copies what the bubble shows;
+  Markdown copies the body exactly as sent. Each code block has a copy icon in
+  its corner that copies just the code. On touch screens they're always shown.
+- **Session status strip:** under the messages, one line per session taking part
+  in the conversation, like a typing indicator — see
+  [Session status](#session-status).
 - **View selector (top bar):** **Rendered** (the default) or **Raw**, which shows
   every message as its body text as sent, in monospace. Raw is handy for copying
   markdown. The choice is remembered per browser. The composers always use a
@@ -49,6 +57,10 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
 - **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
   (the extra newline is dropped). Shift+Enter always inserts a newline and never
   arms a send, so deliberate blank lines are possible.
+- **Saved reply:** what you type is kept per conversation in the tab's session
+  storage, so switching conversations (a full page load) and coming back
+  restores it. Emptying the box or a successful send clears it. It never leaves
+  the browser.
   **Cmd-Shift-V** (Ctrl-Shift-V off the Mac) pastes as a fenced code block at
   the cursor, on its own lines. The fence is longer than any backtick run in
   the pasted text, and Cmd-Z undoes the paste. It takes over the browser's own
@@ -82,10 +94,41 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   handle, so every writer (agent send, relay ingress, `/me/send`, escalation)
   fires it. That's correct while serve is the Log's sole writer. Without a
   configured Log, `/me/events` answers `204` and the page just polls.
+  A second payload-free event, `presence`, fires when a session's status
+  changes (at most one per 250 ms per stream; a change inside that gap is sent
+  when it ends) and refetches just the status strip (`GET /me/presence`).
+  `/me/events` answers `204` only when neither source is configured.
   A conversation **opens scrolled to its latest message**. If it is scrolled to
   the bottom when a refresh brings a new squawk, it scrolls so the new message
   is fully in view; scrolled up into history, the view stays put. **Send always
   scrolls to the bottom**, wherever you were.
+
+## Session status
+
+Each session that takes part in the open conversation (it backs the studio, is
+the DM's other end, or has sent or been addressed there) gets one line:
+**`<name> is <status>`**. The name is the session's declared name, else its
+actor id, as in the New Message picker. Busy states show animated dots; idle,
+paused, and done are dimmed; waiting and blocked use the attention colour.
+
+| Status | When |
+|--------|------|
+| starting | the session is raising |
+| paused | it is idled |
+| waiting on you / blocked / done | its reported activity says so (this wins over its events) |
+| thinking | its latest event began a turn, was a thinking block, or was a tool result |
+| running **\<Tool\>** | its latest event was a tool call |
+| writing | its latest event was assistant text |
+| idle | its turn finished (`result`) |
+| working | live, but no event seen since Jam started |
+
+Terminating, lost, and gone sessions are left out. The status comes from the
+session's phase and activity plus its [session events](session-events.md),
+summarized server-side by an in-memory tracker that every published event
+passes through (`sessionevents.Presence`, fed via `Hub.Observe`). Only the
+status and a **tool name** ever reach `/me` — never event content (see
+[Sensitivity](session-events.md#sensitivity)). The tracker is in memory, so after
+a restart a running session reads "working" until its next event.
 
 ## Enabling it
 
@@ -95,8 +138,8 @@ come from the intercom Log, which is always available.
 
 ## Not yet
 
-- **Per-participant push filtering:** today every `changed` ping reaches every
-  connected participant, who then refetch only what they may see.
+- **Per-participant push filtering:** today every `changed` and `presence` ping
+  reaches every connected participant, who then refetch only what they may see.
 - **Multi-process Jam:** the push is in-process; several serve processes over one
   Postgres log would need `LISTEN/NOTIFY`.
 - **A project-grouping toggle** (the read-model already carries the tags).

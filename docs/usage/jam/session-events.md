@@ -89,12 +89,17 @@ Fields: `actor_id`, `stream_id`, `seq`, `kind`, `gap_from`, `gap_to`, `turn`,
 
 The browser timeline lives at `/ui/coves/{id}/session`; see
 [ui.md](ui.md#session-timeline). The studio's page lists its streams
-([ui-pages.md](ui-pages.md#studio-pages)). There is no `/me` exposure.
+([ui-pages.md](ui-pages.md#studio-pages)). `/me` shows participants only a
+derived status per session, never events — see
+[intercom-ui.md](intercom-ui.md#session-status).
 
 ## Sensitivity
 
 Events carry tool inputs and outputs: file contents, command output, possibly
-secrets the agent read. They are visible to operators only. This is a
+secrets the agent read. They are visible to operators only. The one thing
+derived from them for participants is the `/me` status strip: a coarse status
+and, while a tool runs, its **name** (e.g. `Bash`) — never inputs, outputs, or
+text. This is a
 deliberate exception to [observability rule 3](../observability.md) ("raw
 agent/VM output stays VM-local"), which governs the structured log sink, not
 this separate audit channel.
