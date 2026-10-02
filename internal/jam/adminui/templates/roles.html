@@ -1,7 +1,7 @@
 {{define "content"}}
-<div class="page-head"><h1>Roles</h1><span class="sub">What a grant of each role lets an actor reach</span></div>
+<div class="page-head"><h1>Roles</h1><span class="sub">What a grant of each role lets an actor reach — open a role to edit it</span></div>
 <details class="panel">
-  <summary>Add or update role</summary>
+  <summary>New role</summary>
   <form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML" data-reset>
     <div class="grid">
       <label>Role name <span class="req">required</span><input name="name" required></label>
@@ -10,7 +10,7 @@
       <label>TTL <span class="hint">seconds, optional</span><input name="ttl-seconds" type="number" min="0" inputmode="numeric"></label>
       <label>Kit <span class="hint">optional</span><input name="kit"></label>
     </div>
-    <div class="form-actions"><button type="submit" class="primary">Save role</button></div>
+    <div class="form-actions"><button type="submit" class="primary">Create role</button></div>
   </form>
 </details>
 {{template "roles-table" .}}

@@ -173,7 +173,8 @@ verbs in [roster.md](roster.md):
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
-- **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
+- **Revoke** an actor, **create/delete** a role (and edit it on its
+  [role page](#role-pages)), and **add/remove** a grant.
   On the Roster page each actor's grants are chips (`project/role`, with a ×
   to remove; hover for the effective destinations), and **+ Grant** on the
   actor's row opens its add-grant form.
@@ -181,23 +182,7 @@ verbs in [roster.md](roster.md):
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Credential *names*
   are references, not secrets, so the UI shows them (the Roles table renders
-  `git → git-pat`); credential *values* never appear. Re-saving a role with a
-  bare destination name **keeps** its existing mapping (use the CLI's
-  `role add` to clear one).
-
-### Role pages
-
-Each role name (in the Roles table, a roster grant chip, or a studio row) links
-to its page, `/ui/roles/<project>/<name>`, which shows the whole role:
-destinations with the credential the broker injects for each (the role's
-mapping, or the destination's default), addressing, the egress policy (or "kit
-default" when the role sets none), allocation caps and the personal-session
-idle ladder (unset values say what applies), declared standing sessions with
-their studio's phase, the actors holding a grant (marked where the grant
-overrides the scope), and the role's running studios. **Request session** and
-**Delete** are on the page header. The page is view-only for now; fields the
-Roles form doesn't edit are changed with the CLI (`role add`, `egress set`,
-`standing add`).
+  `git → git-pat`); credential *values* never appear.
 
 Create forms sit in collapsed **+ Add …** panels above each table. The
 outcome of a write shows in a banner at the top of the page: a refused write
@@ -215,6 +200,37 @@ The kit registry and destinations are also editable from here — see
 [Config plane (kits & destinations)](#config-plane-kits-destinations) below.
 Raising and tearing down studios is editable from the UI when a runtime
 supervisor is configured — see [Runtime (studios)](#runtime-studios) below.
+
+### Role pages
+
+Each role name (in the Roles table, a roster grant chip, or a studio row) links
+to its page, `/ui/roles/<project>/<name>`, which shows and edits the whole
+role. The Roles page form only **creates** a role (an existing name is refused)
+and then opens the new role's page; all editing happens here, one section at a
+time, each with a pre-filled **Edit** form that saves only that section:
+
+- **Scope** — destinations with the credential the broker injects for each
+  (the role's mapping, or the destination's default), addressing, TTL and kit.
+  The destinations field uses the `name=credential` syntax; a bare name uses
+  the destination's default credential. Empty addressing means the role can't
+  squawk anyone.
+- **Egress** — the role's domain list, or "kit default" when it sets none.
+  Saving sets a policy (an empty list allows nothing beyond the sealed base and
+  the kit's infra domains); **Reset to kit default** removes it. Running
+  studios pick up the change on the supervisor's next reconcile.
+- **Allocation** — session caps and the personal-session idle ladder.
+  Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
+  the page says what applies when unset.
+- **Standing sessions** — declare (name + prompt) and dismiss; each shows its
+  studio's phase. Dismissing tears the studio down
+  ([standing-sessions.md](standing-sessions.md)).
+- **Holders** and **Studios** — the actors granted the role (marked where the
+  grant overrides the scope; grants are managed on the Roster) and the role's
+  running studios.
+
+**Request session** and **Delete** are on the page header. These writes share
+one lock with the JSON admin API's role, egress and standing routes, so an edit
+here and a CLI change can't overwrite each other.
 
 ### Runtime (studios)
 

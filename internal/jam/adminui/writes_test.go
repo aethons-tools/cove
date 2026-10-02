@@ -1,14 +1,13 @@
 package adminui_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
@@ -123,63 +122,6 @@ func TestRevokeActor(t *testing.T) {
 	}
 }
 
-// The UI role form doesn't edit the allocation policy, so saving a role from the
-// UI must keep the policy the role already has (set via `role add --max-ephemeral`)
-// rather than resetting it to zero.
-func TestEditRoleKeepsAllocationPolicy(t *testing.T) {
-	store := newStore(t)
-	alloc := jam.RoleAllocation{
-		MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour,
-		Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "review PRs"}},
-	}
-	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: alloc}); err != nil {
-		t.Fatal(err)
-	}
-	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("edit role = %d, want 200", rec.Code)
-	}
-	got, ok := store.GetRole("acme", "worker")
-	if !ok {
-		t.Fatal("role acme/worker missing after edit")
-	}
-	if !reflect.DeepEqual(got.Allocation, alloc) {
-		t.Fatalf("allocation after UI edit = %+v, want %+v (kept, standing declarations included)", got.Allocation, alloc)
-	}
-	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
-		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
-	}
-}
-
-// The UI role form edits neither the egress policy nor the addressing allow-list,
-// so saving a role from the UI must keep both rather than wiping them.
-func TestEditRoleKeepsEgressAndAddressing(t *testing.T) {
-	store := newStore(t)
-	egress := &jam.EgressPolicy{Domains: []string{".b.org", "a.com"}}
-	addressing := []string{"human:*", "channel:ops"}
-	if err := store.PutRole("acme", jam.Role{Name: "worker", Scope: jam.Scope{Addressing: addressing, Egress: egress}}); err != nil {
-		t.Fatal(err)
-	}
-	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"worker"}, "destinations": {"git"}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("edit role = %d, want 200", rec.Code)
-	}
-	got, _ := store.GetRole("acme", "worker")
-	if !reflect.DeepEqual(got.Scope.Egress, egress) {
-		t.Fatalf("egress after UI edit = %+v, want %+v (kept)", got.Scope.Egress, egress)
-	}
-	if !reflect.DeepEqual(got.Scope.Addressing, addressing) {
-		t.Fatalf("addressing after UI edit = %v, want %v (kept)", got.Scope.Addressing, addressing)
-	}
-	if len(got.Scope.Destinations) != 1 || got.Scope.Destinations[0] != "git" {
-		t.Fatalf("destinations = %v, want the edited [git]", got.Scope.Destinations)
-	}
-}
-
 func TestCreateAndDeleteRole(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
@@ -260,8 +202,10 @@ func TestEnrollValidationError(t *testing.T) {
 // refused, and without the option the proxied write is refused.
 func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 	store := newStore(t)
+	n := 0
 	write := func(h http.Handler, header, value string) int {
-		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader("project=acme&name=r1"))
+		n++ // a fresh role per write: the Roles form only creates
+		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader(fmt.Sprintf("project=acme&name=r%d", n)))
 		req.Host = "localhost:8081"
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set(header, value)
@@ -356,23 +300,5 @@ func TestCredentialErrorsDoNotEchoName(t *testing.T) {
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
 	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "SECRET-TYPO") {
 		t.Fatalf("status=%d; error must not echo the credential name; body:\n%s", rec.Code, rec.Body.String())
-	}
-}
-
-// The UI never shows mappings, so re-saving a role (e.g. to change its TTL)
-// with bare destination names must keep the existing mapping, not silently
-// fall back to the destination's (possibly broader) default credential.
-func TestRolePutKeepsExistingCredentialForBareName(t *testing.T) {
-	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
-	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}}); rec.Code != http.StatusOK {
-		t.Fatalf("create = %d", rec.Code)
-	}
-	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git"}, "ttl-seconds": {"60"}}); rec.Code != http.StatusOK {
-		t.Fatalf("re-put = %d", rec.Code)
-	}
-	r, _ := store.GetRole("acme", "w")
-	if r.Scope.Credentials["git"] != "known-cred" || len(r.Scope.Credentials) != 1 {
-		t.Fatalf("credentials after re-put = %v, want git kept and anthropic gone", r.Scope.Credentials)
 	}
 }

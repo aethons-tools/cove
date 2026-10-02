@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
-	"sync"
 )
 
 // StandingActorID is the actor (and reservation) id Jam raises a role's
@@ -31,11 +29,9 @@ func standingIDHolder(store Store, id string) (string, bool) {
 	return "", false
 }
 
-// registerStanding mounts the standing-declaration routes. Each write is a
-// read-modify-write of the Role that keeps every other field; mu serializes
-// them (shared with the other role read-modify-write routes) so two concurrent
-// writes can't drop one another.
-func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger, mu *sync.Mutex) {
+// registerStanding mounts the standing-declaration routes. Writes go through
+// AddStanding/RemoveStanding, which hold the shared role lock.
+func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger) {
 
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/standing", func(w http.ResponseWriter, r *http.Request) {
 		role, ok := store.GetRole(r.PathValue("project"), r.PathValue("role"))
@@ -56,60 +52,18 @@ func registerStanding(mux *http.ServeMux, store Store, log *slog.Logger, mu *syn
 		if !decode(w, r, &b) {
 			return
 		}
-		if b.Name == "" || b.Prompt == "" {
-			http.Error(w, "name and prompt are required", http.StatusBadRequest)
+		if err := AddStanding(store, project, roleName, b); err != nil {
+			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
 			return
 		}
-		mu.Lock()
-		defer mu.Unlock()
-		role, ok := store.GetRole(project, roleName)
-		if !ok {
-			http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, roleName), http.StatusNotFound)
-			return
-		}
-		id := StandingActorID(project, roleName, b.Name)
-		for _, s := range role.Allocation.Standing {
-			if s.Name == b.Name {
-				http.Error(w, fmt.Sprintf("standing session %q is already declared on %s/%s", b.Name, project, roleName), http.StatusBadRequest)
-				return
-			}
-		}
-		// The reconciler keys each cove on its actor id, so it must be unique across
-		// every declaration, in any role or project.
-		if owner, ok := standingIDHolder(store, id); ok {
-			http.Error(w, fmt.Sprintf("standing session %q would share actor id %s with declared %s; pick a name that differs in [A-Za-z0-9._-]", b.Name, id, owner), http.StatusBadRequest)
-			return
-		}
-		// A fresh slice, so the stored role never aliases the one we read.
-		role.Allocation.Standing = append(slices.Clone(role.Allocation.Standing), b)
-		if err := store.PutRole(project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name, "id", id)
+		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name, "id", StandingActorID(project, roleName, b.Name))
 		w.WriteHeader(http.StatusCreated)
 	})
 
 	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/standing/{name}", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName, name := r.PathValue("project"), r.PathValue("role"), r.PathValue("name")
-		mu.Lock()
-		defer mu.Unlock()
-		role, ok := store.GetRole(project, roleName)
-		if !ok {
-			http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, roleName), http.StatusNotFound)
-			return
-		}
-		i := slices.IndexFunc(role.Allocation.Standing, func(s StandingSession) bool { return s.Name == name })
-		if i < 0 {
-			http.Error(w, fmt.Sprintf("no standing session %q on %s/%s", name, project, roleName), http.StatusNotFound)
-			return
-		}
-		role.Allocation.Standing = slices.Delete(slices.Clone(role.Allocation.Standing), i, i+1)
-		if len(role.Allocation.Standing) == 0 {
-			role.Allocation.Standing = nil
-		}
-		if err := store.PutRole(project, role); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err := RemoveStanding(store, project, roleName, name); err != nil {
+			http.Error(w, err.Error(), RoleStatus(err, http.StatusInternalServerError))
 			return
 		}
 		log.Info("admin standing session dismissed", "operator", OperatorID(r), "project", project, "role", roleName, "name", name)
