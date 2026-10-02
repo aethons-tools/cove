@@ -35,6 +35,9 @@ type idleTracker struct {
 	// the list BEFORE notifying, and the notification starts a turn.
 	tasks, awaiting map[string]string
 	pendingWake     bool
+	// resumeOwed: a resume prompt was written but claude has not started the
+	// turn it asked for (no init/assistant/user/result seen since).
+	resumeOwed bool
 	changed         chan struct{} // cap 1; signalled on every state change from Observe
 	warn            func(msg string, args ...any)
 }
@@ -71,6 +74,7 @@ func (t *idleTracker) Observe(line []byte) {
 	t.mu.Lock()
 	switch {
 	case ev.Type == "result":
+		t.resumeOwed = false
 		if ev.QueuedTurnCount == 0 {
 			t.busy = false
 		}
@@ -90,7 +94,7 @@ func (t *idleTracker) Observe(line []byte) {
 		t.busy = true
 	case ev.Type == "system" && ev.Subtype == "init",
 		ev.Type == "assistant", ev.Type == "user":
-		t.busy = true
+		t.busy, t.resumeOwed = true, false
 	default:
 		t.mu.Unlock()
 		return
@@ -102,10 +106,11 @@ func (t *idleTracker) Observe(line []byte) {
 	}
 }
 
-// Wrote records that a user message was written to stdin.
+// Wrote records that a resume prompt was written to stdin: claude is busy, and
+// the wake stays owed until its turn starts.
 func (t *idleTracker) Wrote() {
 	t.mu.Lock()
-	t.busy = true
+	t.busy, t.resumeOwed = true, true
 	t.mu.Unlock()
 }
 
@@ -125,7 +130,8 @@ func (t *idleTracker) Wake() bool {
 }
 
 // Next returns the action for the current state. actDeliverWake consumes the
-// pending wake and marks the tracker busy (the caller writes the prompt).
+// pending wake, marks the tracker busy and the resume owed (the caller writes
+// the prompt).
 func (t *idleTracker) Next() (idleAction, []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -133,7 +139,7 @@ func (t *idleTracker) Next() (idleAction, []string) {
 	case t.busy:
 		return actWait, nil
 	case t.pendingWake:
-		t.pendingWake, t.busy = false, true
+		t.pendingWake, t.busy, t.resumeOwed = false, true, true
 		return actDeliverWake, nil
 	case len(t.tasks)+len(t.awaiting) > 0:
 		var descs []string
@@ -155,4 +161,14 @@ func (t *idleTracker) PendingWake() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.pendingWake
+}
+
+// WakeOwed reports whether a Wake is still unserved: coalesced but not yet
+// delivered, or delivered as a resume prompt that claude has not started a turn
+// for. Run hands an owed wake back to the post-exit wait so a process that dies
+// before acting on it never loses it.
+func (t *idleTracker) WakeOwed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.pendingWake || t.resumeOwed
 }

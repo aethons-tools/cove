@@ -252,9 +252,10 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 
 		waitErr := w.episode(ctx, proc, tr, prompt)
 		split.Flush()
-		if tr.PendingWake() {
-			// Coalesced mid-turn but never delivered (the process exited first):
-			// hand it to the post-exit wait so it resumes at once.
+		if tr.WakeOwed() {
+			// Coalesced mid-turn but never delivered, or delivered but the process
+			// exited (or the write failed) before claude started the turn it asked
+			// for: hand it to the post-exit wait so it resumes at once.
 			select {
 			case w.wake <- struct{}{}:
 			default:

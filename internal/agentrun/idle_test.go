@@ -180,3 +180,38 @@ func TestIdleTrackerWakeAtTurnBoundaryServesPendingWake(t *testing.T) {
 	feed(tr, lnInit, lnResult)
 	wantAct(t, tr, actClose)
 }
+
+// A resume prompt is owed until claude starts the turn it asked for: if the
+// process exits first, the wake must be handed back.
+func TestIdleTrackerResumeOwedUntilTurnStarts(t *testing.T) {
+	tr := newIdleTracker(nil)
+	feed(tr, lnInit, lnTasks1, lnResult)
+	if tr.WakeOwed() {
+		t.Fatal("nothing owed before any wake")
+	}
+	if !tr.Wake() {
+		t.Fatal("Wake between turns must deliver now")
+	}
+	tr.Wrote()
+	if !tr.WakeOwed() {
+		t.Fatal("a written resume is owed until claude starts its turn")
+	}
+	feed(tr, lnInit)
+	if tr.WakeOwed() {
+		t.Fatal("the resumed turn started: nothing owed")
+	}
+
+	// The coalesced path: actDeliverWake owes the resume until the turn starts.
+	tr = newIdleTracker(nil)
+	feed(tr, lnInit)
+	tr.Wake()
+	feed(tr, lnResult)
+	wantAct(t, tr, actDeliverWake)
+	if !tr.WakeOwed() {
+		t.Fatal("a delivered coalesced resume is owed until claude starts its turn")
+	}
+	feed(tr, lnAssistant)
+	if tr.WakeOwed() {
+		t.Fatal("the resumed turn started: nothing owed")
+	}
+}

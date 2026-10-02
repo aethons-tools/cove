@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ type pipeInput struct {
 	msgs   chan string
 	closed chan struct{}
 	once   sync.Once
+	broken atomic.Bool // set: writes fail as if the process had exited (EPIPE)
 }
 
 func newPipeInput() *pipeInput {
@@ -24,6 +27,9 @@ func newPipeInput() *pipeInput {
 }
 
 func (p *pipeInput) Write(b []byte) (int, error) {
+	if p.broken.Load() {
+		return 0, syscall.EPIPE
+	}
 	select {
 	case <-p.closed:
 		return 0, os.ErrClosed
@@ -279,6 +285,52 @@ func TestEpisodePendingWakeSurvivesExit(t *testing.T) {
 	p2.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+// A Wake the episode took out of w.wake must not be lost when claude exits
+// before acting on the resume prompt: whether the write failed (EPIPE) or the
+// prompt was written but no turn started, a needs-input outcome resumes at once.
+func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		writeFails bool
+	}{{"write fails", true}, {"written, never answered", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s := newStreamSpawner()
+			w := streamWL(t, dir, s, nil)
+			done := runAsync(context.Background(), w, &recordHandle{})
+			p := s.next(t)
+			p.in.next(t)
+			p.emit(lnInit, lnTasks1, lnResult) // turn over, holding for the task
+			p.in.staysOpen(t, 30*time.Millisecond)
+			if tc.writeFails {
+				p.in.broken.Store(true)
+			}
+			w.Control(covemaster.Control{Kind: covemaster.Wake})
+			if tc.writeFails {
+				p.in.waitClosed(t) // the failed write closes stdin
+			} else if got := p.in.next(t); got != resumePrompt {
+				t.Fatalf("delivered %q, want resumePrompt", got)
+			}
+			writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
+			p.exit <- nil // claude died before starting the resumed turn
+			p2 := s.next(t)
+			if !hasArg(p2.args, "--continue") {
+				t.Fatalf("resume spawn missing --continue: %v", p2.args)
+			}
+			if got := p2.in.next(t); got != resumePrompt {
+				t.Fatalf("resume prompt = %q", got)
+			}
+			p2.emit(lnInit, lnResult)
+			p2.in.waitClosed(t)
+			writeResult(t, dir, `{"status":{"ok":{}}}`)
+			p2.exit <- nil
+			if err := <-done; err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+		})
 	}
 }
 
