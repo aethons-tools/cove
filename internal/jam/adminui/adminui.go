@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -113,16 +112,7 @@ var funcs = template.FuncMap{
 }
 
 // fmtDur renders a duration without trailing zero units: "1h", "1h30m", "45s".
-func fmtDur(d time.Duration) string {
-	s := d.String()
-	if strings.HasSuffix(s, "m0s") {
-		s = strings.TrimSuffix(s, "0s")
-	}
-	if strings.HasSuffix(s, "h0m") {
-		s = strings.TrimSuffix(s, "0m")
-	}
-	return s
-}
+func fmtDur(d time.Duration) string { return jam.FormatDuration(d) }
 
 // Option configures Handler.
 type Option func(*options)
