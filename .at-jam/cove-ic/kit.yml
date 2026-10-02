@@ -1,5 +1,4 @@
 kind: studio
-name: cove-ic
 base:
   context-dir: context
 build-args:

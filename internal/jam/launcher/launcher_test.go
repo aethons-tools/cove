@@ -20,7 +20,7 @@ import (
 
 // testKitRef is the prepared studio kit the raise-path tests run from; its image
 // tag is cove-kit:<Digest>.
-var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind, Name: "web"})}
+var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind})}
 
 // readyInv is an inventory with testKitRef already prepared.
 func readyInv() *fakeInv {

@@ -28,7 +28,7 @@ prompt: |
 	if err != nil {
 		t.Fatalf("ParseStudioKit: %v", err)
 	}
-	if sk.Name != "web" || sk.Base.Image != "ghcr.io/acme/web@sha256:abc" {
+	if sk.LegacyName != "web" || sk.Base.Image != "ghcr.io/acme/web@sha256:abc" {
 		t.Fatalf("bad parse: %+v", sk)
 	}
 	if sk.BuildArgs["NODE_VERSION"] != "20" || sk.Secrets["AT_TASK_GIT_TOKEN"].Description == "" {
@@ -55,15 +55,13 @@ func TestParseStudioKitRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestParseStudioKitRequiresKindAndName(t *testing.T) {
-	if _, err := ParseStudioKit([]byte("name: web\n")); err == nil {
+func TestParseStudioKitRequiresKind(t *testing.T) {
+	if _, err := ParseStudioKit([]byte("egress: [a.com]\n")); err == nil {
 		t.Fatal("want error when kind is missing")
 	}
-	if _, err := ParseStudioKit([]byte("kind: studio\n")); err == nil {
-		t.Fatal("want error when name is missing")
-	}
-	if _, err := ParseStudioKit([]byte("kind: studio\nname: bad/name\n")); err == nil {
-		t.Fatal("want error on a non-tag-safe name")
+	// The name is the registry's (see CheckName), so a kit without one is valid.
+	if _, err := ParseStudioKit([]byte("kind: studio\n")); err != nil {
+		t.Fatalf("nameless kit refused: %v", err)
 	}
 }
 
@@ -141,7 +139,6 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	// (ToJSON → ParseStudioKit). This guards against JSON/YAML tag mismatches.
 	sk := StudioKit{
 		Kind: "studio",
-		Name: "web",
 		Base: Base{
 			Image: "r",
 		},
@@ -170,9 +167,6 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	// Verify critical fields survived the round-trip.
 	if parsed.BuildArgs["NODE_VERSION"] != "20" {
 		t.Errorf("BuildArgs[NODE_VERSION] = %q, want 20", parsed.BuildArgs["NODE_VERSION"])
-	}
-	if parsed.Name != "web" {
-		t.Errorf("Name = %q, want web", parsed.Name)
 	}
 	if parsed.Base.Image != "r" {
 		t.Errorf("Base.Image = %q, want r", parsed.Base.Image)

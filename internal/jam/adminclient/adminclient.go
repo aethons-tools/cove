@@ -200,10 +200,10 @@ func (c *Client) LoginConfig() (jam.OperatorLoginConfig, error) {
 }
 
 // PushKit pushes a new version of a kit config, returning the new version number.
-func (c *Client) PushKit(name, config string) (int, error) {
+func (c *Client) PushKit(name, config string) (jam.KitResult, error) {
 	var res jam.KitResult
 	err := c.do("POST", "/admin/kits", jam.KitBody{Name: name, Config: config}, &res)
-	return res.Version, err
+	return res, err
 }
 
 // ListKits lists every kit in the registry.

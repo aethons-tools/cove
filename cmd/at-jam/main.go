@@ -876,6 +876,10 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
 			return 1
 		}
+		if err := sk.CheckName(*name); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
 		// Resolve a client-only base.context-dir by packing that host directory
 		// into base.context (a zip) before sending — the server can't read the
 		// operator's filesystem. A relative context-dir is resolved against the
@@ -893,12 +897,16 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
 			return 1
 		}
-		v, err := c.PushKit(*name, string(resolved))
+		res, err := c.PushKit(*name, string(resolved))
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "pushed %s v%d\n", *name, v)
+		if res.Unchanged {
+			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", *name, res.Version)
+		} else {
+			fmt.Fprintf(stdout, "pushed %s v%d\n", *name, res.Version)
+		}
 	case "list":
 		kits, err := c.ListKits()
 		if err != nil {
@@ -925,6 +933,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit show: stored config is not a valid studio kit:", err)
 			return 1
 		}
+		sk.LegacyName = "" // the registry names the kit; a legacy row's name isn't shown
 		y, err := yaml.Marshal(sk)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)

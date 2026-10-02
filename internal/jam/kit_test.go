@@ -30,8 +30,8 @@ func TestKitStateReadyDistinctFromPreparing(t *testing.T) {
 // sent only on a miss). Compile-level guard that the shape is what later tasks
 // expect.
 func TestKitDefinitionCarriesRefAndKit(t *testing.T) {
-	def := KitDefinition{Ref: KitRef{ID: "web", Version: 1}, Kit: studio.StudioKit{Kind: studio.Kind, Name: "web"}}
-	if def.Ref.ID != "web" || def.Kit.Name != "web" {
+	def := KitDefinition{Ref: KitRef{ID: "web", Version: 1}, Kit: studio.StudioKit{Kind: studio.Kind, Egress: []string{"a.com"}}}
+	if def.Ref.ID != "web" || def.Kit.Egress[0] != "a.com" {
 		t.Fatalf("KitDefinition = %+v", def)
 	}
 }

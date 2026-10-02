@@ -4,7 +4,7 @@ read_when: You are registering a kit in Jam, pushing a new version, rolling a ki
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`), the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # The kit registry
@@ -18,12 +18,13 @@ full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
 ## The StudioKit
 
 A StudioKit is YAML with a `kind: studio` discriminator (stored in the registry
-as JSON with the same discriminator), a `name`, and five content fields. Unknown
-fields are rejected, so a full-kit field on a studio kit fails at `push`.
+as JSON with the same discriminator) and five content fields. Unknown fields are
+rejected, so a full-kit field on a studio kit fails at `push`. A kit **does not
+name itself**: its name is the registry key it is pushed under (`kit push
+--name`), and must be tag-safe (`[A-Za-z0-9_.-]`).
 
 ```yaml
 kind: studio
-name: web                  # tag-safe: [A-Za-z0-9_.-]
 base:                      # OPTIONAL — one of: image | context-files | context | context-dir | omitted
   image: ghcr.io/acme/base@sha256:…
 egress: [github.com, pkg.go.dev]   # allow-list (capped by the ceiling, below)
@@ -56,13 +57,19 @@ Anthropic only through the Jam broker (see [pool.md](pool.md)). An authored
 prints the effective `egress ceiling:` and an `excluded (COV-208):` line, and
 prepare logs the excluded roots.
 
+**Legacy `name:`.** Kit files and registry rows from before names left the
+schema may still carry `name:`. It is accepted on input, never stored, and must
+equal the name the kit is pushed under — a file that names itself `web` can't be
+pushed as `api` (drop the field). Existing rows keep working as-is.
+
 ## The model
 
 A registered kit is a name holding **immutable, monotonically-numbered
 versions**, behind a mutable **current** pointer:
 
 - **push** a studio kit → it becomes the next version (`v1`, `v2`, …) and *current*
-  advances to it.
+  advances to it. Pushing a definition identical to *current* makes no new
+  version (`kit push` prints `web unchanged (current v3)`).
 - A **role references a kit by name** (not `name@version`); the name resolves to
   *current*. Upgrades don't churn role bindings.
 - **pin** *current* to an older version to **roll back** (or forward); versions

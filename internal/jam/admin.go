@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -129,6 +128,9 @@ type KitBody struct {
 type KitResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
+	// Unchanged reports the pushed definition equalled the current version, so
+	// no new version was made (Version is the existing current).
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // KitSummary is a GET /admin/kits item.
@@ -612,27 +614,17 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			return
 		}
 		// Config rule of engagement: parse the (human-input) config as YAML and
-		// store it as canonical JSON. The jam kit registry holds STUDIO kits only;
-		// studio.ParseStudioKit validates strictly (kind, KnownFields), so a
-		// malformed, typo'd or non-studio config is rejected here at ingestion
-		// rather than surfacing later at a raise.
-		sk, err := studio.ParseStudioKit([]byte(b.Config))
+		// store it as canonical JSON. The jam kit registry holds STUDIO kits only,
+		// validated strictly (kind, KnownFields), so a malformed, typo'd or
+		// non-studio config is rejected here at ingestion rather than at a raise.
+		// An unchanged definition keeps the current version.
+		v, unchanged, err := PushStudioKit(store, b.Name, b.Config)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
-		jsonCfg, err := sk.ToJSON()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		v, err := store.PushKit(b.Name, string(jsonCfg))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v)
-		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v})
+		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
+		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
 	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary

@@ -19,21 +19,21 @@ func newKitTestStore(t *testing.T) Store {
 
 func TestEnsureStudioKitIdempotentThenBumps(t *testing.T) {
 	st := newKitTestStore(t)
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com"}}
-	ref, err := EnsureStudioKit(st, sk)
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}}
+	ref, err := EnsureStudioKit(st, "web", sk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ref.ID != "web" || ref.Version == 0 || ref.Digest != studio.BuildDigest(sk) {
 		t.Fatalf("bad ref: %+v", ref)
 	}
-	ref2, _ := EnsureStudioKit(st, sk)
+	ref2, _ := EnsureStudioKit(st, "web", sk)
 	if ref2.Version != ref.Version {
 		t.Fatalf("unchanged kit must reuse version: %d vs %d", ref2.Version, ref.Version)
 	}
 	// A PROMPT-only edit bumps the registry version but keeps the build-digest.
 	sk.Prompt = "edited"
-	ref3, _ := EnsureStudioKit(st, sk)
+	ref3, _ := EnsureStudioKit(st, "web", sk)
 	if ref3.Version == ref.Version {
 		t.Fatal("a definition change must bump the registry version")
 	}
@@ -51,13 +51,13 @@ func TestStudioKitRefFailsClosed(t *testing.T) {
 
 func TestResolveKitDefinitionParsesStudio(t *testing.T) {
 	st := newKitTestStore(t)
-	sk := studio.StudioKit{Kind: studio.Kind, Name: "web", Egress: []string{"github.com", ".anthropic.com"}}
-	ref, _ := EnsureStudioKit(st, sk)
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com", ".anthropic.com"}}
+	ref, _ := EnsureStudioKit(st, "web", sk)
 	def, ok, err := ResolveKitDefinition(st, ref)
 	if err != nil || !ok {
 		t.Fatalf("resolve: ok=%v err=%v", ok, err)
 	}
-	if def.Kit.Name != "web" || !slices.Contains(def.Kit.Egress, ".anthropic.com") {
+	if !slices.Contains(def.Kit.Egress, ".anthropic.com") {
 		t.Fatalf("definition carries the authored kit verbatim (ceiling is applied at assemble): %+v", def.Kit)
 	}
 }

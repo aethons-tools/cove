@@ -433,9 +433,9 @@ func TestClientKitRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	v, err := c.PushKit("web", "name: web\n")
-	if err != nil || v != 3 {
-		t.Fatalf("PushKit = %d, %v (body=%s)", v, err, gotBody)
+	res, err := c.PushKit("web", "name: web\n")
+	if err != nil || res.Version != 3 {
+		t.Fatalf("PushKit = %+v, %v (body=%s)", res, err, gotBody)
 	}
 	if gotMethod != "POST" || gotPath != "/admin/kits" || !strings.Contains(gotBody, `"config":"name: web\n"`) {
 		t.Fatalf("push wire = %s %s %s", gotMethod, gotPath, gotBody)
