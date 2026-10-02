@@ -50,10 +50,8 @@ at-jam role list [--project acme]
 at-jam role rm   [--project acme] guest
 ```
 
-- `--destinations` is comma-separated; each entry is a destination name,
-  optionally `name=credential` to pick the credential the broker injects for it
-  (a bare name uses the destination's default `cred-name`). `role list` and
-  `roster` print the same syntax.
+- `--destinations` is comma-separated: `name` (the destination's default
+  `cred-name`) or `name=credential`; `role list` and `roster` print the same.
 - A role's per-destination credentials travel on the admin API as
   `credentials` (`{"git": "git-pat-acme"}`) on role put/list, on each roster
   grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
