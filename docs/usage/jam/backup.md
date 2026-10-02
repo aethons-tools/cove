@@ -77,5 +77,7 @@ Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
 the **only** upgrade path: run `at-jam export` with the old version, then
 `at-jam import` into a Jam running on `store-postgres`
 ([serve.md](serve.md#postgres-store-store-postgres)). Squawk history and session
-events in the old files are not migrated, and the relay cursor/marker/receipt
-files are handled via `state-dir` ([serve.md](serve.md#the-serve-config)).
+events in the old files are not migrated. The relay cursor/marker/receipt files
+must also be moved into `state-dir`; see
+[serve.md](serve.md#upgrading-relay-state) for where they were and what is lost
+if you skip it.

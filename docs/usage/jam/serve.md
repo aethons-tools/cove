@@ -95,7 +95,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store-postgres` | **yes** | The Postgres store: control plane, squawk Log, session events, allocation ledger. A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. `serve` refuses to start without it. See [Postgres store](#postgres-store-store-postgres) below. |
-| `state-dir` | no | Directory for the relay engines' small local files: `relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`. Default `$XDG_STATE_HOME/at-jam`, else `~/.local/state/at-jam`; created `0700` when a relay needs it. Upgraders: move those three files from the old store file's directory, or point `state-dir` at that directory; missing files make the relays re-seed. |
+| `state-dir` | no | Directory for the relay engines' small local files: `relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`. Default `$XDG_STATE_HOME/at-jam`, else `~/.local/state/at-jam`; created `0700` when a relay needs it. Must resolve to an **absolute** path: with `HOME` unset, a relative `XDG_STATE_HOME`, or a relative `state-dir`, `serve` fails at startup rather than write under the working directory. See [Upgrading relay state](#upgrading-relay-state). |
 | `session-events-retention` | no | How long session events are kept (`<N>d` or a Go duration; empty keeps forever); see [session-events.md](session-events.md). |
 | `credentials-file` | no | Path to the protected file that supplies the demanded credentials. Default `${XDG_CONFIG_HOME:-~/.config}/at-jam/credentials.yml`. See [credentials.md](credentials.md). |
 | `credentials.<name>` | as needed | The credentials the broker injects, **named only** (an empty entry); strategies live in the credentials file — see [credentials.md](credentials.md). Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. A demanded name the file doesn't supply aborts `serve`. |
@@ -121,10 +121,28 @@ auto-created), so the intercom and session events are always on.
 ### Removed keys
 
 `store`, `intercom-log`, and `session-events-dir` were removed: setting any of
-them is a **hard startup error** naming the key. To move a file-backed Jam, run
+them is a **hard startup error** naming the key. Operators already on
+`store-postgres` just **delete the leftover line**: those keys were ignored
+there, so no migration is needed. To move a file-backed Jam, run
 `at-jam export` with the old version and `at-jam import` into a Postgres Jam
 ([backup.md](backup.md)). Squawk history and session events in the old files
 are **not** migrated.
+
+### Upgrading relay state
+
+The relay files `relay-cursors.json`, `relay-markers.json`, and
+`relay-receipts.json` used to live in the directory of `store:` when it was set,
+otherwise in **serve's working directory** (e.g. the systemd
+`WorkingDirectory`). On upgrade, move them from there into `state-dir` (or point
+`state-dir` at that directory). If you do not:
+
+- Egress marks re-seed to the Log tail: nothing is redelivered, but squawks
+  appended-but-undelivered at shutdown and pending retries are dropped.
+- Linear ingress starts from "now", so replies posted during the upgrade
+  downtime are never ingested.
+- Discord ingress re-reads recent messages (deduped).
+- Discord replies to posts made before the upgrade no longer route to their
+  studio (receipts lost).
 
 ```yaml
 store-postgres:
