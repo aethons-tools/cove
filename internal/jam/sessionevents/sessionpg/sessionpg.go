@@ -68,6 +68,15 @@ func (s *Store) insert(ev sessionevents.Event, raw, rawText any) error {
 	return err
 }
 
+// sanitizeText makes t storable in a Postgres text column: invalid UTF-8
+// becomes U+FFFD and NUL bytes (which text cannot hold) become U+FFFD too.
+// It reports whether anything changed.
+func sanitizeText(t string) (string, bool) {
+	out := strings.ToValidUTF8(t, "\uFFFD")
+	out, nul := replaceNUL(out)
+	return out, nul || out != t
+}
+
 // replaceNUL swaps NUL bytes for U+FFFD, reporting whether any were found.
 func replaceNUL(t string) (string, bool) {
 	if !strings.ContainsRune(t, 0) {
@@ -76,22 +85,29 @@ func replaceNUL(t string) (string, bool) {
 	return strings.ReplaceAll(t, "\x00", "\uFFFD"), true
 }
 
-// textSafe makes a raw line storable in a text column: Postgres text cannot
-// hold NUL bytes, so they become U+FFFD (the only lossy case; logged).
+// textSafe makes a raw line storable in a text column (lossy only for invalid
+// UTF-8 and NUL bytes; logged by actor and seq, never content).
 func (s *Store) textSafe(ev sessionevents.Event) string {
-	t, changed := replaceNUL(string(ev.Raw))
+	t, changed := sanitizeText(string(ev.Raw))
 	if changed {
-		s.log.Warn("sessionpg: NUL bytes replaced in raw_text", "actor", ev.ActorID, "seq", ev.Seq)
+		s.log.Warn("sessionpg: raw_text sanitized (invalid UTF-8 or NUL bytes replaced)", "actor", ev.ActorID, "seq", ev.Seq)
 	}
 	return t
+}
+
+// isDataException reports whether err is a Postgres class 22 (data exception)
+// rejection, e.g. 22P05 (\u0000), 22P02 (lone surrogate), 22021 (bad UTF-8).
+func isDataException(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && strings.HasPrefix(pgErr.Code, "22")
 }
 
 func (s *Store) Append(ev sessionevents.Event) error {
 	if len(ev.Raw) > 0 && json.Valid(ev.Raw) {
 		err := s.insert(ev, string(ev.Raw), nil)
-		var pgErr *pgconn.PgError
-		// 22P05 untranslatable_character: jsonb rejects \u0000 — keep the line as text.
-		if errors.As(err, &pgErr) && pgErr.Code == "22P05" {
+		// Go's json.Valid accepts inputs jsonb rejects with several class 22
+		// codes — keep the line as sanitized text rather than lose the event.
+		if isDataException(err) {
 			return s.insert(ev, nil, s.textSafe(ev))
 		}
 		return err
