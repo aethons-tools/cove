@@ -194,21 +194,49 @@ type CoveSummary struct {
 	LeaseHolder string    `json:"lease_holder"`
 	RaisedAt    time.Time `json:"raised_at"`
 	LastSeen    time.Time `json:"last_seen"`
+	// Connector: ok | stale | unknown | error — the cove's reported connector vs its role's current one.
+	Connector string `json:"connector"`
 }
 
 // CoveSummaries returns the managed-cove runtime registry as scrubbed
 // summaries — never a token, hash, or launch secret. The JSON coves handler
 // and the read-only UI both render from this, so the two cannot drift.
 func CoveSummaries(store Store) []CoveSummary {
+	actors := map[string]Actor{}
+	for _, a := range store.ListActors() {
+		actors[a.ID] = a
+	}
 	var out []CoveSummary
 	for _, i := range store.ListInstances() {
 		out = append(out, CoveSummary{
 			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
 			Phase: string(i.Phase), Activity: string(i.Activity),
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
+			Connector: connectorStatus(store, actors, i),
 		})
 	}
 	return out
+}
+
+// connectorStatus compares the connector a cove reported applying with the one
+// its identity's grants yield now: ok, stale, unknown (never reported — an older
+// image), or error (the actor is gone or its destinations conflict).
+func connectorStatus(store Store, actors map[string]Actor, i Instance) string {
+	if i.Connector == "" {
+		return "unknown"
+	}
+	a, ok := actors[i.ActorID]
+	if !ok {
+		return "error"
+	}
+	want, err := ConnectorFor(store, a)
+	if err != nil {
+		return "error"
+	}
+	if snippet.Fingerprint(want) == i.Connector {
+		return "ok"
+	}
+	return "stale"
 }
 
 // CoveStatusBody is the POST /admin/coves/{id}/status request.

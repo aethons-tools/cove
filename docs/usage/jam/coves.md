@@ -44,7 +44,7 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ```
 at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-jam studio list     # id  role  unit  phase  activity  lease-holder
+at-jam studio list     # id  role  unit  phase  activity  lease-holder  connector
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```
@@ -55,6 +55,7 @@ at-jam studio teardown --id spider-42
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
+- `connector` (in `studio list` and the Studios table) is `ok` when the studio's last agent turn ran with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next turn), `unknown` when it never reported (an image built before the per-turn refresh — re-raise it), `error` when the role's destinations conflict.
 
 ### Raising a real managed studio
 
@@ -217,7 +218,8 @@ cove-master re-fetches its connector (`GET /connector`, [connector.md](connector
 and starts that turn with the current env and git routing, so a destination or grant
 edit reaches a running studio at its next turn (never mid-turn). If the fetch fails it
 keeps the last connector it applied and logs a warning. It reports the applied
-connector's fingerprint up the Attach stream.
+connector's fingerprint up the Attach stream; Jam compares it to the role's current
+connector for the `connector` column ([verbs](#the-studio-verbs)).
 
 **Post-mortem on teardown.** Just before the container (and its `/agent-data`
 volume) is removed, the launcher grabs the **tail of `cove-master`'s log**

@@ -1116,8 +1116,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, cv := range coves {
-			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\n",
-				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder)
+			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\n",
+				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector)
 		}
 	case "status":
 		if *id == "" || *activity == "" {

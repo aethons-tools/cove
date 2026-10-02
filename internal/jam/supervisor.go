@@ -337,6 +337,21 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, cre
 	return s.launcher.Raise(ctx, spec, creds)
 }
 
+// RecordConnector records the connector fingerprint a cove reports having
+// applied to its latest agent spawn. Staleness is derived on read
+// (CoveSummaries), never stored, so it cannot itself drift.
+func (s *Supervisor) RecordConnector(actorID, fp string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Phase == PhaseGone || inst.Connector == fp {
+		return nil
+	}
+	inst.Connector = fp
+	return s.store.PutInstance(inst)
+}
+
 // Heartbeat renews the lease + LastSeen for a connected cove WITHOUT changing
 // Activity or Phase (the stream keepalive path). Errors if the instance is
 // absent or gone.
