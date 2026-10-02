@@ -46,7 +46,7 @@ The session prompt is **composed at raise** from ordered layers — Jam
 boilerplate → kit → project → role → launch — so it lives *outside* the image.
 The image is tagged by a **build-digest** over only the build-affecting fields
 (`base` + `egress` + `build-args`): a prompt- or secrets-only edit reuses the
-cached image.
+cached image. The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
 

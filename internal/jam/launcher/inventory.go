@@ -8,10 +8,6 @@ type Inventory interface {
 	Has(KitRef) (bool, error)
 }
 
-// imageTag names the built image by the studio kit's BUILD-digest, so kits with
-// identical build inputs share an image and a prompt-only edit reuses it.
-func imageTag(r KitRef) string { return "cove-kit:" + r.Digest }
-
 // imageChecker is the sliver of the substrate backend the inventory needs: does a
 // tagged image exist on this substrate? Satisfied by backend.KitImageBuilder.
 type imageChecker interface {
@@ -23,7 +19,10 @@ type imageChecker interface {
 // docker runner) means the inventory queries the SAME daemon the backend builds
 // and runs on — on Colima the pinned `--context colima`, never the host's default
 // (e.g. Docker Desktop). That daemon agreement is the whole point (COV-217).
-type backendInventory struct{ ops imageChecker }
+type backendInventory struct {
+	ops imageChecker
+	tag func(KitRef) string // the launcher's imageTag, so inventory and build agree
+}
 
-// Has reports whether the (id,version) image exists on the substrate.
-func (b backendInventory) Has(ref KitRef) (bool, error) { return b.ops.HasKitImage(imageTag(ref)) }
+// Has reports whether the kit's image (under this launcher's tag) exists.
+func (b backendInventory) Has(ref KitRef) (bool, error) { return b.ops.HasKitImage(b.tag(ref)) }

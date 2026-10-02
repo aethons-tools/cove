@@ -106,7 +106,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 }
 
 // studioKitDef is a small studio KitDefinition for prepare tests: its ref's
-// Digest is the build-digest, so imageTag(ref) == cove-kit:<digest>.
+// Digest is the build-digest, so l.imageTag(ref) == cove-kit:<digest>-<asm>.
 func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
 	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk)}, Kit: sk}
 }
@@ -126,7 +126,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	if err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit = %+v, %v", st, err)
 	}
-	if ops.builtTag != "cove-kit:"+ref.Digest {
+	if ops.builtTag != l.imageTag(ref) {
 		t.Fatalf("image tag must be the build-digest: %q", ops.builtTag)
 	}
 	if ops.resolvedFrom != "" { // Base.Image == "" → blessed default
@@ -178,7 +178,7 @@ func TestPrepareStudioKitContextFilesBase(t *testing.T) {
 	if ops.builtBase != "blessed-df@sha256:aaa" {
 		t.Fatalf("kit image built FROM %q, want the gated context base", ops.builtBase)
 	}
-	if ops.builtTag != "cove-kit:"+ref.Digest {
+	if ops.builtTag != l.imageTag(ref) {
 		t.Fatalf("image tag = %q, want the build-digest tag", ops.builtTag)
 	}
 }

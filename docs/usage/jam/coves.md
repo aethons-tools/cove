@@ -96,8 +96,9 @@ substrate: each raise carries only the kit reference (`<id>@v<n>`); on an invent
 **miss** the launcher raises no container and reports not-ready; Jam resolves the
 full kit from the [registry](kits.md), calls the launcher's `PrepareKit` to build it
 **on the substrate backend** (the colima daemon, so the image lands where
-`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest,
-so a prompt-only edit reuses the cached image. An in-progress build does not block
+`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest
+plus the launcher's assembly fingerprint ([kits.md](kits.md#the-studiokit)),
+so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. An in-progress build does not block
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the `at-jam` binary and the launcher's key), with
 **no source kit directory**, so the build can move to a remote substrate. The

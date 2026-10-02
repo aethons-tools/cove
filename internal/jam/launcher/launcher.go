@@ -78,6 +78,7 @@ type Launcher struct {
 	inv      Inventory
 	mu       sync.Mutex             // guards inflight
 	inflight map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
+	asm      string                 // assembly fingerprint, part of every image tag
 }
 
 var _ jam.Launcher = (*Launcher)(nil)
@@ -96,9 +97,14 @@ func New(cfg Config) *Launcher {
 		cfg.BuildRoot = filepath.Join(os.TempDir(), "cove-kit-builds")
 	}
 	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
+	asm, err := currentAsmDigest(cfg)
+	if err != nil {
+		cfg.Log.Warn("launcher: at-jam build identity unreadable; image tags key on the other inputs only", "error", err.Error())
+	}
+	l.asm = asm
 	l.inv = cfg.Inventory
 	if l.inv == nil {
-		l.inv = backendInventory{cfg.Ops}
+		l.inv = backendInventory{ops: cfg.Ops, tag: l.imageTag}
 	}
 	if l.cfg.assemble == nil {
 		l.cfg.assemble = l.defaultAssemble
@@ -108,7 +114,7 @@ func New(cfg Config) *Launcher {
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := naming.CoveContainer(spec.ActorID)
-	// A studio raise always carries a kit: its image is cove-kit:<build-digest>. A
+	// A studio raise always carries a kit: its image is cove-kit:<build-digest>-<asm>. A
 	// launcher without that kit in its inventory returns ErrKitNotReady and creates
 	// NO container, so the supervisor prepares the kit and retries.
 	if spec.Kit.ID == "" {
@@ -125,9 +131,9 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	if !ok {
 		return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 	}
-	// Run the immutable cove-kit:<build-digest> tag. No digest pin: the tag already
+	// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
 	// names the exact built image by its build-input digest.
-	image, digest := imageTag(spec.Kit), ""
+	image, digest := l.imageTag(spec.Kit), ""
 	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
