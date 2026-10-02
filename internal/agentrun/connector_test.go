@@ -131,3 +131,16 @@ func TestConnectorNeverLogsToken(t *testing.T) {
 		t.Fatalf("token logged: %s", buf.String())
 	}
 }
+
+func TestConnectorDroppedKeyStaysDropped(t *testing.T) {
+	initial := snippet.Connector{Env: map[string]string{"OLD_VAR": "x", "GH_HOST": "{host}"}}
+	environ := []string{"PATH=/bin", "OLD_VAR=x", "GH_HOST=jam.example"}
+	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
+	r := newRefresher(src, &fakeGit{}, initial, environ)
+	for turn := 1; turn <= 2; turn++ {
+		env, _, _ := r.prepare(context.Background())
+		if _, ok := envMap(env)["OLD_VAR"]; ok {
+			t.Fatalf("turn %d: dropped key resurfaced: %v", turn, env)
+		}
+	}
+}

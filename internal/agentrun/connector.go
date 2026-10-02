@@ -106,13 +106,19 @@ func (r *connectorRefresher) prepare(ctx context.Context) (env []string, fp stri
 	return env, fp, changed
 }
 
-// spawnEnv is cove-master's env minus every key the previous connector owned
-// or the current one sets (incl. the identity-token vars Expand re-emits with
+// spawnEnv is cove-master's env minus every key the raise-time (Initial) or
+// previous connector owned, or the current one sets (incl. the identity-token vars Expand re-emits with
 // the same value), plus the current connector expanded in memory — so a key a
 // destination dropped is gone, and no key appears twice.
 func (r *connectorRefresher) spawnEnv(cur snippet.Connector) []string {
 	exp := cur.Expand(r.cfg.BaseURL, r.cfg.Token)
 	owned := map[string]bool{}
+	// Initial's keys are always owned: cove-master's process env carries the
+	// raise-time values for its whole lifetime, so a key dropped later must stay
+	// stripped on every subsequent turn, not just the turn it was dropped.
+	for k := range r.cfg.Initial.Env {
+		owned[k] = true
+	}
 	for k := range r.last.Env {
 		owned[k] = true
 	}
