@@ -2,16 +2,19 @@
 
 Assets for running a local dev instance of Jam.
 
-- **`docker-compose.yml`** — a local PostgreSQL 17 for Jam.
+- **`docker-compose.yml`** — a local PostgreSQL 18 for Jam.
 - **`jam.dev.yml`** — a sample `at-jam serve` config wired to that DB.
 
 ## Postgres
 
-`docker-compose.yml` raises PostgreSQL 17 matching Jam's CI/integration
+`docker-compose.yml` raises PostgreSQL 18 matching Jam's CI/integration
 conventions (`.github/workflows/store-integration.yml`): database/user/password
 all `jam`, with `sslmode=disable` for local use. The host port is **15432**
 (mapped to the container's 5432) to avoid clashing with any other local
-Postgres. Data persists in the `pgdata` named volume. Jam applies its
+Postgres. Data persists in the `pgdata` named volume, mounted at
+`/var/lib/postgresql` (the 18+ image layout; it refuses a mount at the old
+`.../data` path). A volume created under Postgres 17 is not upgraded in
+place — wipe it with `just dev-down -v` after the bump. Jam applies its
 embedded migrations automatically on startup, so no init SQL lives here.
 
 ```sh
