@@ -1,19 +1,10 @@
 {{define "content"}}
-<div class="page-head"><h1>Destinations</h1><span class="sub">Upstreams the broker routes studio traffic to</span></div>
+<div class="page-head"><h1>Destinations</h1><span class="sub">Upstreams the broker routes studio traffic to — open one to edit it</span></div>
 <details class="panel">
-  <summary>Add destination</summary>
-  <form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML" data-reset>
-    <div class="grid">
-      <label>Name <span class="req">required</span><input name="name" required></label>
-      <label>Route <span class="req">required</span><input name="route" required placeholder="/anthropic/"></label>
-      <label class="wide">Upstream URL <span class="req">required</span><input name="upstream" type="url" required placeholder="https://api.example.com"></label>
-      <label>Identity in <span class="hint">how studios present identity</span>
-        <select name="identity-in"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select></label>
-      <label>Credential <span class="hint">cred-name, optional</span><input name="cred-name"></label>
-      <label>Apply as <span class="hint">how the credential is sent upstream</span>
-        <select name="apply"><option value="bearer">bearer</option><option value="basic-password">basic-password</option><option value="x-api-key">x-api-key</option></select></label>
-    </div>
-    <div class="form-actions"><button type="submit" class="primary">Add destination</button></div>
+  <summary>New destination</summary>
+  <form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML">
+    {{template "dest-fields" .New}}
+    <div class="form-actions"><button type="submit" class="primary">Create destination</button></div>
   </form>
 </details>
 {{template "destinations-table" .}}
@@ -22,16 +13,22 @@
 {{define "destinations-table"}}
 <div class="card" id="destinations">
 <table>
-  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Auth</th><th>Credential</th><th>Studio connector</th><th>Roles</th><th></th></tr></thead>
   <tbody>
     {{range .Destinations}}
-    <tr data-id="{{.Name}}">
-      <td>{{template "entity" .Name}}</td><td><span class="mono">{{.Route}}</span></td><td><span class="mono">{{.Upstream}}</span></td>
+    <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">
+      <td><a class="mono" href="{{destURL .Name}}"><b>{{.Name}}</b></a></td>
+      <td><span class="mono">{{.Route}}</span></td>
+      <td><span class="mono">{{.Upstream}}</span></td>
+      <td>{{if or .IdentityIn .Apply}}<span class="mono">{{.IdentityIn}} → {{.Apply}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .CredName}}<span class="mono">{{.CredName}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{range .EnvKeys}}<span class="chip">{{.}}</span>{{end}}{{if .GitRouted}}<span class="chip accent">git</span>{{end}}{{if .OAuthBeta}}<span class="chip accent">oauth-beta</span>{{end}}{{if not (or .EnvKeys .GitRouted .OAuthBeta)}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .UsedBy}}{{.UsedBy}}{{else}}<span class="none">0</span>{{end}}</td>
       <td class="actions"><button class="danger small" hx-delete="/ui/destinations/{{.Name}}" hx-target="#destinations" hx-swap="outerHTML"
-          hx-confirm="Delete destination {{.Name}}?">Delete</button></td>
+          hx-confirm="Delete destination {{.Name}}?{{if .UsedBy}} {{.UsedBy}} role(s) list it.{{end}}">Delete</button></td>
     </tr>
     {{else}}
-    <tr><td colspan="4" class="empty">No destinations.</td></tr>
+    <tr><td colspan="8" class="empty">No destinations.</td></tr>
     {{end}}
   </tbody>
 </table>
