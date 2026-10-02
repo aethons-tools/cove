@@ -112,3 +112,21 @@ func TestCompileDeterministic(t *testing.T) {
 		t.Fatal("different inputs must change the fingerprint")
 	}
 }
+
+func TestCompileLintsKitRestatingStudioFacts(t *testing.T) {
+	in := Inputs{
+		Session: SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r", Kit: "web@v1"},
+		Kit:     Layer{Core: "You may reach proxy.golang.org. Ask human:alice for help."},
+		Studio:  StudioFacts{Egress: []string{"proxy.golang.org"}, EgressKnown: true, Targets: []StudioTarget{{Target: "human:alice", Who: "your owner"}}},
+	}
+	got := strings.Join(Compile(in).Warnings, "\n")
+	for _, want := range []string{"proxy.golang.org", "human:alice"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want a lint warning naming %q, got:\n%s", want, got)
+		}
+	}
+	in.Kit.Core = "Work on the web service."
+	if w := Compile(in).Warnings; len(w) != 0 {
+		t.Errorf("clean kit core must not warn: %v", w)
+	}
+}
