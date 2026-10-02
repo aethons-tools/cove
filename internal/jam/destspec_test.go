@@ -2,6 +2,7 @@ package jam
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -40,5 +41,12 @@ func TestValidateCredentials(t *testing.T) {
 		if ValidateCredentials(s, known) == nil {
 			t.Errorf("%+v: want error", s)
 		}
+	}
+}
+
+func TestValidateCredentialsErrorOmitsCredentialName(t *testing.T) {
+	err := ValidateCredentials(Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "SECRET-TYPO"}}, func(string) bool { return false })
+	if err == nil || strings.Contains(err.Error(), "SECRET-TYPO") {
+		t.Fatalf("err = %v; must not echo the credential name", err)
 	}
 }

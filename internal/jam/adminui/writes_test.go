@@ -330,3 +330,48 @@ func TestEnrollOverrideCredentialsValidated(t *testing.T) {
 		t.Fatalf("grant overrides = %+v", a.Grants[0].Overrides)
 	}
 }
+
+func TestAddGrantOverrideCredentialsValidated(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutRole("acme", jam.Role{Name: "w", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(jam.Actor{ID: "m", TokenHash: "h", Grants: []jam.Grant{{Project: "acme", Role: "w"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	// a role that doesn't exist yet: mapped credentials can't be checked → 400.
+	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"later"}, "destinations": {"git=known-cred"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("grant of missing role with mapped credential = %d, want 400", rec.Code)
+	}
+	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("grant with unknown credential = %d, want 400", rec.Code)
+	}
+}
+
+func TestCredentialErrorsDoNotEchoName(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "SECRET-TYPO") {
+		t.Fatalf("status=%d; error must not echo the credential name; body:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+// The UI never shows mappings, so re-saving a role (e.g. to change its TTL)
+// with bare destination names must keep the existing mapping, not silently
+// fall back to the destination's (possibly broader) default credential.
+func TestRolePutKeepsExistingCredentialForBareName(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}}); rec.Code != http.StatusOK {
+		t.Fatalf("create = %d", rec.Code)
+	}
+	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git"}, "ttl-seconds": {"60"}}); rec.Code != http.StatusOK {
+		t.Fatalf("re-put = %d", rec.Code)
+	}
+	r, _ := store.GetRole("acme", "w")
+	if r.Scope.Credentials["git"] != "known-cred" || len(r.Scope.Credentials) != 1 {
+		t.Fatalf("credentials after re-put = %v, want git kept and anthropic gone", r.Scope.Credentials)
+	}
+}

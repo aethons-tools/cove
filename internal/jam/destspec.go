@@ -47,14 +47,15 @@ func FormatDestinations(dests []string, creds map[string]string) string {
 
 // ValidateCredentials checks a scope's destination→credential map at write
 // time: every key must be an allowed destination and every non-empty value a
-// configured credential, so a typo fails at the admin API, not mid-request.
+// configured credential, so a typo fails at the admin API, not mid-request. The
+// error never echoes a credential name (as with destination cred-name checks).
 func ValidateCredentials(s Scope, credExists func(string) bool) error {
 	for d, c := range s.Credentials {
 		if !slices.Contains(s.Destinations, d) {
 			return fmt.Errorf("credentials maps %q, which is not one of the scope's destinations", d)
 		}
 		if c != "" && !credExists(c) {
-			return fmt.Errorf("credential %q (for %q) does not resolve to a configured credential", c, d)
+			return fmt.Errorf("the credential mapped for %q does not resolve to a configured credential", d)
 		}
 	}
 	return nil

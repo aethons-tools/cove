@@ -170,7 +170,9 @@ verbs in [roster.md](roster.md):
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Tables show
-  destination names only — credential names are never rendered in the UI.
+  destination names only — credential names are never rendered in the UI, so
+  re-saving a role with a bare destination name **keeps** its existing mapping
+  (use the CLI's `role list` to see mappings, and `role add` to clear one).
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the

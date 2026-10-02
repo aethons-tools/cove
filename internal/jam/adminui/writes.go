@@ -67,7 +67,8 @@ func splitCSV(s string) []string {
 // overridesFrom builds a *jam.Override from an optional destinations field in
 // jam.ParseDestinations syntax ("git=cred,anthropic"), or nil when empty
 // (inherit the role's scope). Mapped credentials are validated against the
-// effective scope over the grant's role; a missing role is left to the write.
+// effective scope over the grant's role, so mapping credentials onto a role
+// that doesn't exist is rejected (as the admin API does).
 func overridesFrom(store jam.Store, project, role, dests string, credExists func(string) bool) (*jam.Override, error) {
 	d, creds, err := jam.ParseDestinations(dests)
 	if err != nil {
@@ -77,10 +78,15 @@ func overridesFrom(store jam.Store, project, role, dests string, credExists func
 		return nil, nil
 	}
 	o := &jam.Override{Destinations: d, Credentials: creds}
-	if r, ok := store.GetRole(orDefaultProject(project), role); ok {
-		if err := jam.ValidateCredentials(jam.EffectiveScope(jam.Grant{Overrides: o}, r), credExists); err != nil {
-			return nil, err
-		}
+	if creds == nil {
+		return o, nil
+	}
+	r, ok := store.GetRole(orDefaultProject(project), role)
+	if !ok {
+		return nil, fmt.Errorf("role %q not found in project %q", role, orDefaultProject(project))
+	}
+	if err := jam.ValidateCredentials(jam.EffectiveScope(jam.Grant{Overrides: o}, r), credExists); err != nil {
+		return nil, err
 	}
 	return o, nil
 }
@@ -200,6 +206,17 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			role.Allocation = existing.Allocation
 			role.Scope.Addressing = existing.Scope.Addressing
 			role.Scope.Egress = existing.Scope.Egress
+			// The UI never shows credential mappings, so a bare destination name
+			// on a re-put keeps the role's existing mapping rather than silently
+			// falling back to the destination's (possibly broader) default.
+			for _, d := range role.Scope.Destinations {
+				if c := existing.Scope.Credentials[d]; c != "" && role.Scope.Credentials[d] == "" {
+					if role.Scope.Credentials == nil {
+						role.Scope.Credentials = map[string]string{}
+					}
+					role.Scope.Credentials[d] = c
+				}
+			}
 		}
 		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())
