@@ -244,7 +244,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
-		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner,
+		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
 	}}
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()

@@ -65,6 +65,7 @@ type SessionFacts struct {
 	Project string
 	Role    string
 	Owner   string // personal session owner
+	Unit    string // ephemeral work unit (ticket); "" = none, so no default recipient
 	Kit     string // KitRef.String(), "" = no kit
 }
 

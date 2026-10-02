@@ -17,7 +17,7 @@ func TestBoilerplatePerKind(t *testing.T) {
 		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "pair"},
 			[]string{"a personal session for alice", "`send` without `to` reaches alice", "until alice releases"},
 			nil},
-		{SessionFacts{Kind: "", Project: "acme", Role: "worker"},
+		{SessionFacts{Kind: "", Project: "acme", Role: "worker", Unit: "AET-9"},
 			[]string{"an ephemeral worker session for role worker in project acme", "without `to` posts to your ticket"},
 			[]string{"owner"}},
 	}
@@ -53,5 +53,33 @@ func TestCompiledBundleNeverTruncatesBoilerplate(t *testing.T) {
 		if len(b.Warnings) != 0 {
 			t.Errorf("%s: %v", k, b.Warnings)
 		}
+	}
+}
+
+// An ephemeral session is not resident: a turn that ends without a
+// worker-result fails it, so its boilerplate carries that contract and never
+// says that ending a turn is how to wait.
+func TestBoilerplateEphemeralResultContract(t *testing.T) {
+	l := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r", Unit: "AET-9"})
+	for _, want := range []string{".at-task/worker-result.json", `{"status":{"ok":{}}}`, `"needs-input"`, `{"status":{"error":`} {
+		if !strings.Contains(l.Core, want) {
+			t.Errorf("ephemeral boilerplate missing %q:\n%s", want, l.Core)
+		}
+	}
+	if strings.Contains(l.Core, "Ending your turn is how you wait") {
+		t.Error("ephemeral sessions must not be told that ending the turn waits")
+	}
+	for _, k := range []string{KindPersonal, KindStanding} {
+		if c := Boilerplate(SessionFacts{Kind: k, Owner: "o", Name: "n"}).Core; !strings.Contains(c, "Ending your turn is how you wait") || strings.Contains(c, "worker-result.json") {
+			t.Errorf("%s: resident turn model wrong:\n%s", k, c)
+		}
+	}
+}
+
+// Without a unit there is no ticket: `send` without `to` is rejected.
+func TestBoilerplateEphemeralWithoutUnitNeedsTo(t *testing.T) {
+	c := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r"}).Core
+	if strings.Contains(c, "ticket") || !strings.Contains(c, "always pass `to`") {
+		t.Fatalf("unit-less ephemeral must be told to always pass `to`:\n%s", c)
 	}
 }

@@ -9,24 +9,34 @@ import (
 // sandbox and turn model, and the intercom rules for its kind. It owns the
 // facts the old per-kind preambles (standing.Prompt, personalPrompt) carried.
 func Boilerplate(f SessionFacts) Layer {
-	var who, comms string
+	const noDefault = "You have no default recipient: always pass `to` (`list_targets` shows who you may message). "
+	var who, comms, turns string
+	turns = "- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn."
 	switch f.Kind {
 	case KindStanding:
 		who = fmt.Sprintf("the standing session %q for role %s in project %s", f.Name, f.Role, f.Project)
-		comms = "You have no default recipient: always pass `to` (`list_targets` shows who you may message). " +
-			"A message to you wakes you. You run until an operator removes you."
+		comms = noDefault + "A message to you wakes you. You run until an operator removes you."
+		turns += " Ending your turn is how you wait."
 	case KindPersonal:
 		who = fmt.Sprintf("a personal session for %s (role %s, project %s)", f.Owner, f.Role, f.Project)
 		comms = fmt.Sprintf("Your owner is %[1]s: `send` without `to` reaches %[1]s, and their reply wakes you. "+
 			"You stay open until %[1]s releases you.", f.Owner)
+		turns += " Ending your turn is how you wait."
 	default:
 		who = fmt.Sprintf("an ephemeral worker session for role %s in project %s", f.Role, f.Project)
-		comms = "`send` without `to` posts to your ticket. If you need input, ask there and end your turn; a reply wakes you."
+		if f.Unit != "" {
+			comms = "`send` without `to` posts to your ticket."
+		} else {
+			comms = strings.TrimSpace(noDefault)
+		}
+		turns += "\n- Finishing: before every turn ends, write `.at-task/worker-result.json` in your working directory as exactly one of " +
+			"`{\"status\":{\"ok\":{}}}`, `{\"status\":{\"needs-input\":{\"doing\":\"…\",\"blocker\":\"…\",\"need\":\"…\",\"tried\":\"…\"}}}` or " +
+			"`{\"status\":{\"error\":{\"message\":\"…\"}}}`. needs-input is how you wait for a reply; a turn that ends without the file fails the session."
 	}
 	core := strings.Join([]string{
 		"You are " + who + ", running in a Jam-managed at-cove sandbox.",
 		"- Sandbox: isolated filesystem; network egress is allow-listed through a proxy. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data persist; installed packages and env tweaks reset when the cove is rebuilt.",
-		"- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn. Ending your turn is how you wait.",
+		turns,
 		"- Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. " + comms,
 		"- Changing the sandbox (a domain, a tool) is human-gated. Hardening limits: /agent-data/reference/sandbox-hardening-limits.md.",
 	}, "\n")
