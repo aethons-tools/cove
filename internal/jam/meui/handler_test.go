@@ -356,6 +356,28 @@ func TestComposerKeepsReply(t *testing.T) {
 	}
 }
 
+func TestCopyControls(t *testing.T) {
+	store, log, p := fixture()
+	h := Handler(store, log, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req = jam.WithParticipant(req, p)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	// Each bubble carries Text / Markdown copy buttons beside its sender; code
+	// blocks get an icon button added client-side, on load and after each
+	// stream swap. All show on hover or keyboard focus, always on touch.
+	for _, want := range []string{
+		`class="copy-text" onclick="meCopyBubble(this, false)"`, `class="copy-md" onclick="meCopyBubble(this, true)"`,
+		"function meCopy(", "function meCopyBubble(", "function meCodeButtons(", "meCodeButtons(document);",
+		"if(s && s.id==='stream'){ meCodeButtons(s); }", "@media (hover:none)", ".msg .acts:has(:focus-visible)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing copy-control wiring %q", want)
+		}
+	}
+}
+
 func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 	store, _, p := fixture()
 	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
