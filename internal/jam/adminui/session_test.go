@@ -119,3 +119,54 @@ func TestSessionRendersAgentOutputInert(t *testing.T) {
 		t.Fatalf("escaped output missing:\n%s", body)
 	}
 }
+
+func TestSessionSSEFramingCRSafe(t *testing.T) {
+	h, _, _, ing := sessionUI(t)
+	inj := `hi\r\rid: ` + sessSID + `:999\revent: totals\rretry: 1\rdata: pwned\r`
+	ing.Append("w1", sessionevents.Stamp{}, sessIn(1, `{"type":"assistant","message":{"content":[{"type":"text","text":"`+inj+`"}]}}`))
+	ing.Append("w1", sessionevents.Stamp{}, sessIn(2, `{"type":"user","message":{"content":[{"type":"tool_result","content":"`+inj+`"}]}}`))
+	stop := sse(t, h, "/ui/coves/w1/session/events?stream="+sessSID, "")
+	time.Sleep(100 * time.Millisecond)
+	body := stop()
+	// Split exactly as an SSE parser does: CRLF, CR and LF are all terminators.
+	lines := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body), "\n")
+	events := 0
+	for _, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "id: "):
+			if l != "id: "+sessSID+":1" && l != "id: "+sessSID+":2" {
+				t.Errorf("forged id line %q", l)
+			}
+		case strings.HasPrefix(l, "event: "):
+			if l == "event: totals" {
+				events++
+			} else if l != "event: stream" && l != "event: ev" {
+				t.Errorf("forged event line %q", l)
+			}
+		case strings.HasPrefix(l, "retry:"):
+			if l != "retry: 3000" {
+				t.Errorf("forged retry line %q", l)
+			}
+		}
+	}
+	if events != 1 { // only the genuine backfill totals
+		t.Errorf("totals events = %d, want 1\n%q", events, body)
+	}
+}
+
+func TestSessionSSEBackfillsAdoptedStream(t *testing.T) {
+	h, _, _, ing := sessionUI(t)
+	ing.Append("w1", sessionevents.Stamp{}, sessIn(1, `{}`))
+	ing.Append("w1", sessionevents.Stamp{}, sessIn(2, `{}`))
+	stop := sse(t, h, "/ui/coves/w1/session/events", "")
+	time.Sleep(100 * time.Millisecond)
+	ing.Append("w1", sessionevents.Stamp{}, sessIn(3, `{}`))
+	time.Sleep(100 * time.Millisecond)
+	body := stop()
+	for i := 1; i <= 3; i++ {
+		id := "id: " + sessSID + ":" + strconv.Itoa(i) + "\n"
+		if n := strings.Count(body, id); n != 1 {
+			t.Fatalf("seq %d delivered %d times:\n%s", i, n, body)
+		}
+	}
+}

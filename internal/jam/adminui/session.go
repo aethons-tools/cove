@@ -178,14 +178,21 @@ func viewOf(ev sessionevents.Event) eventView {
 	return v
 }
 
+// sseLines normalizes CRLF and CR to LF: SSE parsers treat all three as line
+// terminators, so any of them inside a field value would end the line early.
+var sseLines = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 // sseWrite emits one SSE message; multi-line data gets one data: line each.
+// Event and id are collapsed to a single line; data is split on every SSE
+// line terminator so agent text can never inject fields.
 func sseWrite(w http.ResponseWriter, event, id, data string) {
+	oneLine := func(v string) string { return strings.ReplaceAll(sseLines.Replace(v), "\n", " ") }
 	var b strings.Builder
 	if id != "" {
-		fmt.Fprintf(&b, "id: %s\n", id)
+		fmt.Fprintf(&b, "id: %s\n", oneLine(id))
 	}
-	fmt.Fprintf(&b, "event: %s\n", event)
-	for _, line := range strings.Split(data, "\n") {
+	fmt.Fprintf(&b, "event: %s\n", oneLine(event))
+	for _, line := range strings.Split(sseLines.Replace(data), "\n") {
 		fmt.Fprintf(&b, "data: %s\n", line)
 	}
 	b.WriteString("\n")
@@ -197,7 +204,9 @@ func fragment(name string, data any) string {
 	if err := pages["session"].ExecuteTemplate(&b, name, data); err != nil {
 		return ""
 	}
-	return b.String()
+	// html/template leaves CR raw; keep it visible to the operator as an entity
+	// (SSE framing is separately CR-safe in sseWrite).
+	return strings.ReplaceAll(b.String(), "\r", "&#13;")
 }
 
 // serveSessionEvents streams one cove's events: subscribe FIRST (so nothing
@@ -241,19 +250,25 @@ func serveSessionEvents(w http.ResponseWriter, r *http.Request, store sessioneve
 			sseWrite(w, "ev", fmt.Sprintf("%s:%d", ev.StreamID, ev.Seq), fragment("session-event", viewOf(ev)))
 		}
 	}
-	if stream != "" {
-		sseWrite(w, "stream", "", stream)
+	// backfill replays the store from `last`; false means the store failed.
+	backfill := func() bool {
 		for {
 			evs, err := store.List(sessionevents.Filter{ActorID: actor, StreamID: stream, AfterSeq: last, Limit: sessionBackfillPage})
 			if err != nil {
-				return
+				return false
 			}
 			for _, ev := range evs {
 				emit(ev)
 			}
 			if len(evs) < sessionBackfillPage {
-				break
+				return true
 			}
+		}
+	}
+	if stream != "" {
+		sseWrite(w, "stream", "", stream)
+		if !backfill() {
+			return
 		}
 		sseWrite(w, "totals", "", fragment("session-totals", tot))
 	}
@@ -272,6 +287,10 @@ func serveSessionEvents(w http.ResponseWriter, r *http.Request, store sessioneve
 			if stream == "" { // no stream yet: follow the first one that appears
 				stream = ev.StreamID
 				sseWrite(w, "stream", "", stream)
+				if !backfill() { // the subscription is live; ev.Seq <= last dedups below
+					return
+				}
+				sseWrite(w, "totals", "", fragment("session-totals", tot))
 			}
 			if ev.StreamID != stream || ev.Seq <= last {
 				continue
