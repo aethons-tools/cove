@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -636,5 +637,25 @@ func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "could not prevent host sleep") {
 		t.Fatalf("expected warning; stderr=%q", errBuf.String())
+	}
+}
+
+func TestConnect_JamUsesConnector(t *testing.T) {
+	r := &runner.Fake{}
+	tr := &fakeTransport{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}} // no git route
+	if err := Connect(&fakeBackend{state: backend.StateRunning}, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container: "c1", IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Jam: &JamAuth{Host: "jam.test", Token: "s3cr3t-xyz", Connector: &c},
+	}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if tr.gotEnv["GH_HOST"] != "jam.test" || tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["ANTHROPIC_BASE_URL"] != "" {
+		t.Fatalf("launch env = %v, want the connector's vars only", tr.gotEnv)
+	}
+	for _, call := range r.Calls {
+		if strings.Contains(call.Stdin, "insteadOf") {
+			t.Fatalf("connector without a git route must not configure git: %+v", call)
+		}
 	}
 }

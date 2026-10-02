@@ -101,10 +101,21 @@ type Options struct {
 }
 
 // JamAuth is the resolved Jam connector config for a session: the broker's
-// bare host (TLS :443) and the identity token (resolved host-side, env-only).
+// bare host (TLS :443), the identity token (resolved host-side, env-only), and
+// the identity's client connector (nil = the legacy Anthropic + git contract,
+// e.g. from a Jam that predates connectors).
 type JamAuth struct {
-	Host  string
-	Token string
+	Host      string
+	Token     string
+	Connector *snippet.Connector
+}
+
+// connector is the session's client connector, defaulting to the legacy one.
+func (h *JamAuth) connector() snippet.Connector {
+	if h.Connector != nil {
+		return *h.Connector
+	}
+	return snippet.Legacy(false)
 }
 
 // WorkspaceClone describes a first-session clone of the target repo into the
@@ -179,7 +190,7 @@ func Connect(b backend.Backend, r runner.Runner, t Transport, aw awake.Inhibitor
 			if err := applyJamGit(r, tgt, o.Jam); err != nil {
 				return err
 			}
-			for k, v := range snippet.Env("https://"+o.Jam.Host, o.Jam.Token) {
+			for k, v := range o.Jam.connector().Expand("https://"+o.Jam.Host, o.Jam.Token) {
 				env[k] = v
 			}
 		case o.Vertex != nil:
@@ -288,11 +299,15 @@ func seedCredentials(r runner.Runner, tgt sshargs.Target, credsFile string) erro
 // the Anthropic login and secrets. Seed-only: an authorized_user ADC is static, so
 // there is no save-back — google-auth refreshes access tokens in-VM.
 // applyJamGit configures git in the VM to route through Jam's git connector
-// (COV-138). The script is token-free — the installed credential helper reads the
-// env-only identity token at run time — so it is safe to run over ssh. Idempotent
+// (COV-138) when the session's connector routes git (a no-op otherwise). The
+// script is token-free — the installed credential helper reads the env-only
+// identity token at run time — so it is safe to run over ssh. Idempotent
 // (git config --global overwrites the same keys), so it re-runs each session.
 func applyJamGit(r runner.Runner, tgt sshargs.Target, h *JamAuth) error {
-	script := snippet.GitConfig("https://" + h.Host)
+	script := h.connector().GitConfig("https://" + h.Host)
+	if script == "" {
+		return nil
+	}
 	args := append(sshargs.Base(tgt), "sh")
 	if err := r.RunStdin(strings.NewReader(script), "ssh", args...); err != nil {
 		return fmt.Errorf("configuring Jam git routing: %w", err)

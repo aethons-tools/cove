@@ -44,6 +44,8 @@ type TeammateOptions struct {
 	// auto-enroll is unsupported — no exit hook to revoke on).
 	JamHost  string
 	JamToken string
+	// JamConnector is the identity's client connector; nil = legacy contract.
+	JamConnector *snippet.Connector
 }
 
 // detachedLaunchCmd builds the remote shell command: source the tmpfs env,
@@ -90,7 +92,7 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	// Jam supersedes the OAuth login: route git through Jam (token-free
 	// config) and skip the auth probe; the connector env is staged below.
 	if o.JamHost != "" {
-		if err := applyJamGit(r, tgt, &JamAuth{Host: o.JamHost, Token: o.JamToken}); err != nil {
+		if err := applyJamGit(r, tgt, &JamAuth{Host: o.JamHost, Token: o.JamToken, Connector: o.JamConnector}); err != nil {
 			return err
 		}
 	} else if err := ensureAuthenticated(r, tgt, o.CredentialsFile, stderr); err != nil {
@@ -114,7 +116,8 @@ func LaunchTeammate(r runner.Runner, b backend.Backend, o TeammateOptions) error
 	// The Jam connector env (Anthropic base URL + x-api-key/token) is sourced
 	// with the rest — env-only, never argv.
 	if o.JamHost != "" {
-		script.WriteString(envScript(snippet.Env("https://"+o.JamHost, o.JamToken)))
+		ja := &JamAuth{Host: o.JamHost, Token: o.JamToken, Connector: o.JamConnector}
+		script.WriteString(envScript(ja.connector().Expand("https://"+o.JamHost, o.JamToken)))
 	}
 	if err := writeVM(r, tgt, script.String(), teammateEnvVMPath); err != nil {
 		return err

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
@@ -820,4 +821,42 @@ func allCalls(r *runner.Fake) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func TestDispatchUsesJamConnector(t *testing.T) {
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}, GitRoute: "/git/"}
+	if err := Dispatch(context.Background(), Options{
+		Ops: &fakeOps{}, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+		},
+		Image: "img", Name: "disp-worker",
+		CredentialsFile: writeFile(t, dir, "creds.json", `{"oauth":"x"}`),
+		JamHost:         "h.test", JamToken: "tok-xyz-9", JamConnector: &c,
+		InputPath: in, OutputPath: dir + "/out.json",
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	}); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var envWrites []string
+	for _, call := range r.Calls {
+		if strings.Contains(strings.Join(call.Args, " "), "cat > "+envVMPath) {
+			envWrites = append(envWrites, call.Stdin)
+		}
+	}
+	if len(envWrites) < 2 || !strings.Contains(envWrites[1], "GH_HOST") || strings.Contains(envWrites[1], "ANTHROPIC_BASE_URL") {
+		t.Fatalf("agent env should carry the connector only:\n%v", envWrites)
+	}
+	for _, call := range r.Calls {
+		if strings.Contains(call.Stdin, "insteadOf") {
+			t.Fatal("dispatch stays env-only: no git routing even with a git route")
+		}
+	}
 }

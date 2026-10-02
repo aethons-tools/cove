@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -35,6 +36,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -1224,6 +1226,7 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 	// A teammate is detached (no exit hook to revoke on), so auto-enroll is
 	// unsupported — the identity must be pre-supplied.
 	var jamHost, jamToken string
+	var jamConn *snippet.Connector
 	if cfg.Jam != nil {
 		if cfg.Jam.Identity == "" {
 			return fmt.Errorf("teammate Jam requires jam.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
@@ -1232,7 +1235,7 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		if err != nil {
 			return err
 		}
-		jamHost, jamToken = cfg.Jam.Host, hauth.Token
+		jamHost, jamToken, jamConn = cfg.Jam.Host, hauth.Token, hauth.Connector
 	}
 
 	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
@@ -1246,6 +1249,7 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		Stderr:          stderr,
 		JamHost:         jamHost,
 		JamToken:        jamToken,
+		JamConnector:    jamConn,
 	}); err != nil {
 		return err
 	}
@@ -1337,7 +1341,11 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 		if strings.TrimSpace(tok) == "" {
 			return nil, nil, fmt.Errorf("Jam kit %q: resolved identity %s is empty", kitName, cfg.Jam.Identity)
 		}
-		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok}, nil, nil
+		conn, err := fetchJamConnector(cfg.Jam.Host, tok)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Jam kit %q: %w", kitName, err)
+		}
+		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok, Connector: conn}, nil, nil
 	}
 	// Auto-enroll path (COV-141): shell a sibling at-jam to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
@@ -1348,8 +1356,9 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll failed (is at-jam reachable + an operator logged in?): %w", kitName, err)
 	}
 	var res struct {
-		ID    string `json:"id"`
-		Token string `json:"token"`
+		ID        string             `json:"id"`
+		Token     string             `json:"token"`
+		Connector *snippet.Connector `json:"connector"` // absent from an older at-jam
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned unparseable output: %w", kitName, err)
@@ -1358,7 +1367,39 @@ func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpan
 		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned an empty token", kitName)
 	}
 	revoke := func() { _ = r.Run(atJamBinary(), "revoke", "--id", res.ID) }
-	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token}, revoke, nil
+	if res.Connector == nil {
+		if res.Connector, err = fetchJamConnector(cfg.Jam.Host, res.Token); err != nil {
+			revoke()
+			return nil, nil, fmt.Errorf("Jam kit %q: %w", kitName, err)
+		}
+	}
+	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token, Connector: res.Connector}, revoke, nil
+}
+
+// fetchJamConnector asks the Jam broker at host for the identity's client
+// connector. Swapped out in tests so they never reach a real Jam.
+var fetchJamConnector = func(host, token string) (*snippet.Connector, error) {
+	return jamConnector(&http.Client{Timeout: 10 * time.Second}, "https://"+host, token, os.Stderr)
+}
+
+// jamConnector fetches GET /connector. nil (the legacy Anthropic + git contract)
+// when the Jam predates the endpoint (404) or can't be reached from the host —
+// the latter with a warning, since studios reach Jam from inside the VM. Any
+// other answer (401, a 409 conflict) is an error: fail closed.
+func jamConnector(hc *http.Client, baseURL, token string, warn io.Writer) (*snippet.Connector, error) {
+	c, err := snippet.Fetch(hc, baseURL, token)
+	var ue *url.Error
+	switch {
+	case err == nil:
+		return &c, nil
+	case errors.Is(err, snippet.ErrNoConnectorEndpoint):
+		return nil, nil
+	case errors.As(err, &ue):
+		fmt.Fprintf(warn, "warning: Jam connector unreachable from the host (%v); using the legacy Anthropic + git contract\n", err)
+		return nil, nil
+	default:
+		return nil, err
+	}
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
@@ -1883,13 +1924,14 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	// the revoke fires when this unit ends (auto path; pre-supplied path has none).
 	workerName := workName(cfg.Name)
 	var jamHost, jamToken string
+	var jamConn *snippet.Connector
 	if cfg.Jam != nil {
 		hauth, hrevoke, herr := jamPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
 		if herr != nil {
 			lg.UserError(ctx, herr, slog.String("step", "secrets"))
 			return 1
 		}
-		jamHost, jamToken = cfg.Jam.Host, hauth.Token
+		jamHost, jamToken, jamConn = cfg.Jam.Host, hauth.Token, hauth.Connector
 		if hrevoke != nil {
 			defer hrevoke()
 		}
@@ -1902,6 +1944,7 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		GitToken:      gitTok,
 		JamHost:       jamHost,
 		JamToken:      jamToken,
+		JamConnector:  jamConn,
 		// A dispatched worker authenticates to Anthropic via an injected
 		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
 		// So we deliberately do not seed credentials.json: with no OAuth token to
