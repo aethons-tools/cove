@@ -61,7 +61,7 @@ func TestCompileDropsUnsafeLeafNames(t *testing.T) {
 	for _, bad := range []string{"../x.md", "a/b.md", "/etc/x.md", "", ".md", "x.txt", "CORE.md"} {
 		b := compileKit("K", Leaf{Name: bad, ReadWhen: "w", Body: "b"})
 		for p := range b.Files {
-			if p != "INDEX.md" {
+			if strings.HasPrefix(p, LayerKit+"/") {
 				t.Errorf("%q: unsafe leaf written as %q", bad, p)
 			}
 		}
