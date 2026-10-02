@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,7 +14,7 @@ import (
 )
 
 // fakeStore is a minimal squawkStore: canned actor-by-token-hash and
-// instance-by-actor-id, so tests don't need a real FileStore. roles/rosters
+// instance-by-actor-id, so tests don't need a real MemStore. roles/rosters
 // back the widened GetRole/GetRoster used by DecideSend for a targeted send.
 type fakeStore struct {
 	actors    map[string]Actor           // tokenHash -> Actor
@@ -48,7 +47,7 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 	return r, ok
 }
 
-// AdvanceCommitCursor mimics FileStore/PostgresStore semantics: monotonic
+// AdvanceCommitCursor mimics MemStore/PostgresStore semantics: monotonic
 // forward on upToSeq only (a no-op if upToSeq <= the current CommitSeq),
 // error if the actor has no instance. CommitCursor (the id echo) travels in
 // lockstep with CommitSeq.
@@ -112,10 +111,7 @@ func newTestSquawksHandler(t *testing.T) (*SquawksHandler, *fakeStore, *intercom
 			"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"},
 		},
 	}
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open log: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	var logbuf bytes.Buffer
 	slogger := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h := NewSquawksHandler(store, lg, lg, slogger)
@@ -549,10 +545,7 @@ func TestTargetsGetStillReturnsInboxForBareSquawksPath(t *testing.T) {
 }
 
 func TestReadReturnsInbox(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	// two inbound replies to the cove + one of the cove's OWN outbound (must be excluded)
 	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "first", Project: "acme"})
@@ -590,10 +583,7 @@ func TestReadReturnsInbox(t *testing.T) {
 }
 
 func TestReadEmptyInboxIsEmptyArray(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
 	rec := doGet(t, h, tokenFor("cove-1"))
@@ -615,10 +605,7 @@ func TestReadNilReaderIs503(t *testing.T) {
 }
 
 func TestReadIsSelfScoped(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	// an inbound to a DIFFERENT cove
 	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-2"}}, Body: "for cove-2", Project: "acme"})
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
@@ -696,10 +683,7 @@ func seedInbox(t *testing.T, lg *intercom.Log, coveID string, n int) []intercom.
 // committed_cursor/page_first/page_last, and that the read itself never
 // advances the cursor.
 func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -738,10 +722,7 @@ func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
 // TestReadAnchorStartIgnoresCommitCursor asserts anchor=start reads from the
 // beginning of the log regardless of where the cursor sits.
 func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 3)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -765,10 +746,7 @@ func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
 // TestReadAnchorEndIgnoresCommitCursor asserts anchor=end returns the last
 // `limit` messages regardless of the cursor.
 func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -793,10 +771,7 @@ func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
 // dir selects the window strictly after (forward, default) or strictly
 // before (backward) the given id.
 func TestReadAnchorIDForwardAndBackward(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -824,10 +799,7 @@ func TestReadAnchorIDForwardAndBackward(t *testing.T) {
 // recognize is a 400 (SeqOf can't resolve it) — not silently treated as
 // "from the start" or "from the end".
 func TestReadAnchorIDUnknownIs400(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	seedInbox(t, lg, "cove-1", 2)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -870,10 +842,7 @@ func TestReadInvalidLimitIs400(t *testing.T) {
 // TestReadLimitIsCappedAtMax asserts a limit above maxReadLimit is silently
 // capped rather than honored or rejected.
 func TestReadLimitIsCappedAtMax(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	lg := intercom.NewMemLog()
 	seedInbox(t, lg, "cove-1", maxReadLimit+5)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -1201,10 +1170,7 @@ func TestSendCarriesContentType(t *testing.T) {
 }
 
 func TestReadReturnsContentType(t *testing.T) {
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lg := intercom.NewMemLog()
 	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	alice := intercom.Target{Kind: "human", Ref: "Alice"}
 	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "**md**", Project: "acme"})

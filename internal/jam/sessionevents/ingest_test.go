@@ -11,12 +11,9 @@ import (
 
 const sid = "0123456789abcdef0123456789abcdef"
 
-func newIngest(t *testing.T, dir string) (*sessionevents.Ingest, *sessionevents.FileStore, *sessionevents.Hub) {
+func newIngest(t *testing.T) (*sessionevents.Ingest, *sessionevents.MemStore, *sessionevents.Hub) {
 	t.Helper()
-	st, err := sessionevents.OpenFileStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := sessionevents.NewMemStore()
 	hub := sessionevents.NewHub()
 	return sessionevents.NewIngest(st, hub, func() time.Time { return time.Unix(100, 0) }), st, hub
 }
@@ -26,7 +23,7 @@ func in(seq uint64, raw string) sessionevents.Incoming {
 }
 
 func TestIngestStoresIndexesAndPublishes(t *testing.T) {
-	ing, st, hub := newIngest(t, t.TempDir())
+	ing, st, hub := newIngest(t)
 	sub := hub.Subscribe("w1", 8)
 	defer sub.Close()
 	hw, err := ing.Append("w1", sessionevents.Stamp{Project: "p"}, in(1, `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}`))
@@ -43,7 +40,7 @@ func TestIngestStoresIndexesAndPublishes(t *testing.T) {
 }
 
 func TestIngestDropsDuplicates(t *testing.T) {
-	ing, st, _ := newIngest(t, t.TempDir())
+	ing, st, _ := newIngest(t)
 	ing.Append("w1", sessionevents.Stamp{}, in(1, `{}`))
 	ing.Append("w1", sessionevents.Stamp{}, in(2, `{}`))
 	hw, err := ing.Append("w1", sessionevents.Stamp{}, in(1, `{"replayed":true}`))
@@ -56,7 +53,7 @@ func TestIngestDropsDuplicates(t *testing.T) {
 }
 
 func TestIngestRecordsGap(t *testing.T) {
-	ing, st, _ := newIngest(t, t.TempDir())
+	ing, st, _ := newIngest(t)
 	ing.Append("w1", sessionevents.Stamp{}, in(1, `{}`))
 	hw, _ := ing.Append("w1", sessionevents.Stamp{}, in(5, `{}`))
 	if hw != 5 {
@@ -69,16 +66,16 @@ func TestIngestRecordsGap(t *testing.T) {
 }
 
 func TestIngestRecoversHighWaterAfterRestart(t *testing.T) {
-	dir := t.TempDir()
-	ing, _, _ := newIngest(t, dir)
+	st := sessionevents.NewMemStore()
+	ing := sessionevents.NewIngest(st, sessionevents.NewHub(), nil)
 	ing.Append("w1", sessionevents.Stamp{}, in(1, `{}`))
 	ing.Append("w1", sessionevents.Stamp{}, in(2, `{}`))
-	// Jam restarts; the cove replays its unacked tail 1..3.
-	ing2, st2, _ := newIngest(t, dir)
+	// Jam restarts (fresh in-memory hw cache over the same durable store); the cove replays its unacked tail 1..3.
+	ing2 := sessionevents.NewIngest(st, sessionevents.NewHub(), nil)
 	for _, s := range []uint64{1, 2, 3} {
 		ing2.Append("w1", sessionevents.Stamp{}, in(s, `{}`))
 	}
-	got, _ := st2.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
+	got, _ := st.List(sessionevents.Filter{ActorID: "w1", StreamID: sid})
 	if len(got) != 3 {
 		t.Fatalf("want 3 rows, no dups, no gap; got %+v", got)
 	}
@@ -90,7 +87,7 @@ func TestIngestRecoversHighWaterAfterRestart(t *testing.T) {
 }
 
 func TestIngestRejectsBadInput(t *testing.T) {
-	ing, _, _ := newIngest(t, t.TempDir())
+	ing, _, _ := newIngest(t)
 	if _, err := ing.Append("w1", sessionevents.Stamp{}, sessionevents.Incoming{StreamID: "../../x", Seq: 1}); err != sessionevents.ErrBadStreamID {
 		t.Fatalf("bad stream id: %v", err)
 	}
@@ -100,7 +97,7 @@ func TestIngestRejectsBadInput(t *testing.T) {
 }
 
 func TestIngestRejectsSeqAboveMaxInt64(t *testing.T) {
-	ing, _, _ := newIngest(t, t.TempDir())
+	ing, _, _ := newIngest(t)
 	if _, err := ing.Append("w1", sessionevents.Stamp{}, in(uint64(math.MaxInt64)+1, `{}`)); !errors.Is(err, sessionevents.ErrBadSeq) {
 		t.Fatalf("err = %v, want ErrBadSeq", err)
 	}

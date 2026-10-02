@@ -17,10 +17,7 @@ func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard,
 
 func newStore(t *testing.T) jam.Store {
 	t.Helper()
-	st, err := jam.NewFileStore(t.TempDir() + "/store.json")
-	if err != nil {
-		t.Fatalf("NewFileStore: %v", err)
-	}
+	st := jam.NewMemStore()
 	return st
 }
 

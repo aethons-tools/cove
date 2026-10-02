@@ -1,7 +1,7 @@
 // Package storetest is a backend-agnostic conformance suite for jam.Store.
-// Both FileStore (hermetic) and PostgresStore (integration) run it, guaranteeing
+// Both MemStore (hermetic) and PostgresStore (integration) run it, guaranteeing
 // the two backends behave identically. The assertions encode the contract as
-// FileStore implements it (see internal/jam/filestore.go).
+// MemStore implements it (see internal/jam/memstore.go).
 package storetest
 
 import (

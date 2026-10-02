@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,10 +26,7 @@ import (
 // that's the one axis this test needs to differ on.
 func realListenerHarness(t *testing.T) (store jam.Store, addr, token, secret string) {
 	t.Helper()
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store = jam.NewMemStore()
 	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	_, tok, sec, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})

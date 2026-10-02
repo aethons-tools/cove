@@ -102,7 +102,7 @@ type tailReader interface {
 // Releaser records that a session's reservation was released when its cove is torn
 // down — the actual-state-out half of the Supervisor↔Allocator seam (the design's
 // "reports releases/liveness back up"; not the Allocator directing the Supervisor).
-// Best-effort shadow write: nil (file store / no Postgres) is a no-op, and a
+// Best-effort shadow write: nil (in-memory test store / no Postgres) is a no-op, and a
 // recording failure never fails teardown. Satisfied structurally by
 // *allocator.Allocator (no import of allocator here — no cycle).
 type Releaser interface {
@@ -721,8 +721,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 // mutation: if the actor is already absent it is a no-op success (a retry after a
 // prior partial teardown); if it is present, any RemoveActor error is a real
 // failure the caller must surface (so teardown is retryable). Checking after the
-// call would be wrong — FileStore.RemoveActor deletes from memory before it
-// persists, so a save failure would look like "already absent".
+// call would be wrong — a failed removal could look like "already absent".
 func (s *Supervisor) revokeActor(actorID string) error {
 	present := false
 	for _, a := range s.store.ListActors() {

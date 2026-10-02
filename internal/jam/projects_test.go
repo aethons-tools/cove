@@ -3,8 +3,6 @@ package jam
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -68,30 +66,9 @@ func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 	}
 }
 
-// A store written before projects were first-class names projects only on
-// roles and grants; loading it backfills a record for each.
-func TestFileStoreBackfillsProjectsOnLoad(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store.json")
-	legacy := `{"roles":{"acme":{"worker":{"name":"worker"}}},` +
-		`"actors":{"h":{"id":"a","token_hash":"h","grants":[{"project":"beta","role":"r"},{"project":"","role":"r"}]}}}`
-	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	s, err := NewFileStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := s.ListProjects(), []string{"acme", "beta", DefaultProject}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("ListProjects = %v, want %v", got, want)
-	}
-}
-
 // An import of a pre-first-class snapshot gets the same backfill.
 func TestImportConfigBackfillsReferencedProjects(t *testing.T) {
-	s, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewMemStore()
 	snap := ConfigSnapshot{
 		Version: ConfigSnapshotVersion,
 		Roles:   map[string]map[string]Role{"acme": {"worker": {Name: "worker"}}},

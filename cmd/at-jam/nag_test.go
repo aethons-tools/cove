@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +13,7 @@ import (
 
 func openTestLog(t *testing.T) *intercom.Log {
 	t.Helper()
-	lg, err := intercom.Open(filepath.Join(t.TempDir(), "intercom.jsonl"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lg.Close() })
+	lg := intercom.NewMemLog()
 	return lg
 }
 
@@ -173,9 +168,9 @@ func TestFormatIdle(t *testing.T) {
 	}
 }
 
-// nagRosterStore is a real FileStore with a discord project whose owner alice
+// nagRosterStore is a real MemStore with a discord project whose owner alice
 // has a discord inbox, holding the personal session's Instance.
-func nagRosterStore(t *testing.T) *jam.FileStore {
+func nagRosterStore(t *testing.T) *jam.MemStore {
 	t.Helper()
 	st := newTestStore(t)
 	mustCreateProject(t, st, "acme")

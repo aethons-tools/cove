@@ -13,11 +13,7 @@ import (
 // newIntercomLog opens a hermetic Log in a temp dir and appends the given messages.
 func newIntercomLog(t *testing.T, squawks ...intercom.Squawk) *intercom.Log {
 	t.Helper()
-	l, err := intercom.Open(t.TempDir()+"/squawks.jsonl", testLogger())
-	if err != nil {
-		t.Fatalf("intercom.Open: %v", err)
-	}
-	t.Cleanup(func() { l.Close() })
+	l := intercom.NewMemLog()
 	for _, m := range squawks {
 		if _, err := l.Append(m); err != nil {
 			t.Fatalf("Append: %v", err)
@@ -75,8 +71,8 @@ func TestSquawksNotConfigured(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/intercom (nil reader) = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "not configured") {
-		t.Errorf("nil reader should render a not-configured notice; got:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "message log is unavailable") {
+		t.Errorf("nil reader should render an unavailable notice; got:\n%s", rec.Body.String())
 	}
 }
 

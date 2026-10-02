@@ -4,7 +4,7 @@ read_when: You want a roster human to read/reply to their studios and channels i
 owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the unread mark-read (`POST /me/read`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
 prereqs: ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
 tier: leaf
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # The participant intercom inbox (`/me`)
@@ -68,7 +68,7 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   read via `POST /me/read`, which advances the cursor to the channel's latest
   append sequence; the badge clears on the next refresh.
 - **Refresh is live:** the page holds an SSE stream (`GET /me/events`, behind
-  the same gate). Each intercom-log append sends a payload-free `changed` event,
+  the same gate). Each squawk Log append sends a payload-free `changed` event,
   and the rail and the open conversation's message list re-fetch their fragments
   (`GET /me/rail`, `GET /me/stream`). Those fragment routes are the only place
   message content is served. A **30s poll** is the fallback, for state that
@@ -91,8 +91,7 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
 
 The inbox is mounted whenever the participant gate is (browser OIDC login
 configured — see [ui.md](ui.md#the-participant-intercom-me)). Its conversations
-come from the intercom Log: with no `intercom-log:` configured the inbox renders
-empty (there is nothing to read), and sending returns `503`.
+come from the intercom Log, which is always available.
 
 ## Not yet
 

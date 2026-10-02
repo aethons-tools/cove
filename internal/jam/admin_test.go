@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,10 +16,7 @@ import (
 
 func newTestAdmin(t *testing.T) (http.Handler, Store) {
 	t.Helper()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
 	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	return h, store
@@ -149,10 +145,7 @@ func TestAdminEnrollThenRevoke(t *testing.T) {
 }
 
 func TestAdminHandlerMountsUI(t *testing.T) {
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("UI:" + r.URL.Path))
@@ -196,10 +189,7 @@ type fixedOperator struct{ id string }
 func (f fixedOperator) Authenticate(*http.Request) (Operator, error) { return Operator{ID: f.id}, nil }
 
 func TestAdminLogsOperatorOnMutations(t *testing.T) {
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
@@ -250,10 +240,7 @@ func (denyAll) Authenticate(*http.Request) (Operator, error) {
 var errDeny = fmt.Errorf("denied")
 
 func TestLoginConfigServedAndAuthExempt(t *testing.T) {
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
 	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 
@@ -277,7 +264,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 }
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
-	store, _ := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := NewMemStore()
 	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
@@ -384,7 +371,7 @@ func TestAdminRosterRoutes(t *testing.T) {
 }
 
 // TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
-// asserting a round-trip through a real FileStore + admin handler.
+// asserting a round-trip through a real MemStore + admin handler.
 func TestAdminEscalationRoutes(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
@@ -431,7 +418,7 @@ func TestAdminEscalationCategoryRoutes(t *testing.T) {
 }
 
 // TestChatServiceRoute PUTs a project's chat service then GETs it back,
-// asserting a round-trip through a real FileStore + admin handler, and that
+// asserting a round-trip through a real MemStore + admin handler, and that
 // operator auth (non-loopback) is enforced on the route like every other
 // /admin/* route.
 func TestChatServiceRoute(t *testing.T) {
@@ -701,10 +688,7 @@ func newTestAdminWithSupervisor(t *testing.T) (http.Handler, Store, *Supervisor)
 
 func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *Supervisor, *fakeLauncher) {
 	t.Helper()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -905,7 +889,7 @@ func TestAdminConfigExportImport(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dst := NewMemStore()
 	dstH := NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
 	dstTS := httptest.NewServer(dstH)
 	defer dstTS.Close()
@@ -930,7 +914,7 @@ func TestAdminConfigExportImport(t *testing.T) {
 }
 
 func TestAdminConfigImportBadVersion(t *testing.T) {
-	dst, _ := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dst := NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	defer ts.Close()
@@ -945,7 +929,7 @@ func TestAdminConfigImportBadVersion(t *testing.T) {
 }
 
 func TestWithAdminRouteIsGuarded(t *testing.T) {
-	store, _ := NewFileStore(t.TempDir() + "/s.json")
+	store := NewMemStore()
 	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("extra")) })
 	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))

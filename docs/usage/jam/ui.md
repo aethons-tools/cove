@@ -47,7 +47,7 @@ It renders:
   [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
   live session timeline.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
-  the durable squawk Log (`intercom-log:` in the serve config). Filter by
+  the durable squawk Log. Filter by
   project, participant (`kind:ref`, e.g. `channel:eng`), a body substring, and a
   date window; filters live in the URL, so a filtered view is shareable. Manual
   refresh (not a live tail); each recipient carries an internal/external reach
@@ -161,14 +161,14 @@ an in-process Log writer, not an egress engine.
   wake-on engine). Any currently-active recipient is allowed — open addressing to
   start, with no comms access-graph check.
 - **Errors mirror the agent send** (`/squawks`): a recipient that does not
-  resolve → **404**; no intercom-log configured → **503**; an append failure →
+  resolve → **404**; an append failure →
   **502**; an empty `to`/`body` → **400**.
 
 ## Intercom
 
 The Intercom page (`/ui/intercom`) is a read-only view of Jam's durable
-squawk Log — enabled by setting `intercom-log:` in the serve config (see
-[serve.md](serve.md)). It shows a filterable, newest-first table of squawk
+squawk Log (always available; it lives in Postgres — see
+[serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawk
 records: filter by project, participant (`kind:ref`, e.g. `channel:eng`), a body
 substring, and a date window (the `since`/`until` bounds are interpreted as UTC
 day boundaries; a malformed date is ignored, with a notice, rather than
@@ -177,17 +177,10 @@ link.
 
 The page is a manual-refresh snapshot, not a live tail — reload to see new
 squawks. Each recipient carries a badge showing whether it was reached
-internally or externally. The table is empty until the log has writers, and if
-`intercom-log:` is unset the page renders a "not configured" notice instead of
-an error.
+internally or externally. The table is empty until the log has writers.
 
 Unlike the roster/kit/destination pages, Intercom has no mutation — the UI only
-reads the Log. Its write-ownership model lives with the `intercom-log` field —
-see [serve.md](serve.md#the-serve-config). When `store-postgres` is set, the
-Log — and so this view — is served from Postgres instead of the JSONL file;
-behavior here is unchanged (still a full snapshot per load — pagination is a
-later phase). See [serve.md's Postgres store backend section](serve.md#postgres-store-backend-store-postgres)
-for the backend-selection rule.
+reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 

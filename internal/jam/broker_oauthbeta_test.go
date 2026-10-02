@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,10 +21,7 @@ func runOAuthBetaCase(t *testing.T, oauthBeta bool, betaIn string) string {
 	}))
 	defer up.Close()
 
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	tok, _ := MintToken()
 	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {

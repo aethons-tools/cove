@@ -9,7 +9,7 @@ import (
 )
 
 // fakeEscStore is a minimal escalateStore: canned actor-by-token-hash and
-// instance-by-actor-id, so tests don't need a real FileStore. Mirrors
+// instance-by-actor-id, so tests don't need a real MemStore. Mirrors
 // fakeStore in messages_test.go.
 type fakeEscStore struct {
 	actors    map[string]Actor    // tokenHash -> Actor

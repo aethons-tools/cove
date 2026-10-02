@@ -111,7 +111,7 @@ func (s *linearSurface) Close() error { return nil }
 
 // instanceRoster is the slice of jam.Store that the Linear directory reads:
 // live instances (own-ticket / sender resolution) and the project roster
-// (human handles, channel refs). *jam.FileStore satisfies it.
+// (human handles, channel refs). Any jam.Store satisfies it (PostgresStore in serve; MemStore in tests).
 type instanceRoster interface {
 	ListInstances() []jam.Instance
 	GetRoster(project string) (jam.Roster, bool)

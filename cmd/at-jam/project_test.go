@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,9 +12,9 @@ import (
 )
 
 // TestProjectLifecycleCommands exercises `project create|list|rm`
-// end-to-end through httptest.Server + FileStore.
+// end-to-end through httptest.Server + MemStore.
 func TestProjectLifecycleCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()

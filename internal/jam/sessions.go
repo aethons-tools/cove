@@ -43,7 +43,7 @@ func IsNagReply(replyTo, actorID string) bool {
 
 // ErrNeedsLedger is returned (possibly wrapped) by a SessionAllocator when
 // personal sessions cannot be admitted because Jam has no allocation ledger
-// (it runs on the file store, not store-postgres).
+// (the Postgres allocator ledger is absent; tests only).
 var ErrNeedsLedger = errors.New("personal sessions need the allocation ledger (store-postgres)")
 
 // SessionAllocator is the capacity authority the personal-session routes admit

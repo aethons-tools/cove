@@ -242,7 +242,7 @@ func TestServeConfigDispatcherAlias(t *testing.T) {
 
 // `at-jam cove …` is the deprecated alias of `at-jam studio …`.
 func TestCoveVerbIsADeprecatedAliasForStudio(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()

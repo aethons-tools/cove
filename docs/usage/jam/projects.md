@@ -61,7 +61,5 @@ upgrade every such name gets an empty project record, so nothing dangles:
   `projects` rows from `roles` and actor grants, then adds a foreign key from
   `roles.project` to `projects.name`. Grants live inside the actor document, so
   the store enforces their project reference itself.
-- **File store**: the records are added when the store loads and are written
-  out with the next save.
 - **`at-jam import`**: an older backup whose roles or grants name projects it
   has no record for gets the same empty records (see [backup.md](backup.md)).

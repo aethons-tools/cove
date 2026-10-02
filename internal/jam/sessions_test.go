@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -49,17 +48,14 @@ type sessionKit struct {
 	op       *string
 }
 
-// newSessionKit builds an admin handler over a FileStore with an acme/pair role,
+// newSessionKit builds an admin handler over a MemStore with an acme/pair role,
 // a discord chat service, two linked roster humans with discord delivery
 // profiles (alice ↔ auth0|alice, bob ↔ auth0|bob), one unlinked human (carol),
 // one linked human with no discord profile (dave ↔ auth0|dave), a fake launcher-backed Supervisor, and a granting
 // fake allocator. Requests are authenticated as *op (initially alice).
 func newSessionKit(t *testing.T) *sessionKit {
 	t.Helper()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", Role{Name: "pair", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
@@ -255,10 +251,7 @@ func TestPersonalSessionRelease_RecordsRelease(t *testing.T) {
 }
 
 func TestPersonalSessions_NoSupervisorOrAllocator503(t *testing.T) {
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	if rec := doJSON(t, h, "POST", "/admin/sessions/personal", PersonalSessionBody{Project: "acme", Role: "pair"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("no runtime = %d, want 503", rec.Code)

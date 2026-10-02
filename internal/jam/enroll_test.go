@@ -1,14 +1,13 @@
 package jam
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestEnrollStoresHashedIdentity(t *testing.T) {
-	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	store := NewMemStore()
 	if err := store.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic", "git"}, TTL: time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
@@ -29,7 +28,7 @@ func TestEnrollStoresHashedIdentity(t *testing.T) {
 }
 
 func TestEnrollRequiresExistingRole(t *testing.T) {
-	store, _ := NewFileStore(filepath.Join(t.TempDir(), "ids.json"))
+	store := NewMemStore()
 	if _, err := Enroll(store, "id2", "", "missing", nil, time.Now()); err == nil {
 		t.Fatal("expected denial when the role does not exist (fail closed)")
 	}
