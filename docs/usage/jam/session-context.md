@@ -14,8 +14,8 @@ layers, in delivery order:
 
 | Layer | Source | Core budget |
 |-------|--------|-------------|
-| Boilerplate | built in, per session kind (ephemeral / personal / standing): sandbox, turn model, intercom rules | 2400 B |
-| Kit | the studio kit's `prompt` ([kits.md](kits.md)) | 800 B — `kit push` rejects more |
+| Boilerplate | built in, per session kind (ephemeral / personal / standing): sandbox, turn model, intercom rules (the default recipient, if any), and for ephemeral sessions the `worker-result.json` contract | 2400 B |
+| Kit | the studio kit's `prompt` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
 
 (Studio, Project, Role and Jam layers follow — see the [design spec](../../superpowers/specs/2026-10-02-session-context-layers-design.md).)
 
@@ -34,7 +34,10 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
    `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`.
    `off` matters: by default claude replays the first turn's system prompt on every
    `--continue`.
-4. No file, malformed JSON, or an unwritable directory → the agent runs without
-   context (warned in `cove-master.log`), never not at all.
+4. No file or malformed JSON → the agent runs without context, exactly as before
+   (`cove-master.log` then has no `session context applied` line). An unwritable
+   directory is warned in `cove-master.log` and also runs without it. Either way any
+   earlier bundle in `/agent-data/context/` is removed, so a stale `CORE.md` never
+   makes `SANDBOX.md` treat the session as a Jam one.
 
 The bundle never carries secrets: only names of env keys and routes.

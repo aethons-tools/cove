@@ -750,3 +750,25 @@ func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
 		t.Fatalf("flags must be absent when the bundle was not written: %v", f.args)
 	}
 }
+
+// With no bundle in effect, a previous raise's context must not linger:
+// SANDBOX.md keys "you are a Jam session" on CORE.md existing.
+func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	cdir := filepath.Join(dir, "context")
+	if err := os.MkdirAll(cdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cdir, "CORE.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
+	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f, ContextDir: cdir}, nil)
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cdir); !os.IsNotExist(err) {
+		t.Fatalf("stale context dir must be removed, stat err = %v", err)
+	}
+}

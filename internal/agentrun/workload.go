@@ -69,6 +69,10 @@ type Config struct {
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 
+// defaultContextDir is where a session context is written when Config leaves
+// ContextDir empty. A var so tests can point it away from the real /agent-data.
+var defaultContextDir = sessionctx.Dir
+
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
 // the covemaster Activity stream: a needs-input turn suspends (reports
 // Waiting) until a Wake arrives or MaxWait elapses. It implements
@@ -96,7 +100,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 		cfg.MCPConfigPath = mcpConfigPath
 	}
 	if cfg.ContextDir == "" {
-		cfg.ContextDir = sessionctx.Dir
+		cfg.ContextDir = defaultContextDir
 	}
 	sp := cfg.Spawner
 	if sp == nil {
@@ -147,11 +151,14 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
 		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
 	}
-	if w.cfg.Context != nil {
+	if w.cfg.Context == nil {
+		clearContext(w.cfg.ContextDir)
+	} else {
 		if err := writeContext(w.cfg.ContextDir, *w.cfg.Context); err != nil {
 			// claude hard-fails on a missing --append-system-prompt-file, so run
 			// without the context rather than not at all.
 			w.log.Warn("agentrun: session context not written; running without it", "dir", w.cfg.ContextDir, "err", err.Error())
+			clearContext(w.cfg.ContextDir)
 		} else {
 			w.contextCore = filepath.Join(w.cfg.ContextDir, "CORE.md")
 			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))

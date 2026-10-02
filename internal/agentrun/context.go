@@ -38,6 +38,14 @@ func writeContext(dir string, b sessionctx.Bundle) error {
 	return os.Rename(staging, dir)
 }
 
+// clearContext removes any bundle left under dir (best effort), so a session
+// running without context never reads a previous raise's: SANDBOX.md treats an
+// existing CORE.md as "this is a Jam session".
+func clearContext(dir string) {
+	_ = os.RemoveAll(dir + ".new")
+	_ = os.RemoveAll(dir)
+}
+
 // short abbreviates a fingerprint for logs.
 func short(s string) string {
 	if len(s) > 12 {
