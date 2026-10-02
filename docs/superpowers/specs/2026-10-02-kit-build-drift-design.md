@@ -34,24 +34,26 @@ running studios whose *image* is stale (they pick up a new image on their next r
 
 ### Components
 
-- `assemble.PayloadDigest() string` — sha256 over, in a fixed order with
-  length-prefixed framing: every file of the embedded hardening FS (path + bytes,
-  walked in lexical order), the embedded at-task / at-switchboard / cove-master
-  binaries for each arch (absent embed → empty, matching the placeholder the build
-  writes), `basedigest.DefaultRef()`, and `basedigest.BlessedRefs()`. Lives in
-  `assemble` because it owns what `AssembleContext` stages; a test pins that every
-  staged input is covered.
-- Launcher: `asmDigest = sha256(PayloadDigest ‖ JamHost ‖ PublicKey)` stored on
-  the `Launcher`. `imageTag` becomes a method:
+- **Reuse `install.AtCoveIdentity()`** (`internal/install/currency.go`) — it
+  already hashes the embedded hardening tree and the at-task / at-switchboard /
+  cove-master binaries for the repo-kit install-currency check, so both build
+  paths agree on "what at-cove/at-jam bakes in" by construction. (Amended during
+  planning: this replaces a proposed `assemble.PayloadDigest`.)
+- Launcher: `asmDigest = sha256(AtCoveIdentity ‖ basedigest.DefaultRef() ‖
+  JamHost ‖ PublicKey)`, length-prefixed, computed in `launcher.New` and stored on
+  the `Launcher`. `DefaultRef` is the blessed base an omitted `base` builds FROM
+  and the `COVE_BASE_IMAGE` a context base descends from. The blessed *list* is
+  not hashed: it only gates acceptance, it never changes image content.
+  `imageTag` becomes a method:
   `cove-kit:<kitDigest[:32]>-<asmDigest[:32]>` (Docker caps a tag at 128 chars;
-  128 bits each is ample). The inventory, `PrepareKit` and `Raise` all go through
-  it, so they agree by construction.
+  128 bits each is ample; a shorter digest is used whole). The inventory,
+  `PrepareKit` and `Raise` all go through it, so they agree by construction.
 - `PrepareKit`'s log line gains `asm` (short) so an operator can see why a kit
   rebuilt.
 
 ### Behavior
 
-- After a Jam upgrade that changes the payload (or a `JamHost`/key change), the
+- After a Jam upgrade that changes the embedded payload or the default base (or a `JamHost`/key change), the
   next raise of each kit misses the inventory → `ErrKitNotReady` → `PrepareKit`
   builds → retry. This is the existing lazy-prepare path; nothing new.
 - Running studios are untouched until their next raise.
@@ -148,13 +150,10 @@ message ConnectorApplied { string fingerprint = 1; }
 | `/connector` 409 (destination conflict) | warn naming the conflict; spawn with last-applied |
 | `AT_JAM_CONNECTOR` missing/malformed | start with an empty last-applied; first successful fetch fills it |
 | git config rewrite fails | warn; spawn anyway (env still applied); retried next turn since the applied route is only recorded on success |
-| PayloadDigest inputs unstaged (plain `go build`) | hashes the empty placeholders — deterministic, matches what the build stages |
+| embedded binaries unstaged (plain `go build`) | `AtCoveIdentity` hashes what is embedded — deterministic, matches what the build stages |
 
 ## Testing (hermetic, TDD)
 
-- `assemble`: `PayloadDigest` is stable across calls; a coverage test asserts
-  every top-level entry `AssembleContext` stages is either hashed or is
-  caller-supplied data (egress, gitlab config, key).
 - launcher: tag differs when `JamHost`, key, or payload digest differs, same kit;
   tag ≤ 128 chars; inventory/Prepare/Raise use the same tag (fake ops).
 - `snippet.Fingerprint`: order-insensitive, token-free.
