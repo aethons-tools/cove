@@ -46,6 +46,17 @@ effective scopes ([roster.md](roster.md)). Two destinations setting one
 variable to **different** values, or two different git routes, is an error —
 fail closed, never a silent pick.
 
+## Delivery
+
+- **Jam-raised studios** get their connector at raise (the supervisor computes
+  it and cove-master sources it); nothing to fetch.
+- **Host-side clients** (at-cove connect, teammates, dispatch) call
+  `GET /connector` on the broker listener with the identity as a bearer (or
+  `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still
+  unexpanded, `{url}` already resolved to `{base}<route>`. Unknown/expired
+  identity → 401; a conflict → 409. Against a Jam without the endpoint (404),
+  clients fall back to the legacy Anthropic + git contract.
+
 ## GitHub API for `gh`
 
 `gh` reaches the GitHub API through the broker by treating Jam as a GitHub

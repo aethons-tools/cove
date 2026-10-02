@@ -205,6 +205,10 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 			if get(h, "/anthropic/v1/messages") != http.StatusTeapot {
 				t.Fatal("other paths must still reach the broker")
 			}
+			// /connector is always mounted (401 without an identity), whatever the intercom.
+			if got := get(h, "/connector"); got != http.StatusUnauthorized {
+				t.Fatalf("/connector = %d, want 401 (mounted ahead of the broker)", got)
+			}
 		})
 	}
 }
