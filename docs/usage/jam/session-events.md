@@ -20,7 +20,10 @@ and carries agent output by design (see [Sensitivity](#sensitivity)).
 - `internal/agentrun` writes the agent's stdout to the VM-local
   `/agent-data/agent-stream.jsonl` (append, 0600; never `cove-master.log`, which
   Jam reads on teardown) and to a line splitter; each line goes to `covemaster` as an event tagged with its
-  **turn** (the claude invocation number, from 1).
+  **turn** (the episode — claude process — number, from 1; one episode can answer several prompts, see [coves.md](coves.md)).
+- **Cost is cumulative per episode.** A `result` line's `total_cost_usd` is the
+  process's running total, while `usage` is per result. Sum the *last*
+  `total_cost_usd` of each `turn`, not every result.
 - **Truncation:** a line over 1 MiB is cut; `truncated_bytes` counts the rest.
   The full line stays in `/agent-data/agent-stream.jsonl`.
 - **Redaction:** exact occurrences of the cove's own identity token and launch

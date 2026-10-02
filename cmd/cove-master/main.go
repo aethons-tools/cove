@@ -1,6 +1,6 @@
 // Command cove-master is the in-cove primary process (first limb): it connects to
 // Jam's Attach stream and supervises the cove's workload — now the real agent
-// wrapper, running claude `-p` as a headless one-shot. cove-master becoming the
+// wrapper, running claude `-p` headless in stream-json episodes. cove-master becoming the
 // image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
 //

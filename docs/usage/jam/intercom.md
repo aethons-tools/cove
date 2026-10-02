@@ -118,7 +118,7 @@ A raised studio is no longer strictly one-shot. When its agent reports **`needs-
 (typically after asking a question via `send`), the studio **suspends** — it reports
 Activity `waiting` and blocks instead of ending. Jam's resident **wake-on engine**
 watches the studio's ticket and, when a **new comment** (a reply) arrives, **wakes** it
-over the Attach stream; the studio runs its next turn (`claude --continue`), `read`s the
+over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. A **`wait-max`** bounds the wait — a studio with no reply within it is
 torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits

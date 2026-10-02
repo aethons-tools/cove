@@ -190,16 +190,21 @@ AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + 
 Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
 also sets for older images — see [renamed-from-harbor.md](renamed-from-harbor.md).
 
-cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
-it spawns `claude -p --output-format stream-json --verbose --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`
-(plus `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off` when a
-[session context](session-context.md) is in effect),
-reports `running`, and when the agent exits reads `.at-task/worker-result.json`
-(the same contract as the dispatch worker). Before spawning, it **fails loud if
-the `--mcp-config` file is missing** (a stale image without
-`/etc/claude-code/mcp.json`) rather than launch a silently toolless agent
-(COV-190) — the run ends with a logged error instead of an agent with no intercom
-tools. On a present config it proceeds:
+cove-master runs the agent headless in **episodes** (`internal/agentrun`). An
+episode is one `claude -p --input-format stream-json --output-format stream-json
+--verbose --dangerously-skip-permissions` process in `AT_COVE_WORKDIR` (plus
+`--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`
+when a [session context](session-context.md) is in effect); the prompt
+is its first stdin message. cove-master reports `running` and watches the
+stream-json output: it closes stdin only when the agent's turn has ended **and**
+no background task (`run_in_background` Bash, background subagents, Monitors) is
+outstanding, so backgrounding works. A turn that ends with tasks still running
+holds stdin open for at most `BackgroundWait` (30m), then closes it and claude
+stops the stragglers (logged at WARN). When the process exits cove-master reads
+`.at-task/worker-result.json` (the same contract as the dispatch worker). Before
+spawning, it **fails loud if the `--mcp-config` file is missing** (a stale image
+without `/etc/claude-code/mcp.json`) rather than launch a silently toolless agent
+(COV-190). On a present config it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the studio down.
 - `needs-input` → the client reports `waiting` and blocks until Jam sends a
@@ -213,14 +218,16 @@ tools. On a present config it proceeds:
 (Resident mode, below, replaces all three outcomes with a wait.)
 
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
-`SIGKILL` after a grace period. A `wake` that arrives while the agent is still
-running is held (at most one), so the next `needs-input` wait resumes at once;
-further wakes are dropped.
+`SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it
+is written to stdin as the resume prompt at once; mid-turn, any number of wakes are
+coalesced into **one** resume prompt written when the turn ends. A wake coalesced
+but undelivered when the process exits is kept, so the next `needs-input` wait
+resumes at once.
 
-**Connector refresh.** Before every agent spawn — the first turn, a resume, a wake —
+**Connector refresh.** Before every episode (agent spawn) — the first, and each resume after the process exited —
 cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
 and starts that turn with the current env and git routing, so a destination or grant
-edit reaches a running studio at its next turn (never mid-turn). If the fetch fails it
+edit reaches a running studio at its next episode (never within one: a wake delivered into a live episode runs under the env that episode started with). If the fetch fails it
 keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every turn until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
