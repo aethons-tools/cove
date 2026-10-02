@@ -37,7 +37,7 @@ func TestRenderReferencesTokenOnce(t *testing.T) {
 	out := ghConnector().Render("https://jam.example", "TOK123")
 	for _, want := range []string{
 		"export AT_JAM_IDENTITY_TOKEN=TOK123\n",
-		`export GH_ENTERPRISE_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
+		`export GH_ENTERPRISE_TOKEN="${AT_JAM_IDENTITY_TOKEN}"`,
 		`export GH_HOST="jam.example"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -95,5 +95,12 @@ func TestFetch(t *testing.T) {
 	}
 	if _, err := Fetch(srv.Client(), srv.URL+"/broken", "TOK"); err == nil || errors.Is(err, ErrNoConnectorEndpoint) {
 		t.Fatalf("500 err = %v", err)
+	}
+}
+
+func TestRenderBracesTokenReference(t *testing.T) {
+	out := Connector{Env: map[string]string{"X": "{token}_suffix"}}.Render("https://j", "T")
+	if !strings.Contains(out, `export X="${AT_JAM_IDENTITY_TOKEN}_suffix"`) {
+		t.Fatalf("token reference must be braced so trailing name chars aren't absorbed:\n%s", out)
 	}
 }

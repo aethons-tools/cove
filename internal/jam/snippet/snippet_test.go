@@ -13,7 +13,7 @@ func TestRenderIncludesEndpointsNotSecrets(t *testing.T) {
 		// raw token is still written once.
 		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
 		"ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"",
-		"ANTHROPIC_API_KEY=\"$AT_JAM_IDENTITY_TOKEN\"",
+		"ANTHROPIC_API_KEY=\"${AT_JAM_IDENTITY_TOKEN}\"",
 		`url."https://jam.local.aethons.tools/git/".insteadOf`,
 		`credential."https://jam.local.aethons.tools".helper`,
 		"username=x-access-token",

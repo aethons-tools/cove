@@ -119,7 +119,7 @@ func TestLaunchCoveMasterSubscription(t *testing.T) {
 	if strings.Contains(env, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription env must NOT set ANTHROPIC_API_KEY:\n%s", env)
 	}
-	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=\"$AT_JAM_IDENTITY_TOKEN\"") {
+	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=\"${AT_JAM_IDENTITY_TOKEN}\"") {
 		t.Fatalf("subscription env must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", env)
 	}
 	if !strings.Contains(env, "ANTHROPIC_BASE_URL=\"https://jam.example.com/anthropic\"") {
@@ -201,7 +201,7 @@ func TestLaunchCoveMasterUsesConnector(t *testing.T) {
 			env = call.Stdin
 		}
 	}
-	if !strings.Contains(env, `export GH_HOST="jam.example.com"`) || !strings.Contains(env, `export ANTHROPIC_API_KEY="$AT_JAM_IDENTITY_TOKEN"`) {
+	if !strings.Contains(env, `export GH_HOST="jam.example.com"`) || !strings.Contains(env, `export ANTHROPIC_API_KEY="${AT_JAM_IDENTITY_TOKEN}"`) {
 		t.Fatalf("env script lacks connector vars:\n%s", env)
 	}
 	if strings.Contains(env, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(env, "git config") {

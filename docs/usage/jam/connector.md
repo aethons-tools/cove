@@ -37,7 +37,8 @@ at-jam destination add --name github-api --route /api/v3/ --upstream https://api
 `ANTHROPIC_BASE_URL={url}` plus `ANTHROPIC_API_KEY={token}` (identity-in
 `x-api-key`) or `ANTHROPIC_AUTH_TOKEN={token}` (identity-in `bearer` — the
 [pool](pool.md) configuration); the `/git/` route implies `--git`. Existing
-Jams therefore keep exactly their previous studio env.
+Jams therefore keep exactly their previous studio env. Giving the `/git/`
+destination an `env` drops its implied git routing — add `--git` to keep it.
 
 ## Assembly and conflicts
 

@@ -32,7 +32,7 @@ type CoveMasterOptions struct {
 	WorkDir       string // AT_COVE_WORKDIR
 	Prompt        string // written to tmpfs; AT_COVE_AGENT_PROMPT_FILE points at it
 	Resident      bool   // AT_COVE_RESIDENT=1: a personal session's agent waits for a Wake after every turn
-	Subscription  bool   // subscription-pool render: identity on ANTHROPIC_AUTH_TOKEN (static bearer), no ANTHROPIC_API_KEY, no credentials file
+	Subscription  bool   // legacy fallback (no Connector): render the subscription-pool contract (identity on ANTHROPIC_AUTH_TOKEN, no ANTHROPIC_API_KEY)
 	// Connector, when set, is the cove's client env/git from its role's
 	// destinations and replaces the legacy Anthropic+git render (and Subscription).
 	Connector *snippet.Connector

@@ -9,7 +9,7 @@ func TestRenderSubscriptionSetsAuthTokenNotAPIKey(t *testing.T) {
 	out := RenderSubscription("https://jam.local", "TOK123")
 	// Identity rides on ANTHROPIC_AUTH_TOKEN (static bearer), referencing the
 	// identity var so the raw token is written once.
-	if !strings.Contains(out, "export ANTHROPIC_AUTH_TOKEN=\"$AT_JAM_IDENTITY_TOKEN\"") {
+	if !strings.Contains(out, "export ANTHROPIC_AUTH_TOKEN=\"${AT_JAM_IDENTITY_TOKEN}\"") {
 		t.Fatalf("subscription render must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", out)
 	}
 	// NOT the API-key slot — that would force x-api-key mode.

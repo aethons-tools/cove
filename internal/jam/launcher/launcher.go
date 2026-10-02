@@ -48,7 +48,7 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
-	Subscription  bool         // seed raised coves in subscription mode (dummy claudeAiOauth, no ANTHROPIC_API_KEY)
+	Subscription  bool         // legacy-render fallback only: the supervisor always sets RaiseSpec.Connector, whose env carries the mode
 	WorkDir       string       // AT_COVE_WORKDIR; default /home/agent/workspace
 	Log           *slog.Logger // nil → discard
 
@@ -158,8 +158,8 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			// A personal session is a long-lived conversation: its agent stays
 			// resident, waiting for its owner's reply after every turn.
 			Resident: jam.IsResident(spec.SessionKind),
-			// Subscription mode seeds a dummy claudeAiOauth credential so the
-			// cove's claude authenticates as a pooled subscription principal.
+			// The connector (always set by the supervisor) carries the
+			// Anthropic mode; Subscription only drives the legacy fallback render.
 			Subscription: l.cfg.Subscription,
 			Connector:    spec.Connector,
 		})

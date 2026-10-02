@@ -53,7 +53,7 @@ func (c Connector) Expand(baseURL, token string) map[string]string {
 }
 
 // Render returns a sourceable shell snippet: the token exported once, every
-// other value double-quoted with {token} as a $AT_JAM_IDENTITY_TOKEN reference,
+// other value double-quoted with {token} as a ${AT_JAM_IDENTITY_TOKEN} reference,
 // then the git config when the connector routes git.
 func (c Connector) Render(baseURL, token string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
@@ -67,7 +67,8 @@ func (c Connector) Render(baseURL, token string) string {
 		for i, p := range parts {
 			parts[i] = esc.Replace(lit.Replace(p))
 		}
-		fmt.Fprintf(&b, "export %s=\"%s\"\n", k, strings.Join(parts, "$"+tokenVar))
+		// Braced, so name characters after {token} aren't absorbed into the variable.
+		fmt.Fprintf(&b, "export %s=\"%s\"\n", k, strings.Join(parts, "${"+tokenVar+"}"))
 	}
 	b.WriteString(c.GitConfig(baseURL))
 	return b.String()

@@ -379,8 +379,8 @@ broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
 three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
-the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
-helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
+the identity's connector (the env and git routing its role's destinations declare —
+[jam/connector.md](jam/connector.md)) into the session — **superseding** the OAuth/Vertex auth for that cove.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
@@ -426,7 +426,8 @@ next `at-cove recreate`. The broker must listen on **:443** (a non-443 port woul
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
 **teammates**. A dispatched worker routes only its **Anthropic** through Jam (its
 git stays on at-task's minted code-host token — a global Jam rewrite would
-misroute `prepare`/`complete`); chat and teammates route both connectors. A
+misroute `prepare`/`complete`); chat and teammates also route git when the
+connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 

@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1383,18 +1383,20 @@ var fetchJamConnector = func(host, token string) (*snippet.Connector, error) {
 }
 
 // jamConnector fetches GET /connector. nil (the legacy Anthropic + git contract)
-// when the Jam predates the endpoint (404) or can't be reached from the host —
-// the latter with a warning, since studios reach Jam from inside the VM. Any
-// other answer (401, a 409 conflict) is an error: fail closed.
+// when the Jam predates the endpoint (404) or can't be dialed from the host (a
+// DNS or connect failure) — the latter with a warning, since studios reach Jam
+// from inside the VM. Anything else (401, a 409 conflict, a TLS verification
+// failure) is an error: fail closed.
 func jamConnector(hc *http.Client, baseURL, token string, warn io.Writer) (*snippet.Connector, error) {
 	c, err := snippet.Fetch(hc, baseURL, token)
-	var ue *url.Error
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
 	switch {
 	case err == nil:
 		return &c, nil
 	case errors.Is(err, snippet.ErrNoConnectorEndpoint):
 		return nil, nil
-	case errors.As(err, &ue):
+	case errors.As(err, &opErr) || errors.As(err, &dnsErr):
 		fmt.Fprintf(warn, "warning: Jam connector unreachable from the host (%v); using the legacy Anthropic + git contract\n", err)
 		return nil, nil
 	default:

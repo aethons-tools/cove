@@ -72,3 +72,14 @@ func TestJamPlanCarriesConnector(t *testing.T) {
 		t.Fatalf("auto-enroll: %+v, %v (fetched %q)", ha, err, fetched)
 	}
 }
+
+// Only "can't reach Jam" falls back; a TLS failure (or any non-dial error) is a
+// real signal and fails closed.
+func TestJamConnectorTLSErrorFailsClosed(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	var warn bytes.Buffer
+	if _, err := jamConnector(&http.Client{}, srv.URL, "T", &warn); err == nil { // untrusted test cert
+		t.Fatalf("TLS verification failure must be an error, got fallback (warn=%q)", warn.String())
+	}
+}

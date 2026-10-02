@@ -106,3 +106,13 @@ func TestDestinationValidateEnv(t *testing.T) {
 		}
 	}
 }
+
+// Env reaching the store other than through the admin API (config import,
+// direct writes) is still validated before it can reach a studio.
+func TestConnectorForRejectsInvalidEnv(t *testing.T) {
+	bad := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"AT_JAM_IDENTITY_TOKEN": "pwned"}}
+	st := connectorStore(t, []Destination{bad}, map[string]Scope{"w": {Destinations: []string{"x"}}})
+	if _, err := ConnectorFor(st, actorWith("w")); err == nil {
+		t.Fatal("a reserved env key must fail the connector")
+	}
+}

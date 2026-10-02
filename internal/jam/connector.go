@@ -46,6 +46,12 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 		if !ok {
 			continue
 		}
+		// Re-checked here, not only at the admin API: env can reach the store by
+		// config import or a direct write, and must never clobber the identity
+		// token or smuggle a malformed key into a rendered snippet.
+		if err := d.ValidateEnv(); err != nil {
+			return snippet.Connector{}, fmt.Errorf("destination %q: %w", name, err)
+		}
 		for k, v := range d.ClientEnv() {
 			if prev, seen := owner[k]; seen && c.Env[k] != v {
 				return snippet.Connector{}, fmt.Errorf("destinations %q and %q set %s differently", prev, name, k)
