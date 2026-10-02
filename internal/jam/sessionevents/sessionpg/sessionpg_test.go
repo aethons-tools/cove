@@ -1,6 +1,12 @@
 package sessionpg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+)
 
 func TestReplaceNUL(t *testing.T) {
 	if got, ok := replaceNUL("a\x00b\x00"); !ok || got != "a\uFFFDb\uFFFD" {
@@ -33,5 +39,28 @@ func TestSanitizeText(t *testing.T) {
 		if got != c.want || ch != c.changed {
 			t.Errorf("sanitizeText(%q) = %q,%v want %q,%v", c.in, got, ch, c.want, c.changed)
 		}
+	}
+}
+
+func TestSanitizeEventText(t *testing.T) {
+	ev := sessionevents.Event{ActorID: "a\x00", StreamID: "s\xff"}
+	ev.Stamp = sessionevents.Stamp{Project: "p\x00", Role: "r\xff", Unit: "u\x00", Owner: "o\xff", SessionKind: "k\x00"}
+	ev.Index = sessionevents.Index{Type: "t\x00", Subtype: "s\xff", ToolName: "B\x00\xffash", ClaudeSessionID: "c\x00"}
+	got, changed := sanitizeEventText(ev)
+	if !changed {
+		t.Fatal("changed = false")
+	}
+	for _, s := range []string{got.ActorID, got.StreamID, got.Stamp.Project, got.Stamp.Role, got.Stamp.Unit,
+		got.Stamp.Owner, got.Stamp.SessionKind, got.Index.Type, got.Index.Subtype, got.Index.ToolName, got.Index.ClaudeSessionID} {
+		if strings.ContainsRune(s, 0) || !utf8.ValidString(s) {
+			t.Fatalf("unsanitized %q", s)
+		}
+	}
+	if got.Index.ToolName != "B��ash" {
+		t.Fatalf("ToolName = %q", got.Index.ToolName)
+	}
+	clean := sessionevents.Event{ActorID: "w1", Index: sessionevents.Index{Type: "assistant", ToolName: "Bash é"}}
+	if out, ch := sanitizeEventText(clean); ch || out.Index != clean.Index || out.ActorID != clean.ActorID {
+		t.Fatalf("clean event changed: %v %+v", ch, out)
 	}
 }

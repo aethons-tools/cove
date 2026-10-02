@@ -63,7 +63,7 @@ Each event stores `raw` (when the line is valid JSON) or `raw_text` (anything
 else). The guarantee is **content-equal, not byte-exact**: the JSONL encoder
 compacts JSON and escapes `<`, `>`, `&`; `jsonb` normalizes; `raw_text` is
 UTF-8-normalized (invalid bytes become U+FFFD) and, in Postgres, NUL becomes
-U+FFFD. Any Postgres data exception (SQLSTATE class 22, e.g. a `\u0000` escape,
+U+FFFD (the derived index text columns are sanitized the same way). Any Postgres data exception (SQLSTATE class 22, e.g. a `\u0000` escape,
 lone surrogate, or invalid UTF-8) falls back to sanitized `raw_text`. Exact
 bytes remain in the cove's `/agent-data/agent-stream.jsonl`.
 

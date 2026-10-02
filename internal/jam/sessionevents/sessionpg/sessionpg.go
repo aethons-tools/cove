@@ -57,7 +57,28 @@ const insertSQL = `INSERT INTO session_events (actor_id, stream_id, seq, kind, g
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 ON CONFLICT (actor_id, stream_id, seq) DO NOTHING`
 
+// sanitizeEventText makes every free-text column value of ev storable in a
+// Postgres text column (see sanitizeText). Raw is handled separately. It
+// reports whether anything changed.
+func sanitizeEventText(ev sessionevents.Event) (sessionevents.Event, bool) {
+	changed := false
+	for _, p := range []*string{
+		&ev.ActorID, &ev.StreamID,
+		&ev.Stamp.Project, &ev.Stamp.Role, &ev.Stamp.Unit, &ev.Stamp.Owner, &ev.Stamp.SessionKind,
+		&ev.Index.Type, &ev.Index.Subtype, &ev.Index.ToolName, &ev.Index.ClaudeSessionID,
+	} {
+		out, c := sanitizeText(*p)
+		*p = out
+		changed = changed || c
+	}
+	return ev, changed
+}
+
 func (s *Store) insert(ev sessionevents.Event, raw, rawText any) error {
+	ev, changed := sanitizeEventText(ev)
+	if changed {
+		s.log.Warn("sessionpg: text columns sanitized (invalid UTF-8 or NUL bytes replaced)", "actor", ev.ActorID, "seq", ev.Seq)
+	}
 	_, err := s.pool.Exec(context.Background(), insertSQL,
 		ev.ActorID, ev.StreamID, int64(ev.Seq), ev.Kind, int64(ev.GapFrom), int64(ev.GapTo), int32(ev.Turn),
 		ev.ObservedAt, ev.ReceivedAt, int64(ev.TruncatedBytes),

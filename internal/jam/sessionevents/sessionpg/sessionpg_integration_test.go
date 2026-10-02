@@ -95,3 +95,62 @@ func TestPostgresAppendSanitizesRejectedJSON(t *testing.T) {
 		})
 	}
 }
+
+// TestPostgresAppendSanitizesIndexText: text columns derived from the event
+// (type, tool name, ...) must not hold NUL or invalid UTF-8, or the insert —
+// and its raw_text fallback — fails and wedges the stream.
+func TestPostgresAppendSanitizesIndexText(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres session-events integration tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	s, err := sessionpg.New(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("sessionpg.New: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `TRUNCATE session_events`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	var enc string
+	if err := pool.QueryRow(ctx, `SHOW server_encoding`).Scan(&enc); err != nil {
+		t.Fatalf("server_encoding: %v", err)
+	}
+	const stream = "0123456789abcdef0123456789abcdef"
+	at := time.Unix(1700000000, 0).UTC()
+	mk := func(seq uint64, raw string, idx sessionevents.Index) sessionevents.Event {
+		return sessionevents.Event{ActorID: "w1", StreamID: stream, Seq: seq, Kind: sessionevents.KindEvent,
+			Turn: 1, ObservedAt: at, ReceivedAt: at, Raw: []byte(raw), Index: idx,
+			Stamp: sessionevents.Stamp{Project: "default", Role: "guest", RaisedAt: at}}
+	}
+	t.Run("NUL from JSON escapes", func(t *testing.T) {
+		raw := `{"type":"assistant\u0000x","message":{"content":[{"type":"tool_use","name":"Ba\u0000sh","input":{}}]}}`
+		if err := s.Append(mk(1, raw, sessionevents.DeriveIndex([]byte(raw)))); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+		got, err := s.List(sessionevents.Filter{ActorID: "w1", StreamID: stream, AfterSeq: 0, Limit: 1})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("List = %v, %v", got, err)
+		}
+		if got[0].Index.Type != "assistant�x" || got[0].Index.ToolName != "Ba�sh" {
+			t.Fatalf("index = %+v", got[0].Index)
+		}
+	})
+	t.Run("invalid utf8 tool name", func(t *testing.T) {
+		if enc != "UTF8" {
+			t.Skipf("server_encoding is %s; invalid UTF-8 is only rejected under UTF8", enc)
+		}
+		if err := s.Append(mk(2, `{"type":"assistant"}`, sessionevents.Index{Type: "assistant", ToolName: "Ba\xffsh"})); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+		got, err := s.List(sessionevents.Filter{ActorID: "w1", StreamID: stream, AfterSeq: 1, Limit: 1})
+		if err != nil || len(got) != 1 || got[0].Index.ToolName != "Ba�sh" {
+			t.Fatalf("List = %+v, %v", got, err)
+		}
+	})
+}
