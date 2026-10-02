@@ -16,8 +16,12 @@ layers, in delivery order:
 |-------|--------|-------------|
 | Boilerplate | built in, per session kind (ephemeral / personal / standing): sandbox, turn model, intercom rules (the default recipient, if any), and for ephemeral sessions the `worker-result.json` contract | 2400 B |
 | Kit | the studio kit's `prompt` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
+| Studio | generated at raise: granted destinations (upstream, env keys, git routing, each destination's [note](connector.md#notes-for-sessions)), effective egress (the role's policy, else the kit ceiling), message targets | 1600 B — never truncated: long lists move to `studio/destinations.md`, `egress.md`, `targets.md` |
 
-(Studio, Project, Role and Jam layers follow — see the [design spec](../../superpowers/specs/2026-10-02-session-context-layers-design.md).)
+Raise logs a warning when the kit prompt restates an egress host or a message
+target — those belong to the Studio layer.
+
+(Project, Role and Jam layers follow — see the [design spec](../../superpowers/specs/2026-10-02-session-context-layers-design.md).)
 
 The **core** (`CORE.md`) states precedence once — hardening is absolute; otherwise
 later layers win — then each non-empty layer's core and a one-line pointer to each of

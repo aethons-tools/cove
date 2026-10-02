@@ -59,6 +59,14 @@ fail closed, never a silent pick.
   identity → 401; a conflict → 409. Against a Jam without the endpoint (404),
   clients fall back to the legacy Anthropic + git contract.
 
+## Notes for sessions
+
+A destination's optional `note` (≤ 300 bytes; `at-jam destination add --note`, or
+the UI's edit form) is shown to every session granted it, in the Studio layer of
+its [session context](session-context.md), next to the env keys it sets. Write how
+to use the route — e.g. "`gh` goes via Jam: pass `-R $GH_HOST/<owner>/<repo>`".
+It is not a secret store: never put a credential in it.
+
 ## GitHub API for `gh`
 
 `gh` reaches the GitHub API through the broker by treating Jam as a GitHub

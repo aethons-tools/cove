@@ -127,7 +127,8 @@ actor's authorized-**and**-resolvable targets:
 Handles are deliberately omitted — the agent addresses by `human:<name>`, not by
 handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
-[intercom.md](intercom.md#what-the-tools-do) for the tool surface.
+[intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
+taken at raise, appears in the session's [session context](session-context.md).
 
 ## Not yet (later comms slices)
 
