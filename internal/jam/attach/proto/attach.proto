@@ -15,8 +15,14 @@ message StatusUp {
     Activity     status    = 1;
     Heartbeat    heartbeat = 2;
     SessionEvent event     = 3;
+    ConnectorApplied connector = 4;
   }
 }
+
+// ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
+// connector cove-master applied to the agent's most recent spawn. Jam compares it
+// with the role's current connector to flag a stale studio.
+message ConnectorApplied { string fingerprint = 1; }
 
 // SessionEvent is one line of the agent's claude stream-json stdout.
 message SessionEvent {

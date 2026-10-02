@@ -44,6 +44,10 @@ type Handle interface {
 	// Event hands one line of the agent's stream-json stdout to the client.
 	// It never blocks. raw is only valid during the call; the client copies it.
 	Event(turn uint32, raw []byte, truncatedBytes uint64)
+	// ConnectorApplied records the fingerprint of the connector the workload
+	// applied to its latest agent spawn. It never blocks; the newest value wins
+	// and is re-sent on every (re)connect.
+	ConnectorApplied(fingerprint string)
 }
 
 // Workload is what cove-master supervises (the agent, in a later slice).
@@ -69,6 +73,10 @@ type Config struct {
 	EventBufferEvents int           // max buffered unacked events; default 10000
 	EventBufferBytes  int           // max buffered unacked raw bytes; default 64 MiB
 	FlushTimeout      time.Duration // Done waits this long for the final ack; default 5s
+}
+
+func connectorMsg(fp string) *attachpb.StatusUp {
+	return &attachpb.StatusUp{Msg: &attachpb.StatusUp_Connector{Connector: &attachpb.ConnectorApplied{Fingerprint: fp}}}
 }
 
 func toPBActivity(a Activity) attachpb.Activity {

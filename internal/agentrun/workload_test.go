@@ -17,9 +17,16 @@ import (
 // concurrent use: Run reports from its own goroutine while a test may poll
 // count() from the test goroutine.
 type recordHandle struct {
-	mu     sync.Mutex
-	got    []covemaster.Activity
-	events []recordedEvent
+	mu         sync.Mutex
+	got        []covemaster.Activity
+	events     []recordedEvent
+	connectors []string
+}
+
+func (h *recordHandle) ConnectorApplied(fp string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.connectors = append(h.connectors, fp)
 }
 
 type recordedEvent struct {
