@@ -212,7 +212,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.Name)
 	}
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
-		ActorID: id, Project: project, Role: b.Role, Prompt: personalPrompt(human.Name, b.Prompt),
+		ActorID: id, Project: project, Role: b.Role, Prompt: b.Prompt,
 		Owner: human.Name, SessionKind: SessionKindPersonal,
 	})
 	if err != nil {
@@ -241,16 +241,6 @@ func personalDeliveryProblem(store Store, project string, owner Human) string {
 			owner.Name, project, project, owner.Name, owner.Handle, owner.Login)
 	}
 	return ""
-}
-
-// personalPrompt prefixes the owner's prompt with a preamble telling the agent
-// how a personal session works: it reports to its owner over the intercom and
-// is resumed with their reply, until they release it.
-func personalPrompt(owner, prompt string) string {
-	return fmt.Sprintf("You are a personal session for %[1]s. Work on the request below. When you have results or need\n"+
-		"input, message %[1]s with the intercom `send` tool (omit `to`); they will reply, and you will\n"+
-		"be resumed with their reply available via `read`. This session stays open until %[1]s releases it.\n"+
-		"---\n%[2]s", owner, prompt)
 }
 
 // personalSessionID mints a personal session's actor/reservation id:

@@ -8,7 +8,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/kit"
 	"gopkg.in/yaml.v3"
 )
@@ -68,6 +70,17 @@ func (sk StudioKit) Validate() error {
 		if kit.IsReservedSecretName(k) {
 			return fmt.Errorf("studio kit: build-arg %q is a reserved secret name", k)
 		}
+	}
+	return nil
+}
+
+// CheckPrompt enforces the kit prompt's budget: it is the session context's
+// always-on kit core (sessionctx). An authoring rule, checked on push only —
+// not in Validate, so a kit stored before the budget still parses and raises
+// (Compile truncates it).
+func (sk StudioKit) CheckPrompt() error {
+	if n := len(strings.TrimSpace(sk.Prompt)); n > sessionctx.BudgetKit {
+		return fmt.Errorf("studio kit: prompt is %d bytes; the kit core budget is %d — move detail out of the prompt", n, sessionctx.BudgetKit)
 	}
 	return nil
 }

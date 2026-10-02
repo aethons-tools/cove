@@ -18,8 +18,8 @@ profile for the owner.
 
 ## The conversation
 
-1. The session works its first prompt. Jam prefixes your prompt with a short
-   preamble telling the agent it is your personal session and how to reach you.
+1. The session works its first prompt, delivered as-is. Its
+   [session context](session-context.md) tells the agent it is your personal session and how to reach you.
 2. **The studio speaks first.** When it has results or needs input, it `send`s with
    no `to`, which goes to its owner — you — as a message in your Discord inbox
    channel. It may message **only** you: Jam enrolls it with an addressing

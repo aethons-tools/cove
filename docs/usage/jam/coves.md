@@ -62,7 +62,7 @@ at-jam studio teardown --id spider-42
 With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
 `studio raise --prompt-file <f>` runs the whole lifecycle end to end: Jam starts a
 Colima studio from the configured image, injects the agent connector — the client env
-and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the cove-master env + your prompt over SSH, and starts
+and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the cove-master env, your prompt and the compiled [session context](session-context.md) over SSH, and starts
 `cove-master`, which runs `claude -p` on the prompt. The studio reports
 `running` → `done` over the [Attach stream](#the-attach-stream), and the supervisor
 tears it down when the agent finishes (or on `error`/`needs-input`, which report a
@@ -103,7 +103,7 @@ so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. A
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the `at-jam` binary and the launcher's key), with
 **no source kit directory**, so the build can move to a remote substrate. The
-session prompt is composed at raise, outside the image. A Dockerfile-context base
+[session context](session-context.md) is compiled at raise, outside the image. A Dockerfile-context base
 is not yet buildable (deferred).
 
 ### Egress drift
@@ -181,6 +181,7 @@ AT_JAM_IDENTITY_TOKEN     the cove's identity token
 AT_JAM_LAUNCH_SECRET      the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
+AT_COVE_AGENT_CONTEXT_FILE path to the compiled session context JSON (optional; see session-context.md)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
 AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn
 AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
@@ -190,7 +191,9 @@ Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
 also sets for older images — see [renamed-from-harbor.md](renamed-from-harbor.md).
 
 cove-master runs the agent as a **headless one-shot** (`internal/agentrun`):
-it spawns `claude -p --output-format stream-json --verbose --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`,
+it spawns `claude -p --output-format stream-json --verbose --dangerously-skip-permissions "<prompt>"` in `AT_COVE_WORKDIR`
+(plus `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off` when a
+[session context](session-context.md) is in effect),
 reports `running`, and when the agent exits reads `.at-task/worker-result.json`
 (the same contract as the dispatch worker). Before spawning, it **fails loud if
 the `--mcp-config` file is missing** (a stale image without

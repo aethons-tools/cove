@@ -11,8 +11,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // Liveness is a Launcher.Probe result.
@@ -54,6 +54,11 @@ type RaiseSpec struct {
 	// destinations (ConnectorFor). Supervisor.Raise always fills it; nil (a
 	// caller bypassing the supervisor) = the legacy built-in contract.
 	Connector *snippet.Connector
+	// Context is the compiled session context (sessionctx.Compile): Jam
+	// boilerplate for the session kind, then the kit layer. Supervisor.Raise
+	// always sets it; the launcher stages it for cove-master, which delivers
+	// its core as an appended system prompt every turn.
+	Context *sessionctx.Bundle
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
@@ -236,17 +241,24 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			spec.Kit = ref
 		}
 	}
-	// Compose the session prompt from ordered layers (Jam boilerplate → Kit info
-	// → Project → Role → launch). Resolve the kit's prompt from the registry; a
-	// cheap local read, needed every raise (unlike the launcher-side lazy prepare).
+	// Compile the session context (Jam boilerplate → kit; later slices add
+	// studio, project, role, jam). The prompt stays the launch text alone.
+	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
+		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+	}}
 	if spec.Kit.ID != "" {
-		layers := studio.PromptLayers{Launch: spec.Prompt}
+		in.Session.Kit = spec.Kit.String()
 		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
-			layers.Kit = def.Kit.Prompt
+			in.Kit = sessionctx.Layer{Core: def.Kit.Prompt}
 		}
-		// Project/Role prompt layers plug in here when those configs carry one.
-		spec.Prompt = studio.ComposePrompt(layers)
 	}
+	bundle := sessionctx.Compile(in)
+	for _, w := range bundle.Warnings {
+		if s.log != nil {
+			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
+		}
+	}
+	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
 	if errors.Is(err, ErrKitNotReady) {

@@ -323,16 +323,12 @@ func seedVertexCredentials(r runner.Runner, tgt sshargs.Target, adc []byte) erro
 	return nil
 }
 
-// writeCollaboratorRole writes the role prompt (or a placeholder when empty) to
+// writeCollaboratorRole writes the role prompt (empty when none) to
 // the VM's COLLABORATOR.md over ssh, so the session's CLAUDE.md include resolves
 // to the active role.
 func writeCollaboratorRole(r runner.Runner, tgt sshargs.Target, prompt string) error {
-	body := prompt
-	if body == "" {
-		body = "# (no collaborator role active)\n"
-	}
 	args := append(sshargs.Base(tgt), "umask 077; cat > "+collaboratorVMPath)
-	if err := r.RunStdin(bytes.NewReader([]byte(body)), "ssh", args...); err != nil {
+	if err := r.RunStdin(bytes.NewReader([]byte(prompt)), "ssh", args...); err != nil {
 		return fmt.Errorf("writing collaborator role: %w", err)
 	}
 	return nil

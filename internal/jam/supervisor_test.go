@@ -273,20 +273,77 @@ func TestRaiseUsesRoleStudioKit(t *testing.T) {
 	}
 }
 
-// The session prompt is composed from ordered layers (Jam boilerplate → kit →
-// launch) before the launcher sees it.
-func TestRaiseComposesPrompt(t *testing.T) {
+// The session context is compiled at raise; the prompt stays the launch text.
+// A kit stored with an over-budget prompt (before the budget existed) still
+// raises: the push path rejects new ones, Compile truncates old ones.
+func TestRaiseStoredOverBudgetKitTruncates(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	sk := studio.StudioKit{Kind: studio.Kind, Prompt: strings.Repeat("old kit line\n", 100)}
+	text, err := sk.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := store.PushKit("legacy", string(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetDefaultStudioKit(KitRef{ID: "legacy", Version: v, Digest: studio.BuildDigest(sk)})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+		t.Fatalf("a stored over-budget kit must still raise: %v", err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "(truncated — see kit/CORE-full.md)") {
+		t.Fatalf("want a truncated kit core: %+v", c)
+	}
+}
+
+func TestPushStudioKitRejectsOverBudgetPrompt(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	cfg := "kind: studio\nprompt: " + strings.Repeat("x", 801) + "\n"
+	if _, _, err := PushStudioKit(store, "big", cfg); err == nil || !strings.Contains(err.Error(), "801 bytes") {
+		t.Fatalf("push must reject an over-budget prompt, got %v", err)
+	}
+}
+
+// The unit reaches the boilerplate: with one, `send` defaults to the ticket.
+func TestRaiseContextCarriesUnit(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, _, _ := supTestKit(t, fl)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Unit: "AET-9", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "posts to your ticket") {
+		t.Fatalf("want ticket default with a unit: %+v", c)
+	}
+}
+
+func TestRaiseCompilesContext(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
 	sk := studio.StudioKit{Kind: studio.Kind, Prompt: "KITLAYER"}
 	ref, _ := EnsureStudioKit(store, "web", sk)
 	sup.SetDefaultStudioKit(ref)
-	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER"}); err != nil {
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "LAUNCHLAYER", Name: "bot", SessionKind: SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(fl.gotSpec.Prompt, studio.JamBoilerplate) ||
-		!strings.Contains(fl.gotSpec.Prompt, "KITLAYER") || !strings.Contains(fl.gotSpec.Prompt, "LAUNCHLAYER") {
-		t.Fatalf("composed prompt missing layers: %q", fl.gotSpec.Prompt)
+	if fl.gotSpec.Prompt != "LAUNCHLAYER" {
+		t.Fatalf("prompt must be the launch text only, got %q", fl.gotSpec.Prompt)
+	}
+	c := fl.gotSpec.Context
+	if c == nil || !strings.Contains(c.Core, "KITLAYER") || !strings.Contains(c.Core, `standing session "bot"`) || !strings.Contains(c.Core, "## Kit — web@v") {
+		t.Fatalf("context missing layers: %+v", c)
+	}
+}
+
+// A raise with no kit still gets the boilerplate.
+func TestRaiseContextWithoutKit(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, _, _ := supTestKit(t, fl)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "## Boilerplate") || strings.Contains(c.Core, "## Kit") {
+		t.Fatalf("want boilerplate only: %+v", c)
 	}
 }
 

@@ -168,6 +168,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			// Anthropic mode; Subscription only drives the legacy fallback render.
 			Subscription: l.cfg.Subscription,
 			Connector:    spec.Connector,
+			Context:      spec.Context,
 		})
 	}
 	if err := launch(); err != nil {

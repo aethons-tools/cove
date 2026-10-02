@@ -549,3 +549,29 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 		t.Error("shadow-dir chown must run before the COVE_DOCKER branch")
 	}
 }
+
+// SANDBOX.md is loaded in every sandbox; in a Jam session it must defer to the
+// session context instead of prescribing the local at-cove kit path.
+func TestSandboxMDDefersToJamContext(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/SANDBOX.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "/agent-data/context/CORE.md") {
+		t.Fatal("SANDBOX.md must route Jam sessions to their session context")
+	}
+	if !strings.Contains(s, ".at-cove/config.yml") {
+		t.Fatal("SANDBOX.md must keep the local at-cove path")
+	}
+}
+
+func TestCollaboratorDefaultIsEmpty(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/COLLABORATOR.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != "" {
+		t.Fatalf("default COLLABORATOR.md must be empty, got %q", b)
+	}
+}

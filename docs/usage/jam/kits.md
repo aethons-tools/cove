@@ -40,10 +40,10 @@ prompt: "You work on the web service …"   # orients the session
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
-| `prompt` | The kit layer of the session prompt. |
+| `prompt` | The kit layer's always-on core (≤ 800 bytes; `kit push` rejects more) of the [session context](session-context.md). |
 
-The session prompt is **composed at raise** from ordered layers — Jam
-boilerplate → kit → project → role → launch — so it lives *outside* the image.
+The session context is compiled at raise ([session-context.md](session-context.md)),
+so it lives *outside* the image.
 The image is tagged by a **build-digest** over only the build-affecting fields
 (`base` + `egress` + `build-args`): a prompt- or secrets-only edit reuses the
 cached image. The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.

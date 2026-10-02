@@ -63,8 +63,8 @@ name:
 - **Its studio is live**: nothing to do.
 - **It has no studio**: Jam asks the Allocator for a standing slot (see
   [Admission](#admission)), then raises the studio under the name's actor id, with
-  the declared prompt behind a short preamble. The preamble tells the agent it is
-  the standing session `<name>` and how to message people.
+  the declared prompt as-is. Who it is (the standing session `<name>`) and how to
+  message people come from the Boilerplate of its [session context](session-context.md).
 - **Its studio died**: the supervisor detects it and tears it down (see
   [coves.md](coves.md#the-model)). That frees its reservation, and the next pass
   raises the name again. This is a **fresh session** under the same name. The
@@ -118,7 +118,7 @@ A standing session has no ticket and no owner, so it has **no default
 recipient**. Its `send` must name a `to` (a `human:` or `channel:` target from the
 project roster), or it answers `400 no default recipient: pass "to"`
 ([intercom.md](intercom.md)). What it may address is limited by its role's
-`--addressing`, like any studio. Its preamble tells it this. A reply to one of its
+`--addressing`, like any studio. Its [session context](session-context.md) tells it this. A reply to one of its
 messages wakes it, and it `read`s the reply. See
 [comms-addressing.md](comms-addressing.md) for the targets and
 [discord.md](discord.md#egress-the-reply-loop) for the reply loop.

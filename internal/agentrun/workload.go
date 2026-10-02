@@ -6,10 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 const defaultGrace = 10 * time.Second
@@ -57,9 +59,19 @@ type Config struct {
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
 	// not cove-master's stdout, which Jam reads into its own log.
 	StreamLogPath string
+	// Context is the compiled session context; nil (an older launcher) runs
+	// claude without it. Written under ContextDir once at Run start; its core is
+	// passed with --append-system-prompt-file on every turn.
+	Context *sessionctx.Bundle
+	// ContextDir is where Context is written; empty defaults to sessionctx.Dir.
+	ContextDir string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
+
+// defaultContextDir is where a session context is written when Config leaves
+// ContextDir empty. A var so tests can point it away from the real /agent-data.
+var defaultContextDir = sessionctx.Dir
 
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
 // the covemaster Activity stream: a needs-input turn suspends (reports
@@ -71,6 +83,8 @@ type Workload struct {
 	spawner Spawner
 	conn    *connectorRefresher
 	wake    chan struct{}
+	// contextCore is the written CORE.md path; "" = no context in effect.
+	contextCore string
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -84,6 +98,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	}
 	if cfg.MCPConfigPath == "" {
 		cfg.MCPConfigPath = mcpConfigPath
+	}
+	if cfg.ContextDir == "" {
+		cfg.ContextDir = defaultContextDir
 	}
 	sp := cfg.Spawner
 	if sp == nil {
@@ -108,7 +125,13 @@ func (w *Workload) claudeArgs(prompt string, continued bool) []string {
 	}
 	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
 	args = append(args, "--output-format", "stream-json", "--verbose")
-	return append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config", prompt)
+	args = append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config")
+	if w.contextCore != "" {
+		// snapshot off: the default replays the first turn's system prompt on
+		// every --continue, which would hide context updates.
+		args = append(args, "--append-system-prompt-file", w.contextCore, "--system-prompt-snapshot", "off")
+	}
+	return append(args, prompt)
 }
 
 // Run spawns claude -p in a turn loop and maps each turn's worker-result to
@@ -127,6 +150,19 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	if _, err := os.Stat(w.cfg.MCPConfigPath); err != nil {
 		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
 		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
+	}
+	if w.cfg.Context == nil {
+		clearContext(w.cfg.ContextDir)
+	} else {
+		if err := writeContext(w.cfg.ContextDir, *w.cfg.Context); err != nil {
+			// claude hard-fails on a missing --append-system-prompt-file, so run
+			// without the context rather than not at all.
+			w.log.Warn("agentrun: session context not written; running without it", "dir", w.cfg.ContextDir, "err", err.Error())
+			clearContext(w.cfg.ContextDir)
+		} else {
+			w.contextCore = filepath.Join(w.cfg.ContextDir, "CORE.md")
+			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))
+		}
 	}
 	var out io.Writer // nil-able extra sink under the line splitter
 	logPath := w.cfg.StreamLogPath

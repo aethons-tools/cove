@@ -19,10 +19,11 @@ allow-list** — not a transient fault. Don't retry blindly or hunt for a mirror
 the domain to the kit.
 
 **Changing the sandbox is declarative and human-gated.** You cannot rebuild your own
-image and must never weaken the hardening. The path is always: edit
-`.at-cove/config.yml`, then ask the human to run `at-cove recreate` on the host —
-the change does not take effect until they do. Name the exact edit and why so they
-can review it.
+image and must never weaken the hardening. **If `/agent-data/context/CORE.md` exists,
+you are a Jam session: its instructions for changing the kit apply, not the rest of
+this paragraph.** Otherwise, the path is: edit `.at-cove/config.yml`, then ask the
+human to run `at-cove recreate` on the host — the change does not take effect until
+they do. Name the exact edit and why so they can review it.
 
 For the detail, load only the leaf your task needs:
 

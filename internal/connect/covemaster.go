@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -16,6 +17,9 @@ import (
 const (
 	coveMasterPromptVMPath = "/dev/shm/cove-agent-prompt"
 	coveMasterEnvVMPath    = "/dev/shm/cove-master-env"
+	// coveMasterContextVMPath is the compiled session context
+	// (sessionctx.Bundle JSON), staged like the prompt.
+	coveMasterContextVMPath = "/dev/shm/cove-agent-context"
 	// CoveMasterLogVMPath is where cove-master's detached launch appends its
 	// combined stdout+stderr inside the cove. Exported so the launcher can grab
 	// its tail on teardown (a post-mortem for a cove that died). Single source
@@ -37,6 +41,10 @@ type CoveMasterOptions struct {
 	// Connector, when set, is the cove's client env/git from its role's
 	// destinations and replaces the legacy Anthropic+git render (and Subscription).
 	Connector *snippet.Connector
+	// Context is the compiled session context; staged as JSON to tmpfs and
+	// pointed at by AT_COVE_AGENT_CONTEXT_FILE. Nil = none (cove-master runs
+	// claude without the context flags).
+	Context *sessionctx.Bundle
 }
 
 // LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
@@ -46,6 +54,15 @@ type CoveMasterOptions struct {
 func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	if err := writeVM(r, o.Target, o.Prompt, coveMasterPromptVMPath); err != nil {
 		return fmt.Errorf("cove-master prompt: %w", err)
+	}
+	if o.Context != nil {
+		cj, err := json.Marshal(o.Context)
+		if err != nil {
+			return fmt.Errorf("cove-master context: %w", err)
+		}
+		if err := writeVM(r, o.Target, string(cj), coveMasterContextVMPath); err != nil {
+			return fmt.Errorf("cove-master context: %w", err)
+		}
 	}
 	var script strings.Builder
 	// Agent connector (Anthropic base URL + git routing). The identity token is
@@ -70,6 +87,9 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	script.WriteString("export AT_HARBOR_LAUNCH_SECRET=\"$AT_JAM_LAUNCH_SECRET\"\n")
 	fmt.Fprintf(&script, "export AT_COVE_WORKDIR=%s\n", shellQuote(o.WorkDir))
 	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(coveMasterPromptVMPath))
+	if o.Context != nil {
+		fmt.Fprintf(&script, "export AT_COVE_AGENT_CONTEXT_FILE=%s\n", shellQuote(coveMasterContextVMPath))
+	}
 	// Per-turn connector refresh handoff (cove-master re-fetches GET /connector
 	// before every agent spawn): the Jam base, and the raise-time connector as
 	// token-free JSON — cove-master's fallback and the env keys it owns.

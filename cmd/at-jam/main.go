@@ -894,6 +894,10 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
 			return 1
 		}
+		if err := sk.CheckPrompt(); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
 		// Resolve a client-only base.context-dir by packing that host directory
 		// into base.context (a zip) before sending — the server can't read the
 		// operator's filesystem. A relative context-dir is resolved against the
