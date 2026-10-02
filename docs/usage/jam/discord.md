@@ -69,8 +69,7 @@ username/avatar is a future polish). Delivery is exactly-once (the resident
 Discord relay engine's own `EgressMark`, seeded to the Log tail on first
 enable so turning it on never redelivers the backlog) — see
 [intercom.md](intercom.md#enabling-it) for the engine and
-[serve.md](serve.md) for the `runtime.discord.bot-token-cred` config that enables
-it .
+[serve.md](serve.md) for the `runtime.discord.bot-token-cred` config.
 
 **The reply loop:** when a human **replies** (Discord's own reply-to-message
 feature, not a bare follow-up post) to a studio's Discord post, Jam routes

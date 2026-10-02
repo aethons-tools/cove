@@ -68,11 +68,11 @@ The studio's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/cl
 
 `/squawks` (and `/escalate`) are always mounted: the intercom is always on, backed by the Postgres squawk Log (`store-postgres` is required — [serve.md](serve.md#the-serve-config)), with or without a [Requisitioner](requisitioner.md), so a [personal session](personal-sessions.md) can converse on a Jam with none. The Linear relay below still needs the Requisitioner's tracker; the Discord relay and wake-on do not.
 
-**Outbound is Log→egress (asynchronous, at-least-once).** A `send` appends the squawk to Jam's durable squawk Log and returns `204`; a resident egress loop then delivers it to Linear (≈ the egress poll interval later).  An append failure returns `502` (the append *is* the delivery). The Log entry — visible in the read-only [admin intercom view](ui.md#intercom) — appears as soon as it's appended, ahead of the Linear post landing.
+**Outbound is Log→egress (asynchronous, at-least-once).** A `send` appends the squawk to Jam's durable squawk Log and returns `204`; a resident egress loop then delivers it to Linear (≈ the egress poll interval later). An append failure returns `502` (the append *is* the delivery). The Log entry — visible in the read-only [admin intercom view](ui.md#intercom) — appears as soon as it's appended, ahead of the Linear post landing.
 
 **Read is Log-backed and tracker-independent.** `GET /squawks` returns the studio's **inbox** — the inbound squawks addressed to it (human replies), from Jam's durable squawk Log — not a live Linear query. It returns squawks sent **to** the studio (not the studio's own sent squawks), and reflects the Log from when ingestion began; pre-Log ticket history is not included. Because wake-on only wakes a studio once a reply is in the Log, the reply is always present by the time the studio reads.
 
-When a Requisitioner (its tracker) is configured, Jam also runs a resident **relay linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable squawks (the `send` path above) and posts them to Linear, at-least-once per squawk. Both directions are visible in the admin intercom view. **Wake-on (below) now reads replies from this Log**.
+When a Requisitioner (its tracker) is configured, Jam also runs a resident **relay linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable squawks (the `send` path above) and posts them to Linear, at-least-once per squawk. Both directions are visible in the admin intercom view. Wake-on reads replies from this Log.
 
 **Discord runs as a second, independent relay engine, egress AND ingress,** when `runtime.discord.bot-token-cred` is configured — with or without a Requisitioner — see [serve.md](serve.md#the-serve-config) for the config block. It shares the same Log and the same relay cursors/markers files (in [`state-dir`](serve.md#the-serve-config)) as the linear engine above, keyed separately (`EgressMark` is keyed by `Service()`, so `"linear"` and `"discord"` don't collide). On the outbound side it drains the Log's egressable squawks addressed to a discord-project's human DMs or discord roster channels — see [discord.md](discord.md) for delivery semantics; on first enable its egress mark is seeded to the Log's tail so turning it on never redelivers the Log's backlog to Discord. On the inbound side it polls the Discord inbox channels of **every project whose chat service is `discord`** (plus the Requisitioner's project, if any) and routes a human's **reply** (Discord's own reply-to-message feature) back to the studio whose squawk it replies to, appending it to the Log — see [discord.md](discord.md#egress-the-reply-loop) for the reply-loop mechanics, who a reply is attributed to,, the only-a-reply-routes constraint, and the unpruned-receipts caveat. Wake-on (below) picks up a routed Discord reply exactly like a Linear one.
 
@@ -136,8 +136,7 @@ idle studio whose lease-reaping is suspended (see [coves.md](coves.md) for the p
 chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
 on a subsequent tick once it's reconnected and reporting Live + `waiting` again.
 
-The engine always runs. Configure it
-under `runtime.wake`:
+The engine always runs and is configured under `runtime.wake`:
 
 ```yaml
 runtime:
