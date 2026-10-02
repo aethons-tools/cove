@@ -237,7 +237,7 @@ func serveSessionEvents(w http.ResponseWriter, r *http.Request, store sessioneve
 	defer sub.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, "retry: 3000\n\n")
 

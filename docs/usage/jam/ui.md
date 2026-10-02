@@ -161,10 +161,11 @@ for the backend-selection rule.
 
 `/ui/coves/{id}/session` (linked from the Studios table ID) shows a managed
 studio's agent session: a stream selector (current and past streams), header
-totals (turns, tool calls, tokens in/out, cost), and events grouped by turn
-(text, thinking, tool use/results expandable, results, gap and truncation
+totals (turns, tool calls, tokens in/out, cost), and a flat event list, each
+event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
 markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
-behind **show progress events**. It updates live over SSE. Storage, retention,
+behind **show progress events**. It updates live over SSE from `/ui/coves/{id}/session/events` (backfill, then
+live; reconnects resume via `Last-Event-ID`). Storage, retention,
 and sensitivity: [session-events.md](session-events.md).
 
 ## Editing (day-job mutations)

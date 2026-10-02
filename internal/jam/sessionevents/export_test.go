@@ -30,6 +30,9 @@ func TestExportNDJSONLatestStreamByDefault(t *testing.T) {
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/x-ndjson" {
 		t.Fatalf("%d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q", cc)
+	}
 	sc := bufio.NewScanner(rec.Body)
 	var lines []map[string]any
 	for sc.Scan() {

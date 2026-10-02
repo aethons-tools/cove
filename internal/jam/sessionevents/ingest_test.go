@@ -1,6 +1,8 @@
 package sessionevents_test
 
 import (
+	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -94,5 +96,12 @@ func TestIngestRejectsBadInput(t *testing.T) {
 	}
 	if _, err := ing.Append("w1", sessionevents.Stamp{}, sessionevents.Incoming{StreamID: sid, Seq: 0}); err != sessionevents.ErrBadSeq {
 		t.Fatalf("seq 0: %v", err)
+	}
+}
+
+func TestIngestRejectsSeqAboveMaxInt64(t *testing.T) {
+	ing, _, _ := newIngest(t, t.TempDir())
+	if _, err := ing.Append("w1", sessionevents.Stamp{}, in(uint64(math.MaxInt64)+1, `{}`)); !errors.Is(err, sessionevents.ErrBadSeq) {
+		t.Fatalf("err = %v, want ErrBadSeq", err)
 	}
 }

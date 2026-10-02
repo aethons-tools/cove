@@ -59,6 +59,21 @@ func TestSessionPageNotConfigured(t *testing.T) {
 	}
 }
 
+func TestSessionSSENoStore(t *testing.T) {
+	h, _, _, _ := sessionUI(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/ui/coves/w1/session/events", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { h.ServeHTTP(rec, req); close(done) }()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q", cc)
+	}
+}
+
 func TestSessionSSEBackfillThenLive(t *testing.T) {
 	h, _, _, ing := sessionUI(t)
 	ing.Append("w1", sessionevents.Stamp{}, sessIn(1, `{"type":"assistant","message":{"content":[{"type":"text","text":"first"}]}}`))

@@ -49,7 +49,7 @@ Selected at `at-jam serve` start, in this order:
 | Condition | Backend |
 |-----------|---------|
 | `store-postgres` set | Postgres table `session_events` (own migrations table `session_events_schema_migrations`, shared pool) |
-| else `session-events-dir` set | JSONL file per stream: `<dir>/<actor>/<stream>.jsonl` (dirs 0700, files 0600; a torn tail line is terminated before each append) |
+| else `session-events-dir` set | JSONL file per stream: `<dir>/<actor>/<stream>.jsonl` (dirs 0700, files 0600; a torn tail line is terminated before each append; durability is "written to the OS page cache" — no fsync, so a host crash can lose recent events) |
 | neither | no-op: events are acked and dropped. This is the kill switch. |
 
 | Key | Meaning |

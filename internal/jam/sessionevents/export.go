@@ -60,6 +60,7 @@ func ExportHandler(store Store) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-store")
 		enc := json.NewEncoder(w)
 		for _, e := range evs {
 			if err := enc.Encode(e); err != nil {

@@ -2,13 +2,14 @@ package sessionevents
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 )
 
 var (
 	ErrBadStreamID = errors.New("sessionevents: invalid stream id")
-	ErrBadSeq      = errors.New("sessionevents: seq must be >= 1")
+	ErrBadSeq      = errors.New("sessionevents: seq must be in [1, MaxInt64]")
 )
 
 // Incoming is one event as received from a cove (already authenticated to an
@@ -47,7 +48,7 @@ func (in *Ingest) Append(actorID string, stamp Stamp, ev Incoming) (uint64, erro
 	if !ValidStreamID(ev.StreamID) {
 		return 0, ErrBadStreamID
 	}
-	if ev.Seq == 0 {
+	if ev.Seq == 0 || ev.Seq > math.MaxInt64 { // Postgres stores seq as bigint
 		return 0, ErrBadSeq
 	}
 	in.mu.Lock()
