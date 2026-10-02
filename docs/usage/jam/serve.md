@@ -161,7 +161,7 @@ startup log names only the host and database).
 
 For a local Postgres to develop against (matching this schema and the CI
 integration setup), see [`dev/`](../../../dev/README.md) — a `docker compose`
-that raises a `postgres:17` on `localhost:15432` with database/user `jam`,
+that raises a `postgres:18` on `localhost:15432` with database/user `jam`,
 plus a sample dev serve config (`dev/jam.dev.yml`) wired to it.
 
 **The allocation event store is AUTHORITATIVE for the cap.** Jam always runs an
