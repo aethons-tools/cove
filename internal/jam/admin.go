@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -271,9 +270,6 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	// Every read-modify-write of a Role (role put, standing, egress) takes this
-	// lock, so no writer can drop another's change.
-	var roleMu sync.Mutex
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -463,13 +459,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
-		roleMu.Lock()
-		defer roleMu.Unlock()
-		if existing, ok := store.GetRole(b.Project, b.Name); ok {
-			role.Allocation.Standing = existing.Allocation.Standing
-			role.Scope.Egress = existing.Scope.Egress
-		}
-		if err := store.PutRole(b.Project, role); err != nil {
+		if err := PutRoleKeeping(store, b.Project, role); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -778,8 +768,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	registerStanding(mux, store, log, &roleMu)
-	registerEgress(mux, store, log, &roleMu)
+	registerStanding(mux, store, log)
+	registerEgress(mux, store, log)
 
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if ui == nil && me == nil {
