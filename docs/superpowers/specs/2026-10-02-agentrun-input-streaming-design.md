@@ -2,7 +2,10 @@
 
 **Status:** design approved in conversation (2026-10-02); written spec awaiting review
 **Scope:** cove-master's agent wrapper (`internal/agentrun`) plus the operator session-UI
-totals (`internal/jam/adminui/session.go`). No proto, Jam supervisor, or covemaster change.
+totals (`internal/jam/adminui/session.go`), and the Jam wake-on baseline (see
+[3b](#3b-wakes-reach-a-held-episode-jam-side), added after review; it lands first as its own PR,
+`fix/jam-wake-running-coves`).
+No proto or covemaster change.
 **Problem:** every agent turn is a fresh `claude -p … <prompt>` process. When it ends its
 turn the process exits and **kills any background work** it started (`run_in_background`
 Bash, background subagents, Monitors). The agent therefore cannot use Claude Code's
@@ -99,6 +102,26 @@ notification keeps the episode on hold; the `BackgroundWait` cap is the backstop
 
 `Control` is unchanged: it still does a non-blocking send on `w.wake`. `Run`'s episode
 loop selects on `w.wake` while the process is alive and hands it to the tracker.
+
+### 3b. Wakes reach a held episode (Jam side)
+
+*Added after review.* While an episode holds stdin open the cove has reported only
+`Running`, and Jam's wake-on engine originally woke only `Waiting` coves; worse, entering
+`Waiting` re-baselined `WaitSeq` to the log tail, past any reply that landed during the
+hold — so an owner's reply to "server is up, tell me what to change" was lost for good.
+Fix:
+
+- `WaitSeq` is baselined to the tail **when a run starts** (at `Raise`, and on entering
+  `Running`) — the starting agent reads its inbox itself — and is **kept** on entering
+  `Waiting`.
+- The wake-on engine (`SetRunningWake`) also checks **Live, `Running`** coves: a reply past
+  `WaitSeq` sends a Wake (written into the live process between turns, coalesced
+  mid-turn) and advances `WaitSeq` past it. Running coves are never paused or reaped.
+- A reply that lands mid-run and is not woken for before the episode exits still wakes the
+  cove once it reports `Waiting`.
+
+A reply the agent already `read` during its turn may cost one extra (cheap) resume turn;
+losing a reply is the worse failure.
 
 ### 4. One episode (inside `Run`'s existing loop)
 
