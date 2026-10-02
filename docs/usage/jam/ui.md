@@ -4,7 +4,7 @@ read_when: You want to watch a running Jam in a browser — the live studio flee
 owns: the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -162,11 +162,17 @@ for the backend-selection rule.
 Beyond viewing, the UI can do the roster day-job — the same actions as the CLI
 verbs in [roster.md](roster.md):
 
-- **Enroll** an actor (id, project, role, optional destination/repo overrides).
+- **Enroll** an actor (id, project, role, optional destination overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
 - **Revoke** an actor, **create/delete** a role, and **add/remove** a grant.
+- Destination fields (role, enroll/grant overrides) take the CLI's
+  `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
+  or a mapping for a destination not in scope is rejected. Tables show
+  destination names only — credential names are never rendered in the UI, so
+  re-saving a role with a bare destination name **keeps** its existing mapping
+  (use the CLI's `role list` to see mappings, and `role add` to clear one).
 
 Every change obeys the same gate as the views (loopback, or an off-loopback
 session with `require-scope`) and is recorded in Jam's audit log against the
@@ -210,7 +216,7 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
   existing version, and delete a kit. A kit still referenced by a role cannot be
   deleted (the UI reports a conflict). See [kits.md](kits.md).
 - **Destinations** — add a brokered destination (name, route, upstream,
-  identity-in, cred-name, apply, repo-scoped) and remove one. A `cred-name` must
+  identity-in, cred-name, apply) and remove one. A `cred-name` must
   resolve to a configured credential, or the add is rejected. See
   [serve.md#destinations](serve.md#destinations).
 

@@ -41,7 +41,7 @@ func New(baseURL, token string) *Client {
 	return &Client{base: strings.TrimRight(baseURL, "/"), token: token, httpc: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// EnrollParams are the inputs to an enrollment. Scope (destinations/repos/TTL)
+// EnrollParams are the inputs to an enrollment. Scope (destinations/TTL)
 // comes from the named role, not from enrollment-time params.
 type EnrollParams struct {
 	ID      string
@@ -121,7 +121,7 @@ func (c *Client) RemoveDestination(name string) error {
 func (c *Client) PutRole(project string, r jam.Role) error {
 	return c.do("POST", "/admin/roles", jam.RoleBody{
 		Project: project, Name: r.Name,
-		Destinations: r.Scope.Destinations, Repos: r.Scope.Repos, Addressing: r.Scope.Addressing,
+		Destinations: r.Scope.Destinations, Credentials: r.Scope.Credentials, Addressing: r.Scope.Addressing,
 		TTLSeconds:          int64(r.Scope.TTL / time.Second),
 		Kit:                 r.Kit,
 		MaxEphemeral:        r.Allocation.MaxEphemeral,
@@ -146,7 +146,7 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 	roles := make([]jam.Role, 0, len(out))
 	for _, rs := range out {
 		roles = append(roles, jam.Role{Name: rs.Name, Kit: rs.Kit, Scope: jam.Scope{
-			Destinations: rs.Destinations, Repos: rs.Repos, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
+			Destinations: rs.Destinations, Credentials: rs.Credentials, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
 		}, Allocation: jam.RoleAllocation{
 			MaxEphemeral: rs.MaxEphemeral, MaxPersonal: rs.MaxPersonal, MaxPersonalPerOwner: rs.MaxPersonalPerOwner,
 			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,

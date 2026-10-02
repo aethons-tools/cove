@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a Jam — defining roles, sett
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-02
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -14,8 +14,10 @@ Jam authorizes every brokered request against a **role-based** model:
 - **Actor** — one enrolled identity (an `id` + a minted token). A studio or a
   standing teammate is an Actor. Jam stores only the token *hash*.
 - **Role** — a named, reusable security class within a **Project** (a namespace).
-  A Role owns the **scope**: which `destinations` it may reach, which `repos`
-  (globs, for repo-scoped destinations), which comms `addressing` targets it may
+  A Role owns the **scope**: which `destinations` it may reach, the
+  **credential** the broker injects for each (`credentials`; a destination
+  without one uses its own default `cred-name` — see
+  [serve.md](serve.md#destinations)), which comms `addressing` targets it may
   message (globs, e.g. `human:*`; comms plane — see
   [comms-addressing.md](comms-addressing.md)), a default token `ttl`, and
   optionally a bound **kit** (see [kits.md](kits.md)).
@@ -23,10 +25,13 @@ Jam authorizes every brokered request against a **role-based** model:
   several grants (e.g. a human or a standing manager across projects).
 
 At request time the broker resolves an Actor's scope **additively across its
-grants, per-grant**: a request for `(destination, repo)` is allowed iff *some one
-grant* authorizes that whole pair — one grant's destination never recombines with
-another grant's repos. Everything is **fail-closed**: an unknown actor, a grant
-whose role was deleted, or a request outside scope is denied. A missing `--project`
+grants**: a request for a destination is allowed iff *some* grant lists it, and
+the injected credential is that grant's mapping. Two grants that allow the same
+destination but map it to **different** credentials deny the request rather than
+pick one. Jam does no per-repo policy: what a credential can reach is the
+credential's own scope (e.g. a fine-grained PAT per project). Everything is
+**fail-closed**: an unknown actor, a grant whose role was deleted, a credential
+conflict, or a request outside scope is denied. A missing `--project`
 defaults to the `default` project.
 
 All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); see
@@ -36,7 +41,7 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 
 ```
 at-jam role add --project acme --name guest \
-  --destinations anthropic,git --repos 'aethons-tools/*' --ttl 24h
+  --destinations anthropic,git=git-pat-acme --ttl 24h
 at-jam role add --project acme --name reviewer --destinations anthropic --kit review-kit
 at-jam role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
 at-jam role add --project acme --name pair --destinations anthropic,git \
@@ -45,11 +50,18 @@ at-jam role list [--project acme]
 at-jam role rm   [--project acme] guest
 ```
 
-- `--destinations` / `--repos` are comma-separated; `--repos` are `owner/repo`
-  globs matched only for repo-scoped destinations.
+- `--destinations` is comma-separated; each entry is a destination name,
+  optionally `name=credential` to pick the credential the broker injects for it
+  (a bare name uses the destination's default `cred-name`). `role list` and
+  `roster` print the same syntax.
+- A role's per-destination credentials travel on the admin API as
+  `credentials` (`{"git": "git-pat-acme"}`) on role put/list, on each roster
+  grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
+  Writes are rejected (400) when a mapping names a destination the scope
+  doesn't allow, or a credential the serve config doesn't declare.
 - `--addressing` (comma-separated comms target globs, e.g. `human:*,channel:eng-help`)
   scopes which comms targets the role's actors may `send(to=…)`. This is a
-  separate plane from `destinations`/`repos`; see
+  separate plane from `destinations`; see
   [comms-addressing.md](comms-addressing.md) for the target space and the
   Project's roster of humans/channels the globs resolve against.
 - `--ttl` is the default identity lifetime applied at enrollment (`0` = no
@@ -151,7 +163,7 @@ go — which is how a standing teammate or a human accretes access over time.
 
 `enroll` creates an Actor with its first grant and mints its token once. Scope
 comes from the **role** (enrollment is role-required — there are no inline
-destination/repo/ttl flags):
+destination/ttl flags):
 
 ```
 at-jam enroll --id spider-18 --project acme --role guest        # prints the connector snippet
@@ -178,7 +190,7 @@ at-jam revoke --id spider-18                                    # removes the wh
 at-jam roster
 ```
 
-Lists every Actor with its grants and each grant's **effective** destinations/repos
+Lists every Actor with its grants and each grant's **effective** destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in

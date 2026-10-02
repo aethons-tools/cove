@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store/store-postgres/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # Running Jam (`at-jam serve`)
@@ -229,7 +229,7 @@ at-jam destination add \
   --identity-in x-api-key --cred-name anthropic-key --apply x-api-key
 at-jam destination add \
   --name git --route /git/ --upstream https://github.com \
-  --identity-in basic-password --cred-name git-pat --apply basic-password --repo-scoped
+  --identity-in basic-password --cred-name git-pat --apply basic-password
 at-jam destination list
 at-jam destination rm <name>
 at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
@@ -237,14 +237,41 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 
 - `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —
   how the studio presents its identity, and how Jam applies the real credential.
-- `--repo-scoped` marks a git-style destination whose path is `<route>/<owner>/<repo>/…`,
-  so a role's `repos` globs can scope it.
 - `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
   forwarded requests — required for the subscription [pool](pool.md) (a cove on
   `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
   pool resolves by identity, not from `credentials:`). Validated at add time.
+  It is the destination's **default** credential: a role may map the
+  destination to a different one ([roster.md](roster.md)).
+- **No repo policy.** Jam does not scope a git destination by `owner/repo`; the
+  injected credential's own scope is the boundary. Use a fine-grained PAT per
+  project (one `credentials:` entry each) and map it per role.
+  **Upgrading from a repo-scoped Jam widens access:** a role that relied on
+  `--repos` to narrow a broad PAT gets that PAT's full reach — re-scope the
+  credentials before upgrading. Stored `repo_scoped`/`repos` keys are ignored.
+
+### GitHub API for `gh`
+
+`gh` can reach the GitHub API through the broker by treating Jam as a GitHub
+Enterprise host. It then calls `/api/v3/…` (REST) and `/api/graphql`, sending
+`Authorization: token <x>` — which the broker accepts as a bearer identity.
+Two plain destinations cover it (route-prefix stripping yields the right
+upstream paths; the longer `/api/v3/` route wins for REST):
+
+```
+at-jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
+  --identity-in bearer --cred-name gh-pat --apply bearer
+at-jam destination add --name github-graphql --route /api/ --upstream https://api.github.com \
+  --identity-in bearer --cred-name gh-pat --apply bearer
+at-jam role add --project acme --name dev \
+  --destinations anthropic,git=gh-pat-acme,github-api=gh-pat-acme,github-graphql=gh-pat-acme
+```
+
+In the studio: `GH_HOST=<jam host>` and `GH_ENTERPRISE_TOKEN=$AT_JAM_IDENTITY_TOKEN`.
+Only the API is brokered this way — clone/push with plain `git` (the `/git/`
+destination), not `gh repo clone`.
 
 These admin verbs take the standard client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).

@@ -1,9 +1,6 @@
 package jam
 
-import (
-	"path"
-	"strings"
-)
+import "strings"
 
 // ApplyMethod is how a credential (the inbound identity token, or the outbound
 // real credential) is carried on an HTTP request.
@@ -24,7 +21,6 @@ type Destination struct {
 	IdentityIn ApplyMethod `json:"identity_in" yaml:"identity_in"`
 	CredName   string      `json:"cred_name"   yaml:"cred_name"`
 	Apply      ApplyMethod `json:"apply"       yaml:"apply"`
-	RepoScoped bool        `json:"repo_scoped" yaml:"repo_scoped"`
 	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
 	// present in the forwarded `anthropic-beta` header. Used by the subscription
 	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
@@ -48,25 +44,4 @@ func (c Config) Match(reqPath string) (Destination, bool) {
 		}
 	}
 	return bestDest, best >= 0
-}
-
-// RepoFromPath extracts "owner/repo" from a repo-scoped path after the route:
-// route "/git/", path "/git/acme/api.git/info/refs" → "acme/api".
-func RepoFromPath(route, reqPath string) (string, bool) {
-	rest := strings.TrimPrefix(reqPath, route)
-	parts := strings.SplitN(rest, "/", 3)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", false
-	}
-	return parts[0] + "/" + strings.TrimSuffix(parts[1], ".git"), true
-}
-
-// repoAllowed reports whether ownerRepo matches any glob in allowed.
-func repoAllowed(ownerRepo string, allowed []string) bool {
-	for _, g := range allowed {
-		if ok, _ := path.Match(g, ownerRepo); ok {
-			return true
-		}
-	}
-	return false
 }

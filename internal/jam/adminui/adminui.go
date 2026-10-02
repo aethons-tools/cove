@@ -46,7 +46,6 @@ type roleRow struct {
 	Project      string
 	Name         string
 	Destinations []string
-	Repos        []string
 	TTL          time.Duration
 	Kit          string
 }
@@ -57,8 +56,8 @@ func roleRows(store jam.Store) []roleRow {
 		for _, r := range store.ListRoles(p) {
 			out = append(out, roleRow{
 				Project: p, Name: r.Name,
-				Destinations: r.Scope.Destinations, Repos: r.Scope.Repos,
-				TTL: r.Scope.TTL, Kit: r.Kit,
+				Destinations: r.Scope.Destinations,
+				TTL:          r.Scope.TTL, Kit: r.Kit,
 			})
 		}
 	}

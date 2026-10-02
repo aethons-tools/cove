@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-02
 ---
 
 # at-cove `config.yml`
@@ -398,7 +398,7 @@ jam:
 **Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
 at-cove auto-enrolls the cove: it shells a sibling `at-jam enroll` at session
 start to mint a fresh per-cove identity (id = the instance name, role `guest`;
-destinations, repos, and TTL all come from that role, not from this config) and
+destinations, credentials, and TTL all come from that role, not from this config) and
 `at-jam revoke`s it on exit. This needs the launching host to have `at-jam`
 reachable to Jam's admin API **and** an operator credential (`at-jam login` or
 `AT_JAM_ADMIN_TOKEN`). When that's not available (e.g. Jam isn't co-located),
@@ -407,9 +407,9 @@ token is delivered env-only.
 
 > **Role prerequisite.** An auto-enrolling cove (no `jam.identity`) enrolls into
 > the `guest` role of Jam's default project; the operator must create it first,
-> e.g. `at-jam role add --name guest --destinations anthropic,git --repos
-> 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
-> into it — per-cove repo narrowing is a planned follow-up, not available yet.
+> e.g. `at-jam role add --name guest --destinations anthropic,git --ttl 24h`.
+> The role's scope governs every cove that enrolls into it; repo reach is the
+> mapped git credential's own scope.
 > **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
 > that never expire. See [jam/roster.md](jam/roster.md) for the role/enroll
 > surface and [jam/INDEX.md](jam/INDEX.md) for running Jam itself.

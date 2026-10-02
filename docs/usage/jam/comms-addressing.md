@@ -4,7 +4,7 @@ read_when: You want a studio's agent to send to someone other than its own ticke
 owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-09-28
+updated: 2026-10-02
 ---
 
 # Comms addressing (target space & access-graph)
@@ -21,7 +21,7 @@ A target is a **kind-prefixed name**: `human:<name>` or `channel:<name>` (e.g.
 **malformed** and always denied.
 
 Addressing allow-lists (`Scope.Addressing`, below) are **glob-capable**, matched
-with `path.Match` exactly like `Scope.Repos`: `human:*` (any human), `channel:eng-*`
+with `path.Match`: `human:*` (any human), `channel:eng-*`
 (channels by prefix), `*` (everything). Globs match only within their kind — a
 glob never crosses `human:`/`channel:` implicitly; write both prefixes if you mean
 both.
@@ -77,15 +77,15 @@ Discord egress, the reply loop, and who a Discord reply is attributed to live in
 ## The comms access-graph
 
 A `Role`'s `Scope` gains `Addressing []string` — an allow-list of target globs,
-alongside `Destinations`/`Repos`. A `Grant`'s `Override.Addressing`, when set,
-**replaces** the role's addressing (no merge — same semantics as `Override.Repos`).
+alongside `Destinations`. A `Grant`'s `Override.Addressing`, when set,
+**replaces** the role's addressing (no merge — same semantics as `Override.Destinations`).
 Set it at role-creation with `role add --addressing`:
 
 ```
 at-jam role add --project acme --name impl --addressing 'human:*,channel:eng-help'
 ```
 
-`--addressing` is a comma-separated list of globs, mirroring `--destinations`/`--repos`.
+`--addressing` is a comma-separated list of globs, mirroring `--destinations`.
 
 **Authorization mirrors the broker's `Decide`:** resolved live at send time,
 **additive across an actor's grants**, **per-grant existential** — a target must

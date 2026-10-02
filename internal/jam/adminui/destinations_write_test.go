@@ -75,7 +75,7 @@ func TestDestinationWriteCSRF(t *testing.T) {
 }
 
 // TestAddDestinationNoCredLeak asserts the destinations-table fragment
-// returned by a successful add shows only name/route/upstream/repo-scoped,
+// returned by a successful add shows only name/route/upstream,
 // never the cred-name value. Uses a dedicated credExists stub (rather than
 // the shared credOK, which only accepts "known-cred") so the add succeeds
 // with a distinctive cred-name.

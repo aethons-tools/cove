@@ -62,14 +62,14 @@ func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword, RepoScoped: true}); err != nil {
+	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	ds, err := c.ListDestinations()
 	if err != nil || len(ds) != 1 || ds[0].Name != "git" {
 		t.Fatalf("ListDestinations = %+v, %v", ds, err)
 	}
-	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"git"}, Repos: []string{"acme/*"}}}); err != nil {
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	res, err := c.Enroll(EnrollParams{ID: "spider-18", Project: "ACME", Role: "guest"})
@@ -139,7 +139,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 		gotBody = string(b)
 		switch {
 		case r.URL.Path == "/admin/roles" && r.Method == "GET":
-			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"repos":["acme/*"],"ttl_seconds":3600}]`))
+			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"credentials":{"anthropic":"anthropic-sub"},"repos":["acme/*"],"ttl_seconds":3600}]`))
 		case r.URL.Path == "/admin/projects":
 			_, _ = w.Write([]byte(`["acme"]`))
 		case r.URL.Path == "/admin/roster":
@@ -151,14 +151,14 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Repos: []string{"acme/*"}, TTL: time.Hour}}); err != nil {
+	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Credentials: map[string]string{"anthropic": "anthropic-sub"}, TTL: time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
-	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) {
+	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) || !strings.Contains(gotBody, `"credentials":{"anthropic":"anthropic-sub"}`) {
 		t.Fatalf("PutRole wire = %s %s %s", gotMethod, gotPath, gotBody)
 	}
 	roles, err := c.ListRoles("acme")
-	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour {
+	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour || roles[0].Scope.Credentials["anthropic"] != "anthropic-sub" {
 		t.Fatalf("ListRoles = %+v, %v", roles, err)
 	}
 	if gotPath != "/admin/roles?project=acme" {

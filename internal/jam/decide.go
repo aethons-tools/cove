@@ -25,38 +25,51 @@ func EffectiveScope(g Grant, r Role) Scope {
 		if g.Overrides.Destinations != nil {
 			s.Destinations = g.Overrides.Destinations
 		}
-		if g.Overrides.Repos != nil {
-			s.Repos = g.Overrides.Repos
-		}
 		if g.Overrides.Addressing != nil {
 			s.Addressing = g.Overrides.Addressing
+		}
+		if g.Overrides.Credentials != nil {
+			s.Credentials = g.Overrides.Credentials
 		}
 	}
 	return s
 }
 
+// CredentialFor is the credential name this scope injects for d: the scope's
+// mapping when set, else the destination's default.
+func (s Scope) CredentialFor(d Destination) string {
+	if c := s.Credentials[d.Name]; c != "" {
+		return c
+	}
+	return d.CredName
+}
+
 // Decide answers, for an actor and the effective scopes its grants resolve to,
-// whether (dest, ownerRepo) is permitted, and which credential to inject. It is
-// additive across grants but per-grant existential: a request passes iff SOME
-// single scope authorizes the whole (destination, repo) pair — so one grant's
-// destination never recombines with another grant's repos. Fails closed.
-func Decide(a Actor, scopes []Scope, dest Destination, ownerRepo string, now time.Time) (Decision, error) {
+// whether dest is permitted, and which credential to inject. It is additive
+// across grants: a request passes iff SOME scope lists the destination. The
+// credential comes from the authorizing scope; grants that authorize the
+// destination but map it to different credentials deny rather than pick one.
+// Repo reach is the injected credential's own scope, not broker policy.
+// Fails closed.
+func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision, error) {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return Decision{}, fmt.Errorf("actor %q expired", a.ID)
 	}
-	if dest.RepoScoped && ownerRepo == "" {
-		return Decision{}, fmt.Errorf("destination %q requires owner/repo", dest.Name)
-	}
+	cred, found := "", false
 	for _, s := range scopes {
 		if !slices.Contains(s.Destinations, dest.Name) {
 			continue
 		}
-		if dest.RepoScoped && !repoAllowed(ownerRepo, s.Repos) {
-			continue
+		c := s.CredentialFor(dest)
+		if found && c != cred {
+			return Decision{}, fmt.Errorf("actor %q: grants map destination %q to different credentials", a.ID, dest.Name)
 		}
-		return Decision{Dest: dest, NeedCred: dest.CredName != "", CredName: dest.CredName, Apply: dest.Apply}, nil
+		cred, found = c, true
 	}
-	return Decision{}, fmt.Errorf("actor %q not authorized for destination %q", a.ID, dest.Name)
+	if !found {
+		return Decision{}, fmt.Errorf("actor %q not authorized for destination %q", a.ID, dest.Name)
+	}
+	return Decision{Dest: dest, NeedCred: cred != "", CredName: cred, Apply: dest.Apply}, nil
 }
 
 // SendTarget is a resolved comms recipient: how Jam should deliver a send.

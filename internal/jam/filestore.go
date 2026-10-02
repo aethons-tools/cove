@@ -91,7 +91,6 @@ type legacyIdentity struct {
 	Project      string    `json:"project"`
 	Role         string    `json:"role"`
 	Destinations []string  `json:"destinations"`
-	Repos        []string  `json:"repos"`
 	Expiry       time.Time `json:"expiry"`
 }
 
@@ -195,17 +194,17 @@ func (fs *FileStore) migrateIdentities(legacy map[string]legacyIdentity) {
 		}
 		existing, ok := fs.roles[project][role]
 		if !ok {
-			existing = Role{Name: role, Scope: Scope{Destinations: li.Destinations, Repos: li.Repos}}
+			existing = Role{Name: role, Scope: Scope{Destinations: li.Destinations}}
 			fs.roles[project][role] = existing
 		}
 		g := Grant{Project: project, Role: role}
-		if !sameStrings(existing.Scope.Destinations, li.Destinations) || !sameStrings(existing.Scope.Repos, li.Repos) {
+		if !sameStrings(existing.Scope.Destinations, li.Destinations) {
 			// EffectiveScope treats a nil override field as "inherit the role's
 			// value" — but a legacy identity's nil/empty field means deny-all for
 			// that field, not inherit. Coerce to a non-nil empty slice so the
 			// override REPLACES rather than inherits, preserving the identity's
 			// exact original scope regardless of map-iteration order.
-			g.Overrides = &Override{Destinations: nonNilStrings(li.Destinations), Repos: nonNilStrings(li.Repos)}
+			g.Overrides = &Override{Destinations: nonNilStrings(li.Destinations)}
 		}
 		fs.actors[li.TokenHash] = Actor{ID: li.ID, TokenHash: li.TokenHash, Expiry: li.Expiry, Grants: []Grant{g}}
 	}

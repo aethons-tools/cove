@@ -829,10 +829,10 @@ identity token for Jam's real Anthropic/git credentials, plus a loopback admin
 API; `enroll`/`revoke`/`destination`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are
 admin-API clients that manage actors, roles, grants, destinations, and kits at
 runtime against one live file-backed store — no restart. An actor is granted
-roles within projects, a role owns the security scope (`destinations`/`repos`/`ttl`)
+roles within projects, a role owns the security scope (`destinations` and the credential injected for each, `ttl`)
 and, optionally, a named kit (resolved to that kit's current version); the broker
-authorizes each request additively across the actor's grants (per-grant
-existential — no cross-grant repo bleed); `enroll` is role-required, with scope
+authorizes each request additively across the actor's grants (conflicting
+credentials across grants deny); `enroll` is role-required, with scope
 coming from the role rather than inline flags. See the
 [Jam actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
 and the [Jam kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).

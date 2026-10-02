@@ -3,8 +3,7 @@
 <form hx-post="/ui/roles" hx-target="#roles" hx-swap="outerHTML">
   <input name="project" placeholder="project (default)">
   <input name="name" placeholder="role name" required>
-  <input name="destinations" placeholder="destinations (comma-separated)">
-  <input name="repos" placeholder="repos (comma-separated)">
+  <input name="destinations" placeholder="destinations (e.g. git=git-pat,anthropic)">
   <input name="ttl-seconds" placeholder="ttl seconds">
   <input name="kit" placeholder="kit (optional)">
   <button type="submit">Add role</button>
@@ -16,12 +15,11 @@
 
 {{define "roles-table"}}
 <table id="roles">
-  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>Repos</th><th>TTL</th><th>Kit</th><th>Actions</th></tr></thead>
+  <thead><tr><th>Project</th><th>Role</th><th>Destinations</th><th>TTL</th><th>Kit</th><th>Actions</th></tr></thead>
   <tbody>
     {{range .Roles}}
     <tr><td>{{.Project}}</td><td>{{.Name}}</td>
       <td>{{range .Destinations}}{{.}} {{end}}</td>
-      <td>{{range .Repos}}{{.}} {{end}}</td>
       <td>{{.TTL}}</td><td>{{if .Kit}}{{.Kit}}{{else}}—{{end}}</td>
       <td>{{if $.CanRequest}}<button hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#role-request-msg" hx-swap="innerHTML"
               hx-on::response-error="document.getElementById('role-request-msg').innerHTML = event.detail.xhr.responseText"
