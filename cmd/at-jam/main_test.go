@@ -54,7 +54,7 @@ func mustCreateProject(t *testing.T, store jam.Store, names ...string) {
 }
 
 func TestEnrollCommandJSON(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestEnrollCommandJSON(t *testing.T) {
 }
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git", "github-api"}}}); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestEnrollRejectsScopeFlags(t *testing.T) {
 }
 
 func TestRoleGrantUngrantRosterCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "P")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -230,7 +230,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 }
 
 func TestProjectRosterCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -387,10 +387,10 @@ func TestProjectRosterCommands(t *testing.T) {
 }
 
 // TestProjectEscalationCommands exercises `project escalation set|list|clear`
-// end-to-end through httptest.Server + FileStore, including the --tier
+// end-to-end through httptest.Server + MemStore, including the --tier
 // 'targets@timeout' parse and its missing-'@' error.
 func TestProjectEscalationCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -450,7 +450,7 @@ func TestProjectEscalationCommands(t *testing.T) {
 // set/list/clear: setting a category chain alongside the default, listing both,
 // then clearing just the category and confirming the default survives.
 func TestProjectEscalationCategoryCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -512,9 +512,9 @@ func TestProjectEscalationCategoryCommands(t *testing.T) {
 }
 
 // TestProjectChatServiceCommands exercises `project chat-service
-// set|show|clear` end-to-end through httptest.Server + FileStore.
+// set|show|clear` end-to-end through httptest.Server + MemStore.
 func TestProjectChatServiceCommands(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "p")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -582,7 +582,7 @@ func TestProjectChatServiceCommands(t *testing.T) {
 // --delivery service:address` (repeatable) end-to-end, including its
 // malformed-input errors.
 func TestProjectRosterAddHumanDelivery(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -644,7 +644,7 @@ func TestProjectRosterAddHumanDelivery(t *testing.T) {
 // malformed value exits 2 with the roster unchanged, and `roster list` shows
 // the bindings.
 func TestProjectRosterAddHumanOIDC(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -715,7 +715,7 @@ func TestProjectRosterAddHumanOIDC(t *testing.T) {
 // Discord user id; it must be all digits, and only discord accepts it. `roster
 // list` shows the binding.
 func TestProjectRosterAddHumanDiscordUser(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -798,7 +798,7 @@ func TestKitPushRejectsMalformedConfig(t *testing.T) {
 }
 
 func TestKitCommandsRoundTrip(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -935,7 +935,7 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 // this test wires one with a fake Launcher. It also pins down the "never
 // print the identity token" constraint on `studio raise`.
 func TestStudioCommandsRoundTrip(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	if err := store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1039,7 +1039,7 @@ func (grantAllSessions) RecordRelease(context.Context, string, string, string) e
 // TestSessionCommandsRoundTrip exercises `session request|list|release` end to
 // end. The loopback operator is "local", so alice is linked to that login.
 func TestSessionCommandsRoundTrip(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "pair", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
@@ -1149,7 +1149,7 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 // `standing add|list|rm` declare, list and dismiss a role's standing sessions;
 // the prompt is read from a file host-side, and the role's other fields are kept.
 func TestStandingCommandsRoundTrip(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
@@ -1220,7 +1220,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 // `egress set|show|clear` manage a role's egress policy; `role list` shows it
 // (kit default, none, or the list), and the role's other fields are kept.
 func TestEgressCommandsRoundTrip(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
 		t.Fatal(err)
@@ -1304,7 +1304,7 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 }
 
 func TestKitPushPacksContextDir(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
@@ -1370,7 +1370,7 @@ func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
 }
 
 func TestRoleAddDestinationCredentials(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	mustCreateProject(t, store, "P")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -1395,7 +1395,7 @@ func TestRoleAddDestinationCredentials(t *testing.T) {
 }
 
 func TestDestinationAddEnvAndGit(t *testing.T) {
-	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
+	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()

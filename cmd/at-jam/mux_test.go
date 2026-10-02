@@ -166,10 +166,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 // intercom log — with or without a Requisitioner — and leaves the broker alone
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
-	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := jam.NewMemStore()
 	lg, err := intercom.Open(filepath.Join(t.TempDir(), "log.jsonl"), nil)
 	if err != nil {
 		t.Fatal(err)

@@ -10,10 +10,7 @@ import (
 
 func newRoleStore(t *testing.T) Store {
 	t.Helper()
-	st, err := NewFileStore(t.TempDir() + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	return st
 }
 

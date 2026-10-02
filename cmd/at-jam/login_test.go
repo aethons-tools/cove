@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,10 +48,7 @@ func fakeAuth0(t *testing.T, sub string) *httptest.Server {
 // given issuer.
 func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
 	t.Helper()
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: "openid"}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -180,10 +176,7 @@ func TestEnvTokenShadowWarning(t *testing.T) {
 
 func TestLoginNotOIDCGated(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	// nil login config → /admin/login-config 404
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)

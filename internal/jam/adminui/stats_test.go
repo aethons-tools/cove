@@ -8,10 +8,7 @@ import (
 )
 
 func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
-	st, err := jam.NewFileStore(t.TempDir() + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := jam.NewMemStore()
 	if err := st.CreateProject("acme"); err != nil {
 		t.Fatal(err)
 	}

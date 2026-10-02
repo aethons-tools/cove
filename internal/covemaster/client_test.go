@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,10 +43,7 @@ func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStat
 // raised actor's token + launch secret.
 func serverHarness(t *testing.T) (jam.Store, *attach.Server, grpc.DialOption, string, string) {
 	t.Helper()
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	_, tok, secret, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})

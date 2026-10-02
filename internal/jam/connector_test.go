@@ -2,16 +2,12 @@ package jam
 
 import (
 	"maps"
-	"path/filepath"
 	"testing"
 )
 
 func connectorStore(t *testing.T, dests []Destination, roles map[string]Scope) Store {
 	t.Helper()
-	st, err := NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	for _, d := range dests {
 		if err := st.AddDestination(d); err != nil {
 			t.Fatal(err)

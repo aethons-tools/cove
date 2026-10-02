@@ -9,10 +9,7 @@ import (
 // Every list read returns a deterministic order (sorted by its key), so the
 // UI and API render stably across polls instead of in Go map order.
 func TestListsAreSortedByKey(t *testing.T) {
-	st, err := NewFileStore(t.TempDir() + "/store.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	mustCreateProject(t, st, "acme")
 	names := []string{"m", "c", "x", "a", "q", "f", "z", "b"}
 	for _, n := range names {

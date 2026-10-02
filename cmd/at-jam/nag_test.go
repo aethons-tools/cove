@@ -173,9 +173,9 @@ func TestFormatIdle(t *testing.T) {
 	}
 }
 
-// nagRosterStore is a real FileStore with a discord project whose owner alice
+// nagRosterStore is a real MemStore with a discord project whose owner alice
 // has a discord inbox, holding the personal session's Instance.
-func nagRosterStore(t *testing.T) *jam.FileStore {
+func nagRosterStore(t *testing.T) *jam.MemStore {
 	t.Helper()
 	st := newTestStore(t)
 	mustCreateProject(t, st, "acme")

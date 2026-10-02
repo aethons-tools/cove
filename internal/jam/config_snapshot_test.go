@@ -3,20 +3,16 @@ package jam
 import (
 	"bytes"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// populated returns a FileStore with one entry in every config aggregate AND in
+// populated returns a MemStore with one entry in every config aggregate AND in
 // the excluded state (an instance + an unread cursor), so a test can assert the
 // export includes config and excludes state.
-func populated(t *testing.T) *FileStore {
+func populated(t *testing.T) *MemStore {
 	t.Helper()
-	s, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewMemStore()
 	if err := s.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +82,7 @@ func TestImportConfigRoundTripFidelity(t *testing.T) {
 	src := populated(t)
 	snap := src.ExportConfig()
 
-	dst, err := NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	dst := NewMemStore()
 	if err := dst.ImportConfig(snap); err != nil {
 		t.Fatalf("ImportConfig: %v", err)
 	}
@@ -110,21 +103,18 @@ func TestImportConfigRoundTripFidelity(t *testing.T) {
 func TestImportConfigRefusesWhenNotEmpty(t *testing.T) {
 	snap := populated(t).ExportConfig()
 
-	cases := map[string]func(*FileStore){
-		"actors":       func(s *FileStore) { _ = s.AddActor(Actor{ID: "x", TokenHash: "hx"}) },
-		"roles":        func(s *FileStore) { _ = s.PutRole(DefaultProject, Role{Name: "r"}) },
-		"kits":         func(s *FileStore) { _, _ = s.PushKit("k", "cfg") },
-		"destinations": func(s *FileStore) { _ = s.AddDestination(Destination{Name: "d"}) },
-		"projects":     func(s *FileStore) { _ = s.AddHuman(DefaultProject, Human{Name: "h"}) },
+	cases := map[string]func(*MemStore){
+		"actors":       func(s *MemStore) { _ = s.AddActor(Actor{ID: "x", TokenHash: "hx"}) },
+		"roles":        func(s *MemStore) { _ = s.PutRole(DefaultProject, Role{Name: "r"}) },
+		"kits":         func(s *MemStore) { _, _ = s.PushKit("k", "cfg") },
+		"destinations": func(s *MemStore) { _ = s.AddDestination(Destination{Name: "d"}) },
+		"projects":     func(s *MemStore) { _ = s.AddHuman(DefaultProject, Human{Name: "h"}) },
 	}
 	for name, seed := range cases {
 		t.Run(name, func(t *testing.T) {
-			dst, err := NewFileStore(filepath.Join(t.TempDir(), "d.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			dst := NewMemStore()
 			seed(dst)
-			err = dst.ImportConfig(snap)
+			err := dst.ImportConfig(snap)
 			if !errors.Is(err, ErrConfigNotEmpty) {
 				t.Fatalf("err = %v, want ErrConfigNotEmpty", err)
 			}
@@ -136,10 +126,7 @@ func TestImportConfigRefusesWhenNotEmpty(t *testing.T) {
 }
 
 func TestImportConfigRejectsBadVersion(t *testing.T) {
-	dst, err := NewFileStore(filepath.Join(t.TempDir(), "d.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	dst := NewMemStore()
 	if err := dst.ImportConfig(ConfigSnapshot{Version: 999}); !errors.Is(err, ErrUnsupportedConfigVersion) {
 		t.Fatalf("err = %v, want ErrUnsupportedConfigVersion", err)
 	}

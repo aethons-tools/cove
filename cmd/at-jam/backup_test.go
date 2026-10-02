@@ -20,12 +20,9 @@ func newBackupServer(t *testing.T, store jam.Store) *httptest.Server {
 	return ts
 }
 
-func seedStore(t *testing.T) *jam.FileStore {
+func seedStore(t *testing.T) *jam.MemStore {
 	t.Helper()
-	s, err := jam.NewFileStore(filepath.Join(t.TempDir(), "src.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := jam.NewMemStore()
 	if err := s.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +46,7 @@ func TestExportImportRoundTripJSON(t *testing.T) {
 		t.Fatalf("backup file empty: %v", err)
 	}
 
-	dst, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dst := jam.NewMemStore()
 	dstTS := newBackupServer(t, dst)
 	out.Reset()
 	errb.Reset()
@@ -73,7 +70,7 @@ func TestExportYAMLThenImportSniffs(t *testing.T) {
 	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
 		t.Fatalf("expected YAML, got JSON-looking output: %s", data)
 	}
-	dst, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "dst.json"))
+	dst := jam.NewMemStore()
 	dstTS := newBackupServer(t, dst)
 	// No --format: import must sniff YAML.
 	if code := run([]string{"import", "--admin-url", dstTS.URL, file}, func(string) string { return "" }, &out, &errb); code != 0 {

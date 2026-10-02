@@ -9,11 +9,11 @@ import (
 )
 
 // memState is the in-memory representation of the control plane, shared by
-// FileStore and PostgresStore. It owns the maps, all read methods (RLock-guarded
+// MemStore and PostgresStore. It owns the maps, all read methods (RLock-guarded
 // and promoted to the embedding store), lock-free read/validation helpers, and
 // pure apply* mutators. Persistence is the embedding store's job:
 //
-//   - FileStore does: Lock; validate; compute; apply; save() (mutate then rewrite).
+//   - MemStore does: Lock; validate; compute; apply (nothing persisted).
 //   - PostgresStore does: Lock; validate; compute; SQL; apply (commit then cache).
 //
 // The apply* mutators and the compute helpers never lock and never persist; the
@@ -622,7 +622,7 @@ func copyProject(p Project) Project {
 	return p
 }
 
-// grantNotFoundErr / actorNotFoundErr keep the FileStore/PostgresStore error
+// grantNotFoundErr / actorNotFoundErr keep the MemStore/PostgresStore error
 // wording identical (the conformance suite checks that mutators error, not the
 // exact text, but keeping one source avoids drift).
 func actorNotFoundErr(id string) error { return fmt.Errorf("actor %q not found", id) }

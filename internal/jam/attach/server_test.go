@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -43,10 +42,7 @@ func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStat
 // store, supervisor, server, a dial func, and the raised actor's token + launch secret.
 func harness(t *testing.T) (jam.Store, *jam.Supervisor, *Server, func() *grpc.ClientConn, string, string) {
 	t.Helper()
-	store, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := jam.NewMemStore()
 	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	_, tok, secret, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})
@@ -59,7 +55,7 @@ func harness(t *testing.T) (jam.Store, *jam.Supervisor, *Server, func() *grpc.Cl
 	lis := bufconn.Listen(1 << 20)
 	// WaitForHandlers: Stop (a t.Cleanup, run before the TempDir removal) must
 	// wait for Attach handlers to return. A handler may still be persisting a
-	// heartbeat to the file store when the test body ends; without the wait,
+	// heartbeat to the in-memory test store when the test body ends; without the wait,
 	// TempDir's RemoveAll races that write and fails "directory not empty".
 	gs := grpc.NewServer(grpc.WaitForHandlers(true))
 	attachpb.RegisterRuntimeServer(gs, srv)

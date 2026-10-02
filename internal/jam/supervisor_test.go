@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -92,10 +91,7 @@ func (f *fakeLauncher) PrepareKit(_ context.Context, def KitDefinition) (KitStat
 // the mutable clock.
 func supTestKit(t *testing.T, l Launcher) (*Supervisor, Store, *time.Time) {
 	t.Helper()
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -468,10 +464,7 @@ func (s *revokeFailingStore) RemoveActor(id string) error {
 // the whole teardown, including the revoke, instead of silently leaving a
 // live token behind.
 func TestTeardownPropagatesRevokeFailure(t *testing.T) {
-	real, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	real := NewMemStore()
 	if err := real.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
@@ -577,10 +570,7 @@ func TestReconcileLeavesHealthyInstance(t *testing.T) {
 func TestRestartReadoptsLiveInstances(t *testing.T) {
 	// Seed a store with a Live instance as if a prior process had raised it, then
 	// build a FRESH supervisor over the same store (a restart) and reconcile.
-	store, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := NewMemStore()
 	store.PutInstance(Instance{ActorID: "survivor", Project: "default", Role: "guest",
 		Phase: PhaseLive, Lease: Lease{Holder: "old-holder", Expiry: time.Unix(100, 0).UTC()}})
 	f := &fakeLauncher{liveness: LivenessAlive}

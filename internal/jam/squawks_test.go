@@ -15,7 +15,7 @@ import (
 )
 
 // fakeStore is a minimal squawkStore: canned actor-by-token-hash and
-// instance-by-actor-id, so tests don't need a real FileStore. roles/rosters
+// instance-by-actor-id, so tests don't need a real MemStore. roles/rosters
 // back the widened GetRole/GetRoster used by DecideSend for a targeted send.
 type fakeStore struct {
 	actors    map[string]Actor           // tokenHash -> Actor
@@ -48,7 +48,7 @@ func (f *fakeStore) GetRoster(project string) (Roster, bool) {
 	return r, ok
 }
 
-// AdvanceCommitCursor mimics FileStore/PostgresStore semantics: monotonic
+// AdvanceCommitCursor mimics MemStore/PostgresStore semantics: monotonic
 // forward on upToSeq only (a no-op if upToSeq <= the current CommitSeq),
 // error if the actor has no instance. CommitCursor (the id echo) travels in
 // lockstep with CommitSeq.

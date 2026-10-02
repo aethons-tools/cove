@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -9,12 +8,9 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-func newPolicyStore(t *testing.T) *jam.FileStore {
+func newPolicyStore(t *testing.T) *jam.MemStore {
 	t.Helper()
-	st, err := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := jam.NewMemStore()
 	return st
 }
 

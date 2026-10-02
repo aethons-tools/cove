@@ -1,17 +1,13 @@
 package jam
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
 
-func newFileStoreT(t *testing.T) *FileStore {
+func newMemStoreT(t *testing.T) *MemStore {
 	t.Helper()
-	st, err := NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := NewMemStore()
 	return st
 }
 
@@ -62,7 +58,7 @@ func TestValidateIdentity(t *testing.T) {
 }
 
 func TestHumanByLogin(t *testing.T) {
-	store := newFileStoreT(t)
+	store := newMemStoreT(t)
 	mustCreateProject(t, store, "acme")
 	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "@alice", Login: "auth0|abc"}); err != nil {
 		t.Fatal(err)
