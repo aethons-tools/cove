@@ -102,3 +102,24 @@ func TestCompilePlacesStudioAfterKit(t *testing.T) {
 		t.Fatalf("want Kit then Studio:\n%s", b.Core)
 	}
 }
+
+// Spill mode must fit whatever the name lengths: the core lists names only
+// while they fit, then counts the rest.
+func TestStudioSpillFitsManyLongNames(t *testing.T) {
+	var f StudioFacts
+	for i := range 200 {
+		f.Destinations = append(f.Destinations, StudioDestination{Name: fmt.Sprintf("github-enterprise-mirror-%03d", i), Upstream: "https://ghe.example.com"})
+	}
+	f.Egress, f.EgressKnown = []string{"a.example.com"}, true
+	l := Studio(f)
+	if len(l.Core) > BudgetStudio {
+		t.Fatalf("core %d bytes > budget %d", len(l.Core), BudgetStudio)
+	}
+	if !strings.Contains(l.Core, "more in studio/destinations.md") {
+		t.Fatalf("core must point at the leaf for the rest:\n%s", l.Core)
+	}
+	b := Compile(Inputs{Session: SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r"}, Studio: f})
+	if len(b.Warnings) != 0 {
+		t.Fatalf("a generated layer must never truncate: %v", b.Warnings)
+	}
+}

@@ -45,27 +45,47 @@ func Studio(f StudioFacts) Layer {
 		return Layer{Core: full}
 	}
 	var l Layer
-	var core []string
-	if dests != "" {
-		names := make([]string, len(f.Destinations))
-		for i, d := range f.Destinations {
-			names[i] = d.Name
-		}
-		core = append(core, fmt.Sprintf("Destinations via Jam (%d): %s.", len(names), strings.Join(names, ", ")))
-		l.Leaves = append(l.Leaves, Leaf{Name: "destinations.md", ReadWhen: "you need how to reach a granted service (env, git routing, notes)", Body: dests})
-	}
+	var rest []string // the core lines after the destinations summary
 	if len(f.Egress) > 0 {
-		core = append(core, fmt.Sprintf("Egress: %d allowed hosts, plus the sealed base and Jam's own routes.", len(f.Egress)))
+		rest = append(rest, fmt.Sprintf("Egress: %d allowed hosts, plus the sealed base and Jam's own routes.", len(f.Egress)))
 		l.Leaves = append(l.Leaves, Leaf{Name: "egress.md", ReadWhen: "a host fails to connect and you need to know whether it is allowed", Body: egress})
-	} else if egress != "" {
-		core = append(core, egress)
+	} else {
+		rest = append(rest, egress)
 	}
 	if targets != "" {
-		core = append(core, fmt.Sprintf("Message targets: %d (`list_targets` shows them).", len(f.Targets)))
+		rest = append(rest, fmt.Sprintf("Message targets: %d (`list_targets` shows them).", len(f.Targets)))
 		l.Leaves = append(l.Leaves, Leaf{Name: "targets.md", ReadWhen: "you need who a message target is", Body: targets})
+	}
+	core := rest
+	if dests != "" {
+		room := BudgetStudio - len(strings.Join(rest, "\n")) - 1
+		core = append([]string{destinationSummary(f.Destinations, room)}, rest...)
+		l.Leaves = append([]Leaf{{Name: "destinations.md", ReadWhen: "you need how to reach a granted service (env, git routing, notes)", Body: dests}}, l.Leaves...)
 	}
 	l.Core = strings.Join(core, "\n")
 	return l
+}
+
+// destinationSummary names as many destinations as fit in room bytes, then
+// counts the rest, always pointing at the full leaf.
+func destinationSummary(ds []StudioDestination, room int) string {
+	head := fmt.Sprintf("Destinations via Jam (%d): ", len(ds))
+	for n := len(ds); n >= 0; n-- {
+		names := make([]string, n)
+		for i := range n {
+			names[i] = ds[i].Name
+		}
+		line := head + strings.Join(names, ", ")
+		if n < len(ds) {
+			line += fmt.Sprintf(" … %d more in studio/destinations.md.", len(ds)-n)
+		} else {
+			line += " — details in studio/destinations.md."
+		}
+		if len(line) <= room || n == 0 {
+			return line
+		}
+	}
+	return head
 }
 
 func studioDestinations(f StudioFacts) string {
