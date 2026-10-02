@@ -32,6 +32,7 @@ func TestValidateDestination(t *testing.T) {
 		"unknown cred": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", CredName: "ghost"}, `"ghost"`},
 		"reserved env": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"AT_JAM_X": "1"}}, "reserved"},
 		"bad template": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"A": "{nope}"}}, "placeholder"},
+		"long note":    {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Note: strings.Repeat("n", MaxDestinationNote+1)}, "note"},
 	} {
 		err := ValidateDestination(tc.d, credIs("gh-pat"))
 		if WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), tc.want) {
@@ -57,5 +58,12 @@ func TestCreateAndUpdateDestination(t *testing.T) {
 	}
 	if err := UpdateDestination(st, Destination{Name: "x"}, credIs()); WriteStatus(err, 0) != http.StatusBadRequest {
 		t.Fatalf("invalid update = %v, want 400", err)
+	}
+}
+
+func TestValidateDestinationAcceptsNoteAtLimit(t *testing.T) {
+	d := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Note: strings.Repeat("n", MaxDestinationNote)}
+	if err := ValidateDestination(d, credIs("gh-pat")); err != nil {
+		t.Fatalf("a %d-byte note must pass: %v", MaxDestinationNote, err)
 	}
 }

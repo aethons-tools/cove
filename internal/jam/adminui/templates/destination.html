@@ -64,6 +64,7 @@
         <dt>Apply as</dt><dd>{{if .Dest.Apply}}<span class="mono">{{.Dest.Apply}}</span>{{else}}<span class="unset">—</span>{{end}}</dd>
         <dt>Default credential</dt><dd>{{if .Dest.CredName}}<span class="mono">{{.Dest.CredName}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
         <dt>OAuth beta</dt><dd>{{if .Dest.OAuthBeta}}<span class="chip accent">oauth-beta</span> adds <code>oauth-2025-04-20</code>{{else}}<span class="unset">off</span>{{end}}</dd>
+        <dt>Note</dt><dd>{{if .Dest.Note}}{{.Dest.Note}}{{else}}<span class="unset">none</span>{{end}}</dd>
       </dl>
     </div>
   </section>

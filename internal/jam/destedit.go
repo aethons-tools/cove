@@ -10,6 +10,10 @@ import (
 // write are one step (create-only and update-only stay true under races).
 var destMu sync.Mutex
 
+// MaxDestinationNote bounds Destination.Note: it rides in every granted
+// session's always-on context.
+const MaxDestinationNote = 300
+
 // ValidateDestination checks a destination at write time — the rules shared by
 // the JSON admin API and the UI: name, route and upstream are required, a
 // default credential must be configured, and env must pass ValidateEnv.
@@ -20,6 +24,9 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	}
 	if d.CredName != "" && !credExists(d.CredName) {
 		return writeErr(http.StatusBadRequest, "credential %q does not resolve to a configured credential", d.CredName)
+	}
+	if len(d.Note) > MaxDestinationNote {
+		return writeErr(http.StatusBadRequest, "note is %d bytes; at most %d", len(d.Note), MaxDestinationNote)
 	}
 	if err := d.ValidateEnv(); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())

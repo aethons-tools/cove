@@ -199,6 +199,7 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 		Env:        env,
 		Git:        r.FormValue("git") != "",
 		OAuthBeta:  r.FormValue("oauth-beta") != "",
+		Note:       strings.TrimSpace(r.FormValue("note")),
 	}, nil
 }
 
