@@ -180,6 +180,8 @@ AT_JAM_LAUNCH_SECRET      the per-instance launch secret, minted at raise time
 AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
+AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn
+AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 ```
 
 Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
@@ -209,6 +211,13 @@ A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while the agent is still
 running is held (at most one), so the next `needs-input` wait resumes at once;
 further wakes are dropped.
+
+**Connector refresh.** Before every agent spawn — the first turn, a resume, a wake —
+cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
+and starts that turn with the current env and git routing, so a destination or grant
+edit reaches a running studio at its next turn (never mid-turn). If the fetch fails it
+keeps the last connector it applied and logs a warning. It reports the applied
+connector's fingerprint up the Attach stream.
 
 **Post-mortem on teardown.** Just before the container (and its `/agent-data`
 volume) is removed, the launcher grabs the **tail of `cove-master`'s log**

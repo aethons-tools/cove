@@ -100,3 +100,31 @@ func TestBuildAgentConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildAgentConfigConnector(t *testing.T) {
+	dir := t.TempDir()
+	pf := filepath.Join(dir, "prompt")
+	os.WriteFile(pf, []byte("p"), 0o600)
+	env := map[string]string{
+		"AT_COVE_AGENT_PROMPT_FILE": pf,
+		"AT_JAM_IDENTITY_TOKEN":     "tok",
+		"AT_JAM_BASE_URL":           "https://jam.example",
+		"AT_JAM_CONNECTOR":          `{"env":{"GH_HOST":"{host}"},"git_route":"/git/"}`,
+	}
+	cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Connector == nil || cfg.Connector.BaseURL != "https://jam.example" || cfg.Connector.Token != "tok" ||
+		cfg.Connector.Initial.GitRoute != "/git/" || cfg.Connector.Initial.Env["GH_HOST"] != "{host}" {
+		t.Fatalf("connector cfg = %+v", cfg.Connector)
+	}
+	delete(env, "AT_JAM_BASE_URL")
+	if cfg, _ := buildAgentConfig(func(k string) string { return env[k] }); cfg.Connector != nil {
+		t.Fatal("no AT_JAM_BASE_URL (older launcher) must disable the refresh")
+	}
+	env["AT_JAM_BASE_URL"], env["AT_JAM_CONNECTOR"] = "https://jam.example", "{not json"
+	if cfg, err := buildAgentConfig(func(k string) string { return env[k] }); err != nil || cfg.Connector == nil || len(cfg.Connector.Initial.Env) != 0 {
+		t.Fatalf("malformed AT_JAM_CONNECTOR must start empty, not fail: %+v %v", cfg.Connector, err)
+	}
+}

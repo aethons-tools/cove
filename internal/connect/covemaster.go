@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -69,6 +70,17 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	script.WriteString("export AT_HARBOR_LAUNCH_SECRET=\"$AT_JAM_LAUNCH_SECRET\"\n")
 	fmt.Fprintf(&script, "export AT_COVE_WORKDIR=%s\n", shellQuote(o.WorkDir))
 	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(coveMasterPromptVMPath))
+	// Per-turn connector refresh handoff (cove-master re-fetches GET /connector
+	// before every agent spawn): the Jam base, and the raise-time connector as
+	// token-free JSON — cove-master's fallback and the env keys it owns.
+	fmt.Fprintf(&script, "export AT_JAM_BASE_URL=%s\n", shellQuote("https://"+o.JamHost))
+	if o.Connector != nil {
+		cj, err := json.Marshal(o.Connector)
+		if err != nil {
+			return fmt.Errorf("cove-master env: connector: %w", err)
+		}
+		fmt.Fprintf(&script, "export AT_JAM_CONNECTOR=%s\n", shellQuote(string(cj)))
+	}
 	if o.Resident {
 		script.WriteString("export AT_COVE_RESIDENT=1\n")
 	}
