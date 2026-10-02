@@ -59,7 +59,12 @@ type Config struct {
 	StreamLogPath string
 }
 
-const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
+// streamLogPath is the production stream log. defaultStreamLogPath is what an
+// empty StreamLogPath resolves to — a var only so the package's tests can point
+// it at a temp file instead of a studio's real log (see main_test.go).
+const streamLogPath = "/agent-data/agent-stream.jsonl"
+
+var defaultStreamLogPath = streamLogPath
 
 // Workload runs the claude agent as a turn loop and maps its lifecycle onto
 // the covemaster Activity stream: a needs-input turn suspends (reports
