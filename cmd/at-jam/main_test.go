@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -73,8 +74,17 @@ func TestEnrollCommandJSON(t *testing.T) {
 
 func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	store, _ := jam.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
+	if err := store.PutRole("ACME", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic", "git", "github-api"}}}); err != nil {
 		t.Fatal(err)
+	}
+	for _, d := range []jam.Destination{
+		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyXAPIKey, Apply: jam.ApplyXAPIKey},
+		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword},
+		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, Env: map[string]string{"GH_HOST": "{host}"}},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
@@ -94,6 +104,9 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "AT_JAM_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
+	}
+	if !strings.Contains(out.String(), `export GH_HOST="jam.local.aethons.tools"`) || !strings.Contains(out.String(), "insteadOf") {
+		t.Fatalf("snippet must carry the role's connector (destination env + git):\n%s", out.String())
 	}
 	if len(store.ListActors()) != 1 {
 		t.Fatal("identity was not created via the admin API")
@@ -1362,5 +1375,22 @@ func TestDestinationAddEnvAndGit(t *testing.T) {
 	}
 	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "x", "--route", "/x/", "--upstream", "https://x", "--env", "NOEQUALS"}, getenv, &out, &errb); code != 2 {
 		t.Fatalf("malformed --env: exit=%d, want 2", code)
+	}
+}
+
+// An older Jam returns no connector with the enrollment: the CLI falls back to
+// the legacy Anthropic + git snippet.
+func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"x","token":"TOK"}`))
+	}))
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	if code := run([]string{"enroll", "--admin-url", ts.URL, "--id", "x", "--role", "guest", "--base-url", "https://jam.example"}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), `ANTHROPIC_BASE_URL="https://jam.example/anthropic"`) || !strings.Contains(out.String(), "insteadOf") {
+		t.Fatalf("legacy snippet expected:\n%s", out.String())
 	}
 }

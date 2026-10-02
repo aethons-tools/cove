@@ -45,6 +45,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -245,11 +246,17 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
 		// is on stdout only — the caller captures it in memory, never argv/logs.
 		_ = json.NewEncoder(stdout).Encode(struct {
-			ID    string `json:"id"`
-			Token string `json:"token"`
-		}{res.ID, res.Token})
+			ID        string             `json:"id"`
+			Token     string             `json:"token"`
+			Connector *snippet.Connector `json:"connector,omitempty"`
+		}{res.ID, res.Token, res.Connector})
 		return 0
 	}
+	if res.Connector != nil {
+		fmt.Fprint(stdout, res.Connector.Render(baseURL, res.Token))
+		return 0
+	}
+	// A Jam that predates connectors: the legacy Anthropic + git snippet.
 	fmt.Fprint(stdout, jam.RenderEnrollSnippet(baseURL, res.Token))
 	return 0
 }

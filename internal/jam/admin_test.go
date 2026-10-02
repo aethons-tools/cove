@@ -979,3 +979,16 @@ func TestAdminAddDestinationValidatesEnv(t *testing.T) {
 		t.Fatalf("stored = %+v", d)
 	}
 }
+
+func TestAdminEnrollReturnsConnector(t *testing.T) {
+	h, store := newTestAdmin(t)
+	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
+		t.Fatal(err)
+	}
+	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"gh"}})
+	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
+	var res EnrollResult
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &res) != nil || res.Connector == nil || res.Connector.Env["GH_HOST"] != "{host}" {
+		t.Fatalf("enroll = %d %s", rec.Code, rec.Body.String())
+	}
+}
