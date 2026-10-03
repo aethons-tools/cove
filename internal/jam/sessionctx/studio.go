@@ -73,7 +73,7 @@ func destinationSummary(ds []StudioDestination, room int) string {
 	for n := len(ds); n >= 0; n-- {
 		names := make([]string, n)
 		for i := range n {
-			names[i] = ds[i].Name
+			names[i] = codeSafe(ds[i].Name)
 		}
 		line := head + strings.Join(names, ", ")
 		if n < len(ds) {
@@ -95,7 +95,7 @@ func studioDestinations(f StudioFacts) string {
 	var b strings.Builder
 	b.WriteString("Destinations via Jam (credentials are injected for you; never ask for them):")
 	for _, d := range f.Destinations {
-		fmt.Fprintf(&b, "\n- `%s` → %s", d.Name, d.Upstream)
+		fmt.Fprintf(&b, "\n- `%s` → %s", codeSafe(d.Name), oneLine(d.Upstream))
 		if len(d.EnvKeys) > 0 {
 			fmt.Fprintf(&b, "; env %s", strings.Join(d.EnvKeys, ", "))
 		}
@@ -112,7 +112,11 @@ func studioDestinations(f StudioFacts) string {
 func studioEgress(f StudioFacts) string {
 	switch {
 	case len(f.Egress) > 0:
-		return "Egress (other hosts are blocked): " + strings.Join(f.Egress, ", ") + ", plus the sealed base and Jam's own routes."
+		hosts := make([]string, len(f.Egress))
+		for i, h := range f.Egress {
+			hosts[i] = egressDisplay(h)
+		}
+		return "Egress (other hosts are blocked): " + strings.Join(hosts, ", ") + ", plus the sealed base and Jam's own routes."
 	case f.EgressKnown:
 		return "Egress: no hosts beyond the sealed base and Jam's own routes."
 	default:
@@ -127,7 +131,7 @@ func studioTargets(f StudioFacts) string {
 	var b strings.Builder
 	b.WriteString("Message targets:")
 	for _, t := range f.Targets {
-		fmt.Fprintf(&b, "\n- `%s` — %s", t.Target, oneLine(t.Who))
+		fmt.Fprintf(&b, "\n- `%s` — %s", codeSafe(t.Target), oneLine(t.Who))
 	}
 	return b.String()
 }
@@ -140,4 +144,16 @@ func nonEmpty(ss ...string) []string {
 		}
 	}
 	return out
+}
+
+// codeSafe flattens an admin-authored name for an inline code span: one line,
+// no backticks, so it can't open a heading or break the span.
+func codeSafe(s string) string { return strings.ReplaceAll(oneLine(s), "`", "'") }
+
+// egressDisplay spells a squid wildcard (".example.com") as what it allows.
+func egressDisplay(h string) string {
+	if rest, ok := strings.CutPrefix(h, "."); ok && rest != "" {
+		return "*." + rest + " (and " + rest + ")"
+	}
+	return oneLine(h)
 }

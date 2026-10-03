@@ -18,6 +18,9 @@ func writeContext(dir string, b sessionctx.Bundle) error {
 		if !filepath.IsLocal(p) {
 			return fmt.Errorf("session context: refusing non-local path %q", p)
 		}
+		if p == "CORE.md" {
+			return fmt.Errorf("session context: a file may not replace CORE.md")
+		}
 		files[p] = body
 	}
 	parent := filepath.Dir(dir)
