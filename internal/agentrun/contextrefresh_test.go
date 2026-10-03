@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -75,5 +76,47 @@ func TestContextRefresherCarriesLiveNoticeToNextEpisode(t *testing.T) {
 	}
 	if got := r.episode(context.Background()); got != nil {
 		t.Fatalf("then nothing: %v", got)
+	}
+}
+
+type countingContext struct {
+	calls int
+	err   error
+	block bool
+}
+
+func (c *countingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
+	c.calls++
+	if c.block {
+		<-ctx.Done()
+		return sessionctx.Bundle{}, ctx.Err()
+	}
+	return sessionctx.Bundle{}, c.err
+}
+
+// An older Jam has no /context: stop asking after the first 404.
+func TestContextRefresherStopsOnNoEndpoint(t *testing.T) {
+	src := &countingContext{err: ErrNoContextEndpoint}
+	r := newContextRefresher(src, compileRole("ONE"), filepath.Join(t.TempDir(), "context"), nil)
+	for range 3 {
+		if got := r.episode(context.Background()); got != nil {
+			t.Fatalf("no endpoint: %v", got)
+		}
+	}
+	if src.calls != 1 {
+		t.Fatalf("fetched %d times; want 1", src.calls)
+	}
+}
+
+// The wake path must not stall the episode loop on a slow Jam.
+func TestContextRefresherLiveTimeout(t *testing.T) {
+	r := newContextRefresher(&countingContext{block: true}, compileRole("ONE"), filepath.Join(t.TempDir(), "context"), nil)
+	r.liveTimeout = 30 * time.Millisecond
+	start := time.Now()
+	if got := r.live(context.Background()); got != nil {
+		t.Fatalf("timed out fetch: %v", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("live refresh took %v", d)
 	}
 }

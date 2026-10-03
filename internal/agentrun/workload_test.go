@@ -809,7 +809,7 @@ func TestRunRefreshesContextPerEpisode(t *testing.T) {
 	one, two := compileRole("ONE"), compileRole("TWO")
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
 		Resident: true, SessionKind: "standing", Context: &one, ContextDir: cdir,
-		ContextSource: &seqContext{bundles: []sessionctx.Bundle{two}}}, nil)
+		ContextSource: &seqContext{bundles: []sessionctx.Bundle{one, two}}}, nil)
 	h := &recordHandle{}
 	done := runAsync(ctx, w, h)
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
@@ -839,7 +839,7 @@ func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {
 	one, two := compileRole("ONE"), compileRole("TWO")
 	w := streamWL(t, dir, s, func(c *Config) {
 		c.Context, c.ContextDir = &one, filepath.Join(dir, "context")
-		c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{two}}
+		c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{one, two}}
 	})
 	done := runAsync(context.Background(), w, &recordHandle{})
 	p := s.next(t)
@@ -871,5 +871,25 @@ func TestResumeTextPerKind(t *testing.T) {
 		if got := w.resumeText(); got != want {
 			t.Errorf("%q: resume = %q", kind, got)
 		}
+	}
+}
+
+// The first episode refreshes too (a cove-master restart, or edits made while
+// the kit built), silently: its prompt carries no notice.
+func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
+	dir := t.TempDir()
+	cdir := filepath.Join(dir, "context")
+	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	one, two := compileRole("ONE"), compileRole("TWO")
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Context: &one, ContextDir: cdir, ContextSource: &seqContext{bundles: []sessionctx.Bundle{two}}}, nil)
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.calls[0].in.next(t); got != "p" {
+		t.Fatalf("1st episode = %q; want the prompt alone", got)
+	}
+	if core, _ := os.ReadFile(filepath.Join(cdir, "CORE.md")); !strings.Contains(string(core), "TWO") {
+		t.Fatalf("first episode must start on the refreshed bundle: %s", core)
 	}
 }

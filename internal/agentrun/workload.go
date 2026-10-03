@@ -266,10 +266,12 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			}
 		}
 		first := prompt
-		if w.ctxr != nil && turn > 1 {
-			// The bundle was just written at Run start for episode 1; later
-			// episodes start with a current system prompt.
-			first += contextNotice(w.ctxr.episode(ctx), false)
+		if w.ctxr != nil {
+			// Every episode starts on the current bundle. Episode 1 (also after a
+			// cove-master restart) gets no notice: nothing came before it.
+			if changed := w.ctxr.episode(ctx); turn > 1 {
+				first += contextNotice(changed, false)
+			}
 		}
 		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, env, sink)
 		if err != nil {
