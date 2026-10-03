@@ -23,7 +23,7 @@ var files embed.FS
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
 var pages = map[string]*template.Template{
-	"dashboard":    mustParse("coves.html", "dashboard.html"),
+	"dashboard":    mustParse("coves.html", "context_panel.html", "dashboard.html"),
 	"coves":        mustParse("coves.html"),
 	"roster":       mustParse("roster.html"),
 	"roles":        mustParse("roles.html"),
@@ -31,11 +31,11 @@ var pages = map[string]*template.Template{
 	"destinations": mustParse("dest_fields.html", "destinations.html"),
 	"intercom":     mustParse("intercom.html"),
 	"session":      mustParse("session.html"),
-	"role":         mustParse("coves.html", "role.html"),
+	"role":         mustParse("coves.html", "context_panel.html", "role.html"),
 	"destination":  mustParse("dest_fields.html", "destination.html"),
 	"kit":          mustParse("kit.html"),
 	"projects":     mustParse("projects.html"),
-	"project":      mustParse("coves.html", "project.html"),
+	"project":      mustParse("coves.html", "context_panel.html", "project.html"),
 	"studio":       mustParse("studio.html"),
 	"search":       mustParse("search.html"),
 }

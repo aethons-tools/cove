@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // destRow is one destination in a role's scope with the credential the broker
@@ -52,6 +53,7 @@ type roleDetail struct {
 	CanRequest           bool
 	CanEdit              bool // always false: the role page's studio table is read-only
 	NotFound             bool
+	Context              contextPanel // the role's session-context card
 }
 
 // buildRoleDetail gathers everything about one role; false when it doesn't exist.
@@ -62,6 +64,7 @@ func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
 	}
 	project = orDefaultProject(project)
 	d := roleDetail{Title: "Roles", Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role)}
+	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
 
 	dests := map[string]jam.Destination{}
 	for _, x := range store.ListDestinations() {
