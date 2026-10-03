@@ -88,6 +88,8 @@ type Config struct {
 	// SessionKind is "ephemeral" | "personal" | "standing" ("" = ephemeral); it
 	// picks the resume prompt.
 	SessionKind string
+	// ContextFetchTimeout bounds each context refresh fetch; 0 = 3 s.
+	ContextFetchTimeout time.Duration
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -221,6 +223,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))
 			if w.cfg.ContextSource != nil {
 				w.ctxr = newContextRefresher(w.cfg.ContextSource, *w.cfg.Context, w.cfg.ContextDir, w.log)
+				w.ctxr.liveTimeout = w.cfg.ContextFetchTimeout
 			}
 		}
 	}

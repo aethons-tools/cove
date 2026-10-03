@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -891,5 +892,32 @@ func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 	}
 	if core, _ := os.ReadFile(filepath.Join(cdir, "CORE.md")); !strings.Contains(string(core), "TWO") {
 		t.Fatalf("first episode must start on the refreshed bundle: %s", core)
+	}
+}
+
+type blockingContext struct{}
+
+func (blockingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
+	select {
+	case <-ctx.Done():
+		return sessionctx.Bundle{}, ctx.Err()
+	case <-time.After(2 * time.Second): // unbounded: fail the test, don't hang it
+		return sessionctx.Bundle{}, errors.New("fetch was not bounded")
+	}
+}
+
+// A hung Jam must not hold the first episode for the client's full timeout.
+func TestFirstEpisodeFetchIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	one := compileRole("ONE")
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}, ContextFetchTimeout: 30 * time.Millisecond}, nil)
+	start := time.Now()
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("first episode waited %v on a hung Jam", d)
 	}
 }
