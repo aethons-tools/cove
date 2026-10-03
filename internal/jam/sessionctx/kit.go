@@ -1,6 +1,7 @@
 package sessionctx
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -17,16 +18,18 @@ func KitLayer(prompt string, notes []Leaf, buildArgs map[string]string) Layer {
 	if len(buildArgs) == 0 {
 		return l
 	}
-	type row struct{ tool, value string }
+	type row struct{ tool, key, value string }
 	var rows []row
 	for k, v := range buildArgs {
 		tool := k
 		if p, ok := strings.CutSuffix(k, "_VERSION"); ok && p != "" {
 			tool = strings.ReplaceAll(strings.ToLower(p), "_", "-")
 		}
-		rows = append(rows, row{tool, v})
+		rows = append(rows, row{tool, k, v})
 	}
-	slices.SortFunc(rows, func(a, b row) int { return strings.Compare(a.tool, b.tool) })
+	slices.SortFunc(rows, func(a, b row) int {
+		return cmp.Or(strings.Compare(a.tool, b.tool), strings.Compare(a.key, b.key))
+	})
 	var b strings.Builder
 	b.WriteString("Tools and versions this kit's image was built with (its build-args):\n\n| Tool | Version / value |\n|------|-----------------|\n")
 	for _, r := range rows {

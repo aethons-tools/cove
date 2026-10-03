@@ -122,3 +122,17 @@ func TestProjectAndJamContextPanels(t *testing.T) {
 		t.Fatalf("jam clear = %d", rec.Code)
 	}
 }
+
+// The card carries its own styles, so it renders the same on the dashboard
+// (which has none of the role/project page styles) and wraps long cores.
+func TestContextCardStyledEverywhere(t *testing.T) {
+	h := adminui.Handler(roleStore(t), testLogger(), nil, nil, credAny, nil)
+	for _, path := range []string{"/ui/", "/ui/roles/acme/review", "/ui/projects/acme"} {
+		body := get(t, h, path).Body.String()
+		for _, want := range []string{`class="card full ctx-card"`, ".ctx-card>header", ".ctx-card .ctx-core{white-space:pre-wrap"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %q", path, want)
+			}
+		}
+	}
+}
