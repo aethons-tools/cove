@@ -237,6 +237,9 @@ func titled(t, name string) string {
 // layerOrder is the delivery order, for reporting changes.
 var layerOrder = []string{LayerBoilerplate, LayerKit, LayerStudio, LayerProject, LayerRole, LayerJam}
 
+// LayerOrder returns the layer names in delivery order.
+func LayerOrder() []string { return slices.Clone(layerOrder) }
+
 // ChangedLayers names the layers that differ between two bundles (changed,
 // added or removed), in delivery order; nil when the bundles are identical.
 func ChangedLayers(old, cur Bundle) []string {

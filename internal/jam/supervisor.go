@@ -241,7 +241,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			spec.Kit = ref
 		}
 	}
-	bundle := s.compileContext(spec, actor)
+	bundle := s.compileContext(spec, actor, spec.Kit)
+	// Warnings are logged once, here — not on every GET /context refresh.
+	for _, w := range bundle.Warnings {
+		if s.log != nil {
+			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
+		}
+	}
 	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
@@ -268,6 +274,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		WaitSeq:   s.tailSeq(), // wake-on baseline: the cove starts Running and reads its inbox itself
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 		Egress:    EgressFingerprint(spec.Egress),
+		Kit:       spec.Kit,
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -780,7 +787,11 @@ func (s *Supervisor) revokeActor(actorID string) error {
 // compileContext compiles a session's context bundle from the current config:
 // Jam boilerplate for its kind, kit, studio, project, role and Jam layers. Raise
 // and ContextFor share it, so a refresh matches what a raise would deliver.
-func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor) sessionctx.Bundle {
+//
+// spec.Kit is the kit image the cove runs (its build-args and egress ceiling);
+// promptKit, when it names the same kit, supplies the prompt and notes — a
+// newer version's text edits reach a running session, its image changes don't.
+func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRef) sessionctx.Bundle {
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
@@ -791,7 +802,13 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor) sessionctx.Bund
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
 		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
-			in.Kit = sessionctx.KitLayer(def.Kit.Prompt, def.Kit.Leaves(), def.Kit.BuildArgs)
+			text := def.Kit
+			if promptKit.ID == spec.Kit.ID && promptKit != spec.Kit {
+				if cur, ok, cerr := ResolveKitDefinition(s.store, promptKit); cerr == nil && ok {
+					text = cur.Kit
+				}
+			}
+			in.Kit = sessionctx.KitLayer(text.Prompt, text.Leaves(), def.Kit.BuildArgs)
 			kitEgress, haveKit = def.Kit.Egress, true
 		}
 	}
@@ -803,13 +820,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor) sessionctx.Bund
 		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
 	}
 	in.Jam = s.store.GetJamContext()
-	bundle := sessionctx.Compile(in)
-	for _, w := range bundle.Warnings {
-		if s.log != nil {
-			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
-		}
-	}
-	return bundle
+	return sessionctx.Compile(in)
 }
 
 // ContextFor recompiles the session context of a running instance from the
@@ -830,16 +841,22 @@ func (s *Supervisor) ContextFor(actorID string) (sessionctx.Bundle, error) {
 	if !found {
 		return sessionctx.Bundle{}, ErrNoInstance
 	}
-	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, Name: inst.Name, SessionKind: inst.SessionKind}
+	// The cove runs the kit image it was raised with (inst.Kit); only the
+	// current version's prompt and notes are picked up.
+	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
+	promptKit := inst.Kit
 	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
 		if role.Scope.Egress != nil {
 			spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
 		}
 		if ref, have, err := s.kitRefFor(role); err == nil && have {
-			spec.Kit = ref
+			promptKit = ref
+			if spec.Kit.ID == "" { // raised before instances recorded their kit
+				spec.Kit = ref
+			}
 		}
 	}
-	return s.compileContext(spec, actor), nil
+	return s.compileContext(spec, actor, promptKit), nil
 }
 
 // ErrNoInstance means an identity has no registered instance (e.g. a

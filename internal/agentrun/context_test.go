@@ -82,3 +82,19 @@ func TestWriteContextSwapsSymlink(t *testing.T) {
 		}
 	}
 }
+
+// The version dir name comes from Jam over the network: only hex is accepted,
+// so a bad fingerprint can never escape context.d.
+func TestWriteContextRefusesBadFingerprint(t *testing.T) {
+	root := t.TempDir()
+	keep := filepath.Join(root, "keep.txt")
+	os.WriteFile(keep, []byte("x"), 0o644)
+	for _, fp := range []string{"..", "../../x", "a/b", "ZZZZ"} {
+		if err := writeContext(filepath.Join(root, "context"), sessionctx.Bundle{Core: "C", Fingerprint: fp}); err == nil {
+			t.Errorf("fingerprint %q accepted", fp)
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatal("a bad fingerprint deleted files outside context.d")
+	}
+}

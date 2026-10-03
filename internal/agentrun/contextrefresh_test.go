@@ -57,3 +57,23 @@ func TestContextRefresher(t *testing.T) {
 		t.Fatal("a failed fetch must not touch the files")
 	}
 }
+
+// A notice written into a live episode is repeated at the next episode, in
+// case that turn never ran (write failed / the process exited first).
+func TestContextRefresherCarriesLiveNoticeToNextEpisode(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "context")
+	one := compileRole("ONE")
+	if err := writeContext(dir, one); err != nil {
+		t.Fatal(err)
+	}
+	r := newContextRefresher(&seqContext{bundles: []sessionctx.Bundle{compileRole("TWO")}}, one, dir, nil)
+	if got := r.live(context.Background()); strings.Join(got, ",") != "role" {
+		t.Fatalf("live: %v", got)
+	}
+	if got := r.episode(context.Background()); strings.Join(got, ",") != "role" {
+		t.Fatalf("next episode must repeat the live change: %v", got)
+	}
+	if got := r.episode(context.Background()); got != nil {
+		t.Fatalf("then nothing: %v", got)
+	}
+}

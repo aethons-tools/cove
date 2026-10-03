@@ -269,7 +269,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		if w.ctxr != nil && turn > 1 {
 			// The bundle was just written at Run start for episode 1; later
 			// episodes start with a current system prompt.
-			first += contextNotice(w.ctxr.refresh(ctx), false)
+			first += contextNotice(w.ctxr.episode(ctx), false)
 		}
 		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, env, sink)
 		if err != nil {
@@ -388,7 +388,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 	resume := func() string {
 		text := w.resumeText()
 		if w.ctxr != nil {
-			text += contextNotice(w.ctxr.refresh(ctx), true)
+			text += contextNotice(w.ctxr.live(ctx), true)
 		}
 		return text
 	}

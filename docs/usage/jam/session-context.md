@@ -1,7 +1,7 @@
 ---
-summary: How a Jam session learns its context — the layered bundle compiled at raise, its always-on core and on-demand leaves, and how cove-master delivers it.
-read_when: You are writing a kit prompt, debugging what a session was told, or changing how session context is compiled or delivered.
-owns: session-context layers, delivery order and precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff
+summary: How a Jam session learns its context — the layered bundle compiled at raise and refreshed while it runs (GET /context), its always-on core and on-demand leaves, and how cove-master delivers it.
+read_when: You are writing a kit prompt, debugging what a session was told (or why an edit did or did not reach it), or changing how session context is compiled, delivered or refreshed.
+owns: session-context layers, delivery order and precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
 updated: 2026-10-03
@@ -21,9 +21,10 @@ layers, in delivery order:
 | Role | authored: rules for the role | 1200 B |
 | Jam | authored: Jam-wide standing rules | 800 B |
 
-Every layer follows edits while a session runs ([Refresh](#refresh)). The bundle
-reflects the role's *current* kit and egress policy; the image itself is only
-rebuilt on a re-raise.
+Every layer follows edits while a session runs ([Refresh](#refresh)). The kit layer
+keeps the image the session was raised with — its build-args (`kit/tools.md`) and
+egress ceiling — while a newer kit version's `prompt` and `notes` do reach it; a
+new image needs a re-raise.
 
 Raise logs a warning when the kit prompt restates an egress host or a message
 target — those belong to the Studio layer.
@@ -40,7 +41,7 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
    personal prompt) stays the agent's first stdin message on its own.
 2. The launcher stages the bundle JSON at `/dev/shm/cove-agent-context` and exports
    `AT_COVE_AGENT_CONTEXT_FILE`.
-3. cove-master writes it to `/agent-data/context.d/<fingerprint>/` and points the
+3. cove-master writes it to `/agent-data/context.d/<first 12 hex of the fingerprint>/` and points the
    symlink `/agent-data/context` at it in one rename (older versions are then
    removed, so a reader always sees one complete tree), and starts every episode
    (claude process) with

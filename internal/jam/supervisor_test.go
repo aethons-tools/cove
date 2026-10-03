@@ -1352,3 +1352,67 @@ func TestContextForTracksEdits(t *testing.T) {
 		t.Fatalf("unknown actor = %v, want ErrNoInstance", err)
 	}
 }
+
+// A running session keeps the kit it was raised with: a newer kit version's
+// build-args and egress ceiling (the image doesn't have them) never reach its
+// refreshed context, while that version's prompt edits do.
+func TestContextForKeepsRaisedKitImage(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	v1 := studio.StudioKit{Kind: studio.Kind, Prompt: "V1", Egress: []string{"one.example"}, BuildArgs: map[string]string{"GO_VERSION": "1.0"}}
+	ref1, _ := EnsureStudioKit(store, "web", v1)
+	sup.SetDefaultStudioKit(ref1)
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", Scope: Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := store.GetInstance("w1"); inst.Kit.ID != "web" || inst.Kit.Version != ref1.Version {
+		t.Fatalf("instance must record the raised kit: %+v", inst.Kit)
+	}
+	v2 := studio.StudioKit{Kind: studio.Kind, Prompt: "V2", Egress: []string{"two.example"}, BuildArgs: map[string]string{"GO_VERSION": "2.0"}}
+	if _, err := EnsureStudioKit(store, "web", v2); err != nil {
+		t.Fatal(err)
+	}
+	got, err := sup.ContextFor("w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Core, "V2") {
+		t.Errorf("the kit's prompt edits must reach the session:\n%s", got.Core)
+	}
+	if !strings.Contains(got.Files["kit/tools.md"], "| go | 1.0 |") || !strings.Contains(got.Core, "one.example") || strings.Contains(got.Core, "two.example") {
+		t.Errorf("build-args and egress must stay the raised image's:\n%s\n%s", got.Core, got.Files["kit/tools.md"])
+	}
+	if !strings.Contains(got.Core, "## Kit — "+ref1.String()) {
+		t.Errorf("the kit header names the raised image: %s", got.Core)
+	}
+}
+
+// Lint warnings are logged at raise, not on every refresh.
+func TestContextForDoesNotRelogLint(t *testing.T) {
+	var buf strings.Builder
+	store := NewMemStore()
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	clk := time.Unix(1000, 0).UTC()
+	sup := NewSupervisor(store, &fakeLauncher{liveness: LivenessAlive}, "h", time.Minute, time.Minute, func() time.Time { return clk }, slog.New(slog.NewTextHandler(&buf, nil)))
+	if err := store.SetJamContext(sessionctx.Layer{Core: strings.Repeat("x", sessionctx.BudgetJam+50)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	n := strings.Count(buf.String(), "session context")
+	if n == 0 {
+		t.Fatal("raise must log the truncation warning")
+	}
+	if _, err := sup.ContextFor("w1"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(buf.String(), "session context") != n {
+		t.Fatalf("refresh re-logged the warnings:\n%s", buf.String())
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -24,6 +25,9 @@ func writeContext(dir string, b sessionctx.Bundle) error {
 	name := short(b.Fingerprint)
 	if name == "" {
 		name = "nofp"
+	} else if !isHex(name) {
+		// The fingerprint comes from Jam over the network; it names a directory.
+		return fmt.Errorf("session context: refusing fingerprint %q (not hex)", name)
 	}
 	target := filepath.Join(versions, name)
 	if err := os.RemoveAll(target); err != nil {
@@ -76,4 +80,13 @@ func short(s string) string {
 		return s[:12]
 	}
 	return s
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return s != ""
 }

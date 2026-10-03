@@ -59,6 +59,9 @@ type contextRefresher struct {
 	last sessionctx.Bundle
 	dir  string
 	log  *slog.Logger
+	// pending are layers announced into a live episode, repeated at the next
+	// episode in case that turn never ran.
+	pending []string
 }
 
 func newContextRefresher(src ContextSource, initial sessionctx.Bundle, dir string, log *slog.Logger) *contextRefresher {
@@ -88,6 +91,43 @@ func (r *contextRefresher) refresh(ctx context.Context) []string {
 	r.last = cur
 	r.log.Info("agentrun: session context refreshed", "fingerprint", short(cur.Fingerprint), "layers", strings.Join(changed, ","))
 	return changed
+}
+
+// live refreshes for a wake written into a running episode and remembers what
+// it announced for the next episode.
+func (r *contextRefresher) live(ctx context.Context) []string {
+	changed := r.refresh(ctx)
+	r.pending = mergeLayers(r.pending, changed)
+	return changed
+}
+
+// episode refreshes before a spawn; it reports this refresh's changes plus any
+// announced only into the previous (live) episode.
+func (r *contextRefresher) episode(ctx context.Context) []string {
+	changed := mergeLayers(r.pending, r.refresh(ctx))
+	r.pending = nil
+	return changed
+}
+
+// mergeLayers unions two layer lists, keeping delivery order.
+func mergeLayers(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	in := map[string]bool{}
+	for _, n := range append(append([]string(nil), a...), b...) {
+		in[n] = true
+	}
+	var out []string
+	for _, n := range sessionctx.LayerOrder() {
+		if in[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // contextNotice is the line added to what the agent is sent when its context

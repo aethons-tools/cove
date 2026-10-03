@@ -184,7 +184,7 @@ AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_AGENT_CONTEXT_FILE path to the compiled session context JSON (optional; see session-context.md)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
 AT_COVE_SESSION_KIND      ephemeral|personal|standing — picks the resume prompt (standing sessions have no owner)
-AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn
+AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn, and — with a context file — the session context (GET /context) before every later spawn and wake
 AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 ```
 
