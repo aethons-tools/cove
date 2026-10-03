@@ -233,3 +233,21 @@ func titled(t, name string) string {
 	}
 	return t + " — " + name
 }
+
+// layerOrder is the delivery order, for reporting changes.
+var layerOrder = []string{LayerBoilerplate, LayerKit, LayerStudio, LayerProject, LayerRole, LayerJam}
+
+// ChangedLayers names the layers that differ between two bundles (changed,
+// added or removed), in delivery order; nil when the bundles are identical.
+func ChangedLayers(old, cur Bundle) []string {
+	if old.Fingerprint == cur.Fingerprint {
+		return nil
+	}
+	var out []string
+	for _, n := range layerOrder {
+		if old.Layers[n] != cur.Layers[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
