@@ -391,6 +391,11 @@ type Project struct {
 	// ChatService is the service backing human DMs (e.g. "discord"); ""
 	// means tracker @-mentions only.
 	ChatService string `json:"chat_service,omitempty"`
+	// Context is the project's authored session-context layer (its goals) and
+	// Resources the repos/docs/trackers sessions should know; both managed by
+	// the context endpoints (`at-jam context … --project`).
+	Context   sessionctx.Layer      `json:"context,omitzero"`
+	Resources []sessionctx.Resource `json:"resources,omitempty"`
 }
 
 // DefaultProject backs Jam-side default enrollment when no project is named.

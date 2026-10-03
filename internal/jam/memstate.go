@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"sync"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // memState is the in-memory representation of the control plane, shared by
@@ -579,6 +581,13 @@ func setChatService(p Project, service string) Project {
 	return p
 }
 
+// setProjectContext returns p with its authored context and resources replaced.
+func setProjectContext(p Project, l sessionctx.Layer, rs []sessionctx.Resource) Project {
+	p.Context = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}
+	p.Resources = slices.Clone(rs)
+	return p
+}
+
 // ---- copy helpers (defensive copies for reads) ----
 
 func copyKit(k Kit) Kit {
@@ -602,6 +611,8 @@ func copyHumans(hs []Human) []Human {
 }
 
 func copyProject(p Project) Project {
+	p.Context.Leaves = slices.Clone(p.Context.Leaves)
+	p.Resources = slices.Clone(p.Resources)
 	p.Roster.Humans = copyHumans(p.Roster.Humans)
 	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
 	p.Escalation = append([]EscalationTier(nil), p.Escalation...)

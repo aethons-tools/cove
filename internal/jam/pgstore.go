@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -770,6 +772,16 @@ func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []Es
 		return err
 	}
 	return s.putProject(setEscalation(copyProject(p), category, tiers))
+}
+
+func (s *PostgresStore) SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, _, err := s.requireProject(project)
+	if err != nil {
+		return err
+	}
+	return s.putProject(setProjectContext(copyProject(p), l, rs))
 }
 
 func (s *PostgresStore) SetChatService(project, service string) error {

@@ -1,5 +1,7 @@
 package jam
 
+import "github.com/aethons-tools/cove/internal/jam/sessionctx"
+
 // Store records enrolled actors (by token hash), roles (by project+name), and the
 // destination table.
 type Store interface {
@@ -68,4 +70,7 @@ type Store interface {
 	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
 	SetChatService(project, service string) error
+	// SetProjectContext replaces a project's authored session context and
+	// resources (ErrProjectNotFound for an unknown project).
+	SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error
 }

@@ -1,6 +1,10 @@
 package jam
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+)
 
 // MemStore is an in-memory Store for tests and tooling. Not for production:
 // nothing is persisted. It shares the in-memory core (memState) with
@@ -281,6 +285,17 @@ func (fs *MemStore) SetEscalationPolicy(project, category string, tiers []Escala
 		return err
 	}
 	fs.applyPutProject(setEscalation(p, category, tiers))
+	return nil
+}
+
+func (fs *MemStore) SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, _, err := fs.requireProject(project)
+	if err != nil {
+		return err
+	}
+	fs.applyPutProject(setProjectContext(p, l, rs))
 	return nil
 }
 
