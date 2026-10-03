@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // RunConformance exercises the full jam.Store contract. newStore must return
@@ -26,6 +27,49 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 		return s
 	}
+
+	t.Run("project_context_set_and_copy", func(t *testing.T) {
+		s := newStoreWithAcme(t)
+		l := sessionctx.Layer{Core: "Goals.", Leaves: []sessionctx.Leaf{{Name: "a.md", ReadWhen: "w", Body: "b"}}}
+		rs := []sessionctx.Resource{{Name: "cove", Kind: "repo", Ref: "aethons-tools/cove"}}
+		if err := s.SetProjectContext("acme", l, rs); err != nil {
+			t.Fatalf("SetProjectContext: %v", err)
+		}
+		p, _ := s.GetProject("acme")
+		if p.Context.Core != "Goals." || len(p.Context.Leaves) != 1 || len(p.Resources) != 1 {
+			t.Fatalf("got %+v", p)
+		}
+		p.Resources[0].Name = "mutated"
+		p.Context.Leaves[0].Name = "mutated.md"
+		if again, _ := s.GetProject("acme"); again.Resources[0].Name != "cove" || again.Context.Leaves[0].Name != "a.md" {
+			t.Fatal("GetProject must return a copy")
+		}
+		if err := s.SetProjectContext("ghost", l, nil); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("unknown project = %v, want ErrProjectNotFound", err)
+		}
+	})
+
+	t.Run("jam_context_set_get_clear", func(t *testing.T) {
+		s := newStore(t)
+		if got := s.GetJamContext(); !got.Empty() {
+			t.Fatalf("fresh store: %+v", got)
+		}
+		l := sessionctx.Layer{Core: "Never push to main.", Leaves: []sessionctx.Leaf{{Name: "r.md", ReadWhen: "w", Body: "b"}}}
+		if err := s.SetJamContext(l); err != nil {
+			t.Fatal(err)
+		}
+		got := s.GetJamContext()
+		if got.Core != l.Core || len(got.Leaves) != 1 {
+			t.Fatalf("got %+v", got)
+		}
+		got.Leaves[0].Name = "mutated.md"
+		if s.GetJamContext().Leaves[0].Name != "r.md" {
+			t.Fatal("GetJamContext must return a copy")
+		}
+		if err := s.SetJamContext(sessionctx.Layer{}); err != nil || !s.GetJamContext().Empty() {
+			t.Fatalf("clear: err=%v got=%+v", err, s.GetJamContext())
+		}
+	})
 
 	t.Run("actors_add_lookup_remove", func(t *testing.T) {
 		s := newStore(t)

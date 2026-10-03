@@ -1,22 +1,23 @@
 ---
-summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, projects) with `at-jam export` / `at-jam import` — a single file, excluding studio and intercom state.
+summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, projects, Jam-wide session context) with `at-jam export` / `at-jam import` — a single file, excluding studio and intercom state.
 read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Backing up and restoring Jam config
 
 `at-jam export` and `at-jam import` snapshot and restore the Jam **config** — the
-five control-plane aggregates:
+control-plane aggregates:
 
 - **actors** (identities, their **token hashes**, and grants)
-- **roles** (scope incl. egress, allocation incl. standing sessions)
+- **roles** (scope incl. egress, allocation incl. standing sessions, session context)
 - **kits** (all versions **and** the pin)
 - **destinations**
-- **projects** (roster, escalation policy, chat service)
+- **projects** (roster, escalation policy, chat service, session context and resources)
+- the **Jam-wide session context**
 
 They deliberately **exclude** runtime/studio state (raised instances), intercom
 unread cursors, the intercom squawk log, and allocator events. A backup restores

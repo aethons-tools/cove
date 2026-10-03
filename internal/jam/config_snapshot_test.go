@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // populated returns a MemStore with one entry in every config aggregate AND in
@@ -109,6 +112,7 @@ func TestImportConfigRefusesWhenNotEmpty(t *testing.T) {
 		"kits":         func(s *MemStore) { _, _ = s.PushKit("k", "cfg") },
 		"destinations": func(s *MemStore) { _ = s.AddDestination(Destination{Name: "d"}) },
 		"projects":     func(s *MemStore) { _ = s.AddHuman(DefaultProject, Human{Name: "h"}) },
+		"jam_context":  func(s *MemStore) { _ = s.SetJamContext(sessionctx.Layer{Core: "J"}) },
 	}
 	for name, seed := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -129,5 +133,34 @@ func TestImportConfigRejectsBadVersion(t *testing.T) {
 	dst := NewMemStore()
 	if err := dst.ImportConfig(ConfigSnapshot{Version: 999}); !errors.Is(err, ErrUnsupportedConfigVersion) {
 		t.Fatalf("err = %v, want ErrUnsupportedConfigVersion", err)
+	}
+}
+
+func TestConfigSnapshotCarriesContext(t *testing.T) {
+	src := NewMemStore()
+	if err := src.PutRole("default", Role{Name: "dev", Scope: Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetRoleContext(src, "default", "dev", sessionctx.Layer{Core: "ROLE"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.SetProjectContext("default", sessionctx.Layer{Core: "PROJECT"}, []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "https://x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.SetJamContext(sessionctx.Layer{Core: "JAM"}); err != nil {
+		t.Fatal(err)
+	}
+	snap := src.ExportConfig()
+	dst := NewMemStore()
+	if err := dst.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := dst.GetRole("default", "dev")
+	p, _ := dst.GetProject("default")
+	if r.Context.Core != "ROLE" || p.Context.Core != "PROJECT" || len(p.Resources) != 1 || dst.GetJamContext().Core != "JAM" {
+		t.Fatalf("round trip lost context: role=%q project=%q res=%d jam=%q", r.Context.Core, p.Context.Core, len(p.Resources), dst.GetJamContext().Core)
+	}
+	if err := NewMemStore().ImportConfig(ConfigSnapshot{Version: ConfigSnapshotVersion, JamContext: &sessionctx.Layer{Core: "J"}}); err != nil {
+		t.Fatalf("a jam-context-only snapshot imports: %v", err)
 	}
 }

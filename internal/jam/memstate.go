@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"sync"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // memState is the in-memory representation of the control plane, shared by
@@ -32,6 +34,8 @@ type memState struct {
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
 	unread map[string]map[string]int64
+	// jamContext is the Jam-wide authored session-context layer; zero = none.
+	jamContext sessionctx.Layer
 }
 
 func newMemState() *memState {
@@ -47,6 +51,18 @@ func newMemState() *memState {
 }
 
 // ---- reads (RLock; promoted to the embedding Store) ----
+
+// GetJamContext returns a copy of the Jam-wide authored context layer.
+func (m *memState) GetJamContext() sessionctx.Layer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return sessionctx.Layer{Core: m.jamContext.Core, Leaves: slices.Clone(m.jamContext.Leaves)}
+}
+
+// applySetJamContext replaces the cached layer. Caller holds mu.Lock().
+func (m *memState) applySetJamContext(l sessionctx.Layer) {
+	m.jamContext = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}
+}
 
 func (m *memState) Lookup(tokenHash string) (Actor, bool) {
 	m.mu.RLock()
@@ -579,6 +595,13 @@ func setChatService(p Project, service string) Project {
 	return p
 }
 
+// setProjectContext returns p with its authored context and resources replaced.
+func setProjectContext(p Project, l sessionctx.Layer, rs []sessionctx.Resource) Project {
+	p.Context = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}
+	p.Resources = slices.Clone(rs)
+	return p
+}
+
 // ---- copy helpers (defensive copies for reads) ----
 
 func copyKit(k Kit) Kit {
@@ -602,6 +625,8 @@ func copyHumans(hs []Human) []Human {
 }
 
 func copyProject(p Project) Project {
+	p.Context.Leaves = slices.Clone(p.Context.Leaves)
+	p.Resources = slices.Clone(p.Resources)
 	p.Roster.Humans = copyHumans(p.Roster.Humans)
 	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
 	p.Escalation = append([]EscalationTier(nil), p.Escalation...)

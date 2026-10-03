@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a Jam — defining roles, sett
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -39,6 +39,8 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 [operators.md](operators.md).
 
 ## Roles
+
+A role's rules for its sessions: `at-jam context --role` ([session-context-authoring.md](session-context-authoring.md)).
 
 ```
 at-jam role add --project acme --name guest \

@@ -31,6 +31,9 @@ const (
 	LayerBoilerplate = "boilerplate"
 	LayerKit         = "kit"
 	LayerStudio      = "studio"
+	LayerProject     = "project"
+	LayerRole        = "role"
+	LayerJam         = "jam"
 )
 
 // Core budgets in bytes.
@@ -46,15 +49,15 @@ const Precedence = "Sandbox hardening is enforced and cannot be overridden. Othe
 
 // Leaf is one on-demand file of a layer.
 type Leaf struct {
-	Name     string `json:"name"`      // file name under the layer dir, e.g. "tools.md"
-	ReadWhen string `json:"read_when"` // one line: when to open it
-	Body     string `json:"body"`      // markdown
+	Name     string `json:"name" yaml:"name"`           // file name under the layer dir, e.g. "tools.md"
+	ReadWhen string `json:"read_when" yaml:"read-when"` // one line: when to open it
+	Body     string `json:"body" yaml:"body"`           // markdown
 }
 
 // Layer is one layer's contribution: an always-on core and on-demand leaves.
 type Layer struct {
-	Core   string `json:"core"`
-	Leaves []Leaf `json:"leaves,omitempty"`
+	Core   string `json:"core" yaml:"core"`
+	Leaves []Leaf `json:"leaves,omitempty" yaml:"leaves,omitempty"`
 }
 
 // Empty reports whether the layer contributes nothing.
@@ -76,6 +79,9 @@ type Inputs struct {
 	Session SessionFacts
 	Kit     Layer
 	Studio  StudioFacts
+	Project Layer // authored, with resources already rendered (ProjectLayer)
+	Role    Layer
+	Jam     Layer
 }
 
 // Bundle is the compiled context. Files are relative to Dir.
@@ -112,6 +118,9 @@ func Compile(in Inputs) Bundle {
 		{LayerBoilerplate, "Boilerplate", Boilerplate(in.Session), BudgetBoilerplate},
 		{LayerKit, kitTitle, in.Kit, BudgetKit},
 		{LayerStudio, "Studio", Studio(in.Studio), BudgetStudio},
+		{LayerProject, titled("Project", in.Session.Project), in.Project, BudgetProject},
+		{LayerRole, titled("Role", in.Session.Role), in.Role, BudgetRole},
+		{LayerJam, "Jam", in.Jam, BudgetJam},
 	}
 	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}}
 	var core strings.Builder
@@ -157,7 +166,12 @@ func Compile(in Inputs) Bundle {
 		fmt.Fprintf(&idx, "| %s | %s |\n", r.path, r.when)
 	}
 	b.Files["INDEX.md"] = idx.String()
-	b.Warnings = append(b.Warnings, lintAuthored(LayerKit, in.Kit.Core, in.Studio)...)
+	for _, a := range []struct {
+		name string
+		l    Layer
+	}{{LayerKit, in.Kit}, {LayerProject, in.Project}, {LayerRole, in.Role}, {LayerJam, in.Jam}} {
+		b.Warnings = append(b.Warnings, lintAuthored(a.name, a.l.Core, in.Studio)...)
+	}
 	b.Core = core.String()
 	b.Fingerprint = fingerprint(b.Core, b.Files)
 	return b
@@ -211,4 +225,11 @@ func lintAuthored(layer, core string, f StudioFacts) []string {
 		}
 	}
 	return out
+}
+
+func titled(t, name string) string {
+	if name == "" {
+		return t
+	}
+	return t + " — " + name
 }

@@ -423,6 +423,41 @@ func (c *Client) ClearEgress(project, role string) error {
 	return c.do("DELETE", egressPath(project, role), nil, nil)
 }
 
+// ContextScope names one authored session-context layer: a role (Project+Role),
+// a project (Project only) or the Jam (Jam).
+type ContextScope struct {
+	Project, Role string
+	Jam           bool
+}
+
+func contextPath(s ContextScope) string {
+	switch {
+	case s.Jam:
+		return "/admin/jam/context"
+	case s.Role != "":
+		return "/admin/roles/" + url.PathEscape(s.Project) + "/" + url.PathEscape(s.Role) + "/context"
+	default:
+		return "/admin/projects/" + url.PathEscape(s.Project) + "/context"
+	}
+}
+
+// GetContext returns the authored context layer for s.
+func (c *Client) GetContext(s ContextScope) (jam.ContextBody, error) {
+	var out jam.ContextBody
+	err := c.do("GET", contextPath(s), nil, &out)
+	return out, err
+}
+
+// SetContext replaces the authored context layer for s; Jam validates budgets.
+func (c *Client) SetContext(s ContextScope, b jam.ContextBody) error {
+	return c.do("PUT", contextPath(s), b, nil)
+}
+
+// ClearContext removes the authored context layer for s.
+func (c *Client) ClearContext(s ContextScope) error {
+	return c.do("DELETE", contextPath(s), nil, nil)
+}
+
 // ExportConfig fetches a full config snapshot (GET /admin/config).
 func (c *Client) ExportConfig() (jam.ConfigSnapshot, error) {
 	var s jam.ConfigSnapshot
