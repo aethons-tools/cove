@@ -915,6 +915,14 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit push: base.context-dir:", err)
 			return 1
 		}
+		if err := sk.ResolveNoteFiles(baseDir); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push: notes:", err)
+			return 1
+		}
+		if err := sk.CheckNotes(); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
 		resolved, err := sk.ToJSON()
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)

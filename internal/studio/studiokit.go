@@ -35,6 +35,9 @@ type StudioKit struct {
 	BuildArgs  map[string]string           `yaml:"build-args,omitempty" json:"build-args,omitempty"`
 	Secrets    map[string]kit.SecretConfig `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Prompt     string                      `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	// Notes are leaves the kit ships into its sessions' context (kit/<name>).
+	// Like Prompt, a raise-time input: outside the build digest.
+	Notes []KitNote `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
 
 // ParseStudioKit unmarshals and validates studio-kit YAML. Unknown fields are

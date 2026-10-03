@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -1297,5 +1298,13 @@ func TestRaiseCompilesAuthoredLayers(t *testing.T) {
 	}
 	if c := raise("w2"); strings.Contains(c.Core, "## Jam") {
 		t.Error("a cleared layer must vanish")
+	}
+}
+
+func TestPushStudioKitRejectsReservedNote(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	cfg := "kind: studio\nnotes:\n  - name: tools.md\n    read-when: w\n    body: B\n"
+	if _, _, err := PushStudioKit(store, "noted", cfg); WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "tools.md") {
+		t.Fatalf("push must reject a note named tools.md, got %v", err)
 	}
 }
