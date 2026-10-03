@@ -29,7 +29,8 @@ For the detail, load only the leaf your task needs:
 
 - **Editing the kit** — adding an allowed domain, installing a tool, extending
   PATH/env, the `image:` block schema, the rebuild steps →
-  `/agent-data/reference/sandbox-kit-changes.md`
+  `/agent-data/reference/sandbox-kit-changes.md` (in a Jam session:
+  `/agent-data/context/boilerplate/changing-the-kit.md`)
 - **Hitting a wall you can't get past from inside** — what the hardening layer owns
   and refuses to let the kit override →
   `/agent-data/reference/sandbox-hardening-limits.md`

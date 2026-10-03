@@ -62,7 +62,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 	// destination routes.
 	connH := jam.NewConnectorHandler(st, time.Now, log)
 	ctxH := jam.NewContextHandler(st, sup, time.Now, log)
-	withConnector := func(next http.Handler) http.Handler {
+	withCoveEndpoints := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/connector":
@@ -76,7 +76,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 		})
 	}
 	if lg == nil && !requisitioner {
-		return withConnector(broker)
+		return withCoveEndpoints(broker)
 	}
 	// Pass lg as both the reader and the appender only when it's genuinely
 	// non-nil: it is an intercom.Store interface value holding a real backend or
@@ -90,5 +90,5 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")
 	log.Info("Jam escalate: mounted", "path", "/escalate")
-	return withConnector(squawksMux(squawksH, escH, broker))
+	return withCoveEndpoints(squawksMux(squawksH, escH, broker))
 }

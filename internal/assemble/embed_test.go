@@ -575,3 +575,16 @@ func TestCollaboratorDefaultIsEmpty(t *testing.T) {
 		t.Fatalf("default COLLABORATOR.md must be empty, got %q", b)
 	}
 }
+
+// The leaf pointer for kit edits must also route Jam sessions to their context.
+func TestSandboxMDKitLeafDefersToJam(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/SANDBOX.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	i := strings.Index(s, "**Editing the kit**")
+	if i < 0 || !strings.Contains(s[i:min(len(s), i+400)], "boilerplate/changing-the-kit.md") {
+		t.Fatalf("the Editing-the-kit bullet must name the Jam leaf:\n%s", s[i:])
+	}
+}

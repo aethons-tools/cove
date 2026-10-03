@@ -826,19 +826,20 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 // ContextFor recompiles the session context of a running instance from the
 // current config — its role's kit and egress as a raise would resolve them now.
 func (s *Supervisor) ContextFor(actorID string) (sessionctx.Bundle, error) {
-	inst, ok := s.store.GetInstance(actorID)
-	if !ok {
-		return sessionctx.Bundle{}, ErrNoInstance
-	}
-	var actor Actor
-	found := false
 	for _, a := range s.store.ListActors() {
 		if a.ID == actorID {
-			actor, found = a, true
-			break
+			return s.ContextForActor(a)
 		}
 	}
-	if !found {
+	return sessionctx.Bundle{}, ErrNoInstance
+}
+
+// ContextForActor is ContextFor for an already-authenticated actor (the
+// GET /context handler has it from the token lookup).
+func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
+	actorID := actor.ID
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
 		return sessionctx.Bundle{}, ErrNoInstance
 	}
 	// The cove runs the kit image it was raised with (inst.Kit); only the

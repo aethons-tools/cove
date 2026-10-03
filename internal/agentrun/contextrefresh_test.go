@@ -3,10 +3,13 @@ package agentrun
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -75,5 +78,73 @@ func TestContextRefresherCarriesLiveNoticeToNextEpisode(t *testing.T) {
 	}
 	if got := r.episode(context.Background()); got != nil {
 		t.Fatalf("then nothing: %v", got)
+	}
+}
+
+type countingContext struct {
+	calls int
+	err   error
+	block bool
+}
+
+func (c *countingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
+	c.calls++
+	if c.block {
+		<-ctx.Done()
+		return sessionctx.Bundle{}, ctx.Err()
+	}
+	return sessionctx.Bundle{}, c.err
+}
+
+// An older Jam has no /context: stop asking after the first 404.
+func TestContextRefresherStopsOnNoEndpoint(t *testing.T) {
+	src := &countingContext{err: ErrNoContextEndpoint}
+	r := newContextRefresher(src, compileRole("ONE"), filepath.Join(t.TempDir(), "context"), nil)
+	for range 3 {
+		if got := r.episode(context.Background()); got != nil {
+			t.Fatalf("no endpoint: %v", got)
+		}
+	}
+	if src.calls != 1 {
+		t.Fatalf("fetched %d times; want 1", src.calls)
+	}
+}
+
+// The wake path must not stall the episode loop on a slow Jam.
+func TestContextRefresherLiveTimeout(t *testing.T) {
+	r := newContextRefresher(&countingContext{block: true}, compileRole("ONE"), filepath.Join(t.TempDir(), "context"), nil)
+	r.liveTimeout = 30 * time.Millisecond
+	start := time.Now()
+	if got := r.live(context.Background()); got != nil {
+		t.Fatalf("timed out fetch: %v", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("live refresh took %v", d)
+	}
+}
+
+// Only a 404 without Jam's /context marker means "no endpoint" (an older Jam);
+// a marked 404 (no instance yet, e.g. racing the raise) is retried later.
+func TestHTTPContextSource404s(t *testing.T) {
+	for marked, wantOff := range map[bool]bool{false: true, true: false} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if marked {
+				w.Header().Set(ContextEndpointHeader, "1")
+			}
+			http.Error(w, "nope", http.StatusNotFound)
+		}))
+		_, err := HTTPContextSource(ts.URL, "tok").Fetch(context.Background())
+		ts.Close()
+		if got := errors.Is(err, ErrNoContextEndpoint); got != wantOff || err == nil {
+			t.Errorf("marked=%v: err = %v, want no-endpoint=%v", marked, err, wantOff)
+		}
+	}
+}
+
+func TestWriteContextRefusesCoreKeyVariants(t *testing.T) {
+	for _, p := range []string{"./CORE.md", "x/../CORE.md"} {
+		if err := writeContext(filepath.Join(t.TempDir(), "context"), sessionctx.Bundle{Core: "C", Files: map[string]string{p: "X"}, Fingerprint: "ab"}); err == nil {
+			t.Errorf("%q must not overwrite the core", p)
+		}
 	}
 }

@@ -152,3 +152,18 @@ func TestChangedLayers(t *testing.T) {
 		t.Fatalf("removed role + added jam, in delivery order: %v", got)
 	}
 }
+
+// The lint matches whole hosts and whole targets, not substrings.
+func TestLintBoundaries(t *testing.T) {
+	f := StudioFacts{Egress: []string{"go.dev", ".github.com"}, EgressKnown: true, Targets: []StudioTarget{{Target: "human:al"}}}
+	got := strings.Join(lintAuthored("kit", "Clone https://github.com/x. Avoid foogo.devbar. Ask human:alice.", f), "\n")
+	if !strings.Contains(got, "github.com") {
+		t.Errorf("a restated host must warn: %q", got)
+	}
+	if strings.Contains(got, "go.dev") || strings.Contains(got, "human:al") {
+		t.Errorf("substrings must not warn: %q", got)
+	}
+	if got := lintAuthored("kit", "Use go.dev for docs; ping human:al.", f); len(got) != 2 {
+		t.Errorf("whole matches must warn: %v", got)
+	}
+}

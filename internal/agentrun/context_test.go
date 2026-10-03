@@ -98,3 +98,10 @@ func TestWriteContextRefusesBadFingerprint(t *testing.T) {
 		t.Fatal("a bad fingerprint deleted files outside context.d")
 	}
 }
+
+func TestWriteContextRefusesCoreKey(t *testing.T) {
+	err := writeContext(filepath.Join(t.TempDir(), "context"), sessionctx.Bundle{Core: "C", Files: map[string]string{"CORE.md": "X"}, Fingerprint: "ab"})
+	if err == nil {
+		t.Fatal("a CORE.md file must not overwrite the core")
+	}
+}

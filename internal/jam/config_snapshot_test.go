@@ -164,3 +164,42 @@ func TestConfigSnapshotCarriesContext(t *testing.T) {
 		t.Fatalf("a jam-context-only snapshot imports: %v", err)
 	}
 }
+
+// Import applies the same authoring rules as the admin API, so a hand-edited
+// backup can't store context sessions would receive truncated or broken.
+func TestImportConfigValidatesAuthoredContext(t *testing.T) {
+	good := func() ConfigSnapshot {
+		return ConfigSnapshot{Version: ConfigSnapshotVersion, Projects: []Project{{Name: DefaultProject}}}
+	}
+	for name, mut := range map[string]func(*ConfigSnapshot){
+		"jam over budget": func(s *ConfigSnapshot) {
+			s.JamContext = &sessionctx.Layer{Core: strings.Repeat("x", sessionctx.BudgetJam+1)}
+		},
+		"role bad leaf": func(s *ConfigSnapshot) {
+			s.Roles = map[string]map[string]Role{DefaultProject: {"r": {Name: "r", Context: sessionctx.Layer{Leaves: []sessionctx.Leaf{{Name: "../x.md", ReadWhen: "w"}}}}}}
+		},
+		"project bad resource": func(s *ConfigSnapshot) {
+			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "wiki", Ref: "x"}}
+		},
+		"project reserved leaf": func(s *ConfigSnapshot) {
+			s.Projects[0].Context = sessionctx.Layer{Core: "C", Leaves: []sessionctx.Leaf{{Name: sessionctx.ResourcesLeaf, ReadWhen: "w"}}}
+			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}
+		},
+		"project core plus pointer over budget": func(s *ConfigSnapshot) {
+			s.Projects[0].Context = sessionctx.Layer{Core: strings.Repeat("x", sessionctx.BudgetProject-5)}
+			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}
+		},
+		"long destination note": func(s *ConfigSnapshot) {
+			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Note: strings.Repeat("n", MaxDestinationNote+1)}}
+		},
+	} {
+		s := good()
+		mut(&s)
+		if err := NewMemStore().ImportConfig(s); err == nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("%s: err = %v, want ErrInvalidConfig", name, err)
+		}
+	}
+	if err := NewMemStore().ImportConfig(good()); err != nil {
+		t.Fatalf("a valid snapshot must import: %v", err)
+	}
+}

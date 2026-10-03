@@ -3,6 +3,7 @@ package agentrun
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,13 @@ import (
 type ContextSource interface {
 	Fetch(ctx context.Context) (sessionctx.Bundle, error)
 }
+
+// ContextEndpointHeader marks Jam's /context responses (sessionctx.EndpointHeader).
+const ContextEndpointHeader = sessionctx.EndpointHeader
+
+// ErrNoContextEndpoint is a Jam without GET /context (older than live refresh):
+// the session keeps its raise-time bundle and stops asking.
+var ErrNoContextEndpoint = errors.New("jam serves no /context endpoint")
 
 // HTTPContextSource is the production ContextSource: GET <base>/context with the
 // identity bearer, through the cove's proxy (http.ProxyFromEnvironment via the
@@ -41,6 +49,12 @@ func (s httpContextSource) Fetch(ctx context.Context) (sessionctx.Bundle, error)
 		return sessionctx.Bundle{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound && resp.Header.Get(ContextEndpointHeader) == "" {
+		// An unmarked 404: this Jam has no /context. A marked one (no instance
+		// yet, e.g. racing the raise) is an ordinary, retried error.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return sessionctx.Bundle{}, ErrNoContextEndpoint
+	}
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return sessionctx.Bundle{}, fmt.Errorf("GET /context: %s", resp.Status)
@@ -62,7 +76,14 @@ type contextRefresher struct {
 	// pending are layers announced into a live episode, repeated at the next
 	// episode in case that turn never ran.
 	pending []string
+	// liveTimeout bounds a refresh on the wake path, which runs inside the
+	// episode loop; 0 = defaultLiveTimeout.
+	liveTimeout time.Duration
+	// off is set once Jam proves to have no /context: stop asking.
+	off bool
 }
+
+const defaultLiveTimeout = 3 * time.Second
 
 func newContextRefresher(src ContextSource, initial sessionctx.Bundle, dir string, log *slog.Logger) *contextRefresher {
 	if log == nil {
@@ -75,7 +96,15 @@ func newContextRefresher(src ContextSource, initial sessionctx.Bundle, dir strin
 // changed or the refresh failed (the last bundle stays in effect). Logs carry
 // fingerprints and layer names, never content.
 func (r *contextRefresher) refresh(ctx context.Context) []string {
+	if r.off {
+		return nil
+	}
 	cur, err := r.src.Fetch(ctx)
+	if errors.Is(err, ErrNoContextEndpoint) {
+		r.off = true
+		r.log.Info("agentrun: jam has no /context; keeping the raise-time session context")
+		return nil
+	}
 	if err != nil {
 		r.log.Warn("agentrun: session context refresh failed; keeping the last bundle", "err", err.Error())
 		return nil
@@ -96,6 +125,12 @@ func (r *contextRefresher) refresh(ctx context.Context) []string {
 // live refreshes for a wake written into a running episode and remembers what
 // it announced for the next episode.
 func (r *contextRefresher) live(ctx context.Context) []string {
+	d := r.liveTimeout
+	if d <= 0 {
+		d = defaultLiveTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
 	changed := r.refresh(ctx)
 	r.pending = mergeLayers(r.pending, changed)
 	return changed
