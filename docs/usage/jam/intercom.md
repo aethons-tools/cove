@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to its owner; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # The intercom MCP
@@ -119,7 +119,8 @@ A raised studio is no longer strictly one-shot. When its agent reports **`needs-
 Activity `waiting` and blocks instead of ending. Jam's resident **wake-on engine**
 watches the studio's ticket and, when a **new comment** (a reply) arrives, **wakes** it
 over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
-reply, and resumes. A **`wait-max`** bounds the wait — a studio with no reply within it is
+reply, and resumes. When its [session context](session-context.md#refresh) changed
+meanwhile, the wake text says so. A **`wait-max`** bounds the wait — a studio with no reply within it is
 torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
 after every turn and is never torn down for `wait-max` (it is still paused at

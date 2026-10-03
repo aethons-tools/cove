@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Managed studios (the supervisor)
@@ -183,6 +183,7 @@ AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_AGENT_CONTEXT_FILE path to the compiled session context JSON (optional; see session-context.md)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
+AT_COVE_SESSION_KIND      ephemeral|personal|standing — picks the resume prompt (standing sessions have no owner)
 AT_JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched (GET /connector) before every spawn
 AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 ```
@@ -232,6 +233,11 @@ edit reaches a running studio at its next episode (never within one: a wake deli
 keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every episode until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
+
+**Context refresh.** Beside the connector, cove-master re-fetches the session
+context (`GET /context`) before every later episode *and* before each wake it writes
+into a live episode, swapping `/agent-data/context` and telling the agent which
+layers changed — see [session-context.md](session-context.md#refresh).
 
 **Post-mortem on teardown.** Just before the container (and its `/agent-data`
 volume) is removed, the launcher grabs the **tail of `cove-master`'s log**
