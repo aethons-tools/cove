@@ -69,8 +69,8 @@ identity, 404 without a registered instance). cove-master fetches it:
   catches up at your next episode.* A burst of coalesced wakes carries it once.
 
 Only changed layers are named (a leaf edit counts). The first episode refreshes
-too (after a cove-master restart, say), without a notice. Every fetch — at a spawn
-or a wake — is bounded at 3 s so a slow Jam never stalls the session. An unreachable Jam keeps the last
+too (after a cove-master restart, say), without a notice. Every fetch — at a
+spawn or a wake — is bounded at 3 s, so a slow Jam never stalls the session. An unreachable Jam keeps the last
 bundle (logged in `cove-master.log`); a 404 without Jam's `X-Jam-Context` marker
 (an older Jam with no `/context`) stops refreshing for the run, logged once, while a
 marked 404 (the session isn't registered yet, e.g. right after raise) is retried.
@@ -78,7 +78,7 @@ Never failing the episode either way.
 
 Studio rendering: admin-authored names are flattened to one line, and a wildcard
 egress entry such as `.github.com` reads `*.github.com (and github.com)`. The
-restated-fact warning matches whole hosts (any case) and targets only; trailing
-`.`/`:` punctuation still counts as a match.
+restated-fact warning matches whole hosts (any case, with or without a port)
+and whole targets; sentence punctuation after one doesn't hide it.
 
 The bundle never carries secrets: only names of env keys and routes.

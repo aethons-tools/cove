@@ -170,7 +170,7 @@ func TestLintBoundaries(t *testing.T) {
 
 func TestLintCaseAndPunctuation(t *testing.T) {
 	f := StudioFacts{Egress: []string{"go.dev"}, EgressKnown: true, Targets: []StudioTarget{{Target: "human:al"}}}
-	for _, core := range []string{"See GO.DEV for docs.", "Use go.dev.. then", "Ping human:al: now"} {
+	for _, core := range []string{"See GO.DEV for docs.", "Use go.dev.. then", "Ping human:al: now", "Use go.dev:443 for docs"} {
 		if got := lintAuthored("kit", core, f); len(got) != 1 {
 			t.Errorf("%q: want one warning, got %v", core, got)
 		}

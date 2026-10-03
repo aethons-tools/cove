@@ -76,8 +76,8 @@ type contextRefresher struct {
 	// pending are layers announced into a live episode, repeated at the next
 	// episode in case that turn never ran.
 	pending []string
-	// liveTimeout bounds a refresh on the wake path, which runs inside the
-	// episode loop; 0 = defaultLiveTimeout.
+	// liveTimeout bounds every refresh fetch (before a spawn and on a wake), so
+	// a slow Jam never stalls the session; 0 = defaultLiveTimeout.
 	liveTimeout time.Duration
 	// off is set once Jam proves to have no /context: stop asking.
 	off bool
@@ -125,13 +125,7 @@ func (r *contextRefresher) refresh(ctx context.Context) []string {
 // live refreshes for a wake written into a running episode and remembers what
 // it announced for the next episode.
 func (r *contextRefresher) live(ctx context.Context) []string {
-	d := r.liveTimeout
-	if d <= 0 {
-		d = defaultLiveTimeout
-	}
-	ctx, cancel := context.WithTimeout(ctx, d)
-	defer cancel()
-	changed := r.refresh(ctx)
+	changed := r.bounded(ctx)
 	r.pending = mergeLayers(r.pending, changed)
 	return changed
 }
@@ -139,7 +133,7 @@ func (r *contextRefresher) live(ctx context.Context) []string {
 // episode refreshes before a spawn; it reports this refresh's changes plus any
 // announced only into the previous (live) episode.
 func (r *contextRefresher) episode(ctx context.Context) []string {
-	changed := mergeLayers(r.pending, r.refresh(ctx))
+	changed := mergeLayers(r.pending, r.bounded(ctx))
 	r.pending = nil
 	return changed
 }
@@ -176,4 +170,15 @@ func contextNotice(changed []string, live bool) string {
 		return "\n\nSession context changed (" + layers + ") — re-read /agent-data/context/CORE.md now; your system prompt catches up at your next episode."
 	}
 	return "\n\nSession context changed (" + layers + ") since your last turn — your system prompt is current; re-open any leaf you rely on."
+}
+
+// bounded is refresh with the liveTimeout bound.
+func (r *contextRefresher) bounded(ctx context.Context) []string {
+	d := r.liveTimeout
+	if d <= 0 {
+		d = defaultLiveTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
+	return r.refresh(ctx)
 }

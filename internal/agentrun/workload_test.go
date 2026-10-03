@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -897,8 +898,12 @@ func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 type blockingContext struct{}
 
 func (blockingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
-	<-ctx.Done()
-	return sessionctx.Bundle{}, ctx.Err()
+	select {
+	case <-ctx.Done():
+		return sessionctx.Bundle{}, ctx.Err()
+	case <-time.After(2 * time.Second): // unbounded: fail the test, don't hang it
+		return sessionctx.Bundle{}, errors.New("fetch was not bounded")
+	}
 }
 
 // A hung Jam must not hold the first episode for the client's full timeout.
@@ -907,8 +912,7 @@ func TestFirstEpisodeFetchIsBounded(t *testing.T) {
 	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
 	one := compileRole("ONE")
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
-		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}}, nil)
-	w.episodeTimeout = 30 * time.Millisecond
+		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}, ContextFetchTimeout: 30 * time.Millisecond}, nil)
 	start := time.Now()
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)

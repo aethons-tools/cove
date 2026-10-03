@@ -27,6 +27,6 @@ updated: 2026-10-03
   `context` column (current/stale) for studios, like the connector's `stale` column.
 * Session context: a timed self-wake — let an agent end its turn asking to be woken at
   time T / after D (a wake-on timer plus an intercom `sleep` tool); until then the
-  Boilerplate only promises "ending your turn waits for a message".
+  Boilerplate only says "Ending your turn is how you wait." (for a message).
 * Session context: a Postgres restart test for `jam_settings` (the Jam-wide layer
   survives a store reopen), in the store-integration suite.

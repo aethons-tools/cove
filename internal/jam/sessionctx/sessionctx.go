@@ -279,12 +279,15 @@ func containsToken(text, tok string, isTok func(byte) bool) bool {
 		}
 		start, end := i+j, i+j+len(tok)
 		before := start == 0 || !isTok(text[start-1])
-		// Trailing sentence punctuation ('.', ':') still ends the token.
-		k := end
-		for k < len(text) && (text[k] == '.' || text[k] == ':') {
-			k++
+		after := end == len(text) || !isTok(text[end])
+		if !after {
+			// Trailing sentence punctuation ('.', ':') still ends the token.
+			k := end
+			for k < len(text) && (text[k] == '.' || text[k] == ':') {
+				k++
+			}
+			after = k == len(text) || !isTok(text[k])
 		}
-		after := k == len(text) || !isTok(text[k])
 		if before && after {
 			return true
 		}

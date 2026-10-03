@@ -88,6 +88,8 @@ type Config struct {
 	// SessionKind is "ephemeral" | "personal" | "standing" ("" = ephemeral); it
 	// picks the resume prompt.
 	SessionKind string
+	// ContextFetchTimeout bounds each context refresh fetch; 0 = 3 s.
+	ContextFetchTimeout time.Duration
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -110,8 +112,6 @@ type Workload struct {
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
 	ctxr *contextRefresher
-	// episodeTimeout bounds the refresh before a spawn; 0 = defaultLiveTimeout.
-	episodeTimeout time.Duration
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -223,6 +223,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))
 			if w.cfg.ContextSource != nil {
 				w.ctxr = newContextRefresher(w.cfg.ContextSource, *w.cfg.Context, w.cfg.ContextDir, w.log)
+				w.ctxr.liveTimeout = w.cfg.ContextFetchTimeout
 			}
 		}
 	}
@@ -271,14 +272,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
 			// cove-master restart) gets no notice: nothing came before it.
-			d := w.episodeTimeout
-			if d <= 0 {
-				d = defaultLiveTimeout
-			}
-			rctx, cancel := context.WithTimeout(ctx, d)
-			changed := w.ctxr.episode(rctx)
-			cancel()
-			if turn > 1 {
+			if changed := w.ctxr.episode(ctx); turn > 1 {
 				first += contextNotice(changed, false)
 			}
 		}
