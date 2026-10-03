@@ -256,6 +256,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		}
 	}
 	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
+	if roleOK {
+		in.Role = role.Context
+	}
+	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
+		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
+	}
+	in.Jam = s.store.GetJamContext()
 	bundle := sessionctx.Compile(in)
 	for _, w := range bundle.Warnings {
 		if s.log != nil {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -1225,5 +1226,41 @@ func TestRaiseContextStudioNamesOwner(t *testing.T) {
 	}
 	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`human:alice` — your owner") {
 		t.Fatalf("studio layer must name the owner: %+v", c)
+	}
+}
+
+// Authored layers reach the session context; a cleared one vanishes.
+func TestRaiseCompilesAuthoredLayers(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	if err := SetRoleContext(store, "default", "guest", sessionctx.Layer{Core: "ROLE-RULES"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetProjectContext("default", sessionctx.Layer{Core: "PROJECT-GOALS"}, []sessionctx.Resource{{Name: "cove", Kind: "repo", Ref: "aethons-tools/cove"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetJamContext(sessionctx.Layer{Core: "JAM-RULES"}); err != nil {
+		t.Fatal(err)
+	}
+	raise := func(id string) *sessionctx.Bundle {
+		if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: id, Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+			t.Fatal(err)
+		}
+		return fl.gotSpec.Context
+	}
+	c := raise("w1")
+	for _, want := range []string{"ROLE-RULES", "PROJECT-GOALS", "JAM-RULES", "project/resources.md"} {
+		if !strings.Contains(c.Core, want) {
+			t.Errorf("context missing %q", want)
+		}
+	}
+	if !strings.Contains(c.Files["project/resources.md"], "aethons-tools/cove") {
+		t.Error("resources leaf missing")
+	}
+	if err := store.SetJamContext(sessionctx.Layer{}); err != nil {
+		t.Fatal(err)
+	}
+	if c := raise("w2"); strings.Contains(c.Core, "## Jam") {
+		t.Error("a cleared layer must vanish")
 	}
 }

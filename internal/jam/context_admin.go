@@ -10,9 +10,9 @@ import (
 // ContextBody is an authored session-context layer as the admin API reads and
 // writes it. Resources apply to projects only.
 type ContextBody struct {
-	Core      string                `json:"core"`
-	Leaves    []sessionctx.Leaf     `json:"leaves,omitempty"`
-	Resources []sessionctx.Resource `json:"resources,omitempty"`
+	Core      string                `json:"core" yaml:"core"`
+	Leaves    []sessionctx.Leaf     `json:"leaves,omitempty" yaml:"leaves,omitempty"`
+	Resources []sessionctx.Resource `json:"resources,omitempty" yaml:"resources,omitempty"`
 }
 
 func (b ContextBody) layer() sessionctx.Layer {
