@@ -14,6 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/connect"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -593,5 +594,23 @@ func TestTeardownUnpausesBeforeRemoving(t *testing.T) {
 	}
 	if ops.removed != "atcove-cove-w1" {
 		t.Fatalf("Teardown must still remove the container; removed=%q", ops.removed)
+	}
+}
+
+// The launcher stages the compiled context and the session kind for cove-master.
+func TestRaisePassesContextAndKind(t *testing.T) {
+	r := &runner.Fake{}
+	l := New(Config{Ops: &fakeOps{}, Runner: r, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh", Inventory: readyInv(), sleep: func(time.Duration) {}})
+	b := &sessionctx.Bundle{Core: "CORE-TEXT", Fingerprint: "ab"}
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go", SessionKind: jam.SessionKindStanding, Context: b}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	var kind, ctx bool
+	for _, c := range r.Calls {
+		kind = kind || strings.Contains(c.Stdin, "AT_COVE_SESSION_KIND='standing'")
+		ctx = ctx || strings.Contains(c.Stdin, `"core":"CORE-TEXT"`)
+	}
+	if !kind || !ctx {
+		t.Fatalf("kind staged = %v, context staged = %v", kind, ctx)
 	}
 }

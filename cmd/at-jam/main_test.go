@@ -1434,3 +1434,37 @@ func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {
 		t.Fatalf("legacy snippet expected:\n%s", out.String())
 	}
 }
+
+// kit push reads note files relative to the kit file and refuses bad notes.
+func TestKitPushNotes(t *testing.T) {
+	store := jam.NewMemStore()
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "docs"), 0o755)
+	os.WriteFile(filepath.Join(dir, "docs", "release.md"), []byte("RELEASE STEPS"), 0o600)
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	var out, errb bytes.Buffer
+	good := write("good.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: docs/release.md\n")
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", good}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("push: exit=%d stderr=%s", code, errb.String())
+	}
+	if cfg, _ := store.KitConfig("web", 0); !strings.Contains(cfg, "RELEASE STEPS") || strings.Contains(cfg, "docs/release.md") {
+		t.Fatalf("stored kit must carry the note body, not the path: %s", cfg)
+	}
+	for name, body := range map[string]string{
+		"reserved.yml": "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n",
+		"escape.yml":   "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n",
+	} {
+		errb.Reset()
+		if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", write(name, body)}, getenv, &out, &errb); code == 0 {
+			t.Errorf("%s: push must fail", name)
+		}
+	}
+}

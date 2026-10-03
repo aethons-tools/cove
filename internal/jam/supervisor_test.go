@@ -1416,3 +1416,33 @@ func TestContextForDoesNotRelogLint(t *testing.T) {
 		t.Fatalf("refresh re-logged the warnings:\n%s", buf.String())
 	}
 }
+
+// End to end through Raise: a credentialed destination in scope never puts its
+// credential name or env templates into the session context.
+func TestRaiseContextCarriesNoSecrets(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat-SECRETNAME",
+		Env: map[string]string{"GH_ENTERPRISE_TOKEN": "{token}", "GH_HOST": "{host}"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{Destinations: []string{"gh"}, Credentials: map[string]string{"gh": "role-SECRETCRED"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	c := fl.gotSpec.Context
+	all := c.Core
+	for _, f := range c.Files {
+		all += f
+	}
+	if !strings.Contains(all, "GH_ENTERPRISE_TOKEN") {
+		t.Fatal("env key names belong in the studio layer")
+	}
+	for _, secret := range []string{"SECRETNAME", "SECRETCRED", "{token}", "{host}"} {
+		if strings.Contains(all, secret) {
+			t.Errorf("context leaks %q", secret)
+		}
+	}
+}

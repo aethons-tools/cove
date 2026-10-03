@@ -25,19 +25,6 @@ func parseContextFile(data []byte, dir string) (jam.ContextBody, error) {
 	})
 }
 
-// contextScope parses exactly one of --role P/R (P defaults), --project P, --jam.
-func contextScope(args []string) (adminclient.ContextScope, error) {
-	fs := flag.NewFlagSet("context scope", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	role := fs.String("role", "", "")
-	project := fs.String("project", "", "")
-	jamWide := fs.Bool("jam", false, "")
-	if err := fs.Parse(args); err != nil {
-		return adminclient.ContextScope{}, err
-	}
-	return scopeOf(*role, *project, *jamWide)
-}
-
 func scopeOf(role, project string, jamWide bool) (adminclient.ContextScope, error) {
 	n := 0
 	for _, set := range []bool{role != "", project != "", jamWide} {
