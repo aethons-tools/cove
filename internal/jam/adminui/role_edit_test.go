@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 func del(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
@@ -171,5 +173,25 @@ func TestRoleEditsRefuseCrossOrigin(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("cross-origin scope edit = %d, want 403", rec.Code)
+	}
+}
+
+// The UI's scope and allocation edits never drop the role's session context.
+func TestRoleEditsKeepContext(t *testing.T) {
+	store := seedRichRole(t)
+	if err := jam.SetRoleContext(store, "acme", "review", sessionctx.Layer{Core: "ROLE-RULES"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
+	for path, form := range map[string]url.Values{
+		"/ui/roles/acme/review/scope":      {"destinations": {"git"}, "ttl": {"2h"}, "kit": {""}},
+		"/ui/roles/acme/review/allocation": {"max-ephemeral": {"2"}},
+	} {
+		if rec := post(t, h, path, form); rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d: %s", path, rec.Code, rec.Body.String())
+		}
+		if r, _ := store.GetRole("acme", "review"); r.Context.Core != "ROLE-RULES" {
+			t.Fatalf("%s dropped the role context: %+v", path, r.Context)
+		}
 	}
 }

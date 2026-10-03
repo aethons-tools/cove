@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // roleMu serializes every read-modify-write of a Role — role put, egress,
@@ -40,14 +42,16 @@ func CreateRole(store Store, project string, role Role) error {
 }
 
 // PutRoleKeeping creates or replaces a role, keeping an existing role's
-// standing declarations and egress policy: those have their own writers
-// (AddStanding/RemoveStanding, SetRoleEgress/ClearRoleEgress).
+// standing declarations, egress policy and context: those have their own
+// writers (AddStanding/RemoveStanding, SetRoleEgress/ClearRoleEgress,
+// SetRoleContext/ClearRoleContext).
 func PutRoleKeeping(store Store, project string, role Role) error {
 	roleMu.Lock()
 	defer roleMu.Unlock()
 	if existing, ok := store.GetRole(project, role.Name); ok {
 		role.Allocation.Standing = existing.Allocation.Standing
 		role.Scope.Egress = existing.Scope.Egress
+		role.Context = existing.Context
 	}
 	return store.PutRole(project, role)
 }
@@ -112,6 +116,26 @@ func RemoveStanding(store Store, project, name, session string) error {
 		if len(r.Allocation.Standing) == 0 {
 			r.Allocation.Standing = nil
 		}
+		return nil
+	})
+}
+
+// SetRoleContext replaces the role's authored context layer. An invalid layer
+// is a 400 WriteError; a missing role 404.
+func SetRoleContext(store Store, project, name string, l sessionctx.Layer) error {
+	if err := sessionctx.ValidateLayer(l, sessionctx.BudgetRole); err != nil {
+		return writeErr(http.StatusBadRequest, "role context: %s", err.Error())
+	}
+	return UpdateRole(store, project, name, func(r *Role) error {
+		r.Context = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}
+		return nil
+	})
+}
+
+// ClearRoleContext removes the role's authored context layer.
+func ClearRoleContext(store Store, project, name string) error {
+	return UpdateRole(store, project, name, func(r *Role) error {
+		r.Context = sessionctx.Layer{}
 		return nil
 	})
 }

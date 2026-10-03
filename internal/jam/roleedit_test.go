@@ -4,8 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 func newRoleStore(t *testing.T) Store {
@@ -132,5 +136,34 @@ func TestConcurrentStandingAddsAllLand(t *testing.T) {
 	wg.Wait()
 	if r, _ := st.GetRole("acme", "w"); len(r.Allocation.Standing) != 8 {
 		t.Fatalf("standing = %d sessions, want 8", len(r.Allocation.Standing))
+	}
+}
+
+func TestRoleContextSetKeepAndClear(t *testing.T) {
+	store := NewMemStore()
+	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	l := sessionctx.Layer{Core: "Review PRs.", Leaves: []sessionctx.Leaf{{Name: "how.md", ReadWhen: "reviewing", Body: "b"}}}
+	if err := SetRoleContext(store, "default", "dev", l); err != nil {
+		t.Fatal(err)
+	}
+	if err := PutRoleKeeping(store, "default", Role{Name: "dev", Scope: Scope{TTL: 2 * time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := store.GetRole("default", "dev"); r.Context.Core != "Review PRs." || len(r.Context.Leaves) != 1 {
+		t.Fatalf("a role re-put must keep Context: %+v", r.Context)
+	}
+	if err := SetRoleContext(store, "default", "dev", sessionctx.Layer{Core: strings.Repeat("x", sessionctx.BudgetRole+1)}); WriteStatus(err, 0) != http.StatusBadRequest {
+		t.Fatalf("over budget = %v, want 400", err)
+	}
+	if err := SetRoleContext(store, "default", "ghost", l); WriteStatus(err, 0) != http.StatusNotFound {
+		t.Fatalf("missing role = %v, want 404", err)
+	}
+	if err := ClearRoleContext(store, "default", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := store.GetRole("default", "dev"); !r.Context.Empty() {
+		t.Fatalf("cleared: %+v", r.Context)
 	}
 }
