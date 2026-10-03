@@ -32,7 +32,7 @@
       <label class="wide">YAML <span class="hint"><code>core</code>, <code>leaves</code> (<code>name</code>, <code>read-when</code>, <code>body</code>){{if .ShowResources}}, <code>resources</code>{{end}} — the <code>at-jam context</code> file format, bodies inline. Never put a credential here.</span>
         <textarea name="yaml" rows="14" spellcheck="false">{{.YAML}}</textarea></label>
       <div class="form-actions">
-        {{if not .Empty}}<button type="button" class="danger left" hx-delete="{{.Action}}" hx-target="#{{.Target}}" hx-swap="outerHTML" hx-confirm="Remove this {{.Scope}} session context?">Clear</button>{{end}}
+        {{if not .Empty}}<button type="button" class="danger left" hx-delete="{{.Action}}" hx-params="none" hx-target="#{{.Target}}" hx-swap="outerHTML" hx-confirm="Remove this {{.Scope}} session context?">Clear</button>{{end}}
         <button type="submit" class="primary">Save context</button>
       </div>
     </form>

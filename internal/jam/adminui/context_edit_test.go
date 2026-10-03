@@ -136,3 +136,30 @@ func TestContextCardStyledEverywhere(t *testing.T) {
 		}
 	}
 }
+
+func TestContextClearAndDeletes(t *testing.T) {
+	store := roleStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	if err := jam.SetProjectContextChecked(store, "acme", jam.ContextBody{Core: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	page := get(t, h, "/ui/projects/acme").Body.String()
+	if !strings.Contains(page, `hx-delete="/ui/projects/acme/context" hx-params="none"`) {
+		t.Error("Clear must not send the form's YAML in the DELETE query")
+	}
+	if rec := del(t, h, "/ui/projects/acme/context"); rec.Code != http.StatusOK {
+		t.Fatalf("project clear = %d", rec.Code)
+	}
+	if p, _ := store.GetProject("acme"); !p.Context.Empty() {
+		t.Fatalf("project context not cleared: %+v", p.Context)
+	}
+	for _, path := range []string{"/ui/roles/acme/review/context", "/ui/projects/acme/context", "/ui/jam/context"} {
+		req := httptest.NewRequest(http.MethodDelete, path, nil)
+		req.Header.Set("Origin", "http://evil.example")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s cross-origin DELETE = %d, want 403", path, rec.Code)
+		}
+	}
+}
