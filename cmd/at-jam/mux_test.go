@@ -200,6 +200,9 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 			if got := get(h, "/connector"); got != http.StatusUnauthorized {
 				t.Fatalf("/connector = %d, want 401 (mounted ahead of the broker)", got)
 			}
+			if got := get(h, "/context"); got != http.StatusUnauthorized {
+				t.Fatalf("/context = %d, want 401 (mounted ahead of the broker)", got)
+			}
 		})
 	}
 }

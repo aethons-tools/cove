@@ -1328,3 +1328,27 @@ func TestRaiseKitNotesAndTools(t *testing.T) {
 		t.Fatalf("kit leaves missing: %v", c.Files)
 	}
 }
+
+// ContextFor recompiles a running session's bundle from current config.
+func TestContextForTracksEdits(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Name: "bot", SessionKind: SessionKindStanding, Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	raised := *fl.gotSpec.Context
+	got, err := sup.ContextFor("w1")
+	if err != nil || got.Fingerprint != raised.Fingerprint {
+		t.Fatalf("unchanged config must give the raise bundle: %v (%s vs %s)", err, got.Fingerprint, raised.Fingerprint)
+	}
+	if err := SetRoleContext(store, "default", "guest", sessionctx.Layer{Core: "NEW RULE"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = sup.ContextFor("w1")
+	if !strings.Contains(got.Core, "NEW RULE") || !strings.Contains(got.Core, `standing session "bot"`) {
+		t.Fatalf("edit not reflected, or session facts lost:\n%s", got.Core)
+	}
+	if _, err := sup.ContextFor("nobody"); !errors.Is(err, ErrNoInstance) {
+		t.Fatalf("unknown actor = %v, want ErrNoInstance", err)
+	}
+}

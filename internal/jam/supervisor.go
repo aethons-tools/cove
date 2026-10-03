@@ -241,34 +241,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			spec.Kit = ref
 		}
 	}
-	// Compile the session context (Jam boilerplate → kit; later slices add
-	// studio, project, role, jam). The prompt stays the launch text alone.
-	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
-		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
-	}}
-	var kitEgress []string
-	haveKit := false
-	if spec.Kit.ID != "" {
-		in.Session.Kit = spec.Kit.String()
-		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
-			in.Kit = sessionctx.KitLayer(def.Kit.Prompt, def.Kit.Leaves(), def.Kit.BuildArgs)
-			kitEgress, haveKit = def.Kit.Egress, true
-		}
-	}
-	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
-	if roleOK {
-		in.Role = role.Context
-	}
-	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
-		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
-	}
-	in.Jam = s.store.GetJamContext()
-	bundle := sessionctx.Compile(in)
-	for _, w := range bundle.Warnings {
-		if s.log != nil {
-			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
-		}
-	}
+	bundle := s.compileContext(spec, actor)
 	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
@@ -803,3 +776,72 @@ func (s *Supervisor) revokeActor(actorID string) error {
 	}
 	return s.store.RemoveActor(actorID)
 }
+
+// compileContext compiles a session's context bundle from the current config:
+// Jam boilerplate for its kind, kit, studio, project, role and Jam layers. Raise
+// and ContextFor share it, so a refresh matches what a raise would deliver.
+func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor) sessionctx.Bundle {
+	// Compile the session context (Jam boilerplate → kit; later slices add
+	// studio, project, role, jam). The prompt stays the launch text alone.
+	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
+		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+	}}
+	var kitEgress []string
+	haveKit := false
+	if spec.Kit.ID != "" {
+		in.Session.Kit = spec.Kit.String()
+		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
+			in.Kit = sessionctx.KitLayer(def.Kit.Prompt, def.Kit.Leaves(), def.Kit.BuildArgs)
+			kitEgress, haveKit = def.Kit.Egress, true
+		}
+	}
+	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
+	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok {
+		in.Role = role.Context
+	}
+	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
+		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
+	}
+	in.Jam = s.store.GetJamContext()
+	bundle := sessionctx.Compile(in)
+	for _, w := range bundle.Warnings {
+		if s.log != nil {
+			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
+		}
+	}
+	return bundle
+}
+
+// ContextFor recompiles the session context of a running instance from the
+// current config — its role's kit and egress as a raise would resolve them now.
+func (s *Supervisor) ContextFor(actorID string) (sessionctx.Bundle, error) {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return sessionctx.Bundle{}, ErrNoInstance
+	}
+	var actor Actor
+	found := false
+	for _, a := range s.store.ListActors() {
+		if a.ID == actorID {
+			actor, found = a, true
+			break
+		}
+	}
+	if !found {
+		return sessionctx.Bundle{}, ErrNoInstance
+	}
+	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, Name: inst.Name, SessionKind: inst.SessionKind}
+	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
+		if role.Scope.Egress != nil {
+			spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
+		}
+		if ref, have, err := s.kitRefFor(role); err == nil && have {
+			spec.Kit = ref
+		}
+	}
+	return s.compileContext(spec, actor), nil
+}
+
+// ErrNoInstance means an identity has no registered instance (e.g. a
+// hand-enrolled actor), so there is no session to compile context for.
+var ErrNoInstance = errors.New("no registered instance for this identity")
