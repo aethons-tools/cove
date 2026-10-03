@@ -48,6 +48,11 @@ at-jam context show  --role acme/reviewer      # prints the same YAML (bodies in
 at-jam context clear --jam
 ```
 
+Or edit the **Session context** card on the role page, the project page, or (for
+the Jam-wide layer) the dashboard in the [admin UI](ui-pages.md): the same YAML in
+one box, bodies inline (`file:` isn't available there), with a byte counter against
+the budget and a Clear button.
+
 They take the usual admin-client flags ([operators.md](operators.md)). The admin
 API routes are `GET|PUT|DELETE /admin/roles/{project}/{role}/context`,
 `/admin/projects/{project}/context` and `/admin/jam/context`; the JSON body is
