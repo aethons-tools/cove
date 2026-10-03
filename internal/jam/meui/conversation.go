@@ -32,6 +32,10 @@ type Conversation struct {
 	Messages    []MessageRow
 	HasMessages bool
 	LastSeq     int64
+	// SessionIDs are the session actors taking part; Sessions is their
+	// presence strip (filled by the handler, which holds the Presence source).
+	SessionIDs []string
+	Sessions   []SessionRow
 }
 
 // selfRefs returns the set of the participant's own Target strings across all
@@ -68,7 +72,7 @@ func conversation(p jam.Participant, store Store, log jam.LogReader, channelID s
 	conv := Conversation{
 		ChannelID: channelID, Label: meta.Label, Kind: meta.Kind,
 		Project: meta.Project, Phase: meta.Phase, Waiting: meta.Waiting,
-		SendTo: channelID, LastSeq: meta.LastSeq,
+		SendTo: channelID, LastSeq: meta.LastSeq, SessionIDs: meta.Sessions,
 	}
 	for _, m := range jam.ChannelSquawks(channelID, log, store.ListInstances()) {
 		conv.Messages = append(conv.Messages, MessageRow{

@@ -9,6 +9,7 @@ import "sync"
 type Hub struct {
 	mu   sync.Mutex
 	subs map[string]map[*Sub]struct{}
+	obs  []func(Event)
 }
 
 // Sub is one live subscription; receive from C until it is closed.
@@ -39,11 +40,24 @@ func (h *Hub) Subscribe(actorID string, buf int) *Sub {
 	return s
 }
 
-// Publish delivers ev to the actor's subscribers without blocking; a
-// subscriber with a full buffer is dropped.
+// Observe registers fn to see every published event, for every actor,
+// synchronously and before subscribers (e.g. Presence.Observe). fn must be
+// fast and must not call back into the Hub. Register observers before the
+// first Publish.
+func (h *Hub) Observe(fn func(Event)) {
+	h.mu.Lock()
+	h.obs = append(h.obs, fn)
+	h.mu.Unlock()
+}
+
+// Publish hands ev to every observer, then delivers it to the actor's
+// subscribers without blocking; a subscriber with a full buffer is dropped.
 func (h *Hub) Publish(ev Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	for _, fn := range h.obs {
+		fn(ev)
+	}
 	for s := range h.subs[ev.ActorID] {
 		select {
 		case s.c <- ev:

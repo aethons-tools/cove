@@ -259,3 +259,23 @@ func keys(m map[string]jam.ChannelView) []string {
 	}
 	return out
 }
+
+func TestProjectChannelsSessions(t *testing.T) {
+	log, roster, instances := projectionFixture()
+	// cove-3 and cove-1 take part in #eng; a human never counts as a session.
+	log = append(log,
+		intercom.Squawk{Seq: 6, From: actor("cove-3"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+		intercom.Squawk{Seq: 7, From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+	)
+	alice := byID(jam.ProjectChannels(human("alice"), log, roster, instances, nil))
+	if got := alice[jam.StudioChannelID("ACME-1")].Sessions; len(got) != 1 || got[0] != "cove-1" {
+		t.Errorf("studio sessions = %v, want [cove-1]", got)
+	}
+	if got := alice[jam.DMChannelID(human("alice"), actor("cove-2"))].Sessions; len(got) != 1 || got[0] != "cove-2" {
+		t.Errorf("dm sessions = %v, want [cove-2]", got)
+	}
+	bob := byID(jam.ProjectChannels(human("bob"), log, roster, instances, nil))
+	if got := bob[jam.NamedChannelID("eng")].Sessions; len(got) != 2 || got[0] != "cove-1" || got[1] != "cove-3" {
+		t.Errorf("named sessions = %v, want [cove-1 cove-3] (sorted)", got)
+	}
+}

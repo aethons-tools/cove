@@ -38,6 +38,7 @@
     <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
+    <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
@@ -50,6 +51,12 @@
   {{end}}
 </section>
 {{end}}
+
+{{/* sessions renders the presence strip: one line per session taking part,
+     like a typing indicator. It is the /me/presence refresh target, pushed by
+     the `presence` event (a session's status changed). Kept on one line so an
+     empty strip has no whitespace and collapses (.presence:empty). */}}
+{{define "sessions"}}{{with .Conv}}{{range .Sessions}}<div class="sess {{.Class}}"><span class="sname">{{.Label}}</span> is {{.Text}}{{if .Tool}} <b>{{.Tool}}</b>{{end}}{{if eq .Class "busy"}}<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}</div>{{end}}{{end}}{{end}}
 
 {{/* messages renders just the conversation's message list; it is the /me/stream
      poll target, so a refresh never touches the composer. */}}
