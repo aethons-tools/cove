@@ -68,8 +68,14 @@ identity, 404 without a registered instance). cove-master fetches it:
   changed (role) — re-read /agent-data/context/CORE.md now; your system prompt
   catches up at your next episode.* A burst of coalesced wakes carries it once.
 
-Only changed layers are named (a leaf edit counts). An unreachable or older Jam (no
-`/context`) keeps the last bundle, logged in `cove-master.log`, never failing the
-episode.
+Only changed layers are named (a leaf edit counts). The first episode refreshes
+too (after a cove-master restart, say), without a notice. A wake's fetch is bounded
+at 3 s so a slow Jam never stalls the episode. An unreachable Jam keeps the last
+bundle (logged in `cove-master.log`); a 404 (an older Jam without `/context`) stops
+refreshing for the run, logged once. Never failing the episode either way.
+
+Studio rendering: admin-authored names are flattened to one line, and a wildcard
+egress entry such as `.github.com` reads `*.github.com (and github.com)`. The
+restated-fact warning matches whole hosts and targets only.
 
 The bundle never carries secrets: only names of env keys and routes.

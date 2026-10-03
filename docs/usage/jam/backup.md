@@ -19,6 +19,10 @@ control-plane aggregates:
 - **projects** (roster, escalation policy, chat service, session context and resources)
 - the **Jam-wide session context**
 
+Import applies the admin API's authoring rules to session context (layer budgets,
+leaf names, resources) and destination notes; a snapshot that breaks them is refused
+with 400 and nothing is written.
+
 They deliberately **exclude** runtime/studio state (raised instances), intercom
 unread cursors, the intercom squawk log, and allocator events. A backup restores
 *who can reach what*, not *what is currently running*.
