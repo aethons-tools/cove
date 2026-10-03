@@ -156,3 +156,21 @@ func TestBuildAgentConfigBadOrMissingContextIsNotFatal(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildAgentConfigContextRefreshAndKind(t *testing.T) {
+	dir := t.TempDir()
+	pf := filepath.Join(dir, "prompt")
+	os.WriteFile(pf, []byte("P"), 0o600)
+	cf := filepath.Join(dir, "ctx")
+	os.WriteFile(cf, []byte(`{"core":"C","files":{"INDEX.md":"I"},"fingerprint":"f"}`), 0o600)
+	env := map[string]string{"AT_COVE_AGENT_PROMPT_FILE": pf, "AT_COVE_AGENT_CONTEXT_FILE": cf,
+		"AT_JAM_BASE_URL": "https://jam.example", "AT_JAM_IDENTITY_TOKEN": "tok", "AT_COVE_SESSION_KIND": "standing"}
+	cfg, err := buildAgentConfig(func(k string) string { return env[k] })
+	if err != nil || cfg.ContextSource == nil || cfg.SessionKind != "standing" {
+		t.Fatalf("cfg = source %v kind %q, err %v", cfg.ContextSource, cfg.SessionKind, err)
+	}
+	delete(env, "AT_COVE_AGENT_CONTEXT_FILE")
+	if cfg, _ := buildAgentConfig(func(k string) string { return env[k] }); cfg.ContextSource != nil {
+		t.Fatal("no initial bundle → no refresh source")
+	}
+}

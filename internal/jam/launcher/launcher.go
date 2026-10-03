@@ -169,6 +169,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			Subscription: l.cfg.Subscription,
 			Connector:    spec.Connector,
 			Context:      spec.Context,
+			SessionKind:  spec.SessionKind,
 		})
 	}
 	if err := launch(); err != nil {

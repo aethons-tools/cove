@@ -291,3 +291,17 @@ func TestLaunchCoveMasterNoContextNoEnv(t *testing.T) {
 		t.Fatal("nil context must not export AT_COVE_AGENT_CONTEXT_FILE")
 	}
 }
+
+func TestLaunchCoveMasterExportsSessionKind(t *testing.T) {
+	fake := &runner.Fake{}
+	if err := LaunchCoveMaster(fake, CoveMasterOptions{Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "j", RuntimeAddr: "j:443",
+		IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", SessionKind: "standing"}); err != nil {
+		t.Fatal(err)
+	}
+	if env := stdinWrites(fake)[coveMasterEnvVMPath]; !strings.Contains(env, "export AT_COVE_SESSION_KIND='standing'") {
+		t.Fatalf("env missing the session kind:\n%s", env)
+	}
+	if env := stdinWrites(launchWith(t, nil))[coveMasterEnvVMPath]; strings.Contains(env, "AT_COVE_SESSION_KIND") {
+		t.Fatal("no kind → no export")
+	}
+}

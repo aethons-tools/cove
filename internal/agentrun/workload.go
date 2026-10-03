@@ -42,6 +42,10 @@ const resumePrompt = "New input may have arrived on your ticket — use the mess
 const residentResumePrompt = "Your owner may have replied — use the intercom `read` tool to fetch new messages, then continue. " +
 	"Use `send` to message your owner when you have results or need input."
 
+// standingResumePrompt is a standing session's wake text: it has no owner and
+// no default recipient.
+const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. Pass `to` when you `send`."
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
@@ -77,6 +81,13 @@ type Config struct {
 	Context *sessionctx.Bundle
 	// ContextDir is where Context is written; empty defaults to sessionctx.Dir.
 	ContextDir string
+	// ContextSource, when set (with Context), re-fetches the bundle before every
+	// later episode and every wake written into a live one; nil = the raise-time
+	// bundle for the whole run (an older launcher or Jam).
+	ContextSource ContextSource
+	// SessionKind is "ephemeral" | "personal" | "standing" ("" = ephemeral); it
+	// picks the resume prompt.
+	SessionKind string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -97,6 +108,8 @@ type Workload struct {
 	wake    chan struct{}
 	// contextCore is the written CORE.md path; "" = no context in effect.
 	contextCore string
+	// ctxr refreshes the context; nil = no live refresh.
+	ctxr *contextRefresher
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -165,7 +178,10 @@ func userMessage(text string) []byte {
 
 // resumeText is the prompt a Wake delivers.
 func (w *Workload) resumeText() string {
-	if w.cfg.Resident {
+	switch {
+	case w.cfg.SessionKind == "standing":
+		return standingResumePrompt
+	case w.cfg.Resident:
 		return residentResumePrompt
 	}
 	return resumePrompt
@@ -203,6 +219,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		} else {
 			w.contextCore = filepath.Join(w.cfg.ContextDir, "CORE.md")
 			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))
+			if w.cfg.ContextSource != nil {
+				w.ctxr = newContextRefresher(w.cfg.ContextSource, *w.cfg.Context, w.cfg.ContextDir, w.log)
+			}
 		}
 	}
 	var out io.Writer // nil-able extra sink under the line splitter
@@ -246,6 +265,12 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 				h.ConnectorApplied(fp)
 			}
 		}
+		first := prompt
+		if w.ctxr != nil && turn > 1 {
+			// The bundle was just written at Run start for episode 1; later
+			// episodes start with a current system prompt.
+			first += contextNotice(w.ctxr.refresh(ctx), false)
+		}
 		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, env, sink)
 		if err != nil {
 			return fmt.Errorf("agentrun: start claude: %w", err)
@@ -253,7 +278,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 
-		waitErr := w.episode(ctx, proc, tr, prompt)
+		waitErr := w.episode(ctx, proc, tr, first)
 		split.Flush()
 		if tr.WakeOwed() {
 			// Coalesced mid-turn but never delivered, or delivered but the process
@@ -276,7 +301,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			h.Report(covemaster.Waiting)
 			select {
 			case <-w.wake:
-				prompt, continued = residentResumePrompt, true
+				prompt, continued = w.resumeText(), true
 				continue
 			case <-ctx.Done():
 				return ctx.Err()
@@ -357,7 +382,16 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 	defer stopHold()
 
 	write(prompt) // the tracker starts busy
-	resume := w.resumeText()
+	// resume is what a Wake writes into this live episode: the resume prompt,
+	// plus a notice when the refreshed context changed (once per write, so a
+	// burst of coalesced wakes carries it once).
+	resume := func() string {
+		text := w.resumeText()
+		if w.ctxr != nil {
+			text += contextNotice(w.ctxr.refresh(ctx), true)
+		}
+		return text
+	}
 	for {
 		var wake <-chan struct{}
 		if open {
@@ -370,7 +404,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
 			if tr.Wake() {
-				write(resume)
+				write(resume())
 				tr.Wrote()
 			}
 		case <-tr.changed:
@@ -387,7 +421,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 		switch act, tasks := tr.Next(); act {
 		case actDeliverWake:
 			stopHold()
-			write(resume)
+			write(resume())
 		case actHold:
 			if hold == nil {
 				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
