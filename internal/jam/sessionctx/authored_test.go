@@ -1,6 +1,7 @@
 package sessionctx
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,20 @@ func TestCompileAuthoredOrderAndLint(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(b.Warnings, "\n"), "role core restates egress host example.org") {
 		t.Fatalf("authored layers are linted too: %v", b.Warnings)
+	}
+}
+
+// The leaf list is printed in the core, so it is bounded too.
+func TestValidateLayerBoundsLeafList(t *testing.T) {
+	var many Layer
+	for i := range MaxLeaves + 1 {
+		many.Leaves = append(many.Leaves, Leaf{Name: fmt.Sprintf("l%02d.md", i), ReadWhen: "w"})
+	}
+	if err := ValidateLayer(many, 100); err == nil || !strings.Contains(err.Error(), "leaves") {
+		t.Errorf("too many leaves: %v", err)
+	}
+	long := Layer{Leaves: []Leaf{{Name: "a.md", ReadWhen: strings.Repeat("w", MaxReadWhen+1)}}}
+	if err := ValidateLayer(long, 100); err == nil || !strings.Contains(err.Error(), "read-when") {
+		t.Errorf("long read-when: %v", err)
 	}
 }

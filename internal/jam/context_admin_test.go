@@ -62,3 +62,21 @@ func TestContextEndpoints(t *testing.T) {
 		t.Fatalf("resources = %+v", pv.Resources)
 	}
 }
+
+func TestProjectContextReviewFixes(t *testing.T) {
+	h, _ := newTestAdmin(t)
+	if rec := doReq(t, h, "GET", "/admin/projects/ghost/context", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("GET unknown project = %d, want 404", rec.Code)
+	}
+	if rec := doReq(t, h, "GET", "/admin/projects/default/context", nil); rec.Code != http.StatusOK {
+		t.Errorf("GET default project = %d, want 200", rec.Code)
+	}
+	near := ContextBody{Core: strings.Repeat("x", sessionctx.BudgetProject-10), Resources: []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "https://x"}}}
+	if rec := doJSON(t, h, "PUT", "/admin/projects/default/context", near); rec.Code != http.StatusBadRequest {
+		t.Errorf("core + resources pointer over budget = %d, want 400", rec.Code)
+	}
+	clash := ContextBody{Core: "C", Leaves: []sessionctx.Leaf{{Name: "resources.md", ReadWhen: "w", Body: "b"}}}
+	if rec := doJSON(t, h, "PUT", "/admin/projects/default/context", clash); rec.Code != http.StatusBadRequest {
+		t.Errorf("authored resources.md = %d, want 400", rec.Code)
+	}
+}

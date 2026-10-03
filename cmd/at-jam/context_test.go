@@ -52,3 +52,12 @@ func TestContextScopeFlags(t *testing.T) {
 		}
 	}
 }
+
+// An empty file must not silently clear a layer — that is what `clear` is for.
+func TestParseContextFileRefusesEmpty(t *testing.T) {
+	for _, src := range []string{"", "  \n", "core: \"\"\n"} {
+		if _, err := parseContextFile([]byte(src), t.TempDir()); err == nil || !strings.Contains(err.Error(), "clear") {
+			t.Errorf("%q: want an error pointing at clear, got %v", src, err)
+		}
+	}
+}

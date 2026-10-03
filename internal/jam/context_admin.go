@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -64,7 +65,11 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 	})
 	// Projects.
 	mux.HandleFunc("GET /admin/projects/{project}/context", func(w http.ResponseWriter, r *http.Request) {
-		p, _ := store.GetProject(r.PathValue("project"))
+		p, ok := store.GetProject(r.PathValue("project"))
+		if !ok && r.PathValue("project") != DefaultProject {
+			http.Error(w, "project does not exist", http.StatusNotFound)
+			return
+		}
 		writeJSON(w, http.StatusOK, viewOf(p.Context, p.Resources))
 	})
 	setProject := func(w http.ResponseWriter, r *http.Request, b ContextBody) {
@@ -74,6 +79,18 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		if err := sessionctx.ValidateResources(b.Resources); err != nil {
 			http.Error(w, "project resources: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		// resources.md is generated from Resources, and its pointer line rides
+		// in the core: check what a session will actually get.
+		for _, lf := range b.Leaves {
+			if lf.Name == sessionctx.ResourcesLeaf {
+				http.Error(w, "project context: leaf name "+sessionctx.ResourcesLeaf+" is reserved for the generated resource list", http.StatusBadRequest)
+				return
+			}
+		}
+		if n := len(sessionctx.ProjectLayer(b.layer(), b.Resources).Core); n > sessionctx.BudgetProject {
+			http.Error(w, fmt.Sprintf("project context: core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject), http.StatusBadRequest)
 			return
 		}
 		if err := store.SetProjectContext(r.PathValue("project"), b.layer(), b.Resources); err != nil {

@@ -14,7 +14,7 @@ each is applied at the session's **next raise**:
 
 | Layer | Scope flag | Core budget | Delivered |
 |-------|------------|-------------|-----------|
-| Project | `--project p` | 1200 B (plus `resources`) | after Studio |
+| Project | `--project p` | 1200 B, including the one-line resources pointer | after Studio |
 | Role | `--role [p/]r` (p defaults to `default`) | 1200 B | after Project |
 | Jam | `--jam` | 800 B | last — wins on conflict |
 
@@ -55,9 +55,11 @@ API routes are `GET|PUT|DELETE /admin/roles/{project}/{role}/context`,
 
 ## Limits and rules
 
-- An over-budget core, a bad or duplicate leaf name, a leaf without a read-when,
-  more than 64 KiB of leaf bodies, or a bad resource is refused (400) and nothing
-  changes. An unknown role or project is a 404.
+- An over-budget core, a bad or duplicate leaf name, a leaf without a read-when (or
+  one over 160 bytes), more than 20 leaves or 64 KiB of leaf bodies, a bad resource,
+  or a project leaf named `resources.md` (reserved for the generated list) is
+  refused (400) and nothing changes. An unknown role or project is a 404.
+- `set` refuses a file that sets nothing; use `clear` to remove a layer.
 - A role re-put keeps its context; only these routes change it.
 - Raise warns in Jam's log when an authored core restates an egress host or a
   message target — the Studio layer already lists those.

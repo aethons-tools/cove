@@ -12,7 +12,12 @@ const (
 	BudgetJam     = 800
 	MaxLeafBytes  = 64 << 10 // per layer, all leaf bodies
 	MaxResources  = 50
+	MaxLeaves     = 20  // each leaf adds a pointer line to the core
+	MaxReadWhen   = 160 // bytes per read-when line
 )
+
+// ResourcesLeaf is the project leaf generated from its Resources.
+const ResourcesLeaf = "resources.md"
 
 var resourceKinds = map[string]bool{"repo": true, "doc": true, "tracker": true, "url": true}
 
@@ -31,6 +36,9 @@ func ValidateLayer(l Layer, budget int) error {
 	if n := len(strings.TrimSpace(l.Core)); n > budget {
 		return fmt.Errorf("core is %d bytes; the budget is %d — move detail into leaves", n, budget)
 	}
+	if len(l.Leaves) > MaxLeaves {
+		return fmt.Errorf("%d leaves; at most %d", len(l.Leaves), MaxLeaves)
+	}
 	seen := map[string]bool{}
 	total := 0
 	for _, lf := range l.Leaves {
@@ -43,6 +51,9 @@ func ValidateLayer(l Layer, budget int) error {
 		seen[lf.Name] = true
 		if strings.TrimSpace(lf.ReadWhen) == "" {
 			return fmt.Errorf("leaf %q needs a read-when", lf.Name)
+		}
+		if len(lf.ReadWhen) > MaxReadWhen {
+			return fmt.Errorf("leaf %q: read-when is %d bytes; at most %d", lf.Name, len(lf.ReadWhen), MaxReadWhen)
 		}
 		total += len(lf.Body)
 	}
@@ -82,6 +93,6 @@ func ProjectLayer(l Layer, rs []Resource) Layer {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", oneLine(r.Name), oneLine(r.Kind), oneLine(r.Ref), oneLine(r.Note))
 	}
 	out := Layer{Core: strings.TrimSpace(l.Core + fmt.Sprintf("\n%d project resource(s) (repos, docs, trackers) are listed in project/resources.md.", len(rs)))}
-	out.Leaves = append(append([]Leaf(nil), l.Leaves...), Leaf{Name: "resources.md", ReadWhen: "you need the project's repos, docs or trackers", Body: b.String()})
+	out.Leaves = append(append([]Leaf(nil), l.Leaves...), Leaf{Name: ResourcesLeaf, ReadWhen: "you need the project's repos, docs or trackers", Body: b.String()})
 	return out
 }

@@ -39,6 +39,9 @@ func parseContextFile(data []byte, dir string) (jam.ContextBody, error) {
 	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
 		return jam.ContextBody{}, err
 	}
+	if strings.TrimSpace(f.Core) == "" && len(f.Leaves) == 0 && len(f.Resources) == 0 {
+		return jam.ContextBody{}, errors.New("the file sets nothing; to remove a layer use `at-jam context clear`")
+	}
 	b := jam.ContextBody{Core: f.Core, Resources: f.Resources}
 	for _, lf := range f.Leaves {
 		body := lf.Body
