@@ -251,7 +251,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
 		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
-			in.Kit = sessionctx.Layer{Core: def.Kit.Prompt}
+			in.Kit = sessionctx.KitLayer(def.Kit.Prompt, def.Kit.Leaves(), def.Kit.BuildArgs)
 			kitEgress, haveKit = def.Kit.Egress, true
 		}
 	}

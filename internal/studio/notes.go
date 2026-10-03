@@ -12,7 +12,7 @@ import (
 // File is a CLIENT-ONLY authoring convenience resolved into Body at push.
 type KitNote struct {
 	Name     string `yaml:"name" json:"name"`
-	ReadWhen string `yaml:"read-when" json:"read_when"`
+	ReadWhen string `yaml:"read-when" json:"read-when"`
 	Body     string `yaml:"body,omitempty" json:"body"`
 	File     string `yaml:"file,omitempty" json:"-"`
 }
