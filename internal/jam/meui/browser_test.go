@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // browserCtx returns a chromedp context on a fresh headless browser, skipping
@@ -335,3 +337,64 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
+	ctx := browserCtx(t)
+	store, log, p, pr := presenceFixture()
+	var mu sync.Mutex
+	h := Handler(store, log, nil, WithPresence(lockedPresence{pr, &mu}))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, jam.WithParticipant(r, p))
+	}))
+	t.Cleanup(srv.Close)
+	// The page holds /me/events open; drop it so Close doesn't wait on it.
+	t.Cleanup(srv.CloseClientConnections)
+
+	// The strip sits between the message list and the composer.
+	var order bool
+	err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1000, 700),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.WaitVisible(`#presence .sess.busy .dots`, chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
+			p=document.getElementById('presence').getBoundingClientRect(),
+			c=document.querySelector('.composer').getBoundingClientRect();
+			return s.bottom<=p.top+1 && p.bottom<=c.top+1; })()`, &order),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !order {
+		t.Error("presence strip should sit between the messages and the composer")
+	}
+
+	// A status change pushed on /me/events updates the strip in place.
+	mu.Lock()
+	pr.st["busy"] = sessionevents.Status{State: sessionevents.StatusWriting}
+	mu.Unlock()
+	pr.ch <- struct{}{}
+	var text string
+	err = chromedp.Run(ctx,
+		chromedp.Poll(`(function(){ var t=document.getElementById('presence').innerText; return t.indexOf('builder is writing')>=0 ? t : null; })()`, &text,
+			chromedp.WithPollingTimeout(5*time.Second)),
+	)
+	if err != nil {
+		var now string
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('presence').innerText`, &now))
+		t.Fatalf("strip did not update after a presence push: %v (now %q)", err, now)
+	}
+}
+
+// lockedPresence guards fakePresence's map, which the test mutates while the
+// handler reads it.
+type lockedPresence struct {
+	f  *fakePresence
+	mu *sync.Mutex
+}
+
+func (l lockedPresence) Status(a string) (sessionevents.Status, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.f.Status(a)
+}
+func (l lockedPresence) Subscribe() (<-chan struct{}, func()) { return l.f.Subscribe() }

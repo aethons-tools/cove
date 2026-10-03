@@ -50,7 +50,10 @@ fail closed, never a silent pick.
 ## Delivery
 
 - **Jam-raised studios** get their connector at raise, and cove-master re-fetches
-  it before every agent turn, so edits reach a running studio at its next turn
+  it before every agent **episode** (each spawn of the agent process), so edits
+  reach a running studio at its next episode — not within one: a reply delivered
+  into a live agent (one holding its session open, e.g. for a background task)
+  runs under the env that episode started with
   ([coves.md](coves.md#cove-master-the-in-cove-client)).
 - **Host-side clients** (at-cove connect, teammates, dispatch) call
   `GET /connector` on the broker listener with the identity as a bearer (or

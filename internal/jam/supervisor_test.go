@@ -426,14 +426,20 @@ func TestReportDoneTearsDown(t *testing.T) {
 	}
 }
 
-func TestReportWaitingBaselinesWaitSeq(t *testing.T) {
+// Entering Waiting keeps the wake-on baseline: a reply that landed while the
+// cove was Running (e.g. during an episode's background hold) and was not yet
+// woken for must still wake it once it waits. WaitingSince still restarts.
+func TestReportWaitingKeepsWaitSeq(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	tail := &fakeTailReader{seq: 9, ok: true}
+	sup.SetTailReader(tail)
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sup.SetWaitSeq("w1", 3); err != nil {
 		t.Fatal(err)
 	}
+	tail.seq = 12 // a reply (Seq 10..12) arrived while Running
 	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
 		t.Fatal(err)
 	}
@@ -441,13 +447,12 @@ func TestReportWaitingBaselinesWaitSeq(t *testing.T) {
 	if inst.WaitingSince.IsZero() {
 		t.Fatal("WaitingSince not set on transition into Waiting")
 	}
-	if inst.WaitSeq != 0 {
-		t.Fatalf("WaitSeq should baseline to the log tail (0 here: no tail reader wired) on transition into Waiting, got %d", inst.WaitSeq)
+	if inst.WaitSeq != 3 {
+		t.Fatalf("WaitSeq = %d, want 3 (kept on entering Waiting, not re-baselined past replies)", inst.WaitSeq)
 	}
 
 	// A second Report(Waiting) while already Waiting must NOT reset
-	// WaitingSince, and must NOT re-baseline (or otherwise clear) a cursor set
-	// in between.
+	// WaitingSince, nor touch a cursor set in between.
 	first := inst.WaitingSince
 	if err := sup.SetWaitSeq("w1", 4); err != nil {
 		t.Fatal(err)
@@ -464,6 +469,37 @@ func TestReportWaitingBaselinesWaitSeq(t *testing.T) {
 	}
 }
 
+// Entering Running baselines WaitSeq to the log tail: the run that starts now
+// reads its inbox itself, so only later replies need a Wake. A Running report
+// while already Running leaves the baseline alone.
+func TestReportRunningBaselinesWaitSeq(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	tail := &fakeTailReader{seq: 2, ok: true}
+	sup.SetTailReader(tail)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	tail.seq = 7
+	if err := sup.Report(context.Background(), "w1", ActivityRunning); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if inst.WaitSeq != 7 {
+		t.Fatalf("WaitSeq = %d, want 7 (baselined to the tail on entering Running)", inst.WaitSeq)
+	}
+	tail.seq = 9
+	if err := sup.Report(context.Background(), "w1", ActivityRunning); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ = store.GetInstance("w1")
+	if inst.WaitSeq != 7 {
+		t.Fatalf("WaitSeq = %d, want 7 (unchanged while already Running)", inst.WaitSeq)
+	}
+}
+
 // fakeTailReader is a scripted tailReader standing in for a message log's TailSeq.
 type fakeTailReader struct {
 	seq int64
@@ -472,18 +508,17 @@ type fakeTailReader struct {
 
 func (f *fakeTailReader) TailSeq() (int64, bool) { return f.seq, f.ok }
 
-func TestReportWaitingBaselinesWaitSeqFromTailReader(t *testing.T) {
+// Raise baselines WaitSeq to the log tail: the cove starts Running and reads
+// its inbox itself, so only later replies need a Wake.
+func TestRaiseBaselinesWaitSeqFromTailReader(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	sup.SetTailReader(&fakeTailReader{seq: 9, ok: true})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
-		t.Fatal(err)
-	}
 	inst, _ := store.GetInstance("w1")
 	if inst.WaitSeq != 9 {
-		t.Fatalf("WaitSeq = %d, want 9 (baselined from tail reader)", inst.WaitSeq)
+		t.Fatalf("WaitSeq = %d, want 9 (baselined from tail reader at raise)", inst.WaitSeq)
 	}
 }
 

@@ -54,6 +54,7 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 	mux.HandleFunc("GET /me/rail", h.rail)
 	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
+	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/events", h.events)
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
 	mux.Handle("GET /me/static/", uiassets.Handler("/me/static/"))
@@ -61,10 +62,12 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 }
 
 type handler struct {
-	store   Store
-	log     jam.LogReader
-	lg      *slog.Logger
-	changes Changes // nil = no live push (GET /me/events → 204)
+	store    Store
+	log      jam.LogReader
+	lg       *slog.Logger
+	changes  Changes  // nil = no `changed` push
+	presence Presence // nil = no `presence` push; live sessions read "working"
+	// Without either, GET /me/events answers 204 and the page polls.
 }
 
 // build assembles the page for the request's participant and ?c selection.
@@ -81,6 +84,7 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 	}
 	if sel != "" {
 		if conv, ok := conversation(p, h.store, h.log, sel); ok {
+			conv.Sessions = sessionRows(conv.SessionIDs, h.store.ListInstances(), h.presence)
 			page.Conv = &conv
 		}
 	}
@@ -128,6 +132,17 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, "messages", page)
+}
+
+// presenceStrip renders just the open conversation's session statuses (the
+// #presence refresh target).
+func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
+	page, ok := h.build(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	h.render(w, "sessions", page)
 }
 
 // markRead advances the participant's unread cursor for a channel to seq, under

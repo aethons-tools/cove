@@ -1699,6 +1699,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	log.Info("Jam session events: postgres (shared control-plane database)")
 	sessHub := sessionevents.NewHub()
+	// Derived per-session status for /me's presence strip, fed by every event.
+	sessPresence := sessionevents.NewPresence(nil)
+	sessHub.Observe(sessPresence.Observe)
 	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
 	if keep, _ := sessionevents.ParseRetention(cfg.SessionEventsRetention); keep > 0 {
 		go sessionevents.RunRetention(context.Background(), sessStore, keep, 24*time.Hour, nil, log)
@@ -1782,6 +1785,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// past reclaim-after.
 	nagger := intercomNagger{log: intercomLog, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
+	// Wake Running coves on a reply too: an agent holding its episode open for
+	// a background task is Running, and its owner's reply must reach it then.
+	eng.SetRunningWake(sup /*Cursor*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 
@@ -2041,7 +2047,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// The inbox reads the same intercom Log.
 			var meLog jam.LogReader = intercomLog
 			var meOpts []meui.Option
-			meOpts = append(meOpts, meui.WithChanges(logChanges))
+			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
 			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux

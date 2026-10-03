@@ -62,7 +62,7 @@
 {{end}}
 {{end}}
 
-{{define "session-totals"}}<div id="totals" class="facts"><span>turns <b>{{.Turns}}</b></span><span>tool calls <b>{{.ToolCalls}}</b></span><span>tokens <b>{{.InputTokens}}</b> in / <b>{{.OutputTokens}}</b> out</span><span class="chip">${{printf "%.4f" .CostUSD}}</span></div>{{end}}
+{{define "session-totals"}}<div id="totals" class="facts"><span>turns <b>{{.Turns}}</b></span><span>episodes <b>{{.Episodes}}</b></span><span>tool calls <b>{{.ToolCalls}}</b></span><span>tokens <b>{{.InputTokens}}</b> in / <b>{{.OutputTokens}}</b> out</span><span class="chip">${{printf "%.4f" .CostUSD}}</span></div>{{end}}
 
 {{define "session-event"}}<div class="ev{{if .IsError}} error{{end}}{{if .Progress}} progress{{end}}{{if .Gap}} gap{{end}}">
   <span class="turn mono">t{{.Turn}}</span>

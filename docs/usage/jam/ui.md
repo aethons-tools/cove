@@ -186,7 +186,7 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 `/ui/coves/{id}/session` (linked from the Studios table and the studio's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
-totals (turns, tool calls, tokens in/out, cost), and a flat event list, each
+totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
 markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
 behind **show progress events**. It updates live over SSE from `/ui/coves/{id}/session/events` (backfill, then

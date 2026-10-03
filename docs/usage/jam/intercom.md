@@ -118,7 +118,7 @@ A raised studio is no longer strictly one-shot. When its agent reports **`needs-
 (typically after asking a question via `send`), the studio **suspends** — it reports
 Activity `waiting` and blocks instead of ending. Jam's resident **wake-on engine**
 watches the studio's ticket and, when a **new comment** (a reply) arrives, **wakes** it
-over the Attach stream; the studio runs its next turn (`claude --continue`), `read`s the
+over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. A **`wait-max`** bounds the wait — a studio with no reply within it is
 torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
@@ -128,6 +128,12 @@ after every turn and is never torn down for `wait-max` (it is still paused at
 optional reclaim. The owner's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
 A standing session has no owner, so it gets no nags.
+
+A reply that lands while the studio is still **`running`** also wakes it, at once: its
+agent may be holding its episode open after ending its turn because a background task is
+still running, so the studio never reports `waiting` until that episode ends. The Wake is
+written straight into the live agent between turns (mid-turn, it is coalesced into one
+resume prompt at turn end). A running studio is never paused or torn down for this.
 
 While waiting, a studio doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0
@@ -152,10 +158,14 @@ existing configs) **> the default**. An invalid `runtime.wake` duration fails `s
 at startup; an invalid Requisitioner value still falls back to the default.
 
 The wake trigger is **an external-origin squawk addressed to the studio landing in
-the durable squawk Log** after a `WaitSeq` baseline: on entering Waiting the
-supervisor stamps `WaitSeq` to the Log's current tail sequence, and any later
+the durable squawk Log** after a `WaitSeq` baseline: when a run starts (at raise, and
+whenever the studio enters `running`) the supervisor stamps `WaitSeq` to the Log's
+current tail sequence — the starting agent reads its inbox itself — and any later
 external-origin squawk addressed to the studio (append `seq` > `WaitSeq`) counts as a
-reply — an append-sequence compare, not a wall-clock one (`WaitingSince` is unchanged, but now drives only
+reply. Waking a `running` studio advances `WaitSeq` past the replies it was woken for;
+entering `waiting` leaves `WaitSeq` alone, so a reply that landed during the run and was
+not yet woken for wakes the studio as soon as it waits. It is an append-sequence compare,
+not a wall-clock one (`WaitingSince` is unchanged, but now drives only
 `wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
 by the relay ingress engine above, so a Waiting studio wakes on a reply only once a relay
 has ingested it; with no relay configured, it's bounded only by `wait-max` teardown
