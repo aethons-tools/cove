@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // NewContextHandler serves GET /context on the cove-facing listener: the calling
@@ -14,6 +16,7 @@ import (
 // instance → 404. Logs the actor id only.
 func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(sessionctx.EndpointHeader, "1")
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

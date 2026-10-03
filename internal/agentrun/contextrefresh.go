@@ -19,6 +19,9 @@ type ContextSource interface {
 	Fetch(ctx context.Context) (sessionctx.Bundle, error)
 }
 
+// ContextEndpointHeader marks Jam's /context responses (sessionctx.EndpointHeader).
+const ContextEndpointHeader = sessionctx.EndpointHeader
+
 // ErrNoContextEndpoint is a Jam without GET /context (older than live refresh):
 // the session keeps its raise-time bundle and stops asking.
 var ErrNoContextEndpoint = errors.New("jam serves no /context endpoint")
@@ -46,7 +49,9 @@ func (s httpContextSource) Fetch(ctx context.Context) (sessionctx.Bundle, error)
 		return sessionctx.Bundle{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound { // no endpoint (older Jam), or no instance: neither changes
+	if resp.StatusCode == http.StatusNotFound && resp.Header.Get(ContextEndpointHeader) == "" {
+		// An unmarked 404: this Jam has no /context. A marked one (no instance
+		// yet, e.g. racing the raise) is an ordinary, retried error.
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return sessionctx.Bundle{}, ErrNoContextEndpoint
 	}

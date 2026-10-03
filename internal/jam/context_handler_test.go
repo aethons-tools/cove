@@ -45,8 +45,8 @@ func TestContextHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := get(orphan); rec.Code != http.StatusNotFound {
-		t.Errorf("identity without an instance = %d, want 404", rec.Code)
+	if rec := get(orphan); rec.Code != http.StatusNotFound || rec.Header().Get("X-Jam-Context") != "1" {
+		t.Errorf("identity without an instance = %d (marker %q), want a marked 404", rec.Code, rec.Header().Get("X-Jam-Context"))
 	}
 	req := httptest.NewRequest(http.MethodPost, "/context", nil)
 	rec = httptest.NewRecorder()

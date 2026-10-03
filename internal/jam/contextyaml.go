@@ -75,19 +75,8 @@ func SetRoleContextChecked(store Store, project, role string, b ContextBody) err
 // and resources; the delivered core (with the resources pointer) must fit the
 // budget, and resources.md is reserved. An empty body clears.
 func SetProjectContextChecked(store Store, project string, b ContextBody) error {
-	if err := sessionctx.ValidateLayer(b.layer(), sessionctx.BudgetProject); err != nil {
-		return writeErr(http.StatusBadRequest, "project context: %s", err.Error())
-	}
-	if err := sessionctx.ValidateResources(b.Resources); err != nil {
-		return writeErr(http.StatusBadRequest, "project resources: %s", err.Error())
-	}
-	for _, lf := range b.Leaves {
-		if lf.Name == sessionctx.ResourcesLeaf {
-			return writeErr(http.StatusBadRequest, "project context: leaf name %s is reserved for the generated resource list", sessionctx.ResourcesLeaf)
-		}
-	}
-	if n := len(sessionctx.ProjectLayer(b.layer(), b.Resources).Core); n > sessionctx.BudgetProject {
-		return writeErr(http.StatusBadRequest, "project context: core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject)
+	if err := validateProjectContext(b.layer(), b.Resources); err != nil {
+		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := store.SetProjectContext(project, b.layer(), b.Resources); err != nil {
 		return writeErr(projectErrStatus(err, http.StatusInternalServerError), "%s", err.Error())
@@ -105,4 +94,25 @@ func SetJamContextChecked(store Store, b ContextBody) error {
 		return writeErr(http.StatusBadRequest, "jam context: %s", err.Error())
 	}
 	return store.SetJamContext(b.layer())
+}
+
+// validateProjectContext is the project-layer rule set, shared by the admin
+// API and config import: budgets (counting the generated resources pointer),
+// leaf rules, resources, and the reserved resources.md name.
+func validateProjectContext(l sessionctx.Layer, rs []sessionctx.Resource) error {
+	if err := sessionctx.ValidateLayer(l, sessionctx.BudgetProject); err != nil {
+		return fmt.Errorf("project context: %w", err)
+	}
+	if err := sessionctx.ValidateResources(rs); err != nil {
+		return fmt.Errorf("project resources: %w", err)
+	}
+	for _, lf := range l.Leaves {
+		if lf.Name == sessionctx.ResourcesLeaf {
+			return fmt.Errorf("project context: leaf name %s is reserved for the generated resource list", sessionctx.ResourcesLeaf)
+		}
+	}
+	if n := len(sessionctx.ProjectLayer(l, rs).Core); n > sessionctx.BudgetProject {
+		return fmt.Errorf("project context: core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject)
+	}
+	return nil
 }

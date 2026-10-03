@@ -16,6 +16,10 @@ import (
 	"unicode/utf8"
 )
 
+// EndpointHeader marks every response of Jam's GET /context, so a client can
+// tell "this Jam has no /context" (an unmarked 404) from a marked one.
+const EndpointHeader = "X-Jam-Context"
+
 // Dir is where cove-master writes a bundle inside the cove.
 const Dir = "/agent-data/context"
 

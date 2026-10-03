@@ -3,6 +3,8 @@ package agentrun
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,5 +120,31 @@ func TestContextRefresherLiveTimeout(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("live refresh took %v", d)
+	}
+}
+
+// Only a 404 without Jam's /context marker means "no endpoint" (an older Jam);
+// a marked 404 (no instance yet, e.g. racing the raise) is retried later.
+func TestHTTPContextSource404s(t *testing.T) {
+	for marked, wantOff := range map[bool]bool{false: true, true: false} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if marked {
+				w.Header().Set(ContextEndpointHeader, "1")
+			}
+			http.Error(w, "nope", http.StatusNotFound)
+		}))
+		_, err := HTTPContextSource(ts.URL, "tok").Fetch(context.Background())
+		ts.Close()
+		if got := errors.Is(err, ErrNoContextEndpoint); got != wantOff || err == nil {
+			t.Errorf("marked=%v: err = %v, want no-endpoint=%v", marked, err, wantOff)
+		}
+	}
+}
+
+func TestWriteContextRefusesCoreKeyVariants(t *testing.T) {
+	for _, p := range []string{"./CORE.md", "x/../CORE.md"} {
+		if err := writeContext(filepath.Join(t.TempDir(), "context"), sessionctx.Bundle{Core: "C", Files: map[string]string{p: "X"}, Fingerprint: "ab"}); err == nil {
+			t.Errorf("%q must not overwrite the core", p)
+		}
 	}
 }

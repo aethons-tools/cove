@@ -181,6 +181,14 @@ func TestImportConfigValidatesAuthoredContext(t *testing.T) {
 		"project bad resource": func(s *ConfigSnapshot) {
 			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "wiki", Ref: "x"}}
 		},
+		"project reserved leaf": func(s *ConfigSnapshot) {
+			s.Projects[0].Context = sessionctx.Layer{Core: "C", Leaves: []sessionctx.Leaf{{Name: sessionctx.ResourcesLeaf, ReadWhen: "w"}}}
+			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}
+		},
+		"project core plus pointer over budget": func(s *ConfigSnapshot) {
+			s.Projects[0].Context = sessionctx.Layer{Core: strings.Repeat("x", sessionctx.BudgetProject-5)}
+			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}
+		},
 		"long destination note": func(s *ConfigSnapshot) {
 			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Note: strings.Repeat("n", MaxDestinationNote+1)}}
 		},

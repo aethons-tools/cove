@@ -71,8 +71,10 @@ identity, 404 without a registered instance). cove-master fetches it:
 Only changed layers are named (a leaf edit counts). The first episode refreshes
 too (after a cove-master restart, say), without a notice. A wake's fetch is bounded
 at 3 s so a slow Jam never stalls the episode. An unreachable Jam keeps the last
-bundle (logged in `cove-master.log`); a 404 (an older Jam without `/context`) stops
-refreshing for the run, logged once. Never failing the episode either way.
+bundle (logged in `cove-master.log`); a 404 without Jam's `X-Jam-Context` marker
+(an older Jam with no `/context`) stops refreshing for the run, logged once, while a
+marked 404 (the session isn't registered yet, e.g. right after raise) is retried.
+Never failing the episode either way.
 
 Studio rendering: admin-authored names are flattened to one line, and a wildcard
 egress entry such as `.github.com` reads `*.github.com (and github.com)`. The

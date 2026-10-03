@@ -142,11 +142,8 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 		}
 	}
 	for _, p := range s.Projects {
-		if err := sessionctx.ValidateLayer(p.Context, sessionctx.BudgetProject); err != nil {
-			return bad("project "+p.Name+" context", err)
-		}
-		if err := sessionctx.ValidateResources(p.Resources); err != nil {
-			return bad("project "+p.Name+" resources", err)
+		if err := validateProjectContext(p.Context, p.Resources); err != nil {
+			return bad("project "+p.Name, err)
 		}
 	}
 	for _, d := range s.Destinations {

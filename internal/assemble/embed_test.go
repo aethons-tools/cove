@@ -584,7 +584,7 @@ func TestSandboxMDKitLeafDefersToJam(t *testing.T) {
 	}
 	s := string(b)
 	i := strings.Index(s, "**Editing the kit**")
-	if i < 0 || !strings.Contains(s[i:i+400], "boilerplate/changing-the-kit.md") {
+	if i < 0 || !strings.Contains(s[i:min(len(s), i+400)], "boilerplate/changing-the-kit.md") {
 		t.Fatalf("the Editing-the-kit bullet must name the Jam leaf:\n%s", s[i:])
 	}
 }
