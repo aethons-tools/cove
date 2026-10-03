@@ -4,7 +4,7 @@ read_when: You are viewing or editing a project, studio, role, destination or ki
 owns: the project, studio, role, destination and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Admin UI entity pages
@@ -74,6 +74,15 @@ when a runtime supervisor is configured, **Teardown**.
 A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,
 session or squawks is a 404.
+
+## Session context cards
+
+The role page, the project page and the dashboard each carry a **Session context**
+card for that layer (role, project, Jam-wide): the core, its size as a session
+receives it against the budget (a project's includes the resources pointer), the
+leaves and, for projects, the resources. **Edit session context** is one YAML box in
+the [`at-jam context` format](session-context-authoring.md) with bodies inline;
+saving runs the same checks as the API, and **Clear** removes the layer.
 
 ## Role pages
 

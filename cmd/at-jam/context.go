@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,57 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
-	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
-// contextFile is the YAML an operator writes for `at-jam context set`.
-type contextFile struct {
-	Core   string `yaml:"core"`
-	Leaves []struct {
-		Name     string `yaml:"name"`
-		ReadWhen string `yaml:"read-when"`
-		Body     string `yaml:"body"`
-		File     string `yaml:"file"`
-	} `yaml:"leaves"`
-	Resources []sessionctx.Resource `yaml:"resources"`
-}
-
-// parseContextFile decodes a context YAML strictly; a leaf's file is read
-// relative to dir and may not escape it.
+// parseContextFile parses a context YAML whose leaf files are read relative to
+// dir and may not escape it.
 func parseContextFile(data []byte, dir string) (jam.ContextBody, error) {
-	var f contextFile
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
-		return jam.ContextBody{}, err
-	}
-	if strings.TrimSpace(f.Core) == "" && len(f.Leaves) == 0 && len(f.Resources) == 0 {
-		return jam.ContextBody{}, errors.New("the file sets nothing; to remove a layer use `at-jam context clear`")
-	}
-	b := jam.ContextBody{Core: f.Core, Resources: f.Resources}
-	for _, lf := range f.Leaves {
-		body := lf.Body
-		switch {
-		case lf.Body != "" && lf.File != "":
-			return jam.ContextBody{}, fmt.Errorf("leaf %q: set body or file, not both", lf.Name)
-		case lf.File != "":
-			if !filepath.IsLocal(lf.File) {
-				return jam.ContextBody{}, fmt.Errorf("leaf %q: file %q must be a relative path inside %s", lf.Name, lf.File, dir)
-			}
-			raw, err := os.ReadFile(filepath.Join(dir, lf.File))
-			if err != nil {
-				return jam.ContextBody{}, fmt.Errorf("leaf %q: %w", lf.Name, err)
-			}
-			body = string(raw)
+	return jam.ParseContextYAML(data, func(name string) ([]byte, error) {
+		if !filepath.IsLocal(name) {
+			return nil, fmt.Errorf("file %q must be a relative path inside %s", name, dir)
 		}
-		b.Leaves = append(b.Leaves, sessionctx.Leaf{Name: lf.Name, ReadWhen: lf.ReadWhen, Body: body})
-	}
-	return b, nil
+		return os.ReadFile(filepath.Join(dir, name))
+	})
 }
 
 // contextScope parses exactly one of --role P/R (P defaults), --project P, --jam.
@@ -133,7 +95,11 @@ func cmdContext(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		out, _ := yaml.Marshal(b)
+		out, err := jam.MarshalContextYAML(b)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
 		stdout.Write(out)
 	case "set":
 		if *file == "" {

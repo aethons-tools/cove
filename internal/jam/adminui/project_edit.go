@@ -135,6 +135,17 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 	}
 
+	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", func(r *http.Request, project string) error {
+		b, err := parseContextForm(r)
+		if err != nil {
+			return err
+		}
+		return jam.SetProjectContextChecked(store, project, b)
+	}))
+	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", func(r *http.Request, project string) error {
+		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
+	}))
+
 	mux.HandleFunc("POST /ui/projects/{project}/humans", edit("human put", func(r *http.Request, project string) error {
 		h, err := humanFromForm(r)
 		if err != nil {

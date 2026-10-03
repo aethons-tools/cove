@@ -1,0 +1,41 @@
+{{define "context-panel"}}
+<style>
+  .ctx-card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .ctx-card>header h2{margin:0}
+  .ctx-card>header .sub{font-size:12px}
+  .ctx-card>.body{padding:12px 16px}
+  .ctx-card .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .ctx-card .unset{color:var(--faint)}
+  .ctx-card .ctx-core{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}
+  .ctx-card .ctx-leaves{margin:8px 0;padding-left:18px}
+  .ctx-card details.edit{border-top:1px dashed var(--border)}
+  .ctx-card details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  .ctx-card details.edit>summary::-webkit-details-marker{display:none}
+  .ctx-card details.edit[open]>summary{background:var(--surface-2)}
+  .ctx-card details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  .ctx-card .form-actions .left{margin-right:auto}
+  #jam-context{margin:16px 0}
+</style>
+<section class="card full ctx-card"{{if .ID}} id="{{.ID}}"{{end}}>
+  <header><h2>Session context</h2><span class="sub">{{.Scope}} — what every session is told at raise</span></header>
+  <div class="body">
+    <p class="facts"><span class="chip{{if .Over}} bad{{end}}">{{.CoreBytes}} / {{.Budget}} bytes</span>{{if .Leaves}}<span class="chip">{{len .Leaves}} leaves</span>{{end}}{{if .Resources}}<span class="chip">{{len .Resources}} resources</span>{{end}}</p>
+    {{if .Empty}}<span class="unset">None — sessions get no {{.Scope}} section.</span>{{else}}
+    {{if .Core}}<pre class="ctx-core">{{.Core}}</pre>{{end}}
+    {{if .Leaves}}<ul class="ctx-leaves">{{range .Leaves}}<li><span class="mono">{{.Name}}</span> — read when {{.ReadWhen}}</li>{{end}}</ul>{{end}}
+    {{if .Resources}}<table><thead><tr><th>Name</th><th>Kind</th><th>Ref</th><th>Note</th></tr></thead><tbody>{{range .Resources}}<tr><td>{{.Name}}</td><td>{{.Kind}}</td><td class="mono">{{.Ref}}</td><td>{{.Note}}</td></tr>{{end}}</tbody></table>{{end}}
+    {{end}}
+  </div>
+  <details class="edit">
+    <summary>Edit session context</summary>
+    <form hx-post="{{.Action}}" hx-target="#{{.Target}}" hx-swap="outerHTML">
+      <label class="wide">YAML <span class="hint"><code>core</code>, <code>leaves</code> (<code>name</code>, <code>read-when</code>, <code>body</code>){{if .ShowResources}}, <code>resources</code>{{end}} — the <code>at-jam context</code> file format, bodies inline. Never put a credential here.</span>
+        <textarea name="yaml" rows="14" spellcheck="false">{{.YAML}}</textarea></label>
+      <div class="form-actions">
+        {{if not .Empty}}<button type="button" class="danger left" hx-delete="{{.Action}}" hx-target="#{{.Target}}" hx-swap="outerHTML" hx-confirm="Remove this {{.Scope}} session context?">Clear</button>{{end}}
+        <button type="submit" class="primary">Save context</button>
+      </div>
+    </form>
+  </details>
+</section>
+{{end}}

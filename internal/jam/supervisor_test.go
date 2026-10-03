@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -1297,5 +1298,33 @@ func TestRaiseCompilesAuthoredLayers(t *testing.T) {
 	}
 	if c := raise("w2"); strings.Contains(c.Core, "## Jam") {
 		t.Error("a cleared layer must vanish")
+	}
+}
+
+func TestPushStudioKitRejectsReservedNote(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	cfg := "kind: studio\nnotes:\n  - name: tools.md\n    read-when: w\n    body: B\n"
+	if _, _, err := PushStudioKit(store, "noted", cfg); WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "tools.md") {
+		t.Fatalf("push must reject a note named tools.md, got %v", err)
+	}
+}
+
+// The kit layer carries the kit's notes and a generated tools.md.
+func TestRaiseKitNotesAndTools(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	sk := studio.StudioKit{Kind: studio.Kind, Prompt: "K", BuildArgs: map[string]string{"GO_VERSION": "1.27.1"},
+		Notes: []studio.KitNote{{Name: "release.md", ReadWhen: "you are releasing", Body: "STEPS"}}}
+	ref, err := EnsureStudioKit(store, "web", sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetDefaultStudioKit(ref)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	c := fl.gotSpec.Context
+	if !strings.Contains(c.Files["kit/tools.md"], "| go | 1.27.1 |") || !strings.Contains(c.Files["kit/release.md"], "STEPS") {
+		t.Fatalf("kit leaves missing: %v", c.Files)
 	}
 }

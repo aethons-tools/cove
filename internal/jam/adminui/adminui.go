@@ -23,7 +23,7 @@ var files embed.FS
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data).
 var pages = map[string]*template.Template{
-	"dashboard":    mustParse("coves.html", "dashboard.html"),
+	"dashboard":    mustParse("coves.html", "context_panel.html", "dashboard.html"),
 	"coves":        mustParse("coves.html"),
 	"roster":       mustParse("roster.html"),
 	"roles":        mustParse("roles.html"),
@@ -31,11 +31,11 @@ var pages = map[string]*template.Template{
 	"destinations": mustParse("dest_fields.html", "destinations.html"),
 	"intercom":     mustParse("intercom.html"),
 	"session":      mustParse("session.html"),
-	"role":         mustParse("coves.html", "role.html"),
+	"role":         mustParse("coves.html", "context_panel.html", "role.html"),
 	"destination":  mustParse("dest_fields.html", "destination.html"),
 	"kit":          mustParse("kit.html"),
 	"projects":     mustParse("projects.html"),
-	"project":      mustParse("coves.html", "project.html"),
+	"project":      mustParse("coves.html", "context_panel.html", "project.html"),
 	"studio":       mustParse("studio.html"),
 	"search":       mustParse("search.html"),
 }
@@ -151,9 +151,10 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title": "Dashboard",
-			"Coves": jam.CoveSummaries(store),
-			"Stats": dashboardStats(store),
+			"Title":      "Dashboard",
+			"Coves":      jam.CoveSummaries(store),
+			"Stats":      dashboardStats(store),
+			"JamContext": jamPanel(store),
 		})
 	})
 
@@ -196,6 +197,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
+	registerJamContext(mux, store, log, guardWrite)
 
 	return mux
 }

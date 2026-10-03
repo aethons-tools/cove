@@ -4,7 +4,7 @@ read_when: You are registering a kit in Jam, pushing a new version, rolling a ki
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`), the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # The kit registry
@@ -32,6 +32,10 @@ build-args: {GO_VERSION: "1.23"}   # never secrets
 secrets:                   # demands: name + description only, never values
   GH_TOKEN: {description: "clone access"}
 prompt: "You work on the web service …"   # orients the session
+notes:                     # leaves shipped into sessions' context (kit/<name>)
+  - name: release.md
+    read-when: you are cutting a release
+    file: docs/release.md  # relative to this file, read at `kit push`; or `body: |`
 ```
 
 | Field | Meaning |
@@ -41,11 +45,12 @@ prompt: "You work on the web service …"   # orients the session
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
 | `prompt` | The kit layer's always-on core (≤ 800 bytes; `kit push` rejects more) of the [session context](session-context.md). |
+| `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` relative to the kit file, read by `kit push`); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image. |
 
 The session context is compiled at raise ([session-context.md](session-context.md)),
 so it lives *outside* the image.
 The image is tagged by a **build-digest** over only the build-affecting fields
-(`base` + `egress` + `build-args`): a prompt- or secrets-only edit reuses the
+(`base` + `egress` + `build-args`): a prompt-, notes- or secrets-only edit reuses the
 cached image. The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)

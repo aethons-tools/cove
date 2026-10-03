@@ -174,6 +174,17 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, cr
 		})
 	}))
 
+	mux.HandleFunc("POST /ui/roles/{project}/{name}/context", edit("context set", func(r *http.Request, project, name string) error {
+		b, err := parseContextForm(r)
+		if err != nil {
+			return err
+		}
+		return jam.SetRoleContextChecked(store, project, name, b)
+	}))
+	mux.HandleFunc("DELETE /ui/roles/{project}/{name}/context", edit("context cleared", func(r *http.Request, project, name string) error {
+		return jam.ClearRoleContext(store, project, name)
+	}))
+
 	mux.HandleFunc("POST /ui/roles/{project}/{name}/egress", edit("egress set", func(r *http.Request, project, name string) error {
 		_, err := jam.SetRoleEgress(store, project, name, splitList(r.FormValue("domains")))
 		return err

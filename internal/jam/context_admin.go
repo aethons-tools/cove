@@ -1,7 +1,6 @@
 package jam
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -27,8 +26,8 @@ func viewOf(l sessionctx.Layer, rs []sessionctx.Resource) ContextBody {
 // registerContext mounts the authored session-context endpoints for roles,
 // projects and the Jam (see docs/usage/jam/session-context.md).
 func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
-	fail := func(w http.ResponseWriter, err error, fallback int) {
-		http.Error(w, err.Error(), WriteStatus(err, projectErrStatus(err, fallback)))
+	fail := func(w http.ResponseWriter, err error) {
+		http.Error(w, err.Error(), WriteStatus(err, projectErrStatus(err, http.StatusInternalServerError)))
 	}
 	// Roles.
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/context", func(w http.ResponseWriter, r *http.Request) {
@@ -44,12 +43,8 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 		if !decode(w, r, &b) {
 			return
 		}
-		if len(b.Resources) > 0 {
-			http.Error(w, "resources apply to projects only", http.StatusBadRequest)
-			return
-		}
-		if err := SetRoleContext(store, r.PathValue("project"), r.PathValue("role"), b.layer()); err != nil {
-			fail(w, err, http.StatusInternalServerError)
+		if err := SetRoleContextChecked(store, r.PathValue("project"), r.PathValue("role"), b); err != nil {
+			fail(w, err)
 			return
 		}
 		log.Info("admin role context set", "operator", OperatorID(r), "project", r.PathValue("project"), "role", r.PathValue("role"), "core_bytes", len(b.Core), "leaves", len(b.Leaves))
@@ -57,7 +52,7 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 	})
 	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/context", func(w http.ResponseWriter, r *http.Request) {
 		if err := ClearRoleContext(store, r.PathValue("project"), r.PathValue("role")); err != nil {
-			fail(w, err, http.StatusInternalServerError)
+			fail(w, err)
 			return
 		}
 		log.Info("admin role context cleared", "operator", OperatorID(r), "project", r.PathValue("project"), "role", r.PathValue("role"))
@@ -73,28 +68,8 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 		writeJSON(w, http.StatusOK, viewOf(p.Context, p.Resources))
 	})
 	setProject := func(w http.ResponseWriter, r *http.Request, b ContextBody) {
-		if err := sessionctx.ValidateLayer(b.layer(), sessionctx.BudgetProject); err != nil {
-			http.Error(w, "project context: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := sessionctx.ValidateResources(b.Resources); err != nil {
-			http.Error(w, "project resources: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		// resources.md is generated from Resources, and its pointer line rides
-		// in the core: check what a session will actually get.
-		for _, lf := range b.Leaves {
-			if lf.Name == sessionctx.ResourcesLeaf {
-				http.Error(w, "project context: leaf name "+sessionctx.ResourcesLeaf+" is reserved for the generated resource list", http.StatusBadRequest)
-				return
-			}
-		}
-		if n := len(sessionctx.ProjectLayer(b.layer(), b.Resources).Core); n > sessionctx.BudgetProject {
-			http.Error(w, fmt.Sprintf("project context: core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject), http.StatusBadRequest)
-			return
-		}
-		if err := store.SetProjectContext(r.PathValue("project"), b.layer(), b.Resources); err != nil {
-			fail(w, err, http.StatusBadRequest)
+		if err := SetProjectContextChecked(store, r.PathValue("project"), b); err != nil {
+			fail(w, err)
 			return
 		}
 		log.Info("admin project context set", "operator", OperatorID(r), "project", r.PathValue("project"), "core_bytes", len(b.Core), "leaves", len(b.Leaves), "resources", len(b.Resources))
@@ -114,16 +89,8 @@ func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 		writeJSON(w, http.StatusOK, viewOf(store.GetJamContext(), nil))
 	})
 	setJam := func(w http.ResponseWriter, r *http.Request, b ContextBody) {
-		if len(b.Resources) > 0 {
-			http.Error(w, "resources apply to projects only", http.StatusBadRequest)
-			return
-		}
-		if err := sessionctx.ValidateLayer(b.layer(), sessionctx.BudgetJam); err != nil {
-			http.Error(w, "jam context: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := store.SetJamContext(b.layer()); err != nil {
-			fail(w, err, http.StatusInternalServerError)
+		if err := SetJamContextChecked(store, b); err != nil {
+			fail(w, err)
 			return
 		}
 		log.Info("admin jam context set", "operator", OperatorID(r), "core_bytes", len(b.Core), "leaves", len(b.Leaves))
