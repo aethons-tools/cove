@@ -33,7 +33,7 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "no session context on this Jam", http.StatusNotFound)
 			return
 		}
-		b, err := sup.ContextFor(a.ID)
+		b, err := sup.ContextForActor(a)
 		switch {
 		case errors.Is(err, ErrNoInstance):
 			http.Error(w, err.Error(), http.StatusNotFound)
