@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,40 +21,51 @@ const defaultGrace = 10 * time.Second
 // gives up and reports Done.
 const defaultMaxWait = 30 * time.Minute
 
+// defaultBackgroundWait bounds how long an episode holds stdin open after the
+// agent's turn ended while background tasks are still running.
+const defaultBackgroundWait = 30 * time.Minute
+
 // mcpConfigPath is the baked-in MCP config (internal/assemble/hardening/
 // image-files/etc/claude-code/mcp.json) that gives claude -p the Jam
 // messaging tools. --strict-mcp-config keeps claude from also picking up any
 // project/user-level MCP config.
 const mcpConfigPath = "/etc/claude-code/mcp.json"
 
-// resumePrompt is passed (with --continue) on every turn after the first,
-// once a Wake has broken the unit out of a needs-input wait.
+// resumePrompt is the stdin message a Wake delivers: written into a live
+// episode, or as the first message of a new --continue episode once a Wake has
+// broken the unit out of a needs-input wait.
 const resumePrompt = "New input may have arrived on your ticket — use the messaging `read` tool to fetch it, then continue the task. When finished, write .at-task/worker-result.json as before."
 
-// residentResumePrompt is passed (with --continue) on every turn after the
-// first in resident mode (a personal session), once a Wake — typically the
-// owner replying — has broken the cove out of its wait.
+// residentResumePrompt is resumePrompt's resident-mode (personal or standing
+// session) counterpart, delivered the same way when a Wake — typically the
+// owner replying — arrives.
 const residentResumePrompt = "Your owner may have replied — use the intercom `read` tool to fetch new messages, then continue. " +
 	"Use `send` to message your owner when you have results or need input."
 
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
-	Prompt  string        // the full prompt passed as claude's positional arg
+	Prompt  string        // the full prompt, written as the first stream-json message on claude's stdin
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
 	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
-	Spawner Spawner       // nil → the real execSpawner
+	// BackgroundWait bounds how long stdin stays open after a turn ends with
+	// background tasks outstanding; then stdin is closed and claude stops them.
+	// Default 30m.
+	BackgroundWait time.Duration
+	Spawner        Spawner // nil → the real execSpawner
 	// MCPConfigPath is the --mcp-config file passed to claude; empty defaults to
 	// mcpConfigPath. Run refuses to start the agent if it is missing/unreadable
 	// (COV-190) so a stale image never yields a silently toolless agent.
 	MCPConfigPath string
 	// Connector, when set, refreshes the agent's connector before every spawn
-	// (GET /connector) and reports the applied fingerprint; nil inherits
+	// (episode — not per prompt: a Wake written into a live episode keeps that
+	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
 	// cove-master's env unchanged (an older launcher).
 	Connector *ConnectorConfig
-	// Resident keeps the cove alive between turns (personal sessions): after
-	// every turn, whatever its outcome, Run reports Waiting and blocks until a
-	// Wake (resume with --continue) or shutdown — never MaxWait.
+	// Resident keeps the cove alive between episodes (personal and standing
+	// sessions): after every episode, whatever its outcome, Run reports Waiting
+	// and blocks until a Wake (a new episode with --continue) or shutdown —
+	// never MaxWait.
 	Resident bool
 	// StreamLogPath is the VM-local file claude's stdout (stream-json) is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
@@ -96,6 +108,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.MaxWait <= 0 {
 		cfg.MaxWait = defaultMaxWait
 	}
+	if cfg.BackgroundWait <= 0 {
+		cfg.BackgroundWait = defaultBackgroundWait
+	}
 	if cfg.MCPConfigPath == "" {
 		cfg.MCPConfigPath = mcpConfigPath
 	}
@@ -116,31 +131,57 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: make(chan struct{}, 1)}
 }
 
-// claudeArgs builds claude's argv for one turn. continued prepends
-// --continue, used for every turn after a resume-on-wake.
-func (w *Workload) claudeArgs(prompt string, continued bool) []string {
+// claudeArgs builds claude's argv for one episode. continued prepends
+// --continue, used for every episode after a resume-on-wake. The prompt is
+// not in argv: it is the first stream-json message on stdin.
+func (w *Workload) claudeArgs(continued bool) []string {
 	args := []string{"-p"}
 	if continued {
 		args = append(args, "--continue")
 	}
 	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
-	args = append(args, "--output-format", "stream-json", "--verbose")
+	args = append(args, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose")
 	args = append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config")
 	if w.contextCore != "" {
 		// snapshot off: the default replays the first turn's system prompt on
 		// every --continue, which would hide context updates.
 		args = append(args, "--append-system-prompt-file", w.contextCore, "--system-prompt-snapshot", "off")
 	}
-	return append(args, prompt)
+	return args
 }
 
-// Run spawns claude -p in a turn loop and maps each turn's worker-result to
-// the Activity stream. A needs-input turn reports Waiting and blocks until a
-// Wake resumes it (with --continue on the resume prompt) or MaxWait elapses
-// (Run then returns nil, ending the unit). Returning nil or an error both
-// lead the client to report Done; a nil error means the unit ended cleanly
+// userMessage encodes text as one stream-json stdin line.
+func userMessage(text string) []byte {
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	b, _ := json.Marshal(struct {
+		Type    string `json:"type"`
+		Message msg    `json:"message"`
+	}{"user", msg{"user", text}})
+	return append(b, '\n')
+}
+
+// resumeText is the prompt a Wake delivers.
+func (w *Workload) resumeText() string {
+	if w.cfg.Resident {
+		return residentResumePrompt
+	}
+	return resumePrompt
+}
+
+// Run runs the agent as a sequence of episodes. An episode is one claude
+// process fed stream-json on stdin: the prompt first, then one coalesced
+// resume prompt per batch of Wakes. Stdin is closed only when the agent's turn
+// has ended and no background task is outstanding (or BackgroundWait elapsed),
+// so claude's backgrounding works. After the process exits, its worker-result
+// maps to Activity as before: a needs-input episode reports Waiting and blocks
+// until a Wake resumes it (a new episode with --continue) or MaxWait elapses
+// (Run then returns nil, ending the unit). Returning nil or an error both lead
+// the client to report Done; a nil error means the unit ended cleanly
 // (completed, or gave up waiting). In resident mode (personal sessions) every
-// turn ends in Waiting and only a Wake or ctx cancel moves the loop on.
+// episode ends in Waiting and only a Wake or ctx cancel moves the loop on.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	// Fail loud if the MCP config is missing rather than launch a silently
 	// toolless agent (COV-190): claude with --mcp-config pointing at a
@@ -179,14 +220,23 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	continued := false
 	var turn uint32
 	for {
-		args := w.claudeArgs(prompt, continued)
+		args := w.claudeArgs(continued)
 		turn++
 		t := turn
 		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
-		var sink io.Writer = split
+		tr := newIdleTracker(func(msg string, a ...any) { w.log.Warn(msg, a...) })
+		trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
+			if dropped > 0 {
+				w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
+				return
+			}
+			tr.Observe(line)
+		}}
+		sinks := []io.Writer{split, trSplit}
 		if out != nil {
-			sink = io.MultiWriter(out, split)
+			sinks = append([]io.Writer{out}, sinks...)
 		}
+		sink := io.MultiWriter(sinks...)
 		var env []string
 		if w.conn != nil {
 			var fp string
@@ -203,8 +253,17 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 
-		waitErr := proc.Wait()
+		waitErr := w.episode(ctx, proc, tr, prompt)
 		split.Flush()
+		if tr.WakeOwed() {
+			// Coalesced mid-turn but never delivered, or delivered but the process
+			// exited (or the write failed) before claude started the turn it asked
+			// for: hand it to the post-exit wait so it resumes at once.
+			select {
+			case w.wake <- struct{}{}:
+			default:
+			}
+		}
 		if ctx.Err() != nil {
 			// Teardown / parent shutdown interrupted the run; the result (if any) is
 			// not meaningful. The client's Done/exit path owns the ctx error.
@@ -264,6 +323,86 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	}
 }
 
+// episode drives one claude process: writes prompt, then reacts to tracker
+// changes, Wakes, the background-wait timer and exit until the process exits.
+// It returns the process's exit error.
+func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, prompt string) error {
+	exited := make(chan error, 1)
+	go func() { exited <- proc.Wait() }()
+	in := proc.Input()
+	open := true
+	closeInput := func(why string) {
+		if !open {
+			return
+		}
+		open = false
+		w.log.Info("agentrun: closing agent stdin", "why", why)
+		_ = in.Close()
+	}
+	write := func(text string) {
+		if _, err := in.Write(userMessage(text)); err != nil {
+			// The process is gone (EPIPE); its exit reports the real outcome.
+			w.log.Warn("agentrun: write to agent stdin failed; awaiting exit", "err", err.Error())
+			closeInput("stdin write failed")
+		}
+	}
+	var hold *time.Timer
+	var holdC <-chan time.Time
+	stopHold := func() {
+		if hold != nil {
+			hold.Stop()
+			hold, holdC = nil, nil
+		}
+	}
+	defer stopHold()
+
+	write(prompt) // the tracker starts busy
+	resume := w.resumeText()
+	for {
+		var wake <-chan struct{}
+		if open {
+			wake = w.wake // once stdin is closed, Wakes stay buffered for the post-exit wait
+		}
+		select {
+		case err := <-exited:
+			return err
+		case <-ctx.Done():
+			return <-exited // CommandContext SIGTERM/SIGKILLs the process
+		case <-wake:
+			if tr.Wake() {
+				write(resume)
+				tr.Wrote()
+			}
+		case <-tr.changed:
+		case <-holdC:
+			_, tasks := tr.Next()
+			w.log.Warn("agentrun: background-wait elapsed with tasks outstanding; closing stdin (claude stops them)",
+				"wait", w.cfg.BackgroundWait.String(), "tasks", tasks)
+			holdC = nil
+			closeInput("background-wait elapsed")
+		}
+		if !open {
+			continue
+		}
+		switch act, tasks := tr.Next(); act {
+		case actDeliverWake:
+			stopHold()
+			write(resume)
+		case actHold:
+			if hold == nil {
+				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
+				hold = time.NewTimer(w.cfg.BackgroundWait)
+				holdC = hold.C
+			}
+		case actClose:
+			stopHold()
+			closeInput("idle")
+		case actWait:
+			stopHold()
+		}
+	}
+}
+
 // logResidentTurn logs a resident turn's outcome. In resident mode no outcome
 // ends the session — an ok, error, or missing worker-result is only reported —
 // so the owner can reply and the cove carries on.
@@ -293,10 +432,12 @@ func (w *Workload) logResidentTurn(waitErr error) {
 
 // Control handles control messages. The client already cancels Run's ctx on
 // Teardown (which SIGTERM/SIGKILLs the agent via execSpawner), so that case
-// stays log-only. Wake delivers a non-blocking signal on the wake channel: a
-// Run currently blocked on a needs-input wait consumes it and resumes; a wake
-// arriving with no one waiting (or one already buffered) is dropped, since a
-// resumed turn re-reads its ticket state regardless.
+// stays log-only.
+// Wake delivers a non-blocking signal on the wake channel. While an episode
+// is live, the episode loop consumes it (delivered now between turns, or
+// coalesced into one resume prompt at turn end); after the process exited, a
+// Run blocked on a needs-input wait consumes it and resumes. A wake arriving
+// with one already buffered is dropped — a resumed turn re-reads its inbox.
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:

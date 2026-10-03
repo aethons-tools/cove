@@ -122,3 +122,47 @@ func TestExecSpawnerDoesNotEchoToOsStdout(t *testing.T) {
 		t.Fatalf("leaked to os.Stdout: %q", leaked)
 	}
 }
+
+func TestExecSpawnerStdinRoundTrip(t *testing.T) {
+	needSh(t)
+	var buf bytes.Buffer
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "cat"}, "", nil, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(p.Input(), "hello\n"); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := p.Input().Close(); err != nil {
+		t.Fatalf("close stdin: %v", err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if buf.String() != "hello\n" {
+		t.Fatalf("stdout got %q", buf.String())
+	}
+}
+
+// A child that exits on its own while we still hold stdin open must not make
+// Wait hang (StdinPipe is closed by Wait, unlike a copied io.Reader).
+func TestExecSpawnerExitWithStdinOpen(t *testing.T) {
+	needSh(t)
+	p, err := execSpawner{grace: 5 * time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "", nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- p.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait hung with stdin still open")
+	}
+	if _, err := io.WriteString(p.Input(), "late\n"); err == nil {
+		t.Fatal("write after exit: want error, got nil")
+	}
+}

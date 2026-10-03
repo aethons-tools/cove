@@ -34,14 +34,14 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 ## Delivery
 
 1. `Supervisor.Raise` compiles the bundle; the launch prompt (task, brief, standing or
-   personal prompt) stays the `claude -p` message on its own.
+   personal prompt) stays the agent's first stdin message on its own.
 2. The launcher stages the bundle JSON at `/dev/shm/cove-agent-context` and exports
    `AT_COVE_AGENT_CONTEXT_FILE`.
 3. cove-master writes it to `/agent-data/context/` (built beside it and swapped in;
-   nothing from an earlier bundle survives) and runs every turn with
+   nothing from an earlier bundle survives) and starts every episode (claude process) with
    `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`.
    `off` matters: by default claude replays the first turn's system prompt on every
-   `--continue`.
+   `--continue`. Within one episode the system prompt is fixed; see [coves.md](coves.md).
 4. No file or malformed JSON → the agent runs without context, exactly as before
    (`cove-master.log` then has no `session context applied` line). An unwritable
    directory is warned in `cove-master.log` and also runs without it. Either way any
