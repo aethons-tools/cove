@@ -151,9 +151,10 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
-			"Title": "Dashboard",
-			"Coves": jam.CoveSummaries(store),
-			"Stats": dashboardStats(store),
+			"Title":      "Dashboard",
+			"Coves":      jam.CoveSummaries(store),
+			"Stats":      dashboardStats(store),
+			"JamContext": jamPanel(store),
 		})
 	})
 
@@ -196,6 +197,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
+	registerJamContext(mux, store, log, guardWrite)
 
 	return mux
 }

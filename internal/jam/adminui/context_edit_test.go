@@ -84,3 +84,41 @@ func TestContextEditsRefuseCrossOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectAndJamContextPanels(t *testing.T) {
+	store := roleStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	yml := "core: Ship 1.0.\nresources:\n  - {name: cove, kind: repo, ref: aethons-tools/cove, note: main repo}\n"
+	if rec := post(t, h, "/ui/projects/acme/context", url.Values{"yaml": {yml}}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="project"`) {
+		t.Fatalf("project save = %d: %s", rec.Code, rec.Body.String())
+	}
+	if p, _ := store.GetProject("acme"); p.Context.Core != "Ship 1.0." || len(p.Resources) != 1 {
+		t.Fatalf("stored = %+v", p)
+	}
+	page := get(t, h, "/ui/projects/acme").Body.String()
+	for _, want := range []string{"Ship 1.0.", "aethons-tools/cove", "main repo", `hx-post="/ui/projects/acme/context"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("project panel missing %q", want)
+		}
+	}
+	if rec := post(t, h, "/ui/projects/ghost/context", url.Values{"yaml": {"core: C\n"}}); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown project = %d, want 404", rec.Code)
+	}
+
+	dash := get(t, h, "/ui/").Body.String()
+	for _, want := range []string{`id="jam-context"`, `hx-post="/ui/jam/context"`, "0 / 800 bytes"} {
+		if !strings.Contains(dash, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	rec := post(t, h, "/ui/jam/context", url.Values{"yaml": {"core: Never push to main.\n"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Never push to main.") || strings.Contains(rec.Body.String(), "<html") {
+		t.Fatalf("jam save = %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.GetJamContext().Core != "Never push to main." {
+		t.Fatal("jam context not stored")
+	}
+	if rec := del(t, h, "/ui/jam/context"); rec.Code != http.StatusOK || !store.GetJamContext().Empty() {
+		t.Fatalf("jam clear = %d", rec.Code)
+	}
+}

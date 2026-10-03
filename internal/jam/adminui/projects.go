@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // projectURL is the page path for a project.
@@ -106,6 +107,7 @@ type projectDetail struct {
 	InUseBy      string
 	NotFound     bool
 	NotFoundFor  string
+	Context      contextPanel // the project's session-context card
 }
 
 func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
@@ -114,6 +116,7 @@ func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: "Projects", Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
+	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
 		if r.Project == name {
 			d.Roles = append(d.Roles, r)
