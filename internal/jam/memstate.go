@@ -34,6 +34,8 @@ type memState struct {
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
 	unread map[string]map[string]int64
+	// jamContext is the Jam-wide authored session-context layer; zero = none.
+	jamContext sessionctx.Layer
 }
 
 func newMemState() *memState {
@@ -49,6 +51,18 @@ func newMemState() *memState {
 }
 
 // ---- reads (RLock; promoted to the embedding Store) ----
+
+// GetJamContext returns a copy of the Jam-wide authored context layer.
+func (m *memState) GetJamContext() sessionctx.Layer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return sessionctx.Layer{Core: m.jamContext.Core, Leaves: slices.Clone(m.jamContext.Leaves)}
+}
+
+// applySetJamContext replaces the cached layer. Caller holds mu.Lock().
+func (m *memState) applySetJamContext(l sessionctx.Layer) {
+	m.jamContext = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}
+}
 
 func (m *memState) Lookup(tokenHash string) (Actor, bool) {
 	m.mu.RLock()

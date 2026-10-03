@@ -49,6 +49,28 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("jam_context_set_get_clear", func(t *testing.T) {
+		s := newStore(t)
+		if got := s.GetJamContext(); !got.Empty() {
+			t.Fatalf("fresh store: %+v", got)
+		}
+		l := sessionctx.Layer{Core: "Never push to main.", Leaves: []sessionctx.Leaf{{Name: "r.md", ReadWhen: "w", Body: "b"}}}
+		if err := s.SetJamContext(l); err != nil {
+			t.Fatal(err)
+		}
+		got := s.GetJamContext()
+		if got.Core != l.Core || len(got.Leaves) != 1 {
+			t.Fatalf("got %+v", got)
+		}
+		got.Leaves[0].Name = "mutated.md"
+		if s.GetJamContext().Leaves[0].Name != "r.md" {
+			t.Fatal("GetJamContext must return a copy")
+		}
+		if err := s.SetJamContext(sessionctx.Layer{}); err != nil || !s.GetJamContext().Empty() {
+			t.Fatalf("clear: err=%v got=%+v", err, s.GetJamContext())
+		}
+	})
+
 	t.Run("actors_add_lookup_remove", func(t *testing.T) {
 		s := newStore(t)
 		a := jam.Actor{ID: "cove-1", TokenHash: "hash-1"}

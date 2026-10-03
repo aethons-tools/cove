@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // ConfigSnapshotVersion is the on-the-wire/on-disk schema version of a config
@@ -15,7 +17,8 @@ const ConfigSnapshotVersion = 1
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
-// pin), destinations, and projects (roster, escalation, chat service). It never
+// pin), destinations, projects (roster, escalation, chat service, session context) and the
+// Jam-wide session context. It never
 // carries runtime/studio state (instances) or intercom unread cursors — those
 // aggregates simply have no field here.
 type ConfigSnapshot struct {
@@ -26,6 +29,8 @@ type ConfigSnapshot struct {
 	Kits         []Kit                      `json:"kits"`  // full: Current + all Versions
 	Destinations []Destination              `json:"destinations"`
 	Projects     []Project                  `json:"projects"`
+	// JamContext is the Jam-wide authored session-context layer; nil = none.
+	JamContext *sessionctx.Layer `json:"jam_context,omitempty"`
 }
 
 // ErrConfigNotEmpty is returned by ImportConfig when the target already holds
@@ -36,7 +41,7 @@ var ErrConfigNotEmpty = errors.New("import refused: target config is not empty")
 // Version this build does not understand.
 var ErrUnsupportedConfigVersion = errors.New("unsupported config snapshot version")
 
-// ExportConfig returns a deep copy of the five config aggregates, sorted for a
+// ExportConfig returns a deep copy of the config aggregates, sorted for a
 // stable/diffable backup. Runtime state (instances, unread cursors) is never
 // read. Safe under the read lock; the returned snapshot shares nothing with the
 // live store.
@@ -78,6 +83,10 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 	}
 	sort.Slice(snap.Projects, func(i, j int) bool { return snap.Projects[i].Name < snap.Projects[j].Name })
 
+	if !m.jamContext.Empty() {
+		jc := m.jamContext
+		snap.JamContext = &jc
+	}
 	return deepCopySnapshot(snap)
 }
 
@@ -133,6 +142,9 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	}
 	if len(m.projects) > 0 {
 		names = append(names, "projects")
+	}
+	if !m.jamContext.Empty() {
+		names = append(names, "jam_context")
 	}
 	return names
 }
@@ -193,6 +205,10 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	m.projects = map[string]Project{}
 	for _, p := range s.Projects {
 		m.projects[p.Name] = p
+	}
+	m.jamContext = sessionctx.Layer{}
+	if s.JamContext != nil {
+		m.jamContext = *s.JamContext
 	}
 }
 

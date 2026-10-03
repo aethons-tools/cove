@@ -299,6 +299,13 @@ func (fs *MemStore) SetProjectContext(project string, l sessionctx.Layer, rs []s
 	return nil
 }
 
+func (fs *MemStore) SetJamContext(l sessionctx.Layer) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applySetJamContext(l)
+	return nil
+}
+
 func (fs *MemStore) SetChatService(project, service string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

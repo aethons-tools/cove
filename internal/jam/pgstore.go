@@ -3,6 +3,7 @@ package jam
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -227,6 +228,16 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	var jc []byte
+	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'context'`).Scan(&jc); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("pgstore: load jam_settings: %w", err)
+	default:
+		if err := json.Unmarshal(jc, &s.jamContext); err != nil {
+			return fmt.Errorf("pgstore: decode jam_settings context: %w", err)
+		}
+	}
 	// intercom-UI unread cursors: (participant, channel) → last-seen Seq.
 	curs, err := s.pool.Query(ctx, `SELECT participant, channel, seq FROM intercom_unread_cursors`)
 	if err != nil {
@@ -366,6 +377,15 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO destinations (name, doc) VALUES ($1,$2)`, d.Name, doc); err != nil {
+				return err
+			}
+		}
+		if snap.JamContext != nil && !snap.JamContext.Empty() {
+			doc, err := json.Marshal(snap.JamContext)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO jam_settings (key, doc) VALUES ('context', $1)`, doc); err != nil {
 				return err
 			}
 		}
@@ -781,6 +801,30 @@ func (s *PostgresStore) SetProjectContext(project string, l sessionctx.Layer, rs
 		return err
 	}
 	return s.putProject(setProjectContext(copyProject(p), l, rs))
+}
+
+// SetJamContext upserts (or, for an empty layer, deletes) the Jam-wide context
+// row and updates the cache.
+func (s *PostgresStore) SetJamContext(l sessionctx.Layer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if l.Empty() {
+		if err := s.exec("clearJamContext", `DELETE FROM jam_settings WHERE key = 'context'`); err != nil {
+			return err
+		}
+	} else {
+		doc, err := json.Marshal(l)
+		if err != nil {
+			return err
+		}
+		if err := s.exec("setJamContext",
+			`INSERT INTO jam_settings (key, doc) VALUES ('context', $1)
+			 ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`, doc); err != nil {
+			return err
+		}
+	}
+	s.applySetJamContext(l)
+	return nil
 }
 
 func (s *PostgresStore) SetChatService(project, service string) error {

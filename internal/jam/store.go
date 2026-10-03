@@ -73,4 +73,8 @@ type Store interface {
 	// SetProjectContext replaces a project's authored session context and
 	// resources (ErrProjectNotFound for an unknown project).
 	SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error
+	// GetJamContext / SetJamContext read and replace the Jam-wide authored
+	// session-context layer; an empty layer clears it.
+	GetJamContext() sessionctx.Layer
+	SetJamContext(l sessionctx.Layer) error
 }
