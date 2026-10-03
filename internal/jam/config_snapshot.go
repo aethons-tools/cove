@@ -117,6 +117,43 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	if names := nonEmptyConfigAggregates(m); len(names) > 0 {
 		return fmt.Errorf("%w (non-empty: %s)", ErrConfigNotEmpty, strings.Join(names, ", "))
 	}
+	return validateSnapshotContext(s)
+}
+
+// ErrInvalidConfig is returned by ImportConfig for a snapshot whose authored
+// session context (or a destination note) breaks the admin API's rules.
+var ErrInvalidConfig = errors.New("import refused: invalid config")
+
+// validateSnapshotContext applies the authoring rules the admin API enforces —
+// layer budgets, leaf names, resources, destination notes — so a hand-edited
+// backup can't store context sessions would receive truncated or broken.
+func validateSnapshotContext(s ConfigSnapshot) error {
+	bad := func(what string, err error) error { return fmt.Errorf("%w: %s: %v", ErrInvalidConfig, what, err) }
+	if s.JamContext != nil {
+		if err := sessionctx.ValidateLayer(*s.JamContext, sessionctx.BudgetJam); err != nil {
+			return bad("jam context", err)
+		}
+	}
+	for project, rs := range s.Roles {
+		for name, r := range rs {
+			if err := sessionctx.ValidateLayer(r.Context, sessionctx.BudgetRole); err != nil {
+				return bad("role "+project+"/"+name+" context", err)
+			}
+		}
+	}
+	for _, p := range s.Projects {
+		if err := sessionctx.ValidateLayer(p.Context, sessionctx.BudgetProject); err != nil {
+			return bad("project "+p.Name+" context", err)
+		}
+		if err := sessionctx.ValidateResources(p.Resources); err != nil {
+			return bad("project "+p.Name+" resources", err)
+		}
+	}
+	for _, d := range s.Destinations {
+		if len(d.Note) > MaxDestinationNote {
+			return bad("destination "+d.Name, fmt.Errorf("note is %d bytes; at most %d", len(d.Note), MaxDestinationNote))
+		}
+	}
 	return nil
 }
 

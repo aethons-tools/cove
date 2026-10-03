@@ -1027,3 +1027,19 @@ func TestAdminEnrollReturnsConnector(t *testing.T) {
 		t.Fatalf("enroll = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAdminConfigImportInvalidContext(t *testing.T) {
+	dst := NewMemStore()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	defer ts.Close()
+	body := fmt.Sprintf(`{"version":%d,"jam_context":{"core":%q}}`, ConfigSnapshotVersion, strings.Repeat("x", 900))
+	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", r.StatusCode)
+	}
+}

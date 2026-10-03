@@ -369,7 +369,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			switch {
 			case errors.Is(err, ErrConfigNotEmpty):
 				http.Error(w, err.Error(), http.StatusConflict)
-			case errors.Is(err, ErrUnsupportedConfigVersion):
+			case errors.Is(err, ErrUnsupportedConfigVersion), errors.Is(err, ErrInvalidConfig):
 				http.Error(w, err.Error(), http.StatusBadRequest)
 			default:
 				http.Error(w, err.Error(), http.StatusInternalServerError)
