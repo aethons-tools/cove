@@ -690,3 +690,25 @@ func TestImportConfigConflict(t *testing.T) {
 		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 }
+
+func TestClientContextRoundTrip(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+	for _, scope := range []ContextScope{{Project: jam.DefaultProject, Role: "guest"}, {Project: jam.DefaultProject}, {Jam: true}} {
+		if err := c.SetContext(scope, jam.ContextBody{Core: "C"}); err != nil {
+			t.Fatalf("SetContext %+v: %v", scope, err)
+		}
+		if b, err := c.GetContext(scope); err != nil || b.Core != "C" {
+			t.Fatalf("GetContext %+v = %+v, %v", scope, b, err)
+		}
+		if err := c.ClearContext(scope); err != nil {
+			t.Fatalf("ClearContext %+v: %v", scope, err)
+		}
+		if b, _ := c.GetContext(scope); b.Core != "" {
+			t.Fatalf("after clear %+v: %+v", scope, b)
+		}
+	}
+	if err := c.SetContext(ContextScope{Jam: true}, jam.ContextBody{Core: strings.Repeat("x", 900)}); err == nil || !strings.Contains(err.Error(), "900 bytes") {
+		t.Fatalf("over-budget err = %v", err)
+	}
+}
