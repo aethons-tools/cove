@@ -167,3 +167,12 @@ func TestLintBoundaries(t *testing.T) {
 		t.Errorf("whole matches must warn: %v", got)
 	}
 }
+
+func TestLintCaseAndPunctuation(t *testing.T) {
+	f := StudioFacts{Egress: []string{"go.dev"}, EgressKnown: true, Targets: []StudioTarget{{Target: "human:al"}}}
+	for _, core := range []string{"See GO.DEV for docs.", "Use go.dev.. then", "Ping human:al: now"} {
+		if got := lintAuthored("kit", core, f); len(got) != 1 {
+			t.Errorf("%q: want one warning, got %v", core, got)
+		}
+	}
+}

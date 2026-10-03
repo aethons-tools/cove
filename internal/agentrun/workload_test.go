@@ -893,3 +893,27 @@ func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 		t.Fatalf("first episode must start on the refreshed bundle: %s", core)
 	}
 }
+
+type blockingContext struct{}
+
+func (blockingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
+	<-ctx.Done()
+	return sessionctx.Bundle{}, ctx.Err()
+}
+
+// A hung Jam must not hold the first episode for the client's full timeout.
+func TestFirstEpisodeFetchIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	one := compileRole("ONE")
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}}, nil)
+	w.episodeTimeout = 30 * time.Millisecond
+	start := time.Now()
+	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("first episode waited %v on a hung Jam", d)
+	}
+}

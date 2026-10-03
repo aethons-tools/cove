@@ -219,7 +219,7 @@ func fingerprint(core string, files map[string]string) string {
 func lintAuthored(layer, core string, f StudioFacts) []string {
 	var out []string
 	for _, h := range f.Egress {
-		if containsToken(core, strings.TrimPrefix(h, "."), isHostChar) {
+		if containsToken(strings.ToLower(core), strings.ToLower(strings.TrimPrefix(h, ".")), isHostChar) {
 			out = append(out, fmt.Sprintf("%s core restates egress host %s (owned by the studio layer)", layer, h))
 		}
 	}
@@ -266,8 +266,8 @@ func isHostChar(c byte) bool {
 func isTargetChar(c byte) bool { return isHostChar(c) || c == ':' || c == '_' }
 
 // containsToken reports whether tok occurs in text as a whole token: not
-// preceded or followed by a token character (a trailing '.' that ends a
-// sentence still counts as a boundary).
+// preceded or followed by a token character (trailing '.'/':' punctuation that
+// ends a sentence or clause still counts as a boundary).
 func containsToken(text, tok string, isTok func(byte) bool) bool {
 	if tok == "" {
 		return false
@@ -279,8 +279,12 @@ func containsToken(text, tok string, isTok func(byte) bool) bool {
 		}
 		start, end := i+j, i+j+len(tok)
 		before := start == 0 || !isTok(text[start-1])
-		after := end == len(text) || !isTok(text[end]) ||
-			(text[end] == '.' && (end+1 == len(text) || !isTok(text[end+1])))
+		// Trailing sentence punctuation ('.', ':') still ends the token.
+		k := end
+		for k < len(text) && (text[k] == '.' || text[k] == ':') {
+			k++
+		}
+		after := k == len(text) || !isTok(text[k])
 		if before && after {
 			return true
 		}
