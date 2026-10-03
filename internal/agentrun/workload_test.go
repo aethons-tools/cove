@@ -797,3 +797,79 @@ func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 		t.Fatalf("stale context dir must be removed, stat err = %v", err)
 	}
 }
+
+// Before each later spawn the context is refreshed; that episode's first
+// message carries the new-episode notice when it changed.
+func TestRunRefreshesContextPerEpisode(t *testing.T) {
+	dir := t.TempDir()
+	cdir := filepath.Join(dir, "context")
+	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`}, dir: dir}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	one, two := compileRole("ONE"), compileRole("TWO")
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+		Resident: true, SessionKind: "standing", Context: &one, ContextDir: cdir,
+		ContextSource: &seqContext{bundles: []sessionctx.Bundle{two}}}, nil)
+	h := &recordHandle{}
+	done := runAsync(ctx, w, h)
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := f.calls[0].in.next(t); got != "p" {
+		t.Fatalf("1st episode = %q; want the prompt alone", got)
+	}
+	want := standingResumePrompt + "\n\nSession context changed (role) since your last turn — your system prompt is current; re-open any leaf you rely on."
+	if got := f.calls[1].in.next(t); got != want {
+		t.Fatalf("2nd episode = %q\nwant %q", got, want)
+	}
+	if core, _ := os.ReadFile(filepath.Join(cdir, "CORE.md")); !strings.Contains(string(core), "TWO") {
+		t.Fatalf("CORE.md not refreshed: %s", core)
+	}
+}
+
+// A wake written into a live episode carries the live notice, once for a
+// burst of coalesced wakes.
+func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	one, two := compileRole("ONE"), compileRole("TWO")
+	w := streamWL(t, dir, s, func(c *Config) {
+		c.Context, c.ContextDir = &one, filepath.Join(dir, "context")
+		c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{two}}
+	})
+	done := runAsync(context.Background(), w, &recordHandle{})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	for i := 0; i < 3; i++ {
+		w.Control(covemaster.Control{Kind: covemaster.Wake})
+		time.Sleep(5 * time.Millisecond)
+	}
+	p.in.noMessage(t, 50*time.Millisecond)
+	p.emit(lnResult)
+	want := resumePrompt + "\n\nSession context changed (role) — re-read /agent-data/context/CORE.md now; your system prompt catches up at your next episode."
+	if got := p.in.next(t); got != want {
+		t.Fatalf("delivered %q\nwant %q", got, want)
+	}
+	p.in.noMessage(t, 50*time.Millisecond)
+	p.emit(lnInit, lnResult)
+	p.in.waitClosed(t)
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestResumeTextPerKind(t *testing.T) {
+	for kind, want := range map[string]string{"standing": standingResumePrompt, "personal": residentResumePrompt, "": resumePrompt, "ephemeral": resumePrompt} {
+		w := New(Config{SessionKind: kind, Resident: kind == "standing" || kind == "personal"}, nil)
+		if got := w.resumeText(); got != want {
+			t.Errorf("%q: resume = %q", kind, got)
+		}
+	}
+}

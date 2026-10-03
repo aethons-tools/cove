@@ -130,3 +130,25 @@ func TestCompileLintsKitRestatingStudioFacts(t *testing.T) {
 		t.Errorf("clean kit core must not warn: %v", w)
 	}
 }
+
+func TestChangedLayers(t *testing.T) {
+	base := Inputs{Session: SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r"}, Role: Layer{Core: "R"}}
+	a := Compile(base)
+	if got := ChangedLayers(a, a); got != nil {
+		t.Fatalf("same bundle: %v", got)
+	}
+	leaf := base
+	leaf.Role = Layer{Core: "R", Leaves: []Leaf{{Name: "x.md", ReadWhen: "w", Body: "v1"}}}
+	b := Compile(leaf)
+	leaf.Role.Leaves[0].Body = "v2"
+	c := Compile(leaf)
+	if got := ChangedLayers(b, c); len(got) != 1 || got[0] != LayerRole {
+		t.Fatalf("leaf-body change: %v", got)
+	}
+	more := base
+	more.Jam = Layer{Core: "J"}
+	more.Role = Layer{}
+	if got := ChangedLayers(a, Compile(more)); strings.Join(got, ",") != "role,jam" {
+		t.Fatalf("removed role + added jam, in delivery order: %v", got)
+	}
+}

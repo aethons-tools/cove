@@ -45,6 +45,9 @@ type CoveMasterOptions struct {
 	// pointed at by AT_COVE_AGENT_CONTEXT_FILE. Nil = none (cove-master runs
 	// claude without the context flags).
 	Context *sessionctx.Bundle
+	// SessionKind ("ephemeral" | "personal" | "standing") becomes
+	// AT_COVE_SESSION_KIND, which picks cove-master's resume prompt.
+	SessionKind string
 }
 
 // LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
@@ -103,6 +106,9 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	}
 	if o.Resident {
 		script.WriteString("export AT_COVE_RESIDENT=1\n")
+	}
+	if o.SessionKind != "" {
+		fmt.Fprintf(&script, "export AT_COVE_SESSION_KIND=%s\n", shellQuote(o.SessionKind))
 	}
 	if err := writeVM(r, o.Target, script.String(), coveMasterEnvVMPath); err != nil {
 		return fmt.Errorf("cove-master env: %w", err)

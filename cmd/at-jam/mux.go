@@ -57,13 +57,19 @@ func squawksMux(squawksH, escH, broker http.Handler) http.Handler {
 // no log their sends fail with a clean 503). With neither, the broker alone —
 // plus GET /connector, which is always mounted.
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, log *slog.Logger) http.Handler {
-	// GET /connector (the identity's client env) is always served, ahead of the
-	// broker's destination routes.
+	// GET /connector (the identity's client env) and GET /context (its session
+	// context, recompiled live) are always served, ahead of the broker's
+	// destination routes.
 	connH := jam.NewConnectorHandler(st, time.Now, log)
+	ctxH := jam.NewContextHandler(st, sup, time.Now, log)
 	withConnector := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/connector" {
+			switch r.URL.Path {
+			case "/connector":
 				connH.ServeHTTP(w, r)
+				return
+			case "/context":
+				ctxH.ServeHTTP(w, r)
 				return
 			}
 			next.ServeHTTP(w, r)

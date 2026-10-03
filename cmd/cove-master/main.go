@@ -111,6 +111,11 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 			}
 		}
 	}
+	cfg.SessionKind = getenv("AT_COVE_SESSION_KIND")
+	// Live refresh (GET /context) needs a raise-time bundle to start from.
+	if base := getenv("AT_JAM_BASE_URL"); base != "" && cfg.Context != nil {
+		cfg.ContextSource = agentrun.HTTPContextSource(base, jamEnv(getenv, "IDENTITY_TOKEN"))
+	}
 	return cfg, nil
 }
 

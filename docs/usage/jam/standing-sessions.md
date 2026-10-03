@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Standing sessions
@@ -119,7 +119,8 @@ recipient**. Its `send` must name a `to` (a `human:` or `channel:` target from t
 project roster), or it answers `400 no default recipient: pass "to"`
 ([intercom.md](intercom.md)). What it may address is limited by its role's
 `--addressing`, like any studio. Its [session context](session-context.md) tells it this. A reply to one of its
-messages wakes it, and it `read`s the reply. See
+messages wakes it with its own resume text ("A message may have arrived — use the
+intercom `read` tool … Pass `to` when you `send`."), and it `read`s the reply. See
 [comms-addressing.md](comms-addressing.md) for the targets and
 [discord.md](discord.md#egress-the-reply-loop) for the reply loop.
 
