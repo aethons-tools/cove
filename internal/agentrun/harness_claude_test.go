@@ -3,6 +3,7 @@ package agentrun
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,20 +24,93 @@ func TestClaudeCommandUsesConfiguredMCPConfig(t *testing.T) {
 func TestClaudeZeroValueDefaultsMCPConfig(t *testing.T) {
 	_, args := Claude{}.Command(false, "")
 	i := slices.Index(args, "--mcp-config")
-	if i < 0 || args[i+1] != "/etc/claude-code/mcp.json" {
-		t.Fatalf("zero-value Claude must use the baked MCP config: %q", args)
+	if i < 0 || args[i+1] != "/dev/shm/cove-agent-mcp.json" {
+		t.Fatalf("zero-value Claude must use the generated per-run MCP config: %q", args)
+	}
+	if slices.Contains(args, "/etc/claude-code/mcp.json") {
+		t.Fatalf("the baked /etc/claude-code/mcp.json is no longer read: %q", args)
 	}
 }
 
-func TestClaudeValidate(t *testing.T) {
-	dir := t.TempDir()
-	if err := (Claude{MCPConfigPath: mcpConfigFile(t, dir)}).Validate(); err != nil {
-		t.Fatalf("present config: %v", err)
+// kitServersFile writes a baked kit mcp-servers file (as assemble does) into dir.
+func kitServersFile(t *testing.T, dir, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, "mcp-servers.json")
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	return p
+}
+
+// Validate generates ONE config: the guaranteed messaging server (exactly
+// today's /etc/claude-code/mcp.json entry) plus the kit's servers.
+func TestClaudeValidateWritesMessagingPlusKitServers(t *testing.T) {
+	dir := t.TempDir()
+	c := Claude{
+		MCPConfigPath:     filepath.Join(dir, "out.json"),
+		KitMCPServersPath: kitServersFile(t, dir, `{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}}}`),
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(c.MCPConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"mcpServers":{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}},"messaging":{"command":"cove-master","args":["mcp"]}}}` + "\n"
+	if string(got) != want {
+		t.Fatalf("generated config:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestClaudeValidateNoKitServersIsMessagingOnly(t *testing.T) {
+	dir := t.TempDir()
+	c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: kitServersFile(t, dir, "{}\n")}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(c.MCPConfigPath)
+	if want := `{"mcpServers":{"messaging":{"command":"cove-master","args":["mcp"]}}}` + "\n"; string(got) != want {
+		t.Fatalf("generated config:\n got %s\nwant %s", got, want)
+	}
+}
+
+// A kit can never override messaging, nor smuggle a literal secret header:
+// Validate re-checks the baked file and refuses to start.
+func TestClaudeValidateRejectsBadKitServers(t *testing.T) {
+	cases := map[string]string{
+		"messaging override":    `{"messaging":{"type":"stdio","command":"evil"}}`,
+		"literal authorization": `{"linear":{"type":"http","url":"https://x","headers":{"Authorization":"Bearer lin_api_x"}}}`,
+		"unknown field":         `{"s":{"type":"stdio","command":"c","env":{"A":"b"}}}`,
+		"malformed":             `{`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: kitServersFile(t, dir, body)}
+			if err := c.Validate(); err == nil {
+				t.Fatal("want error")
+			}
+			if _, err := os.Stat(c.MCPConfigPath); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("no config may be written on rejection: %v", err)
+			}
+		})
+	}
+}
+
+// COV-190: a missing baked kit file (a stale image) or an unwritable generated
+// config refuses to start rather than launch a toolless agent.
+func TestClaudeValidateFailsLoud(t *testing.T) {
+	dir := t.TempDir()
 	missing := filepath.Join(dir, "nope.json")
-	err := Claude{MCPConfigPath: missing}.Validate()
+	err := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: missing}.Validate()
 	if err == nil || !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), missing) {
-		t.Fatalf("missing config: want a not-exist error naming the path, got %v", err)
+		t.Fatalf("missing kit file: want a not-exist error naming the path, got %v", err)
+	}
+	unwritable := filepath.Join(dir, "no-such-dir", "out.json")
+	err = Claude{MCPConfigPath: unwritable, KitMCPServersPath: kitServersFile(t, dir, "{}")}.Validate()
+	if err == nil || !strings.Contains(err.Error(), unwritable) {
+		t.Fatalf("unwritable config: want an error naming the path, got %v", err)
 	}
 }
 

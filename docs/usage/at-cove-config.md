@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # at-cove `config.yml`
@@ -21,6 +21,10 @@ Parsing is **strict**: an unknown or misspelled field is a hard error (`config.y
 
 `at-cove dispatch --project-dir <dir>` reads this same file directly — the scheduler now
 consumes the kit like every other command; there is no separate scheduler config file.
+
+There is **no `mcp-servers:` field** here: kit-declared MCP servers are loaded only by
+the cove-master agent of a Jam-raised session, so they are declared on the Jam
+**studio kit** — see [`mcp-servers`](jam/kits.md#mcp-servers-cov-240).
 
 ## Fields
 

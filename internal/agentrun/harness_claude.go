@@ -1,23 +1,37 @@
 package agentrun
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
-// claudeMCPConfigPath is the baked-in MCP config (internal/assemble/hardening/
-// image-files/etc/claude-code/mcp.json) that gives claude -p the Jam
-// messaging tools. --strict-mcp-config keeps claude from also picking up any
-// project/user-level MCP config.
-const claudeMCPConfigPath = "/etc/claude-code/mcp.json"
+// claudeMCPConfigPath is the per-run MCP config the harness generates
+// (messaging + the kit's servers) and passes as --mcp-config. tmpfs, like the
+// prompt/context cove-master is launched with; it holds no secret values —
+// kit header values are ${VAR} references Claude Code expands at start.
+const claudeMCPConfigPath = "/dev/shm/cove-agent-mcp.json"
+
+// claudeMessaging is the guaranteed Jam messaging server entry (exactly the
+// entry the image's /etc/claude-code/mcp.json carried before COV-240).
+var claudeMessaging = struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}{"cove-master", []string{"mcp"}}
 
 // Claude is the Claude Code harness: claude -p with stream-json in and out
-// (see docs/usage/jam/session-events.md). The zero value uses the baked MCP
-// config.
+// (see docs/usage/jam/session-events.md). The zero value uses the production
+// paths.
 type Claude struct {
-	// MCPConfigPath is the --mcp-config file; empty = claudeMCPConfigPath.
+	// MCPConfigPath is the generated --mcp-config file; empty = claudeMCPConfigPath.
 	MCPConfigPath string
+	// KitMCPServersPath is the kit's baked mcp-servers JSON (name → server);
+	// empty = kit.MCPServersImagePath.
+	KitMCPServersPath string
 }
 
 var _ Harness = Claude{}
@@ -29,16 +43,69 @@ func (c Claude) mcpConfig() string {
 	return c.MCPConfigPath
 }
 
-// Validate fails loud if the MCP config is missing rather than launch a
-// silently toolless agent (COV-190): claude with --mcp-config pointing at a
-// nonexistent file registers no servers, so the agent would have no intercom
-// read/send tools and flail. A stale image (built before mcp.json shipped in
-// the hardening layer) is the typical cause.
+func (c Claude) kitMCPServers() string {
+	if c.KitMCPServersPath == "" {
+		return kit.MCPServersImagePath
+	}
+	return c.KitMCPServersPath
+}
+
+// Validate generates the run's one MCP config — the guaranteed messaging
+// server plus the kit's servers — and fails loud if it can't (COV-190): claude
+// with --mcp-config pointing at a missing file registers no servers, so the
+// agent would have no intercom read/send tools and flail. --strict-mcp-config
+// (see Command) then loads only these. A missing kit file (a stale image built
+// before COV-240), a kit entry named messaging, or a literal header value is
+// refused too — re-checked here as defense in depth over kit validation.
 func (c Claude) Validate() error {
-	if _, err := os.Stat(c.mcpConfig()); err != nil {
-		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", c.mcpConfig(), err)
+	raw, err := os.ReadFile(c.kitMCPServers())
+	if err != nil {
+		return fmt.Errorf("agentrun: kit MCP servers %q missing or unreadable: %w", c.kitMCPServers(), err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var servers map[string]kit.MCPServer
+	if err := dec.Decode(&servers); err != nil {
+		return fmt.Errorf("agentrun: kit MCP servers %q: %w", c.kitMCPServers(), err)
+	}
+	if err := kit.ValidateMCPServers("agentrun: kit MCP servers", servers); err != nil {
+		return err
+	}
+	all := map[string]any{}
+	for name, s := range servers {
+		all[name] = s
+	}
+	all[kit.MCPReservedName] = claudeMessaging // last: never kit-overridable
+	b, err := json.Marshal(map[string]any{"mcpServers": all})
+	if err != nil {
+		return fmt.Errorf("agentrun: MCP config: %w", err)
+	}
+	if err := writeFileAtomic(c.mcpConfig(), append(b, '\n')); err != nil {
+		return fmt.Errorf("agentrun: MCP config %q could not be written: %w", c.mcpConfig(), err)
 	}
 	return nil
+}
+
+// writeFileAtomic writes data to a temp file beside path and renames it over
+// path, so claude never reads a partial config and a pre-planted symlink at
+// path is replaced rather than followed.
+func writeFileAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 // Command builds claude's argv for one episode. continued prepends

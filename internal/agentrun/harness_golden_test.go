@@ -7,8 +7,11 @@ import (
 
 // Golden: claude's argv and stdin bytes as they were before the Harness seam
 // (COV-235). These literals must never change in a pure refactor.
+// COV-240 deliberately changed ONE thing: --mcp-config now names the harness's
+// generated per-run file (messaging + kit servers) instead of the baked
+// /etc/claude-code/mcp.json.
 
-const goldenMCP = "/etc/claude-code/mcp.json"
+const goldenMCP = "/dev/shm/cove-agent-mcp.json"
 const goldenCore = "/agent-data/context/CORE.md"
 
 func TestGoldenClaudeArgv(t *testing.T) {

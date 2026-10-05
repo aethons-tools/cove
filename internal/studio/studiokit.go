@@ -38,6 +38,11 @@ type StudioKit struct {
 	// Notes are leaves the kit ships into its sessions' context (kit/<name>).
 	// Like Prompt, a raise-time input: outside the build digest.
 	Notes []KitNote `yaml:"notes,omitempty" json:"notes,omitempty"`
+	// MCPServers are MCP servers the cove's agent loads alongside its
+	// guaranteed messaging server (COV-240). Build-affecting: they are baked
+	// into the image at /etc/cove/mcp-servers.json (env references only — never
+	// secret values; see kit.ValidateMCPServers).
+	MCPServers map[string]kit.MCPServer `yaml:"mcp-servers,omitempty" json:"mcp-servers,omitempty"`
 }
 
 // ParseStudioKit unmarshals and validates studio-kit YAML. Unknown fields are
@@ -73,6 +78,9 @@ func (sk StudioKit) Validate() error {
 		if kit.IsReservedSecretName(k) {
 			return fmt.Errorf("studio kit: build-arg %q is a reserved secret name", k)
 		}
+	}
+	if err := kit.ValidateMCPServers("studio kit: mcp-servers", sk.MCPServers); err != nil {
+		return err
 	}
 	return nil
 }

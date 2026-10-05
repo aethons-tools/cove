@@ -1,10 +1,10 @@
 ---
-summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm`, the StudioKit schema, and binding one to a role with `role add --kit`.
-read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, or binding a kit to a role.
-owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`), the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
+summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
+read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, or giving a kit's sessions extra MCP servers.
+owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # The kit registry
@@ -18,7 +18,7 @@ full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
 ## The StudioKit
 
 A StudioKit is YAML with a `kind: studio` discriminator (stored in the registry
-as JSON with the same discriminator) and five content fields. Unknown fields are
+as JSON with the same discriminator) and its content fields. Unknown fields are
 rejected, so a full-kit field on a studio kit fails at `push`. A kit **does not
 name itself**: its name is the registry key it is pushed under (`kit push
 --name`), and must be tag-safe (`[A-Za-z0-9_.-]`).
@@ -36,6 +36,11 @@ notes:                     # leaves shipped into sessions' context (kit/<name>)
   - name: release.md
     read-when: you are cutting a release
     file: docs/release.md  # relative to this file, read at `kit push`; or `body: |`
+mcp-servers:               # extra MCP servers for the session's agent (env refs, never secrets)
+  linear:
+    type: http
+    url: "${LINEAR_MCP_URL}"
+    headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
 ```
 
 | Field | Meaning |
@@ -47,10 +52,32 @@ notes:                     # leaves shipped into sessions' context (kit/<name>)
 | `prompt` | The kit layer's always-on core (≤ 800 bytes; `kit push` rejects more) of the [session context](session-context.md). |
 | `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` relative to the kit file, read by `kit push`); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image. In stored kit JSON the key is `read-when` (kit fields are kebab-case); the context admin API spells it `read_when`. |
 
+### `mcp-servers` (COV-240)
+
+A map of server name → `{type, url, headers}` (`type: http`) or
+`{type, command, args}` (`type: stdio`) — Claude Code's `--mcp-config` entry
+shape. Before the agent's first turn, cove-master's claude harness generates **one** config holding
+the cove's own **`messaging`** server (`cove-master mcp`, the
+[intercom](intercom.md#delivery-to-the-agent)) plus these, and runs claude with
+`--strict-mcp-config`, so exactly messaging + the kit's servers load.
+
+- **`messaging` is reserved** — a kit can neither declare nor override it.
+- **No secret values.** Every header value must be an env reference `${VAR}`,
+  optionally after one scheme word (`Bearer ${VAR}`); a literal is rejected at
+  `kit push` (and again by the harness). Claude Code expands `${VAR}` from the
+  agent's environment at start; a server whose variable is unset fails to load
+  without affecting the others. (Per-demand `secrets` injection is not wired yet
+  — see the table — so today a variable must come from the image or connector.)
+- **Egress is separate:** an `http` server's host must also be in `egress`.
+- **Delivery:** `mcp-servers` is baked (non-secret JSON) into the image at
+  `/etc/cove/mcp-servers.json`, the same build-time path as the egress lists,
+  so it is **build-affecting** (part of the build-digest). cove-master refuses to
+  start the agent if that file is missing or the generated config can't be written.
+
 The session context is compiled at raise ([session-context.md](session-context.md)),
 so it lives *outside* the image.
 The image is tagged by a **build-digest** over only the build-affecting fields
-(`base` + `egress` + `build-args`): a prompt-, notes- or secrets-only edit reuses the
+(`base` + `egress` + `build-args` + `mcp-servers`; a kit with no `mcp-servers` keeps its earlier digest): a prompt-, notes- or secrets-only edit reuses the
 cached image. The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
