@@ -866,8 +866,8 @@ type fakeSink struct {
 	wakes     []string
 }
 
-func (f *fakeSink) RequestTeardown(id string) { f.teardowns = append(f.teardowns, id) }
-func (f *fakeSink) Wake(id string)            { f.wakes = append(f.wakes, id) }
+func (f *fakeSink) RequestTeardown(id string)       { f.teardowns = append(f.teardowns, id) }
+func (f *fakeSink) Wake(id string, _ ...WakeReason) { f.wakes = append(f.wakes, id) }
 
 // fakeReleaser records RecordRelease calls for assertions (the actual-state-out
 // half of the Supervisor↔Allocator seam).

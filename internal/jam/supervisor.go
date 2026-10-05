@@ -96,7 +96,7 @@ type Launcher interface {
 // nil when no stream server runs (slice-1 behavior).
 type ControlSink interface {
 	RequestTeardown(actorID string)
-	Wake(actorID string)
+	Wake(actorID string, reasons ...WakeReason)
 }
 
 // tailReader is the sliver of the message log the supervisor needs to baseline a

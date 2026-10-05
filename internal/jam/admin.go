@@ -250,7 +250,7 @@ type CoveStatusBody struct {
 // parseActivity validates a cove-reported activity string.
 func parseActivity(s string) (Activity, bool) {
 	switch Activity(s) {
-	case ActivityRunning, ActivityWaiting, ActivityBlocked, ActivityDone:
+	case ActivityRunning, ActivityWaiting, ActivityHolding, ActivityBlocked, ActivityDone:
 		return Activity(s), true
 	}
 	return "", false

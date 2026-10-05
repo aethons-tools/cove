@@ -39,6 +39,7 @@ enum Activity {
   WAITING = 2;
   BLOCKED = 3;
   DONE    = 4;
+  HOLDING = 5; // turn ended, background tasks outstanding: wakeable, never paused
 }
 message Heartbeat {}
 
@@ -57,7 +58,18 @@ message EventAck {
   string stream_id = 1;
   uint64 seq       = 2;
 }
-message Wake {}
+// Wake asks the cove to start (or resume) a turn. reasons says why; empty from
+// an older Jam (the cove then uses its generic resume prompt).
+message Wake { repeated WakeReason reasons = 1; }
+
+// WakeReason is one cause of a Wake. kind: squawk | alarm | gate-failed | idle |
+// context-changed (unknown kinds are rendered generically).
+message WakeReason {
+  string kind   = 1;
+  string alarm  = 2; // alarm name (alarm, gate-failed)
+  string note   = 3; // the alarm's note
+  string detail = 4; // free text: gate stdout, failure cause, …
+}
 message Teardown    { string reason = 1; }
 message TierChanged { int32 tier = 1; }
 message RotateToken { string token = 1; }

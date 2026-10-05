@@ -19,7 +19,9 @@ import (
 )
 
 type Registry interface{ ListInstances() []jam.Instance }
-type Waker interface{ Wake(actorID string) }
+type Waker interface {
+	Wake(actorID string, reasons ...jam.WakeReason)
+}
 type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }

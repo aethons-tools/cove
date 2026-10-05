@@ -74,7 +74,7 @@ func (f *fakeReg) ListInstances() []jam.Instance { return f.insts }
 
 type fakeWaker struct{ woke []string }
 
-func (f *fakeWaker) Wake(a string) { f.woke = append(f.woke, a) }
+func (f *fakeWaker) Wake(a string, _ ...jam.WakeReason) { f.woke = append(f.woke, a) }
 
 type fakeReaper struct{ down []string }
 
