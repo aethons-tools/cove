@@ -446,3 +446,28 @@ func TestAssembleContextBakesEmptyMCPServers(t *testing.T) {
 		t.Fatalf("mcp-servers file = %q, want {}", got)
 	}
 }
+
+// `COPY image-files/. /.` stamps each staged directory's mode onto the image's
+// existing directory. The staged home/ and home/agent/ must therefore be 0755: a
+// 0700 /home is root-only, so sshd (reading authorized_keys as the agent after
+// privilege separation) cannot traverse it and every key is refused
+// ("Permission denied (publickey)"). Only .ssh itself is 0700.
+func TestAssembleContextHomeDirModes(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
+		t.Fatalf("AssembleContext: %v", err)
+	}
+	for rel, want := range map[string]os.FileMode{
+		"image-files/home":            0o755,
+		"image-files/home/agent":      0o755,
+		"image-files/home/agent/.ssh": 0o700,
+	} {
+		fi, err := os.Stat(filepath.Join(buildDir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %#o, want %#o", rel, got, want)
+		}
+	}
+}

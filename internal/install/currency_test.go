@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/aethons-tools/cove/internal/assemble"
 	"os"
 	"path/filepath"
 	"testing"
@@ -209,5 +210,25 @@ func TestAtCoveIdentityIncludesHarnessBaseline(t *testing.T) {
 	other, err := AtCoveIdentity()
 	if err != nil || other == id {
 		t.Fatalf("a baseline change must change the identity (err %v)", err)
+	}
+}
+
+// AssembleContext's own Go output (not an embedded tree) is versioned by
+// assemble.Revision; bumping it must change the identity, so images assembled
+// by older code are never reused under an unchanged tag.
+func TestAtCoveIdentityIncludesAssembleRevision(t *testing.T) {
+	before, err := AtCoveIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := assemble.Revision
+	t.Cleanup(func() { assemble.Revision = old })
+	assemble.Revision = old + "-test"
+	after, err := AtCoveIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("AtCoveIdentity did not change with assemble.Revision")
 	}
 }

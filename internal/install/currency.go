@@ -145,6 +145,8 @@ func AtCoveIdentity() (string, error) {
 	}
 	writeField(h, []byte("hardening"))
 	writeField(h, []byte(hard))
+	writeField(h, []byte("assemble-revision"))
+	writeField(h, []byte(assemble.Revision))
 
 	hp, err := HashTree(harnessinstall.PayloadFS())
 	if err != nil {

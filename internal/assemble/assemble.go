@@ -123,12 +123,34 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	}
 
 	// Managed key injection.
-	ak := filepath.Join(buildDir, "image-files/home/agent/.ssh/authorized_keys")
+	// `COPY image-files/. /.` stamps each staged directory's mode onto the
+	// image's: home/ and home/agent/ must stay 0755 (a 0700 /home is root-only,
+	// so sshd — reading authorized_keys as the agent — refuses every key); only
+	// .ssh is 0700. MkdirAll's perm would apply 0700 to every missing parent.
+	home := filepath.Join(buildDir, "image-files/home/agent")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(filepath.Join(buildDir, "image-files/home"), 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(home, 0o755); err != nil {
+		return err
+	}
+	ak := filepath.Join(home, ".ssh/authorized_keys")
 	if err := os.MkdirAll(filepath.Dir(ak), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(ak, pub, 0o600)
 }
+
+// Revision versions what AssembleContext's own Go code writes into a build
+// context beyond the embedded trees (generated files, staged modes). The
+// embedded trees are hashed by content into install.AtCoveIdentity, but this
+// code is not — so bump Revision whenever a change here alters the assembled
+// context, or a stale image cached under an unchanged tag is reused.
+// 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
+var Revision = "2"
 
 // writeDockerfile prepends the harness stage (staging its payload) to the
 // sealed hardening Dockerfile copyEmbed just wrote.
