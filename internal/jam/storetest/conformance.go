@@ -28,6 +28,29 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		return s
 	}
 
+	t.Run("destination_specs_round_trip_and_copy", func(t *testing.T) {
+		s := newStore(t)
+		in := &jam.InboundSpec{Header: "X-Jam", Prefixes: []string{"Jam "}}
+		out := &jam.OutboundSpec{Header: "Private-Token", Template: "{cred}"}
+		d := jam.Destination{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: jam.ApplyCustom, IdentityInSpec: in,
+			Apply: jam.ApplyCustom, ApplySpec: out, Env: map[string]string{"A": "{url}"}}
+		if err := s.AddDestination(d); err != nil {
+			t.Fatalf("AddDestination: %v", err)
+		}
+		// Mutating the caller's value after the write does not reach the store.
+		in.Prefixes[0], out.Header, d.Env["A"] = "mutated", "Mutated", "mutated"
+		got := s.ListDestinations()
+		if len(got) != 1 || got[0].IdentityInSpec.Prefixes[0] != "Jam " || got[0].ApplySpec.Header != "Private-Token" || got[0].Env["A"] != "{url}" {
+			t.Fatalf("stored = %+v", got)
+		}
+		// Mutating a returned value does not reach the store.
+		got[0].IdentityInSpec.Prefixes[0], got[0].ApplySpec.Template, got[0].Env["A"] = "mutated", "mutated", "mutated"
+		m, ok := s.Match("/gl/x")
+		if !ok || m.IdentityInSpec.Prefixes[0] != "Jam " || m.ApplySpec.Template != "{cred}" || m.Env["A"] != "{url}" {
+			t.Fatalf("ListDestinations must return copies, got %+v", m)
+		}
+	})
+
 	t.Run("project_context_set_and_copy", func(t *testing.T) {
 		s := newStoreWithAcme(t)
 		l := sessionctx.Layer{Core: "Goals.", Leaves: []sessionctx.Leaf{{Name: "a.md", ReadWhen: "w", Body: "b"}}}

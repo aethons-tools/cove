@@ -186,7 +186,7 @@ func (m *memState) ListDestinations() []Destination {
 	defer m.mu.RUnlock()
 	out := make([]Destination, 0, len(m.dests))
 	for _, d := range m.dests {
-		out = append(out, d)
+		out = append(out, copyDestination(d))
 	}
 	slices.SortFunc(out, func(a, b Destination) int { return cmp.Compare(a.Name, b.Name) })
 	return out
@@ -509,7 +509,7 @@ func (m *memState) applyCommitUnread(participant, channel string, seq int64) (in
 	return seq, true
 }
 
-func (m *memState) applyPutDestination(d Destination) { m.dests[d.Name] = d }
+func (m *memState) applyPutDestination(d Destination) { m.dests[d.Name] = copyDestination(d) }
 
 func (m *memState) applyRemoveDestination(name string) bool {
 	if _, ok := m.dests[name]; !ok {
@@ -670,6 +670,22 @@ func setProjectContext(p Project, l sessionctx.Layer, rs []sessionctx.Resource) 
 }
 
 // ---- copy helpers (defensive copies for reads) ----
+
+// copyDestination deep-copies d's header specs and Env, so a store's copy
+// never aliases a caller's.
+func copyDestination(d Destination) Destination {
+	if d.IdentityInSpec != nil {
+		in := *d.IdentityInSpec
+		in.Prefixes = slices.Clone(in.Prefixes)
+		d.IdentityInSpec = &in
+	}
+	if d.ApplySpec != nil {
+		out := *d.ApplySpec
+		d.ApplySpec = &out
+	}
+	d.Env = maps.Clone(d.Env)
+	return d
+}
 
 func copyKit(k Kit) Kit {
 	vs := make(map[int]string, len(k.Versions))

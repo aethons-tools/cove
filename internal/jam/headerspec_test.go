@@ -103,7 +103,8 @@ func TestInboundExtractionPerPreset(t *testing.T) {
 	for _, c := range cases {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.Header.Set(c.header, c.value)
-		got, ok := presentedToken(r, Destination{IdentityIn: c.preset})
+		in, _ := Destination{IdentityIn: c.preset}.InboundSpec()
+		got, ok := presentedToken(r, in)
 		if got != c.want || ok != c.ok {
 			t.Errorf("%s %s=%q: got %q %v, want %q %v", c.preset, c.header, c.value, got, ok, c.want, c.ok)
 		}
@@ -262,5 +263,60 @@ func TestBrokerCustomSpecs(t *testing.T) {
 	b.ServeHTTP(rec, req)
 	if rec.Code != 200 || gotIn != "" || gotOut != "pt-REAL-ANTHROPIC" {
 		t.Fatalf("status %d, upstream X-Jam-Token=%q Private-Token=%q", rec.Code, gotIn, gotOut)
+	}
+}
+
+// Headers ReverseProxy drops after the Director (hop-by-hop) or that it owns
+// (Host) can't carry an identity or a credential.
+func TestValidateRejectsUnhonorableHeaders(t *testing.T) {
+	for _, h := range []string{"Connection", "proxy-connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade", "host"} {
+		if err := (InboundSpec{Header: h}).Validate(); err == nil {
+			t.Errorf("inbound %s accepted", h)
+		}
+		if err := (OutboundSpec{Header: h, Template: "{cred}"}).Validate(); err == nil {
+			t.Errorf("outbound %s accepted", h)
+		}
+	}
+}
+
+// A backup holding a method value this Jam doesn't know refuses the whole
+// import, naming the destination and the field.
+func TestImportConfigRefusesUnknownMethodNamingIt(t *testing.T) {
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, Destinations: []Destination{{Name: "legacy", Route: "/l/", Upstream: "https://l", IdentityIn: ApplyBearer, Apply: "bogus"}}}
+	err := NewMemStore().ImportConfig(snap)
+	if err == nil || !strings.Contains(err.Error(), "legacy") || !strings.Contains(err.Error(), "apply") {
+		t.Fatalf("err = %v, want naming destination legacy and field apply", err)
+	}
+}
+
+// UpdateDestinationKeepSpecs (the UI's edit) keeps stored custom specs when
+// the incoming method is custom with no spec, under the write lock.
+func TestUpdateDestinationKeepSpecs(t *testing.T) {
+	store := NewMemStore()
+	spec := &OutboundSpec{Header: "Private-Token", Template: "{cred}"}
+	base := Destination{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyRaw, Apply: ApplyCustom, ApplySpec: spec}
+	if err := store.AddDestination(base); err != nil {
+		t.Fatal(err)
+	}
+	credOK := func(string) bool { return true }
+	edit := base
+	edit.ApplySpec, edit.Upstream = nil, "https://gl2"
+	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil {
+		t.Fatal(err)
+	}
+	if d := store.ListDestinations()[0]; d.Upstream != "https://gl2" || d.ApplySpec == nil || *d.ApplySpec != *spec {
+		t.Fatalf("stored = %+v", d)
+	}
+	// Switching to a preset drops the spec; plain UpdateDestination never fills one in.
+	edit.Apply = ApplyBearer
+	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil || store.ListDestinations()[0].ApplySpec != nil {
+		t.Fatalf("preset edit: %v %+v", err, store.ListDestinations()[0])
+	}
+	edit.Apply = ApplyCustom
+	if err := UpdateDestination(store, edit, credOK); err == nil {
+		t.Fatal("UpdateDestination filled in a spec")
+	}
+	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Route: "/g/", Upstream: "https://g"}, credOK); WriteStatus(err, 0) != http.StatusNotFound {
+		t.Fatalf("missing = %v", err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"golang.org/x/net/http/httpguts"
@@ -55,61 +56,61 @@ type OutboundSpec struct {
 	BasicUser string         `json:"basic_user,omitempty" yaml:"basic_user,omitempty"`
 }
 
-// inboundPreset expands a preset name; false for custom/unknown/empty.
-func inboundPreset(m ApplyMethod) (InboundSpec, bool) {
-	switch m {
-	case ApplyBearer:
-		// "token <x>" is what gh sends to a GitHub Enterprise host (GH_HOST=<jam>).
-		return InboundSpec{Header: "Authorization", Prefixes: []string{"Bearer ", "token "}}, true
-	case ApplyBasicPassword:
-		return InboundSpec{Header: "Authorization", Encoding: EncodingBasic}, true
-	case ApplyXAPIKey:
-		return InboundSpec{Header: "X-Api-Key"}, true
-	case ApplyRaw:
-		return InboundSpec{Header: "Authorization"}, true
-	}
-	return InboundSpec{}, false
-}
+// bearerIn is the bearer preset's inbound spec — also how the broker's own
+// endpoints (/connector, /context) take the identity.
+var bearerIn = InboundSpec{Header: "Authorization", Prefixes: []string{"Bearer ", "token "}} // "token <x>": gh to a GHE host (GH_HOST=<jam>)
 
-// outboundPreset expands a preset name; false for custom/unknown/empty.
-func outboundPreset(m ApplyMethod) (OutboundSpec, bool) {
-	switch m {
-	case ApplyBearer:
-		return OutboundSpec{Header: "Authorization", Template: "Bearer {cred}"}, true
-	case ApplyBasicPassword:
+// inboundPresets / outboundPresets are the presets' expansions; keys are
+// exactly Presets. Read-only.
+var (
+	inboundPresets = map[ApplyMethod]InboundSpec{
+		ApplyBearer:        bearerIn,
+		ApplyBasicPassword: {Header: "Authorization", Encoding: EncodingBasic},
+		ApplyXAPIKey:       {Header: "X-Api-Key"},
+		ApplyRaw:           {Header: "Authorization"},
+	}
+	outboundPresets = map[ApplyMethod]OutboundSpec{
+		ApplyBearer: {Header: "Authorization", Template: "Bearer {cred}"},
 		// git smart-HTTP: any username, PAT as password.
-		return OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "x-access-token"}, true
-	case ApplyXAPIKey:
-		return OutboundSpec{Header: "X-Api-Key", Template: "{cred}"}, true
-	case ApplyRaw:
-		return OutboundSpec{Header: "Authorization", Template: "{cred}"}, true
+		ApplyBasicPassword: {Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "x-access-token"},
+		ApplyXAPIKey:       {Header: "X-Api-Key", Template: "{cred}"},
+		ApplyRaw:           {Header: "Authorization", Template: "{cred}"},
 	}
-	return OutboundSpec{}, false
-}
+)
 
-// InboundSpec is the effective identity-in spec: the preset's expansion, or
-// IdentityInSpec when IdentityIn is custom. false = none (requests get 401).
-func (d Destination) InboundSpec() (InboundSpec, bool) {
-	if d.IdentityIn == ApplyCustom {
-		if d.IdentityInSpec == nil {
+// inboundSpec resolves a method: the preset's expansion, or custom's spec.
+// false = none (requests get 401).
+func inboundSpec(m ApplyMethod, custom *InboundSpec) (InboundSpec, bool) {
+	if m == ApplyCustom {
+		if custom == nil {
 			return InboundSpec{}, false
 		}
-		return *d.IdentityInSpec, true
+		return *custom, true
 	}
-	return inboundPreset(d.IdentityIn)
+	in, ok := inboundPresets[m]
+	return in, ok
 }
 
-// OutboundSpec is the effective apply spec: the preset's expansion, or
-// ApplySpec when Apply is custom. false = none (no credential is set).
-func (d Destination) OutboundSpec() (OutboundSpec, bool) {
-	if d.Apply == ApplyCustom {
-		if d.ApplySpec == nil {
+// outboundSpec resolves a method: the preset's expansion, or custom's spec.
+// false = none (no credential is set).
+func outboundSpec(m ApplyMethod, custom *OutboundSpec) (OutboundSpec, bool) {
+	if m == ApplyCustom {
+		if custom == nil {
 			return OutboundSpec{}, false
 		}
-		return *d.ApplySpec, true
+		return *custom, true
 	}
-	return outboundPreset(d.Apply)
+	out, ok := outboundPresets[m]
+	return out, ok
 }
+
+// InboundSpec is the effective identity-in spec (IdentityIn / IdentityInSpec).
+func (d Destination) InboundSpec() (InboundSpec, bool) {
+	return inboundSpec(d.IdentityIn, d.IdentityInSpec)
+}
+
+// OutboundSpec is the effective apply spec (Apply / ApplySpec).
+func (d Destination) OutboundSpec() (OutboundSpec, bool) { return outboundSpec(d.Apply, d.ApplySpec) }
 
 // extract returns the identity token the spec finds on h.
 func (s InboundSpec) extract(h http.Header) (string, bool) {
@@ -154,8 +155,31 @@ func decodeBasic(v string) (user, pass string, ok bool) {
 	return strings.Cut(string(b), ":")
 }
 
-func validEncoding(e HeaderEncoding) bool {
-	return e == EncodingRaw || e == "raw" || e == EncodingBasic
+// unhonorableHeaders can't carry an identity or credential through the
+// broker: ReverseProxy strips the hop-by-hop ones after the Director, and it
+// owns Host. Canonical keys.
+var unhonorableHeaders = []string{
+	"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization",
+	"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Host",
+}
+
+// validateHeaderAndEncoding holds the checks shared by both spec directions:
+// a valid header name the proxy can honor, a known encoding, and basic
+// encoding only on Authorization.
+func validateHeaderAndEncoding(header string, enc HeaderEncoding) error {
+	if !httpguts.ValidHeaderFieldName(header) {
+		return fmt.Errorf("header %q is not a valid HTTP header name", header)
+	}
+	if slices.Contains(unhonorableHeaders, http.CanonicalHeaderKey(header)) {
+		return fmt.Errorf("header %q is hop-by-hop or proxy-owned; the broker can't carry it", header)
+	}
+	if enc != EncodingRaw && enc != "raw" && enc != EncodingBasic {
+		return fmt.Errorf("encoding %q is not raw or basic", enc)
+	}
+	if enc == EncodingBasic && http.CanonicalHeaderKey(header) != "Authorization" {
+		return errors.New("basic encoding requires header Authorization")
+	}
+	return nil
 }
 
 func validHeaderValuePart(s string) bool {
@@ -164,19 +188,11 @@ func validHeaderValuePart(s string) bool {
 
 // Validate checks an inbound spec. Errors never echo prefix values.
 func (s InboundSpec) Validate() error {
-	if !httpguts.ValidHeaderFieldName(s.Header) {
-		return fmt.Errorf("header %q is not a valid HTTP header name", s.Header)
+	if err := validateHeaderAndEncoding(s.Header, s.Encoding); err != nil {
+		return err
 	}
-	if !validEncoding(s.Encoding) {
-		return fmt.Errorf("encoding %q is not raw or basic", s.Encoding)
-	}
-	if s.Encoding == EncodingBasic {
-		if http.CanonicalHeaderKey(s.Header) != "Authorization" {
-			return errors.New("basic encoding requires header Authorization")
-		}
-		if len(s.Prefixes) > 0 {
-			return errors.New("prefixes don't apply to basic encoding")
-		}
+	if s.Encoding == EncodingBasic && len(s.Prefixes) > 0 {
+		return errors.New("prefixes don't apply to basic encoding")
 	}
 	for _, p := range s.Prefixes {
 		if p == "" || !validHeaderValuePart(p) {
@@ -188,11 +204,8 @@ func (s InboundSpec) Validate() error {
 
 // Validate checks an outbound spec. Errors never echo the template.
 func (s OutboundSpec) Validate() error {
-	if !httpguts.ValidHeaderFieldName(s.Header) {
-		return fmt.Errorf("header %q is not a valid HTTP header name", s.Header)
-	}
-	if !validEncoding(s.Encoding) {
-		return fmt.Errorf("encoding %q is not raw or basic", s.Encoding)
+	if err := validateHeaderAndEncoding(s.Header, s.Encoding); err != nil {
+		return err
 	}
 	if strings.Count(s.Template, "{cred}") != 1 {
 		return errors.New("template must contain {cred} exactly once")
@@ -201,9 +214,6 @@ func (s OutboundSpec) Validate() error {
 		return errors.New("template must be single-line")
 	}
 	if s.Encoding == EncodingBasic {
-		if http.CanonicalHeaderKey(s.Header) != "Authorization" {
-			return errors.New("basic encoding requires header Authorization")
-		}
 		if s.BasicUser == "" || strings.Contains(s.BasicUser, ":") || !validHeaderValuePart(s.BasicUser) {
 			return errors.New("basic encoding requires a basic_user without ':'")
 		}
@@ -235,8 +245,12 @@ func validateMethod(field string, m ApplyMethod, hasSpec bool, validate func() e
 	if hasSpec {
 		return fmt.Errorf("%s_spec is only used with %s custom", field, field)
 	}
-	if _, ok := inboundPreset(m); m != "" && !ok {
-		return fmt.Errorf("%s %q is not one of bearer, basic-password, x-api-key, raw, custom", field, m)
+	if m != "" && !slices.Contains(Presets, m) {
+		names := make([]string, 0, len(Presets)+1)
+		for _, p := range Presets {
+			names = append(names, string(p))
+		}
+		return fmt.Errorf("%s %q is not one of %s", field, m, strings.Join(append(names, string(ApplyCustom)), ", "))
 	}
 	return nil
 }

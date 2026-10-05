@@ -51,15 +51,18 @@ destinations:
     apply_spec: {header: Private-Token, template: "{cred}"}
 ```
 
-Validated at write (admin API, UI, `import` of a backup): header names are
-valid HTTP tokens; `template` contains `{cred}` exactly once and is
+Validated at write (admin API, UI, `import` of a backup — see
+[backup.md](backup.md)): header names are valid HTTP tokens, and not
+hop-by-hop (`Connection`, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`,
+`Transfer-Encoding`, `Upgrade`, …) or `Host`, which the proxy can't carry; `template` contains `{cred}` exactly once and is
 single-line; `encoding` is `raw` (default) or `basic`, and `basic` requires
 header `Authorization` (outbound: plus a `basic_user` without `:`, inbound: no
 prefixes); a spec is only accepted with `custom`, and `custom` requires one.
 Errors never echo a template or prefix, and neither is logged.
 
 The admin UI selects offer the presets; a destination already on `custom`
-shows its spec read-only, and saving the form with `custom` kept retains it.
+shows its spec read-only in the Broker section, and saving the form with
+`custom` kept retains the stored spec (under the same write lock as the save).
 A custom `identity_in` gets no legacy client-env default — see
 [connector.md](connector.md).
 

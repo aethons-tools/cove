@@ -30,11 +30,15 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return
 	}
-	tok, ok := presentedToken(r, dest)
+	in, hasIn := dest.InboundSpec()
+	tok, ok := "", false
+	if hasIn {
+		tok, ok = presentedToken(r, in)
+	}
 	if !ok {
 		// Basic-auth clients (git) send credentials only after a challenge; without
 		// this header git reports "Authentication failed" and never presents the token.
-		if in, _ := dest.InboundSpec(); in.Encoding == EncodingBasic {
+		if in.Encoding == EncodingBasic {
 			w.Header().Set("WWW-Authenticate", `Basic realm="jam"`)
 		}
 		http.Error(w, "missing identity", http.StatusUnauthorized)
@@ -79,9 +83,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out.Host = up.Host
 		out.URL.Path = strings.TrimPrefix(r.URL.Path, trimmed) // strip the route prefix
 		out.Header.Del("Authorization")                        // never forward a caller's Authorization upstream
-		stripIdentity(out, dest)
+		out.Header.Del(in.Header)                              // the identity is Jam's, never the upstream's, whatever header it arrived in
 		if dec.NeedCred {
-			applyCred(out, dest, cred)
+			// The decision is the one source for how the credential is applied.
+			if spec, ok := outboundSpec(dec.Apply, dec.Dest.ApplySpec); ok {
+				spec.apply(out.Header, cred) // never logged
+			}
 		}
 		if dest.OAuthBeta {
 			ensureAnthropicOAuthBeta(out.Header)
@@ -95,23 +102,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, actor) }
 
 // presentedToken extracts the caller's identity token from the request per
-// dest's identity-in spec.
-func presentedToken(r *http.Request, dest Destination) (string, bool) {
-	in, ok := dest.InboundSpec()
-	if !ok {
-		return "", false
-	}
-	return in.extract(r.Header)
-}
-
-// stripIdentity removes the header that carries the caller's Jam identity token
-// (per dest's identity-in spec) from the upstream request: the token is Jam's,
-// never the upstream's, whatever header it arrived in.
-func stripIdentity(r *http.Request, dest Destination) {
-	if in, ok := dest.InboundSpec(); ok {
-		r.Header.Del(in.Header)
-	}
-}
+// the identity-in spec.
+func presentedToken(r *http.Request, in InboundSpec) (string, bool) { return in.extract(r.Header) }
 
 // anthropicOAuthBeta is the beta flag Anthropic requires for a subscription-OAuth
 // bearer. A cove on ANTHROPIC_AUTH_TOKEN doesn't send it, so the broker adds it.
@@ -132,12 +124,4 @@ func ensureAnthropicOAuthBeta(h http.Header) {
 		}
 	}
 	h.Set("anthropic-beta", existing+","+anthropicOAuthBeta)
-}
-
-// applyCred sets Jam's real credential on the upstream request per dest's
-// apply spec. Never logs the rendered value.
-func applyCred(r *http.Request, dest Destination, cred string) {
-	if out, ok := dest.OutboundSpec(); ok {
-		out.apply(r.Header, cred)
-	}
 }

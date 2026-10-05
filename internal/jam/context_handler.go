@@ -22,7 +22,7 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		tok, ok := presentedToken(r, Destination{IdentityIn: ApplyBearer})
+		tok, ok := presentedToken(r, bearerIn)
 		if !ok {
 			http.Error(w, "missing identity", http.StatusUnauthorized)
 			return

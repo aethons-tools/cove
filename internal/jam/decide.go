@@ -14,7 +14,9 @@ type Decision struct {
 	Dest     Destination
 	NeedCred bool
 	CredName string
-	Apply    ApplyMethod
+	// Apply is how the broker applies the credential (with Dest.ApplySpec
+	// when custom); the proxy reads it from here.
+	Apply ApplyMethod
 }
 
 // EffectiveScope layers a grant's overrides over its role's scope. Each field is

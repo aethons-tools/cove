@@ -206,22 +206,6 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 	}, nil
 }
 
-// keepCustomSpecs carries the stored custom header specs onto an edit that
-// keeps identity-in / apply "custom": the form shows them but can't edit them.
-func keepCustomSpecs(store jam.Store, d *jam.Destination) {
-	for _, cur := range store.ListDestinations() {
-		if cur.Name != d.Name {
-			continue
-		}
-		if d.IdentityIn == jam.ApplyCustom && cur.IdentityIn == jam.ApplyCustom {
-			d.IdentityInSpec = cur.IdentityInSpec
-		}
-		if d.Apply == jam.ApplyCustom && cur.Apply == jam.ApplyCustom {
-			d.ApplySpec = cur.ApplySpec
-		}
-	}
-}
-
 func destTableData(store jam.Store) map[string]any {
 	return map[string]any{
 		"Destinations": destListRows(store),
@@ -284,8 +268,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		d, err := destFromForm(r, r.PathValue("name"))
 		if err == nil {
-			keepCustomSpecs(store, &d)
-			err = jam.UpdateDestination(store, d, credExists)
+			err = jam.UpdateDestinationKeepSpecs(store, d, credExists) // the form can't edit custom specs: keep them
 		}
 		if err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())

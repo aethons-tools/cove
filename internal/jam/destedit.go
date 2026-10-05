@@ -38,8 +38,18 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	return nil
 }
 
+// findDestination returns the stored destination named name.
+func findDestination(store Store, name string) (Destination, bool) {
+	ds := store.ListDestinations()
+	if i := slices.IndexFunc(ds, func(d Destination) bool { return d.Name == name }); i >= 0 {
+		return ds[i], true
+	}
+	return Destination{}, false
+}
+
 func destinationExists(store Store, name string) bool {
-	return slices.ContainsFunc(store.ListDestinations(), func(d Destination) bool { return d.Name == name })
+	_, ok := findDestination(store, name)
+	return ok
 }
 
 // CreateDestination validates and stores a new destination; an existing name
@@ -59,13 +69,37 @@ func CreateDestination(store Store, d Destination, credExists func(string) bool)
 // UpdateDestination validates and replaces an existing destination (every
 // field; the name is the key); a missing one is a 404 WriteError.
 func UpdateDestination(store Store, d Destination, credExists func(string) bool) error {
-	if err := ValidateDestination(d, credExists); err != nil {
-		return err
-	}
+	return updateDestination(store, d, credExists, false)
+}
+
+// UpdateDestinationKeepSpecs is UpdateDestination for an editor that can't
+// edit header specs (the admin UI form): where d keeps identity_in / apply
+// "custom" with no spec, the stored spec is kept. The lookup and the write are
+// one step under destMu, so a concurrent spec change can't be reverted.
+func UpdateDestinationKeepSpecs(store Store, d Destination, credExists func(string) bool) error {
+	return updateDestination(store, d, credExists, true)
+}
+
+func updateDestination(store Store, d Destination, credExists func(string) bool, keepSpecs bool) error {
 	destMu.Lock()
 	defer destMu.Unlock()
-	if !destinationExists(store, d.Name) {
+	cur, ok := findDestination(store, d.Name)
+	if !ok {
+		if err := ValidateDestination(d, credExists); err != nil {
+			return err
+		}
 		return writeErr(http.StatusNotFound, "destination %q does not exist", d.Name)
+	}
+	if keepSpecs {
+		if d.IdentityIn == ApplyCustom && d.IdentityInSpec == nil && cur.IdentityIn == ApplyCustom {
+			d.IdentityInSpec = cur.IdentityInSpec
+		}
+		if d.Apply == ApplyCustom && d.ApplySpec == nil && cur.Apply == ApplyCustom {
+			d.ApplySpec = cur.ApplySpec
+		}
+	}
+	if err := ValidateDestination(d, credExists); err != nil {
+		return err
 	}
 	return store.AddDestination(d)
 }
