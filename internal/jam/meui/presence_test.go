@@ -27,7 +27,7 @@ func (f *fakePresence) Subscribe() (<-chan struct{}, func())         { return f.
 func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
 	store, log, p := fixture()
 	eng := log.sq[0].To
-	for i, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh"} {
+	for i, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh", "background"} {
 		log.sq = append(log.sq, intercom.Squawk{Seq: int64(i + 2), From: intercom.Target{Kind: "actor", Ref: a}, To: eng, Body: "hi", Project: "proj"})
 	}
 	store.insts = []jam.Instance{
@@ -37,12 +37,14 @@ func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
 		{ActorID: "paused", Project: "proj", Phase: jam.PhaseIdled},
 		{ActorID: "gone", Project: "proj", Phase: jam.PhaseGone},
 		{ActorID: "fresh", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
+		{ActorID: "background", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityHolding},
 		// "unknown" has no Instance at all (deregistered): not shown.
 	}
 	pr := &fakePresence{ch: make(chan struct{}, 1), st: map[string]sessionevents.Status{
-		"busy":    {State: sessionevents.StatusRunning, Tool: "Bash"},
-		"idle":    {State: sessionevents.StatusIdle},
-		"waiting": {State: sessionevents.StatusRunning, Tool: "Read"}, // Activity wins
+		"busy":       {State: sessionevents.StatusRunning, Tool: "Bash"},
+		"idle":       {State: sessionevents.StatusIdle},
+		"waiting":    {State: sessionevents.StatusRunning, Tool: "Read"}, // Activity wins
+		"background": {State: sessionevents.StatusIdle},                  // turn over; Activity wins
 	}}
 	return store, log, p, pr
 }
@@ -58,6 +60,7 @@ func TestPresenceRows(t *testing.T) {
 		`<div class="sess busy"><span class="sname">builder</span> is running <b>Bash</b><span class="dots" aria-hidden="true">`,
 		`<div class="sess dim"><span class="sname">idle</span> is idle</div>`,
 		`<div class="sess wait"><span class="sname">waiting</span> is waiting on you</div>`,
+		`<div class="sess busy"><span class="sname">background</span> is working in the background`,
 		`<div class="sess dim"><span class="sname">paused</span> is paused</div>`,
 		// Live, but no event seen yet (e.g. just after a Jam restart).
 		`<div class="sess busy"><span class="sname">fresh</span> is working<span class="dots" aria-hidden="true">`,

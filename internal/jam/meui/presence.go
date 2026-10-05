@@ -76,6 +76,8 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	switch inst.Activity {
 	case jam.ActivityWaiting:
 		return row("waiting on you", "wait")
+	case jam.ActivityHolding:
+		return row("working in the background", "busy")
 	case jam.ActivityBlocked:
 		return row("blocked", "wait")
 	case jam.ActivityDone:
