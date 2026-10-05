@@ -241,9 +241,10 @@ func (fs *MemStore) PutModelSpec(ms ModelSpec) error {
 func (fs *MemStore) RemoveModelSpec(name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if !fs.applyRemoveModelSpec(name) {
-		return fmt.Errorf("model-spec %q not found", name)
+	if err := fs.checkRemoveModelSpec(name); err != nil {
+		return err
 	}
+	fs.applyRemoveModelSpec(name)
 	return nil
 }
 

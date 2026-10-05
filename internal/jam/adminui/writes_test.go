@@ -142,6 +142,22 @@ func TestCreateAndDeleteRole(t *testing.T) {
 		t.Fatalf("bad kit = %d %q, want 400 mentioning kit", bad.Code, bad.Body.String())
 	}
 
+	// model-spec that doesn't exist → 400; an existing one is bound.
+	bad = post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "model-spec": {"ghost"}})
+	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "model-spec") {
+		t.Fatalf("bad model-spec = %d %q, want 400 mentioning model-spec", bad.Code, bad.Body.String())
+	}
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.x",
+		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"bound"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
+		t.Fatalf("create bound role = %d %s", rec.Code, rec.Body)
+	}
+	if r, _ := store.GetRole("acme", "bound"); r.ModelSpec != "opus" {
+		t.Fatalf("binding = %q", r.ModelSpec)
+	}
+
 	del := httptest.NewRequest(http.MethodDelete, "/ui/roles/acme/review", nil)
 	del.Header.Set("Origin", "http://"+del.Host)
 	drec := httptest.NewRecorder()

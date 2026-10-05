@@ -46,6 +46,7 @@
   <div class="facts">
     <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
     {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    <span>model-spec <a class="chip" href="/ui/model-specs/{{.Role.ModelSpecName}}">{{.Role.ModelSpecName}}</a>{{if not .Role.ModelSpec}} <span class="unset">default</span>{{end}}</span>
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>
   <span class="spacer"></span>
@@ -87,6 +88,8 @@
           <label>TTL <span class="hint">e.g. 1h, 90m; blank = none</span><input name="ttl" value="{{.Form.TTL}}"></label>
           <label>Kit
             <input name="kit" data-ta="kits" value="{{.Role.Kit}}" placeholder="blank = no kit (the default kit)" autocomplete="off" spellcheck="false"></label>
+          <label>Model-spec <span class="hint">how its coves run the agent; takes effect at each cove's next episode</span>
+            <input name="model-spec" data-ta="model-specs" value="{{.Role.ModelSpec}}" placeholder="blank = claude-default" autocomplete="off" spellcheck="false"></label>
         </div>
         <div class="form-actions"><button type="submit" class="primary">Save scope</button></div>
       </form>

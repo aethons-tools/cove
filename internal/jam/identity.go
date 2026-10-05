@@ -96,14 +96,27 @@ func (a RoleAllocation) PersonalIdle() (idleAfter, nagEvery, reclaimAfter time.D
 
 // Role is a named, reusable security class within a project.
 type Role struct {
-	Name       string         `json:"name"`
-	Scope      Scope          `json:"scope"`
-	Kit        string         `json:"kit,omitempty"`       // optional kit name; "" = no kit
+	Name  string `json:"name"`
+	Scope Scope  `json:"scope"`
+	Kit   string `json:"kit,omitempty"` // optional kit name; "" = no kit
+	// ModelSpec binds the role to a model-spec by name: how its coves run their
+	// agent (harness version, model, provider). "" = DefaultModelSpec. Checked
+	// to exist at every role write; a bound spec cannot be deleted.
+	ModelSpec  string         `json:"model_spec,omitempty"`
 	Allocation RoleAllocation `json:"allocation,omitzero"` // zero = no role policy
 	// Context is the role's authored session-context layer (rules for this
 	// role). Managed only by the context endpoints (`at-jam context … --role`);
 	// a role re-put keeps it.
 	Context sessionctx.Layer `json:"context,omitzero"`
+}
+
+// ModelSpecName is the model-spec the role resolves to: its binding, or
+// DefaultModelSpec when unbound.
+func (r Role) ModelSpecName() string {
+	if r.ModelSpec == "" {
+		return DefaultModelSpec
+	}
+	return r.ModelSpec
 }
 
 // Kit is one named registry entry: immutable, monotonically-numbered versions of
@@ -407,6 +420,8 @@ var (
 	ErrProjectNotFound = errors.New("project not found")
 	ErrProjectExists   = errors.New("project already exists")
 	ErrProjectInUse    = errors.New("project is still referenced")
+	// ErrModelSpecInUse refuses deleting a model-spec a role resolves to.
+	ErrModelSpecInUse = errors.New("model-spec is still referenced")
 )
 
 // MintToken returns a new high-entropy bearer token (URL-safe, no padding).

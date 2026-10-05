@@ -1,23 +1,38 @@
 package agentrun
 
+import "github.com/aethons-tools/cove/internal/jam/modelspec"
+
 // Harness is the seam between the episode loop and one agent CLI. Workload
 // owns the loop (episodes, Wakes, stdin lifetime, idle detection); the Harness
 // owns everything CLI-specific: the pre-flight check, the argv, how a text
 // message is encoded on stdin, and how a stdout line maps to a harness-neutral
 // Event. Config.Harness nil selects Claude.
 type Harness interface {
-	// Validate is the pre-flight check run once before the first spawn; an
-	// error stops Run before any agent process starts.
-	Validate() error
-	// Command returns the binary and argv for one episode. continued is true
-	// for every episode after a resume-on-wake; contextCore, when non-empty, is
-	// the written session-context core file to append to the system prompt.
-	Command(continued bool, contextCore string) (bin string, args []string)
+	// Validate is the pre-flight check for a model-spec: run before the first
+	// spawn with the raise-time spec, and again before any episode whose
+	// delivered spec changed. An error stops Run before that agent process
+	// starts. spec nil = none delivered (a Jam predating model-specs, or no
+	// default seeded): the harness's built-in defaults.
+	Validate(spec *modelspec.Spec) error
+	// Command returns the binary, argv and the extra env (set over the spawn
+	// env; never over a key the connector owns) for one episode.
+	Command(ep Episode) (bin string, args []string, env map[string]string)
 	// EncodeInput encodes text as one message on the agent's stdin.
 	EncodeInput(text string) []byte
 	// ParseEvent maps one non-empty stdout line to an Event; an error means the
 	// line was unparseable (the idle tracker warns and ignores it).
 	ParseEvent(line []byte) (Event, error)
+}
+
+// Episode is what one agent spawn is built from.
+type Episode struct {
+	// Continued is true for every episode after a resume-on-wake.
+	Continued bool
+	// ContextCore, when non-empty, is the written session-context core file to
+	// append to the system prompt.
+	ContextCore string
+	// Spec is the model-spec in effect (already Validated); nil = none.
+	Spec *modelspec.Spec
 }
 
 // EventKind classifies a normalized agent event.

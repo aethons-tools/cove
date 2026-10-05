@@ -92,7 +92,9 @@ role, one section at a time — each with a pre-filled **Edit** form that saves
 only that section:
 
 - **Scope** — destinations with the credential the broker injects for each
-  (the role's mapping, or the destination's default), addressing, TTL and kit.
+  (the role's mapping, or the destination's default), addressing, TTL, kit and
+  [model-spec](model-specs.md#binding-a-role) binding (blank = `claude-default`,
+  shown in the page head; the new-role form takes one too).
   The destinations field uses the `name=credential` syntax; a bare name uses
   the destination's default credential. Empty addressing means the role can't
   squawk anyone.

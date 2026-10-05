@@ -780,8 +780,8 @@ func (s *PostgresStore) PutModelSpec(ms ModelSpec) error {
 func (s *PostgresStore) RemoveModelSpec(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.specs[name]; !ok {
-		return fmt.Errorf("model-spec %q not found", name)
+	if err := s.checkRemoveModelSpec(name); err != nil {
+		return err
 	}
 	if err := s.exec("RemoveModelSpec", `DELETE FROM model_specs WHERE name = $1`, name); err != nil {
 		return err

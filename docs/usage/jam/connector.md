@@ -4,7 +4,7 @@ read_when: You are adding a destination a studio needs client-side setup for (en
 owns: destination `env`/`git`, the template placeholders, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
 prereqs: serve.md#destinations for destinations; roster.md for which destinations a role's scope allows
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # The studio connector (destination env)
@@ -60,7 +60,9 @@ fail closed, never a silent pick.
   `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still
   unexpanded, `{url}` already resolved to `{base}<route>`. Unknown/expired
   identity → 401; a conflict → 409. Against a Jam without the endpoint (404),
-  clients fall back to the legacy Anthropic + git contract.
+  clients fall back to the legacy Anthropic + git contract. The response also
+  carries `model_spec`, the identity's roles' resolved
+  [model-spec](model-specs.md#what-a-cove-applies) (names only; host clients ignore it).
 
 ## Notes for sessions
 

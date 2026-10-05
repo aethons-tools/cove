@@ -85,7 +85,9 @@ type RoleBody struct {
 	Addressing   []string          `json:"addressing,omitempty"`
 	TTLSeconds   int64             `json:"ttl_seconds"`
 	Kit          string            `json:"kit,omitempty"`
-	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// ModelSpec binds a model-spec by name; "" = DefaultModelSpec.
+	ModelSpec    string `json:"model_spec,omitempty"`
+	MaxEphemeral int    `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -107,7 +109,9 @@ type RoleSummary struct {
 	Addressing   []string          `json:"addressing,omitempty"`
 	TTLSeconds   int64             `json:"ttl_seconds"`
 	Kit          string            `json:"kit,omitempty"`
-	MaxEphemeral int               `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
+	// ModelSpec is the role's model-spec binding as stored; "" = DefaultModelSpec.
+	ModelSpec    string `json:"model_spec,omitempty"`
+	MaxEphemeral int    `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
 	// MaxPersonal is the role's personal-session pool cap; 0 = none.
 	MaxPersonal int `json:"max_personal,omitempty"`
 	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
@@ -464,6 +468,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				Addressing:          ro.Scope.Addressing,
 				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
 				Kit:                 ro.Kit,
+				ModelSpec:           ro.ModelSpec,
 				MaxEphemeral:        ro.Allocation.MaxEphemeral,
 				MaxPersonal:         ro.Allocation.MaxPersonal,
 				MaxPersonalPerOwner: ro.Allocation.MaxPersonalPerOwner,
@@ -500,9 +505,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 		}
 		role := Role{
-			Name:  b.Name,
-			Scope: Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
-			Kit:   b.Kit,
+			Name:      b.Name,
+			Scope:     Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
+			Kit:       b.Kit,
+			ModelSpec: b.ModelSpec,
 			Allocation: RoleAllocation{
 				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
 				IdleAfter:    time.Duration(b.IdleAfterSeconds) * time.Second,
@@ -517,7 +523,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		// Standing declarations and the egress policy are managed by their own
 		// routes, not this body: re-putting a role keeps them.
 		if err := PutRoleKeeping(store, b.Project, role); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
 		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)

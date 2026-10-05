@@ -457,6 +457,43 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("model_specs_remove_refused_while_bound", func(t *testing.T) {
+		s := newStore(t)
+		spec := func(name string) jam.ModelSpec {
+			return jam.ModelSpec{Name: name, Type: jam.HarnessClaude, Version: "2.x", Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}
+		}
+		for _, n := range []string{"opus", jam.DefaultModelSpec} {
+			if err := s.PutModelSpec(spec(n)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.PutRole("", jam.Role{Name: "bound", ModelSpec: "opus"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutRole("", jam.Role{Name: "unbound"}); err != nil {
+			t.Fatal(err)
+		}
+		// A role's model_spec persists (the role doc round-trips it).
+		if r, ok := s.GetRole("", "bound"); !ok || r.ModelSpec != "opus" {
+			t.Fatalf("GetRole = %+v, %v", r, ok)
+		}
+		// Bound explicitly, or by default (an unbound role resolves to the default).
+		for _, n := range []string{"opus", jam.DefaultModelSpec} {
+			if err := s.RemoveModelSpec(n); !errors.Is(err, jam.ErrModelSpecInUse) {
+				t.Fatalf("RemoveModelSpec(%s) = %v, want ErrModelSpecInUse", n, err)
+			}
+			if _, ok := s.GetModelSpec(n); !ok {
+				t.Fatalf("%s removed despite the refusal", n)
+			}
+		}
+		if err := s.RemoveRole("", "bound"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveModelSpec("opus"); err != nil {
+			t.Fatalf("RemoveModelSpec once unbound: %v", err)
+		}
+	})
+
 	t.Run("model_specs_export_import", func(t *testing.T) {
 		src := newStore(t)
 		if err := src.PutModelSpec(jam.ModelSpec{Name: "m", Type: jam.HarnessClaude, Version: "2.x", Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {

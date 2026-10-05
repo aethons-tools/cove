@@ -2,21 +2,42 @@ package jam
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
-// HarnessType is a model-spec's harness family; it implies the harness a cove
-// runs and selects the per-type body. Only claude exists today.
-type HarnessType string
+// The model-spec types are defined in the leaf package modelspec (shared with
+// the connector and the cove-side harness); these aliases keep Jam's names.
+type (
+	// HarnessType is a model-spec's harness family (modelspec.HarnessType).
+	HarnessType = modelspec.HarnessType
+	// ModelSpec is a named, harness-typed description of how a cove runs its
+	// agent (modelspec.Spec). A role binds one by name (Role.ModelSpec); Jam
+	// delivers the resolved spec to the cove in its connector.
+	ModelSpec = modelspec.Spec
+	// ModelPrincipal names who the agent authenticates as.
+	ModelPrincipal = modelspec.Principal
+	// ModelChoice optionally pins the model and its effort.
+	ModelChoice = modelspec.Choice
+	// ModelPolicy is the harness permission policy.
+	ModelPolicy = modelspec.Policy
+	// ClaudeSpec is the claude per-type body.
+	ClaudeSpec = modelspec.Claude
+)
 
 // HarnessClaude is the Claude Code harness family.
-const HarnessClaude HarnessType = "claude"
+const HarnessClaude = modelspec.HarnessClaude
+
+// DefaultModelSpec is the model-spec a role with no binding resolves to; Jam
+// seeds it at serve startup (EnsureDefaultModelSpec).
+const DefaultModelSpec = modelspec.DefaultName
 
 // PoolPrincipal is the principal.credential keyword meaning "an account from the
 // subscription pool" — valid only when the serve-config enables a pool.
@@ -24,53 +45,6 @@ const PoolPrincipal = "pool"
 
 // MaxModelSpecNote bounds ModelSpec.Note (an operator hint, like a destination's).
 const MaxModelSpecNote = 300
-
-// ModelSpec is a named, harness-typed description of how a cove runs its agent:
-// the harness family and CLI version, the principal it authenticates as (a
-// credential BY NAME — never a value), the model, the permission policy, and a
-// per-type body. It is a common envelope plus exactly one body keyed by Type
-// (a union, like kit.ModelProvider). Stored only; nothing binds it to a role or
-// delivers it to a cove yet.
-type ModelSpec struct {
-	Name      string         `json:"name"                yaml:"name"`
-	Type      HarnessType    `json:"type"                yaml:"type"`
-	Version   string         `json:"version"             yaml:"version"` // required harness CLI version constraint, e.g. "2.x"
-	Principal ModelPrincipal `json:"principal"           yaml:"principal"`
-	Model     ModelChoice    `json:"model,omitzero"      yaml:"model,omitempty"`
-	Policy    ModelPolicy    `json:"policy,omitzero"     yaml:"policy,omitempty"`
-	Note      string         `json:"note,omitempty"      yaml:"note,omitempty"`
-	Claude    *ClaudeSpec    `json:"claude,omitempty"    yaml:"claude,omitempty"`
-}
-
-// ModelPrincipal names who the agent authenticates as.
-type ModelPrincipal struct {
-	// Credential is a serve-config credential name, or PoolPrincipal.
-	Credential string `json:"credential" yaml:"credential"`
-}
-
-// ModelChoice optionally pins the model and its effort; empty = harness default.
-type ModelChoice struct {
-	ID     string `json:"id,omitempty"     yaml:"id,omitempty"`
-	Effort string `json:"effort,omitempty" yaml:"effort,omitempty"`
-}
-
-// ModelPolicy is the harness permission policy.
-type ModelPolicy struct {
-	Mode  string   `json:"mode,omitempty"  yaml:"mode,omitempty"` // a Claude permission mode; empty = harness default
-	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"  yaml:"deny,omitempty"`
-}
-
-// ClaudeSpec is the claude per-type body.
-type ClaudeSpec struct {
-	Provider string `json:"provider" yaml:"provider"` // anthropic | vertex | bedrock
-	// ProviderEnv is non-secret provider env (e.g. Vertex project/region). It
-	// may not set protected (kit.ProtectedEnvKey), reserved, or credential env.
-	ProviderEnv map[string]string `json:"provider-env,omitempty" yaml:"provider-env,omitempty"`
-	// Settings is a Claude settings.json fragment — preferences only.
-	Settings map[string]any `json:"settings,omitempty" yaml:"settings,omitempty"`
-	Plugins  []string       `json:"plugins,omitempty"  yaml:"plugins,omitempty"`
-}
 
 // claudePermissionModes are Claude Code's permission modes.
 var claudePermissionModes = []string{"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk"}
@@ -84,14 +58,6 @@ func ClaudePermissionModes() []string { return slices.Clone(claudePermissionMode
 
 // ClaudeProviders lists the accepted claude.provider values (a copy).
 func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
-
-// credentialEnvKeys carry credential values; a model-spec names credentials by
-// principal only, so provider-env may never set these.
-var credentialEnvKeys = map[string]bool{
-	"ANTHROPIC_API_KEY": true, "ANTHROPIC_AUTH_TOKEN": true, "CLAUDE_CODE_OAUTH_TOKEN": true,
-	"AWS_ACCESS_KEY_ID": true, "AWS_SECRET_ACCESS_KEY": true, "AWS_SESSION_TOKEN": true,
-	"AWS_BEARER_TOKEN_BEDROCK": true,
-}
 
 // claudeNonPreferenceSettings are settings.json keys that are not preferences:
 // env (would bypass the provider-env checks), permissions (owned by policy) and
@@ -115,6 +81,9 @@ func ValidateModelSpec(m ModelSpec, credExists func(string) bool, poolConfigured
 	}
 	if strings.TrimSpace(m.Version) == "" {
 		return bad("version is required (the harness CLI version constraint, e.g. \"2.x\")")
+	}
+	if _, err := modelspec.ParseConstraint(m.Version); err != nil {
+		return bad("%s", err.Error())
 	}
 	switch c := m.Principal.Credential; {
 	case c == "":
@@ -162,7 +131,7 @@ func validateClaudeSpec(c ClaudeSpec, bad func(string, ...any) error) error {
 			return bad("claude.provider-env key %q is reserved", k)
 		case kit.ProtectedEnvKey(k):
 			return bad("claude.provider-env: %q is a sealed-owned/security-relevant variable and cannot be set", k)
-		case credentialEnvKeys[k]:
+		case modelspec.CredentialEnvKey(k):
 			return bad("claude.provider-env: %q carries a credential; name credentials via principal.credential, never by value", k)
 		}
 	}
@@ -229,4 +198,54 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 		return writeErr(http.StatusNotFound, "model-spec %q does not exist", m.Name)
 	}
 	return store.PutModelSpec(m)
+}
+
+// ErrNoDefaultPrincipal is EnsureDefaultModelSpec's refusal when it can find
+// no principal for the default spec: no pool, and no anthropic destination.
+var ErrNoDefaultPrincipal = errors.New("no subscription pool and no anthropic destination to take the default model-spec's principal from")
+
+// DefaultModelSpecFor builds DefaultModelSpec as Jam seeds it
+// (modelspec.Default), authenticating as the pool when one is configured, else as the anthropic destination's
+// credential (the destination named "anthropic", or else the one routed at
+// /anthropic/). ErrNoDefaultPrincipal when neither resolves.
+func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
+	cred := ""
+	if poolConfigured {
+		cred = PoolPrincipal
+	} else {
+		dests := store.ListDestinations()
+		for _, match := range []func(Destination) bool{
+			func(d Destination) bool { return d.Name == "anthropic" },
+			func(d Destination) bool { return d.Route == "/anthropic/" },
+		} {
+			if i := slices.IndexFunc(dests, match); i >= 0 && dests[i].CredName != "" {
+				cred = dests[i].CredName
+				break
+			}
+		}
+	}
+	if cred == "" {
+		return ModelSpec{}, ErrNoDefaultPrincipal
+	}
+	return modelspec.Default(cred), nil
+}
+
+// EnsureDefaultModelSpec seeds DefaultModelSpec at serve startup when absent
+// (an operator's edits to an existing one are kept). created reports a seed;
+// ErrNoDefaultPrincipal means nothing was seeded — unbound roles then deliver
+// no spec and their coves keep the harness's built-in defaults.
+func EnsureDefaultModelSpec(store Store, poolConfigured bool) (created bool, err error) {
+	modelSpecMu.Lock()
+	defer modelSpecMu.Unlock()
+	if _, ok := store.GetModelSpec(DefaultModelSpec); ok {
+		return false, nil
+	}
+	m, err := DefaultModelSpecFor(store, poolConfigured)
+	if err != nil {
+		return false, err
+	}
+	if err := store.PutModelSpec(m); err != nil {
+		return false, err
+	}
+	return true, nil
 }

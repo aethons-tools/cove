@@ -56,7 +56,8 @@ type Store interface {
 	Match(reqPath string) (Destination, bool)
 	// PutModelSpec upserts a model-spec by name (validation is the caller's:
 	// see ValidateModelSpec); GetModelSpec / ListModelSpecs return copies, the
-	// list sorted by name; RemoveModelSpec errors for an absent name.
+	// list sorted by name; RemoveModelSpec errors for an absent name and
+	// refuses with ErrModelSpecInUse while a role resolves to it.
 	PutModelSpec(m ModelSpec) error
 	GetModelSpec(name string) (ModelSpec, bool)
 	ListModelSpecs() []ModelSpec
