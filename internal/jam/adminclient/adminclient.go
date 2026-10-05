@@ -116,6 +116,35 @@ func (c *Client) RemoveDestination(name string) error {
 	return c.do("DELETE", "/admin/destinations/"+name, nil, nil)
 }
 
+// CreateModelSpec adds a new model-spec (ErrConflict if the name exists).
+func (c *Client) CreateModelSpec(m jam.ModelSpec) error {
+	return c.do("POST", "/admin/model-specs", m, nil)
+}
+
+// UpdateModelSpec replaces an existing model-spec (ErrNotFound if absent).
+func (c *Client) UpdateModelSpec(m jam.ModelSpec) error {
+	return c.do("PUT", "/admin/model-specs/"+url.PathEscape(m.Name), m, nil)
+}
+
+// GetModelSpec fetches one model-spec (ErrNotFound if absent).
+func (c *Client) GetModelSpec(name string) (jam.ModelSpec, error) {
+	var out jam.ModelSpec
+	err := c.do("GET", "/admin/model-specs/"+url.PathEscape(name), nil, &out)
+	return out, err
+}
+
+// ListModelSpecs lists every model-spec, sorted by name.
+func (c *Client) ListModelSpecs() ([]jam.ModelSpec, error) {
+	var out []jam.ModelSpec
+	err := c.do("GET", "/admin/model-specs", nil, &out)
+	return out, err
+}
+
+// DeleteModelSpec removes a model-spec (ErrNotFound if absent).
+func (c *Client) DeleteModelSpec(name string) error {
+	return c.do("DELETE", "/admin/model-specs/"+url.PathEscape(name), nil, nil)
+}
+
 // PutRole creates or replaces a role within project. project == "" resolves to
 // jam.DefaultProject server-side.
 func (c *Client) PutRole(project string, r jam.Role) error {

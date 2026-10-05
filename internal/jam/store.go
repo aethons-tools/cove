@@ -3,7 +3,7 @@ package jam
 import "github.com/aethons-tools/cove/internal/jam/sessionctx"
 
 // Store records enrolled actors (by token hash), roles (by project+name), and the
-// destination table.
+// destination table, and the model-spec table.
 type Store interface {
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)
@@ -54,8 +54,15 @@ type Store interface {
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
 	Match(reqPath string) (Destination, bool)
+	// PutModelSpec upserts a model-spec by name (validation is the caller's:
+	// see ValidateModelSpec); GetModelSpec / ListModelSpecs return copies, the
+	// list sorted by name; RemoveModelSpec errors for an absent name.
+	PutModelSpec(m ModelSpec) error
+	GetModelSpec(name string) (ModelSpec, bool)
+	ListModelSpecs() []ModelSpec
+	RemoveModelSpec(name string) error
 	// ExportConfig snapshots the config aggregates (actors, roles, kits,
-	// destinations, projects); it never reads instances or unread cursors.
+	// destinations, model-specs, projects); it never reads instances or unread cursors.
 	ExportConfig() ConfigSnapshot
 	// ImportConfig restores a snapshot into an EMPTY store, fail-closed: it
 	// returns ErrConfigNotEmpty (writing nothing) if any config aggregate has

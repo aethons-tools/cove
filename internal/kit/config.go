@@ -1112,6 +1112,11 @@ var vertexProtectedEnvKeys = map[string]bool{
 	"PATH":                           true,
 }
 
+// ProtectedEnvKey reports whether key is a sealed-owned or security-relevant
+// variable that operator-authored, non-secret env (a kit's model-provider env, a
+// Jam model-spec's provider-env) must never set. One list, shared by both.
+func ProtectedEnvKey(key string) bool { return vertexProtectedEnvKeys[key] }
+
 // vertexRequiredEnvKeys must be present in the provider env map.
 var vertexRequiredEnvKeys = []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}
 

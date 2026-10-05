@@ -218,6 +218,16 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.loadDocs(ctx, "model_specs", func(doc []byte) error {
+		var ms ModelSpec
+		if err := json.Unmarshal(doc, &ms); err != nil {
+			return err
+		}
+		s.specs[ms.Name] = ms
+		return nil
+	}); err != nil {
+		return err
+	}
 	if err := s.loadDocs(ctx, "projects", func(doc []byte) error {
 		var p Project
 		if err := json.Unmarshal(doc, &p); err != nil {
@@ -377,6 +387,15 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO destinations (name, doc) VALUES ($1,$2)`, d.Name, doc); err != nil {
+				return err
+			}
+		}
+		for _, ms := range snap.ModelSpecs {
+			doc, err := json.Marshal(ms)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO model_specs (name, doc) VALUES ($1,$2)`, ms.Name, doc); err != nil {
 				return err
 			}
 		}
@@ -734,6 +753,40 @@ func (s *PostgresStore) RemoveDestination(name string) error {
 		return err
 	}
 	s.applyRemoveDestination(name)
+	return nil
+}
+
+func (s *PostgresStore) PutModelSpec(ms ModelSpec) error {
+	c, err := prepareModelSpec(ms)
+	if err != nil {
+		return err
+	}
+	doc, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.exec("PutModelSpec",
+		`INSERT INTO model_specs (name, doc) VALUES ($1,$2)
+		 ON CONFLICT (name) DO UPDATE SET doc = EXCLUDED.doc, version = model_specs.version + 1, updated_at = now()`,
+		c.Name, doc); err != nil {
+		return err
+	}
+	s.applyPutModelSpec(c)
+	return nil
+}
+
+func (s *PostgresStore) RemoveModelSpec(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.specs[name]; !ok {
+		return fmt.Errorf("model-spec %q not found", name)
+	}
+	if err := s.exec("RemoveModelSpec", `DELETE FROM model_specs WHERE name = $1`, name); err != nil {
+		return err
+	}
+	s.applyRemoveModelSpec(name)
 	return nil
 }
 

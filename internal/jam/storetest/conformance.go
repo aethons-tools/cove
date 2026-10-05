@@ -397,6 +397,87 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("model_specs_put_get_list_remove", func(t *testing.T) {
+		s := newStore(t)
+		if _, ok := s.GetModelSpec("claude-default"); ok {
+			t.Fatal("fresh store has a model-spec")
+		}
+		m := jam.ModelSpec{
+			Name: "claude-default", Type: jam.HarnessClaude, Version: "2.x",
+			Principal: jam.ModelPrincipal{Credential: "anthropic"},
+			Model:     jam.ModelChoice{ID: "claude-opus-5-5"},
+			Policy:    jam.ModelPolicy{Mode: "bypassPermissions", Allow: []string{"Bash"}},
+			Claude: &jam.ClaudeSpec{
+				Provider:    "vertex",
+				ProviderEnv: map[string]string{"CLOUD_ML_REGION": "us-east5"},
+				Settings:    map[string]any{"theme": "dark", "nested": map[string]any{"n": 1.0}},
+				Plugins:     []string{"p@m"},
+			},
+		}
+		if err := s.PutModelSpec(m); err != nil {
+			t.Fatalf("PutModelSpec: %v", err)
+		}
+		if err := s.PutModelSpec(jam.ModelSpec{Name: "a-first", Type: jam.HarnessClaude, Version: "2.x", Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := s.GetModelSpec("claude-default")
+		if !ok || got.Version != "2.x" || got.Principal.Credential != "anthropic" || got.Claude == nil ||
+			got.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" || got.Claude.Settings["theme"] != "dark" ||
+			len(got.Claude.Plugins) != 1 || got.Policy.Allow[0] != "Bash" {
+			t.Fatalf("GetModelSpec = %+v, %v", got, ok)
+		}
+		// Copies: mutating a returned spec does not reach the store.
+		got.Claude.ProviderEnv["CLOUD_ML_REGION"] = "mutated"
+		got.Claude.Settings["nested"].(map[string]any)["n"] = 2.0
+		got.Policy.Allow[0] = "mutated"
+		again, _ := s.GetModelSpec("claude-default")
+		if again.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" || again.Claude.Settings["nested"].(map[string]any)["n"] != 1.0 || again.Policy.Allow[0] != "Bash" {
+			t.Fatalf("GetModelSpec must return a copy, got %+v", again)
+		}
+		// Upsert replaces.
+		m.Version = "2.1.x"
+		if err := s.PutModelSpec(m); err != nil {
+			t.Fatal(err)
+		}
+		all := s.ListModelSpecs()
+		if len(all) != 2 || all[0].Name != "a-first" || all[1].Name != "claude-default" || all[1].Version != "2.1.x" {
+			t.Fatalf("ListModelSpecs = %+v (want 2, sorted, upserted)", all)
+		}
+		if err := s.PutModelSpec(jam.ModelSpec{}); err == nil {
+			t.Fatal("PutModelSpec without a name must error")
+		}
+		if err := s.RemoveModelSpec("claude-default"); err != nil {
+			t.Fatalf("RemoveModelSpec: %v", err)
+		}
+		if err := s.RemoveModelSpec("claude-default"); err == nil {
+			t.Fatal("RemoveModelSpec of an absent spec must error")
+		}
+		if _, ok := s.GetModelSpec("claude-default"); ok {
+			t.Fatal("spec still present after remove")
+		}
+	})
+
+	t.Run("model_specs_export_import", func(t *testing.T) {
+		src := newStore(t)
+		if err := src.PutModelSpec(jam.ModelSpec{Name: "m", Type: jam.HarnessClaude, Version: "2.x", Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
+			t.Fatal(err)
+		}
+		snap := src.ExportConfig()
+		if len(snap.ModelSpecs) != 1 || snap.ModelSpecs[0].Name != "m" {
+			t.Fatalf("export ModelSpecs = %+v", snap.ModelSpecs)
+		}
+		if err := src.ImportConfig(snap); !errors.Is(err, jam.ErrConfigNotEmpty) {
+			t.Fatalf("import into a store holding a model-spec = %v, want ErrConfigNotEmpty", err)
+		}
+		dst := newStore(t)
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		if got, ok := dst.GetModelSpec("m"); !ok || got.Claude == nil || got.Claude.Provider != "anthropic" {
+			t.Fatalf("imported spec = %+v, %v", got, ok)
+		}
+	})
+
 	t.Run("roster_and_escalation", func(t *testing.T) {
 		s := newStoreWithAcme(t)
 		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
