@@ -78,7 +78,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out.URL.Host = up.Host
 		out.Host = up.Host
 		out.URL.Path = strings.TrimPrefix(r.URL.Path, trimmed) // strip the route prefix
-		out.Header.Del("Authorization")                        // drop the inbound identity credential
+		out.Header.Del("Authorization")                        // never forward a caller's Authorization upstream
+		stripIdentity(out, dest.IdentityIn)
 		if dec.NeedCred {
 			applyCred(out, dec.Apply, cred)
 		}
@@ -114,6 +115,18 @@ func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// stripIdentity removes the header that carries the caller's Jam identity token
+// (per how) from the upstream request: the token is Jam's, never the
+// upstream's, whatever header it arrived in.
+func stripIdentity(r *http.Request, how ApplyMethod) {
+	switch how {
+	case ApplyBearer, ApplyBasicPassword:
+		r.Header.Del("Authorization")
+	case ApplyXAPIKey:
+		r.Header.Del("X-Api-Key")
+	}
 }
 
 // anthropicOAuthBeta is the beta flag Anthropic requires for a subscription-OAuth

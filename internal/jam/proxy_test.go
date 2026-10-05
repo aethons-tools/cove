@@ -263,3 +263,56 @@ func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
 		}
 	}
 }
+
+// The inbound identity token is Jam's, never the upstream's: whatever header
+// IdentityIn names must be stripped before forwarding, not just Authorization.
+// Before this, identity_in: x-api-key with a different apply (or no credential)
+// forwarded the cove's Jam identity token upstream in X-Api-Key.
+func TestBrokerStripsInboundIdentityHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		credName string
+		apply    ApplyMethod
+	}{
+		{"x-api-key in, bearer out", "real", ApplyBearer},
+		{"x-api-key in, no credential", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotKey, gotAuth string
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotKey = r.Header.Get("X-Api-Key")
+				gotAuth = r.Header.Get("Authorization")
+				io.WriteString(w, "ok")
+			}))
+			defer up.Close()
+
+			store := NewMemStore()
+			tok, _ := MintToken()
+			if err := store.PutRole(DefaultProject, Role{Name: "guest", Scope: Scope{Destinations: []string{"svc"}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AddDestination(Destination{Name: "svc", Route: "/svc/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: tc.credName, Apply: tc.apply}); err != nil {
+				t.Fatal(err)
+			}
+			b := NewBroker(store, fakeCreds{"real": "REAL-CRED"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+			req := httptest.NewRequest("GET", "/svc/v1/thing", nil)
+			req.Header.Set("X-Api-Key", tok)
+			rec := httptest.NewRecorder()
+			b.ServeHTTP(rec, req)
+
+			if rec.Code != 200 {
+				t.Fatalf("status = %d", rec.Code)
+			}
+			if gotKey != "" {
+				t.Fatalf("upstream X-Api-Key = %q, want the Jam identity stripped", gotKey)
+			}
+			if want := map[bool]string{true: "Bearer REAL-CRED", false: ""}[tc.credName != ""]; gotAuth != want {
+				t.Fatalf("upstream Authorization = %q, want %q", gotAuth, want)
+			}
+		})
+	}
+}
