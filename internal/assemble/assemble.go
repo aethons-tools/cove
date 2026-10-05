@@ -144,6 +144,14 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	return os.WriteFile(ak, pub, 0o600)
 }
 
+// Revision versions what AssembleContext's own Go code writes into a build
+// context beyond the embedded trees (generated files, staged modes). The
+// embedded trees are hashed by content into install.AtCoveIdentity, but this
+// code is not — so bump Revision whenever a change here alters the assembled
+// context, or a stale image cached under an unchanged tag is reused.
+// 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
+var Revision = "2"
+
 // writeDockerfile prepends the harness stage (staging its payload) to the
 // sealed hardening Dockerfile copyEmbed just wrote.
 func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
