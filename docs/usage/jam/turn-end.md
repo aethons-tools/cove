@@ -1,7 +1,7 @@
 ---
-summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity for a turn that ended with background tasks still running, and the reasons a Wake carries into the agent's resume prompt.
-read_when: You want a session to end itself or to be woken (or torn down) after sitting idle, need to know why a studio shows `holding` or what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
-owns: the turn-end model, the `end` and `idle_timeout` tools and their `/end`, `/idle` endpoints, the role's turn-end policy (`--idle-timeout`/`--on-idle` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
+summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
+read_when: You want a session to end itself, to be woken at a time or on a schedule, or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
+owns: the turn-end model, the `end`, `idle_timeout` and `alarm_*` tools and their `/end`, `/idle`, `/alarms` endpoints, the alarm limits and firing rules, the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
 updated: 2026-10-05
@@ -11,9 +11,9 @@ updated: 2026-10-05
 
 When a managed session's turn ends, it either **ends** (it called `end`) or
 **waits** for something worth another turn — an inbound squawk
-([intercom.md](intercom.md#waiting-for-a-reply-wake-on)) or its **idle
-timeout** — and every Wake tells the agent **why** it was woken. Alarms, gates
-and `report` are designed in the
+([intercom.md](intercom.md#waiting-for-a-reply-wake-on)), one of its
+**alarms**, or its **idle timeout** — and every Wake tells the agent **why** it
+was woken. Alarm gates and `report` are designed in the
 [turn-end spec](../../superpowers/specs/2026-10-05-turn-end-lifecycle-design.md)
 and land in later slices.
 
@@ -31,6 +31,33 @@ up" does its housekeeping, then calls `end` as its last action.
 - A personal session's owner gets a squawk: *ended itself: <reason>*. A standing
   or ticket session has no owner: the end is logged. (Moving a ticket's state on
   `end` arrives with `report`.)
+
+## Alarms
+
+An agent sets named alarms that wake it after its turn ends — e.g. a custodian
+with several duties at different times, or "check the PR every 5 minutes".
+
+| Tool | Endpoint | |
+|------|----------|---|
+| `alarm_set(name, schedule, note?)` | `PUT /alarms/{name}` | set, or replace the same name |
+| `alarm_clear(name)` | `DELETE /alarms/{name}` | `404` if absent |
+| `alarm_list()` | `GET /alarms` | name, schedule, note, next fire time, whether fired |
+
+- **`schedule`** is an RFC 3339 time (fires once; future, within 366 days) or a
+  5-field cron expression or descriptor (`*/5 * * * *`, `@daily`), evaluated in
+  the role's time zone (`role add --time-zone`, IANA name, default UTC). A
+  recurring alarm may fire at most once a minute (`@every 10s` and 6-field cron
+  are refused). **`note`** (≤ 1000 bytes) is what the wake tells the agent.
+- **Limits:** 20 alarms per session; names are lowercase letters, digits, `-`
+  and `_` (≤ 64). Anything invalid is a `400` and nothing is stored.
+- **When they fire:** only once the session's turn is over (`holding` or
+  `waiting`); an alarm due while it is `running` waits for the turn to end. A
+  paused session is resumed first and woken on a later tick. No catch-up: a cron
+  alarm whose matches were missed (e.g. Jam was down) fires once.
+- **Delivery:** a fired alarm stays pending — its wake is re-sent each wake-on
+  tick — until the session next runs; then a one-shot alarm is removed and a cron
+  alarm waits for its next match. One wake carries a pending reply and every
+  fired alarm together, and an alarm wake pre-empts the idle timeout.
 
 ## Idle timeout
 

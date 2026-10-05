@@ -95,8 +95,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] {
-		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] {
+		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
 
@@ -477,6 +477,45 @@ func TestMCPIdleTimeoutForwards(t *testing.T) {
 	}
 	if m != "PUT" || p != "/idle" || !strings.Contains(b, `"duration":"45m"`) || !strings.Contains(b, `"scope":"next"`) {
 		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPAlarmSetForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.setAlarm(context.Background(), "pr-watch", "*/5 * * * *", "check"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/alarms/pr-watch" || !strings.Contains(b, `"schedule":"*/5 * * * *"`) || !strings.Contains(b, `"note":"check"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPAlarmClearForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.clearAlarm(context.Background(), "pr-watch"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "DELETE" || p != "/alarms/pr-watch" {
+		t.Fatalf("%s %s", m, p)
+	}
+}
+
+func TestMCPAlarmListDecodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"alarms":[{"name":"nightly","schedule":"0 2 * * *","note":"backup","next_at":"2026-10-06T02:00:00Z"}]}`)
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		return map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.listAlarms(context.Background())
+	if err != nil || len(out.Alarms) != 1 || out.Alarms[0].Name != "nightly" || out.Alarms[0].NextAt != "2026-10-06T02:00:00Z" {
+		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }
 
