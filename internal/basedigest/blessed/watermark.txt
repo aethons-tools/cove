@@ -12,5 +12,5 @@
 # one deliberate commit. The watermark MUST still exist in the registry or the
 # build fails loudly.
 #
-# Current watermark: cove-base-image:527-0808 (Docker+systemd base, drop podman — COV-116, breaking).
-sha256:b675a81c589e96fac6423ed759e727b523b8f850c6ac5c0fa139aceeb7b91726
+# Current watermark: cove-base-image:732-1005 (agent docs and skills moved out of hardening into the base seed — COV-246/COV-247, breaking)
+sha256:cf6dd78d8953328179bf13f73e38e2d3ed8f00a9a2a6b143cd46b4cb63740345
