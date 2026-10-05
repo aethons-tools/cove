@@ -1,10 +1,10 @@
 ---
-summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, projects, Jam-wide session context) with `at-jam export` / `at-jam import` — a single file, excluding studio and intercom state.
+summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `at-jam export` / `at-jam import` — a single file, excluding studio and intercom state.
 read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # Backing up and restoring Jam config
@@ -16,12 +16,14 @@ control-plane aggregates:
 - **roles** (scope incl. egress, allocation incl. standing sessions, session context)
 - **kits** (all versions **and** the pin)
 - **destinations**
+- **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
 - **projects** (roster, escalation policy, chat service, session context and resources)
 - the **Jam-wide session context**
 
 Import applies the admin API's authoring rules to session context (layer budgets,
-leaf names, resources) and destination notes; a snapshot that breaks them is refused
-with 400 and nothing is written.
+leaf names, resources), destination notes and model-spec structure (credential
+names are not checked — they are serve-config, not backup, state); a snapshot
+that breaks them is refused with 400 and nothing is written.
 
 They deliberately **exclude** runtime/studio state (raised instances), intercom
 unread cursors, the intercom squawk log, and allocator events. A backup restores

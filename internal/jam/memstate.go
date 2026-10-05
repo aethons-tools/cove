@@ -27,6 +27,7 @@ type memState struct {
 	roles     map[string]map[string]Role
 	actors    map[string]Actor       // keyed by TokenHash
 	dests     map[string]Destination // keyed by Name
+	specs     map[string]ModelSpec   // keyed by Name; values are owned deep copies
 	kits      map[string]Kit         // keyed by Name
 	instances map[string]Instance    // keyed by ActorID
 	projects  map[string]Project     // keyed by Name
@@ -43,6 +44,7 @@ func newMemState() *memState {
 		roles:     map[string]map[string]Role{},
 		actors:    map[string]Actor{},
 		dests:     map[string]Destination{},
+		specs:     map[string]ModelSpec{},
 		kits:      map[string]Kit{},
 		instances: map[string]Instance{},
 		projects:  map[string]Project{},
@@ -186,6 +188,32 @@ func (m *memState) ListDestinations() []Destination {
 		out = append(out, d)
 	}
 	slices.SortFunc(out, func(a, b Destination) int { return cmp.Compare(a.Name, b.Name) })
+	return out
+}
+
+// GetModelSpec returns a deep copy of the named model-spec.
+func (m *memState) GetModelSpec(name string) (ModelSpec, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ms, ok := m.specs[name]
+	if !ok {
+		return ModelSpec{}, false
+	}
+	c, err := cloneModelSpec(ms)
+	return c, err == nil
+}
+
+// ListModelSpecs returns deep copies of every model-spec, sorted by name.
+func (m *memState) ListModelSpecs() []ModelSpec {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]ModelSpec, 0, len(m.specs))
+	for _, ms := range m.specs {
+		if c, err := cloneModelSpec(ms); err == nil {
+			out = append(out, c)
+		}
+	}
+	slices.SortFunc(out, func(a, b ModelSpec) int { return cmp.Compare(a.Name, b.Name) })
 	return out
 }
 
@@ -488,6 +516,27 @@ func (m *memState) applyRemoveDestination(name string) bool {
 	}
 	delete(m.dests, name)
 	return true
+}
+
+// applyPutModelSpec caches ms, which the caller has already deep-copied
+// (prepareModelSpec). Caller holds mu.Lock().
+func (m *memState) applyPutModelSpec(ms ModelSpec) { m.specs[ms.Name] = ms }
+
+func (m *memState) applyRemoveModelSpec(name string) bool {
+	if _, ok := m.specs[name]; !ok {
+		return false
+	}
+	delete(m.specs, name)
+	return true
+}
+
+// prepareModelSpec checks a PutModelSpec's key and returns the owned copy to
+// persist and cache.
+func prepareModelSpec(ms ModelSpec) (ModelSpec, error) {
+	if ms.Name == "" {
+		return ModelSpec{}, fmt.Errorf("model-spec name is required")
+	}
+	return cloneModelSpec(ms)
 }
 
 func (m *memState) applyPutProject(p Project) { m.projects[p.Name] = p }

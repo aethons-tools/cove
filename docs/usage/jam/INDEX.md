@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # `at-jam` — operating the central service
@@ -39,7 +39,8 @@ five pillars), see the design history:
 | [projects.md](projects.md) | You are starting a new project on a Jam, a role/grant/roster/escalation write failed with "project not found", you want to delete a project, or you upgraded a Jam whose projects used to exist only as names. |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`roster` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Authoring or versioning a studio kit (base, egress, build-args, secrets, prompt; the Anthropic-excluding egress ceiling): `kit push\|list\|show\|versions\|pin\|rm`, and binding one to a role with `role add --kit` (unset → `default`). |
-| [backup.md](backup.md) | Backing up or restoring a Jam's config (actors, roles, kits, destinations, projects) with `at-jam export`/`import` — the file's scope, the refuse-unless-empty restore, and the token-hash sensitivity note. |
+| [model-specs.md](model-specs.md) | You are authoring, listing, changing or deleting a model-spec (how a cove runs its agent: harness, version, principal credential, model, permission policy) with `at-jam model-spec`, or a model-spec write was refused. |
+| [backup.md](backup.md) | Backing up or restoring a Jam's config (actors, roles, kits, destinations, model-specs, projects) with `at-jam export`/`import` — the file's scope, the refuse-unless-empty restore, and the token-hash sensitivity note. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (cove-master). |
 | [session-context-authoring.md](session-context-authoring.md) | You want sessions of a role, a project or the whole Jam to know something at raise — rules, goals, repos — and need `at-jam context`, the YAML format or the limits. |
 | [session-context.md](session-context.md) | You are writing a kit prompt, debugging what a session was told at raise, or changing how session context is compiled or delivered. |
@@ -68,7 +69,7 @@ five pillars), see the design history:
 5. **Raise managed studios** against a role and track them through the runtime
    registry ([coves.md](coves.md)).
 
-Every admin verb (`destination`, `project`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
+Every admin verb (`destination`, `model-spec`, `project`, `role`, `grant`, `ungrant`, `roster`, `enroll`,
 `revoke`, `kit`, `studio`, `session`, `standing`) is a thin client of the running Jam's admin API: it takes
 `--app`/`--admin-url` to pick the target and `--token` (or a cached login) to
 authenticate. That client story lives in [operators.md](operators.md); the

@@ -17,7 +17,7 @@ const ConfigSnapshotVersion = 1
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
-// pin), destinations, projects (roster, escalation, chat service, session context) and the
+// pin), destinations, model-specs, projects (roster, escalation, chat service, session context) and the
 // Jam-wide session context. It never
 // carries runtime/studio state (instances) or intercom unread cursors — those
 // aggregates simply have no field here.
@@ -28,7 +28,10 @@ type ConfigSnapshot struct {
 	Roles        map[string]map[string]Role `json:"roles"` // project → name → Role
 	Kits         []Kit                      `json:"kits"`  // full: Current + all Versions
 	Destinations []Destination              `json:"destinations"`
-	Projects     []Project                  `json:"projects"`
+	// ModelSpecs is omitted when empty, so pre-model-spec backups and readers
+	// are unaffected (no version bump).
+	ModelSpecs []ModelSpec `json:"model_specs,omitempty"`
+	Projects   []Project   `json:"projects"`
 	// JamContext is the Jam-wide authored session-context layer; nil = none.
 	JamContext *sessionctx.Layer `json:"jam_context,omitempty"`
 }
@@ -76,6 +79,11 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		snap.Destinations = append(snap.Destinations, d)
 	}
 	sort.Slice(snap.Destinations, func(i, j int) bool { return snap.Destinations[i].Name < snap.Destinations[j].Name })
+
+	for _, ms := range m.specs {
+		snap.ModelSpecs = append(snap.ModelSpecs, ms)
+	}
+	sort.Slice(snap.ModelSpecs, func(i, j int) bool { return snap.ModelSpecs[i].Name < snap.ModelSpecs[j].Name })
 
 	for name, p := range m.projects {
 		p.Name = name
@@ -151,6 +159,13 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 			return bad("destination "+d.Name, fmt.Errorf("note is %d bytes; at most %d", len(d.Note), MaxDestinationNote))
 		}
 	}
+	for _, ms := range s.ModelSpecs {
+		// Credentials are serve-config, not snapshot, state: check the structure
+		// only (a restored Jam's credentials may differ from the exporter's).
+		if err := ValidateModelSpec(ms, func(string) bool { return true }, true); err != nil {
+			return bad("model-spec "+ms.Name, err)
+		}
+	}
 	return nil
 }
 
@@ -173,6 +188,9 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	}
 	if len(m.dests) > 0 {
 		names = append(names, "destinations")
+	}
+	if len(m.specs) > 0 {
+		names = append(names, "model_specs")
 	}
 	if len(m.projects) > 0 {
 		names = append(names, "projects")
@@ -235,6 +253,10 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	m.dests = map[string]Destination{}
 	for _, d := range s.Destinations {
 		m.dests[d.Name] = d
+	}
+	m.specs = map[string]ModelSpec{}
+	for _, ms := range s.ModelSpecs {
+		m.specs[ms.Name] = ms
 	}
 	m.projects = map[string]Project{}
 	for _, p := range s.Projects {

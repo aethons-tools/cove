@@ -9,7 +9,7 @@ import "context"
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, projects, intercom_unread_cursors`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, model_specs, projects, intercom_unread_cursors`); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -17,6 +17,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.roles = map[string]map[string]Role{}
 	s.actors = map[string]Actor{}
 	s.dests = map[string]Destination{}
+	s.specs = map[string]ModelSpec{}
 	s.kits = map[string]Kit{}
 	s.instances = map[string]Instance{}
 	s.projects = map[string]Project{}

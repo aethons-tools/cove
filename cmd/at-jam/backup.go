@@ -112,8 +112,8 @@ func cmdImport(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "imported config: %d actors, %d kits, %d destinations, %d projects\n",
-		len(snap.Actors), len(snap.Kits), len(snap.Destinations), len(snap.Projects))
+	fmt.Fprintf(stdout, "imported config: %d actors, %d kits, %d destinations, %d model-specs, %d projects\n",
+		len(snap.Actors), len(snap.Kits), len(snap.Destinations), len(snap.ModelSpecs), len(snap.Projects))
 	return 0
 }
 

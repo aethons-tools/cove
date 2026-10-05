@@ -227,6 +227,26 @@ func (fs *MemStore) RemoveDestination(name string) error {
 	return nil
 }
 
+func (fs *MemStore) PutModelSpec(ms ModelSpec) error {
+	c, err := prepareModelSpec(ms)
+	if err != nil {
+		return err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applyPutModelSpec(c)
+	return nil
+}
+
+func (fs *MemStore) RemoveModelSpec(name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if !fs.applyRemoveModelSpec(name) {
+		return fmt.Errorf("model-spec %q not found", name)
+	}
+	return nil
+}
+
 func (fs *MemStore) AddHuman(project string, h Human) error {
 	if h.Name == "" {
 		return fmt.Errorf("human name required")

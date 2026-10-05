@@ -378,7 +378,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		log.Info("admin config imported", "operator", OperatorID(r),
 			"actors", len(snap.Actors), "kits", len(snap.Kits),
-			"destinations", len(snap.Destinations), "projects", len(snap.Projects))
+			"destinations", len(snap.Destinations), "model_specs", len(snap.ModelSpecs), "projects", len(snap.Projects))
 		w.WriteHeader(http.StatusNoContent)
 	})
 
