@@ -38,3 +38,21 @@ func ValidateTurnEnd(p TurnEndPolicy) error {
 	}
 	return fmt.Errorf("on-idle must be %q or %q", OnIdleWake, OnIdleTeardown)
 }
+
+// Idle-override scopes (IdleOverride.Scope).
+const (
+	IdleScopeNext   = "next"   // only the next turn end
+	IdleScopeAlways = "always" // every turn end until the session ends
+)
+
+// IdleOverride is a session's own override of its role's idle timeout.
+type IdleOverride struct {
+	Duration time.Duration `json:"duration"` // 0 = off
+	Scope    string        `json:"scope"`    // IdleScopeNext | IdleScopeAlways
+}
+
+// EndRequest records that a session asked to end (the `end` tool).
+type EndRequest struct {
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
+}

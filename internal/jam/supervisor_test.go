@@ -1567,3 +1567,101 @@ func TestReportHoldingToRunningKeepsWaitSeq(t *testing.T) {
 		t.Fatal("holding must not stamp WaitingSince")
 	}
 }
+
+// raiseWithTurnEnd raises w1 under a role carrying the given turn-end policy;
+// *now is the supervisor's clock.
+func raiseWithTurnEnd(t *testing.T, te TurnEndPolicy) (*Supervisor, Store, *time.Time) {
+	t.Helper()
+	sup, store, now := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutRole("default", Role{Name: "te", Scope: Scope{Destinations: []string{"anthropic"}}, TurnEnd: te}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "te"}); err != nil {
+		t.Fatal(err)
+	}
+	return sup, store, now
+}
+
+func TestReportTurnEndArmsIdleDeadline(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: 30 * time.Minute})
+	*now = time.Unix(2000, 0)
+	if err := sup.Report(context.Background(), "w1", ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if !inst.TurnEndedAt.Equal(time.Unix(2000, 0)) || !inst.IdleDeadline.Equal(time.Unix(2000, 0).Add(30*time.Minute)) {
+		t.Fatalf("turn ended %v, deadline %v", inst.TurnEndedAt, inst.IdleDeadline)
+	}
+}
+
+// holding → waiting is the same turn end: no re-stamp.
+func TestReportHoldingToWaitingKeepsTurnEnd(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: time.Minute})
+	*now = time.Unix(3000, 0)
+	_ = sup.Report(context.Background(), "w1", ActivityHolding)
+	*now = time.Unix(3500, 0)
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	inst, _ := store.GetInstance("w1")
+	if !inst.TurnEndedAt.Equal(time.Unix(3000, 0)) || !inst.IdleDeadline.Equal(time.Unix(3060, 0)) {
+		t.Fatalf("holding→waiting re-stamped: turn ended %v, deadline %v", inst.TurnEndedAt, inst.IdleDeadline)
+	}
+}
+
+func TestReportTurnEndNoTimeoutNoDeadline(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	if inst, _ := store.GetInstance("w1"); !inst.IdleDeadline.IsZero() || inst.TurnEndedAt.IsZero() {
+		t.Fatalf("deadline %v turn ended %v; want no deadline, turn end stamped", inst.IdleDeadline, inst.TurnEndedAt)
+	}
+}
+
+func TestReportTurnEndConsumesNextOverride(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: time.Hour})
+	if err := sup.SetIdleOverride("w1", IdleOverride{Duration: 5 * time.Minute, Scope: IdleScopeNext}); err != nil {
+		t.Fatal(err)
+	}
+	*now = time.Unix(2000, 0)
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	inst, _ := store.GetInstance("w1")
+	if !inst.IdleDeadline.Equal(time.Unix(2000, 0).Add(5*time.Minute)) || inst.IdleOverride != nil {
+		t.Fatalf("first turn end: deadline %v override %+v", inst.IdleDeadline, inst.IdleOverride)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	*now = time.Unix(4000, 0)
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	inst, _ = store.GetInstance("w1")
+	if !inst.IdleDeadline.Equal(time.Unix(4000, 0).Add(time.Hour)) {
+		t.Fatalf("second turn end: deadline %v, want role default", inst.IdleDeadline)
+	}
+}
+
+func TestReportTurnEndAlwaysOverrideOffPersists(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: time.Hour})
+	_ = sup.SetIdleOverride("w1", IdleOverride{Duration: 0, Scope: IdleScopeAlways})
+	for i := 0; i < 2; i++ {
+		_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+		inst, _ := store.GetInstance("w1")
+		if !inst.IdleDeadline.IsZero() || inst.IdleOverride == nil {
+			t.Fatalf("turn end %d: deadline %v override %+v", i, inst.IdleDeadline, inst.IdleOverride)
+		}
+		_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	}
+}
+
+func TestSetEndRequestedFirstWins(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.SetEndRequested("w1", "done")
+	_ = sup.SetEndRequested("w1", "again")
+	if inst, _ := store.GetInstance("w1"); inst.EndRequested == nil || inst.EndRequested.Reason != "done" {
+		t.Fatalf("end requested = %+v", inst.EndRequested)
+	}
+}
+
+func TestClearIdleDeadline(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: time.Minute})
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	_ = sup.ClearIdleDeadline("w1")
+	if inst, _ := store.GetInstance("w1"); !inst.IdleDeadline.IsZero() {
+		t.Fatal("deadline not cleared")
+	}
+}

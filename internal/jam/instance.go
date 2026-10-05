@@ -42,34 +42,38 @@ type Lease struct {
 // operational half (location, status, lease). It has no slice/map fields, so a
 // value copy is a full copy.
 type Instance struct {
-	ActorID            string    `json:"actor_id"`
-	Project            string    `json:"project"`
-	Role               string    `json:"role"`
-	Unit               string    `json:"unit,omitempty"`
-	Owner              string    `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
-	Name               string    `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
-	SessionKind        string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: Jam does not import allocator)
-	Backend            string    `json:"backend,omitempty"`      // populated by the real launcher (later slice)
-	Location           string    `json:"location,omitempty"`     // opaque handle from Launcher.Raise
-	Phase              Phase     `json:"phase"`
-	Activity           Activity  `json:"activity,omitempty"`
-	Lease              Lease     `json:"lease"`
-	LaunchSecretHash   string    `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
-	RaisedAt           time.Time `json:"raised_at"`
-	LastSeen           time.Time `json:"last_seen"`
-	WaitingSince       time.Time `json:"waiting_since,omitempty"`       // set when Activity enters Waiting (B1)
-	WaitSeq            int64     `json:"wait_seq,omitempty"`            // wake-on baseline (squawk log append Seq): set to the log tail at raise and on entering Running, advanced by the wake-on engine past each reply it wakes the cove for, kept on entering Waiting; a reply wakes iff its Seq > this. Old persisted wait_cursor (pre-Seq) is ignored, defaulting to 0 — safe on ephemeral coves (wakes on anything after 0).
-	CommitSeq          int64     `json:"commit_seq,omitempty"`          // durable inbox consume offset, as the append-order Seq of the last squawk the cove has committed as processed; the ordering key for AdvanceCommitCursor and read anchor=cursor. Set at raise to the log tail, advanced by /squawks/commit. Old persisted commit_seq-less stores default to 0 (read-from-start) — harmless on ephemeral coves.
-	CommitCursor       string    `json:"commit_cursor,omitempty"`       // the committed message id — CommitSeq's id, kept for the commit/read response echo so callers get an id back with no seq→id reverse lookup. A deliberate denormalization: always kept in lockstep with CommitSeq by AdvanceCommitCursor. NOT itself compared for ordering (see CommitSeq). Old persisted commit_cursor id loads fine.
-	EscalationTier     int       `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
-	TierPingedAt       time.Time `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
-	EscalationCategory string    `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
-	LastNagAt          time.Time `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
-	Nags               int       `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
-	Egress             string    `json:"egress,omitempty"`              // EgressFingerprint of the egress policy the cove is running under; "" = unknown (raised before this was recorded) — the supervisor re-applies once
-	Connector          string    `json:"connector,omitempty"`           // snippet.Fingerprint of the connector the cove last reported applying to an agent spawn; "" = never reported (an older image, or no turn yet)
-	EgressFailures     int       `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
-	Kit                KitRef    `json:"kit,omitzero"`                  // the kit image the cove was raised with; GET /context keeps its build-args and egress ceiling
+	ActorID            string        `json:"actor_id"`
+	Project            string        `json:"project"`
+	Role               string        `json:"role"`
+	Unit               string        `json:"unit,omitempty"`
+	Owner              string        `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
+	Name               string        `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
+	SessionKind        string        `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: Jam does not import allocator)
+	Backend            string        `json:"backend,omitempty"`      // populated by the real launcher (later slice)
+	Location           string        `json:"location,omitempty"`     // opaque handle from Launcher.Raise
+	Phase              Phase         `json:"phase"`
+	Activity           Activity      `json:"activity,omitempty"`
+	Lease              Lease         `json:"lease"`
+	LaunchSecretHash   string        `json:"launch_secret_hash,omitempty"` // hash of the per-instance launch secret (COV-153)
+	RaisedAt           time.Time     `json:"raised_at"`
+	LastSeen           time.Time     `json:"last_seen"`
+	WaitingSince       time.Time     `json:"waiting_since,omitempty"`       // set when Activity enters Waiting (B1)
+	WaitSeq            int64         `json:"wait_seq,omitempty"`            // wake-on baseline (squawk log append Seq): set to the log tail at raise and on entering Running, advanced by the wake-on engine past each reply it wakes the cove for, kept on entering Waiting; a reply wakes iff its Seq > this. Old persisted wait_cursor (pre-Seq) is ignored, defaulting to 0 — safe on ephemeral coves (wakes on anything after 0).
+	CommitSeq          int64         `json:"commit_seq,omitempty"`          // durable inbox consume offset, as the append-order Seq of the last squawk the cove has committed as processed; the ordering key for AdvanceCommitCursor and read anchor=cursor. Set at raise to the log tail, advanced by /squawks/commit. Old persisted commit_seq-less stores default to 0 (read-from-start) — harmless on ephemeral coves.
+	CommitCursor       string        `json:"commit_cursor,omitempty"`       // the committed message id — CommitSeq's id, kept for the commit/read response echo so callers get an id back with no seq→id reverse lookup. A deliberate denormalization: always kept in lockstep with CommitSeq by AdvanceCommitCursor. NOT itself compared for ordering (see CommitSeq). Old persisted commit_cursor id loads fine.
+	EscalationTier     int           `json:"escalation_tier,omitempty"`     // last-pinged tier index; meaningful only when TierPingedAt is non-zero
+	TierPingedAt       time.Time     `json:"tier_pinged_at,omitempty"`      // when EscalationTier was pinged; zero = no escalation open
+	EscalationCategory string        `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
+	LastNagAt          time.Time     `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
+	Nags               int           `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period
+	Egress             string        `json:"egress,omitempty"`              // EgressFingerprint of the egress policy the cove is running under; "" = unknown (raised before this was recorded) — the supervisor re-applies once
+	Connector          string        `json:"connector,omitempty"`           // snippet.Fingerprint of the connector the cove last reported applying to an agent spawn; "" = never reported (an older image, or no turn yet)
+	EgressFailures     int           `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
+	Kit                KitRef        `json:"kit,omitzero"`                  // the kit image the cove was raised with; GET /context keeps its build-args and egress ceiling
+	TurnEndedAt        time.Time     `json:"turn_ended_at,omitempty"`       // when the cove last left Running for Holding/Waiting
+	IdleDeadline       time.Time     `json:"idle_deadline,omitempty"`       // armed at turn end from IdleOverride or the role's idle timeout; zero = none armed
+	IdleOverride       *IdleOverride `json:"idle_override,omitempty"`       // the cove's own idle-timeout override (PUT /idle)
+	EndRequested       *EndRequest   `json:"end_requested,omitempty"`       // the cove asked to end (POST /end); wake-on tears it down once Waiting
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal
