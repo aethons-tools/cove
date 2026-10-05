@@ -466,3 +466,49 @@ func TestEpisodeStaleWakeSignalWritesNothing(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A background task completing starts a self-turn: Holding → Running.
+func TestEpisodeBackgroundSelfTurnReportsRunning(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnStarted, lnResult)
+	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+		t.Fatal("no Holding")
+	}
+	before := h.count(covemaster.Running)
+	p.emit(lnTasks0, lnUpdated)
+	p.emit(lnNotify) // the completion starts a self-turn
+	if !eventually(func() bool { return h.count(covemaster.Running) == before+1 }) {
+		t.Fatalf("self-turn did not report Running (running=%d, before=%d)", h.count(covemaster.Running), before)
+	}
+	cancel()
+	<-done
+}
+
+// The BackgroundWait cap ends the hold: the agent is told to stop its tasks,
+// so the session is busy (Running) until the episode exits, not Holding.
+func TestEpisodeBackgroundWaitCapLeavesHolding(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true; c.BackgroundWait = 30 * time.Millisecond })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnResult)
+	p.in.waitClosed(t) // the cap closed stdin
+	if !eventually(func() bool { return h.count(covemaster.Running) >= 2 }) {
+		t.Fatalf("cap did not report Running (running=%d)", h.count(covemaster.Running))
+	}
+	cancel()
+	<-done
+}

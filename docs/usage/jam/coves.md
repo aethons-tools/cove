@@ -30,7 +30,7 @@ two status fields with different owners:
   `→ lost → terminating` when the reconciler finds it dead. A `live` studio
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
   lease-reaping suspended — and back `→ live` on reply or teardown past
-  `wait-max`; see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
+  `wait-max` (or the role's [idle timeout](turn-end.md#idle-timeout)); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the studio reports it, only while `live`): `running | holding |
   waiting | blocked | done`. Reporting `done` tells Jam to tear the studio down.

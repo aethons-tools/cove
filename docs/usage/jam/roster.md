@@ -1,7 +1,7 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
 read_when: You are deciding who can reach what on a Jam — defining roles, setting a role's raw egress, granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
 updated: 2026-10-05
@@ -88,7 +88,7 @@ at-jam role rm   [--project acme] guest
   Negative values are refused. The admin API carries them as
   `idle_after_seconds`/`nag_every_seconds`/`reclaim_after_seconds`; `role list`
   shows them as `idle-after=…`, `nag-every=…`, `reclaim-after=…`. What the ladder
-  does: [personal-sessions.md](personal-sessions.md#the-idle-ladder).
+  does: [personal-sessions.md](personal-sessions.md#the-idle-ladder). (Not to be confused with `--idle-timeout D` / `--on-idle wake|teardown`, API `idle_timeout_seconds`/`on_idle`: the role's [turn-end idle timeout](turn-end.md#idle-timeout).)
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
   `at-jam standing add|list|rm`, not with `role add` flags. Re-running

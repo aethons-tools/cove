@@ -481,6 +481,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 				"wait", w.cfg.BackgroundWait.String(), "tasks", tasks)
 			holdC = nil
 			closeInput("background-wait elapsed")
+			unhold() // the agent now stops its tasks: busy until the episode exits
 		}
 		if !open {
 			continue

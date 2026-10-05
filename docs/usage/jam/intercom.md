@@ -18,6 +18,7 @@ A managed studio's agent gets **Jam-brokered** tools — `read`, `send`,
 - **`read(anchor?, id?, dir?, limit?)`** — reads the studio's inbox **as a queue**: by default the next unprocessed squawks after the studio's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the studio's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the studio has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the humans/channels this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
+- **`end(reason)`** and **`idle_timeout(duration, scope)`** — end the session at turn end, or tune how long it may sit idle after one; see [turn-end.md](turn-end.md#ending-a-session).
 - **`escalate(category)`** — declares the studio's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.
@@ -121,7 +122,8 @@ watches the studio's ticket and, when a **new comment** (a reply) arrives, **wak
 over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. When its [session context](session-context.md#refresh) changed
 meanwhile, the wake text says so. A **`wait-max`** bounds the wait — a studio with no reply within it is
-torn down (no zombies), paused or not. **Resident sessions are exempt from `wait-max`:**
+torn down (no zombies), paused or not — unless the role's
+[idle timeout](turn-end.md#idle-timeout) is armed, which then decides instead. **Resident sessions are exempt from `wait-max`:**
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
 after every turn and is never torn down for `wait-max` (it is still paused at
 `warm-timeout` and woken on a reply). A personal session instead climbs the
