@@ -22,7 +22,7 @@
       <td><span class="mono">{{.Upstream}}</span></td>
       <td>{{if or .IdentityIn .Apply}}<span class="mono">{{.IdentityIn}} → {{.Apply}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .CredName}}<span class="mono">{{.CredName}}</span>{{else}}<span class="none">—</span>{{end}}</td>
-      <td>{{range .EnvKeys}}<span class="chip">{{.}}</span>{{end}}{{if .GitRouted}}<span class="chip accent">git</span>{{end}}{{if .OAuthBeta}}<span class="chip accent">oauth-beta</span>{{end}}{{if not (or .EnvKeys .GitRouted .OAuthBeta)}}<span class="none">—</span>{{end}}</td>
+      <td>{{range .EnvKeys}}<span class="chip">{{.}}</span>{{end}}{{if .GitRouted}}<span class="chip accent">git</span>{{end}}{{if not (or .EnvKeys .GitRouted)}}<span class="none">—</span>{{end}}</td>
       <td>{{if .UsedBy}}{{.UsedBy}}{{else}}<span class="none">0</span>{{end}}</td>
       <td class="actions"><button class="danger small" hx-delete="/ui/destinations/{{.Name}}" hx-target="#destinations" hx-swap="outerHTML"
           hx-confirm="Delete destination {{.Name}}?{{if .UsedBy}} {{.UsedBy}} role(s) list it.{{end}}">Delete</button></td>

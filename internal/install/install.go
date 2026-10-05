@@ -145,5 +145,20 @@ func Load(kitDir string) (Manifest, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Manifest{}, err
 	}
+	// A manifest frozen from a kit with the removed model-provider: block
+	// (COV-241) would otherwise load as a plain anthropic kit and silently drop
+	// its Vertex wiring; refuse it, pointing at the migration.
+	var legacy struct {
+		RunConfig struct {
+			ModelProvider json.RawMessage `json:"ModelProvider"`
+		} `json:"runConfig"`
+	}
+	if json.Unmarshal(b, &legacy) == nil && len(legacy.RunConfig.ModelProvider) > 0 && string(legacy.RunConfig.ModelProvider) != "null" {
+		return Manifest{}, ErrLegacyModelProvider
+	}
 	return m, nil
 }
+
+// ErrLegacyModelProvider is Load's refusal of an install frozen from a kit that
+// still had model-provider: (replaced by model-spec:, COV-241).
+var ErrLegacyModelProvider = errors.New("this install was built from a kit with model-provider:, which was replaced by model-spec: — move it into a model-spec: block in config.yml (see docs/usage/at-cove-config.md#model-spec) and run `at-cove install`")

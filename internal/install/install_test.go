@@ -172,3 +172,28 @@ func TestSaveEnsuresGitignore(t *testing.T) {
 		t.Fatalf(".gitignore missing .state/:\n%s", string(b))
 	}
 }
+
+// An install.json frozen from a kit with the removed model-provider: block is
+// refused with the migration hint rather than loading as a plain anthropic kit
+// (which would silently drop the Vertex wiring); a current one loads.
+func TestLoadRefusesLegacyModelProviderInstall(t *testing.T) {
+	kitDir := t.TempDir()
+	if err := os.MkdirAll(Dir(kitDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"schemaVersion":2,"name":"vkit","runConfig":{"Name":"vkit","ModelProvider":{"Vertex":{"Env":{"CLOUD_ML_REGION":"us"}}}}}`
+	if err := os.WriteFile(Path(kitDir), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(kitDir)
+	if !errors.Is(err, ErrLegacyModelProvider) || !strings.Contains(err.Error(), "model-spec") || !strings.Contains(err.Error(), "at-cove install") {
+		t.Fatalf("err = %v", err)
+	}
+	plain := `{"schemaVersion":2,"name":"k","runConfig":{"Name":"k","ModelProvider":null}}`
+	if err := os.WriteFile(Path(kitDir), []byte(plain), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(kitDir); err != nil {
+		t.Fatalf("a manifest without a provider must load: %v", err)
+	}
+}

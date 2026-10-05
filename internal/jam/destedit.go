@@ -23,6 +23,9 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	if d.Name == "" || d.Route == "" || d.Upstream == "" {
 		return writeErr(http.StatusBadRequest, "name, route and upstream are required")
 	}
+	if d.LegacyOAuthBeta {
+		return writeErr(http.StatusBadRequest, "oauth_beta was removed: the oauth-2025-04-20 anthropic-beta is now a principal header rule on the pool model-spec (principal.headers: [{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}]) — see docs/usage/jam/model-spec-headers.md")
+	}
 	if d.CredName != "" && !credExists(d.CredName) {
 		return writeErr(http.StatusBadRequest, "credential %q does not resolve to a configured credential", d.CredName)
 	}

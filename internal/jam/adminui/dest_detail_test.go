@@ -20,7 +20,7 @@ func seedDestinations(t *testing.T) jam.Store {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	for _, d := range []jam.Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyBearer, CredName: "anth-key", Apply: jam.ApplyBearer, OAuthBeta: true},
+		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyBearer, CredName: "anth-key", Apply: jam.ApplyBearer},
 		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword},
 		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, CredName: "gh-pat", Apply: jam.ApplyBearer,
 			Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}},
@@ -48,7 +48,6 @@ func TestDestinationsListShowsConnectorAndUse(t *testing.T) {
 		"gh-pat",             // default credential
 		"GH_HOST",            // env key chip
 		"ANTHROPIC_BASE_URL", // legacy-implied env still listed
-		"oauth-beta",         // flag
 		`data-used-by="2"`,   // github-api is used by dev and ops
 		"bearer → bearer",    // identity-in → apply
 	} {
@@ -84,7 +83,7 @@ func TestDestinationDetailEnvRolesAndConflicts(t *testing.T) {
 func TestDestinationDetailLegacyDefaults(t *testing.T) {
 	h := adminui.Handler(seedDestinations(t), testLogger(), nil, nil, credAny, nil)
 	anth := get(t, h, "/ui/destinations/anthropic").Body.String()
-	for _, want := range []string{"ANTHROPIC_BASE_URL", "{base}/anthropic", "ANTHROPIC_AUTH_TOKEN", "implied by the /anthropic/ route", "oauth-beta"} {
+	for _, want := range []string{"ANTHROPIC_BASE_URL", "{base}/anthropic", "ANTHROPIC_AUTH_TOKEN", "implied by the /anthropic/ route"} {
 		if !strings.Contains(anth, want) {
 			t.Errorf("anthropic detail missing %q", want)
 		}
@@ -128,7 +127,7 @@ func TestCreateDestinationAllFields(t *testing.T) {
 		t.Fatalf("create = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 	d := store.ListDestinations()[0]
-	if d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || !d.OAuthBeta || d.Note != "use git over https" {
+	if d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || d.LegacyOAuthBeta || d.Note != "use git over https" {
 		t.Fatalf("stored = %+v", d)
 	}
 	if rec := post(t, h, "/ui/destinations", url.Values{"name": {"gh"}, "route": {"/x/"}, "upstream": {"https://x"}}); rec.Code != http.StatusConflict {
@@ -147,7 +146,7 @@ func TestEditDestinationReplacesEveryField(t *testing.T) {
 	rec := post(t, h, "/ui/destinations/github-api", url.Values{
 		"route": {"/api/v3/"}, "upstream": {"https://ghe.example/api/v3"},
 		"identity-in": {"bearer"}, "cred-name": {"other"}, "apply": {"bearer"},
-		"env": {"GH_HOST={host}"}, // git and oauth-beta unchecked
+		"env": {"GH_HOST={host}"}, // git unchecked
 	})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="dest"`) {
 		t.Fatalf("edit = %d: %s", rec.Code, rec.Body.String())
@@ -158,7 +157,7 @@ func TestEditDestinationReplacesEveryField(t *testing.T) {
 			got = d
 		}
 	}
-	if got.Upstream != "https://ghe.example/api/v3" || got.CredName != "other" || len(got.Env) != 1 || got.Git || got.OAuthBeta {
+	if got.Upstream != "https://ghe.example/api/v3" || got.CredName != "other" || len(got.Env) != 1 || got.Git {
 		t.Fatalf("after edit = %+v", got)
 	}
 	if rec := post(t, h, "/ui/destinations/ghost", url.Values{"route": {"/g/"}, "upstream": {"https://g"}}); rec.Code != http.StatusNotFound {

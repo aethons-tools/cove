@@ -41,9 +41,10 @@ func CurrencyHash(in CurrencyInputs) string {
 }
 
 // HarnessIdentity is the currency input for a full kit's harness install (its
-// type, exact CLI version and plugins — harnessinstall.Default() until kits
-// name a model-spec, COV-241): a DefaultClaudeVersion bump makes every full-kit
-// install stale, so the next run rebuilds with the new CLI.
+// type, exact CLI version and plugins — assemble.HarnessFor: the kit's
+// model-spec: block's, else claude-default's, COV-241): a model-spec version
+// edit, or a DefaultClaudeVersion bump for a kit without one, makes the install
+// stale, so the next run rebuilds with the new CLI.
 func HarnessIdentity(in harnessinstall.Install) string {
 	b, _ := json.Marshal(in) // a struct of strings; never errors
 	sum := sha256.Sum256(b)

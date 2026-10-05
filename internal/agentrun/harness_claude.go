@@ -358,34 +358,12 @@ func claudePolicy(spec *modelspec.Spec) []string {
 	return args
 }
 
-// claudeEnv is the provider env a spec implies: vertex sets
+// claudeEnv is the provider env a spec implies (modelspec.ProviderEnv — the
+// one rendering a plain at-cove session shares): vertex sets
 // CLAUDE_CODE_USE_VERTEX=1, bedrock CLAUDE_CODE_USE_BEDROCK=1, anthropic
-// nothing; then claude.provider-env. A protected, reserved or
-// credential-carrying key is dropped (defense in depth: Jam refuses them at
-// write). nil when there is nothing to set.
-func claudeEnv(spec *modelspec.Spec) map[string]string {
-	if spec == nil || spec.Claude == nil {
-		return nil
-	}
-	env := map[string]string{}
-	for k, v := range spec.Claude.ProviderEnv {
-		if kit.ProtectedEnvKey(k) || modelspec.CredentialEnvKey(k) ||
-			strings.HasPrefix(k, "AT_JAM_") || strings.HasPrefix(k, "AT_HARBOR_") {
-			continue
-		}
-		env[k] = v
-	}
-	switch spec.Claude.Provider {
-	case "vertex":
-		env["CLAUDE_CODE_USE_VERTEX"] = "1"
-	case "bedrock":
-		env["CLAUDE_CODE_USE_BEDROCK"] = "1"
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
-}
+// nothing; then claude.provider-env, minus any protected, reserved or
+// credential-carrying key. nil when there is nothing to set.
+func claudeEnv(spec *modelspec.Spec) map[string]string { return modelspec.ProviderEnv(spec) }
 
 // EncodeInput encodes text as one stream-json stdin line.
 func (Claude) EncodeInput(text string) []byte {

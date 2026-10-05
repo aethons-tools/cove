@@ -4,7 +4,7 @@ read_when: You are adding a secret to a kit, supplying a value from your machine
 owns: the demand/supply secret model — config.yml `secrets` (demand) and ~/.config/at-cove/secrets.yml + secrets.local.yml (supply); the `GOOGLE_APPLICATION_CREDENTIALS_JSON` Vertex credential demand
 prereqs: at-cove-config.md — the config.yml schema this is part of; ../OVERVIEW.md — the chat/injection data flow
 tier: leaf
-updated: 2026-07-21
+updated: 2026-10-05
 ---
 
 # at-cove secrets
@@ -241,9 +241,9 @@ inside the VM).
 
 ## The Vertex credential demand: `GOOGLE_APPLICATION_CREDENTIALS_JSON`
 
-A kit with a [`model-provider.vertex`](at-cove-config.md#model-provider) block
+A kit whose [`model-spec`](at-cove-config.md#model-spec) has `claude.provider: vertex`
 authenticates `chat` via a GCP Application Default Credentials (ADC) file instead
-of Anthropic subscription OAuth. That credential is not part of the `env` map —
+of Anthropic subscription OAuth. That credential is not part of the `provider-env` map —
 it is resolved through the ordinary demand/supply model above, under the
 well-known demand name **`GOOGLE_APPLICATION_CREDENTIALS_JSON`**, supplied under
 `kits: <kit>:` like any other secret:

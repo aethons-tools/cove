@@ -31,6 +31,14 @@ func EgressFor(c kit.Config) Egress {
 	return Egress{Policy: c.Image.AllowedDomains, Infra: kit.InfraDomains(c)}
 }
 
+// HarnessFor derives a kit config's harness install: the harness layer of its
+// model-spec: block (version + plugins), or claude-default's when it has none
+// (kit.Config.EffectiveModelSpec).
+func HarnessFor(c kit.Config) harnessinstall.Install {
+	s := c.EffectiveModelSpec()
+	return harnessinstall.FromSpec(&s)
+}
+
 // Assemble builds the context in buildDir: the sealed hardening layer, the
 // injected at-task, the kit's egress lists, the per-kit GitLab gitconfig, and
 // the managed public key. The kit's image/ is the Dockerfile build context
@@ -41,7 +49,7 @@ func EgressFor(c kit.Config) Egress {
 // effect on kitDir) and then assembles the build context. The build context
 // itself needs no kitDir — see AssembleContext, which the managed-cove launcher
 // uses to build from a kit communicated as data, with no host directory.
-func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string) error {
+func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string, harness harnessinstall.Install) error {
 	// Any path that assembles a build context (build/create/work) keeps the kit's
 	// .gitignore current, so generated .build/.state artifacts never leak into git.
 	if err := kit.EnsureGitignore(kitDir); err != nil {
@@ -49,9 +57,9 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 	}
 	// A full kit's agent never runs cove-master (only Jam-raised studio coves
 	// do), so it bakes no MCP servers — just the empty file. Its harness is
-	// claude-default's install (modelspec.DefaultClaudeVersion + plugins) until
-	// a kit can name a model-spec (COV-241).
-	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harnessinstall.Default())
+	// the caller's — HarnessFor: the kit's model-spec: block, else
+	// claude-default's install (COV-241).
+	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harness)
 }
 
 // AssembleContext stages the docker build context into buildDir with NO source

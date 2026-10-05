@@ -293,6 +293,9 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// oauthBetaDoc is the doc the removed --oauth-beta flag points at.
+const oauthBetaDoc = "docs/usage/jam/model-spec-headers.md"
+
 func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "at-jam destination: expected add|list|rm|import")
@@ -312,7 +315,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
-	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
+	// --oauth-beta was removed (COV-241); it stays registered only to refuse
+	// with a pointer to its replacement rather than "flag provided but not defined".
+	oauthBeta := fs.Bool("oauth-beta", false, "REMOVED: the oauth-2025-04-20 anthropic-beta is a principal header rule on the pool model-spec (see "+oauthBetaDoc+")")
 	var envKV []string
 	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
 		envKV = append(envKV, s)
@@ -326,6 +331,10 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	}
 	if err := validateApp(*app); err != nil {
 		fmt.Fprintln(stderr, "at-jam destination:", err)
+		return 2
+	}
+	if *oauthBeta {
+		fmt.Fprintf(stderr, "at-jam destination: --oauth-beta was removed: the oauth-2025-04-20 anthropic-beta is now a principal header rule on the pool model-spec (principal.headers: [{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}]; a pool claude-default is seeded with it, and existing oauth_beta destinations are migrated at serve startup) — see %s\n", oauthBetaDoc)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -357,9 +366,6 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		}
 		for _, dd := range ds {
 			ob := ""
-			if dd.OAuthBeta {
-				ob = ", oauth-beta"
-			}
 			if len(dd.Env) > 0 {
 				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
 			}
@@ -1607,15 +1613,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// marketplace plugins dropped, and the image-wide default plugins when it
 	// has none. COV-245: a stored claude-default gains the Claude preference
 	// keys it lacks (moved out of the sealed managed settings; operator values
-	// kept). Each loss is a WARN naming the spec. A no-op once recorded.
+	// kept). COV-241: a destination's removed oauth_beta flag becomes the
+	// anthropic-beta principal header rule on the pool-principal specs, and is
+	// cleared. Each loss is a WARN naming the spec. A no-op once recorded.
 	mig, err := jam.MigrateModelSpecs(st)
 	for _, w := range mig.Warnings {
 		log.Warn("model-spec migration", "detail", w)
 	}
 	if err != nil {
 		log.Warn("model-spec migration incomplete (retried next startup)", "migrated", mig.Migrated, "reason", err.Error())
-	} else if len(mig.Migrated) > 0 {
-		log.Info("model-specs migrated", "names", mig.Migrated, "default_version", modelspec.DefaultClaudeVersion)
+	} else if len(mig.Migrated) > 0 || len(mig.Destinations) > 0 {
+		log.Info("model-specs migrated", "names", mig.Migrated, "default_version", modelspec.DefaultClaudeVersion, "oauth_beta_destinations", mig.Destinations)
 	}
 	// Seed the default model-spec every unbound role resolves to. Not fatal when
 	// no principal resolves: unbound roles then deliver no spec and their coves

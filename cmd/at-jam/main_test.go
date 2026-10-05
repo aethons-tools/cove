@@ -1418,6 +1418,25 @@ func TestDestinationAddEnvAndGit(t *testing.T) {
 	}
 }
 
+// The removed --oauth-beta flag is a hard error pointing at its replacement
+// (the pool model-spec's principal header rule), and nothing is written.
+func TestDestinationAddOAuthBetaRemoved(t *testing.T) {
+	store := jam.NewMemStore()
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "anthropic", "--route", "/anthropic/", "--upstream", "https://api.anthropic.com",
+		"--identity-in", "bearer", "--cred-name", "anthropic-sub", "--apply", "bearer", "--oauth-beta"}, func(string) string { return "" }, &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "--oauth-beta was removed") || !strings.Contains(errb.String(), "ensure-list-item: oauth-2025-04-20") ||
+		!strings.Contains(errb.String(), "docs/usage/jam/model-spec-headers.md") {
+		t.Fatalf("exit=%d stderr=%s", code, errb.String())
+	}
+	if len(store.ListDestinations()) != 0 {
+		t.Fatal("nothing may be written when --oauth-beta is passed")
+	}
+}
+
 // --identity-in/--apply take preset names (incl. raw); a custom header spec
 // comes in through `destination import` YAML.
 func TestDestinationRawPresetAndCustomSpecImport(t *testing.T) {

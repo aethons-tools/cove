@@ -47,7 +47,8 @@ func Env(baseURL, token string) map[string]string {
 // 2026-09-29; see the pool spec's Revision B). It deliberately does NOT set
 // ANTHROPIC_API_KEY (which would force x-api-key mode). The broker reads the
 // identity from the bearer, swaps in the real pool subscription token, and adds
-// the `oauth-2025-04-20` beta on the way to Anthropic.
+// the `oauth-2025-04-20` beta on the way to Anthropic (the pool model-spec's
+// principal header rule).
 func RenderSubscription(baseURL, token string) string {
 	return Legacy(true).Render(baseURL, token)
 }

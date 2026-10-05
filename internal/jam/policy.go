@@ -19,11 +19,13 @@ type Destination struct {
 	// Apply is "custom" (and only then); presets expand in headerspec.go.
 	IdentityInSpec *InboundSpec  `json:"identity_in_spec,omitempty" yaml:"identity_in_spec,omitempty"`
 	ApplySpec      *OutboundSpec `json:"apply_spec,omitempty"       yaml:"apply_spec,omitempty"`
-	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
-	// present in the forwarded `anthropic-beta` header. Used by the subscription
-	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
-	// Anthropic requires it to accept a subscription-OAuth token.
-	OAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
+	// LegacyOAuthBeta is the removed oauth_beta flag (COV-241), kept LOAD-ONLY
+	// so a destination stored or backed up before the removal still decodes:
+	// the one-time model-spec store migration (schema step 3,
+	// MigrateModelSpecs / MigrateSnapshotModelSpecs) turns it into the
+	// PoolOAuthBetaRule principal header rule and clears it. The broker never
+	// reads it, and ValidateDestination refuses a write that sets it.
+	LegacyOAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
 	// Env is the client env a studio sets to use this destination: values are
 	// templates over {url} (broker base + this route), {base}, {host} and
 	// {token} — see snippet.Connector. nil = the legacy default (ClientEnv).

@@ -28,14 +28,15 @@ self-destruct its own credentials (the failure mode of the earlier dummy-
 `claudeAiOauth` approach — see the spec's Revision B).
 
 The anthropic destination carries the identity on the bearer
-(`--identity-in bearer --apply bearer`, `--cred-name` = the pool's `cred-name`,
-`--oauth-beta`). The broker authenticates the identity exactly as before
+(`--identity-in bearer --apply bearer`, `--cred-name` = the pool's `cred-name`).
+The broker authenticates the identity exactly as before
 (`HashToken` → actor → `Decide` — see the [broker model](serve.md#the-broker-model)),
 resolves the credential from the pool — binding the identity to a pool account
 **for the cove's life** (spreading new identities across the least-loaded
 accounts) and injecting that account's **current** access token — and, because
 `AUTH_TOKEN` mode does **not** send it, **adds the `oauth-2025-04-20` beta** to
-the forwarded `anthropic-beta` header (that's what `--oauth-beta` does). So
+the forwarded `anthropic-beta` header — a header rule on the `pool` principal's
+model-spec (below). So
 `api.anthropic.com` sees a genuine subscription request with the pool account's
 real bearer.
 
@@ -62,17 +63,18 @@ pool:
 
 ```
 at-jam destination add --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
-  --identity-in bearer --cred-name anthropic-sub --apply bearer --oauth-beta
+  --identity-in bearer --cred-name anthropic-sub --apply bearer
 ```
 
 The pool's `cred-name` does **not** need a `credentials:` entry — with a `pool:`
 block configured, destination validation accepts it and the pool resolves it by
-identity. `--oauth-beta` makes the broker add the `oauth-2025-04-20`
-`anthropic-beta` on forwarded requests, which Anthropic requires to accept a
-subscription-OAuth token (a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send it).
-The beta can also ride on the `pool` principal's model-spec as a header rule —
-see [model-spec-headers.md](model-spec-headers.md#where-rules-apply) for how the
-two compose.
+identity. Anthropic accepts a subscription-OAuth token only with the
+`oauth-2025-04-20` `anthropic-beta` (a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send
+it), so a model-spec whose principal is `pool` carries the header rule
+`{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}` — `claude-default`
+is seeded with it when a pool is configured; add it to any other pool spec. See
+[model-spec-headers.md](model-spec-headers.md#the-pool-oauth-beta) (including the
+migration of the removed destination `oauth_beta` flag / `--oauth-beta`).
 
 **Account exclusivity.** A pool account must be a `claude auth login` **grant
 nothing else holds.** Subscription refresh tokens rotate on every use, and reusing

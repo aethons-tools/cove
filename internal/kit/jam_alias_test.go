@@ -55,9 +55,9 @@ func TestHarborKeyIsADeprecatedAliasForJam(t *testing.T) {
 func TestHarborKeyAliasIsValidatedLikeJam(t *testing.T) {
 	captureDeprecations(t)
 	for label, data := range map[string]string{
-		"host w/ scheme":  "name: k\nharbor:\n  host: https://h.example\n",
-		"empty host":      "name: k\nharbor:\n  identity: i\n",
-		"harbor+provider": "name: k\nharbor:\n  host: h.example\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
+		"host w/ scheme": "name: k\nharbor:\n  host: https://h.example\n",
+		"empty host":     "name: k\nharbor:\n  identity: i\n",
+		"harbor+spec":    "name: k\nharbor:\n  host: h.example\nmodel-spec: {name: s, type: claude, version: 2.1.287, claude: {provider: anthropic}}\n",
 	} {
 		if _, err := ParseConfig([]byte(data)); err == nil {
 			t.Errorf("%s: expected validation error, got nil", label)

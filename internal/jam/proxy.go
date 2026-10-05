@@ -92,12 +92,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				spec.apply(out.Header, cred) // never logged
 			}
 		}
-		// Principal rules after the credential but before the destination's
-		// oauth_beta ensure, so a set rule can never drop the flag's beta.
+		// Principal rules after the credential (a pool principal's
+		// PoolOAuthBetaRule included — what the removed oauth_beta flag did).
 		applyHeaderRules(out.Header, rules)
-		if dest.OAuthBeta {
-			ensureAnthropicOAuthBeta(out.Header)
-		}
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
@@ -109,12 +106,3 @@ func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, 
 // presentedToken extracts the caller's identity token from the request per
 // the identity-in spec.
 func presentedToken(r *http.Request, in InboundSpec) (string, bool) { return in.extract(r.Header) }
-
-// anthropicOAuthBeta is the beta flag Anthropic requires for a subscription-OAuth
-// bearer. A cove on ANTHROPIC_AUTH_TOKEN doesn't send it, so the broker adds it.
-const anthropicOAuthBeta = "oauth-2025-04-20"
-
-// ensureAnthropicOAuthBeta adds anthropicOAuthBeta to the request's anthropic-beta
-// header (a comma-separated list), preserving any betas already present and never
-// duplicating — the destination OAuthBeta flag, via the generalized ensureListItem.
-func ensureAnthropicOAuthBeta(h http.Header) { ensureListItem(h, "anthropic-beta", anthropicOAuthBeta) }

@@ -229,28 +229,6 @@ func TestBrokerPrincipalEnsureListItemAddsBetaOnce(t *testing.T) {
 	}
 }
 
-func TestBrokerPrincipalRuleAndOAuthBetaFlagCompose(t *testing.T) {
-	d := anthropicDest()
-	d.OAuthBeta = true
-	pc := newPrincipalCase(t, []modelspec.HeaderRule{oauthRule}, d)
-	h := pc.send("/anthropic/v1/messages", "/anthropic/", "anthropic-beta", "a")
-	if got := h.Get("anthropic-beta"); got != "a,oauth-2025-04-20" {
-		t.Fatalf("anthropic-beta = %q, want the beta exactly once", got)
-	}
-}
-
-// Rules apply before the destination's oauth_beta ensure, so a set rule on
-// anthropic-beta can't drop the beta the flag requires.
-func TestBrokerPrincipalSetRuleKeepsOAuthBetaFlag(t *testing.T) {
-	d := anthropicDest()
-	d.OAuthBeta = true
-	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "anthropic-beta", Set: "context-1m"}}, d)
-	h := pc.send("/anthropic/v1/messages", "/anthropic/", "anthropic-beta", "a")
-	if got := h.Get("anthropic-beta"); got != "context-1m,oauth-2025-04-20" {
-		t.Fatalf("anthropic-beta = %q, want the set value plus the flag's beta", got)
-	}
-}
-
 func TestBrokerPrincipalSetRule(t *testing.T) {
 	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "X-Foo", Set: "bar"}}, anthropicDest())
 	h := pc.send("/anthropic/v1/messages", "/anthropic/", "X-Foo", "caller")

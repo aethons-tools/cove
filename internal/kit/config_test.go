@@ -114,7 +114,7 @@ func TestJamConfigValidation(t *testing.T) {
 		"host w/ space":    "name: k\njam:\n  host: \"h.example evil\"\n  identity: i\n",
 		"host w/ cmdsubst": "name: k\njam:\n  host: \"x$(id)\"\n  identity: i\n",
 		"host w/ newline":  "name: k\njam:\n  host: \"a\\nevil.com\"\n  identity: i\n",
-		"jam+provider":     "name: k\njam:\n  host: h.example\n  identity: i\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
+		"jam+model-spec":   "name: k\njam:\n  host: h.example\n  identity: i\nmodel-spec: {name: s, type: claude, version: 2.1.287, claude: {provider: anthropic}}\n",
 	}
 	for label, data := range bad {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -1130,83 +1130,6 @@ teammates:
 	}
 }
 
-func TestParseConfig_VertexValid(t *testing.T) {
-	cfg, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-      CLOUD_ML_REGION: us-east5
-      ANTHROPIC_MODEL: claude-opus-4-8
-`))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	v, ok := cfg.Vertex()
-	if !ok {
-		t.Fatalf("Vertex() ok = false, want true")
-	}
-	if v.Env["ANTHROPIC_VERTEX_PROJECT_ID"] != "my-proj" {
-		t.Fatalf("project id = %q", v.Env["ANTHROPIC_VERTEX_PROJECT_ID"])
-	}
-	env := cfg.VertexEnv()
-	if env["CLAUDE_CODE_USE_VERTEX"] != "1" {
-		t.Fatalf("VertexEnv missing CLAUDE_CODE_USE_VERTEX=1: %v", env)
-	}
-	if env["ANTHROPIC_MODEL"] != "claude-opus-4-8" || env["CLOUD_ML_REGION"] != "us-east5" {
-		t.Fatalf("VertexEnv passthrough wrong: %v", env)
-	}
-}
-
-func TestParseConfig_VertexMissingRequired(t *testing.T) {
-	_, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-`))
-	if err == nil || !strings.Contains(err.Error(), "CLOUD_ML_REGION is required") {
-		t.Fatalf("want CLOUD_ML_REGION required error, got %v", err)
-	}
-}
-
-func TestParseConfig_VertexRejectsProtectedKey(t *testing.T) {
-	_, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-      CLOUD_ML_REGION: us
-      https_proxy: http://evil:3128
-`))
-	if err == nil || !strings.Contains(err.Error(), "https_proxy") {
-		t.Fatalf("want protected-key rejection for https_proxy, got %v", err)
-	}
-}
-
-func TestParseConfig_ModelProviderEmptyUnionRejected(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nmodel-provider: {}\n"))
-	if err == nil || !strings.Contains(err.Error(), "must set exactly one provider") {
-		t.Fatalf("empty model-provider union must be rejected mentioning 'must set exactly one provider'; got %v", err)
-	}
-}
-
-func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\n"))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	if cfg.VertexEnv() != nil {
-		t.Fatalf("VertexEnv should be nil for a non-vertex kit")
-	}
-	if _, ok := cfg.Vertex(); ok {
-		t.Fatalf("Vertex() ok = true for a non-vertex kit")
-	}
-}
-
 func TestSessionEnv_GitLabDefaultHost(t *testing.T) {
 	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    project: grp/sub/name\n"))
 	if err != nil {
@@ -1238,7 +1161,7 @@ func TestSessionEnv_GitHubDoesNotSetGitLabHost(t *testing.T) {
 }
 
 // A GITLAB_HOST the kit sets explicitly in its own authored session env (here via
-// the model-provider env map, which passes non-protected keys through) must win
+// the model-spec's provider-env, which passes non-protected keys through) must win
 // over the source-control-derived default — never overwrite an explicit value.
 func TestSessionEnv_UserEnvWinsOverGitLabHostDefault(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
@@ -1247,9 +1170,13 @@ source-control:
   gitlab:
     host: gitlab.example.com
     project: grp/sub/name
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: my-proj
       CLOUD_ML_REGION: us-east5
       GITLAB_HOST: gitlab.override.example
@@ -1267,9 +1194,13 @@ func TestProviderDomains_Vertex(t *testing.T) {
 name: k
 image:
   allowed-domains: [example.com]
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: p
       CLOUD_ML_REGION: us-east5
 `))
@@ -1480,9 +1411,13 @@ func TestInfraDomains(t *testing.T) {
 name: k
 image:
   allowed-domains: [policy.example, .wild.example]
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: p
       CLOUD_ML_REGION: us-east5
 source-control:
@@ -1506,7 +1441,7 @@ source-control:
 	if strings.Join(root, ",") != strings.Join(unionDomains(cfg.Image.AllowedDomains, infra), ",") {
 		t.Fatalf("RootDomains = %v, want image.allowed-domains ∪ InfraDomains", root)
 	}
-	// Jam and model-provider are mutually exclusive, so the Jam host is
+	// Jam and model-spec are mutually exclusive, so the Jam host is
 	// checked on its own kit.
 	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\njam:\n  host: jam.example\n"))
 	if err != nil {
