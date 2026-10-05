@@ -25,6 +25,10 @@ updated: 2026-10-03
   (204 → a body with warnings) — design first ([session-context.md](usage/jam/session-context.md)).
 * Session context: report the applied context fingerprint up the Attach stream and show a
   `context` column (current/stale) for studios, like the connector's `stale` column.
+* Turn end: cap consecutive failed agent turns. A session whose agent crashes every turn
+  (revoked auth/model) is kept alive by its alarms or an on-idle `wake` idle timeout and
+  never ends, holding its slot; after N failed turns it should end (a ticket marked
+  blocked). See [turn-end.md](usage/jam/turn-end.md).
 * Context lifecycle for long-running (resident) sessions: compaction, clearing and memory.
   Today resident sessions `--continue` forever and rely on claude's auto-compaction. Design
   first; a timer or idle wake is a natural seam to start a fresh episode.
