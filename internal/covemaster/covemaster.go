@@ -25,6 +25,7 @@ const (
 	Waiting
 	Blocked
 	Done
+	Holding // turn ended, background tasks still running
 )
 
 // ControlKind is a control message the workload reacts to. (TierChanged and
@@ -36,7 +37,13 @@ const (
 	Teardown
 )
 
-type Control struct{ Kind ControlKind }
+// WakeReason mirrors attachpb.WakeReason (covemaster never imports internal/jam).
+type WakeReason struct{ Kind, Alarm, Note, Detail string }
+
+type Control struct {
+	Kind    ControlKind
+	Reasons []WakeReason // Wake only; nil from an older Jam
+}
 
 // Handle lets the workload report activity and session events to the client.
 type Handle interface {
@@ -89,6 +96,8 @@ func toPBActivity(a Activity) attachpb.Activity {
 		return attachpb.Activity_BLOCKED
 	case Done:
 		return attachpb.Activity_DONE
+	case Holding:
+		return attachpb.Activity_HOLDING
 	}
 	return attachpb.Activity_ACTIVITY_UNSPECIFIED
 }

@@ -320,12 +320,16 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			}
 			return outcome{kind: stopDone}
 		case cd := <-controlCh:
-			switch cd.GetMsg().(type) {
+			switch m := cd.GetMsg().(type) {
 			case *attachpb.ControlDown_Teardown:
 				w.Control(Control{Kind: Teardown})
 				return outcome{kind: stopTeardown}
 			case *attachpb.ControlDown_Wake:
-				w.Control(Control{Kind: Wake})
+				var rs []WakeReason
+				for _, r := range m.Wake.GetReasons() {
+					rs = append(rs, WakeReason{Kind: r.GetKind(), Alarm: r.GetAlarm(), Note: r.GetNote(), Detail: r.GetDetail()})
+				}
+				w.Control(Control{Kind: Wake, Reasons: rs})
 			default:
 				c.log.Info("ignoring unsupported control message") // TierChanged/RotateToken (reserved)
 			}
