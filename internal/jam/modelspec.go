@@ -307,7 +307,10 @@ func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
 		cred = PoolPrincipal
 	} else {
 		dests := store.ListDestinations()
-		for _, match := range anthropicDestinationMatchers {
+		for _, match := range []func(Destination) bool{
+			func(d Destination) bool { return d.Name == "anthropic" },
+			func(d Destination) bool { return d.Route == "/anthropic/" },
+		} {
 			if i := slices.IndexFunc(dests, match); i >= 0 && dests[i].CredName != "" {
 				cred = dests[i].CredName
 				break

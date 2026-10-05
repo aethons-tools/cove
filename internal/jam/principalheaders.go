@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
@@ -27,6 +29,10 @@ func checkPrincipalHeaderRule(r ModelHeaderRule) error {
 	if err := validateHeaderName(r.Name); err != nil {
 		return err
 	}
+	if strings.HasSuffix(r.Name, "+") {
+		// Keeps the admin UI's `NAME += ITEM` syntax unambiguous.
+		return errors.New("header name may not end in '+'")
+	}
 	switch c := http.CanonicalHeaderKey(r.Name); {
 	case c == "Authorization" || c == "X-Api-Key" || c == "Cookie" || strings.HasPrefix(c, "Proxy-"):
 		return fmt.Errorf("header %s carries credentials or belongs to the proxy; a header rule cannot set it", c)
@@ -34,16 +40,15 @@ func checkPrincipalHeaderRule(r ModelHeaderRule) error {
 	if (r.Set == "") == (r.EnsureListItem == "") {
 		return errors.New("needs exactly one of set or ensure-list-item")
 	}
-	if !validHeaderValuePart(r.Set + r.EnsureListItem) {
+	v := r.Set + r.EnsureListItem // exactly one is set
+	if !validHeaderValuePart(v) {
 		return errors.New("value must be single-line")
 	}
-	if item := r.EnsureListItem; item != "" {
-		if strings.Contains(item, ",") {
-			return errors.New("ensure-list-item must be one list item (no comma)")
-		}
-		if strings.TrimSpace(item) != item {
-			return errors.New("ensure-list-item has leading or trailing whitespace")
-		}
+	if strings.TrimSpace(v) != v {
+		return errors.New("value has leading or trailing whitespace")
+	}
+	if strings.Contains(r.EnsureListItem, ",") {
+		return errors.New("ensure-list-item must be one list item (no comma)")
 	}
 	return nil
 }
@@ -63,97 +68,155 @@ func validatePrincipalHeaders(rules []ModelHeaderRule, bad func(string, ...any) 
 	return nil
 }
 
-// anthropicDestinationMatchers identify the destination serving the claude
-// anthropic provider, in precedence order: the one named "anthropic", else
-// the one routed at /anthropic/. Shared by the claude-default seed
-// (DefaultModelSpecFor) and the broker's principal header rules.
-var anthropicDestinationMatchers = []func(Destination) bool{
-	func(d Destination) bool { return d.Name == "anthropic" },
-	func(d Destination) bool { return d.Route == "/anthropic/" },
+// servesAnthropicAPI reports whether d is a destination a claude harness on
+// the anthropic provider talks to: its client env (what the connector hands
+// the cove) sets ANTHROPIC_BASE_URL — the legacy /anthropic/ route, or any
+// destination whose env sets it. The broker checks the destination that
+// matched the request, so a more specific sub-route (or any other route) is
+// never mistaken for it.
+func servesAnthropicAPI(d Destination) bool {
+	_, ok := d.ClientEnv()["ANTHROPIC_BASE_URL"]
+	return ok
 }
 
-// servesProvider reports whether dest is the destination serving spec's
-// provider route. Only claude on the anthropic provider has one; vertex and
-// bedrock are not brokered by a known destination. The cheap name check comes
-// first; the store is listed only for a route-matched, differently named
-// destination.
-func servesProvider(store Store, spec ModelSpec, dest Destination) bool {
-	if spec.Type != HarnessClaude || spec.Claude == nil || spec.Claude.Provider != "anthropic" {
-		return false
-	}
-	switch {
-	case anthropicDestinationMatchers[0](dest):
-		return true
-	case !anthropicDestinationMatchers[1](dest):
-		return false
-	}
-	return !slices.ContainsFunc(store.ListDestinations(), anthropicDestinationMatchers[0])
-}
-
-// mayServeProvider is servesProvider's store-free pre-check: false means dest
-// serves no provider route, so the broker need not resolve a model-spec.
-func mayServeProvider(dest Destination) bool {
-	return slices.ContainsFunc(anthropicDestinationMatchers, func(m func(Destination) bool) bool { return m(dest) })
-}
-
-// principalHeaderRules returns the header rules of actor's model-spec when
-// dest serves that spec's provider route (nil otherwise, and for a spec
-// without rules). The spec is resolved as the connector resolves it
-// (ModelSpecFor); an unresolvable one applies no rules.
-func (b *Broker) principalHeaderRules(actor Actor, dest Destination) []ModelHeaderRule {
-	if !mayServeProvider(dest) {
+// principalHeaderRules returns the header rules to apply to a request the
+// actor made on dest, which presents identities per in: the rules of the
+// actor's model-spec (resolved as the connector resolves it) when it is claude
+// on the anthropic provider and dest serves the Anthropic API. Rules failing
+// the static checks or naming a header the destination's identity or apply
+// spec uses are dropped. Warnings name the header only — rule values are not
+// secrets but are never logged — and are deduplicated (b.warns).
+func (b *Broker) principalHeaderRules(actor Actor, dest Destination, in InboundSpec) []ModelHeaderRule {
+	if !servesAnthropicAPI(dest) {
 		return nil
 	}
-	spec, err := ModelSpecFor(b.store, actor)
+	resolveKey := "resolve\x00" + actor.ID
+	name, explicit, by, err := modelSpecNameFor(b.store, actor)
+	var provider string
+	var rules []ModelHeaderRule
+	if err == nil && name != "" {
+		var ok bool
+		if provider, rules, ok = b.store.PrincipalHeaderRules(name); !ok && explicit {
+			err = missingModelSpecErr(name, by)
+		}
+	}
 	if err != nil {
-		b.log.Warn("principal header rules not applied", "actor", actor.ID, "destination", dest.Name, "reason", err.Error())
+		if b.warns.first(resolveKey, err.Error()) {
+			b.log.Warn("principal header rules not applied", "actor", actor.ID, "destination", dest.Name, "reason", err.Error())
+		}
 		return nil
 	}
-	if spec == nil || len(spec.Principal.Headers) == 0 || !servesProvider(b.store, *spec, dest) {
+	b.warns.forget(resolveKey)
+	if provider != "anthropic" || len(rules) == 0 {
 		return nil
 	}
-	return spec.Principal.Headers
-}
-
-// applyPrincipalHeaders applies rules to h after the credential. A rule that
-// fails the static checks, or names a header the destination's identity or
-// apply spec uses, is skipped with a warning naming the header only — rule
-// values are not secrets but are never logged.
-func (b *Broker) applyPrincipalHeaders(h http.Header, rules []ModelHeaderRule, actor Actor, dest Destination) {
-	var owned []string
-	if in, ok := dest.InboundSpec(); ok {
-		owned = append(owned, http.CanonicalHeaderKey(in.Header))
-	}
+	owned := []string{http.CanonicalHeaderKey(in.Header)}
 	if out, ok := dest.OutboundSpec(); ok {
 		owned = append(owned, http.CanonicalHeaderKey(out.Header))
 	}
+	apply := rules[:0] // rules is the store's fresh copy
 	for _, r := range rules {
-		name := http.CanonicalHeaderKey(r.Name)
-		if err := checkPrincipalHeaderRule(r); err != nil || slices.Contains(owned, name) {
-			b.log.Warn("principal header rule skipped", "actor", actor.ID, "destination", dest.Name, "header", name)
+		h := http.CanonicalHeaderKey(r.Name)
+		reason := ""
+		switch {
+		case checkPrincipalHeaderRule(r) != nil:
+			reason = "rule fails validation"
+		case slices.Contains(owned, h):
+			reason = "header is used by the destination's identity or apply spec"
+		default:
+			apply = append(apply, r)
 			continue
 		}
+		if b.warns.first("skip\x00"+actor.ID+"\x00"+dest.Name+"\x00"+h, reason) {
+			b.log.Warn("principal header rule skipped", "actor", actor.ID, "destination", dest.Name, "header", h, "reason", reason)
+		}
+	}
+	return apply
+}
+
+// applyHeaderRules applies already-filtered principal header rules to h.
+func applyHeaderRules(h http.Header, rules []ModelHeaderRule) {
+	for _, r := range rules {
 		if r.EnsureListItem != "" {
-			ensureListItem(h, name, r.EnsureListItem)
+			ensureListItem(h, r.Name, r.EnsureListItem)
 		} else {
-			h.Set(name, r.Set)
+			h.Set(r.Name, r.Set)
 		}
 	}
 }
 
 // ensureListItem adds item to h's comma-separated list header name,
 // preserving the items already present and never duplicating (items compare
-// with surrounding whitespace trimmed).
+// with surrounding whitespace trimmed). Repeated header lines are one list:
+// membership is checked across all of them, and they are rewritten as one
+// comma-joined line keeping every item in order.
 func ensureListItem(h http.Header, name, item string) {
-	existing := h.Get(name)
-	if existing == "" {
-		h.Set(name, item)
-		return
-	}
-	for _, it := range strings.Split(existing, ",") {
-		if strings.TrimSpace(it) == item {
-			return
+	var vals []string
+	for _, v := range h.Values(name) {
+		if strings.TrimSpace(v) != "" {
+			vals = append(vals, v)
 		}
 	}
-	h.Set(name, existing+","+item)
+	joined := strings.Join(vals, ",")
+	present := false
+	for _, it := range strings.Split(joined, ",") {
+		if strings.TrimSpace(it) == item {
+			present = true
+			break
+		}
+	}
+	switch {
+	case joined == "":
+		h.Set(name, item)
+	case !present:
+		h.Set(name, joined+","+item)
+	case len(h.Values(name)) > 1:
+		h.Set(name, joined)
+	}
+}
+
+// warnDedupeTTL is how long a deduplicated warning stays quiet; after it the
+// same (key, reason) warns again. warnDedupeMax bounds the memory: past it the
+// table is reset (at worst a burst of repeat warnings).
+const (
+	warnDedupeTTL = time.Hour
+	warnDedupeMax = 4096
+)
+
+// warnDedupe rate-limits a per-request warning: first reports true once per
+// (key, reason) until the reason changes, the key is forgotten, or the TTL
+// passes. Safe for concurrent use.
+type warnDedupe struct {
+	mu   sync.Mutex
+	now  func() time.Time
+	seen map[string]warnSeen
+}
+
+type warnSeen struct {
+	reason string
+	at     time.Time
+}
+
+func newWarnDedupe(now func() time.Time) *warnDedupe {
+	return &warnDedupe{now: now, seen: map[string]warnSeen{}}
+}
+
+func (w *warnDedupe) first(key, reason string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := w.now()
+	if s, ok := w.seen[key]; ok && s.reason == reason && now.Sub(s.at) < warnDedupeTTL {
+		return false
+	}
+	if len(w.seen) >= warnDedupeMax {
+		clear(w.seen)
+	}
+	w.seen[key] = warnSeen{reason: reason, at: now}
+	return true
+}
+
+func (w *warnDedupe) forget(key string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.seen, key)
 }

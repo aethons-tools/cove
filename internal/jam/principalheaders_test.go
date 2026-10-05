@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
@@ -60,6 +61,8 @@ func TestValidatePrincipalHeadersRefusals(t *testing.T) {
 		"lf item":         {[]modelspec.HeaderRule{{Name: "X-Foo", EnsureListItem: "a\nb"}}, "single-line"},
 		"comma item":      {[]modelspec.HeaderRule{{Name: "X-Foo", EnsureListItem: "a,b"}}, "comma"},
 		"padded item":     {[]modelspec.HeaderRule{{Name: "X-Foo", EnsureListItem: " a"}}, "whitespace"},
+		"padded set":      {[]modelspec.HeaderRule{{Name: "X-Foo", Set: "bar "}}, "whitespace"},
+		"name ends in +":  {[]modelspec.HeaderRule{{Name: "X-Foo+", Set: "bar"}}, "'+'"},
 		"too many":        {tooMany, "at most"},
 		"second rule bad": {[]modelspec.HeaderRule{{Name: "X-Ok", Set: "v"}, {Name: "Cookie", Set: "v"}}, "principal.headers[1]"},
 	} {
@@ -82,6 +85,28 @@ func TestValidatePrincipalHeadersNeverEchoesValues(t *testing.T) {
 	err = ValidateModelSpec(withHeaders(modelspec.HeaderRule{Name: "X-Foo", Set: "sekrit\n"}), credIs("anthropic"), false)
 	if err == nil || strings.Contains(err.Error(), "sekrit") {
 		t.Fatalf("err = %v; want a refusal that does not echo the value", err)
+	}
+}
+
+// Repeated header lines are one list: membership is checked across all of
+// them, and the result is one comma-joined line keeping every item in order.
+func TestEnsureListItemRepeatedLines(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"a", "b"}, "a,b,x"},
+		{[]string{"a", " x ,b"}, "a, x ,b"},
+		{[]string{"x", "a"}, "x,a"},
+	} {
+		h := http.Header{}
+		for _, v := range tc.in {
+			h.Add("anthropic-beta", v)
+		}
+		ensureListItem(h, "anthropic-beta", "x")
+		if got := h.Values("anthropic-beta"); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("ensureListItem(%q) = %q, want [%q]", tc.in, got, tc.want)
+		}
 	}
 }
 
@@ -214,6 +239,18 @@ func TestBrokerPrincipalRuleAndOAuthBetaFlagCompose(t *testing.T) {
 	}
 }
 
+// Rules apply before the destination's oauth_beta ensure, so a set rule on
+// anthropic-beta can't drop the beta the flag requires.
+func TestBrokerPrincipalSetRuleKeepsOAuthBetaFlag(t *testing.T) {
+	d := anthropicDest()
+	d.OAuthBeta = true
+	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "anthropic-beta", Set: "context-1m"}}, d)
+	h := pc.send("/anthropic/v1/messages", "/anthropic/", "anthropic-beta", "a")
+	if got := h.Get("anthropic-beta"); got != "context-1m,oauth-2025-04-20" {
+		t.Fatalf("anthropic-beta = %q, want the set value plus the flag's beta", got)
+	}
+}
+
 func TestBrokerPrincipalSetRule(t *testing.T) {
 	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "X-Foo", Set: "bar"}}, anthropicDest())
 	h := pc.send("/anthropic/v1/messages", "/anthropic/", "X-Foo", "caller")
@@ -233,26 +270,32 @@ func TestBrokerPrincipalRulesNotAppliedToOtherDestinations(t *testing.T) {
 	}
 }
 
-// Without a destination named "anthropic", the one routed at /anthropic/ serves
-// the provider (the same rule DefaultModelSpecFor uses); with one, a different
-// destination on that route does not.
-func TestBrokerPrincipalProviderDestinationByRoute(t *testing.T) {
-	d := anthropicDest()
-	d.Name = "claude-sub"
-	pc := newPrincipalCase(t, []modelspec.HeaderRule{oauthRule}, d)
-	if got := pc.send("/anthropic/v1/messages", "/anthropic/").Get("anthropic-beta"); got != "oauth-2025-04-20" {
-		t.Fatalf("route-matched destination: anthropic-beta = %q", got)
-	}
-
-	other := Destination{Name: "other", Route: "/anthropic2/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
-	named := anthropicDest()
-	named.Route = "/claude/"
-	pc = newPrincipalCase(t, []modelspec.HeaderRule{oauthRule}, named, other)
-	if got := pc.send("/anthropic2/v1/messages", "/anthropic2/").Get("anthropic-beta"); got != "" {
-		t.Fatalf("non-provider destination got anthropic-beta %q", got)
-	}
-	if got := pc.send("/claude/v1/messages", "/claude/").Get("anthropic-beta"); got != "oauth-2025-04-20" {
-		t.Fatalf("destination named anthropic: anthropic-beta = %q", got)
+// The provider destination is the matched destination whose client env sets
+// ANTHROPIC_BASE_URL — the legacy /anthropic/ route, or any destination whose
+// env sets it, whatever its name — never a more specific sub-route or another
+// route.
+func TestBrokerPrincipalProviderDestinationIsAnthropicBaseURL(t *testing.T) {
+	byEnv := Destination{Name: "claude-sub", Route: "/claude/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer,
+		Env: map[string]string{"ANTHROPIC_BASE_URL": "{url}", "ANTHROPIC_AUTH_TOKEN": "{token}"}}
+	sub := Destination{Name: "anthropic-files", Route: "/anthropic/files/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
+	named := Destination{Name: "anthropic", Route: "/anthropic2/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer,
+		Env: map[string]string{"OTHER": "{url}"}}
+	legacy := anthropicDest()
+	legacy.Name = "legacy"
+	pc := newPrincipalCase(t, []modelspec.HeaderRule{oauthRule}, byEnv, sub, named, legacy)
+	for _, tc := range []struct {
+		path, route string
+		applied     bool
+	}{
+		{"/claude/v1/messages", "/claude/", true},
+		{"/anthropic/v1/messages", "/anthropic/", true},
+		{"/anthropic/files/v1/x", "/anthropic/files/", false},
+		{"/anthropic2/v1/messages", "/anthropic2/", false},
+	} {
+		got := pc.send(tc.path, tc.route).Get("anthropic-beta")
+		if applied := got == "oauth-2025-04-20"; applied != tc.applied || (!applied && got != "") {
+			t.Errorf("%s: anthropic-beta = %q, want applied=%v", tc.path, got, tc.applied)
+		}
 	}
 }
 
@@ -298,5 +341,72 @@ func TestBrokerPrincipalStaticDenylistRecheckedAtApply(t *testing.T) {
 	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "Cookie", Set: "c=1"}}, anthropicDest())
 	if got := pc.send("/anthropic/v1/messages", "/anthropic/").Get("Cookie"); got != "" {
 		t.Fatalf("denied rule applied: Cookie = %q", got)
+	}
+}
+
+// Warnings are deduplicated: a persistent condition logs once, not per request.
+func TestBrokerPrincipalWarningsDeduplicated(t *testing.T) {
+	d := anthropicDest()
+	d.Apply = ApplyCustom
+	d.ApplySpec = &OutboundSpec{Header: "X-Upstream-Key", Template: "{cred}"}
+	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "X-Upstream-Key", Set: "v"}}, d)
+	for range 3 {
+		pc.send("/anthropic/v1/messages", "/anthropic/")
+	}
+	if n := strings.Count(pc.logs.String(), "principal header rule skipped"); n != 1 {
+		t.Fatalf("skip warning logged %d times, want 1:\n%s", n, pc.logs)
+	}
+
+	pc = newPrincipalCase(t, []modelspec.HeaderRule{oauthRule}, anthropicDest())
+	if err := pc.broker.store.PutRole("ACME", Role{Name: "guest", ModelSpec: "ghost", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if got := pc.send("/anthropic/v1/messages", "/anthropic/").Get("anthropic-beta"); got != "" {
+			t.Fatalf("unresolvable spec applied a rule: %q", got)
+		}
+	}
+	if n := strings.Count(pc.logs.String(), "principal header rules not applied"); n != 1 {
+		t.Fatalf("resolve warning logged %d times, want 1:\n%s", n, pc.logs)
+	}
+}
+
+func TestWarnDedupe(t *testing.T) {
+	now := time.Unix(0, 0)
+	w := newWarnDedupe(func() time.Time { return now })
+	if !w.first("k", "r1") || w.first("k", "r1") {
+		t.Fatal("same (key, reason) should warn once")
+	}
+	if !w.first("k", "r2") {
+		t.Fatal("a changed reason should warn again")
+	}
+	w.forget("k")
+	if !w.first("k", "r2") {
+		t.Fatal("after forget, the reason should warn again")
+	}
+	now = now.Add(warnDedupeTTL + time.Second)
+	if !w.first("k", "r2") {
+		t.Fatal("after the TTL, the reason should warn again")
+	}
+}
+
+// The store's per-request read returns only the rules, as a copy.
+func TestStorePrincipalHeaderRulesIsACopy(t *testing.T) {
+	store := NewMemStore()
+	spec := modelspec.Default(PoolPrincipal)
+	spec.Principal.Headers = []modelspec.HeaderRule{oauthRule}
+	if err := store.PutModelSpec(spec); err != nil {
+		t.Fatal(err)
+	}
+	provider, rules, ok := store.PrincipalHeaderRules(spec.Name)
+	if !ok || provider != "anthropic" || len(rules) != 1 || rules[0] != oauthRule {
+		t.Fatalf("= %q %+v %v", provider, rules, ok)
+	}
+	rules[0].Name = "mutated"
+	if _, again, _ := store.PrincipalHeaderRules(spec.Name); again[0] != oauthRule {
+		t.Fatal("the returned rules must not alias the store")
+	}
+	if _, _, ok := store.PrincipalHeaderRules("ghost"); ok {
+		t.Fatal("a missing spec must report !ok")
 	}
 }

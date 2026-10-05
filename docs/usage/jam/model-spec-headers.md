@@ -30,26 +30,33 @@ Each rule has a `name` and **exactly one** action:
 | Action | Effect on the forwarded request |
 |--------|---------------------------------|
 | `set: VALUE` | Replaces the header with `VALUE` (any value the cove sent is dropped). |
-| `ensure-list-item: ITEM` | Treats the header as a comma-separated list and appends `ITEM` unless it is already there (items compare with surrounding whitespace trimmed); absent header → just `ITEM`. Idempotent. |
+| `ensure-list-item: ITEM` | Treats the header as a comma-separated list and appends `ITEM` unless it is already there (items compare with surrounding whitespace trimmed); absent header → just `ITEM`. Repeated header lines count as one list and are rewritten as one comma-joined line, every item kept in order. Idempotent. |
 
 ## Where rules apply
 
-Rules apply only on the **destination serving the spec's provider route**, and
-only **after** the credential is set. For `type: claude` with
-`provider: anthropic` that is the destination named `anthropic`, or — when none
-has that name — the one routed at `/anthropic/` (the same rule the
-`claude-default` seed uses). Other destinations a role reaches (git, Linear, …)
-never see the rules, and `vertex`/`bedrock` specs have no brokered provider
-destination, so their rules apply nowhere today.
+Rules apply only on the **destination serving the spec's provider API** — the
+destination that matched the request. For `type: claude` with
+`provider: anthropic` that is any destination whose client env (what the
+[connector](connector.md) hands the cove) sets `ANTHROPIC_BASE_URL`: the legacy
+`/anthropic/` route without `env`, or a destination whose `env` sets it,
+whatever its name. A more specific sub-route (say `/anthropic/files/`) is its
+own destination and gets no rules unless it sets `ANTHROPIC_BASE_URL` itself.
+Other destinations a role reaches (git, Linear, …) never see the rules, and
+`vertex`/`bedrock` specs have no brokered provider destination, so their rules
+apply nowhere today.
 
-The broker resolves the actor's model-spec exactly as the
-[connector](connector.md) does (one spec per actor; a conflict or a missing
-bound spec applies no rules and logs a WARN). It resolves it only for a
-provider-destination request, and per request, so an edit applies to the next
-request. A spec without rules forwards exactly as before.
+The broker resolves the actor's model-spec exactly as the connector does (one
+spec per actor; a conflict or a missing bound spec applies no rules and logs a
+WARN). It resolves it only for a provider-API request, per request from the
+store's in-memory cache, so an edit applies to the next request. A spec without
+rules forwards exactly as before.
 
-A destination's `oauth_beta` flag ([pool.md](pool.md)) still works, and composes
-with an `ensure-list-item` rule for the same beta: the beta appears once.
+**Order and the `oauth_beta` flag.** On the forwarded request the broker sets
+the credential, then applies the rules in order, then the destination's
+`oauth_beta` flag ([pool.md](pool.md)) ensures `oauth-2025-04-20` in
+`anthropic-beta`. So the flag's beta always survives — even a `set` rule on
+`anthropic-beta` only replaces what came before it — and a flag plus an
+`ensure-list-item` rule for the same beta yield it exactly once.
 
 ## Validation
 
@@ -60,17 +67,21 @@ echoes a value:
 - `name` is a valid HTTP header name the proxy can carry — not hop-by-hop
   (`Connection`, `Te`, `Upgrade`, …) and not `Host`;
 - `name` is never `Authorization`, `X-Api-Key`, `Cookie` or any `Proxy-*`
-  header (credentials, sessions and the proxy's own headers);
+  header (credentials, sessions and the proxy's own headers), and does not end
+  in `+` (keeps the [UI syntax](#in-the-admin-ui) unambiguous);
 - exactly one of `set` / `ensure-list-item`, non-empty;
-- the value is single-line (no CR, LF or NUL); an `ensure-list-item` is one item
-  (no comma) without leading or trailing whitespace;
+- the value is single-line (no CR, LF or NUL) without leading or trailing
+  whitespace; an `ensure-list-item` is one item (no comma);
 - at most 16 rules.
 
 At apply time the broker re-checks each rule and also **skips** one that names
 a header the destination's [identity-in or apply spec](header-specs.md) uses
 (so a rule can never overwrite the credential or leak the identity). A skipped
-rule logs a WARN naming the actor, destination and header — never the value.
-Values are not secrets, but they are kept out of logs anyway.
+rule logs a WARN naming the actor, destination, header and reason — never the
+value. Values are not secrets, but they are kept out of logs anyway. These
+WARNs (and the unresolvable-spec one) are rate-limited: once per actor and
+reason (per destination and header for a skip), again only when the reason
+changes or after an hour.
 
 ## In the admin UI
 
@@ -81,7 +92,9 @@ anthropic-beta += oauth-2025-04-20
 X-Team = platform
 ```
 
-`NAME += ITEM` is `ensure-list-item`; `NAME = VALUE` is `set`. The line splits
-at the first `=` (header names never contain one), so values may contain `=`;
-surrounding whitespace is trimmed. The spec's page lists the rules in the same
+`NAME += ITEM` is `ensure-list-item`; `NAME = VALUE` is `set` (`+=` needs no
+surrounding spaces: names can't end in `+`). The line splits at the first `=`
+(header names never contain one), so values may contain `=`. Whitespace around
+the operator is syntax; trailing whitespace is kept as part of the value, so it
+is refused rather than silently trimmed. The spec's page lists the rules in the same
 syntax. See [ui-pages.md](ui-pages.md#model-spec-pages).

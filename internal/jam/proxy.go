@@ -17,11 +17,12 @@ type Broker struct {
 	creds CredResolver
 	now   func() time.Time
 	log   *slog.Logger
+	warns *warnDedupe // rate-limits the principal header-rule warnings
 }
 
 // NewBroker constructs a Broker that matches destinations from the live store.
 func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
-	return &Broker{store: store, creds: creds, now: time.Now, log: log}
+	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now)}
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,8 +77,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad upstream", http.StatusInternalServerError)
 		return
 	}
-	rules := b.principalHeaderRules(actor, dest)
-	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
+	rules := b.principalHeaderRules(actor, dest, in) // resolved and filtered once, outside the Director
+	trimmed := strings.TrimSuffix(dest.Route, "/")   // "/anthropic/" -> "/anthropic"
 	rp := &httputil.ReverseProxy{Director: func(out *http.Request) {
 		out.URL.Scheme = up.Scheme
 		out.URL.Host = up.Host
@@ -91,10 +92,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				spec.apply(out.Header, cred) // never logged
 			}
 		}
+		// Principal rules after the credential but before the destination's
+		// oauth_beta ensure, so a set rule can never drop the flag's beta.
+		applyHeaderRules(out.Header, rules)
 		if dest.OAuthBeta {
 			ensureAnthropicOAuthBeta(out.Header)
 		}
-		b.applyPrincipalHeaders(out.Header, rules, actor, dest) // after the credential
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)

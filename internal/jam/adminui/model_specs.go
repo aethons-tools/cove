@@ -161,14 +161,18 @@ func formatHeaderRules(rules []jam.ModelHeaderRule) string {
 
 // parseHeaderRules reads formatHeaderRules' syntax, splitting at the first
 // "=" (header names never contain one); a "+" right before it makes the rule
-// ensure-list-item. Errors name the line number, never a value.
+// ensure-list-item (validation refuses names ending in "+", so this is
+// unambiguous). Whitespace around the operator is syntax; anything after the
+// value up to the line end is kept, so validation refuses a padded value
+// rather than the form silently trimming it. Errors name the line number,
+// never a value.
 func parseHeaderRules(s string) ([]jam.ModelHeaderRule, error) {
 	var rules []jam.ModelHeaderRule
 	n := 0
 	for line := range strings.Lines(s) {
 		n++
-		line = strings.TrimSpace(line)
-		if line == "" {
+		line = strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		name, v, ok := strings.Cut(line, "=")
@@ -177,11 +181,12 @@ func parseHeaderRules(s string) ([]jam.ModelHeaderRule, error) {
 		if !ok || name == "" {
 			return nil, badRequest("header rule line " + strconv.Itoa(n) + " is not NAME = VALUE or NAME += ITEM")
 		}
+		v = strings.TrimLeft(v, " \t")
 		r := jam.ModelHeaderRule{Name: name}
 		if ensure {
-			r.EnsureListItem = strings.TrimSpace(v)
+			r.EnsureListItem = v
 		} else {
-			r.Set = strings.TrimSpace(v)
+			r.Set = v
 		}
 		rules = append(rules, r)
 	}

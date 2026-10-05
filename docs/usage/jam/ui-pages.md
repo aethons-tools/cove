@@ -152,19 +152,18 @@ git** is ticked; the form says so. **Delete** is on the page header.
 ## Model-spec pages
 
 Each model-spec name in the Model-specs table (`/ui/model-specs`) links to
-`/ui/model-specs/<name>`. The table shows type, version (with any version-constraint as a chip), principal, model,
-policy mode and provider. The page shows the harness (type, version, version-constraint, principal
-credential *name* and header rules, model, effort, note), the policy (mode, allow/deny rules)
-and the claude body (provider; provider-env keys, plugins and settings keys).
+`/ui/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
+model, policy mode and provider. The page shows the harness (type, version, constraint, principal
+credential *name* and header rules, model, effort, note), the policy (mode, allow/deny rules) and the
+claude body (provider, provider-env keys, plugins, settings keys).
 
 **New model-spec** and **Edit model-spec** share one form: type and claude
 provider are selects; principal is a select of the configured credential
 names, plus `pool` when a [pool](pool.md) is configured (a stored principal no
 longer configured stays selected); policy mode is a select (empty = harness
-default); version is the exact `X.Y.Z` the image installs and version-constraint
-the optional runtime check; allow, deny, plugins and principal header rules (`NAME += ITEM` /
-`NAME = VALUE`, [syntax](model-spec-headers.md#in-the-admin-ui)) take one entry
-per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
+default); version is the exact `X.Y.Z` the image installs, version-constraint the optional
+runtime check; allow, deny, plugins and [principal header rules](model-spec-headers.md#in-the-admin-ui)
+take one entry per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
 validation as `at-jam model-spec` ([model-specs.md](model-specs.md#validation));
 a refusal shows in the page banner and stores nothing. **Delete** is on the
 page header and each table row.

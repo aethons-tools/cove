@@ -85,36 +85,54 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 // an explicit binding to a spec that no longer exists, are an error — fail
 // closed rather than pick one. The spec carries names only, never a secret.
 func ModelSpecFor(store Store, a Actor) (*ModelSpec, error) {
-	by := map[string]string{} // spec name → the first project/role resolving to it
-	explicit := map[string]bool{}
+	n, explicit, by, err := modelSpecNameFor(store, a)
+	if err != nil || n == "" {
+		return nil, err
+	}
+	m, ok := store.GetModelSpec(n)
+	if !ok {
+		if !explicit {
+			return nil, nil
+		}
+		return nil, missingModelSpecErr(n, by)
+	}
+	return &m, nil
+}
+
+// missingModelSpecErr is ModelSpecFor's error for an explicit binding (by
+// project/role) to a model-spec n that does not exist.
+func missingModelSpecErr(n, by string) error {
+	return fmt.Errorf("model-spec %q bound by role %s does not exist", n, by)
+}
+
+// modelSpecNameFor is ModelSpecFor's name resolution: the one spec name every
+// granted role resolves to ("" when none), whether a role binds it explicitly,
+// and the first project/role resolving to it. Roles resolving to different
+// specs are an error.
+func modelSpecNameFor(store Store, a Actor) (name string, explicit bool, by string, err error) {
+	byName := map[string]string{} // spec name → the first project/role resolving to it
+	explicitly := map[string]bool{}
 	for _, g := range a.Grants {
 		r, ok := store.GetRole(g.Project, g.Role)
 		if !ok {
 			continue
 		}
 		n := r.ModelSpecName()
-		if _, seen := by[n]; !seen {
-			by[n] = orDefaultProject(g.Project) + "/" + r.Name
+		if _, seen := byName[n]; !seen {
+			byName[n] = orDefaultProject(g.Project) + "/" + r.Name
 		}
 		if r.ModelSpec != "" {
-			explicit[n] = true
+			explicitly[n] = true
 		}
 	}
-	names := slices.Sorted(maps.Keys(by))
+	names := slices.Sorted(maps.Keys(byName))
 	switch len(names) {
 	case 0:
-		return nil, nil
+		return "", false, "", nil
 	case 1:
 	default:
-		return nil, fmt.Errorf("roles %s and %s resolve to different model-specs (%s, %s)", by[names[0]], by[names[1]], names[0], names[1])
+		return "", false, "", fmt.Errorf("roles %s and %s resolve to different model-specs (%s, %s)", byName[names[0]], byName[names[1]], names[0], names[1])
 	}
 	n := names[0]
-	m, ok := store.GetModelSpec(n)
-	if !ok {
-		if !explicit[n] {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("model-spec %q bound by role %s does not exist", n, by[n])
-	}
-	return &m, nil
+	return n, explicitly[n], byName[n], nil
 }
