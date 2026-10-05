@@ -362,3 +362,62 @@ func bytesCount(b []byte, c byte) int {
 	}
 	return n
 }
+
+func eventually(cond func() bool) bool {
+	for i := 0; i < 200; i++ {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
+}
+
+// Wakes coalesced mid-turn merge their reasons into the one resume prompt.
+func TestEpisodeMergesWakeReasons(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident, c.SessionKind = true, "standing" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, &recordHandle{})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "run the backup check"}}})
+	p.in.noMessage(t, 50*time.Millisecond) // mid-turn: held
+	p.emit(lnResult)
+	want := "Alarm \"nightly\" fired: run the backup check\n" + standingResumePrompt
+	if got := p.in.next(t); got != want {
+		t.Fatalf("delivered %q, want %q", got, want)
+	}
+	cancel()
+	<-done
+}
+
+// A turn that ends with a background task outstanding reports Holding; the
+// turn a delivered Wake starts reports Running again.
+func TestEpisodeReportsHoldingThenRunning(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnResult) // turn ends with a background task outstanding
+	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+		t.Fatalf("Holding not reported on hold; holding=%d", h.count(covemaster.Holding))
+	}
+	runningBefore := h.count(covemaster.Running)
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	p.in.next(t) // the resume prompt starts a turn
+	if !eventually(func() bool { return h.count(covemaster.Running) == runningBefore+1 }) {
+		t.Fatalf("Running not reported when the held episode resumed; running=%d (before %d)", h.count(covemaster.Running), runningBefore)
+	}
+	cancel()
+	<-done
+}

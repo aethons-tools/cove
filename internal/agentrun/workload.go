@@ -107,7 +107,7 @@ type Workload struct {
 	log     *slog.Logger
 	spawner Spawner
 	conn    *connectorRefresher
-	wake    chan struct{}
+	wake    *wakeBox
 	// contextCore is the written CORE.md path; "" = no context in effect.
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
@@ -147,7 +147,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.Connector != nil {
 		conn = newConnectorRefresher(*cfg.Connector, log)
 	}
-	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: make(chan struct{}, 1)}
+	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox()}
 }
 
 // resumeText is the prompt a Wake delivers.
@@ -263,16 +263,13 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 
-		waitErr := w.episode(ctx, proc, tr, first)
+		waitErr := w.episode(ctx, h, proc, tr, first)
 		split.Flush()
 		if tr.WakeOwed() {
 			// Coalesced mid-turn but never delivered, or delivered but the process
 			// exited (or the write failed) before the agent started the turn it
 			// asked for: hand it to the post-exit wait so it resumes at once.
-			select {
-			case w.wake <- struct{}{}:
-			default:
-			}
+			w.wake.repost()
 		}
 		if ctx.Err() != nil {
 			// Teardown / parent shutdown interrupted the run; the result (if any) is
@@ -285,8 +282,8 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			w.logResidentTurn(waitErr)
 			h.Report(covemaster.Waiting)
 			select {
-			case <-w.wake:
-				prompt, continued = w.resumeText(), true
+			case <-w.wake.signal():
+				prompt, continued = renderWake(w.resumeText(), w.wake.take()), true
 				continue
 			case <-ctx.Done():
 				return ctx.Err()
@@ -312,8 +309,8 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			w.log.Info("agentrun: agent needs input; reporting Waiting")
 			h.Report(covemaster.Waiting)
 			select {
-			case <-w.wake:
-				prompt, continued = resumePrompt, true
+			case <-w.wake.signal():
+				prompt, continued = renderWake(resumePrompt, w.wake.take()), true
 				continue
 			case <-ctx.Done():
 				return ctx.Err()
@@ -405,7 +402,7 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 // episode drives one agent process: writes prompt, then reacts to tracker
 // changes, Wakes, the background-wait timer and exit until the process exits.
 // It returns the process's exit error.
-func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, prompt string) error {
+func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Process, tr *idleTracker, prompt string) error {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	in := proc.Input()
@@ -434,13 +431,23 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 		}
 	}
 	defer stopHold()
+	// held: Holding was reported for the current hold; the next turn to start
+	// (a delivered Wake or a background task's self-started turn) reports
+	// Running again.
+	held := false
+	unhold := func() {
+		if held {
+			h.Report(covemaster.Running)
+			held = false
+		}
+	}
 
 	write(prompt) // the tracker starts busy
 	// resume is what a Wake writes into this live episode: the resume prompt,
 	// plus a notice when the refreshed context changed (once per write, so a
 	// burst of coalesced wakes carries it once).
 	resume := func() string {
-		text := w.resumeText()
+		text := renderWake(w.resumeText(), w.wake.take())
 		if w.ctxr != nil {
 			text += contextNotice(w.ctxr.live(ctx), true)
 		}
@@ -449,7 +456,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 	for {
 		var wake <-chan struct{}
 		if open {
-			wake = w.wake // once stdin is closed, Wakes stay buffered for the post-exit wait
+			wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
 		}
 		select {
 		case err := <-exited:
@@ -460,6 +467,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 			if tr.Wake() {
 				write(resume())
 				tr.Wrote()
+				unhold()
 			}
 		case <-tr.changed:
 		case <-holdC:
@@ -476,17 +484,21 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 		case actDeliverWake:
 			stopHold()
 			write(resume())
+			unhold()
 		case actHold:
 			if hold == nil {
 				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
 				hold = time.NewTimer(w.cfg.BackgroundWait)
 				holdC = hold.C
+				h.Report(covemaster.Holding)
+				held = true
 			}
 		case actClose:
 			stopHold()
 			closeInput("idle")
 		case actWait:
 			stopHold()
+			unhold()
 		}
 	}
 }
@@ -521,21 +533,18 @@ func (w *Workload) logResidentTurn(waitErr error) {
 // Control handles control messages. The client already cancels Run's ctx on
 // Teardown (which SIGTERM/SIGKILLs the agent via execSpawner), so that case
 // stays log-only.
-// Wake delivers a non-blocking signal on the wake channel. While an episode
-// is live, the episode loop consumes it (delivered now between turns, or
+// Wake posts its reasons to the wake box and signals. While an episode is
+// live, the episode loop consumes it (delivered now between turns, or
 // coalesced into one resume prompt at turn end); after the process exited, a
-// Run blocked on a needs-input wait consumes it and resumes. A wake arriving
-// with one already buffered is dropped — a resumed turn re-reads its inbox.
+// Run blocked on a needs-input wait consumes it and resumes. Coalesced wakes
+// merge their reasons: the one resume prompt names them all (renderWake).
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
 		w.log.Info("agentrun: teardown requested; run context cancelled, agent terminating")
 	case covemaster.Wake:
-		w.log.Info("agentrun: wake requested")
-		select {
-		case w.wake <- struct{}{}:
-		default:
-		}
+		w.log.Info("agentrun: wake requested", "reasons", len(c.Reasons))
+		w.wake.post(c.Reasons)
 	}
 }
 
