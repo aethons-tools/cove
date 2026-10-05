@@ -16,7 +16,10 @@ type fakeTurnEndSetter struct {
 	err                 error
 }
 
-func (f *fakeTurnEndSetter) SetEndRequested(a, r string) error { f.endActor, f.endReason = a, r; return f.err }
+func (f *fakeTurnEndSetter) SetEndRequested(a, r string) error {
+	f.endActor, f.endReason = a, r
+	return f.err
+}
 func (f *fakeTurnEndSetter) SetIdleOverride(a string, o IdleOverride) error {
 	f.idleActor, f.idle = a, o
 	return f.err
