@@ -75,12 +75,6 @@ type Cursor interface {
 	SetWaitSeq(actorID string, seq int64) error
 }
 
-// TurnEndState disarms a cove's idle deadline (Supervisor.ClearIdleDeadline)
-// once it fired or another wake answered the turn end.
-type TurnEndState interface {
-	ClearIdleDeadline(actorID string) error
-}
-
 // Ender tells a session's owner that it ended itself (the `end` tool).
 // Implemented in cmd/at-jam over the intercom log.
 type Ender interface {
@@ -114,8 +108,8 @@ type Engine struct {
 	// cursor, when set (SetRunningWake), lets the engine wake Running coves too.
 	cursor Cursor
 
-	// Turn-end enforcement (SetTurnEnd); off while turnEnd is nil.
-	turnEnd TurnEndState
+	// Turn-end enforcement (SetTurnEnd); off until set.
+	turnEnd bool
 	ender   Ender // nil = no end notices
 }
 
@@ -154,12 +148,13 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 // SetTurnEnd turns on turn-end enforcement: end(reason) and the idle
 // deadline. roles supplies each role's on-idle action (nil keeps any set by
 // SetIdleLadder); ender (may be nil) notifies an owner that a session ended
-// itself. Call before Run.
-func (e *Engine) SetTurnEnd(roles RoleLookup, state TurnEndState, ender Ender) {
+// itself. The deadline is disarmed by the supervisor when the cove next runs,
+// so an idle wake is re-sent every tick until it is answered. Call before Run.
+func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender) {
 	if roles != nil {
 		e.roles = roles
 	}
-	e.turnEnd, e.ender = state, ender
+	e.turnEnd, e.ender = true, ender
 }
 
 func (e *Engine) Run(ctx context.Context) {
@@ -178,7 +173,7 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if e.turnEnd != nil && inst.EndRequested != nil {
+		if e.turnEnd && inst.EndRequested != nil {
 			// Asked to end: never woken again; torn down once its turn is over.
 			if inst.Activity == jam.ActivityWaiting {
 				e.endSession(ctx, inst)
@@ -188,13 +183,10 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity == jam.ActivityRunning || inst.Activity == jam.ActivityHolding {
 			// holding (turn over, background tasks running) is woken like running
 			// and, like running, never paused or reaped here.
-			if e.wakeRunning(inst) {
-				e.clearIdle(inst)
-			} else if inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
+			if !e.wakeRunning(inst) && inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
 				// A teardown action waits for Waiting: never end a cove mid-hold.
 				e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
 				e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
-				e.clearIdle(inst)
 			}
 			continue
 		}
@@ -228,7 +220,6 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			e.log.Info("wakeon: reply detected, waking", "actor", inst.ActorID)
 			e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
-			e.clearIdle(inst)
 			continue
 		}
 		if e.idleDue(inst) {
@@ -274,7 +265,7 @@ func (e *Engine) wakeRunning(inst jam.Instance) bool {
 
 // idleArmed reports whether inst has an idle deadline this engine enforces.
 func (e *Engine) idleArmed(inst jam.Instance) bool {
-	return e.turnEnd != nil && !inst.IdleDeadline.IsZero()
+	return e.turnEnd && !inst.IdleDeadline.IsZero()
 }
 
 // idleDue reports whether inst's armed idle deadline has passed.
@@ -292,20 +283,10 @@ func (e *Engine) idleAction(inst jam.Instance) string {
 	return jam.OnIdleWake
 }
 
-// clearIdle disarms inst's idle deadline: it fired, or another wake answered
-// this turn end. A failure is logged (the deadline may then fire once more).
-func (e *Engine) clearIdle(inst jam.Instance) {
-	if !e.idleArmed(inst) {
-		return
-	}
-	if err := e.turnEnd.ClearIdleDeadline(inst.ActorID); err != nil {
-		e.log.Warn("wakeon: clear idle deadline failed", "actor", inst.ActorID, "error", err.Error())
-	}
-}
-
 // fireIdle applies a Waiting cove's on-idle action once its deadline passed:
 // teardown ends it; wake resumes a paused cove first (woken on a later tick,
-// once it is Live again) and otherwise wakes it with the idle reason.
+// once it is Live again) and otherwise wakes it with the idle reason — again
+// every tick until the cove runs (a Wake to a cove with no stream is dropped).
 func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 	if e.idleAction(inst) == jam.OnIdleTeardown {
 		e.log.Info("wakeon: idle timeout, tearing down", "actor", inst.ActorID)
@@ -322,7 +303,6 @@ func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 	}
 	e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
 	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
-	e.clearIdle(inst)
 }
 
 // endSession tears down a Waiting session that asked to end, then tells its

@@ -1657,11 +1657,15 @@ func TestSetEndRequestedFirstWins(t *testing.T) {
 	}
 }
 
-func TestClearIdleDeadline(t *testing.T) {
+// Entering Running disarms the idle deadline: the wake (whichever) was answered.
+func TestReportRunningClearsIdleDeadline(t *testing.T) {
 	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{IdleTimeout: time.Minute})
 	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
-	_ = sup.ClearIdleDeadline("w1")
+	if inst, _ := store.GetInstance("w1"); inst.IdleDeadline.IsZero() {
+		t.Fatal("deadline not armed")
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
 	if inst, _ := store.GetInstance("w1"); !inst.IdleDeadline.IsZero() {
-		t.Fatal("deadline not cleared")
+		t.Fatalf("deadline %v survived entering Running", inst.IdleDeadline)
 	}
 }

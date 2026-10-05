@@ -69,8 +69,8 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if inst.Activity != jam.ActivityWaiting {
-			continue
+		if inst.Activity != jam.ActivityWaiting || inst.EndRequested != nil {
+			continue // a session that asked to end is not soliciting anyone
 		}
 		if inst.Unit == "" {
 			continue // no ticket to escalate on (a personal session waits on its owner)

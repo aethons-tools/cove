@@ -329,3 +329,18 @@ func TestIgnoresTicketlessCove(t *testing.T) {
 		t.Fatalf("ticketless cove must not escalate; state=%v ping=%v", st.called, pg.called)
 	}
 }
+
+// A session that asked to end is not soliciting anyone: never escalate it.
+func TestSkipsEndRequested(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting,
+		EndRequested: &jam.EndRequest{Reason: "merged"}}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, &fakeState{}, pg, Config{}, nil)
+	e.tick(context.Background())
+	if pg.lastIssue != "" {
+		t.Fatalf("pinged %q for a session that asked to end", pg.lastIssue)
+	}
+}

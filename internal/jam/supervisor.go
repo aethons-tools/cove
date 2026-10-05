@@ -421,6 +421,7 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	// A turn ends when the cove leaves Running for Holding or Waiting (not
 	// Holding → Waiting: same turn end).
 	turnEnded := inst.Activity == ActivityRunning && (a == ActivityHolding || a == ActivityWaiting)
+	turnStarted := a == ActivityRunning && inst.Activity != ActivityRunning // from Holding too
 	// holding → running is the same run resuming, not a new one: keep WaitSeq so
 	// a reply that landed while holding (not yet woken for) still wakes it.
 	enteringRunning := a == ActivityRunning && inst.Activity != ActivityRunning && inst.Activity != ActivityHolding
@@ -433,6 +434,11 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		// the wake-on engine wakes the cove on each later reply and advances the
 		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+	}
+	if turnStarted {
+		// Whatever woke it answered this turn end, so the idle deadline is
+		// disarmed until the next one.
+		inst.IdleDeadline = time.Time{}
 	}
 	if turnEnded {
 		s.armIdleDeadline(&inst, now)
@@ -513,17 +519,6 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.IdleOverride = &o
-	return s.store.PutInstance(inst)
-}
-
-// ClearIdleDeadline disarms the cove's idle deadline (it fired, or another
-// wake answered this turn end).
-func (s *Supervisor) ClearIdleDeadline(actorID string) error {
-	inst, ok := s.store.GetInstance(actorID)
-	if !ok {
-		return fmt.Errorf("no instance for actor %q", actorID)
-	}
-	inst.IdleDeadline = time.Time{}
 	return s.store.PutInstance(inst)
 }
 
