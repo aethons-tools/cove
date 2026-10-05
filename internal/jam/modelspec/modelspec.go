@@ -8,6 +8,7 @@ package modelspec
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -29,14 +30,31 @@ const DefaultName = "claude-default"
 // (a union, like kit.ModelProvider). It never carries a secret value, so it
 // may be delivered to a cove as is.
 type Spec struct {
-	Name      string      `json:"name"                yaml:"name"`
-	Type      HarnessType `json:"type"                yaml:"type"`
-	Version   string      `json:"version"             yaml:"version"` // harness CLI version constraint (ParseConstraint), e.g. "2.x"
-	Principal Principal   `json:"principal"           yaml:"principal"`
-	Model     Choice      `json:"model,omitzero"      yaml:"model,omitempty"`
-	Policy    Policy      `json:"policy,omitzero"     yaml:"policy,omitempty"`
-	Note      string      `json:"note,omitempty"      yaml:"note,omitempty"`
-	Claude    *Claude     `json:"claude,omitempty"    yaml:"claude,omitempty"`
+	Name string      `json:"name"                yaml:"name"`
+	Type HarnessType `json:"type"                yaml:"type"`
+	// Version is the exact harness CLI release X.Y.Z (ParseExactVersion) the
+	// cove's image installs — the build pins it (COV-242).
+	Version string `json:"version" yaml:"version"`
+	// VersionConstraint is the runtime check the harness's Validate applies to
+	// the installed CLI (ParseConstraint grammar). Empty means "== Version"
+	// (RuntimeConstraint).
+	VersionConstraint string    `json:"version-constraint,omitempty" yaml:"version-constraint,omitempty"`
+	Principal         Principal `json:"principal"           yaml:"principal"`
+	Model             Choice    `json:"model,omitzero"      yaml:"model,omitempty"`
+	Policy            Policy    `json:"policy,omitzero"     yaml:"policy,omitempty"`
+	Note              string    `json:"note,omitempty"      yaml:"note,omitempty"`
+	Claude            *Claude   `json:"claude,omitempty"    yaml:"claude,omitempty"`
+}
+
+// RuntimeConstraint is the version constraint the harness checks the installed
+// CLI against: VersionConstraint when set, else Version itself (an exact
+// X.Y.Z is a valid constraint matching only that release). A legacy spec whose
+// Version still holds a constraint (stored before the split) checks against it.
+func (s Spec) RuntimeConstraint() string {
+	if strings.TrimSpace(s.VersionConstraint) != "" {
+		return s.VersionConstraint
+	}
+	return s.Version
 }
 
 // Principal names who the agent authenticates as.
@@ -98,7 +116,63 @@ type Claude struct {
 	ProviderEnv map[string]string `json:"provider-env,omitempty" yaml:"provider-env,omitempty"`
 	// Settings is a Claude settings.json fragment — preferences only.
 	Settings map[string]any `json:"settings,omitempty" yaml:"settings,omitempty"`
-	Plugins  []string       `json:"plugins,omitempty"  yaml:"plugins,omitempty"`
+	// Plugins are installed into the image at BUILD time by the harness layer
+	// (internal/harnessinstall), as "name@marketplace" ids whose marketplace
+	// is a KnownClaudeMarketplaces key (CheckClaudePlugin).
+	Plugins []string `json:"plugins,omitempty"  yaml:"plugins,omitempty"`
+}
+
+// knownClaudeMarketplaces maps the plugin marketplaces a model-spec may name
+// (the "@marketplace" half of a plugin id) to the source `claude plugin
+// marketplace add` takes. Adding a marketplace is a code change: the source is
+// fetched at image build with open network, so it is not operator input.
+var knownClaudeMarketplaces = map[string]string{
+	"claude-plugins-official": "anthropics/claude-plugins-official",
+}
+
+// ClaudeMarketplaceSource returns the `claude plugin marketplace add` source
+// for a known marketplace name.
+func ClaudeMarketplaceSource(name string) (string, bool) {
+	src, ok := knownClaudeMarketplaces[name]
+	return src, ok
+}
+
+// KnownClaudeMarketplaces lists the marketplace names a plugin id may name, sorted.
+func KnownClaudeMarketplaces() []string {
+	out := make([]string, 0, len(knownClaudeMarketplaces))
+	for k := range knownClaudeMarketplaces {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// pluginPart is one half of a plugin id: it reaches a Dockerfile RUN line, so
+// it is restricted to a shell-inert alphabet.
+func pluginPart(s string) bool {
+	if s == "" || len(s) > 128 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+			return false
+		}
+	}
+	return s[0] != '-' && s[0] != '.'
+}
+
+// CheckClaudePlugin reports why id is not an installable plugin id: it must be
+// "name@marketplace", both halves [A-Za-z0-9._-] (not leading '-' or '.'), and
+// the marketplace one of KnownClaudeMarketplaces.
+func CheckClaudePlugin(id string) error {
+	name, mkt, ok := strings.Cut(id, "@")
+	if !ok || !pluginPart(name) || !pluginPart(mkt) {
+		return fmt.Errorf("plugin %q is not a plugin id (want name@marketplace, letters, digits, '.', '_' or '-')", id)
+	}
+	if _, ok := knownClaudeMarketplaces[mkt]; !ok {
+		return fmt.Errorf("plugin %q names marketplace %q, which is not a known marketplace (want one of %s)", id, mkt, strings.Join(KnownClaudeMarketplaces(), ", "))
+	}
+	return nil
 }
 
 // credentialEnvKeys carry credential values; a model-spec names credentials by
@@ -113,22 +187,102 @@ var credentialEnvKeys = map[string]bool{
 // never be set by a model-spec's provider-env.
 func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 
-// DefaultVersion is the default spec's CLI version constraint: permissive —
-// any Claude Code 2.0.0 or later, which today's images install.
-const DefaultVersion = ">=2.0.0"
+// DefaultClaudeVersion is THE pinned Claude Code release the code defaults
+// to: the version Jam seeds a NEW claude-default with, the harness every full
+// config.yml kit (plain at-cove Assemble) installs, and the install a raise
+// uses when no spec is delivered (harnessinstall.Default). Bumping it does NOT
+// change a claude-default already stored in a Jam — an operator moves that one
+// with `at-jam model-spec update` (or the admin UI).
+//
+// renovate: datasource=npm depName=@anthropic-ai/claude-code
+const DefaultClaudeVersion = "2.1.287"
+
+// LegacyDefaultVersion is the version constraint claude-default was seeded with
+// before the version split (COV-242); MigrateLegacy keeps it as a migrated
+// claude-default's version-constraint (it admits the pin).
+const LegacyDefaultVersion = ">=2.0.0"
+
+// defaultClaudePlugins are the plugins claude-default installs — what every
+// image carried before plugins became model-spec-driven (COV-242).
+var defaultClaudePlugins = []string{"superpowers@claude-plugins-official"}
+
+// DefaultClaudePlugins returns claude-default's plugin ids (a copy).
+func DefaultClaudePlugins() []string { return slices.Clone(defaultClaudePlugins) }
 
 // Default is DefaultName as Jam seeds it, authenticating as principal: claude
-// on the anthropic provider, bypassPermissions, DefaultVersion, no model,
-// effort, settings or plugins — so a cove under it launches exactly as it did
-// before model-specs (only the version check is new).
+// on the anthropic provider, bypassPermissions, version DefaultClaudeVersion
+// (runtime constraint == version), the DefaultClaudePlugins, no model, effort
+// or settings — so a cove under it launches exactly as it did before
+// model-specs.
 func Default(principal string) Spec {
 	return Spec{
 		Name:      DefaultName,
 		Type:      HarnessClaude,
-		Version:   DefaultVersion,
+		Version:   DefaultClaudeVersion,
 		Principal: Principal{Credential: principal},
 		Policy:    Policy{Mode: ModeBypassPermissions},
 		Note:      "Seeded by Jam: the built-in Claude Code defaults every unbound role runs under.",
-		Claude:    &Claude{Provider: "anthropic"},
+		Claude:    &Claude{Provider: "anthropic", Plugins: DefaultClaudePlugins()},
 	}
+}
+
+// MigrateLegacy upgrades a spec stored before the version split (COV-242) —
+// Jam's one-time model-spec store migration applies it to every stored spec,
+// whatever its version — and returns warnings (each naming the spec) for
+// anything it had to drop. The result always passes the version and plugin
+// checks of Jam's write validation:
+//
+//   - a non-exact Version (a legacy constraint) becomes DefaultClaudeVersion.
+//     The old range is kept as VersionConstraint when it admits the pin, so
+//     coves on images the old hardening built (latest claude) keep passing
+//     their runtime check; otherwise the constraint becomes the pin and a
+//     warning names the dropped range. A set VersionConstraint that does not
+//     admit Version is treated the same way;
+//   - plugin ids that are malformed or name an unknown marketplace are dropped
+//     with a warning (a legacy spec must never make every raise fail);
+//   - a claude spec left with no plugins gets DefaultClaudePlugins: before
+//     COV-242 every image carried them regardless of the spec;
+//   - claude.settings' enabledPlugins / extraKnownMarketplaces are dropped
+//     with a warning (claude.plugins owns enablement now).
+func MigrateLegacy(s Spec) (Spec, []string) {
+	var warns []string
+	if _, err := ParseExactVersion(s.Version); err != nil {
+		old := strings.TrimSpace(s.Version)
+		s.Version = DefaultClaudeVersion
+		if strings.TrimSpace(s.VersionConstraint) == "" {
+			s.VersionConstraint = old
+		}
+	}
+	if s.VersionConstraint != "" {
+		v, _ := ParseExactVersion(s.Version)
+		if c, err := ParseConstraint(s.VersionConstraint); err != nil || !c.Allows(v) {
+			warns = append(warns, fmt.Sprintf("model-spec %q: version constraint %q does not admit the pinned version %s; dropped (the runtime check is now exactly %s)", s.Name, s.VersionConstraint, s.Version, s.Version))
+			s.VersionConstraint = s.Version
+		}
+	}
+	if s.Type == HarnessClaude && s.Claude != nil {
+		c := *s.Claude
+		c.Plugins = nil
+		for _, p := range s.Claude.Plugins {
+			if err := CheckClaudePlugin(p); err != nil {
+				warns = append(warns, fmt.Sprintf("model-spec %q: dropped plugin %q: %v", s.Name, p, err))
+				continue
+			}
+			if !slices.Contains(c.Plugins, p) {
+				c.Plugins = append(c.Plugins, p)
+			}
+		}
+		if len(c.Plugins) == 0 {
+			c.Plugins = DefaultClaudePlugins()
+		}
+		for _, k := range []string{"enabledPlugins", "extraKnownMarketplaces"} {
+			if _, ok := c.Settings[k]; ok {
+				warns = append(warns, fmt.Sprintf("model-spec %q: dropped claude.settings %q (plugin enablement follows claude.plugins)", s.Name, k))
+				c.Settings = maps.Clone(c.Settings)
+				delete(c.Settings, k)
+			}
+		}
+		s.Claude = &c
+	}
+	return s, warns
 }

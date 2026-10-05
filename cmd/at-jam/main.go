@@ -45,6 +45,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -1598,6 +1599,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		st = ps
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
+	}
+	// The one-time model-spec store migration (COV-242), before seeding: every
+	// spec stored before the version split gets an exact version pin (a legacy
+	// range kept as version-constraint when it admits the pin), unknown-
+	// marketplace plugins dropped, and the image-wide default plugins when it
+	// has none. Each loss is a WARN naming the spec. A no-op once recorded.
+	mig, err := jam.MigrateModelSpecs(st)
+	for _, w := range mig.Warnings {
+		log.Warn("model-spec migration", "detail", w)
+	}
+	if err != nil {
+		log.Warn("model-spec migration incomplete (retried next startup)", "migrated", mig.Migrated, "reason", err.Error())
+	} else if len(mig.Migrated) > 0 {
+		log.Info("model-specs migrated (COV-242)", "names", mig.Migrated, "default_version", modelspec.DefaultClaudeVersion)
 	}
 	// Seed the default model-spec every unbound role resolves to. Not fatal when
 	// no principal resolves: unbound roles then deliver no spec and their coves

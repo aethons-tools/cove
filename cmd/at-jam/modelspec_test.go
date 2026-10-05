@@ -15,7 +15,8 @@ import (
 
 const modelSpecYAML = `name: claude-default
 type: claude
-version: "2.x"
+version: "2.1.0"
+version-constraint: "2.x"
 principal:
   credential: anthropic
 model:
@@ -33,7 +34,7 @@ claude:
     theme: dark
     attribution:
       commit: ""
-  plugins: [superpowers@official]
+  plugins: [superpowers@claude-plugins-official]
 `
 
 func modelSpecServer(t *testing.T) (*httptest.Server, jam.Store) {
@@ -71,7 +72,7 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	}
 	got, ok := store.GetModelSpec("claude-default")
 	if !ok || got.Claude == nil || got.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" ||
-		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" {
+		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" || got.VersionConstraint != "2.x" {
 		t.Fatalf("stored spec = %+v", got)
 	}
 	if code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, path); code != 1 || !strings.Contains(errs, "already exists") {
@@ -79,7 +80,7 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	}
 
 	code, out, errs := runJam("model-spec", "list", "--admin-url", ts.URL)
-	if code != 0 || !strings.Contains(out, "claude-default\tclaude\t2.x\tanthropic\tvertex") {
+	if code != 0 || !strings.Contains(out, "claude-default\tclaude\t2.1.0\tanthropic\tvertex") {
 		t.Fatalf("list: code=%d out=%q err=%q", code, out, errs)
 	}
 
@@ -88,11 +89,11 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 		t.Fatalf("show: code=%d out=%q err=%q", code, out, errs)
 	}
 	// show's output is itself a valid spec file (round-trips through update).
-	shown := writeSpec(t, strings.Replace(out, `version: 2.x`, `version: 2.1.x`, 1))
+	shown := writeSpec(t, strings.Replace(out, `version: 2.1.0`, `version: 2.1.1`, 1))
 	if code, out, errs := runJam("model-spec", "update", "--admin-url", ts.URL, shown); code != 0 || !strings.Contains(out, "updated model-spec claude-default") {
 		t.Fatalf("update: code=%d out=%q err=%q", code, out, errs)
 	}
-	if got, _ := store.GetModelSpec("claude-default"); got.Version != "2.1.x" {
+	if got, _ := store.GetModelSpec("claude-default"); got.Version != "2.1.1" {
 		t.Fatalf("after update version = %q", got.Version)
 	}
 
@@ -120,7 +121,8 @@ func TestModelSpecCommandRefusals(t *testing.T) {
 		"bad mode":        {strings.Replace(modelSpecYAML, "mode: bypassPermissions", "mode: yolo", 1), `"yolo"`},
 		"protected env":   {strings.Replace(modelSpecYAML, "CLOUD_ML_REGION: us-east5", "HTTPS_PROXY: http://x", 1), "HTTPS_PROXY"},
 		"missing body":    {modelSpecYAML[:strings.Index(modelSpecYAML, "claude:\n")], "claude"},
-		"missing version": {strings.Replace(modelSpecYAML, "version: \"2.x\"\n", "", 1), "version"},
+		"missing version": {strings.Replace(modelSpecYAML, "version: \"2.1.0\"\n", "", 1), "version"},
+		"range version":   {strings.Replace(modelSpecYAML, "version: \"2.1.0\"", "version: \"2.x\"", 1), "version-constraint"},
 	} {
 		code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, writeSpec(t, tc.body))
 		if code == 0 || !strings.Contains(errs, tc.want) {

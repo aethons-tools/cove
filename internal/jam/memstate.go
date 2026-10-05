@@ -38,6 +38,9 @@ type memState struct {
 	unread map[string]map[string]int64
 	// jamContext is the Jam-wide authored session-context layer; zero = none.
 	jamContext sessionctx.Layer
+	// specSchema records which one-time model-spec store migrations have run
+	// (ModelSpecSchemaVersion); 0 = none.
+	specSchema int
 }
 
 func newMemState() *memState {
@@ -60,6 +63,13 @@ func (m *memState) GetJamContext() sessionctx.Layer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return sessionctx.Layer{Core: m.jamContext.Core, Leaves: slices.Clone(m.jamContext.Leaves)}
+}
+
+// ModelSpecSchema returns the recorded model-spec schema (0 = pre-COV-242).
+func (m *memState) ModelSpecSchema() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.specSchema
 }
 
 // applySetJamContext replaces the cached layer. Caller holds mu.Lock().

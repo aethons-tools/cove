@@ -322,10 +322,22 @@ intentionally share, and must not be re-keyed to make the session name unique.
 `install` writes `<kit>/.build/` — the single build path. The run commands
 (`create`/`recreate`/`chat` and `work`/`dispatch`) never assemble; they consume
 the image `install` already built. The context
-is **just the sealed layer** plus a few generated files — there is no kit overlay
-anymore:
+is **the harness layer and the sealed layer** plus a few generated files — there
+is no kit overlay anymore. The image is layered
+**`FROM ${BASE}` → harness → hardening**:
 
-1. **Non-overridable hardening** (embedded) —
+0. **Harness layer** (generated, `internal/harnessinstall`) — a `FROM ${BASE} AS harness`
+   stage that installs the agent CLI at the model-spec's **exact version** (claude:
+   the native installer `curl -fsSL https://claude.ai/install.sh | bash -s X.Y.Z`
+   as `agent`, the `/usr/local/bin/claude` symlink, `ENV DISABLE_AUTOUPDATER=1`)
+   and seeds the spec's `claude.plugins` (below). It is **model-spec-mediated, not
+   a hardening concern**: a full `config.yml` kit gets the default install —
+   the one pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its
+   plugins — until a kit can name a model-spec (COV-241); a Jam studio kit gets its
+   raising role's spec ([model-spec-harness.md](usage/jam/model-spec-harness.md)).
+   Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
+   layer cache). It needs no secret — the install is unauthenticated.
+1. **Non-overridable hardening** (embedded; `FROM harness`) —
    `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
 2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/Jam hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
@@ -336,7 +348,15 @@ for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
 overrides them the normal way and the sealed layer stays purely sealed.
 
 The hardening extracting last is the **security boundary**:
-nothing a kit provides can weaken the egress lock or sshd hardening.
+nothing a kit — or a model-spec's harness layer — provides can weaken the egress
+lock or sshd hardening; the harness stage only installs a CLI and plugins on the
+open-network builder, before any of the sealed steps run. The harness and its
+plugins are part of the image's identity: at-cove's build identity hashes only
+the harness layer's payload (its scripts), while the install itself (type,
+version, plugins) is in a full kit's currency inputs (so a
+`DefaultClaudeVersion` bump makes every full-kit install stale) and in a studio
+kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
+doesn't retag every studio image.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
 After it,
@@ -346,7 +366,7 @@ keeping overlay precedence pure.
 
 ### The base image and the provenance gate
 
-The hardening `Dockerfile` is applied `FROM ${BASE}` — a build arg the backend
+The assembled `Dockerfile` starts `FROM ${BASE}` (the harness stage; hardening then builds `FROM harness`) — a build arg the backend
 resolves when it builds the image (in `Backend.Install`, the single build+gate
 path):
 
@@ -617,9 +637,11 @@ sandboxes still tear down cleanly under their own (pre-rename) names.
 > migration code** — `destroy` (or `destroy --all`) the old instance **before**
 > upgrading, then `create` the collaborator instances fresh.
 
-The seed also carries the Claude Code **plugins** enabled in managed settings
-(the `claude-plugins-official` marketplace and `superpowers`),
-pre-installed into the image at build time by `seed-plugins.sh`
+The seed also carries the Claude Code **plugins** the harness layer installs —
+the model-spec's `claude.plugins` (`claude-default`: `superpowers` from the
+`claude-plugins-official` marketplace), enabled in the seed's `settings.json`
+(the sealed managed settings enable no plugin) —
+pre-installed into the image at build time by the harness layer's `seed-plugins.sh`
 rather than left to Claude Code's boot-time auto-installer.
 That installer would clone the marketplace and each plugin through the egress proxy at runtime,
 where two installs racing into the same directory can leave it half-written
@@ -814,6 +836,7 @@ internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/Cod
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
 internal/assemble/            layered .build assembly from embed.FS; key injection
+internal/harnessinstall/      the harness layer: a model-spec's CLI install (exact version) + plugin seed as a Dockerfile stage between the kit base and hardening
 internal/backend/             Backend interface + registry
 internal/backend/colima/      Colima impl: Install (build+gate+tag) / run / inspect / rm
 internal/naming/              pure derivation of every runtime docker resource name (image/container/volumes/worker) — the sole `atcove-{kit}-{class}-{type}` source

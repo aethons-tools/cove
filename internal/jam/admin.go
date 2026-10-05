@@ -369,6 +369,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &snap) {
 			return
 		}
+		// A backup taken before the model-spec migration (COV-242) is migrated
+		// exactly as serve startup migrates a store, and imports as current.
+		for _, w := range MigrateSnapshotModelSpecs(&snap) {
+			log.Warn("admin config import: model-spec migrated with a loss", "detail", w)
+		}
 		if err := store.ImportConfig(snap); err != nil {
 			switch {
 			case errors.Is(err, ErrConfigNotEmpty):

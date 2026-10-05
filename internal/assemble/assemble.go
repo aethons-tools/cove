@@ -11,6 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -47,8 +48,10 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 		return err
 	}
 	// A full kit's agent never runs cove-master (only Jam-raised studio coves
-	// do), so it bakes no MCP servers — just the empty file.
-	return AssembleContext(buildDir, pub, egress, gitlabHost, nil)
+	// do), so it bakes no MCP servers — just the empty file. Its harness is
+	// claude-default's install (modelspec.DefaultClaudeVersion + plugins) until
+	// a kit can name a model-spec (COV-241).
+	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harnessinstall.Default())
 }
 
 // AssembleContext stages the docker build context into buildDir with NO source
@@ -56,12 +59,18 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 // sealed hardening layer + Dockerfile via the embedded FS, and the injected
 // at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
 // the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
-// (kit.MCPServersImagePath), and the public key baked into authorized_keys. Because it takes no directory, a Launcher can build a
+// (kit.MCPServersImagePath), the public key baked into authorized_keys, and the
+// harness install (the model-spec's CLI version + plugins). Because it takes no directory, a Launcher can build a
 // managed cove from a kit communicated purely as data (config + key), which is
 // what lets that build run wherever the substrate builds (locally today; a
 // remote substrate later). See
 // docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md.
-func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string, mcpServers map[string]kit.MCPServer) error {
+//
+// The assembled Dockerfile is the generated harness stage (`ARG BASE`, `FROM
+// ${BASE} AS harness`, the CLI install + plugin seed — internal/harnessinstall)
+// followed by the sealed hardening Dockerfile (`FROM harness`), so the image is
+// FROM ${BASE} → harness → hardening and hardening is always applied last.
+func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string, mcpServers map[string]kit.MCPServer, harness harnessinstall.Install) error {
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}
@@ -71,9 +80,13 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
 	// not overlaid, and the overridable defaults ship in cove-base-image. So the
-	// build context is the sealed hardening layer plus the injected at-task, the
-	// kit's egress lists, and the managed key.
+	// build context is the harness layer, the sealed hardening layer, the
+	// injected at-task, the kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
+		return err
+	}
+
+	if err := writeDockerfile(buildDir, harness); err != nil {
 		return err
 	}
 
@@ -107,6 +120,21 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 		return err
 	}
 	return os.WriteFile(ak, pub, 0o600)
+}
+
+// writeDockerfile prepends the harness stage (staging its payload) to the
+// sealed hardening Dockerfile copyEmbed just wrote.
+func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
+	stage, err := harnessinstall.Stage(buildDir, harness)
+	if err != nil {
+		return err
+	}
+	df := filepath.Join(buildDir, "Dockerfile")
+	sealed, err := os.ReadFile(df)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(df, []byte(stage+"\n# --- sealed hardening layer (internal/assemble/hardening) ---\n"+string(sealed)), 0o644)
 }
 
 // writeAtTask stages the embedded linux at-task binaries into the build context

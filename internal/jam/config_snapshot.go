@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -34,6 +35,10 @@ type ConfigSnapshot struct {
 	Projects   []Project   `json:"projects"`
 	// JamContext is the Jam-wide authored session-context layer; nil = none.
 	JamContext *sessionctx.Layer `json:"jam_context,omitempty"`
+	// ModelSpecSchema is the exporter's model-spec schema marker
+	// (ModelSpecSchemaVersion); 0 (absent) = a pre-COV-242 backup, whose specs
+	// an import migrates (MigrateSnapshotModelSpecs).
+	ModelSpecSchema int `json:"model_spec_schema,omitempty"`
 }
 
 // ErrConfigNotEmpty is returned by ImportConfig when the target already holds
@@ -91,6 +96,7 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 	}
 	sort.Slice(snap.Projects, func(i, j int) bool { return snap.Projects[i].Name < snap.Projects[j].Name })
 
+	snap.ModelSpecSchema = m.specSchema
 	if !m.jamContext.Empty() {
 		jc := m.jamContext
 		snap.JamContext = &jc
@@ -165,6 +171,12 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 	for _, ms := range s.ModelSpecs {
 		// Credentials are serve-config, not snapshot, state: check the structure
 		// only (a restored Jam's credentials may differ from the exporter's).
+		// A pre-COV-242 backup's spec is checked in the form the one-time
+		// migration leaves it (the admin import handler stores it migrated;
+		// a direct store import is migrated at the next serve startup).
+		if s.ModelSpecSchema < ModelSpecSchemaVersion {
+			ms, _ = modelspec.MigrateLegacy(ms)
+		}
 		if err := ValidateModelSpec(ms, func(string) bool { return true }, true); err != nil {
 			return bad("model-spec "+ms.Name, err)
 		}
@@ -265,6 +277,7 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	for _, p := range s.Projects {
 		m.projects[p.Name] = p
 	}
+	m.specSchema = s.ModelSpecSchema
 	m.jamContext = sessionctx.Layer{}
 	if s.JamContext != nil {
 		m.jamContext = *s.JamContext

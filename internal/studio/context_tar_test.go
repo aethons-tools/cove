@@ -209,9 +209,9 @@ func TestValidateContextCheapRejectsNonTar(t *testing.T) {
 }
 
 func TestBuildDigestDiffersByBaseForm(t *testing.T) {
-	img := BuildDigest(StudioKit{Kind: Kind, Base: Base{Image: "r"}})
-	files := BuildDigest(StudioKit{Kind: Kind, Base: Base{ContextFiles: ContextTree{"dockerfile": fileNode("FROM x")}}})
-	ctx := BuildDigest(StudioKit{Kind: Kind, Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}})
+	img := BuildDigest(StudioKit{Kind: Kind, Base: Base{Image: "r"}}, dh)
+	files := BuildDigest(StudioKit{Kind: Kind, Base: Base{ContextFiles: ContextTree{"dockerfile": fileNode("FROM x")}}}, dh)
+	ctx := BuildDigest(StudioKit{Kind: Kind, Base: Base{Context: tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})}}, dh)
 	if img == files || img == ctx || files == ctx {
 		t.Fatalf("digests must differ per base form: image=%s files=%s context=%s", img, files, ctx)
 	}

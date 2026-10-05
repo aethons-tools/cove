@@ -197,7 +197,7 @@ into turn/background events, the pre-flight check — sits behind agentrun's
 `Harness` interface; the only implementation, and the default, is Claude. An
 episode is one `claude -p --input-format stream-json --output-format stream-json
 --verbose --dangerously-skip-permissions` process in `AT_COVE_WORKDIR` (the
-permission flags come from the role's [model-spec policy](model-specs.md#permission-policy);
+permission flags come from the role's [model-spec policy](model-spec-policy.md);
 this is `claude-default`'s; plus
 `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`
 when a [session context](session-context.md) is in effect); the prompt

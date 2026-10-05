@@ -14,7 +14,7 @@ func validSpec() ModelSpec {
 	return ModelSpec{
 		Name:      "claude-default",
 		Type:      HarnessClaude,
-		Version:   "2.x",
+		Version:   "2.1.0",
 		Principal: ModelPrincipal{Credential: "anthropic"},
 		Model:     ModelChoice{ID: "claude-opus-5-5", Effort: "high"},
 		Policy:    ModelPolicy{Mode: "bypassPermissions", Allow: []string{"Bash(go test:*)"}, Deny: []string{"WebFetch"}},
@@ -23,7 +23,7 @@ func validSpec() ModelSpec {
 			Provider:    "vertex",
 			ProviderEnv: map[string]string{"ANTHROPIC_VERTEX_PROJECT_ID": "proj", "CLOUD_ML_REGION": "us-east5"},
 			Settings:    map[string]any{"theme": "dark", "attribution": map[string]any{"commit": ""}},
-			Plugins:     []string{"superpowers@official"},
+			Plugins:     []string{"superpowers@claude-plugins-official"},
 		},
 	}
 }
@@ -49,7 +49,7 @@ func TestValidateModelSpecAcceptsValid(t *testing.T) {
 		}
 	}
 	// Minimal: only the required fields.
-	minimal := ModelSpec{Name: "m", Type: HarnessClaude, Version: "2.x", Principal: ModelPrincipal{Credential: "anthropic"}, Claude: &ClaudeSpec{Provider: "anthropic"}}
+	minimal := ModelSpec{Name: "m", Type: HarnessClaude, Version: "2.1.0", Principal: ModelPrincipal{Credential: "anthropic"}, Claude: &ClaudeSpec{Provider: "anthropic"}}
 	if err := ValidateModelSpec(minimal, credIs("anthropic"), false); err != nil {
 		t.Fatalf("minimal spec refused: %v", err)
 	}
@@ -102,6 +102,8 @@ func TestValidateModelSpecRefusals(t *testing.T) {
 		"settings disabled mcpjson": {func(m *ModelSpec) { m.Claude.Settings["disabledMcpjsonServers"] = []any{"x"} }, `"disabledMcpjsonServers"`},
 		"settings allowed mcp":      {func(m *ModelSpec) { m.Claude.Settings["allowedMcpServers"] = []any{} }, `"allowedMcpServers"`},
 		"settings denied mcp":       {func(m *ModelSpec) { m.Claude.Settings["deniedMcpServers"] = []any{} }, `"deniedMcpServers"`},
+		"settings enabledPlugins":   {func(m *ModelSpec) { m.Claude.Settings["enabledPlugins"] = map[string]any{"x@y": true} }, `"enabledPlugins"`},
+		"settings marketplaces":     {func(m *ModelSpec) { m.Claude.Settings["extraKnownMarketplaces"] = map[string]any{} }, `"extraKnownMarketplaces"`},
 		"settings non-json":         {func(m *ModelSpec) { m.Claude.Settings["bad"] = make(chan int) }, "settings"},
 		"empty plugin":              {func(m *ModelSpec) { m.Claude.Plugins = []string{""} }, "plugin"},
 		"duplicate plugin":          {func(m *ModelSpec) { m.Claude.Plugins = []string{"a", "a"} }, `"a"`},
@@ -153,11 +155,11 @@ func TestCreateUpdateGetDeleteModelSpec(t *testing.T) {
 	if err := CreateModelSpec(s, m, creds, false); WriteStatus(err, 0) != http.StatusConflict {
 		t.Fatalf("duplicate create = %v, want 409", err)
 	}
-	m.Version = "2.1.x"
+	m.Version = "2.1.1"
 	if err := UpdateModelSpec(s, m, creds, false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if got, ok := s.GetModelSpec(m.Name); !ok || got.Version != "2.1.x" {
+	if got, ok := s.GetModelSpec(m.Name); !ok || got.Version != "2.1.1" {
 		t.Fatalf("after update: %+v %v", got, ok)
 	}
 	bad := m

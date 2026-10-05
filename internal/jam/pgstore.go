@@ -248,6 +248,18 @@ func (s *PostgresStore) load(ctx context.Context) error {
 			return fmt.Errorf("pgstore: decode jam_settings context: %w", err)
 		}
 	}
+	var schema []byte
+	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'model_spec_schema'`).Scan(&schema); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("pgstore: load jam_settings model_spec_schema: %w", err)
+	default:
+		var doc modelSpecSchemaDoc
+		if err := json.Unmarshal(schema, &doc); err != nil {
+			return fmt.Errorf("pgstore: decode jam_settings model_spec_schema: %w", err)
+		}
+		s.specSchema = doc.Version
+	}
 	// intercom-UI unread cursors: (participant, channel) → last-seen Seq.
 	curs, err := s.pool.Query(ctx, `SELECT participant, channel, seq FROM intercom_unread_cursors`)
 	if err != nil {
@@ -405,6 +417,20 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO jam_settings (key, doc) VALUES ('context', $1)`, doc); err != nil {
+				return err
+			}
+		}
+		// The marker is replaced, not merged: serve startup records one on an
+		// empty store before any import (MigrateModelSpecs).
+		if _, err := tx.Exec(ctx, `DELETE FROM jam_settings WHERE key = 'model_spec_schema'`); err != nil {
+			return err
+		}
+		if snap.ModelSpecSchema != 0 {
+			doc, err := json.Marshal(modelSpecSchemaDoc{Version: snap.ModelSpecSchema})
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO jam_settings (key, doc) VALUES ('model_spec_schema', $1)`, doc); err != nil {
 				return err
 			}
 		}
@@ -854,6 +880,28 @@ func (s *PostgresStore) SetProjectContext(project string, l sessionctx.Layer, rs
 		return err
 	}
 	return s.putProject(setProjectContext(copyProject(p), l, rs))
+}
+
+// modelSpecSchemaDoc is the jam_settings 'model_spec_schema' row.
+type modelSpecSchemaDoc struct {
+	Version int `json:"version"`
+}
+
+// SetModelSpecSchema upserts the model-spec schema marker and updates the cache.
+func (s *PostgresStore) SetModelSpecSchema(v int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, err := json.Marshal(modelSpecSchemaDoc{Version: v})
+	if err != nil {
+		return err
+	}
+	if err := s.exec("setModelSpecSchema",
+		`INSERT INTO jam_settings (key, doc) VALUES ('model_spec_schema', $1)
+		 ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`, doc); err != nil {
+		return err
+	}
+	s.specSchema = v
+	return nil
 }
 
 // SetJamContext upserts (or, for an empty layer, deletes) the Jam-wide context

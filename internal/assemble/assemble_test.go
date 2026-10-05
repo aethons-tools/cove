@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -38,7 +39,7 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 // (embedded), bake the key, and write the egress list, touching no kit dir.
 func TestAssembleContextNeedsNoKitDir(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{Policy: []string{"proxy.golang.org"}}, "", nil); err != nil {
+	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{Policy: []string{"proxy.golang.org"}}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatalf("AssembleContext: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(buildDir, "Dockerfile")); err != nil {
@@ -417,7 +418,7 @@ func TestAssembleContextBakesMCPServers(t *testing.T) {
 	servers := map[string]kit.MCPServer{
 		"linear": {Type: "http", URL: "${LINEAR_MCP_URL}", Headers: map[string]string{"Authorization": "Bearer ${LINEAR_TOKEN}"}},
 	}
-	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", servers); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", servers, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files", kit.MCPServersImagePath))

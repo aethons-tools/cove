@@ -52,7 +52,7 @@ func TestNotesDoNotChangeBuildDigest(t *testing.T) {
 	a := StudioKit{Kind: Kind, Egress: []string{"github.com"}}
 	b := a
 	b.Prompt, b.Notes = "P", []KitNote{{Name: "n.md", ReadWhen: "w", Body: "B"}}
-	if BuildDigest(a) != BuildDigest(b) {
+	if BuildDigest(a, dh) != BuildDigest(b, dh) {
 		t.Fatal("prompt/notes are raise-time inputs; the build digest must ignore them")
 	}
 }

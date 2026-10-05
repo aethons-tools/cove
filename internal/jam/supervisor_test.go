@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -270,7 +272,7 @@ func TestRaiseUsesRoleStudioKit(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev"}); err != nil {
 		t.Fatal(err)
 	}
-	if fl.gotSpec.Kit.ID != "web" || fl.gotSpec.Kit.Digest != studio.BuildDigest(sk) {
+	if fl.gotSpec.Kit.ID != "web" || fl.gotSpec.Kit.Digest != studio.BuildDigest(sk, harnessinstall.Default()) {
 		t.Fatalf("raise spec.Kit = %+v, want the studio ref for web", fl.gotSpec.Kit)
 	}
 }
@@ -290,7 +292,7 @@ func TestRaiseStoredOverBudgetKitTruncates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sup.SetDefaultStudioKit(KitRef{ID: "legacy", Version: v, Digest: studio.BuildDigest(sk)})
+	sup.SetDefaultStudioKit(KitRef{ID: "legacy", Version: v, Digest: studio.BuildDigest(sk, harnessinstall.Default())})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"}); err != nil {
 		t.Fatalf("a stored over-budget kit must still raise: %v", err)
 	}
@@ -1444,5 +1446,98 @@ func TestRaiseContextCarriesNoSecrets(t *testing.T) {
 		if strings.Contains(all, secret) {
 			t.Errorf("context leaks %q", secret)
 		}
+	}
+}
+
+// The raise resolves the role's model-spec BEFORE the kit is built: a role
+// bound to a spec pinning a non-default harness version raises (and, on a miss,
+// prepares) the image keyed on — and built with — that harness (COV-242).
+func TestRaiseKeysKitOnRoleModelSpecHarness(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
+	sup, store, _ := supTestKit(t, fl)
+	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}}
+	ref, err := EnsureStudioKit(store, "web", sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := modelspec.Default("anthropic")
+	pinned.Name, pinned.Version = "pinned", "2.1.100"
+	pinned.Claude.Plugins = nil
+	if err := store.PutModelSpec(pinned); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", ModelSpec: "pinned",
+		Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	want := harnessinstall.Install{Type: modelspec.HarnessClaude, Version: "2.1.100", Plugins: []string{}}
+	wantDigest := studio.BuildDigest(sk, want)
+	if fl.gotSpec.Kit.ID != "web" || fl.gotSpec.Kit.Version != ref.Version || fl.gotSpec.Kit.Digest != wantDigest {
+		t.Fatalf("raise spec.Kit = %+v, want web@v%d keyed on the pinned harness (%s)", fl.gotSpec.Kit, ref.Version, wantDigest)
+	}
+	if wantDigest == ref.Digest {
+		t.Fatal("a non-default harness must key a different image than claude-default's")
+	}
+	if fl.prepareCalls != 1 || fl.preparedDef.Harness.Version != "2.1.100" || len(fl.preparedDef.Harness.Plugins) != 0 ||
+		fl.preparedDef.Ref.Digest != wantDigest {
+		t.Fatalf("PrepareKit got %+v (calls %d), want the pinned harness", fl.preparedDef, fl.prepareCalls)
+	}
+	if inst, _ := store.GetInstance("w1"); inst.Kit.Digest != wantDigest {
+		t.Fatalf("instance kit = %+v, want the harness-keyed digest", inst.Kit)
+	}
+}
+
+// With no spec delivered (none bound, none seeded) the image is claude-default's.
+func TestRaiseWithoutModelSpecUsesDefaultHarness(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
+	sup, store, _ := supTestKit(t, fl)
+	ref, err := EnsureStudioKit(store, "base", studio.StudioKit{Kind: studio.Kind})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetDefaultStudioKit(ref)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if fl.gotSpec.Kit != ref || fl.preparedDef.Harness.Version != modelspec.DefaultClaudeVersion {
+		t.Fatalf("kit = %+v, harness = %+v; want claude-default's", fl.gotSpec.Kit, fl.preparedDef.Harness)
+	}
+}
+
+// kitConfigCounter counts registry reads (each one is a parse of the kit).
+type kitConfigCounter struct {
+	Store
+	reads int
+}
+
+func (c *kitConfigCounter) KitConfig(name string, version int) (string, bool) {
+	c.reads++
+	return c.Store.KitConfig(name, version)
+}
+
+// A raise parses (and hashes) its kit once: the definition resolved for the
+// role's harness serves the image key, the session context and the prepare.
+func TestRaiseResolvesKitOnce(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
+	_, store, _ := supTestKit(t, fl)
+	if _, err := EnsureStudioKit(store, "web", studio.StudioKit{Kind: studio.Kind, Prompt: "K"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	counted := &kitConfigCounter{Store: store}
+	sup := NewSupervisor(counted, fl, "holder-A", 60*time.Second, 30*time.Second, time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if fl.prepareCalls != 1 || fl.gotSpec.Context == nil || !strings.Contains(fl.gotSpec.Context.Core, "K") {
+		t.Fatalf("raise did not prepare + compile the kit: prepares=%d ctx=%+v", fl.prepareCalls, fl.gotSpec.Context)
+	}
+	if counted.reads != 1 {
+		t.Fatalf("kit registry read %d times in one raise, want 1", counted.reads)
 	}
 }

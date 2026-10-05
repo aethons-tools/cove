@@ -56,11 +56,11 @@ func TestAdminModelSpecCRUD(t *testing.T) {
 		t.Fatalf("show missing = %d, want 404", rec.Code)
 	}
 
-	m.Version = "2.1.x"
+	m.Version = "2.1.1"
 	if rec := doReq(t, h, "PUT", "/admin/model-specs/"+m.Name, specJSON(t, m)); rec.Code != http.StatusNoContent {
 		t.Fatalf("update = %d %s", rec.Code, rec.Body)
 	}
-	if got, _ := store.GetModelSpec(m.Name); got.Version != "2.1.x" {
+	if got, _ := store.GetModelSpec(m.Name); got.Version != "2.1.1" {
 		t.Fatalf("after update version = %q", got.Version)
 	}
 	ghost := validSpec()

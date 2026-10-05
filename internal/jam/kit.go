@@ -4,14 +4,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // KitRef is the light, hot-path reference to a kit: what the supervisor puts on
 // a Raise so the launcher can answer "do I have this?" without the full config
 // crossing the wire. It is a stable content key — kit versions are monotonic and
-// immutable — so a launcher can cache prepared artifacts by it. Digest is an
-// optional content hash for integrity ("" = unset).
+// immutable — so a launcher can cache prepared artifacts by it. Digest is the
+// image's build-digest (studio.BuildDigest: the kit's build inputs AND the
+// harness layer of the raising role's model-spec); "" = unset.
 //
 // These kit-reference types live in package jam (not internal/jam/launcher)
 // because the jam.Launcher interface is parametrized by them: the concrete
@@ -36,6 +38,10 @@ func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) 
 type KitDefinition struct {
 	Ref KitRef
 	Kit studio.StudioKit
+	// Harness is the harness layer the image installs — the raising role's
+	// model-spec (CLI type, exact version, plugins). Ref.Digest is keyed on
+	// it too (studio.BuildDigest).
+	Harness harnessinstall.Install
 }
 
 // KitState is the readiness of a kit on a launcher. Colima prepares

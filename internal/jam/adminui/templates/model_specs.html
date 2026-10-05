@@ -19,7 +19,7 @@
     <tr data-id="{{.Name}}">
       <td><a class="mono" href="{{specURL .Name}}"><b>{{.Name}}</b></a></td>
       <td><span class="mono">{{.Type}}</span></td>
-      <td><span class="mono">{{.Version}}</span></td>
+      <td><span class="mono">{{.Version}}</span>{{if .VersionConstraint}} <span class="chip" title="runtime version constraint">{{.VersionConstraint}}</span>{{end}}</td>
       <td><span class="mono">{{.Principal.Credential}}</span></td>
       <td>{{if .Model.ID}}<span class="mono">{{.Model.ID}}</span>{{if .Model.Effort}} <span class="chip">{{.Model.Effort}}</span>{{end}}{{else}}<span class="none">default</span>{{end}}</td>
       <td>{{if .Policy.Mode}}<span class="mono">{{.Policy.Mode}}</span>{{else}}<span class="none">default</span>{{end}}</td>

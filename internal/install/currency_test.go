@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 )
 
 func TestCurrencyHashDeterministicAndFieldSensitive(t *testing.T) {
@@ -12,6 +14,7 @@ func TestCurrencyHashDeterministicAndFieldSensitive(t *testing.T) {
 		KitSourceTree:       "kit-a",
 		AtCoveBuildIdentity: "id-a",
 		BaseRef:             "ref-a",
+		Harness:             "h-a",
 	}
 	if CurrencyHash(base) != CurrencyHash(base) {
 		t.Fatal("CurrencyHash must be deterministic for identical inputs")
@@ -21,6 +24,7 @@ func TestCurrencyHashDeterministicAndFieldSensitive(t *testing.T) {
 		"kitSourceTree":       func(c CurrencyInputs) CurrencyInputs { c.KitSourceTree = "kit-b"; return c },
 		"atCoveBuildIdentity": func(c CurrencyInputs) CurrencyInputs { c.AtCoveBuildIdentity = "id-b"; return c },
 		"baseRef":             func(c CurrencyInputs) CurrencyInputs { c.BaseRef = "ref-b"; return c },
+		"harness":             func(c CurrencyInputs) CurrencyInputs { c.Harness = "h-b"; return c },
 	} {
 		if CurrencyHash(mut(base)) == CurrencyHash(base) {
 			t.Errorf("changing %s must change the currency hash", name)
@@ -167,5 +171,26 @@ func TestAtCoveIdentityDeterministicAndNonEmpty(t *testing.T) {
 	}
 	if id1 != id2 {
 		t.Fatalf("AtCoveIdentity must be stable: %s != %s", id1, id2)
+	}
+}
+
+// at-cove's build identity (which also keys every Jam launcher's image tag)
+// hashes only the harness layer's payload, never the default install's data:
+// that lives in the studio build-digest and a full kit's currency Harness, so
+// a DefaultClaudeVersion bump does not retag every image (COV-242).
+func TestAtCoveIdentityExcludesDefaultHarnessData(t *testing.T) {
+	src := HarnessIdentity(harnessinstall.Default())
+	if src == "" {
+		t.Fatal("HarnessIdentity must be non-empty")
+	}
+	b := harnessinstall.Default()
+	b.Version = "2.1.100"
+	if HarnessIdentity(b) == src {
+		t.Fatal("a full kit's harness version change must change its currency Harness input")
+	}
+	b = harnessinstall.Default()
+	b.Plugins = nil
+	if HarnessIdentity(b) == src {
+		t.Fatal("a full kit's harness plugins change must change its currency Harness input")
 	}
 }

@@ -1,21 +1,12 @@
-# The base at-cove hardens FROM. at-cove always injects --build-arg BASE (the
-# resolved, provenance-gated base: a blessed cove-base-image by default, or the
-# kit's image.base / built image/Dockerfile). Declared before FROM so it applies
-# to the base line; no default, so a bare `docker build` without BASE fails loud
-# rather than silently hardening the wrong floor.
-ARG BASE
-# BASE is an at-cove-injected, digest-pinned ref, so "always tag" does not apply.
+# The sealed hardening layer. It builds FROM the HARNESS LAYER, the stage at-cove
+# assemble generates from the model-spec and prepends to this file
+# (internal/harnessinstall): `ARG BASE` + `FROM ${BASE} AS harness` installs the
+# agent CLI at its exact version + its plugins on the kit-built base. So the
+# image is FROM ${BASE} -> harness -> hardening, with hardening always last. A
+# bare `docker build` of this file alone fails loud (no `harness` stage).
+# `harness` is a stage of the assembled Dockerfile, not a registry image.
 # hadolint ignore=DL3006
-FROM ${BASE}
-
-# Pre-install Claude Code (native) at BUILD time, as the agent user.
-# Fly's builders have open network, so this fetch happens BEFORE the runtime
-# egress lock. The desktop app then finds 'claude' already present instead of
-# bootstrapping through the locked-down proxy.
-RUN su - agent -c 'curl -fsSL https://claude.ai/install.sh | bash'
-
-# Make the binary findable regardless of how sshd sets PATH for the session.
-RUN ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude
+FROM harness
 
 # sshd: key-only auth, no root login, listen on 2222
 # (Fly already uses port 22 on the machine's private interface)
@@ -23,12 +14,6 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                       /etc/ssh/sshd_config \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
-
-# Don't phone home for background updates from inside the sandbox; rebuild the
-# image to update Claude Code instead. (claude.ai is still reached at runtime for
-# the subscription OAuth login flow — see the squid allow-list.) Use
-# DISABLE_UPDATES=1 to also block manual updates.
-ENV DISABLE_AUTOUPDATER=1
 
 # Install the embedded, version-locked at-task the orchestrating at-cove staged
 # into the build context (COV-34). Install only when non-empty: a plain
@@ -109,15 +94,6 @@ RUN if [ -f /home/agent/.claude.json ]; then \
     fi \
  && chown agent:agent /home/agent/.init-agent-data/.claude.json
 
-
-# Pre-install the plugin marketplace + the plugins enabled in
-# managed-settings.json at BUILD time (open network, before the runtime egress
-# lock), then fold them into the first-boot seed. Mirrors the build-time Claude
-# Code install above: without it, Claude Code's boot-time auto-installer would
-# clone plugins through the locked-down proxy at runtime, where two installer
-# invocations racing into one dir leave it half-written and the plugin never
-# installs. See docs/OVERVIEW.md ("Workspace and state volumes").
-RUN bash /usr/local/lib/cove/seed-plugins.sh
 
 # SSH sessions read /etc/environment via pam_env. Bridge the image's Docker ENV
 # into it: PATH (intrinsic, ~/.local/bin prepended) + the vars named in

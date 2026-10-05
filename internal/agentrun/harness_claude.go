@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,8 +25,9 @@ import (
 const claudeMCPConfigPath = "/dev/shm/cove-agent-mcp.json"
 
 // claudeSettingsPath is the per-run settings file rendered from a model-spec's
-// claude.settings (preferences only — validated Jam-side) and passed as
-// --settings; tmpfs like the MCP config.
+// claude.settings (preferences only — validated Jam-side) plus the enablement
+// of its claude.plugins (claudeSettings), passed as --settings; tmpfs like the
+// MCP config.
 const claudeSettingsPath = "/dev/shm/cove-agent-settings.json"
 
 // claudeVersionTimeout bounds the `claude --version` pre-flight.
@@ -94,8 +96,10 @@ func (c Claude) kitMCPServers() string {
 //     that is not an accepted Claude permission mode
 //     (modelspec.CheckPermissionMode — plan included: a headless cove could
 //     never leave it). Defense in depth over Jam's write-time validation;
-//   - the CLI version check: `claude --version` must satisfy spec.Version
-//     (modelspec.ParseConstraint; an empty or "*" constraint skips the check).
+//   - the CLI version check: `claude --version` must satisfy the spec's
+//     runtime constraint (spec.RuntimeConstraint: version-constraint, default
+//     == version, the exact release the image's harness layer installed;
+//     modelspec.ParseConstraint — an empty or "*" constraint skips the check).
 //     A missing or unrunnable claude, an unparseable version, or a mismatch is
 //     an error naming the spec, the constraint and what was found;
 //   - the run's one MCP config — the guaranteed messaging server plus the kit's
@@ -105,8 +109,9 @@ func (c Claude) kitMCPServers() string {
 //     A missing kit file (a stale image built before COV-240), a kit entry named
 //     messaging, or a literal header value is refused too — re-checked here as
 //     defense in depth over kit validation;
-//   - spec's claude.settings, when non-empty, is written to the per-run
-//     settings file Command passes as --settings (removed otherwise).
+//   - spec's claude.settings and its plugins' enablement (claudeSettings),
+//     when either is non-empty, are written to the per-run settings file
+//     Command passes as --settings (removed otherwise).
 func (c Claude) Validate(spec *modelspec.Spec) error {
 	if spec != nil {
 		if spec.Type != modelspec.HarnessClaude {
@@ -125,9 +130,10 @@ func (c Claude) Validate(spec *modelspec.Spec) error {
 	return c.writeSettings(spec)
 }
 
-// checkVersion runs `claude --version` and matches it against spec.Version.
+// checkVersion runs `claude --version` and matches it against the spec's
+// runtime constraint.
 func (c Claude) checkVersion(spec *modelspec.Spec) error {
-	con, err := modelspec.ParseConstraint(spec.Version)
+	con, err := modelspec.ParseConstraint(spec.RuntimeConstraint())
 	if err != nil {
 		return fmt.Errorf("agentrun: model-spec %q: %w", spec.Name, err)
 	}
@@ -143,7 +149,7 @@ func (c Claude) checkVersion(spec *modelspec.Spec) error {
 		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but `claude --version` printed no version: %w", spec.Name, con, err)
 	}
 	if !con.Allows(v) {
-		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but this image has claude %s — rebuild the image or change the spec's version", spec.Name, con, v)
+		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but this image has claude %s — rebuild the image or change the spec's version / version-constraint", spec.Name, con, v)
 	}
 	return nil
 }
@@ -160,7 +166,7 @@ func (c Claude) writeSettings(spec *modelspec.Spec) error {
 	}
 	b, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("agentrun: model-spec %q claude.settings: %w", spec.Name, err)
+		return fmt.Errorf("agentrun: model-spec %q settings: %w", spec.Name, err)
 	}
 	if err := writeFileAtomic(c.settings(), append(b, '\n')); err != nil {
 		return fmt.Errorf("agentrun: settings %q could not be written: %w", c.settings(), err)
@@ -168,11 +174,40 @@ func (c Claude) writeSettings(spec *modelspec.Spec) error {
 	return nil
 }
 
+// claudeSettings is the per-run settings for spec: its claude.settings, with
+// plugin enablement merged over it — each claude.plugins id under
+// enabledPlugins and its marketplace under extraKnownMarketplaces. Enablement
+// follows the spec (the image's harness layer installed exactly these), not
+// the sealed managed settings; a spec with no plugins enables none. nil when
+// there is nothing to write.
 func claudeSettings(spec *modelspec.Spec) map[string]any {
 	if spec == nil || spec.Claude == nil {
 		return nil
 	}
-	return spec.Claude.Settings
+	if len(spec.Claude.Plugins) == 0 {
+		return spec.Claude.Settings
+	}
+	out := maps.Clone(spec.Claude.Settings)
+	if out == nil {
+		out = map[string]any{}
+	}
+	enabled := map[string]any{}
+	markets := map[string]any{}
+	for _, p := range spec.Claude.Plugins {
+		_, mkt, _ := strings.Cut(p, "@")
+		src, ok := modelspec.ClaudeMarketplaceSource(mkt)
+		if !ok || modelspec.CheckClaudePlugin(p) != nil {
+			continue // never installed by the harness layer
+		}
+		enabled[p] = true
+		markets[mkt] = map[string]any{"source": map[string]any{"source": "github", "repo": src}}
+	}
+	if len(enabled) == 0 {
+		return spec.Claude.Settings
+	}
+	out["enabledPlugins"] = enabled
+	out["extraKnownMarketplaces"] = markets
+	return out
 }
 
 // writeMCPConfig generates the run's one MCP config (see Validate).
@@ -230,10 +265,11 @@ func writeFileAtomic(path string, data []byte) error {
 // Command builds claude's argv for one episode. ep.Continued prepends
 // --continue. The prompt is not in argv: it is the first stream-json message
 // on stdin. From ep.Spec it applies the permission policy (see claudePolicy),
-// model.id (--model), model.effort (--effort), a non-empty claude.settings
+// model.id (--model), model.effort (--effort), non-empty settings or plugins
 // (--settings, the file Validate wrote) and the provider env (see claudeEnv).
 // The MCP config is not taken from the spec (yet): the generated --mcp-config
-// stays; claude.plugins are not applied (yet).
+// stays; claude.plugins are installed at image build by the harness layer
+// (internal/harnessinstall), not per episode.
 func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	args := []string{"-p"}
 	if ep.Continued {

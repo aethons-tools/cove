@@ -1,7 +1,7 @@
 ---
-summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + CLI version, principal credential by name, model, permission policy, per-harness body); the YAML schema and version-constraint syntax, validation, binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, the `at-jam model-spec` verb and the admin API.
-read_when: You are authoring, listing, changing or deleting a model-spec, binding a role to one, a model-spec write or delete was refused, a cove failed its claude version check, or you need to know which spec fields a cove actually applies and when an edit takes effect.
-owns: the model-spec entity — its schema, version-constraint syntax, validation rules, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
+summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + exact CLI version pin + runtime version-constraint, principal credential by name, model, permission policy, per-harness body incl. build-time plugins); the YAML schema and version-constraint syntax, validation, the version-split migration, what a spec builds into the image (harness layer), binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, the `at-jam model-spec` verb and the admin API.
+read_when: You are authoring, listing, changing or deleting a model-spec, binding a role to one, a model-spec write or delete was refused, a cove failed its claude version check, you are bumping the harness CLI version or plugins, or you need to know which spec fields a cove actually applies and when an edit takes effect.
+owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
 updated: 2026-10-05
@@ -13,7 +13,9 @@ A **model-spec** is a named, stored description of *how a cove runs its agent*:
 which harness (and CLI version), which principal it authenticates as, which model,
 and which permission policy. Every **role** resolves to one (unbound = `claude-default`);
 Jam delivers the resolved spec to each of the role's coves, which apply it at their
-next episode — no image rebuild.
+next episode — except its harness CLI `version` and `claude.plugins`, which are
+[built into the image](model-spec-harness.md). The permission
+policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md).
 
 ## Schema
 
@@ -23,7 +25,8 @@ the only harness family today.
 ```yaml
 name: claude-default
 type: claude                # harness family; implies the harness (required)
-version: "2.x"              # required harness CLI version constraint (below)
+version: "2.1.287"          # required EXACT harness CLI release the image installs
+version-constraint: ""      # optional runtime check (below); empty = exactly `version`
 principal:
   credential: anthropic     # a serve-config credential NAME, or `pool` (required)
 model:                      # optional; empty = harness default
@@ -38,7 +41,7 @@ claude:                     # the body matching `type` (required)
   provider: anthropic       # anthropic | vertex | bedrock (required)
   provider-env: {}          # non-secret env, e.g. Vertex project/region
   settings: {}              # Claude settings.json fragment (preferences only)
-  plugins: []
+  plugins: []               # name@marketplace ids, installed at image build
 ```
 
 ## Validation
@@ -50,7 +53,8 @@ is a 400 naming the field, and nothing is stored.
 |-------|------|
 | `name` | Required (same rule as destinations). It is the key: `update` cannot rename. |
 | `type` | Required; a known harness family (`claude`). |
-| `version` | Required; a valid [version constraint](#version-constraints). |
+| `version` | Required; an exact `X.Y.Z` release (digits only — no `v`, suffix or range: a range belongs in `version-constraint`). |
+| `version-constraint` | Optional; a valid [version constraint](#version-constraints) that **admits `version`** (else every cove would fail its check). |
 | `principal.credential` | Required. A [`credentials:`](serve.md#the-serve-config) name (or the pool's `cred-name`), or the keyword `pool` — accepted only when a [`pool:`](pool.md) is configured. |
 | `policy.mode` | Empty (= `bypassPermissions`), or one of Claude's modes `default`, `acceptEdits`, `bypassPermissions`, `dontAsk`. `plan` is refused: a cove runs claude headless with nobody to approve a plan, so it could never leave plan mode. |
 | `policy.allow` / `deny` | No empty rules, and no leading or trailing whitespace on a rule. |
@@ -58,8 +62,8 @@ is a 400 naming the field, and nothing is stored.
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
 | `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS` — the same list a kit's `model-provider` env obeys); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
-| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); and the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers). |
-| `claude.plugins` | No empty or duplicate entries. |
+| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); and `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them). |
+| `claude.plugins` | No empty or duplicate entries; each `name@marketplace`, both halves `[A-Za-z0-9._-]` (they reach a build `RUN` line), and the marketplace a known one (today only `claude-plugins-official` → `anthropics/claude-plugins-official`; adding one is a code change). |
 
 **No secrets in a model-spec.** Credentials appear by name only (`principal`);
 the real values stay in the [credentials file](credentials.md). Refusals never
@@ -67,8 +71,11 @@ echo an env value, and audit logs carry only the operator, name and type.
 
 ## Version constraints
 
-`version` is checked against `claude --version` in the cove before each spec is
-applied ([below](#what-a-cove-applies)):
+`version` is what the image **installs**; the **runtime constraint** —
+`version-constraint`, or exactly `version` when empty — is checked against
+`claude --version` in the cove before each spec is applied
+([below](#what-a-cove-applies)). Set a looser constraint (e.g. `2.x`) to let a
+spec edit's new pin apply to running coves before their image is rebuilt:
 
 | Constraint | Matches |
 |------------|---------|
@@ -91,12 +98,22 @@ cannot be deleted (409 naming the role).
 
 **`claude-default`** is seeded at `at-jam serve` startup when absent (an
 operator's edits to it are kept): type `claude`, provider `anthropic`,
-`policy.mode: bypassPermissions`, version `>=2.0.0`, no model/effort/settings —
-exactly how coves ran before model-specs. Its principal is `pool` when a
+`policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` with
+no separate constraint, plugins `[superpowers@claude-plugins-official]`, no
+model/effort/settings — exactly how coves ran before model-specs.
+`DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
+seeds, every full `config.yml` kit's harness, and raises that deliver no spec —
+**not** a `claude-default` already stored. Bump that one yourself
+(`at-jam model-spec show claude-default > s.yaml`, edit `version`,
+`at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
 [`pool:`](pool.md) is configured, else the `cred_name` of the destination named
 `anthropic` (or else routed at `/anthropic/`). With neither, nothing is seeded
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves
 keep the built-in defaults, with no version check.
+
+What a spec's `version` and `plugins` build into the image, and the one-time
+migration of specs stored before the version split, are in
+[model-spec-harness.md](model-spec-harness.md).
 
 ## What a cove applies
 
@@ -113,7 +130,7 @@ harness **validates** it and fails the run loud on error: a non-`claude` type,
 a `policy.mode` outside the list above (including `plan`), a missing `claude`
 binary, or a version outside the constraint
 (`model-spec "x" requires claude 3.x, but this image has claude 2.1.287 —
-rebuild the image or change the spec's version`). Then each episode applies:
+rebuild the image or change the spec's version / version-constraint`). Then each episode applies:
 
 | Field | Applied as |
 |-------|------------|
@@ -121,44 +138,13 @@ rebuild the image or change the spec's version`). Then each episode applies:
 | `model.effort` | `--effort LEVEL` (Claude Code's flag; `low`…`max`) |
 | `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1`; `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
 | `claude.provider-env` | set in the agent env — never over a key the connector sets (routing and identity stay Jam's) |
-| `claude.settings` | written to `/dev/shm/cove-agent-settings.json`, passed as `--settings` (only when non-empty) |
-| `policy` | see [Permission policy](#permission-policy) |
+| `claude.settings` + `claude.plugins` | written to `/dev/shm/cove-agent-settings.json` — the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces — passed as `--settings` (only when either is non-empty) |
+| `policy` | permission flags — see [model-spec-policy.md](model-spec-policy.md) |
 
-**Not applied yet:** `claude.plugins` (stored only), and `principal` on the cove side — the broker
+`claude.plugins` are *installed* by the [harness layer](model-spec-harness.md),
+not per episode. **Not applied yet:** `principal` on the cove side — the broker
 resolves the credential. A Jam predating model-specs delivers none: no check,
 built-in defaults.
-
-### Permission policy
-
-Jam owns the agent's permission policy; the claude harness renders `policy` as flags:
-
-| `policy` | Argv |
-|----------|------|
-| `mode` empty, or no spec delivered | `--dangerously-skip-permissions` (exactly the argv before model-specs) |
-| `mode: bypassPermissions` (`claude-default`) | `--dangerously-skip-permissions` too — the same session mode as `--permission-mode=bypassPermissions`, kept byte-identical so existing roles launch unchanged |
-| any other `mode` | `--permission-mode=MODE`, then the [always-allowed rules](#always-allowed-in-non-bypass-modes) |
-| each `allow` rule | `--allowedTools=RULE` |
-| each `deny` rule | `--disallowedTools=RULE` |
-
-Rules use Claude's syntax (`Bash`, `Bash(git *)`, `WebFetch`). Each rule is one
-`--flag=RULE` argv element, so a rule can never be read as a flag. Deny wins over
-allow and applies in every mode, `bypassPermissions` included. Allow only matters
-where claude would otherwise ask. Headless (`-p`) has nobody to answer, so a tool
-call that would prompt is denied.
-
-The rules are flags, not a `permissions` block in the `--settings` file. `policy`
-owns permissions (`claude.settings` may not set them), and the rules stay visible
-in the argv. The image's managed `permissions.defaultMode: bypassPermissions`
-does not override `--permission-mode`. It only applies when no mode flag is
-passed, which never happens under the harness.
-
-#### Always allowed in non-bypass modes
-
-Under any mode but `bypassPermissions`, two allow rules precede the spec's own:
-`--allowedTools=mcp__messaging` (every intercom tool, so a headless agent can
-always read and send) and `--allowedTools=Edit(.at-task/worker-result.json)`
-(the self-report, relative to the work dir; `Edit` rules cover `Write` too —
-without it `default`/`dontAsk` deny the write). A `deny` rule still wins over both.
 
 ## The `at-jam model-spec` verb
 

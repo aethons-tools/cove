@@ -35,6 +35,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/keys"
@@ -648,8 +649,9 @@ func doUpdate(r runner.Runner, lookup func(string) (string, bool), currentVersio
 }
 
 // currencyInputs gathers the build-affecting inputs the install manifest hashes
-// (§5): the kit source tree, at-cove's embedded build identity, and the base ref
-// as configured (or the blessed default). install writes the resulting hash; the
+// (§5): the kit source tree, at-cove's embedded build identity, the base ref
+// as configured (or the blessed default), and the kit's harness install
+// (claude-default's until kits name a model-spec, COV-241). install writes the resulting hash; the
 // run commands (S3/S4) recompute it from the live kit to detect a stale install.
 func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, error) {
 	kitTree, err := install.KitSourceTree(kitDir)
@@ -668,6 +670,7 @@ func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, erro
 		KitSourceTree:       kitTree,
 		AtCoveBuildIdentity: identity,
 		BaseRef:             baseRef,
+		Harness:             install.HarnessIdentity(harnessinstall.Default()),
 	}, nil
 }
 

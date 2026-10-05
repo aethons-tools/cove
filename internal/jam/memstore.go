@@ -320,6 +320,13 @@ func (fs *MemStore) SetProjectContext(project string, l sessionctx.Layer, rs []s
 	return nil
 }
 
+func (fs *MemStore) SetModelSpecSchema(v int) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.specSchema = v
+	return nil
+}
+
 func (fs *MemStore) SetJamContext(l sessionctx.Layer) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

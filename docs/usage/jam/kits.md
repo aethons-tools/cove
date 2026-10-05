@@ -76,9 +76,18 @@ the cove's own **`messaging`** server (`cove-master mcp`, the
 
 The session context is compiled at raise ([session-context.md](session-context.md)),
 so it lives *outside* the image.
+The image is layered **kit base → harness → hardening**: between the kit's base
+and the sealed hardening steps sits a **harness layer** that installs the agent
+CLI at the raising role's [model-spec](model-spec-harness.md)
+version and its plugins — a kit never installs Claude Code itself. The raise
+resolves the role's model-spec *before* it looks for (or builds) the image.
 The image is tagged by a **build-digest** over only the build-affecting fields
-(`base` + `egress` + `build-args` + `mcp-servers`; a kit with no `mcp-servers` keeps its earlier digest): a prompt-, notes- or secrets-only edit reuses the
-cached image. The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
+(`base` + `egress` + `build-args` + `mcp-servers` + the **harness**: type, exact
+CLI version, plugins): a prompt-, notes- or secrets-only edit reuses the cached
+image, while the same kit version raised by roles on different model-specs
+builds one image per harness. Adding the harness (COV-242) changed every kit's
+digest once, so each kit rebuilds on its next raise. (The digest `kit show` and
+the admin UI print is the one under `claude-default`'s harness.) The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
 
