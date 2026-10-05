@@ -253,10 +253,9 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   other headers take a custom spec via `import` — see [header-specs.md](header-specs.md).
   The identity header is always stripped before forwarding, so a Jam identity
   token never reaches the upstream.
-- `--oauth-beta` was **removed**: passing it is an error pointing at its
-  replacement, a header rule on the [pool](pool.md) principal's model-spec
-  ([model-spec-headers.md](model-spec-headers.md#the-pool-oauth-beta)); a write
-  carrying the old `oauth_beta` field (`import`, the admin API) is refused the same way.
+- `--oauth-beta` was **removed** (an error, as is a write carrying the old
+  `oauth_beta` field): the broker now adds that beta for every
+  [pool](pool.md#the-oauth-beta) credential.
 - `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
   to use the destination — see [connector.md](connector.md), which also covers
   the `gh` (GitHub API) destinations.

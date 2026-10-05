@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -858,5 +859,94 @@ func TestDispatchUsesJamConnector(t *testing.T) {
 		if strings.Contains(call.Stdin, "insteadOf") {
 			t.Fatal("dispatch stays env-only: no git routing even with a git route")
 		}
+	}
+}
+
+// dispatchWithSpec runs one dispatch for a kit with the given model-spec and
+// returns the agent step's remote command and its env script.
+func dispatchWithSpec(t *testing.T, spec *modelspec.Spec) (cmd, env string) {
+	t.Helper()
+	dir := t.TempDir()
+	in := writeFile(t, dir, "task.json", `{"worker":{"class":"implement"}}`)
+	r := &runner.Fake{}
+	setOutputForCat(r, `{"status":{"ok":{}}}`)
+	err := Dispatch(context.Background(), Options{
+		Ops: &fakeOps{}, R: r,
+		Cfg: kit.Config{
+			Name:          "w",
+			SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo", MainBranch: "main"}},
+			Workers:       map[string]kit.Worker{"implement": {Prompt: "do it"}},
+			ModelSpec:     spec,
+		},
+		WorkerSecrets: []secret.Spec{{Name: "ANTHROPIC_API_KEY", Value: "k", Literal: true}},
+		Image:         "img", Name: "disp-worker",
+		InputPath: in, OutputPath: dir + "/out.json",
+		IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Timeout: 30 * time.Minute, GraceWindow: time.Hour, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	var envWrites []string
+	for _, c := range r.Calls {
+		joined := strings.Join(c.Args, " ")
+		if strings.Contains(joined, "cat > "+envVMPath) {
+			envWrites = append(envWrites, c.Stdin)
+		}
+		if strings.Contains(joined, "claude -p") {
+			cmd = c.Args[len(c.Args)-1]
+		}
+	}
+	return cmd, envWrites[1]
+}
+
+// Without a kit model-spec the worker's argv is the legacy one.
+func TestDispatchAgentLegacyArgvWithoutSpec(t *testing.T) {
+	cmd, _ := dispatchWithSpec(t, nil)
+	if !strings.Contains(cmd, `claude -p --dangerously-skip-permissions "$(cat `) {
+		t.Fatalf("legacy argv changed: %q", cmd)
+	}
+}
+
+// A kit model-spec's runtime parts reach the dispatched worker: model, effort,
+// policy (the Jam harness's mapping, with the worker-result file always
+// allowed), settings, and an anthropic spec's provider-env.
+func TestDispatchAppliesKitModelSpec(t *testing.T) {
+	spec := &modelspec.Spec{
+		Name: "s", Type: modelspec.HarnessClaude,
+		Model:  modelspec.Choice{ID: "claude-opus-4-8", Effort: "high"},
+		Policy: modelspec.Policy{Mode: "acceptEdits", Allow: []string{"Bash(go test:*)"}, Deny: []string{"WebFetch"}},
+		Claude: &modelspec.Claude{Provider: "anthropic", ProviderEnv: map[string]string{"ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku"}, Settings: map[string]any{"theme": "light"}},
+	}
+	cmd, env := dispatchWithSpec(t, spec)
+	for _, want := range []string{
+		`claude -p '--model' 'claude-opus-4-8' '--effort' 'high' '--permission-mode=acceptEdits' '--allowedTools=Edit(.at-task/worker-result.json)' '--allowedTools=Bash(go test:*)' '--disallowedTools=WebFetch' '--settings' '{"theme":"light"}' "$(cat `,
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("agent command missing %q:\n%s", want, cmd)
+		}
+	}
+	if strings.Contains(cmd, "--dangerously-skip-permissions") {
+		t.Fatalf("a non-bypass mode must not bypass: %q", cmd)
+	}
+	if !strings.Contains(env, "export ANTHROPIC_SMALL_FAST_MODEL='claude-haiku'") {
+		t.Fatalf("provider-env missing from the agent env:\n%s", env)
+	}
+	// Empty / bypass mode keeps the legacy flag; deny still applies.
+	spec.Policy = modelspec.Policy{Deny: []string{"WebFetch"}}
+	if cmd, _ := dispatchWithSpec(t, spec); !strings.Contains(cmd, `'--dangerously-skip-permissions' '--disallowedTools=WebFetch'`) {
+		t.Fatalf("bypass mapping: %q", cmd)
+	}
+}
+
+// A vertex spec's provider env is NOT applied to a worker: workers
+// authenticate with the worker-bucket Anthropic bearer and no GCP ADC is
+// seeded, so CLAUDE_CODE_USE_VERTEX would break every run.
+func TestDispatchSkipsVertexProviderEnv(t *testing.T) {
+	spec := &modelspec.Spec{Name: "s", Type: modelspec.HarnessClaude,
+		Claude: &modelspec.Claude{Provider: "vertex", ProviderEnv: map[string]string{"ANTHROPIC_VERTEX_PROJECT_ID": "p", "CLOUD_ML_REGION": "us"}}}
+	_, env := dispatchWithSpec(t, spec)
+	if strings.Contains(env, "CLAUDE_CODE_USE_VERTEX") || strings.Contains(env, "ANTHROPIC_VERTEX_PROJECT_ID") {
+		t.Fatalf("vertex env must not reach a worker:\n%s", env)
 	}
 }

@@ -167,16 +167,15 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 			return bad("destination "+d.Name, err)
 		}
 	}
+	sm := newSpecMigration(s.ModelSpecSchema, s.Destinations)
 	for _, ms := range s.ModelSpecs {
 		// Credentials are serve-config, not snapshot, state: check the structure
 		// only (a restored Jam's credentials may differ from the exporter's).
-		// A backup from before a migration step (COV-242, COV-245, COV-241) is checked
-		// in the form the one-time migration leaves it (the admin import
-		// handler stores it migrated; a direct store import is migrated at the
-		// next serve startup).
-		if s.ModelSpecSchema < ModelSpecSchemaVersion {
-			ms, _ = newSpecMigration(s.ModelSpecSchema, s.Destinations).apply(ms)
-		}
+		// A backup from before a migration step (COV-242, COV-245), or with
+		// legacy oauth_beta flags (COV-241), is checked in the form the
+		// migration leaves it (the admin import handler stores it migrated; a
+		// direct store import is migrated at the next serve startup).
+		ms, _ = sm.apply(ms)
 		if err := ValidateModelSpec(ms, func(string) bool { return true }, true); err != nil {
 			return bad("model-spec "+ms.Name, err)
 		}

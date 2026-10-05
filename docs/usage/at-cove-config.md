@@ -323,7 +323,7 @@ whole kit).
 model-spec:
   name: vertex-opus              # required (any name; shown in errors)
   type: claude                   # required
-  version: 2.1.287               # required exact Claude Code release the image installs
+  # version: 2.1.287             # optional exact release; omitted = follow DefaultClaudeVersion
   model: {id: claude-opus-4-8}   # optional
   policy: {mode: acceptEdits}    # optional; empty = bypassPermissions
   claude:
@@ -334,10 +334,16 @@ model-spec:
     plugins: [superpowers@claude-plugins-official]   # installed at build
 ```
 
-Every [Jam validation rule](jam/model-specs.md#validation) applies (exact
+Every [Jam validation rule](jam/model-specs.md#validation) applies (an exact
 `version`, `version-constraint` admitting it, known plugin marketplaces,
 preference-only `claude.settings`, no protected/credential/`AT_JAM_*` keys in
-`provider-env`, no `plan` mode), plus three plain-at-cove rules:
+`provider-env`, no `plan` mode), with four plain-at-cove differences:
+
+- **`version` is optional.** Omitted, the kit follows
+  `modelspec.DefaultClaudeVersion` — resolved when the spec is used, never
+  stored, so an at-cove upgrade that bumps it makes the install stale and the
+  next `install` builds the new CLI (as for a kit without `model-spec:`). Set it
+  to pin. (Jam still requires it.)
 
 - **no `principal`.** In Jam it names a credential (or the pool) and carries the
   broker's header rules; plain at-cove has no broker and authenticates the agent
@@ -354,11 +360,11 @@ preference-only `claude.settings`, no protected/credential/`AT_JAM_*` keys in
 |-------|---------|
 | `version`, `claude.plugins` | at **`install`**: the image's [harness layer](jam/model-spec-harness.md) installs exactly them (an edit makes the install stale). |
 | `claude.provider`, `claude.provider-env` | in the **`chat`** session env: `vertex` → `CLAUDE_CODE_USE_VERTEX=1` plus every `provider-env` key (the rendering a Jam cove uses), and the GCP ADC demand below. |
-| `model.id` / `model.effort`, `policy`, `claude.settings` | as **`chat`**'s claude argv: `--model`, `--effort`, `--permission-mode=MODE` (none for empty/`bypassPermissions`, already the image's interactive default), `--allowedTools=`/`--disallowedTools=` per rule, `--settings JSON`. |
+| `model.id` / `model.effort`, `policy`, `claude.settings` | as claude argv for **`chat`** and **dispatched workers** (`work`/`dispatch`), rendered by the one renderer Jam's harness uses: `--model`, `--effort`, `--permission-mode=MODE` plus `--allowedTools=`/`--disallowedTools=` per rule, `--settings JSON`. An empty/`bypassPermissions` mode adds nothing to `chat` (already the image's interactive default) and keeps a worker's `--dangerously-skip-permissions`; under another mode a worker is always allowed to write `.at-task/worker-result.json`. |
+| `claude.provider-env` on workers | applied for `anthropic` only: a worker authenticates with its worker-bucket Anthropic bearer and no GCP ADC is seeded, so a `vertex` spec stays `chat`-only (`work` logs a WARN). |
 | `version-constraint`, `note` | validated only — no runtime check in a plain cove. |
 
-`work`/`dispatch`/teammate sessions get the build-time parts (the image) only,
-as Vertex was `chat`-only before.
+Teammate sessions get the build-time parts (the image) only.
 
 **Hardening.** `provider-env` is kit-authored with no host gate, so its
 protected variables ([list](jam/model-specs.md#validation)) are refused at load
@@ -376,9 +382,14 @@ credential is **not** in the block: it is supplied host-side and seeded as a fil
 
 The old `model-provider: {vertex: {env: …}}` block is **removed**: loading a
 kit that still has it is a hard error that prints the equivalent `model-spec:`
-block — `claude.provider: vertex`, the old `env` as `claude.provider-env`,
-claude-default's version and plugins — to paste in its place. An install built
-from such a kit is refused too (`at-cove install` after the edit).
+block to paste in its place: `claude.provider: vertex`, the old `env` as
+`claude.provider-env`, claude-default's plugins, and **no `version`** (so the kit
+keeps tracking `DefaultClaudeVersion`, as before). Each old env key goes through
+the model-spec validator; one it would refuse (a credential such as
+`ANTHROPIC_API_KEY`, an `AT_JAM_*` name, …) is left out and named, with the
+reason, in a `#` comment above the block — never its value. A run command
+(`create`/`chat`/`work`) refuses an install built from such a kit until you edit
+and `at-cove install`; `destroy`, `status` and `uninstall` keep working on it.
 
 ### jam
 *optional; routes the cove's Anthropic + git through a Jam broker (COV-138)*
@@ -1044,7 +1055,7 @@ the template kit for `at-cove dispatch`.
   declare exactly `AT_DISPATCH_TRACKER_TOKEN` (demand-only);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
-- `model-spec` fails the shared model-spec validation, sets a `principal`, names a
+- `model-spec` fails the shared model-spec validation (with `version` optional), sets a `principal`, names a
   provider other than `anthropic`/`vertex`, or (vertex) lacks
   `ANTHROPIC_VERTEX_PROJECT_ID`/`CLOUD_ML_REGION`; `model-spec` is set with `jam`; or
   the removed `model-provider` is present — see [model-spec](#model-spec);

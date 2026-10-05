@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1106,11 +1108,24 @@ var vertexRequiredEnvKeys = []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_RE
 // model-spec: block, or else claude-default (modelspec.Default with no
 // principal — at-cove has none). harnessinstall.FromSpec of it is the image's
 // harness layer.
+//
+// A kit spec without a version follows DefaultClaudeVersion: the default is
+// applied here, at use, not stored — so the run-config install.json freezes
+// keeps no pin, and a bump makes the install stale like a kit without a spec.
 func (c Config) EffectiveModelSpec() modelspec.Spec {
-	if c.ModelSpec != nil {
-		return *c.ModelSpec
+	if c.ModelSpec == nil {
+		return modelspec.Default("")
 	}
-	return modelspec.Default("")
+	return withDefaultVersion(*c.ModelSpec)
+}
+
+// withDefaultVersion fills an omitted version with DefaultClaudeVersion — the
+// at-cove loader's one difference from Jam's exact-required version.
+func withDefaultVersion(s modelspec.Spec) modelspec.Spec {
+	if strings.TrimSpace(s.Version) == "" {
+		s.Version = modelspec.DefaultClaudeVersion
+	}
+	return s
 }
 
 // UsesVertex reports whether the kit's model-spec targets Claude on Vertex AI
@@ -1244,7 +1259,9 @@ func RootDomains(c Config) []string {
 //   - claude.provider is anthropic or vertex: at-cove has no Bedrock
 //     credential flow;
 //   - vertex needs ANTHROPIC_VERTEX_PROJECT_ID and CLOUD_ML_REGION in
-//     provider-env (the region derives the Vertex egress).
+//     provider-env (the region derives the Vertex egress);
+//   - version is optional: omitted, it follows DefaultClaudeVersion
+//     (EffectiveModelSpec) — validated as that.
 func validateKitModelSpec(s *modelspec.Spec) error {
 	if s == nil {
 		return nil
@@ -1252,7 +1269,7 @@ func validateKitModelSpec(s *modelspec.Spec) error {
 	bad := func(err error) error {
 		return fmt.Errorf("config.yml: model-spec: %w (see docs/usage/at-cove-config.md#model-spec)", err)
 	}
-	err := modelspec.Validate(*s, func(p modelspec.Principal) error {
+	err := modelspec.Validate(withDefaultVersion(*s), func(p modelspec.Principal) error {
 		if p.Credential != "" || len(p.Headers) > 0 {
 			return errors.New("principal is Jam-only (a Jam credential and the broker's header rules); a plain at-cove kit authenticates via the OAuth login or, for provider vertex, the host-supplied GCP ADC — remove principal")
 		}
@@ -1284,30 +1301,44 @@ type legacyModelProvider struct {
 	} `yaml:"vertex"`
 }
 
+// ErrModelProviderRemoved is wrapped by the error ParseConfig returns for a kit
+// that still has the removed model-provider: block.
+var ErrModelProviderRemoved = errors.New("model-provider: was replaced by model-spec:")
+
 // modelProviderMigrationError refuses a kit that still has model-provider:
 // (replaced by model-spec:, COV-241), naming the replacement and its doc and —
-// when the old block is a readable vertex one — the equivalent block to paste.
+// when the old block is a readable vertex one — the equivalent block to paste:
+// no version (it keeps tracking DefaultClaudeVersion, as the old kit did), and
+// each old env key run through the model-spec validator's key rule
+// (modelspec.CheckProviderEnvKey) — a refused key is left out, named with its
+// reason in a comment (never its value), so the pasted block loads.
 func modelProviderMigrationError(n *yaml.Node) error {
-	const head = "config.yml: model-provider: was replaced by model-spec: (a model-spec with claude.provider: vertex and the old env as claude.provider-env; see docs/usage/at-cove-config.md#model-spec)"
+	head := fmt.Errorf("config.yml: %w (a model-spec with claude.provider: vertex and the old env as claude.provider-env; see docs/usage/at-cove-config.md#model-spec)", ErrModelProviderRemoved)
 	var old legacyModelProvider
 	if err := n.Decode(&old); err != nil || old.Vertex == nil {
-		return errors.New(head)
+		return head
 	}
-	spec := modelspec.Default("")
-	spec.Name = "vertex"
-	spec.Note = ""
-	spec.Principal = modelspec.Principal{}
-	spec.Policy = modelspec.Policy{} // empty = bypassPermissions, the interactive default
-	spec.Claude.Provider = "vertex"
-	spec.Claude.ProviderEnv = old.Vertex.Env
-	spec.Claude.Settings = nil // the image's baseline preferences already apply
+	spec := modelspec.Spec{
+		Name:   "vertex",
+		Type:   modelspec.HarnessClaude,
+		Claude: &modelspec.Claude{Provider: "vertex", ProviderEnv: map[string]string{}, Plugins: modelspec.DefaultClaudePlugins()},
+	}
+	var comments strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(old.Vertex.Env)) {
+		if err := modelspec.CheckProviderEnvKey(k); err != nil {
+			fmt.Fprintf(&comments, "# left out %s: %s\n", k, strings.ReplaceAll(err.Error(), "\n", " "))
+			continue
+		}
+		spec.Claude.ProviderEnv[k] = old.Vertex.Env[k]
+	}
 	var b bytes.Buffer
+	b.WriteString(comments.String())
 	enc := yaml.NewEncoder(&b)
 	enc.SetIndent(2)
 	if err := enc.Encode(struct {
 		Spec modelspec.Spec `yaml:"model-spec"`
 	}{spec}); err != nil {
-		return errors.New(head)
+		return head
 	}
-	return fmt.Errorf("%s; replace it with:\n\n%s", head, b.String())
+	return fmt.Errorf("%w; replace it with:\n\n%s", head, b.String())
 }

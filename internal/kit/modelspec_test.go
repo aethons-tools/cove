@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"errors"
 	"maps"
 	"strings"
 	"testing"
@@ -114,7 +115,9 @@ func TestParseConfig_ModelSpecValidation(t *testing.T) {
 }
 
 // model-provider: was replaced by model-spec: — loading a kit that still has
-// it is a hard error naming the replacement, the doc, and the equivalent block.
+// it is a hard error naming the replacement, the doc, and the equivalent block
+// to paste: no version (so it keeps tracking DefaultClaudeVersion), and every
+// old env key the model-spec validator would refuse left out with a comment.
 func TestParseConfig_ModelProviderIsMigrationError(t *testing.T) {
 	_, err := ParseConfig([]byte(`
 name: k
@@ -123,26 +126,65 @@ model-provider:
     env:
       ANTHROPIC_VERTEX_PROJECT_ID: my-proj
       CLOUD_ML_REGION: us-east5
+      ANTHROPIC_API_KEY: sk-secret-value
+      AT_JAM_X: y
 `))
-	if err == nil {
-		t.Fatal("a kit with model-provider: must not load")
+	if err == nil || !errors.Is(err, ErrModelProviderRemoved) {
+		t.Fatalf("a kit with model-provider: must not load: %v", err)
 	}
-	for _, want := range []string{"model-provider", "model-spec", "docs/usage/at-cove-config.md", "provider: vertex", "provider-env", "ANTHROPIC_VERTEX_PROJECT_ID: my-proj", "CLOUD_ML_REGION: us-east5", modelspec.DefaultClaudeVersion} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("migration error missing %q:\n%v", want, err)
+	msg := err.Error()
+	for _, want := range []string{"model-provider", "model-spec", "docs/usage/at-cove-config.md", "provider: vertex", "provider-env", "ANTHROPIC_VERTEX_PROJECT_ID: my-proj", "CLOUD_ML_REGION: us-east5",
+		"# left out ANTHROPIC_API_KEY:", "carries a credential", "# left out AT_JAM_X:", "reserved"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("migration error missing %q:\n%v", want, msg)
 		}
 	}
-	// The suggested block is itself a valid model-spec: block.
-	_, after, ok := strings.Cut(err.Error(), "model-spec:\n")
-	if !ok {
-		t.Fatalf("no suggested block in %v", err)
+	if strings.Contains(msg, "sk-secret-value") {
+		t.Fatal("a refused key's value must never be echoed")
 	}
-	if _, err := ParseConfig([]byte("name: k\nmodel-spec:\n" + after)); err != nil {
-		t.Fatalf("the suggested model-spec block does not load: %v", err)
+	_, block, ok := strings.Cut(msg, "replace it with:\n\n")
+	if !ok {
+		t.Fatalf("no suggested block in %v", msg)
+	}
+	if strings.Contains(block, "version") {
+		t.Fatalf("the block must omit version so the kit keeps tracking DefaultClaudeVersion:\n%s", block)
+	}
+	// The suggested block, pasted as is, loads.
+	cfg, err := ParseConfig([]byte("name: k\n" + block))
+	if err != nil {
+		t.Fatalf("the suggested model-spec block does not load: %v\n%s", err, block)
+	}
+	if cfg.EffectiveModelSpec().Version != modelspec.DefaultClaudeVersion || cfg.ProviderEnv()["ANTHROPIC_VERTEX_PROJECT_ID"] != "my-proj" {
+		t.Fatalf("migrated kit = %+v", cfg.ModelSpec)
 	}
 	// Any shape of the old key is the same hard error (never "unknown field").
 	_, err = ParseConfig([]byte("name: k\nmodel-provider: {}\n"))
-	if err == nil || !strings.Contains(err.Error(), "model-spec") {
+	if err == nil || !errors.Is(err, ErrModelProviderRemoved) {
 		t.Fatalf("an empty model-provider must also get the migration hint, got %v", err)
+	}
+}
+
+// For the at-cove loader only, version is optional: it follows
+// DefaultClaudeVersion, resolved when the spec is used (EffectiveModelSpec),
+// so a bump moves the kit — even through an install.json round trip.
+func TestKitModelSpecVersionOptional(t *testing.T) {
+	cfg, err := ParseConfig([]byte("name: k\nmodel-spec: {name: s, type: claude, claude: {provider: anthropic, plugins: []}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ModelSpec.Version != "" {
+		t.Fatalf("the authored spec keeps no pin: %q", cfg.ModelSpec.Version)
+	}
+	if got := cfg.EffectiveModelSpec().Version; got != modelspec.DefaultClaudeVersion {
+		t.Fatalf("effective version = %q, want %s", got, modelspec.DefaultClaudeVersion)
+	}
+	// A version-constraint is checked against the defaulted version.
+	if _, err := ParseConfig([]byte("name: k\nmodel-spec: {name: s, type: claude, version-constraint: '1.x', claude: {provider: anthropic}}\n")); err == nil || !strings.Contains(err.Error(), "does not admit") {
+		t.Fatalf("constraint vs default version: %v", err)
+	}
+	// Jam stays exact-required.
+	s := modelspec.Spec{Name: "s", Type: modelspec.HarnessClaude, Claude: &modelspec.Claude{Provider: "anthropic"}}
+	if err := modelspec.Validate(s, nil); err == nil || !strings.Contains(err.Error(), "version is required") {
+		t.Fatalf("modelspec.Validate must still require version: %v", err)
 	}
 }

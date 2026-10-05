@@ -173,10 +173,9 @@ func TestSaveEnsuresGitignore(t *testing.T) {
 	}
 }
 
-// An install.json frozen from a kit with the removed model-provider: block is
-// refused with the migration hint rather than loading as a plain anthropic kit
-// (which would silently drop the Vertex wiring); a current one loads.
-func TestLoadRefusesLegacyModelProviderInstall(t *testing.T) {
+// An install.json frozen from a kit with the removed model-provider: block
+// still loads (teardown needs it) but is flagged, so the run path can refuse it.
+func TestLoadFlagsLegacyModelProviderInstall(t *testing.T) {
 	kitDir := t.TempDir()
 	if err := os.MkdirAll(Dir(kitDir), 0o700); err != nil {
 		t.Fatal(err)
@@ -185,15 +184,18 @@ func TestLoadRefusesLegacyModelProviderInstall(t *testing.T) {
 	if err := os.WriteFile(Path(kitDir), []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Load(kitDir)
-	if !errors.Is(err, ErrLegacyModelProvider) || !strings.Contains(err.Error(), "model-spec") || !strings.Contains(err.Error(), "at-cove install") {
-		t.Fatalf("err = %v", err)
+	m, err := Load(kitDir)
+	if err != nil || m.Name != "vkit" || !m.LegacyModelProvider {
+		t.Fatalf("Load = %+v, %v", m, err)
+	}
+	if !strings.Contains(ErrLegacyModelProvider.Error(), "model-spec") || !strings.Contains(ErrLegacyModelProvider.Error(), "at-cove install") {
+		t.Fatalf("hint = %v", ErrLegacyModelProvider)
 	}
 	plain := `{"schemaVersion":2,"name":"k","runConfig":{"Name":"k","ModelProvider":null}}`
 	if err := os.WriteFile(Path(kitDir), []byte(plain), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(kitDir); err != nil {
-		t.Fatalf("a manifest without a provider must load: %v", err)
+	if m, err := Load(kitDir); err != nil || m.LegacyModelProvider {
+		t.Fatalf("a manifest without a provider: %+v, %v", m, err)
 	}
 }

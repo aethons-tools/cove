@@ -1,7 +1,7 @@
 ---
-summary: Model-spec principal header rules (`principal.headers`) — extra headers the broker sets or list-appends on a principal's requests to its provider destination, after the credential; the `set`/`ensure-list-item` rule kinds, validation, which destination they apply to, the pool's oauth-beta rule (which replaced the removed destination `oauth_beta` flag / `--oauth-beta`), and the admin UI line syntax.
-read_when: You need a model-spec's principal to send an extra upstream header (e.g. the `oauth-2025-04-20` `anthropic-beta` for a pool principal), a header-rule write was refused, `--oauth-beta` / `oauth_beta` was refused, or a rule is not reaching (or is skipped at) the upstream.
-owns: model-spec principal header rules — their schema, validation, broker application and UI syntax — and the pool oauth-beta rule that replaced the destination oauth_beta flag
+summary: Model-spec principal header rules (`principal.headers`) — extra headers the broker sets or list-appends on a principal's requests to its provider destination, after the credential; the `set`/`ensure-list-item` rule kinds, validation, which destination they apply to, and the admin UI line syntax.
+read_when: You need a model-spec's principal to send an extra upstream header (e.g. the `oauth-2025-04-20` `anthropic-beta` for a non-pool subscription token), a header-rule write was refused, or a rule is not reaching (or is skipped at) the upstream.
+owns: model-spec principal header rules — their schema, validation, broker application and UI syntax
 prereqs: model-specs.md for the model-spec entity; header-specs.md for destination identity/apply headers
 tier: leaf
 updated: 2026-10-05
@@ -12,12 +12,12 @@ updated: 2026-10-05
 A [model-spec](model-specs.md)'s principal may carry **header rules**: extra
 headers the [broker](serve.md#the-broker-model) applies to that principal's
 requests. Use them for headers an upstream needs from *this kind of principal* —
-for example a [pool](pool.md) principal needs Anthropic's `oauth-2025-04-20`
-beta on every request.
+for example a subscription token outside the [pool](pool.md) needs Anthropic's
+`oauth-2025-04-20` beta on every request.
 
 ```yaml
 principal:
-  credential: pool
+  credential: solo-sub                  # a subscription token outside the pool
   headers:                              # at most 16 rules, applied in order
     - name: anthropic-beta
       ensure-list-item: oauth-2025-04-20
@@ -56,16 +56,12 @@ applies the rules in order — so a later rule sees what an earlier one (or the
 cove) set, and an `ensure-list-item` after a `set` on the same header keeps its
 item.
 
-## The pool oauth beta
+## The oauth beta
 
-A [pool](pool.md) principal needs Anthropic's `oauth-2025-04-20` beta on every
-request: `{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}`. Jam seeds
-`claude-default` with it when its principal is `pool`; add it to any other pool
-spec. It replaces the destination `oauth_beta` flag (and `at-jam destination add
---oauth-beta`), **removed** in COV-241: the flag and the CLI option are now refused
-with a pointer here. A store or backup that still carries the flag is migrated
-into this rule by [migration step 3](model-spec-harness.md#the-one-time-migration),
-so pool coves keep sending the beta, exactly once.
+The subscription pool's `oauth-2025-04-20` beta needs **no** rule: the broker
+adds it for every pool credential, after the rules —
+[pool.md](pool.md#the-oauth-beta). A subscription token outside the pool takes
+it as an `ensure-list-item` rule on its spec (the legacy-flag scan writes it).
 
 ## Validation
 

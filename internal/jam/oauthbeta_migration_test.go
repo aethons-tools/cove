@@ -5,21 +5,25 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
 
-// legacyDest is a destination as a pre-COV-241 Jam stored it: the subscription
-// pool's anthropic destination with the removed oauth_beta flag, decoded from
-// its stored JSON (pg rows and backups carry the flag as "oauth_beta").
-func legacyDest(t *testing.T, upstream string) Destination {
+// legacyDestJSON is a destination as a pre-COV-241 Jam stored it (pg rows and
+// backups carry the removed flag as "oauth_beta").
+func legacyDestJSON(name, upstream, cred string) string {
+	return `{"name":"` + name + `","route":"/` + name + `/","upstream":"` + upstream + `","identity_in":"bearer","cred_name":"` + cred + `","apply":"bearer","oauth_beta":true}`
+}
+
+func legacyDest(t *testing.T, name, upstream, cred string) Destination {
 	t.Helper()
-	doc := `{"name":"anthropic","route":"/anthropic/","upstream":"` + upstream + `","identity_in":"bearer","cred_name":"anthropic-sub","apply":"bearer","oauth_beta":true}`
 	var d Destination
-	if err := json.Unmarshal([]byte(doc), &d); err != nil {
+	if err := json.Unmarshal([]byte(legacyDestJSON(name, upstream, cred)), &d); err != nil {
 		t.Fatalf("a stored destination with oauth_beta must still load: %v", err)
 	}
 	if !d.LegacyOAuthBeta {
@@ -31,153 +35,212 @@ func legacyDest(t *testing.T, upstream string) Destination {
 func countRule(rules []modelspec.HeaderRule) int {
 	n := 0
 	for _, r := range rules {
-		if r == PoolOAuthBetaRule() {
+		if r == OAuthBetaRule() {
 			n++
 		}
 	}
 	return n
 }
 
-// Schema step 3 (COV-241): an oauth_beta destination becomes a principal
-// header rule on every pool-principal spec (and on specs naming the
-// destination's own credential), the flag is cleared, and the step never runs
-// twice; other specs are untouched and an existing rule is not duplicated.
-func TestMigrateModelSpecsOAuthBeta(t *testing.T) {
-	st := NewMemStore()
-	if err := st.AddDestination(legacyDest(t, "https://api.anthropic.com")); err != nil {
+// poolBroker is a broker whose resolver is the subscription pool (cred name
+// "anthropic-sub", one account) chained over a base holding "anthropic-key";
+// its upstream records every forwarded anthropic-beta.
+type poolBroker struct {
+	t     *testing.T
+	store *MemStore
+	tok   string
+	got   []string
+	b     *Broker
+}
+
+func newPoolBroker(t *testing.T, spec *ModelSpec, roleSpec string, dests ...Destination) *poolBroker {
+	t.Helper()
+	pb := &poolBroker{t: t, store: NewMemStore()}
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pb.got = r.Header.Values("anthropic-beta")
+		io.WriteString(w, "ok")
+	}))
+	t.Cleanup(up.Close)
+	ps, err := NewFilePoolStore(filepath.Join(t.TempDir(), "pool.json"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddDestination(Destination{Name: "github", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBearer, CredName: "gh", Apply: ApplyBearer}); err != nil {
+	if err := ps.SetAccount(PoolAccount{Name: "a", AccessToken: "SUB", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	def := modelspec.Default(PoolPrincipal)
-	pooled := modelspec.Default(PoolPrincipal)
-	pooled.Name = "pooled"
-	pooled.Principal.Headers = []modelspec.HeaderRule{{Name: "X-Team", Set: "a"}}
-	already := modelspec.Default(PoolPrincipal)
-	already.Name = "already"
-	already.Principal.Headers = []modelspec.HeaderRule{PoolOAuthBetaRule()}
-	sub := modelspec.Default("anthropic-sub")
-	sub.Name = "sub"
-	keyed := modelspec.Default("api-key")
-	keyed.Name = "keyed"
-	for _, m := range []ModelSpec{def, pooled, already, sub, keyed} {
-		if err := st.PutModelSpec(m); err != nil {
+	pb.tok, _ = MintToken()
+	mustCreateProject(t, pb.store, "ACME")
+	if spec != nil {
+		if err := pb.store.PutModelSpec(*spec); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := st.SetModelSpecSchema(2); err != nil {
+	var names []string
+	for _, d := range dests {
+		d.Upstream = up.URL
+		if err := pb.store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, d.Name)
+	}
+	if err := pb.store.PutRole("ACME", Role{Name: "guest", ModelSpec: roleSpec, Scope: Scope{Destinations: names}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := pb.store.AddActor(Actor{ID: "spider", TokenHash: HashToken(pb.tok), Grants: []Grant{{Project: "ACME", Role: "guest"}}}); err != nil {
+		t.Fatal(err)
+	}
+	pb.b = NewBroker(pb.store, NewChainResolver(fakeCreds{"anthropic-key": "KEY"}, NewPool(ps), "anthropic-sub"), testLogger())
+	return pb
+}
+
+func (pb *poolBroker) send(path, betaIn string) []string {
+	pb.t.Helper()
+	pb.got = nil
+	req := httptest.NewRequest("POST", path, strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+pb.tok)
+	if betaIn != "" {
+		req.Header.Set("anthropic-beta", betaIn)
+	}
+	rec := httptest.NewRecorder()
+	pb.b.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		pb.t.Fatalf("%s: code = %d", path, rec.Code)
+	}
+	return pb.got
+}
+
+func poolDest(name, route string) Destination {
+	return Destination{Name: name, Route: route, IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
+}
+
+// The broker ensures the subscription-OAuth beta whenever the credential comes
+// from the pool — exactly once, preserving the cove's betas — with no spec rule,
+// no destination flag, and whatever the spec resolution does.
+func TestBrokerPoolCredentialGetsOAuthBeta(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "oauth-2025-04-20"},
+		{"claude-code-20250219,context-1m-2025-08-07", "claude-code-20250219,context-1m-2025-08-07,oauth-2025-04-20"},
+		{"claude-code-20250219,oauth-2025-04-20", "claude-code-20250219,oauth-2025-04-20"},
+	}
+	def := modelspec.Default(PoolPrincipal)
+	missing := "ghost" // the role is bound to a spec that does not exist: resolution fails
+	for label, pb := range map[string]*poolBroker{
+		"no spec rules":   newPoolBroker(t, &def, "", poolDest("anthropic", "/anthropic/")),
+		"spec unresolved": newPoolBroker(t, nil, missing, poolDest("anthropic", "/anthropic/")),
+		"other route":     newPoolBroker(t, &def, "", poolDest("claude", "/claude/")),
+	} {
+		path := "/anthropic/v1/messages"
+		if label == "other route" {
+			path = "/claude/v1/messages"
+		}
+		for _, tc := range cases {
+			if got := pb.send(path, tc.in); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("%s, in %q: anthropic-beta = %q, want %q", label, tc.in, got, tc.want)
+			}
+		}
+	}
+}
+
+// The beta is ensured after the principal rules, so a set rule cannot drop it.
+func TestBrokerPoolOAuthBetaSurvivesSetRule(t *testing.T) {
+	spec := modelspec.Default(PoolPrincipal)
+	spec.Principal.Headers = []modelspec.HeaderRule{{Name: "anthropic-beta", Set: "context-1m"}}
+	pb := newPoolBroker(t, &spec, "", poolDest("anthropic", "/anthropic/"))
+	if got := pb.send("/anthropic/v1/messages", "a"); len(got) != 1 || got[0] != "context-1m,oauth-2025-04-20" {
+		t.Fatalf("anthropic-beta = %q", got)
+	}
+}
+
+// A non-pool credential gets no beta from the broker — not even behind a
+// destination still carrying the legacy flag (the broker never reads it).
+func TestBrokerNonPoolCredentialNoOAuthBeta(t *testing.T) {
+	keyed := modelspec.Default("anthropic-key")
+	d := legacyDest(t, "anthropic", "", "anthropic-key")
+	pb := newPoolBroker(t, &keyed, "", d)
+	if got := pb.send("/anthropic/v1/messages", "a"); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("anthropic-beta = %q, want the cove's betas untouched", got)
+	}
+}
+
+// The legacy-flag scan: a flagged NON-pool destination's beta moves onto the
+// specs whose principal is its credential (appended, never duplicated); a
+// flagged pool destination needs no rule (the broker guarantees its beta);
+// every flag is cleared. It runs on every startup, whatever the marker, so a
+// flag written later (an old binary in a rolling deploy) is handled too.
+func TestMigrateLegacyOAuthBetaFlags(t *testing.T) {
+	st := NewMemStore()
+	_ = st.AddDestination(legacyDest(t, "anthropic", "https://api.anthropic.com", "anthropic-sub")) // pool-backed
+	_ = st.AddDestination(legacyDest(t, "solo", "https://api.anthropic.com", "solo-sub"))           // a non-pool subscription
+	pooled := modelspec.Default(PoolPrincipal)
+	solo := modelspec.Default("solo-sub")
+	solo.Name = "solo"
+	solo.Principal.Headers = []modelspec.HeaderRule{{Name: "X-Team", Set: "a"}}
+	already := modelspec.Default("solo-sub")
+	already.Name = "already"
+	already.Principal.Headers = []modelspec.HeaderRule{OAuthBetaRule()}
+	keyed := modelspec.Default("api-key")
+	keyed.Name = "keyed"
+	for _, m := range []ModelSpec{pooled, solo, already, keyed} {
+		_ = st.PutModelSpec(m)
+	}
+	_ = st.SetModelSpecSchema(ModelSpecSchemaVersion) // a current store: the scan is not marker-gated
 	rep, err := MigrateModelSpecs(st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(rep.Migrated, []string{"claude-default", "pooled", "sub"}) || !slices.Equal(rep.Destinations, []string{"anthropic"}) {
+	if !slices.Equal(rep.Migrated, []string{"solo"}) || !slices.Equal(rep.Destinations, []string{"anthropic", "solo"}) {
 		t.Fatalf("report = %+v", rep)
 	}
-	for name, want := range map[string]int{"claude-default": 1, "pooled": 1, "already": 1, "sub": 1, "keyed": 0} {
+	for name, want := range map[string]int{"claude-default": 0, "solo": 1, "already": 1, "keyed": 0} {
 		m, _ := st.GetModelSpec(name)
 		if got := countRule(m.Principal.Headers); got != want {
 			t.Errorf("%s: oauth beta rules = %d, want %d (%+v)", name, got, want, m.Principal.Headers)
 		}
-		if err := ValidateModelSpec(m, credIs("anthropic-sub", "api-key"), true); err != nil {
+		if err := ValidateModelSpec(m, credIs("solo-sub", "api-key"), true); err != nil {
 			t.Errorf("migrated %s is invalid: %v", name, err)
 		}
 	}
-	if m, _ := st.GetModelSpec("pooled"); m.Principal.Headers[0].Name != "X-Team" || m.Principal.Headers[1] != PoolOAuthBetaRule() {
-		t.Fatalf("the rule must be appended after the existing ones (it used to apply last): %+v", m.Principal.Headers)
+	if m, _ := st.GetModelSpec("solo"); m.Principal.Headers[1] != OAuthBetaRule() {
+		t.Fatalf("the rule must be appended after the existing ones: %+v", m.Principal.Headers)
 	}
 	for _, d := range st.ListDestinations() {
 		if d.LegacyOAuthBeta {
 			t.Fatalf("destination %q kept the removed flag", d.Name)
 		}
 	}
-	if st.ModelSpecSchema() != ModelSpecSchemaVersion || ModelSpecSchemaVersion != 3 {
-		t.Fatalf("marker = %d", st.ModelSpecSchema())
-	}
-	// Recorded: an operator removing the rule later is not undone.
-	m, _ := st.GetModelSpec("pooled")
-	m.Principal.Headers = nil
-	_ = st.PutModelSpec(m)
-	if again, err := MigrateModelSpecs(st); err != nil || len(again.Migrated) != 0 {
+	// Idempotent: nothing left to do.
+	if again, err := MigrateModelSpecs(st); err != nil || len(again.Migrated) != 0 || len(again.Destinations) != 0 {
 		t.Fatalf("second run = %+v, %v", again, err)
 	}
-}
-
-// Without an oauth_beta destination step 3 changes nothing.
-func TestMigrateModelSpecsOAuthBetaNoFlag(t *testing.T) {
-	st := NewMemStore()
-	_ = st.AddDestination(anthropicDest())
-	_ = st.PutModelSpec(modelspec.Default(PoolPrincipal))
-	_ = st.SetModelSpecSchema(2)
-	if rep, err := MigrateModelSpecs(st); err != nil || len(rep.Migrated) != 0 || len(rep.Destinations) != 0 {
-		t.Fatalf("report = %+v, %v", rep, err)
+	// A flag written later by an old binary is cleared at the next startup.
+	_ = st.AddDestination(legacyDest(t, "anthropic", "https://api.anthropic.com", "anthropic-sub"))
+	if again, err := MigrateModelSpecs(st); err != nil || !slices.Equal(again.Destinations, []string{"anthropic"}) {
+		t.Fatalf("late flag = %+v, %v", again, err)
 	}
 }
 
-// End to end at the broker: a pool cove behind a pre-COV-241 oauth_beta
-// destination still sends anthropic-beta: …oauth-2025-04-20 — exactly once —
-// after the migration moved the beta onto its model-spec.
+// End to end: a pool cove behind a pre-COV-241 oauth_beta destination still
+// sends the beta exactly once after the startup migration.
 func TestBrokerOAuthBetaAfterMigration(t *testing.T) {
-	var got []string
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Values("anthropic-beta")
-		io.WriteString(w, "ok")
-	}))
-	defer up.Close()
-
-	st := NewMemStore()
-	tok, _ := MintToken()
-	mustCreateProject(t, st, "ACME")
-	if err := st.AddDestination(legacyDest(t, up.URL)); err != nil {
+	def := modelspec.Default(PoolPrincipal)
+	d := legacyDest(t, "anthropic", "", "anthropic-sub")
+	pb := newPoolBroker(t, &def, "", d)
+	if _, err := MigrateModelSpecs(pb.store); err != nil {
 		t.Fatal(err)
 	}
-	// A pool claude-default seeded before COV-241 (no header rules); the role
-	// is unbound, so it resolves to claude-default.
-	if err := st.PutModelSpec(modelspec.Default(PoolPrincipal)); err != nil {
-		t.Fatal(err)
-	}
-	_ = st.SetModelSpecSchema(2)
-	if err := st.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.AddActor(Actor{ID: "spider", TokenHash: HashToken(tok), Grants: []Grant{{Project: "ACME", Role: "guest"}}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := MigrateModelSpecs(st); err != nil {
-		t.Fatal(err)
-	}
-	b := NewBroker(st, fakeCreds{"anthropic-sub": "REAL"}, testLogger())
-	for _, tc := range []struct{ in, want string }{
-		{"", "oauth-2025-04-20"},
-		{"claude-code-20250219,context-1m-2025-08-07", "claude-code-20250219,context-1m-2025-08-07,oauth-2025-04-20"},
-		{"claude-code-20250219,oauth-2025-04-20", "claude-code-20250219,oauth-2025-04-20"},
-	} {
-		got = nil
-		req := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader("{}"))
-		req.Header.Set("Authorization", "Bearer "+tok)
-		if tc.in != "" {
-			req.Header.Set("anthropic-beta", tc.in)
-		}
-		rec := httptest.NewRecorder()
-		b.ServeHTTP(rec, req)
-		if rec.Code != 200 {
-			t.Fatalf("code = %d", rec.Code)
-		}
-		if len(got) != 1 || got[0] != tc.want || strings.Count(got[0], "oauth-2025-04-20") != 1 {
-			t.Errorf("in %q: anthropic-beta = %q, want %q (the beta exactly once)", tc.in, got, tc.want)
-		}
+	if got := pb.send("/anthropic/v1/messages", "claude-code-20250219"); len(got) != 1 || got[0] != "claude-code-20250219,oauth-2025-04-20" {
+		t.Fatalf("anthropic-beta = %q", got)
 	}
 }
 
-// A backup taken before COV-241 (oauth_beta destinations, schema 2) still
-// imports: it validates as migrated, and the import migrates it — the flag
-// becomes the pool spec's header rule and is cleared.
+// A backup taken before COV-241 still imports: it validates, the import clears
+// the flags and moves a non-pool destination's beta onto its credential's spec.
 func TestMigrateSnapshotOAuthBeta(t *testing.T) {
+	solo := modelspec.Default("solo-sub")
+	solo.Name = "solo"
 	doc := `{"version":1,"exported_at":"2026-10-01T00:00:00Z","model_spec_schema":2,
-	  "destinations":[{"name":"anthropic","route":"/anthropic/","upstream":"https://api.anthropic.com","identity_in":"bearer","cred_name":"anthropic-sub","apply":"bearer","oauth_beta":true}],
-	  "model_specs":[` + string(mustJSON(t, modelspec.Default(PoolPrincipal))) + `]}`
+	  "destinations":[` + legacyDestJSON("anthropic", "https://api.anthropic.com", "anthropic-sub") + `,` + legacyDestJSON("solo", "https://api.anthropic.com", "solo-sub") + `],
+	  "model_specs":[` + string(mustJSON(t, modelspec.Default(PoolPrincipal))) + `,` + string(mustJSON(t, solo)) + `]}`
 	var snap ConfigSnapshot
 	if err := json.Unmarshal([]byte(doc), &snap); err != nil {
 		t.Fatal(err)
@@ -186,33 +249,23 @@ func TestMigrateSnapshotOAuthBeta(t *testing.T) {
 		t.Fatalf("an old backup must validate: %v", err)
 	}
 	MigrateSnapshotModelSpecs(&snap)
-	if snap.ModelSpecSchema != ModelSpecSchemaVersion || snap.Destinations[0].LegacyOAuthBeta ||
-		countRule(snap.ModelSpecs[0].Principal.Headers) != 1 {
+	if snap.ModelSpecSchema != ModelSpecSchemaVersion || snap.Destinations[0].LegacyOAuthBeta || snap.Destinations[1].LegacyOAuthBeta ||
+		countRule(snap.ModelSpecs[0].Principal.Headers) != 0 || countRule(snap.ModelSpecs[1].Principal.Headers) != 1 {
 		t.Fatalf("migrated snapshot = %+v", snap)
 	}
 	st := NewMemStore()
 	if err := st.ImportConfig(snap); err != nil {
 		t.Fatalf("import: %v", err)
 	}
-	if m, _ := st.GetModelSpec(DefaultModelSpec); countRule(m.Principal.Headers) != 1 {
-		t.Fatalf("imported claude-default = %+v", m.Principal)
-	}
 	if b, _ := json.Marshal(st.ListDestinations()); strings.Contains(string(b), "oauth_beta") {
 		t.Fatalf("the removed flag was re-exported: %s", b)
 	}
 }
 
-// A new claude-default seeded for a pool principal carries the oauth beta
-// rule; one seeded for a named credential does not.
-func TestDefaultModelSpecForPoolCarriesOAuthBeta(t *testing.T) {
-	m, err := DefaultModelSpecFor(NewMemStore(), true)
-	if err != nil || !slices.Equal(m.Principal.Headers, []modelspec.HeaderRule{PoolOAuthBetaRule()}) {
+// A seeded claude-default carries no header rules — the broker owns the pool beta.
+func TestDefaultModelSpecForHasNoHeaderRules(t *testing.T) {
+	if m, err := DefaultModelSpecFor(NewMemStore(), true); err != nil || len(m.Principal.Headers) != 0 {
 		t.Fatalf("pool seed = %+v, %v", m.Principal, err)
-	}
-	st := NewMemStore()
-	_ = st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", CredName: "anthropic-key"})
-	if m, err := DefaultModelSpecFor(st, false); err != nil || len(m.Principal.Headers) != 0 {
-		t.Fatalf("keyed seed = %+v, %v", m.Principal, err)
 	}
 }
 
@@ -223,19 +276,19 @@ func TestValidateDestinationRefusesOAuthBeta(t *testing.T) {
 	d.Upstream = "https://api.anthropic.com"
 	d.LegacyOAuthBeta = true
 	err := ValidateDestination(d, func(string) bool { return true })
-	if err == nil || !strings.Contains(err.Error(), "oauth_beta") || !strings.Contains(err.Error(), "principal") || !strings.Contains(err.Error(), "model-spec-headers.md") {
+	if err == nil || !strings.Contains(err.Error(), "oauth_beta") || !strings.Contains(err.Error(), "pool.md") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-// Through the admin API: POST /admin/config of a pre-COV-241 backup (an
-// oauth_beta destination, schema 2) succeeds and stores the migrated shape.
+// Through the admin API: POST /admin/config of a pre-COV-241 backup succeeds
+// and stores the migrated shape.
 func TestAdminConfigImportMigratesOAuthBeta(t *testing.T) {
 	dst := NewMemStore()
 	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, testLogger(), nil, nil))
 	defer ts.Close()
 	body := `{"version":1,"model_spec_schema":2,
-	  "destinations":[{"name":"anthropic","route":"/anthropic/","upstream":"https://api.anthropic.com","identity_in":"bearer","cred_name":"anthropic-sub","apply":"bearer","oauth_beta":true}],
+	  "destinations":[` + legacyDestJSON("anthropic", "https://api.anthropic.com", "anthropic-sub") + `],
 	  "model_specs":[` + string(mustJSON(t, modelspec.Default(PoolPrincipal))) + `]}`
 	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(body))
 	if err != nil {
@@ -245,9 +298,6 @@ func TestAdminConfigImportMigratesOAuthBeta(t *testing.T) {
 	if r.StatusCode != http.StatusNoContent {
 		b, _ := io.ReadAll(r.Body)
 		t.Fatalf("status = %d: %s", r.StatusCode, b)
-	}
-	if m, _ := dst.GetModelSpec(DefaultModelSpec); countRule(m.Principal.Headers) != 1 {
-		t.Fatalf("imported claude-default = %+v", m.Principal)
 	}
 	if ds := dst.ListDestinations(); len(ds) != 1 || ds[0].LegacyOAuthBeta {
 		t.Fatalf("imported destinations = %+v", ds)

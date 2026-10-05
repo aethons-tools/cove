@@ -134,21 +134,19 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 //  2. the Claude preferences moved out of the sealed managed settings into
 //     claude-default (COV-245): modelspec.MigrateSettings — a stored
 //     claude-default gains only the preference keys it lacks, and every spec
-//     drops the managed sandbox-policy keys Jam now refuses (with warnings);
-//  3. the destination oauth_beta flag became a principal header rule
-//     (COV-241): when any destination carries the (load-only) flag, every
-//     spec whose principal is the pool — or the flagged destination's own
-//     credential — gains PoolOAuthBetaRule (appended, so it still applies
-//     last; never duplicated), and the flag is cleared.
-const ModelSpecSchemaVersion = 3
+//     drops the managed sandbox-policy keys Jam now refuses (with warnings).
+//
+// The removed destination oauth_beta flag (COV-241) is not a marker step: it
+// is an idempotent scan run on every migration call (legacyOAuthBetaCreds).
+const ModelSpecSchemaVersion = 2
 
-// PoolOAuthBetaRule is the principal header rule a subscription-pool
-// principal needs: Anthropic accepts a subscription-OAuth bearer only with the
-// oauth-2025-04-20 beta, which a cove on ANTHROPIC_AUTH_TOKEN does not send.
-// Jam seeds it on a pool claude-default; schema step 3 migrates the removed
-// destination oauth_beta flag into it.
-func PoolOAuthBetaRule() ModelHeaderRule {
-	return ModelHeaderRule{Name: "anthropic-beta", EnsureListItem: "oauth-2025-04-20"}
+// OAuthBetaRule is the principal header rule that carries Anthropic's
+// subscription-OAuth beta. The broker already ensures that beta for every pool
+// credential (subscriptionOAuthBeta); the rule is only for a subscription
+// token that is NOT the pool's — the legacy-flag scan adds it to the specs
+// whose principal is a flagged non-pool destination's credential.
+func OAuthBetaRule() ModelHeaderRule {
+	return ModelHeaderRule{Name: "anthropic-beta", EnsureListItem: subscriptionOAuthBeta}
 }
 
 // ModelSpecMigration reports a MigrateModelSpecs run: the specs it rewrote,
@@ -160,10 +158,30 @@ type ModelSpecMigration struct {
 	Warnings     []string
 }
 
-// specMigration applies every schema step above `from` (the store's or
-// snapshot's recorded marker) to a spec. oauthBeta is step 3's input: the
-// principals (the pool keyword, and each flagged destination's credential)
-// that gain PoolOAuthBetaRule — nil when no destination carries the flag.
+// legacyOAuthBetaCreds returns the credentials of the destinations still
+// carrying the removed oauth_beta flag — the principals whose specs gain
+// OAuthBetaRule — or nil when none does. Pool-backed destinations need no rule
+// (the broker ensures the beta for a pool credential), but the migration does
+// not know the pool's cred-name, so a spec naming it literally gets a
+// redundant rule: harmless, as the beta is ensured, never duplicated. A spec
+// whose principal is the `pool` keyword is never touched.
+func legacyOAuthBetaCreds(dests []Destination) map[string]bool {
+	var creds map[string]bool
+	for _, d := range dests {
+		if !d.LegacyOAuthBeta || d.CredName == "" || d.CredName == PoolPrincipal {
+			continue
+		}
+		if creds == nil {
+			creds = map[string]bool{}
+		}
+		creds[d.CredName] = true
+	}
+	return creds
+}
+
+// specMigration applies to a spec every schema step above `from` (the store's
+// or snapshot's recorded marker), then the legacy oauth_beta rule for the
+// principals in oauthBeta (always — not marker-gated).
 type specMigration struct {
 	from      int
 	oauthBeta map[string]bool
@@ -172,21 +190,7 @@ type specMigration struct {
 // newSpecMigration builds the migration from `from` for a store or snapshot
 // holding dests.
 func newSpecMigration(from int, dests []Destination) specMigration {
-	sm := specMigration{from: from}
-	if from < 3 {
-		for _, d := range dests {
-			if !d.LegacyOAuthBeta {
-				continue
-			}
-			if sm.oauthBeta == nil {
-				sm.oauthBeta = map[string]bool{PoolPrincipal: true}
-			}
-			if d.CredName != "" {
-				sm.oauthBeta[d.CredName] = true
-			}
-		}
-	}
-	return sm
+	return specMigration{from: from, oauthBeta: legacyOAuthBetaCreds(dests)}
 }
 
 func (sm specMigration) apply(m ModelSpec) (ModelSpec, []string) {
@@ -200,7 +204,7 @@ func (sm specMigration) apply(m ModelSpec) (ModelSpec, []string) {
 		warns = append(warns, w...)
 	}
 	if sm.oauthBeta[m.Principal.Credential] {
-		rule := PoolOAuthBetaRule()
+		rule := OAuthBetaRule()
 		switch {
 		case slices.ContainsFunc(m.Principal.Headers, func(r ModelHeaderRule) bool {
 			return http.CanonicalHeaderKey(r.Name) == http.CanonicalHeaderKey(rule.Name) && r.EnsureListItem == rule.EnsureListItem
@@ -208,40 +212,45 @@ func (sm specMigration) apply(m ModelSpec) (ModelSpec, []string) {
 		case len(m.Principal.Headers) >= MaxPrincipalHeaderRules:
 			warns = append(warns, fmt.Sprintf("model-spec %q: could not add the %s %s rule replacing the removed destination oauth_beta flag: it already has %d header rules", m.Name, rule.Name, rule.EnsureListItem, MaxPrincipalHeaderRules))
 		default:
+			// Appended: the flag used to apply after every rule.
 			m.Principal.Headers = append(slices.Clone(m.Principal.Headers), rule)
 		}
 	}
 	return m, warns
 }
 
-// MigrateModelSpecs is the one-time model-spec store migration: when the
-// store's schema marker is below ModelSpecSchemaVersion it rewrites EVERY
-// stored spec with the steps it has not had (specMigration) — step 1 covers
-// exact-version specs too, as only the marker tells a legacy "no plugins" from
-// an explicit one — clears the removed oauth_beta flag from every destination
-// (step 3, after the specs carry its rule), then records the marker, so no
-// step ever runs twice (an operator's later edits are never undone). Run at
-// serve startup, before EnsureDefaultModelSpec.
+// MigrateModelSpecs is the model-spec store migration, run at every serve
+// startup before EnsureDefaultModelSpec:
+//
+//   - one-time steps: when the store's schema marker is below
+//     ModelSpecSchemaVersion it rewrites EVERY stored spec with the steps it
+//     has not had (specMigration) — step 1 covers exact-version specs too, as
+//     only the marker tells a legacy "no plugins" from an explicit one — then
+//     records the marker, so no step ever runs twice (an operator's later
+//     edits are never undone);
+//   - every time: the legacy oauth_beta scan — when a destination still
+//     carries the removed flag (an old store, or a row an older binary wrote
+//     during a rolling deploy), the specs naming a flagged destination's
+//     credential gain OAuthBetaRule and the flag is cleared. Idempotent.
 func MigrateModelSpecs(store Store) (ModelSpecMigration, error) {
 	modelSpecMu.Lock()
 	defer modelSpecMu.Unlock()
 	var rep ModelSpecMigration
 	from := store.ModelSpecSchema()
-	if from >= ModelSpecSchemaVersion {
-		return rep, nil
-	}
 	dests := store.ListDestinations()
 	sm := newSpecMigration(from, dests)
-	for _, m := range store.ListModelSpecs() {
-		out, warns := sm.apply(m)
-		rep.Warnings = append(rep.Warnings, warns...)
-		if sameSpec(m, out) {
-			continue
+	if from < ModelSpecSchemaVersion || sm.oauthBeta != nil {
+		for _, m := range store.ListModelSpecs() {
+			out, warns := sm.apply(m)
+			rep.Warnings = append(rep.Warnings, warns...)
+			if sameSpec(m, out) {
+				continue
+			}
+			if err := store.PutModelSpec(out); err != nil {
+				return rep, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
+			}
+			rep.Migrated = append(rep.Migrated, m.Name)
 		}
-		if err := store.PutModelSpec(out); err != nil {
-			return rep, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
-		}
-		rep.Migrated = append(rep.Migrated, m.Name)
 	}
 	for _, d := range dests {
 		if !d.LegacyOAuthBeta {
@@ -253,31 +262,34 @@ func MigrateModelSpecs(store Store) (ModelSpecMigration, error) {
 		}
 		rep.Destinations = append(rep.Destinations, d.Name)
 	}
-	if err := store.SetModelSpecSchema(ModelSpecSchemaVersion); err != nil {
-		return rep, fmt.Errorf("record model-spec schema: %w", err)
+	if from < ModelSpecSchemaVersion {
+		if err := store.SetModelSpecSchema(ModelSpecSchemaVersion); err != nil {
+			return rep, fmt.Errorf("record model-spec schema: %w", err)
+		}
 	}
 	return rep, nil
 }
 
-// MigrateSnapshotModelSpecs applies the one-time migration steps a config
-// backup has not had (its ModelSpecSchema is below ModelSpecSchemaVersion) —
-// its specs, and its destinations' removed oauth_beta flag — and marks the
-// snapshot current, returning the warnings; a current snapshot is untouched.
+// MigrateSnapshotModelSpecs migrates a config backup on import: the one-time
+// steps its ModelSpecSchema has not had (then marked current), and — always —
+// the legacy oauth_beta scan over its destinations (flags cleared). Returns the
+// warnings; a current snapshot without flags is untouched.
 func MigrateSnapshotModelSpecs(snap *ConfigSnapshot) []string {
-	if snap.ModelSpecSchema >= ModelSpecSchemaVersion {
-		return nil
-	}
 	sm := newSpecMigration(snap.ModelSpecSchema, snap.Destinations)
 	var warns []string
-	for i, ms := range snap.ModelSpecs {
-		var w []string
-		snap.ModelSpecs[i], w = sm.apply(ms)
-		warns = append(warns, w...)
+	if snap.ModelSpecSchema < ModelSpecSchemaVersion || sm.oauthBeta != nil {
+		for i, ms := range snap.ModelSpecs {
+			var w []string
+			snap.ModelSpecs[i], w = sm.apply(ms)
+			warns = append(warns, w...)
+		}
 	}
 	for i := range snap.Destinations {
 		snap.Destinations[i].LegacyOAuthBeta = false
 	}
-	snap.ModelSpecSchema = ModelSpecSchemaVersion
+	if snap.ModelSpecSchema < ModelSpecSchemaVersion {
+		snap.ModelSpecSchema = ModelSpecSchemaVersion
+	}
 	return warns
 }
 
@@ -293,8 +305,8 @@ func sameSpec(a, b ModelSpec) bool {
 var ErrNoDefaultPrincipal = errors.New("no subscription pool and no anthropic destination to take the default model-spec's principal from")
 
 // DefaultModelSpecFor builds DefaultModelSpec as Jam seeds it
-// (modelspec.Default), authenticating as the pool — with PoolOAuthBetaRule —
-// when one is configured, else as the anthropic destination's
+// (modelspec.Default), authenticating as the pool when one is configured,
+// else as the anthropic destination's
 // credential (the destination named "anthropic", or else the one routed at
 // /anthropic/). ErrNoDefaultPrincipal when neither resolves.
 func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
@@ -316,11 +328,7 @@ func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
 	if cred == "" {
 		return ModelSpec{}, ErrNoDefaultPrincipal
 	}
-	m := modelspec.Default(cred)
-	if cred == PoolPrincipal {
-		m.Principal.Headers = []ModelHeaderRule{PoolOAuthBetaRule()}
-	}
-	return m, nil
+	return modelspec.Default(cred), nil
 }
 
 // EnsureDefaultModelSpec seeds DefaultModelSpec at serve startup when absent

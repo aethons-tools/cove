@@ -47,6 +47,14 @@ type IdentityCredResolver interface {
 	ResolveFor(name, identityHash string) (string, error)
 }
 
+// PoolCredResolver is an optional CredResolver that says which credential
+// name it resolves from the subscription pool. The broker uses it to ensure
+// the subscription-OAuth beta on every request carrying a pool token
+// (subscriptionOAuthBeta).
+type PoolCredResolver interface {
+	PoolCredential(name string) bool
+}
+
 // ChainResolver routes one configured pool credential name to a Pool (by
 // identity) and delegates every other name to a base CredResolver. It satisfies
 // both CredResolver and IdentityCredResolver.
@@ -70,6 +78,9 @@ func (c *ChainResolver) Resolve(name string) (string, error) {
 	}
 	return c.base.Resolve(name)
 }
+
+// PoolCredential reports whether name is the pool's credential.
+func (c *ChainResolver) PoolCredential(name string) bool { return name == c.poolCred }
 
 // ResolveFor serves the pool credential from the identity's bound account, and
 // delegates every other name to the base (identity ignored).

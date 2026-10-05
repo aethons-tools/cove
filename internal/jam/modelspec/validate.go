@@ -19,8 +19,12 @@ var claudeProviders = []string{"anthropic", "vertex", "bedrock"}
 // ClaudeProviders lists the accepted claude.provider values (a copy).
 func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
 
-// envKeyRe is the env-var name grammar provider-env keys must match.
+// envKeyRe is the env-var name grammar operator-authored env keys must match.
 var envKeyRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+// ValidEnvKey reports whether key is an env-var name operator-authored env (a
+// model-spec's provider-env, a Jam destination's client env) may use.
+func ValidEnvKey(key string) bool { return envKeyRe.MatchString(key) }
 
 // protectedEnvKeys are sealed-owned or security-relevant variables that
 // operator-authored, non-secret env (a model-spec's provider-env, in a Jam or
@@ -42,8 +46,9 @@ var protectedEnvKeys = map[string]bool{
 // and the kit loader (kit.ProtectedEnvKey delegates here).
 func ProtectedEnvKey(key string) bool { return protectedEnvKeys[key] }
 
-// reservedEnvKey reports whether key is in the Jam-owned env namespace.
-func reservedEnvKey(key string) bool {
+// ReservedEnvKey reports whether key is in the Jam-owned env namespace
+// (AT_JAM_*, and the pre-rename AT_HARBOR_*), which operator-authored env never sets.
+func ReservedEnvKey(key string) bool {
 	return strings.HasPrefix(key, "AT_JAM_") || strings.HasPrefix(key, "AT_HARBOR_")
 }
 
@@ -134,6 +139,23 @@ func Validate(m Spec, checkPrincipal func(Principal) error) error {
 	return validateClaude(*m.Claude)
 }
 
+// CheckProviderEnvKey is Validate's rule for one claude.provider-env key: an
+// env-var name, not reserved, protected or credential-carrying. The error
+// names the key only, never a value.
+func CheckProviderEnvKey(k string) error {
+	switch {
+	case !ValidEnvKey(k):
+		return fmt.Errorf("claude.provider-env key %q is not an env-var name", k)
+	case ReservedEnvKey(k):
+		return fmt.Errorf("claude.provider-env key %q is reserved", k)
+	case ProtectedEnvKey(k):
+		return fmt.Errorf("claude.provider-env: %q is a sealed-owned/security-relevant variable and cannot be set", k)
+	case CredentialEnvKey(k):
+		return fmt.Errorf("claude.provider-env: %q carries a credential; name credentials via principal.credential, never by value", k)
+	}
+	return nil
+}
+
 func validateClaude(c Claude) error {
 	if c.Provider == "" {
 		return fmt.Errorf("claude.provider is required (want one of %s)", strings.Join(claudeProviders, ", "))
@@ -142,15 +164,8 @@ func validateClaude(c Claude) error {
 		return fmt.Errorf("claude.provider %q is not supported (want one of %s)", c.Provider, strings.Join(claudeProviders, ", "))
 	}
 	for _, k := range slices.Sorted(maps.Keys(c.ProviderEnv)) {
-		switch {
-		case !envKeyRe.MatchString(k):
-			return fmt.Errorf("claude.provider-env key %q is not an env-var name", k)
-		case reservedEnvKey(k):
-			return fmt.Errorf("claude.provider-env key %q is reserved", k)
-		case ProtectedEnvKey(k):
-			return fmt.Errorf("claude.provider-env: %q is a sealed-owned/security-relevant variable and cannot be set", k)
-		case CredentialEnvKey(k):
-			return fmt.Errorf("claude.provider-env: %q carries a credential; name credentials via principal.credential, never by value", k)
+		if err := CheckProviderEnvKey(k); err != nil {
+			return err
 		}
 	}
 	for _, k := range claudeNonPreferenceSettings {
@@ -188,7 +203,7 @@ func ProviderEnv(s *Spec) map[string]string {
 	}
 	env := map[string]string{}
 	for k, v := range s.Claude.ProviderEnv {
-		if ProtectedEnvKey(k) || CredentialEnvKey(k) || reservedEnvKey(k) {
+		if ProtectedEnvKey(k) || CredentialEnvKey(k) || ReservedEnvKey(k) {
 			continue
 		}
 		env[k] = v

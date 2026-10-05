@@ -883,6 +883,53 @@ func TestChatRequiresCurrentInstall(t *testing.T) {
 	}
 }
 
+// writeLegacyVertexKit writes a kit as a pre-COV-241 Vertex user has it: a
+// config.yml still on model-provider:, and the install.json it was installed
+// from (its RunConfig carrying the old ModelProvider).
+func writeLegacyVertexKit(t *testing.T, dir string) string {
+	t.Helper()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(filepath.Join(kitDir, ".state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nmodel-provider:\n  vertex:\n    env: {ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us}\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"schemaVersion":2,"name":"box","image":"atcove-box","currencyHash":"x","runConfig":{"Name":"box","ModelProvider":{"Vertex":{"Env":{"CLOUD_ML_REGION":"us"}}}}}`
+	if err := os.WriteFile(install.Path(kitDir), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return kitDir
+}
+
+// A stale install from a model-provider kit: run commands refuse it with the
+// migration hint, but teardown (destroy, status, uninstall) keeps working.
+func TestLegacyModelProviderInstallRefusedOnlyOnRunPath(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLegacyVertexKit(t, dir)
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"chat", "--no-auth", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code == 0 ||
+		!strings.Contains(errOut.String(), "model-spec") {
+		t.Fatalf("chat must refuse a model-provider install with the hint; exit=%d stderr=%s", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"status", "--project-dir", dir}, &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("status must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"destroy", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"uninstall", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if install.Exists(kitDir) {
+		t.Fatal("uninstall must delete the legacy install.json")
+	}
+}
+
 func TestDestroyRemovesContainerAndState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)

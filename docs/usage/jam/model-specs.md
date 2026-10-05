@@ -17,7 +17,8 @@ next episode — except its harness CLI `version` and `claude.plugins`, which ar
 [built into the image](model-spec-harness.md). The permission
 policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md). The same
 schema and validator load a plain at-cove kit's
-[`model-spec:` block](../at-cove-config.md#model-spec) (no `principal` there).
+[`model-spec:` block](../at-cove-config.md#model-spec) (no `principal` there;
+`version` optional).
 
 ## Schema
 
@@ -110,8 +111,7 @@ no model/effort — exactly how coves ran before model-specs.
 seeds, the harness of every full `config.yml` kit without a `model-spec:`, and raises that deliver no spec —
 **not** a `claude-default` already stored. Bump that one yourself
 (`at-jam model-spec show claude-default > s.yaml`, edit `version`,
-`at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` —
-with the [oauth-beta header rule](model-spec-headers.md#the-pool-oauth-beta) — when a
+`at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
 [`pool:`](pool.md) is configured, else the `cred_name` of the destination named
 `anthropic` (or else routed at `/anthropic/`). With neither, nothing is seeded
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves

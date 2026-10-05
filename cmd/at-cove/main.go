@@ -544,6 +544,14 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 // touches nothing.
 func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
+	if errors.Is(err, kit.ErrModelProviderRemoved) && install.Exists(kitDir) {
+		// A kit still on the removed model-provider: block can always be
+		// uninstalled: the name comes from its install.
+		var m install.Manifest
+		if m, err = install.Load(kitDir); err == nil {
+			cfg = kit.Config{Name: m.Name}
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -692,6 +700,9 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	m, err := install.Load(kitDir)
 	if err != nil {
 		return install.Manifest{}, err
+	}
+	if m.LegacyModelProvider {
+		return install.Manifest{}, install.ErrLegacyModelProvider
 	}
 	in, err := currencyInputs(kitDir, m.RunConfig)
 	if err != nil {
@@ -1879,6 +1890,14 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	}
 	for _, name := range workerUnresolved {
 		lg.Warn("secret has no supply; it will not be set", slog.String("step", "secrets"), slog.String("secret", name), slog.String("kit", cfg.Name))
+	}
+
+	// A kit model-spec's model/policy/settings (and an anthropic spec's
+	// provider-env) reach the worker (dispatchrun); a vertex provider does
+	// not — workers authenticate with the worker-bucket bearer below and are
+	// never seeded the GCP ADC (Vertex is chat-only).
+	if cfg.UsesVertex() {
+		lg.Warn("the kit's model-spec provider vertex applies to chat only; this dispatched worker runs on the Anthropic API with its worker-bucket bearer", slog.String("step", "model-spec"), slog.String("kit", cfg.Name))
 	}
 
 	// The dispatched agent authenticates to Anthropic under either well-known

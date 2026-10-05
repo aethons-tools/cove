@@ -1,5 +1,5 @@
 ---
-summary: What a model-spec builds into a cove's image — the harness layer (exact CLI version + plugins, seeded and enabled, plus Claude Code's managed settings), which Claude settings are sandbox policy vs. claude-default preferences, its place in the image identity — and the one-time model-spec store migration (COV-242 version split, COV-245 claude-default preferences, COV-241 destination oauth_beta → pool header rule).
+summary: What a model-spec builds into a cove's image — the harness layer (exact CLI version + plugins, seeded and enabled, plus Claude Code's managed settings), which Claude settings are sandbox policy vs. claude-default preferences, its place in the image identity — and the one-time model-spec store migration (COV-242 version split, COV-245 claude-default preferences, and the every-startup scan clearing the removed destination oauth_beta flag (COV-241)).
 read_when: You are changing a model-spec's version or plugins and want to know when coves get the new CLI/plugins, a plugin is missing or unexpectedly enabled in a cove, you need to know where a Claude setting (theme, remote control, permissions default, …) comes from in a cove, or Jam logged a model-spec migration warning after an upgrade.
 owns: the model-spec → image harness layer (install, plugin seed and enablement, managed settings, rebuild timing), the managed-settings vs. preference classification, and the one-time model-spec store migration (marker, steps, rules, warnings)
 prereqs: model-specs.md for the spec schema and validation
@@ -77,7 +77,7 @@ the network-bound seed.
 ## The one-time migration
 
 A one-time store migration, recorded by a schema marker
-(`jam_settings` key `model_spec_schema`, now `3`), runs at the first
+(`jam_settings` key `model_spec_schema`, now `2`), runs at the first
 `at-jam serve` startup after an upgrade — and on [import](backup.md) of a
 backup taken before it — applying each step the marker has not recorded, so no
 step ever re-runs (an operator's later edits are never undone).
@@ -105,15 +105,19 @@ step ever re-runs (an operator's later edits are never undone).
   [baseline preference](#managed-settings-vs-preferences-cov-245) key it
   lacks; a value the operator already set (say `theme: light`) is kept.
 
-**Step 3 (COV-241, the oauth beta)** — when any destination still carries the
-removed `oauth_beta` flag (stored rows and backups keep loading; the field is
-read only here): every spec whose principal is `pool`, or the flagged
-destination's own credential, gains the
-[pool oauth-beta rule](model-spec-headers.md#the-pool-oauth-beta) — appended
-after its existing rules (the flag used to apply last), never duplicated; a spec
-already at 16 rules gets a WARN instead — and the flag is cleared on each
-destination. The serve log names the destinations. A pool `claude-default`
-seeded later carries the rule from the start.
+### The legacy oauth_beta scan
+
+Not a marker step: at **every** `at-jam serve` startup (and on every
+[import](backup.md)) Jam scans the destinations for the removed `oauth_beta`
+flag (COV-241) — stored rows and backups keep loading it, and an older binary
+may still write it during a rolling deploy. Each flag is cleared (the serve log
+names the destinations). A pool-backed destination needs nothing more: the
+broker adds the beta for every [pool credential](pool.md#the-oauth-beta). For a
+flagged destination with another credential, every spec whose principal is that
+credential gains `{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}` —
+appended after its rules (the flag applied last), never duplicated; a spec
+already at 16 rules gets a WARN instead. (The scan doesn't know the pool's
+`cred-name`: a spec naming it literally gets a redundant rule — harmless.)
 
 **Plain at-cove kits** run no migration: a kit's
 [`model-spec:`](../at-cove-config.md#model-spec) block is read as written, and

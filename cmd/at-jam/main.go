@@ -294,7 +294,7 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // oauthBetaDoc is the doc the removed --oauth-beta flag points at.
-const oauthBetaDoc = "docs/usage/jam/model-spec-headers.md"
+const oauthBetaDoc = "docs/usage/jam/pool.md"
 
 func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -317,7 +317,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
 	// --oauth-beta was removed (COV-241); it stays registered only to refuse
 	// with a pointer to its replacement rather than "flag provided but not defined".
-	oauthBeta := fs.Bool("oauth-beta", false, "REMOVED: the oauth-2025-04-20 anthropic-beta is a principal header rule on the pool model-spec (see "+oauthBetaDoc+")")
+	oauthBeta := fs.Bool("oauth-beta", false, "REMOVED: the broker adds the oauth-2025-04-20 anthropic-beta for every subscription-pool credential (see "+oauthBetaDoc+")")
 	var envKV []string
 	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
 		envKV = append(envKV, s)
@@ -334,7 +334,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		return 2
 	}
 	if *oauthBeta {
-		fmt.Fprintf(stderr, "at-jam destination: --oauth-beta was removed: the oauth-2025-04-20 anthropic-beta is now a principal header rule on the pool model-spec (principal.headers: [{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}]; a pool claude-default is seeded with it, and existing oauth_beta destinations are migrated at serve startup) — see %s\n", oauthBetaDoc)
+		fmt.Fprintf(stderr, "at-jam destination: --oauth-beta was removed: the broker now adds the oauth-2025-04-20 anthropic-beta to every request carrying a subscription-pool credential, so drop the flag (a non-pool subscription token takes a model-spec principal header rule instead) — see %s\n", oauthBetaDoc)
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
@@ -1613,9 +1613,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// marketplace plugins dropped, and the image-wide default plugins when it
 	// has none. COV-245: a stored claude-default gains the Claude preference
 	// keys it lacks (moved out of the sealed managed settings; operator values
-	// kept). COV-241: a destination's removed oauth_beta flag becomes the
-	// anthropic-beta principal header rule on the pool-principal specs, and is
-	// cleared. Each loss is a WARN naming the spec. A no-op once recorded.
+	// kept). Each loss is a WARN naming the spec. A no-op once recorded —
+	// except the COV-241 scan, run every startup: a destination still carrying
+	// the removed oauth_beta flag has it cleared (the broker adds the beta for
+	// pool credentials; a non-pool flagged credential's specs gain the rule).
 	mig, err := jam.MigrateModelSpecs(st)
 	for _, w := range mig.Warnings {
 		log.Warn("model-spec migration", "detail", w)

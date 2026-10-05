@@ -24,7 +24,7 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 		return writeErr(http.StatusBadRequest, "name, route and upstream are required")
 	}
 	if d.LegacyOAuthBeta {
-		return writeErr(http.StatusBadRequest, "oauth_beta was removed: the oauth-2025-04-20 anthropic-beta is now a principal header rule on the pool model-spec (principal.headers: [{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}]) — see docs/usage/jam/model-spec-headers.md")
+		return writeErr(http.StatusBadRequest, "oauth_beta was removed: the broker now adds the oauth-2025-04-20 anthropic-beta to every request carrying a subscription-pool credential — see docs/usage/jam/pool.md (a non-pool subscription token takes a model-spec principal header rule instead)")
 	}
 	if d.CredName != "" && !credExists(d.CredName) {
 		return writeErr(http.StatusBadRequest, "credential %q does not resolve to a configured credential", d.CredName)
