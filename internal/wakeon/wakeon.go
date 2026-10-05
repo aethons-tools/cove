@@ -14,6 +14,8 @@ package wakeon
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"strings"
 	"time"
@@ -89,6 +91,18 @@ type AlarmFirer interface {
 	FireAlarms(actorID string, now time.Time) ([]jam.Alarm, error)
 }
 
+// GateState records and resolves alarm gate runs (Supervisor.StartGate /
+// ResolveGate).
+type GateState interface {
+	StartGate(actorID, name, runID string, now time.Time) (jam.Alarm, bool, error)
+	ResolveGate(actorID, runID string, o jam.GateOutcome) error
+}
+
+// GateRunner asks a cove to run a gate (attach.Server.RunGate).
+type GateRunner interface {
+	RunGate(actorID, runID, alarm, command string, timeout time.Duration)
+}
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -120,6 +134,10 @@ type Engine struct {
 	turnEnd bool
 	ender   Ender      // nil = no end notices
 	alarms  AlarmFirer // nil = no alarms
+
+	// Alarm gates (SetGates); off while either is nil.
+	gates      GateState
+	gateRunner GateRunner
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -160,6 +178,11 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 // itself; alarms (may be nil) fires due alarms. The idle deadline and fired
 // alarms are retired by the supervisor when the cove next runs, so their Wake
 // is re-sent every tick until it is answered. Call before Run.
+// SetGates turns on alarm gates: a due gated alarm's gate is run in the cove
+// (resuming a paused one first) and its verdict decides whether it fires; a
+// run with no result within GateTimeout+GateGrace fails. Call before Run.
+func (e *Engine) SetGates(state GateState, runner GateRunner) { e.gates, e.gateRunner = state, runner }
+
 func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender, alarms AlarmFirer) {
 	if roles != nil {
 		e.roles = roles
@@ -196,6 +219,7 @@ func (e *Engine) tick(ctx context.Context) {
 			// Alarms are held while it runs; a Holding cove's turn is over.
 			var alarms []jam.WakeReason
 			if inst.Activity == jam.ActivityHolding {
+				e.runGates(ctx, inst)
 				alarms = e.alarmReasons(inst)
 			}
 			if !e.wakeRunning(inst, alarms) && inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
@@ -220,6 +244,9 @@ func (e *Engine) tick(ctx context.Context) {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
 			}
 			continue
+		}
+		if e.runGates(ctx, inst) {
+			continue // resumed to run a gate; it runs on a later tick
 		}
 		// One Wake carries every reason: a pending reply and each fired alarm.
 		reasons := e.alarmReasons(inst)
@@ -290,6 +317,51 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 	return true
 }
 
+// runGates starts the gates of inst's due gated alarms, and fails any run
+// that got no result within GateTimeout+GateGrace. A paused cove is resumed
+// first, and its gates run on a later tick: it reports whether it resumed.
+func (e *Engine) runGates(ctx context.Context, inst jam.Instance) bool {
+	if e.gates == nil || e.gateRunner == nil {
+		return false
+	}
+	now := e.now()
+	for _, a := range inst.Alarms {
+		if a.Gate == "" || a.NextAt.IsZero() || a.NextAt.After(now) {
+			continue
+		}
+		if r := a.GateRun; r != nil {
+			if !now.Before(r.StartedAt.Add(jam.GateTimeout + jam.GateGrace)) {
+				e.log.Warn("wakeon: gate got no result; failing it", "actor", inst.ActorID, "alarm", a.Name, "run", r.RunID)
+				if err := e.gates.ResolveGate(inst.ActorID, r.RunID, jam.GateOutcome{At: now, NoResult: true}); err != nil {
+					e.log.Warn("wakeon: resolve gate failed", "actor", inst.ActorID, "error", err.Error())
+				}
+			}
+			continue
+		}
+		if inst.Phase == jam.PhaseIdled {
+			if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
+				e.log.Warn("wakeon: resume for gate failed", "actor", inst.ActorID, "error", err.Error())
+			}
+			return true
+		}
+		runID := newRunID()
+		if _, ok, err := e.gates.StartGate(inst.ActorID, a.Name, runID, now); err != nil {
+			e.log.Warn("wakeon: start gate failed", "actor", inst.ActorID, "alarm", a.Name, "error", err.Error())
+		} else if ok {
+			e.log.Info("wakeon: running gate", "actor", inst.ActorID, "alarm", a.Name, "run", runID)
+			e.gateRunner.RunGate(inst.ActorID, runID, a.Name, a.Gate, jam.GateTimeout)
+		}
+	}
+	return false
+}
+
+// newRunID is a random gate-run id.
+func newRunID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
 // alarmReasons fires inst's due alarms and returns a reason for every alarm
 // fired and not yet answered (re-sent until the cove runs).
 func (e *Engine) alarmReasons(inst jam.Instance) []jam.WakeReason {
@@ -311,7 +383,11 @@ func (e *Engine) alarmReasons(inst jam.Instance) []jam.WakeReason {
 	var out []jam.WakeReason
 	for _, a := range alarms {
 		if !a.FiredAt.IsZero() {
-			out = append(out, jam.WakeReason{Kind: jam.WakeAlarm, Alarm: a.Name, Note: a.Note})
+			kind := a.FireKind
+			if kind == "" {
+				kind = jam.WakeAlarm
+			}
+			out = append(out, jam.WakeReason{Kind: kind, Alarm: a.Name, Note: a.Note, Detail: a.FireDetail})
 		}
 	}
 	return out
