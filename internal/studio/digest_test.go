@@ -65,3 +65,24 @@ func TestBuildDigestSecretsDoNotAffectDigest(t *testing.T) {
 		t.Fatal("Secrets change must not change the digest")
 	}
 }
+
+func TestBuildDigestMCPServers(t *testing.T) {
+	a := StudioKit{Kind: Kind, Base: Base{Image: "r"}, Egress: []string{"a.com"}}
+	// A kit without mcp-servers keeps its pre-COV-240 digest, so adding the
+	// field does not rebuild every existing kit image.
+	legacy := StudioKit{Kind: Kind, Base: Base{Image: "r"}, Egress: []string{"a.com"}, BuildArgs: map[string]string{"X": "1"}}
+	if got := BuildDigest(legacy); got != "2646b5c25d7072a2d72e0d071220213c2eb5cb12e0ea3dea9bcc6bfd0e7fa2a6" {
+		t.Fatalf("digest of a kit without mcp-servers changed: %s", got)
+	}
+	b := a
+	b.MCPServers = map[string]kit.MCPServer{}
+	if BuildDigest(a) != BuildDigest(b) {
+		t.Fatal("nil and empty mcp-servers must produce identical digests")
+	}
+	// mcp-servers are baked into the image, so they are build-affecting.
+	c := a
+	c.MCPServers = map[string]kit.MCPServer{"linear": {Type: "http", URL: "${U}"}}
+	if BuildDigest(a) == BuildDigest(c) {
+		t.Fatal("an mcp-servers change must change the build-digest")
+	}
+}

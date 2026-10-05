@@ -38,7 +38,7 @@ func TestAssembleEnsuresGitignore(t *testing.T) {
 // (embedded), bake the key, and write the egress list, touching no kit dir.
 func TestAssembleContextNeedsNoKitDir(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{Policy: []string{"proxy.golang.org"}}, ""); err != nil {
+	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{Policy: []string{"proxy.golang.org"}}, "", nil); err != nil {
 		t.Fatalf("AssembleContext: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(buildDir, "Dockerfile")); err != nil {
@@ -406,5 +406,35 @@ func TestSquidConfInfraAndNoCeiling(t *testing.T) {
 	}
 	if strings.Contains(got, "egress_ceiling") {
 		t.Fatalf("squid.conf must not reference the egress ceiling:\n%s", got)
+	}
+}
+
+// The kit's mcp-servers are baked (non-secret: env references only) at
+// kit.MCPServersImagePath for the cove's agent harness to merge with its own
+// messaging server (COV-240).
+func TestAssembleContextBakesMCPServers(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	servers := map[string]kit.MCPServer{
+		"linear": {Type: "http", URL: "${LINEAR_MCP_URL}", Headers: map[string]string{"Authorization": "Bearer ${LINEAR_TOKEN}"}},
+	}
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", servers); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(buildDir, "image-files", kit.MCPServersImagePath))
+	want := `{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}}}` + "\n"
+	if got != want {
+		t.Fatalf("mcp-servers file:\n got %s\nwant %s", got, want)
+	}
+}
+
+// Always written (an empty object for a kit with none), mirroring the egress
+// lists, so the harness can tell "no kit servers" from a stale image.
+func TestAssembleContextBakesEmptyMCPServers(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(buildDir, "image-files", kit.MCPServersImagePath)); got != "{}\n" {
+		t.Fatalf("mcp-servers file = %q, want {}", got)
 	}
 }

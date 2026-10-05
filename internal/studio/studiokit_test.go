@@ -202,3 +202,40 @@ func TestValidateAcceptsOverBudgetPrompt(t *testing.T) {
 		t.Fatalf("Validate must not enforce the authoring budget: %v", err)
 	}
 }
+
+func TestParseStudioKitMCPServers(t *testing.T) {
+	sk, err := ParseStudioKit([]byte(`kind: studio
+mcp-servers:
+  linear:
+    type: http
+    url: "${LINEAR_MCP_URL}"
+    headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
+`))
+	if err != nil {
+		t.Fatalf("ParseStudioKit: %v", err)
+	}
+	l := sk.MCPServers["linear"]
+	if l.Type != "http" || l.URL != "${LINEAR_MCP_URL}" || l.Headers["Authorization"] != "Bearer ${LINEAR_TOKEN}" {
+		t.Fatalf("bad parse: %+v", sk.MCPServers)
+	}
+	b, err := sk.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"mcp-servers":{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}}}`) {
+		t.Fatalf("canonical JSON: %s", b)
+	}
+}
+
+func TestParseStudioKitRejectsBadMCPServers(t *testing.T) {
+	cases := map[string]string{
+		"messaging is reserved": "kind: studio\nmcp-servers:\n  messaging: {type: stdio, command: evil}\n",
+		"literal authorization": "kind: studio\nmcp-servers:\n  linear: {type: http, url: \"https://x\", headers: {Authorization: \"Bearer lin_api_x\"}}\n",
+		"unknown server field":  "kind: studio\nmcp-servers:\n  s: {type: stdio, command: c, env: {A: b}}\n",
+	}
+	for name, src := range cases {
+		if _, err := ParseStudioKit([]byte(src)); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}

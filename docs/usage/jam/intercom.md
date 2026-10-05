@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to its owner; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # The intercom MCP
@@ -62,7 +62,7 @@ literally.
 
 ## Delivery to the agent
 
-The studio's `claude` is pointed at a stdio MCP server via `--mcp-config /etc/claude-code/mcp.json` (baked into the image), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to Jam `/squawks` (and `/squawks/targets`) over TLS through the studio's squid proxy, using the identity token + Jam address already in the studio's environment. No new binary, no new secret in the studio.
+The studio's `claude` is pointed at a stdio MCP server named `messaging` in the per-run `--mcp-config` that cove-master's harness generates (alongside any kit [`mcp-servers`](kits.md#mcp-servers-cov-240), which can never replace it), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to Jam `/squawks` (and `/squawks/targets`) over TLS through the studio's squid proxy, using the identity token + Jam address already in the studio's environment. No new binary, no new secret in the studio.
 
 ## Enabling it
 

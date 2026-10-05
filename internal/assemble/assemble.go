@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,20 +46,22 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 	if err := kit.EnsureGitignore(kitDir); err != nil {
 		return err
 	}
-	return AssembleContext(buildDir, pub, egress, gitlabHost)
+	// A full kit's agent never runs cove-master (only Jam-raised studio coves
+	// do), so it bakes no MCP servers — just the empty file.
+	return AssembleContext(buildDir, pub, egress, gitlabHost, nil)
 }
 
 // AssembleContext stages the docker build context into buildDir with NO source
 // kit directory: everything comes from resources compiled into this binary (the
 // sealed hardening layer + Dockerfile via the embedded FS, and the injected
 // at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
-// the kit's egress lists, its per-kit GitLab gitconfig, and the public key baked
-// into authorized_keys. Because it takes no directory, a Launcher can build a
+// the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
+// (kit.MCPServersImagePath), and the public key baked into authorized_keys. Because it takes no directory, a Launcher can build a
 // managed cove from a kit communicated purely as data (config + key), which is
 // what lets that build run wherever the substrate builds (locally today; a
 // remote substrate later). See
 // docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md.
-func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string) error {
+func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string, mcpServers map[string]kit.MCPServer) error {
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}
@@ -91,6 +94,10 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	}
 
 	if err := writeGitLabGitConfig(buildDir, gitlabHost); err != nil {
+		return err
+	}
+
+	if err := writeMCPServers(buildDir, mcpServers); err != nil {
 		return err
 	}
 
@@ -199,6 +206,25 @@ func writeGitLabGitConfig(buildDir, host string) error {
 		b.WriteString("\thelper = /usr/local/bin/cove-git-credential.sh\n")
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
+}
+
+// writeMCPServers bakes the kit's MCP servers (validated kit data: env
+// references, never secret values) at kit.MCPServersImagePath, where the cove's
+// agent harness merges them with its guaranteed messaging server (COV-240).
+// Always written ({} when the kit declares none), mirroring writeEgressLists.
+func writeMCPServers(buildDir string, servers map[string]kit.MCPServer) error {
+	if servers == nil {
+		servers = map[string]kit.MCPServer{}
+	}
+	b, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(buildDir, "image-files", kit.MCPServersImagePath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, append(b, '\n'), 0o644)
 }
 
 // copyEmbed copies efs under root into dst, stripping the root prefix.

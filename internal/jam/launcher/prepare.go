@@ -105,12 +105,12 @@ func (l *Launcher) lockRef(ref KitRef) func() {
 }
 
 // defaultAssemble is the real assembler: it stages the sealed hardening layer,
-// the injected binaries, the kit's egress lists and the launcher's public key
+// the injected binaries, the kit's egress lists and MCP servers, and the launcher's public key
 // into buildDir. Everything comes from the KitDefinition (data) plus resources
 // compiled into this binary — no source kit directory — so the build is a
 // data-only transfer that a remote substrate could run too. Wired unless a test
 // injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
 	eg, _ := studioEgress(def.Kit, l.cfg.JamHost)
-	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "")
+	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "", def.Kit.MCPServers)
 }

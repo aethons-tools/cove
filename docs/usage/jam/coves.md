@@ -205,10 +205,13 @@ no background task (`run_in_background` Bash, background subagents, Monitors) is
 outstanding, so backgrounding works. A turn that ends with tasks still running
 holds stdin open for at most `BackgroundWait` (30m), then closes it and claude
 stops the stragglers (logged at WARN). When the process exits cove-master reads
-`.at-task/worker-result.json` (the same contract as the dispatch worker). Before
-spawning, it **fails loud if the `--mcp-config` file is missing** (a stale image
-without `/etc/claude-code/mcp.json`) rather than launch a silently toolless agent
-(COV-190). On a present config it proceeds:
+`.at-task/worker-result.json` (the same contract as the dispatch worker). Every
+episode also passes `--mcp-config /dev/shm/cove-agent-mcp.json --strict-mcp-config`:
+before the first spawn the harness **generates** that one config — the guaranteed
+`messaging` server plus the kit's [`mcp-servers`](kits.md#mcp-servers-cov-240) —
+and **fails loud** if it can't (the baked kit file is missing — a stale image —
+or invalid, or the config can't be written) rather than launch a silently
+toolless agent (COV-190). With the config written it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the studio down.
 - `needs-input` → the client reports `waiting` and blocks until Jam sends a

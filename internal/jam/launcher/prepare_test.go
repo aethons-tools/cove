@@ -8,10 +8,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -321,5 +324,25 @@ func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 	}
 	if st.State == KitReady {
 		t.Fatalf("a failed build must not report KitReady: %+v", st)
+	}
+}
+
+// The real assembler bakes the studio kit's mcp-servers into the image
+// (COV-240), where cove-master's claude harness reads them.
+func TestDefaultAssembleBakesKitMCPServers(t *testing.T) {
+	sk := studio.StudioKit{Kind: studio.Kind, MCPServers: map[string]kit.MCPServer{
+		"linear": {Type: "http", URL: "${LINEAR_MCP_URL}"},
+	}}
+	l := New(Config{PublicKey: []byte("k\n")})
+	buildDir := filepath.Join(t.TempDir(), "b")
+	if err := l.defaultAssemble(studioKitDef("web", 1, sk), buildDir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(buildDir, "image-files", kit.MCPServersImagePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"linear":{"type":"http","url":"${LINEAR_MCP_URL}"}}` + "\n"; string(got) != want {
+		t.Fatalf("baked mcp-servers = %s, want %s", got, want)
 	}
 }
