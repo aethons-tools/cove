@@ -214,6 +214,22 @@ func (m *memState) GetModelSpec(name string) (ModelSpec, bool) {
 	return c, err == nil
 }
 
+// PrincipalHeaderRules returns the named model-spec's claude provider and a
+// copy of its principal.headers (plain strings, so a slice clone is deep).
+func (m *memState) PrincipalHeaderRules(name string) (string, []ModelHeaderRule, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ms, ok := m.specs[name]
+	if !ok {
+		return "", nil, false
+	}
+	provider := ""
+	if ms.Type == HarnessClaude && ms.Claude != nil {
+		provider = ms.Claude.Provider
+	}
+	return provider, slices.Clone(ms.Principal.Headers), true
+}
+
 // ListModelSpecs returns deep copies of every model-spec, sorted by name.
 func (m *memState) ListModelSpecs() []ModelSpec {
 	m.mu.RLock()

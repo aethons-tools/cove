@@ -29,6 +29,7 @@ version: "2.1.287"          # required EXACT harness CLI release the image insta
 version-constraint: ""      # optional runtime check (below); empty = exactly `version`
 principal:
   credential: anthropic     # a serve-config credential NAME, or `pool` (required)
+  headers: []               # broker header rules — model-spec-headers.md
 model:                      # optional; empty = harness default
   id: claude-opus-5-5
   effort: ""
@@ -56,6 +57,7 @@ is a 400 naming the field, and nothing is stored.
 | `version` | Required; an exact `X.Y.Z` release (digits only — no `v`, suffix or range: a range belongs in `version-constraint`). |
 | `version-constraint` | Optional; a valid [version constraint](#version-constraints) that **admits `version`** (else every cove would fail its check). |
 | `principal.credential` | Required. A [`credentials:`](serve.md#the-serve-config) name (or the pool's `cred-name`), or the keyword `pool` — accepted only when a [`pool:`](pool.md) is configured. |
+| `principal.headers` | Header rules — see [model-spec-headers.md](model-spec-headers.md#validation). |
 | `policy.mode` | Empty (= `bypassPermissions`), or one of Claude's modes `default`, `acceptEdits`, `bypassPermissions`, `dontAsk`. `plan` is refused: a cove runs claude headless with nobody to approve a plan, so it could never leave plan mode. |
 | `policy.allow` / `deny` | No empty rules, and no leading or trailing whitespace on a rule. |
 | `note` | ≤ 300 bytes. |
@@ -143,7 +145,7 @@ rebuild the image or change the spec's version / version-constraint`). Then each
 
 `claude.plugins` are *installed* by the [harness layer](model-spec-harness.md),
 not per episode. **Not applied yet:** `principal` on the cove side — the broker
-resolves the credential. A Jam predating model-specs delivers none: no check,
+resolves the credential and applies its [header rules](model-spec-headers.md). A Jam predating model-specs delivers none: no check,
 built-in defaults.
 
 ## The `at-jam model-spec` verb

@@ -60,6 +60,10 @@ type Store interface {
 	// refuses with ErrModelSpecInUse while a role resolves to it.
 	PutModelSpec(m ModelSpec) error
 	GetModelSpec(name string) (ModelSpec, bool)
+	// PrincipalHeaderRules returns a copy of the named model-spec's
+	// principal.headers and its claude provider ("" without a claude body) —
+	// the broker's per-request read, without copying the whole spec.
+	PrincipalHeaderRules(name string) (provider string, rules []ModelHeaderRule, ok bool)
 	ListModelSpecs() []ModelSpec
 	RemoveModelSpec(name string) error
 	// ExportConfig snapshots the config aggregates (actors, roles, kits,

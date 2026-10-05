@@ -61,6 +61,19 @@ func (s Spec) RuntimeConstraint() string {
 type Principal struct {
 	// Credential is a serve-config credential name, or the pool keyword.
 	Credential string `json:"credential" yaml:"credential"`
+	// Headers are extra header rules the broker applies, after the credential,
+	// to this principal's requests to the destination serving the spec's
+	// provider route. Values are not secrets.
+	Headers []HeaderRule `json:"headers,omitempty" yaml:"headers,omitempty"`
+}
+
+// HeaderRule is one principal header rule: exactly one of Set (replace the
+// header's value) or EnsureListItem (idempotently append an item to the
+// header's comma-separated list) is non-empty.
+type HeaderRule struct {
+	Name           string `json:"name"                       yaml:"name"`
+	Set            string `json:"set,omitempty"              yaml:"set,omitempty"`
+	EnsureListItem string `json:"ensure-list-item,omitempty" yaml:"ensure-list-item,omitempty"`
 }
 
 // Choice optionally pins the model and its effort; empty = harness default.

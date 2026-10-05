@@ -163,15 +163,24 @@ var unhonorableHeaders = []string{
 	"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Host",
 }
 
-// validateHeaderAndEncoding holds the checks shared by both spec directions:
-// a valid header name the proxy can honor, a known encoding, and basic
-// encoding only on Authorization.
-func validateHeaderAndEncoding(header string, enc HeaderEncoding) error {
+// validateHeaderName checks that header is a valid HTTP header name the proxy
+// can honor (not hop-by-hop, not Host).
+func validateHeaderName(header string) error {
 	if !httpguts.ValidHeaderFieldName(header) {
 		return fmt.Errorf("header %q is not a valid HTTP header name", header)
 	}
 	if slices.Contains(unhonorableHeaders, http.CanonicalHeaderKey(header)) {
 		return fmt.Errorf("header %q is hop-by-hop or proxy-owned; the broker can't carry it", header)
+	}
+	return nil
+}
+
+// validateHeaderAndEncoding holds the checks shared by both spec directions:
+// a valid header name the proxy can honor, a known encoding, and basic
+// encoding only on Authorization.
+func validateHeaderAndEncoding(header string, enc HeaderEncoding) error {
+	if err := validateHeaderName(header); err != nil {
+		return err
 	}
 	if enc != EncodingRaw && enc != "raw" && enc != EncodingBasic {
 		return fmt.Errorf("encoding %q is not raw or basic", enc)

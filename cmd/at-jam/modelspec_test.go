@@ -19,6 +19,11 @@ version: "2.1.0"
 version-constraint: "2.x"
 principal:
   credential: anthropic
+  headers:
+    - name: anthropic-beta
+      ensure-list-item: oauth-2025-04-20
+    - name: X-Foo
+      set: bar
 model:
   id: claude-opus-5-5
 policy:
@@ -72,7 +77,8 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	}
 	got, ok := store.GetModelSpec("claude-default")
 	if !ok || got.Claude == nil || got.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" ||
-		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" || got.VersionConstraint != "2.x" {
+		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" || got.VersionConstraint != "2.x" ||
+		len(got.Principal.Headers) != 2 || got.Principal.Headers[0].EnsureListItem != "oauth-2025-04-20" || got.Principal.Headers[1].Set != "bar" {
 		t.Fatalf("stored spec = %+v", got)
 	}
 	if code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, path); code != 1 || !strings.Contains(errs, "already exists") {
@@ -85,7 +91,8 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	}
 
 	code, out, errs = runJam("model-spec", "show", "--admin-url", ts.URL, "claude-default")
-	if code != 0 || !strings.Contains(out, "name: claude-default") || !strings.Contains(out, "provider-env:") || !strings.Contains(out, "CLOUD_ML_REGION: us-east5") {
+	if code != 0 || !strings.Contains(out, "name: claude-default") || !strings.Contains(out, "provider-env:") || !strings.Contains(out, "CLOUD_ML_REGION: us-east5") ||
+		!strings.Contains(out, "ensure-list-item: oauth-2025-04-20") {
 		t.Fatalf("show: code=%d out=%q err=%q", code, out, errs)
 	}
 	// show's output is itself a valid spec file (round-trips through update).
@@ -93,7 +100,7 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	if code, out, errs := runJam("model-spec", "update", "--admin-url", ts.URL, shown); code != 0 || !strings.Contains(out, "updated model-spec claude-default") {
 		t.Fatalf("update: code=%d out=%q err=%q", code, out, errs)
 	}
-	if got, _ := store.GetModelSpec("claude-default"); got.Version != "2.1.1" {
+	if got, _ := store.GetModelSpec("claude-default"); got.Version != "2.1.1" || len(got.Principal.Headers) != 2 {
 		t.Fatalf("after update version = %q", got.Version)
 	}
 

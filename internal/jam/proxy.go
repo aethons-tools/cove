@@ -17,11 +17,12 @@ type Broker struct {
 	creds CredResolver
 	now   func() time.Time
 	log   *slog.Logger
+	warns *warnDedupe // rate-limits the principal header-rule warnings
 }
 
 // NewBroker constructs a Broker that matches destinations from the live store.
 func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
-	return &Broker{store: store, creds: creds, now: time.Now, log: log}
+	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now)}
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +77,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad upstream", http.StatusInternalServerError)
 		return
 	}
-	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
+	rules := b.principalHeaderRules(actor, dest, in) // resolved and filtered once, outside the Director
+	trimmed := strings.TrimSuffix(dest.Route, "/")   // "/anthropic/" -> "/anthropic"
 	rp := &httputil.ReverseProxy{Director: func(out *http.Request) {
 		out.URL.Scheme = up.Scheme
 		out.URL.Host = up.Host
@@ -90,6 +92,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				spec.apply(out.Header, cred) // never logged
 			}
 		}
+		// Principal rules after the credential but before the destination's
+		// oauth_beta ensure, so a set rule can never drop the flag's beta.
+		applyHeaderRules(out.Header, rules)
 		if dest.OAuthBeta {
 			ensureAnthropicOAuthBeta(out.Header)
 		}
@@ -111,17 +116,5 @@ const anthropicOAuthBeta = "oauth-2025-04-20"
 
 // ensureAnthropicOAuthBeta adds anthropicOAuthBeta to the request's anthropic-beta
 // header (a comma-separated list), preserving any betas already present and never
-// duplicating.
-func ensureAnthropicOAuthBeta(h http.Header) {
-	existing := h.Get("anthropic-beta")
-	if existing == "" {
-		h.Set("anthropic-beta", anthropicOAuthBeta)
-		return
-	}
-	for _, b := range strings.Split(existing, ",") {
-		if strings.TrimSpace(b) == anthropicOAuthBeta {
-			return
-		}
-	}
-	h.Set("anthropic-beta", existing+","+anthropicOAuthBeta)
-}
+// duplicating — the destination OAuthBeta flag, via the generalized ensureListItem.
+func ensureAnthropicOAuthBeta(h http.Header) { ensureListItem(h, "anthropic-beta", anthropicOAuthBeta) }

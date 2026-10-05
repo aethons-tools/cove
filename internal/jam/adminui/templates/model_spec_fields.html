@@ -17,6 +17,8 @@
     <select name="mode">{{$v := .Spec.Policy.Mode}}<option value=""{{if not $v}} selected{{end}}>unset = bypassPermissions (legacy)</option>{{range .Choices.Modes}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Claude provider <span class="req">required</span>
     <select name="provider">{{$v := .Provider}}{{range .Choices.Providers}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label class="wide">Principal header rules <span class="hint">sent to the provider destination after the credential, one per line: <code>NAME += ITEM</code> ensures ITEM is in a comma-list header, <code>NAME = VALUE</code> sets it; not secrets</span>
+    <textarea name="headers" spellcheck="false" placeholder="anthropic-beta += oauth-2025-04-20">{{.Form.Headers}}</textarea></label>
   <label class="wide">Allow <span class="hint">permission rules, one per line</span>
     <textarea name="allow" spellcheck="false" placeholder="Bash(go test:*)">{{.Form.Allow}}</textarea></label>
   <label class="wide">Deny <span class="hint">permission rules, one per line</span>

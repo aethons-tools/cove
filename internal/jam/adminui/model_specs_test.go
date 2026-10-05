@@ -1,6 +1,7 @@
 package adminui_test
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -298,5 +299,58 @@ func TestModelSpecWritesCSRF(t *testing.T) {
 	}
 	if m, ok := store.GetModelSpec("default"); !ok || m.Version != "2.1.0" || len(store.ListModelSpecs()) != 1 {
 		t.Error("cross-origin writes must change nothing")
+	}
+}
+
+// Principal header rules use one line per rule: `NAME += ITEM`
+// (ensure-list-item) or `NAME = VALUE` (set); the edit form shows them back in
+// that syntax and the detail page lists them.
+func TestModelSpecPrincipalHeaders(t *testing.T) {
+	store := newStore(t)
+	h := specHandler(store, false)
+	rec := post(t, h, "/ui/model-specs", specForm(url.Values{
+		"headers": {"anthropic-beta += oauth-2025-04-20\r\n\r\nX-Foo = bar=baz\nX-Bar+=1\n"},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	m, _ := store.GetModelSpec("s1")
+	want := []jam.ModelHeaderRule{
+		{Name: "anthropic-beta", EnsureListItem: "oauth-2025-04-20"},
+		{Name: "X-Foo", Set: "bar=baz"},
+		{Name: "X-Bar", EnsureListItem: "1"},
+	}
+	if len(m.Principal.Headers) != 3 || m.Principal.Headers[0] != want[0] || m.Principal.Headers[1] != want[1] || m.Principal.Headers[2] != want[2] {
+		t.Fatalf("stored headers = %+v, want %+v", m.Principal.Headers, want)
+	}
+	body := html.UnescapeString(get(t, h, "/ui/model-specs/s1").Body.String())
+	for _, w := range []string{
+		"anthropic-beta += oauth-2025-04-20\nX-Foo = bar=baz\nX-Bar += 1</textarea>", // the edit form
+		"anthropic-beta += oauth-2025-04-20</span>",                                  // the detail list
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("detail missing %q", w)
+		}
+	}
+}
+
+func TestModelSpecPrincipalHeadersRefusals(t *testing.T) {
+	for name, tc := range map[string]struct{ in, want string }{
+		"no operator":   {"X-Foo bar", "header rule line 1"},
+		"empty name":    {" = bar", "header rule line 1"},
+		"denied header": {"Cookie = sk-secret-value", "Cookie"},
+		"no value":      {"X-Foo =", "exactly one of set or ensure-list-item"},
+		"padded value":  {"X-Foo = bar ", "whitespace"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newStore(t)
+			rec := post(t, specHandler(store, false), "/ui/model-specs", specForm(url.Values{"headers": {tc.in}}))
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("= %d %q, want 400 containing %q", rec.Code, rec.Body.String(), tc.want)
+			}
+			if strings.Contains(rec.Body.String(), "sk-secret-value") {
+				t.Error("a refusal must never echo a header value")
+			}
+		})
 	}
 }

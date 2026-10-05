@@ -50,6 +50,7 @@
         <dt>Version</dt><dd class="mono">{{.Spec.Version}}</dd>
         <dt>Version constraint</dt><dd>{{if .Spec.VersionConstraint}}<span class="mono">{{.Spec.VersionConstraint}}</span>{{else}}<span class="unset">exactly the version</span>{{end}}</dd>
         <dt>Principal</dt><dd><span class="mono">{{.Spec.Principal.Credential}}</span> <span class="unset">credential name</span></dd>
+        <dt>Header rules</dt><dd>{{range .Spec.Principal.Headers}}<span class="chip mono">{{.Name}} {{if .EnsureListItem}}+= {{.EnsureListItem}}{{else}}= {{.Set}}{{end}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
         <dt>Model</dt><dd>{{if .Spec.Model.ID}}<span class="mono">{{.Spec.Model.ID}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
         <dt>Effort</dt><dd>{{if .Spec.Model.Effort}}<span class="mono">{{.Spec.Model.Effort}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
         <dt>Note</dt><dd>{{if .Spec.Note}}{{.Spec.Note}}{{else}}<span class="unset">none</span>{{end}}</dd>
