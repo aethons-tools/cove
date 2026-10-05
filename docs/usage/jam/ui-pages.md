@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a project, studio, role, destination or kit in the Jam admin UI — a project's roster, escalation or chat service; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the project, studio, role, destination and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a project, studio, role, destination, model-spec or kit in the Jam admin UI — a project's roster, escalation or chat service; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the project, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # Admin UI entity pages
@@ -145,6 +145,24 @@ sessions see ([connector.md](connector.md#notes-for-sessions)). Validation match
 (required fields, a configured default credential, env keys and placeholders).
 Changing env on the `/git/` route drops its implied git routing unless **Route
 git** is ticked; the form says so. **Delete** is on the page header.
+
+## Model-spec pages
+
+Each model-spec name in the Model-specs table (`/ui/model-specs`) links to
+`/ui/model-specs/<name>`. The table shows type, version, principal, model,
+policy mode and provider. The page shows the harness (type, version, principal
+credential *name*, model, effort, note), the policy (mode, allow/deny rules)
+and the claude body (provider; provider-env keys, plugins and settings keys).
+
+**New model-spec** and **Edit model-spec** share one form: type and claude
+provider are selects; principal is a select of the configured credential
+names, plus `pool` when a [pool](pool.md) is configured (a stored principal no
+longer configured stays selected); policy mode is a select (empty = harness
+default); allow, deny and plugins take one entry per line; provider-env one
+`KEY=VALUE` per line; settings a JSON object. Writes go through the same
+validation as `at-jam model-spec` ([model-specs.md](model-specs.md#validation));
+a refusal shows in the page banner and stores nothing. **Delete** is on the
+page header and each table row.
 
 ## Kit pages
 

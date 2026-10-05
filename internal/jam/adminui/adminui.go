@@ -33,6 +33,8 @@ var pages = map[string]*template.Template{
 	"session":      mustParse("session.html"),
 	"role":         mustParse("coves.html", "context_panel.html", "role.html"),
 	"destination":  mustParse("dest_fields.html", "destination.html"),
+	"model-specs":  mustParse("model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParse("model_spec_fields.html", "model_spec.html"),
 	"kit":          mustParse("kit.html"),
 	"projects":     mustParse("projects.html"),
 	"project":      mustParse("coves.html", "context_panel.html", "project.html"),
@@ -101,6 +103,7 @@ var funcs = template.FuncMap{
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
+	"specURL":    specURL,
 	"kitURL":     kitURL,
 	"projectURL": projectURL,
 	"blankHuman": func() humanRow { return humanRow{} },
@@ -120,6 +123,7 @@ type options struct {
 	sessStore      sessionevents.Store
 	sessHub        *sessionevents.Hub
 	credNames      []string
+	poolConfigured bool
 }
 
 // WithSessions enables the live session-event timeline (/ui/coves/{id}/session).
@@ -196,6 +200,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerProjectEdits(mux, store, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
+	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
 	registerJamContext(mux, store, log, guardWrite)
 

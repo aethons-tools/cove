@@ -1,0 +1,31 @@
+{{/* spec-fields is the model-spec form body shared by create (no .Spec.Name
+     yet: asks for one) and edit (name is the key, not editable). Takes a
+     specDetail: .Spec current values, .Provider, .Form textareas, .Choices.
+     Principal choices are credential NAMES only. */}}
+{{define "spec-fields"}}
+<div class="grid">
+  {{if not .Spec.Name}}<label>Name <span class="req">required</span><input name="name" required autocomplete="off"></label>{{end}}
+  <label>Type <span class="hint">harness family</span>
+    <select name="type">{{$v := .Spec.Type}}{{range .Choices.Types}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Version <span class="req">required</span><input name="version" value="{{.Spec.Version}}" required placeholder="2.x" spellcheck="false"></label>
+  <label>Principal credential <span class="req">required</span>
+    <select name="principal" required>{{$v := .Spec.Principal.Credential}}<option value=""{{if not $v}} selected{{end}}>—</option>{{range .Choices.Principals}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Model id <span class="hint">empty = harness default</span><input name="model-id" value="{{.Spec.Model.ID}}" placeholder="claude-opus-5-5" spellcheck="false"></label>
+  <label>Effort <span class="hint">empty = harness default</span><input name="effort" value="{{.Spec.Model.Effort}}" spellcheck="false"></label>
+  <label>Policy mode <span class="hint">Claude permission mode</span>
+    <select name="mode">{{$v := .Spec.Policy.Mode}}<option value=""{{if not $v}} selected{{end}}>harness default</option>{{range .Choices.Modes}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Claude provider <span class="req">required</span>
+    <select name="provider">{{$v := .Provider}}{{range .Choices.Providers}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label class="wide">Allow <span class="hint">permission rules, one per line</span>
+    <textarea name="allow" spellcheck="false" placeholder="Bash(go test:*)">{{.Form.Allow}}</textarea></label>
+  <label class="wide">Deny <span class="hint">permission rules, one per line</span>
+    <textarea name="deny" spellcheck="false">{{.Form.Deny}}</textarea></label>
+  <label class="wide">Provider env <span class="hint">non-secret, one <code>KEY=VALUE</code> per line (e.g. Vertex project/region); credentials go in the principal, never here</span>
+    <textarea name="provider-env" spellcheck="false" placeholder="CLOUD_ML_REGION=us-east5">{{.Form.ProviderEnv}}</textarea></label>
+  <label class="wide">Plugins <span class="hint">one per line</span>
+    <textarea name="plugins" spellcheck="false">{{.Form.Plugins}}</textarea></label>
+  <label class="wide">Settings <span class="hint">a Claude <code>settings.json</code> fragment as a JSON object — preferences only</span>
+    <textarea name="settings" spellcheck="false" placeholder="{}">{{.Form.Settings}}</textarea></label>
+  <label class="wide">Note <span class="hint">operator hint (≤ 300 bytes)</span><input name="note" value="{{.Spec.Note}}" maxlength="300" spellcheck="false"></label>
+</div>
+{{end}}
