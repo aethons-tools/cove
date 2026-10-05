@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
 
 // Destination is one configured upstream the broker will proxy to. Anthropic and
@@ -19,11 +21,14 @@ type Destination struct {
 	// Apply is "custom" (and only then); presets expand in headerspec.go.
 	IdentityInSpec *InboundSpec  `json:"identity_in_spec,omitempty" yaml:"identity_in_spec,omitempty"`
 	ApplySpec      *OutboundSpec `json:"apply_spec,omitempty"       yaml:"apply_spec,omitempty"`
-	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
-	// present in the forwarded `anthropic-beta` header. Used by the subscription
-	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
-	// Anthropic requires it to accept a subscription-OAuth token.
-	OAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
+	// LegacyOAuthBeta is the removed oauth_beta flag (COV-241), kept LOAD-ONLY
+	// so a destination stored or backed up before the removal still decodes.
+	// The broker never reads it (it ensures the beta for every pool
+	// credential); the legacy-flag scan MigrateModelSpecs runs at every startup
+	// (and MigrateSnapshotModelSpecs on import) clears it, adding OAuthBetaRule
+	// to the specs naming a flagged non-pool credential. ValidateDestination
+	// refuses a write that sets it.
+	LegacyOAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
 	// Env is the client env a studio sets to use this destination: values are
 	// templates over {url} (broker base + this route), {base}, {host} and
 	// {token} — see snippet.Connector. nil = the legacy default (ClientEnv).
@@ -67,20 +72,19 @@ func (d Destination) GitRouted() bool {
 	return d.Git || (d.Env == nil && d.Route == "/git/")
 }
 
-var (
-	envKeyRe       = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-	envPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
-)
+// envPlaceholder matches a {placeholder} in a client-env template. Env key
+// names follow modelspec.ValidEnvKey / ReservedEnvKey (one grammar).
+var envPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
 
 // ValidateEnv checks Env at write time: keys are env-var names outside the
 // reserved AT_JAM_/AT_HARBOR_ namespace, and templates use only the known
 // placeholders.
 func (d Destination) ValidateEnv() error {
 	for k, v := range d.Env {
-		if !envKeyRe.MatchString(k) {
+		if !modelspec.ValidEnvKey(k) {
 			return fmt.Errorf("env key %q is not an env-var name", k)
 		}
-		if strings.HasPrefix(k, "AT_JAM_") || strings.HasPrefix(k, "AT_HARBOR_") {
+		if modelspec.ReservedEnvKey(k) {
 			return fmt.Errorf("env key %q is reserved", k)
 		}
 		for _, ph := range envPlaceholder.FindAllString(v, -1) {

@@ -15,7 +15,6 @@
     <textarea name="env" spellcheck="false" placeholder="GH_HOST={host}">{{.Form.Env}}</textarea></label>
   <label class="wide">Note <span class="hint">shown to sessions granted this destination — how to use it (≤ 300 bytes)</span><input name="note" value="{{.Dest.Note}}" maxlength="300" spellcheck="false"></label>
   <label class="check"><input type="checkbox" name="git"{{if .Dest.Git}} checked{{end}}> Route git <span class="hint">studios send <code>https://github.com/</code> through this route</span></label>
-  <label class="check"><input type="checkbox" name="oauth-beta"{{if .Dest.OAuthBeta}} checked{{end}}> OAuth beta <span class="hint">add <code>oauth-2025-04-20</code> to <code>anthropic-beta</code> (subscription pool)</span></label>
 </div>
 <style>label.check{flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}label.check input{width:auto}</style>
 {{end}}

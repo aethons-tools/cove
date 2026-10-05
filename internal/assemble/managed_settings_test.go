@@ -18,7 +18,7 @@ import (
 // The hardening embed carries no managed settings at all.
 func TestManagedSettingsInHarnessStageNotHardening(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, ""); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(buildDir, "image-files/etc/claude-code/managed-settings.json")); err == nil {

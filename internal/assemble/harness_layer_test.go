@@ -9,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // The assembled Dockerfile layers FROM ${BASE} → harness → hardening: the
@@ -56,12 +57,47 @@ func TestAssembleContextHarnessStageBetweenBaseAndHardening(t *testing.T) {
 // pinned version constant and its plugins.
 func TestAssembleUsesDefaultHarness(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, ""); err != nil {
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	df := read(t, filepath.Join(buildDir, "Dockerfile"))
 	if !strings.Contains(df, "bash -s "+modelspec.DefaultClaudeVersion+"'") || !strings.Contains(df, "-p 'superpowers@claude-plugins-official'") {
 		t.Fatalf("full kit must install claude-default's harness:\n%s", df)
+	}
+}
+
+// A kit with a model-spec: block builds ITS harness (HarnessFor): the spec's
+// exact CLI version and plugins, not claude-default's.
+func TestAssembleUsesKitModelSpecHarness(t *testing.T) {
+	cfg, err := kit.ParseConfig([]byte(`
+name: k
+model-spec:
+  name: pinned
+  type: claude
+  version: 2.1.100
+  claude:
+    provider: anthropic
+    plugins: [code-review@claude-plugins-official]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := HarnessFor(cfg)
+	if h.Version != "2.1.100" || len(h.Plugins) != 1 || h.Plugins[0] != "code-review@claude-plugins-official" {
+		t.Fatalf("HarnessFor = %+v, want the kit spec's version and plugins", h)
+	}
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), EgressFor(cfg), "", h); err != nil {
+		t.Fatal(err)
+	}
+	df := read(t, filepath.Join(buildDir, "Dockerfile"))
+	if !strings.Contains(df, "bash -s 2.1.100'") || !strings.Contains(df, "-p 'code-review@claude-plugins-official'") || strings.Contains(df, "superpowers@") {
+		t.Fatalf("the build must install the kit model-spec's harness:\n%s", df)
+	}
+	// No model-spec: claude-default's install.
+	bare, _ := kit.ParseConfig([]byte("name: k\n"))
+	if got, want := HarnessFor(bare), harnessinstall.Default(); got.Version != want.Version || strings.Join(got.Plugins, ",") != strings.Join(want.Plugins, ",") {
+		t.Fatalf("HarnessFor(no model-spec) = %+v, want claude-default %+v", got, want)
 	}
 }
 

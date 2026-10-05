@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
-	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // The model-spec types are defined in the leaf package modelspec (shared with
@@ -44,144 +42,41 @@ const DefaultModelSpec = modelspec.DefaultName
 const PoolPrincipal = "pool"
 
 // MaxModelSpecNote bounds ModelSpec.Note (an operator hint, like a destination's).
-const MaxModelSpecNote = 300
-
-// claudeProviders are the model providers a claude spec can target.
-var claudeProviders = []string{"anthropic", "vertex", "bedrock"}
+const MaxModelSpecNote = modelspec.MaxNote
 
 // ClaudePermissionModes lists the accepted policy.mode values (a copy of
 // modelspec.PermissionModes), for forms that offer them as choices.
 func ClaudePermissionModes() []string { return modelspec.PermissionModes() }
 
 // ClaudeProviders lists the accepted claude.provider values (a copy).
-func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
+func ClaudeProviders() []string { return modelspec.ClaudeProviders() }
 
-// claudeNonPreferenceSettings are settings.json keys that are not preferences:
-// env (would bypass the provider-env checks), permissions (owned by policy),
-// the harness layer's managed sandbox policy keys,
-// the credential helpers (which produce secrets), hooks and statusLine (run
-// commands, and hooks can override the permission policy) and MCP server
-// selection (owned by the kit and the harness's generated --mcp-config).
-var claudeNonPreferenceSettings = append([]string{
-	"env", "permissions",
-	"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
-	"hooks", "disableAllHooks", "statusLine",
-	"enableAllProjectMcpServers", "enabledMcpjsonServers", "disabledMcpjsonServers", "allowedMcpServers", "deniedMcpServers",
-	// Plugin enablement is claude.plugins' (installed at build, enabled per
-	// run): enabling an uninstalled plugin would make claude auto-install it
-	// through the egress proxy at runtime.
-	"enabledPlugins", "extraKnownMarketplaces",
-	// + modelspec.ManagedPolicySettings: sandbox policy, set image-wide by the
-	// harness layer's managed settings (COV-245).
-}, modelspec.ManagedPolicySettings()...)
-
-// ValidateModelSpec checks a model-spec at write time. credExists resolves a
-// serve-config credential name; poolConfigured says whether the PoolPrincipal
-// keyword is available. Refusals are 400 WriteErrors and never echo an env value.
+// ValidateModelSpec checks a model-spec at write time with the one shared
+// validator (modelspec.Validate — the kit's model-spec: block uses it too),
+// giving the principal Jam's meaning: credExists resolves a serve-config
+// credential name; poolConfigured says whether the PoolPrincipal keyword is
+// available; the header rules are checked (validatePrincipalHeaders).
+// Refusals are 400 WriteErrors and never echo an env value.
 func ValidateModelSpec(m ModelSpec, credExists func(string) bool, poolConfigured bool) error {
 	bad := func(format string, a ...any) error { return writeErr(http.StatusBadRequest, format, a...) }
-	if m.Name == "" {
-		return bad("name is required")
-	}
-	switch m.Type {
-	case "":
-		return bad("type is required (want %s)", HarnessClaude)
-	case HarnessClaude:
-	default:
-		return bad("type %q is not a known harness family (want %s)", m.Type, HarnessClaude)
-	}
-	if strings.TrimSpace(m.Version) == "" {
-		return bad("version is required (the exact harness CLI release the image installs, e.g. %q)", modelspec.DefaultClaudeVersion)
-	}
-	v, err := modelspec.ParseExactVersion(m.Version)
-	if err != nil {
-		return bad("%s (a range belongs in version-constraint)", err.Error())
-	}
-	if m.VersionConstraint != "" {
-		c, err := modelspec.ParseConstraint(m.VersionConstraint)
-		if err != nil {
-			return bad("version-constraint: %s", err.Error())
+	err := modelspec.Validate(m, func(p ModelPrincipal) error {
+		switch c := p.Credential; {
+		case c == "":
+			return bad("principal.credential is required (a credential name, or %q)", PoolPrincipal)
+		case c == PoolPrincipal:
+			if !poolConfigured {
+				return bad("principal.credential is %q but no subscription pool is configured", PoolPrincipal)
+			}
+		case !credExists(c):
+			return bad("principal.credential %q does not resolve to a configured credential", c)
 		}
-		if !c.Allows(v) {
-			return bad("version-constraint %q does not admit version %s (every cove would fail its version check)", m.VersionConstraint, m.Version)
-		}
-	}
-	switch c := m.Principal.Credential; {
-	case c == "":
-		return bad("principal.credential is required (a credential name, or %q)", PoolPrincipal)
-	case c == PoolPrincipal:
-		if !poolConfigured {
-			return bad("principal.credential is %q but no subscription pool is configured", PoolPrincipal)
-		}
-	case !credExists(c):
-		return bad("principal.credential %q does not resolve to a configured credential", c)
-	}
-	if err := validatePrincipalHeaders(m.Principal.Headers, bad); err != nil {
+		return validatePrincipalHeaders(p.Headers, bad)
+	})
+	var we *WriteError
+	if err == nil || errors.As(err, &we) {
 		return err
 	}
-	if err := modelspec.CheckPermissionMode(m.Policy.Mode); err != nil {
-		return bad("%s", err.Error())
-	}
-	for field, rules := range map[string][]string{"allow": m.Policy.Allow, "deny": m.Policy.Deny} {
-		for _, r := range rules {
-			switch {
-			case strings.TrimSpace(r) == "":
-				return bad("policy.%s has an empty rule", field)
-			case strings.TrimSpace(r) != r:
-				return bad("policy.%s rule %q has leading or trailing whitespace", field, r)
-			}
-		}
-	}
-	if len(m.Note) > MaxModelSpecNote {
-		return bad("note is %d bytes; at most %d", len(m.Note), MaxModelSpecNote)
-	}
-	// The per-type body: exactly the one matching Type. claude is the only
-	// family, so the union check is "claude is set".
-	if m.Claude == nil {
-		return bad("type %s requires a claude: body", m.Type)
-	}
-	return validateClaudeSpec(*m.Claude, bad)
-}
-
-func validateClaudeSpec(c ClaudeSpec, bad func(string, ...any) error) error {
-	if c.Provider == "" {
-		return bad("claude.provider is required (want one of %s)", strings.Join(claudeProviders, ", "))
-	}
-	if !slices.Contains(claudeProviders, c.Provider) {
-		return bad("claude.provider %q is not supported (want one of %s)", c.Provider, strings.Join(claudeProviders, ", "))
-	}
-	for k := range c.ProviderEnv {
-		switch {
-		case !envKeyRe.MatchString(k):
-			return bad("claude.provider-env key %q is not an env-var name", k)
-		case strings.HasPrefix(k, "AT_JAM_") || strings.HasPrefix(k, "AT_HARBOR_"):
-			return bad("claude.provider-env key %q is reserved", k)
-		case kit.ProtectedEnvKey(k):
-			return bad("claude.provider-env: %q is a sealed-owned/security-relevant variable and cannot be set", k)
-		case modelspec.CredentialEnvKey(k):
-			return bad("claude.provider-env: %q carries a credential; name credentials via principal.credential, never by value", k)
-		}
-	}
-	for _, k := range claudeNonPreferenceSettings {
-		if _, ok := c.Settings[k]; ok {
-			return bad("claude.settings: %q is not a preference and cannot be set in a model-spec", k)
-		}
-	}
-	if _, err := json.Marshal(c.Settings); err != nil {
-		return bad("claude.settings is not a JSON object: %v", err)
-	}
-	for i, p := range c.Plugins {
-		if strings.TrimSpace(p) == "" {
-			return bad("claude.plugins has an empty plugin entry")
-		}
-		if slices.Contains(c.Plugins[:i], p) {
-			return bad("claude.plugins lists %q twice", p)
-		}
-		if err := modelspec.CheckClaudePlugin(p); err != nil {
-			return bad("claude.plugins: %s", err.Error())
-		}
-	}
-	return nil
+	return bad("%s", err.Error())
 }
 
 // cloneModelSpec deep-copies m (Settings is arbitrary JSON) so a store never
@@ -232,7 +127,7 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 
 // ModelSpecSchemaVersion is the model-spec store schema this binary writes —
 // each one-time migration step a store (or a config backup) recording less has
-// not had (migrateModelSpec):
+// not had (specMigration):
 //
 //  1. the version split + build-time plugins (COV-242): modelspec.MigrateLegacy
 //     on every stored spec;
@@ -240,77 +135,161 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 //     claude-default (COV-245): modelspec.MigrateSettings — a stored
 //     claude-default gains only the preference keys it lacks, and every spec
 //     drops the managed sandbox-policy keys Jam now refuses (with warnings).
+//
+// The removed destination oauth_beta flag (COV-241) is not a marker step: it
+// is an idempotent scan run on every migration call (legacyOAuthBetaCreds).
 const ModelSpecSchemaVersion = 2
 
-// ModelSpecMigration reports a MigrateModelSpecs run: the specs it rewrote and
-// the warnings (each naming its spec) for anything it dropped.
-type ModelSpecMigration struct {
-	Migrated []string
-	Warnings []string
+// OAuthBetaRule is the principal header rule that carries Anthropic's
+// subscription-OAuth beta. The broker already ensures that beta for every pool
+// credential (subscriptionOAuthBeta); the rule is only for a subscription
+// token that is NOT the pool's — the legacy-flag scan adds it to the specs
+// whose principal is a flagged non-pool destination's credential.
+func OAuthBetaRule() ModelHeaderRule {
+	return ModelHeaderRule{Name: "anthropic-beta", EnsureListItem: subscriptionOAuthBeta}
 }
 
-// migrateModelSpec applies to m every schema step above from (the store's or
-// snapshot's recorded marker), returning the warnings.
-func migrateModelSpec(m ModelSpec, from int) (ModelSpec, []string) {
+// ModelSpecMigration reports a MigrateModelSpecs run: the specs it rewrote,
+// the destinations whose removed oauth_beta flag it cleared, and the warnings
+// (each naming its spec) for anything it dropped.
+type ModelSpecMigration struct {
+	Migrated     []string
+	Destinations []string
+	Warnings     []string
+}
+
+// legacyOAuthBetaCreds returns the credentials of the destinations still
+// carrying the removed oauth_beta flag — the principals whose specs gain
+// OAuthBetaRule — or nil when none does. Pool-backed destinations need no rule
+// (the broker ensures the beta for a pool credential), but the migration does
+// not know the pool's cred-name, so a spec naming it literally gets a
+// redundant rule: harmless, as the beta is ensured, never duplicated. A spec
+// whose principal is the `pool` keyword is never touched.
+func legacyOAuthBetaCreds(dests []Destination) map[string]bool {
+	var creds map[string]bool
+	for _, d := range dests {
+		if !d.LegacyOAuthBeta || d.CredName == "" || d.CredName == PoolPrincipal {
+			continue
+		}
+		if creds == nil {
+			creds = map[string]bool{}
+		}
+		creds[d.CredName] = true
+	}
+	return creds
+}
+
+// specMigration applies to a spec every schema step above `from` (the store's
+// or snapshot's recorded marker), then the legacy oauth_beta rule for the
+// principals in oauthBeta (always — not marker-gated).
+type specMigration struct {
+	from      int
+	oauthBeta map[string]bool
+}
+
+// newSpecMigration builds the migration from `from` for a store or snapshot
+// holding dests.
+func newSpecMigration(from int, dests []Destination) specMigration {
+	return specMigration{from: from, oauthBeta: legacyOAuthBetaCreds(dests)}
+}
+
+func (sm specMigration) apply(m ModelSpec) (ModelSpec, []string) {
 	var warns []string
-	if from < 1 {
+	if sm.from < 1 {
 		m, warns = modelspec.MigrateLegacy(m)
 	}
-	if from < 2 {
+	if sm.from < 2 {
 		var w []string
 		m, w = modelspec.MigrateSettings(m)
 		warns = append(warns, w...)
 	}
+	if sm.oauthBeta[m.Principal.Credential] {
+		rule := OAuthBetaRule()
+		switch {
+		case slices.ContainsFunc(m.Principal.Headers, func(r ModelHeaderRule) bool {
+			return http.CanonicalHeaderKey(r.Name) == http.CanonicalHeaderKey(rule.Name) && r.EnsureListItem == rule.EnsureListItem
+		}):
+		case len(m.Principal.Headers) >= MaxPrincipalHeaderRules:
+			warns = append(warns, fmt.Sprintf("model-spec %q: could not add the %s %s rule replacing the removed destination oauth_beta flag: it already has %d header rules", m.Name, rule.Name, rule.EnsureListItem, MaxPrincipalHeaderRules))
+		default:
+			// Appended: the flag used to apply after every rule.
+			m.Principal.Headers = append(slices.Clone(m.Principal.Headers), rule)
+		}
+	}
 	return m, warns
 }
 
-// MigrateModelSpecs is the one-time model-spec store migration: when the
-// store's schema marker is below ModelSpecSchemaVersion it rewrites EVERY
-// stored spec with the steps it has not had (migrateModelSpec) — step 1
-// covers exact-version specs too, as only the marker tells a legacy "no
-// plugins" from an explicit one — then records the marker, so no step ever
-// runs twice (an operator's later edits are never undone). Run at serve
-// startup, before EnsureDefaultModelSpec.
+// MigrateModelSpecs is the model-spec store migration, run at every serve
+// startup before EnsureDefaultModelSpec:
+//
+//   - one-time steps: when the store's schema marker is below
+//     ModelSpecSchemaVersion it rewrites EVERY stored spec with the steps it
+//     has not had (specMigration) — step 1 covers exact-version specs too, as
+//     only the marker tells a legacy "no plugins" from an explicit one — then
+//     records the marker, so no step ever runs twice (an operator's later
+//     edits are never undone);
+//   - every time: the legacy oauth_beta scan — when a destination still
+//     carries the removed flag (an old store, or a row an older binary wrote
+//     during a rolling deploy), the specs naming a flagged destination's
+//     credential gain OAuthBetaRule and the flag is cleared. Idempotent.
 func MigrateModelSpecs(store Store) (ModelSpecMigration, error) {
 	modelSpecMu.Lock()
 	defer modelSpecMu.Unlock()
 	var rep ModelSpecMigration
 	from := store.ModelSpecSchema()
-	if from >= ModelSpecSchemaVersion {
-		return rep, nil
+	dests := store.ListDestinations()
+	sm := newSpecMigration(from, dests)
+	if from < ModelSpecSchemaVersion || sm.oauthBeta != nil {
+		for _, m := range store.ListModelSpecs() {
+			out, warns := sm.apply(m)
+			rep.Warnings = append(rep.Warnings, warns...)
+			if sameSpec(m, out) {
+				continue
+			}
+			if err := store.PutModelSpec(out); err != nil {
+				return rep, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
+			}
+			rep.Migrated = append(rep.Migrated, m.Name)
+		}
 	}
-	for _, m := range store.ListModelSpecs() {
-		out, warns := migrateModelSpec(m, from)
-		rep.Warnings = append(rep.Warnings, warns...)
-		if sameSpec(m, out) {
+	for _, d := range dests {
+		if !d.LegacyOAuthBeta {
 			continue
 		}
-		if err := store.PutModelSpec(out); err != nil {
-			return rep, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
+		d.LegacyOAuthBeta = false
+		if err := store.AddDestination(d); err != nil {
+			return rep, fmt.Errorf("migrate destination %q: %w", d.Name, err)
 		}
-		rep.Migrated = append(rep.Migrated, m.Name)
+		rep.Destinations = append(rep.Destinations, d.Name)
 	}
-	if err := store.SetModelSpecSchema(ModelSpecSchemaVersion); err != nil {
-		return rep, fmt.Errorf("record model-spec schema: %w", err)
+	if from < ModelSpecSchemaVersion {
+		if err := store.SetModelSpecSchema(ModelSpecSchemaVersion); err != nil {
+			return rep, fmt.Errorf("record model-spec schema: %w", err)
+		}
 	}
 	return rep, nil
 }
 
-// MigrateSnapshotModelSpecs applies the one-time migration steps a config
-// backup has not had (its ModelSpecSchema is below ModelSpecSchemaVersion) and
-// marks the snapshot current, returning the warnings; a current snapshot is
-// untouched.
+// MigrateSnapshotModelSpecs migrates a config backup on import: the one-time
+// steps its ModelSpecSchema has not had (then marked current), and — always —
+// the legacy oauth_beta scan over its destinations (flags cleared). Returns the
+// warnings; a current snapshot without flags is untouched.
 func MigrateSnapshotModelSpecs(snap *ConfigSnapshot) []string {
-	if snap.ModelSpecSchema >= ModelSpecSchemaVersion {
-		return nil
-	}
+	sm := newSpecMigration(snap.ModelSpecSchema, snap.Destinations)
 	var warns []string
-	for i, ms := range snap.ModelSpecs {
-		var w []string
-		snap.ModelSpecs[i], w = migrateModelSpec(ms, snap.ModelSpecSchema)
-		warns = append(warns, w...)
+	if snap.ModelSpecSchema < ModelSpecSchemaVersion || sm.oauthBeta != nil {
+		for i, ms := range snap.ModelSpecs {
+			var w []string
+			snap.ModelSpecs[i], w = sm.apply(ms)
+			warns = append(warns, w...)
+		}
 	}
-	snap.ModelSpecSchema = ModelSpecSchemaVersion
+	for i := range snap.Destinations {
+		snap.Destinations[i].LegacyOAuthBeta = false
+	}
+	if snap.ModelSpecSchema < ModelSpecSchemaVersion {
+		snap.ModelSpecSchema = ModelSpecSchemaVersion
+	}
 	return warns
 }
 
@@ -326,7 +305,8 @@ func sameSpec(a, b ModelSpec) bool {
 var ErrNoDefaultPrincipal = errors.New("no subscription pool and no anthropic destination to take the default model-spec's principal from")
 
 // DefaultModelSpecFor builds DefaultModelSpec as Jam seeds it
-// (modelspec.Default), authenticating as the pool when one is configured, else as the anthropic destination's
+// (modelspec.Default), authenticating as the pool when one is configured,
+// else as the anthropic destination's
 // credential (the destination named "anthropic", or else the one routed at
 // /anthropic/). ErrNoDefaultPrincipal when neither resolves.
 func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {

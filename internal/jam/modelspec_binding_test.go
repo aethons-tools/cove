@@ -420,8 +420,8 @@ func TestMigrateModelSpecsDefaultSettings(t *testing.T) {
 	} else if err := UpdateModelSpec(st, m, credIs("anthropic"), true); err != nil {
 		t.Fatalf("a migrated spec must stay updatable: %v", err)
 	}
-	if ModelSpecSchemaVersion != 2 || st.ModelSpecSchema() != 2 {
-		t.Fatalf("marker = %d (want 2)", st.ModelSpecSchema())
+	if st.ModelSpecSchema() != ModelSpecSchemaVersion {
+		t.Fatalf("marker = %d (want %d)", st.ModelSpecSchema(), ModelSpecSchemaVersion)
 	}
 	got, _ := st.GetModelSpec("claude-default")
 	if got.Claude.Settings["theme"] != "light" {

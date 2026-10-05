@@ -1,7 +1,7 @@
 ---
-summary: The subscription-OAuth account pool — running cove `claude` as a pooled subscription principal instead of a federated service-account token, how the broker binds identity→account and injects the real bearer, the `at-jam pool` verb, broker-owned token refresh, and the egress/rollout notes.
-read_when: You are enabling or operating the subscription account pool — seeding accounts, flipping the anthropic destination to bearer, sizing the pool, or reasoning about token refresh and the egress it needs.
-owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the `at-jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
+summary: The subscription-OAuth account pool — running cove `claude` as a pooled subscription principal instead of a federated service-account token, how the broker binds identity→account and injects the real bearer plus the `oauth-2025-04-20` beta (which replaced the removed destination `oauth_beta` / `--oauth-beta`), the `at-jam pool` verb, broker-owned token refresh, and the egress/rollout notes.
+read_when: You are enabling or operating the subscription account pool — seeding accounts, flipping the anthropic destination to bearer, sizing the pool, or reasoning about token refresh and the egress it needs; or `--oauth-beta` / `oauth_beta` was refused, or a pool cove's `anthropic-beta` is in question.
+owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the broker's oauth beta for pool credentials (and the oauth_beta flag's removal), the `at-jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
 prereqs: serve.md for the `pool:` config block + the broker model and `destination` verb; coves.md for how a raised cove is credentialed
 tier: leaf
 updated: 2026-10-05
@@ -28,14 +28,14 @@ self-destruct its own credentials (the failure mode of the earlier dummy-
 `claudeAiOauth` approach — see the spec's Revision B).
 
 The anthropic destination carries the identity on the bearer
-(`--identity-in bearer --apply bearer`, `--cred-name` = the pool's `cred-name`,
-`--oauth-beta`). The broker authenticates the identity exactly as before
+(`--identity-in bearer --apply bearer`, `--cred-name` = the pool's `cred-name`).
+The broker authenticates the identity exactly as before
 (`HashToken` → actor → `Decide` — see the [broker model](serve.md#the-broker-model)),
 resolves the credential from the pool — binding the identity to a pool account
 **for the cove's life** (spreading new identities across the least-loaded
 accounts) and injecting that account's **current** access token — and, because
 `AUTH_TOKEN` mode does **not** send it, **adds the `oauth-2025-04-20` beta** to
-the forwarded `anthropic-beta` header (that's what `--oauth-beta` does). So
+the forwarded `anthropic-beta` header ([below](#the-oauth-beta)). So
 `api.anthropic.com` sees a genuine subscription request with the pool account's
 real bearer.
 
@@ -62,17 +62,31 @@ pool:
 
 ```
 at-jam destination add --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
-  --identity-in bearer --cred-name anthropic-sub --apply bearer --oauth-beta
+  --identity-in bearer --cred-name anthropic-sub --apply bearer
 ```
 
 The pool's `cred-name` does **not** need a `credentials:` entry — with a `pool:`
 block configured, destination validation accepts it and the pool resolves it by
-identity. `--oauth-beta` makes the broker add the `oauth-2025-04-20`
-`anthropic-beta` on forwarded requests, which Anthropic requires to accept a
-subscription-OAuth token (a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send it).
-The beta can also ride on the `pool` principal's model-spec as a header rule —
-see [model-spec-headers.md](model-spec-headers.md#where-rules-apply) for how the
-two compose.
+identity.
+
+### The oauth beta
+
+Anthropic accepts a subscription-OAuth token only with the `oauth-2025-04-20`
+`anthropic-beta`, which a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send. The beta
+belongs to the **credential type**, so the broker ensures it — appended to the
+cove's betas, never duplicated — on **every** request whose credential the pool
+supplied: whatever the route, the actor's model-spec (even one that fails to
+resolve) or its [header rules](model-spec-headers.md) (it is applied after them,
+so a `set` rule can't drop it). Nothing to configure.
+
+It replaced the destination `oauth_beta` flag and `at-jam destination add
+--oauth-beta` (COV-241), both now refused with a pointer here. A stored or
+backed-up destination still carrying the flag keeps loading; the
+[legacy-flag scan](model-spec-harness.md#the-legacy-oauth_beta-scan) clears it.
+A flagged destination whose credential is **not** the pool (a single subscription
+token) loses the broker's guarantee, so the scan gives the specs naming that
+credential the equivalent principal header rule
+`{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}`.
 
 **Account exclusivity.** A pool account must be a `claude auth login` **grant
 nothing else holds.** Subscription refresh tokens rotate on every use, and reusing

@@ -1,5 +1,5 @@
 ---
-summary: What a model-spec builds into a cove's image — the harness layer (exact CLI version + plugins, seeded and enabled, plus Claude Code's managed settings), which Claude settings are sandbox policy vs. claude-default preferences, its place in the image identity — and the one-time model-spec store migration (COV-242 version split, COV-245 claude-default preferences).
+summary: What a model-spec builds into a cove's image — the harness layer (exact CLI version + plugins, seeded and enabled, plus Claude Code's managed settings), which Claude settings are sandbox policy vs. claude-default preferences, its place in the image identity — and the one-time model-spec store migration (COV-242 version split, COV-245 claude-default preferences, and the every-startup scan clearing the removed destination oauth_beta flag (COV-241)).
 read_when: You are changing a model-spec's version or plugins and want to know when coves get the new CLI/plugins, a plugin is missing or unexpectedly enabled in a cove, you need to know where a Claude setting (theme, remote control, permissions default, …) comes from in a cove, or Jam logged a model-spec migration warning after an upgrade.
 owns: the model-spec → image harness layer (install, plugin seed and enablement, managed settings, rebuild timing), the managed-settings vs. preference classification, and the one-time model-spec store migration (marker, steps, rules, warnings)
 prereqs: model-specs.md for the spec schema and validation
@@ -21,7 +21,9 @@ CLI with the native installer at exactly `version` and pre-seeds the plugins
 raise resolves the role's spec **before** the kit image, whose build-digest
 includes them ([kits.md](kits.md)) — so changing `version` or `plugins` builds a
 new image at each role's next raise, and a running cove keeps its image. No
-spec delivered = claude-default's install. **Enablement follows the spec, too:**
+spec delivered = claude-default's install. A plain at-cove kit's
+[`model-spec:`](../at-cove-config.md#model-spec) block drives the same layer at
+`at-cove install` (none = claude-default's install). **Enablement follows the spec, too:**
 the seed enables exactly the installed plugins in the first-boot user settings
 (for interactive sessions), and each episode's `--settings` enables the spec's
 plugins ([model-specs.md](model-specs.md#what-a-cove-applies)); the managed settings enable none. `plugins: []`
@@ -102,3 +104,21 @@ step ever re-runs (an operator's later edits are never undone).
 - a stored `claude-default` gains each
   [baseline preference](#managed-settings-vs-preferences-cov-245) key it
   lacks; a value the operator already set (say `theme: light`) is kept.
+
+### The legacy oauth_beta scan
+
+Not a marker step: at **every** `at-jam serve` startup (and on every
+[import](backup.md)) Jam scans the destinations for the removed `oauth_beta`
+flag (COV-241) — stored rows and backups keep loading it, and an older binary
+may still write it during a rolling deploy. Each flag is cleared (the serve log
+names the destinations). A pool-backed destination needs nothing more: the
+broker adds the beta for every [pool credential](pool.md#the-oauth-beta). For a
+flagged destination with another credential, every spec whose principal is that
+credential gains `{name: anthropic-beta, ensure-list-item: oauth-2025-04-20}` —
+appended after its rules (the flag applied last), never duplicated; a spec
+already at 16 rules gets a WARN instead. (The scan doesn't know the pool's
+`cred-name`: a spec naming it literally gets a redundant rule — harmless.)
+
+**Plain at-cove kits** run no migration: a kit's
+[`model-spec:`](../at-cove-config.md#model-spec) block is read as written, and
+the removed `model-provider:` block is a load error with its replacement.

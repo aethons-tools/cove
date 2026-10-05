@@ -35,7 +35,6 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
-	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/install"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/keys"
@@ -465,7 +464,9 @@ func assembleContext(kitDir string, r runner.Runner) error {
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
 	gitlabHost, _ := cfg.GitLabHost() // "" for a non-GitLab kit → header-only include
-	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, assemble.EgressFor(cfg), gitlabHost)
+	// The harness layer is the kit's model-spec: block's (version + plugins),
+	// else claude-default's — the same install currencyInputs hashes.
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, assemble.EgressFor(cfg), gitlabHost, assemble.HarnessFor(cfg))
 }
 
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
@@ -543,6 +544,14 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 // touches nothing.
 func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
+	if errors.Is(err, kit.ErrModelProviderRemoved) && install.Exists(kitDir) {
+		// A kit still on the removed model-provider: block can always be
+		// uninstalled: the name comes from its install.
+		var m install.Manifest
+		if m, err = install.Load(kitDir); err == nil {
+			cfg = kit.Config{Name: m.Name}
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -651,7 +660,8 @@ func doUpdate(r runner.Runner, lookup func(string) (string, bool), currentVersio
 // currencyInputs gathers the build-affecting inputs the install manifest hashes
 // (§5): the kit source tree, at-cove's embedded build identity, the base ref
 // as configured (or the blessed default), and the kit's harness install
-// (claude-default's until kits name a model-spec, COV-241). install writes the resulting hash; the
+// (assemble.HarnessFor: its model-spec: block's, else claude-default's —
+// COV-241). install writes the resulting hash; the
 // run commands (S3/S4) recompute it from the live kit to detect a stale install.
 func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, error) {
 	kitTree, err := install.KitSourceTree(kitDir)
@@ -670,7 +680,7 @@ func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, erro
 		KitSourceTree:       kitTree,
 		AtCoveBuildIdentity: identity,
 		BaseRef:             baseRef,
-		Harness:             install.HarnessIdentity(harnessinstall.Default()),
+		Harness:             install.HarnessIdentity(assemble.HarnessFor(cfg)),
 	}, nil
 }
 
@@ -690,6 +700,9 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	m, err := install.Load(kitDir)
 	if err != nil {
 		return install.Manifest{}, err
+	}
+	if m.LegacyModelProvider {
+		return install.Manifest{}, install.ErrLegacyModelProvider
 	}
 	in, err := currencyInputs(kitDir, m.RunConfig)
 	if err != nil {
@@ -1009,7 +1022,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// a credential here would just be wasted (and, for a mint: supply, needless)
 	// work.
 	var vertexAuth *connect.VertexAuth
-	if _, isVertex := cfg.Vertex(); isVertex && !noAuth {
+	if cfg.UsesVertex() && !noAuth {
 		if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
 			return err
 		}
@@ -1105,7 +1118,11 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// instances of the same kit don't collide on tmux/session identity. It is derived
 	// from cfg.Name + the resolved class, deliberately NOT from st.Name: State.Name
 	// (the bare kit name) is the shared secret-bucket key and must not be re-keyed.
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: cfg.Name, Collaborator: class}, awake.New(), connect.Options{
+	//
+	// The kit's model-spec runtime parts (model, policy, settings) ride on the
+	// claude launch as argv (connect.SpecArgs); its provider env is in
+	// SessionEnv; version/plugins were the build's (assemble.HarnessFor).
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: cfg.Name, Collaborator: class, Args: connect.SpecArgs(cfg.ModelSpec)}, awake.New(), connect.Options{
 		Container:          st.Container,
 		Secrets:            specs,
 		IdentityFile:       priv,
@@ -1291,7 +1308,8 @@ func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, 
 	}, nil
 }
 
-// gcpADCDemand is the well-known demand name a Vertex kit's GCP Application Default
+// gcpADCDemand is the well-known demand name a Vertex kit's (model-spec
+// claude.provider: vertex) GCP Application Default
 // Credentials are supplied under (machine-side, in secrets.yml/secrets.local.yml).
 // It is resolved host-side and seeded into the VM as a file — it never enters the
 // agent's session env.
@@ -1313,7 +1331,7 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	if strings.TrimSpace(adc) == "" {
 		return nil, nil, fmt.Errorf("vertex kit %q: resolved GCP credential %s is empty", kitName, gcpADCDemand)
 	}
-	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
+	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.ProviderEnv(), nil
 }
 
 // jamPlan produces a Jam kit's connector config host-side; nil when the kit
@@ -1872,6 +1890,14 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 	}
 	for _, name := range workerUnresolved {
 		lg.Warn("secret has no supply; it will not be set", slog.String("step", "secrets"), slog.String("secret", name), slog.String("kit", cfg.Name))
+	}
+
+	// A kit model-spec's model/policy/settings (and an anthropic spec's
+	// provider-env) reach the worker (dispatchrun); a vertex provider does
+	// not — workers authenticate with the worker-bucket bearer below and are
+	// never seeded the GCP ADC (Vertex is chat-only).
+	if cfg.UsesVertex() {
+		lg.Warn("the kit's model-spec provider vertex applies to chat only; this dispatched worker runs on the Anthropic API with its worker-bucket bearer", slog.String("step", "model-spec"), slog.String("kit", cfg.Name))
 	}
 
 	// The dispatched agent authenticates to Anthropic under either well-known

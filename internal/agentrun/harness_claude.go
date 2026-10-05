@@ -279,13 +279,8 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	args = append(args, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose")
 	args = append(args, claudePolicy(ep.Spec)...)
 	args = append(args, "--mcp-config", c.mcpConfig(), "--strict-mcp-config")
+	args = append(args, modelspec.ClaudeModelArgs(ep.Spec)...)
 	if spec := ep.Spec; spec != nil {
-		if spec.Model.ID != "" {
-			args = append(args, "--model", spec.Model.ID)
-		}
-		if spec.Model.Effort != "" {
-			args = append(args, "--effort", spec.Model.Effort)
-		}
 		if len(claudeSettings(spec)) > 0 {
 			args = append(args, "--settings", c.settings())
 		}
@@ -315,77 +310,20 @@ var claudeAlwaysAllowed = []string{
 	"Edit(" + workerResultRel + ")",
 }
 
-// claudePolicy renders spec.policy as claude flags (COV-239):
-//
-//   - mode empty (or no spec) or modelspec.ModeBypassPermissions →
-//     --dangerously-skip-permissions, byte-identical to the argv before
-//     model-specs. Both spellings reach the same bypassPermissions session in
-//     today's image; the flag is kept so claude-default and a legacy
-//     (spec-less) cove launch exactly as before, whatever the one-time bypass
-//     acceptance (managed bypassPermissionsModeAccepted /
-//     skipDangerousModePermissionPrompt) does.
-//   - any other mode → one --permission-mode=MODE element (Validate has
-//     already refused an unknown mode, and plan), then claudeAlwaysAllowed.
-//   - each allow / deny rule → one --allowedTools=<rule> / --disallowedTools=<rule>
-//     element (claude accumulates repeated flags). The = form keeps a rule one
-//     argv element that can never be read as a flag, and keeps the variadic
-//     flag from swallowing the next argument. Deny applies in every mode,
-//     bypassPermissions included; allow only matters where claude would ask.
-//
-// Flags, not a permissions block in the --settings file: Jam refuses
-// permissions in claude.settings (policy owns it), the rules stay visible in
-// argv, and session flags don't merge with settings-file permissions.
+// claudePolicy renders spec.policy as claude flags with the shared renderer
+// (modelspec.ClaudePolicyArgs): headless, so an empty or bypassPermissions
+// mode keeps the legacy --dangerously-skip-permissions, and any other mode
+// gets claudeAlwaysAllowed ahead of the spec's own rules.
 func claudePolicy(spec *modelspec.Spec) []string {
-	var p modelspec.Policy
-	if spec != nil {
-		p = spec.Policy
-	}
-	var args []string
-	if p.Mode == "" || p.Mode == modelspec.ModeBypassPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	} else {
-		args = append(args, "--permission-mode="+p.Mode)
-		for _, r := range claudeAlwaysAllowed {
-			args = append(args, "--allowedTools="+r)
-		}
-	}
-	for _, r := range p.Allow {
-		args = append(args, "--allowedTools="+r)
-	}
-	for _, r := range p.Deny {
-		args = append(args, "--disallowedTools="+r)
-	}
-	return args
+	return modelspec.ClaudePolicyArgs(spec, true, claudeAlwaysAllowed)
 }
 
-// claudeEnv is the provider env a spec implies: vertex sets
+// claudeEnv is the provider env a spec implies (modelspec.ProviderEnv — the
+// one rendering a plain at-cove session shares): vertex sets
 // CLAUDE_CODE_USE_VERTEX=1, bedrock CLAUDE_CODE_USE_BEDROCK=1, anthropic
-// nothing; then claude.provider-env. A protected, reserved or
-// credential-carrying key is dropped (defense in depth: Jam refuses them at
-// write). nil when there is nothing to set.
-func claudeEnv(spec *modelspec.Spec) map[string]string {
-	if spec == nil || spec.Claude == nil {
-		return nil
-	}
-	env := map[string]string{}
-	for k, v := range spec.Claude.ProviderEnv {
-		if kit.ProtectedEnvKey(k) || modelspec.CredentialEnvKey(k) ||
-			strings.HasPrefix(k, "AT_JAM_") || strings.HasPrefix(k, "AT_HARBOR_") {
-			continue
-		}
-		env[k] = v
-	}
-	switch spec.Claude.Provider {
-	case "vertex":
-		env["CLAUDE_CODE_USE_VERTEX"] = "1"
-	case "bedrock":
-		env["CLAUDE_CODE_USE_BEDROCK"] = "1"
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
-}
+// nothing; then claude.provider-env, minus any protected, reserved or
+// credential-carrying key. nil when there is nothing to set.
+func claudeEnv(spec *modelspec.Spec) map[string]string { return modelspec.ProviderEnv(spec) }
 
 // EncodeInput encodes text as one stream-json stdin line.
 func (Claude) EncodeInput(text string) []byte {

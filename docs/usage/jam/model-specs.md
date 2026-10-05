@@ -15,7 +15,10 @@ and which permission policy. Every **role** resolves to one (unbound = `claude-d
 Jam delivers the resolved spec to each of the role's coves, which apply it at their
 next episode — except its harness CLI `version` and `claude.plugins`, which are
 [built into the image](model-spec-harness.md). The permission
-policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md).
+policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md). The same
+schema and validator load a plain at-cove kit's
+[`model-spec:` block](../at-cove-config.md#model-spec) (no `principal` there;
+`version` optional).
 
 ## Schema
 
@@ -63,7 +66,7 @@ is a 400 naming the field, and nothing is stored.
 | `note` | ≤ 300 bytes. |
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
-| `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS` — the same list a kit's `model-provider` env obeys); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
+| `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
 | `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them); and the managed sandbox-policy keys `autoUpdates`, `disableRemoteControl`, `remoteControlAtStartup`, `skipDangerousModePermissionPrompt`, `bypassPermissionsModeAccepted`, `disableAutoMode` ([why](model-spec-harness.md#managed-settings-vs-preferences-cov-245)). |
 | `claude.plugins` | No empty or duplicate entries; each `name@marketplace`, both halves `[A-Za-z0-9._-]` (they reach a build `RUN` line), and the marketplace a known one (today only `claude-plugins-official` → `anthropics/claude-plugins-official`; adding one is a code change). |
 
@@ -105,7 +108,7 @@ no separate constraint, plugins `[superpowers@claude-plugins-official]`, the cla
 settings, [model-spec-harness.md](model-spec-harness.md#managed-settings-vs-preferences-cov-245)),
 no model/effort — exactly how coves ran before model-specs.
 `DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
-seeds, every full `config.yml` kit's harness, and raises that deliver no spec —
+seeds, the harness of every full `config.yml` kit without a `model-spec:`, and raises that deliver no spec —
 **not** a `claude-default` already stored. Bump that one yourself
 (`at-jam model-spec show claude-default > s.yaml`, edit `version`,
 `at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a

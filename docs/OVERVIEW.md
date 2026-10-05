@@ -337,10 +337,11 @@ is no kit overlay anymore. The image is layered
    Claude Code's managed settings `/etc/claude-code/managed-settings.json` —
    sandbox-wide policy only, Claude-specific so not a hardening file; see
    [model-spec-harness.md](usage/jam/model-spec-harness.md#managed-settings-vs-preferences-cov-245). It is **model-spec-mediated, not
-   a hardening concern**: a full `config.yml` kit gets the default install —
-   the one pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its
-   plugins — until a kit can name a model-spec (COV-241); a Jam studio kit gets its
-   raising role's spec ([model-spec-harness.md](usage/jam/model-spec-harness.md)).
+   a hardening concern**: a full `config.yml` kit gets its
+   [`model-spec:`](usage/at-cove-config.md#model-spec) block's version and plugins,
+   or without one the default install — the one pinned
+   `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its plugins; a Jam
+   studio kit gets its raising role's spec ([model-spec-harness.md](usage/jam/model-spec-harness.md)).
    Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
    layer cache). It needs no secret — the install is unauthenticated.
 1. **Non-overridable hardening** (embedded; `FROM harness`) —
@@ -363,8 +364,8 @@ sit above the kit base too, so a kit cannot override them either. The harness an
 plugins are part of the image's identity: at-cove's build identity hashes only
 the harness layer's payload (its scripts and the managed settings' policy) and
 its rendered baseline preferences, while the install itself (type,
-version, plugins) is in a full kit's currency inputs (so a
-`DefaultClaudeVersion` bump makes every full-kit install stale) and in a studio
+version, plugins) is in a full kit's currency inputs (so a `model-spec:` edit,
+or a `DefaultClaudeVersion` bump for a kit without one, makes the install stale) and in a studio
 kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
 doesn't retag every studio image.
 The hardening layer ships inside the binary via Go `embed.FS`,
@@ -491,10 +492,10 @@ later changes, Jam re-applies it to the role's running coves the same way
 cleared; that mode takes no domains) —
 see [egress drift](usage/jam/coves.md#egress-drift).
 
-**Vertex kits auto-gain their GCP hosts.** A kit with a
-[`model-provider.vertex`](usage/at-cove-config.md#model-provider) block has its
+**Vertex kits auto-gain their GCP hosts.** A kit whose
+[`model-spec`](usage/at-cove-config.md#model-spec) has `claude.provider: vertex` has its
 GCP endpoints folded into `allowed_domains.infra.txt` at `install` time — derived
-from the block's `CLOUD_ML_REGION`, not hand-listed. The global inference host
+from its `provider-env` `CLOUD_ML_REGION`, not hand-listed. The global inference host
 `aiplatform.googleapis.com` is always included, plus one region-specific host
 depending on `CLOUD_ML_REGION`: unset/`global` adds nothing more (the global
 host already covers it); the multi-region values `us`/`eu` add the distinct
@@ -759,8 +760,8 @@ falling back to — and burning — a subscription.
 
 ### Authentication: Claude on Vertex
 
-A kit with a [`model-provider.vertex`](usage/at-cove-config.md#model-provider)
-block branches `chat`'s auth step instead of using either path above: it
+A kit whose [`model-spec`](usage/at-cove-config.md#model-spec) has
+`claude.provider: vertex` branches `chat`'s auth step instead of using either path above: it
 authenticates via a **seeded GCP Application Default Credentials (ADC) file**
 (`GOOGLE_APPLICATION_CREDENTIALS` → `/agent-data/.gcp-adc.json`), and **skips
 subscription OAuth entirely** — no `claude auth status` probe, no `claude auth

@@ -1,9 +1,10 @@
 // Package modelspec holds the model-spec wire types — the named, harness-typed
-// description of how a cove runs its agent — and the harness CLI version
-// constraint grammar. It is a leaf (no Jam imports) so the connector Jam
-// delivers (internal/jam/snippet) and the cove-side harness (internal/agentrun)
-// share one definition; internal/jam aliases these types and owns validation
-// and storage.
+// description of how a cove runs its agent — its one validator (Validate), and
+// the harness CLI version constraint grammar. It is a leaf (no Jam or kit
+// imports) so the connector Jam delivers (internal/jam/snippet), the cove-side
+// harness (internal/agentrun) and a plain at-cove kit's model-spec: block
+// (internal/kit) share one definition; internal/jam aliases these types and
+// owns storage and the Jam meaning of a principal.
 package modelspec
 
 import (
@@ -27,19 +28,22 @@ const DefaultName = "claude-default"
 // the harness family and CLI version, the principal it authenticates as (a
 // credential BY NAME — never a value), the model, the permission policy, and a
 // per-type body. It is a common envelope plus exactly one body keyed by Type
-// (a union, like kit.ModelProvider). It never carries a secret value, so it
-// may be delivered to a cove as is.
+// (a union). It never carries a secret value, so it may be delivered to a cove
+// as is. Jam stores it, and a plain at-cove kit may author one in its
+// model-spec: block — one schema, one validator (Validate).
 type Spec struct {
 	Name string      `json:"name"                yaml:"name"`
 	Type HarnessType `json:"type"                yaml:"type"`
 	// Version is the exact harness CLI release X.Y.Z (ParseExactVersion) the
 	// cove's image installs — the build pins it (COV-242).
-	Version string `json:"version" yaml:"version"`
+	// A plain at-cove kit may omit it (kit.Config.EffectiveModelSpec defaults
+	// it to DefaultClaudeVersion); Jam requires it.
+	Version string `json:"version" yaml:"version,omitempty"`
 	// VersionConstraint is the runtime check the harness's Validate applies to
 	// the installed CLI (ParseConstraint grammar). Empty means "== Version"
 	// (RuntimeConstraint).
 	VersionConstraint string    `json:"version-constraint,omitempty" yaml:"version-constraint,omitempty"`
-	Principal         Principal `json:"principal"           yaml:"principal"`
+	Principal         Principal `json:"principal"           yaml:"principal,omitempty"`
 	Model             Choice    `json:"model,omitzero"      yaml:"model,omitempty"`
 	Policy            Policy    `json:"policy,omitzero"     yaml:"policy,omitempty"`
 	Note              string    `json:"note,omitempty"      yaml:"note,omitempty"`
@@ -124,7 +128,7 @@ func CheckPermissionMode(mode string) error {
 type Claude struct {
 	Provider string `json:"provider" yaml:"provider"` // anthropic | vertex | bedrock
 	// ProviderEnv is non-secret provider env (e.g. Vertex project/region). It
-	// may not set protected (kit.ProtectedEnvKey), reserved, or credential env
+	// may not set protected (ProtectedEnvKey), reserved, or credential env
 	// (CredentialEnvKey).
 	ProviderEnv map[string]string `json:"provider-env,omitempty" yaml:"provider-env,omitempty"`
 	// Settings is a Claude settings.json fragment — preferences only.
@@ -201,8 +205,8 @@ var credentialEnvKeys = map[string]bool{
 func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 
 // DefaultClaudeVersion is THE pinned Claude Code release the code defaults
-// to: the version Jam seeds a NEW claude-default with, the harness every full
-// config.yml kit (plain at-cove Assemble) installs, and the install a raise
+// to: the version Jam seeds a NEW claude-default with, the harness a full
+// config.yml kit without a model-spec: block installs, and the install a raise
 // uses when no spec is delivered (harnessinstall.Default). Bumping it does NOT
 // change a claude-default already stored in a Jam — an operator moves that one
 // with `at-jam model-spec update` (or the admin UI).

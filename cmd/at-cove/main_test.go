@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,7 +17,9 @@ import (
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -877,6 +880,53 @@ func TestChatRequiresCurrentInstall(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "at-cove install") {
 		t.Fatalf("chat error must point at `at-cove install`; stderr=%q", errOut.String())
+	}
+}
+
+// writeLegacyVertexKit writes a kit as a pre-COV-241 Vertex user has it: a
+// config.yml still on model-provider:, and the install.json it was installed
+// from (its RunConfig carrying the old ModelProvider).
+func writeLegacyVertexKit(t *testing.T, dir string) string {
+	t.Helper()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(filepath.Join(kitDir, ".state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nmodel-provider:\n  vertex:\n    env: {ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us}\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"schemaVersion":2,"name":"box","image":"atcove-box","currencyHash":"x","runConfig":{"Name":"box","ModelProvider":{"Vertex":{"Env":{"CLOUD_ML_REGION":"us"}}}}}`
+	if err := os.WriteFile(install.Path(kitDir), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return kitDir
+}
+
+// A stale install from a model-provider kit: run commands refuse it with the
+// migration hint, but teardown (destroy, status, uninstall) keeps working.
+func TestLegacyModelProviderInstallRefusedOnlyOnRunPath(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLegacyVertexKit(t, dir)
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"chat", "--no-auth", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code == 0 ||
+		!strings.Contains(errOut.String(), "model-spec") {
+		t.Fatalf("chat must refuse a model-provider install with the hint; exit=%d stderr=%s", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"status", "--project-dir", dir}, &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("status must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"destroy", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"uninstall", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if install.Exists(kitDir) {
+		t.Fatal("uninstall must delete the legacy install.json")
 	}
 }
 
@@ -1864,6 +1914,53 @@ func TestChatPlainSessionName(t *testing.T) {
 	}
 	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box cove'`) {
 		t.Fatalf("plain session should be named exactly '<kit> cove': %q", remote)
+	}
+}
+
+// A kit's model-spec: block reaches the interactive session: its model and
+// policy as claude argv on the launch, its provider env in the session env
+// script (--no-auth skips only the ADC resolution, never the provider env).
+func TestChatAppliesKitModelSpec(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := `name: box
+model-spec:
+  name: vertex-opus
+  type: claude
+  version: 2.1.287
+  model: {id: claude-opus-4-8}
+  policy: {mode: acceptEdits}
+  claude:
+    provider: vertex
+    provider-env: {ANTHROPIC_VERTEX_PROJECT_ID: proj-1, CLOUD_ML_REGION: us-east5}
+`
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"chat", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box cove' '--model' 'claude-opus-4-8' '--permission-mode=acceptEdits'`) {
+		t.Fatalf("the launch must carry the spec's model and policy: %q", remote)
+	}
+	script := ""
+	for _, c := range f.Calls {
+		if strings.Contains(c.Stdin, "export ") {
+			script = c.Stdin
+		}
+	}
+	for _, want := range []string{"export CLAUDE_CODE_USE_VERTEX='1'", "export ANTHROPIC_VERTEX_PROJECT_ID='proj-1'", "export CLOUD_ML_REGION='us-east5'"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("session env missing %q:\n%s", want, script)
+		}
 	}
 }
 
@@ -3037,9 +3134,13 @@ kits:
 	}
 	cfg, err := kit.ParseConfig([]byte(`
 name: vkit
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: p
       CLOUD_ML_REGION: us-east5
 `))
@@ -3071,10 +3172,57 @@ func TestVertexPlan_FailsClosedWhenUnsupplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("usersecret.Load: %v", err)
 	}
-	cfg, _ := kit.ParseConfig([]byte("name: vkit\nmodel-provider:\n  vertex:\n    env:\n      ANTHROPIC_VERTEX_PROJECT_ID: p\n      CLOUD_ML_REGION: us\n"))
+	cfg, err := kit.ParseConfig([]byte("name: vkit\nmodel-spec: {name: v, type: claude, version: 2.1.287, claude: {provider: vertex, provider-env: {ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us}}}\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
 	r := &runner.Fake{}
 	expand := mint.Expander(r, store.Global, "")
 	if _, _, err := vertexPlan(cfg, store, expand, "vkit", "/canon/vkit", secretsPath, r); err == nil {
 		t.Fatalf("want a fail-closed error when the ADC is unsupplied")
+	}
+}
+
+// A kit's model-spec: block is its harness: the install hashes (and assemble
+// builds) the spec's version/plugins, so editing the spec makes the install stale
+// and survives the install.json RunConfig round trip.
+func TestCurrencyInputs_HarnessFollowsKitModelSpec(t *testing.T) {
+	kitDir := writeKit(t, t.TempDir())
+	bare, err := kit.Load(kitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := currencyInputs(kitDir, bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Harness != install.HarnessIdentity(harnessinstall.Default()) {
+		t.Fatal("a kit without model-spec must hash claude-default's harness")
+	}
+	cfg, err := kit.ParseConfig([]byte("name: box\nmodel-spec: {name: p, type: claude, version: 2.1.100, claude: {provider: anthropic, plugins: [code-review@claude-plugins-official]}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := currencyInputs(kitDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := install.HarnessIdentity(harnessinstall.Install{Type: modelspec.HarnessClaude, Version: "2.1.100", Plugins: []string{"code-review@claude-plugins-official"}})
+	if in.Harness != want {
+		t.Fatal("the currency harness must be the kit model-spec's install")
+	}
+	// install.json stores the RunConfig as JSON; the recomputed harness must match.
+	m := install.Compile(cfg, install.ResolvedBuild{Image: "i", BaseRef: in.BaseRef, CurrencyHash: install.CurrencyHash(in)})
+	b, _ := json.Marshal(m)
+	var back install.Manifest
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	again, err := currencyInputs(kitDir, back.RunConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Harness != want {
+		t.Fatal("the harness must survive the install.json RunConfig round trip")
 	}
 }

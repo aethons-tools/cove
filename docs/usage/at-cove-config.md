@@ -1,7 +1,7 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, jam, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-spec, jam, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex or pinning its Claude Code version/plugins/model (model-spec), migrating off model-provider, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-spec (plain-at-cove loader rules), jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
 updated: 2026-10-05
@@ -309,71 +309,87 @@ dispatch:
   reaper-timeout: 45m
 ```
 
-### model-provider
-*tagged union — one provider (`vertex` only today), optional*
+### model-spec
+*optional; the kit's [model-spec](jam/model-specs.md) — how the cove runs its agent*
 
-Switches the sandbox's agent from first-party Anthropic (the default, absent this
-block) to a third-party-hosted Claude. **Kit-global** — one setting for the whole
-kit, not yet per-collaborator/per-worker-class — and **`chat`-only**: `at-cove
-work`/`dispatch` do not yet read this block (a documented follow-up; see the
-[design spec](../superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
-Absent block → today's Anthropic OAuth/bearer behavior, unchanged.
-
-#### model-provider.vertex.env*
-*map of string → string*
-
-Non-secret, kit-authored configuration for **Claude on Google Vertex AI**, passed
-through as env for the `chat` session. Two keys are **required** (a missing one is
-a hard config error):
-
-| Key | Meaning |
-|---|---|
-| `ANTHROPIC_VERTEX_PROJECT_ID` | the GCP project Vertex bills/governs through |
-| `CLOUD_ML_REGION` | a specific region, or the multi-region `us`/`eu`, or `global` |
-
-at-cove itself **sets `CLAUDE_CODE_USE_VERTEX=1`** — implied by choosing `vertex`,
-so the kit must not (and need not) set it. Any other key
-(`ANTHROPIC_VERTEX_BASE_URL`, a `VERTEX_REGION_CLAUDE_*` override, `ANTHROPIC_MODEL`,
-…) passes straight through to Claude Code with no schema change required.
-
-**Hardening denylist (load-bearing).** Unlike a *secret* — which a kit only
-*demands* by name, with the host as the supply-side gate — this `env` map is
-**kit-authored with no host-side gate**, so a committed-but-untrusted kit could
-otherwise inject security-relevant env directly. A **protected set** is therefore
-rejected at config validation (a hard parse error) and independently re-checked
-(defensive drop) at injection:
-
-- the egress proxy vars — `http_proxy`/`https_proxy`/`no_proxy` and their uppercase
-  forms — because the per-session env-file is *sourced* in the session shell, so an
-  unchecked value would **shadow** the sealed `/etc/environment` proxy vars the
-  hardening layer writes last, quietly defeating egress;
-- `CLAUDE_CONFIG_DIR` (sealed-owned);
-- `GOOGLE_APPLICATION_CREDENTIALS` (at-cove-owned — it points at the seeded GCP ADC
-  file; see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex));
-- `PATH`.
-
-This is the `env`-block analog of the egress rule "additive, sealed-wins": a kit
-can *configure* the provider but can never shadow a sealed-owned or
-security-relevant variable.
-
-**Egress is auto-derived, not hand-listed.** When `model-provider.vertex` is
-present, `install` widens the always-on infra list with the GCP hosts Vertex needs
-— derived from the block, not hand-maintained — see
-[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling).
+The **same schema and the same validator** as a Jam model-spec (one definition,
+`internal/jam/modelspec`; two loaders — Jam's admin API and this file). Absent
+→ the equivalent of `claude-default`: Claude Code at `modelspec.DefaultClaudeVersion`
+with `superpowers@claude-plugins-official`, on first-party Anthropic — the
+image's behavior before model-specs, unchanged. **Kit-global** (one spec for the
+whole kit).
 
 ```yaml
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project   # required
-      CLOUD_ML_REGION: us                           # required
-      # CLAUDE_CODE_USE_VERTEX=1 is set by at-cove — implied by the vertex block
+model-spec:
+  name: vertex-opus              # required (any name; shown in errors)
+  type: claude                   # required
+  # version: 2.1.287             # optional exact release; omitted = follow DefaultClaudeVersion
+  model: {id: claude-opus-4-8}   # optional
+  policy: {mode: acceptEdits}    # optional; empty = bypassPermissions
+  claude:
+    provider: vertex             # anthropic | vertex (bedrock is Jam-only)
+    provider-env:                # non-secret; vertex requires the two keys below
+      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project
+      CLOUD_ML_REGION: us
+    plugins: [superpowers@claude-plugins-official]   # installed at build
 ```
 
-The credential itself (a GCP ADC) is **not** part of this block — it is supplied
-host-side and seeded as a file; see
-[Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
+Every [Jam validation rule](jam/model-specs.md#validation) applies (an exact
+`version`, `version-constraint` admitting it, known plugin marketplaces,
+preference-only `claude.settings`, no protected/credential/`AT_JAM_*` keys in
+`provider-env`, no `plan` mode), with four plain-at-cove differences:
+
+- **`version` is optional.** Omitted, the kit follows
+  `modelspec.DefaultClaudeVersion` — resolved when the spec is used, never
+  stored, so an at-cove upgrade that bumps it makes the install stale and the
+  next `install` builds the new CLI (as for a kit without `model-spec:`). Set it
+  to pin. (Jam still requires it.)
+
+- **no `principal`.** In Jam it names a credential (or the pool) and carries the
+  broker's header rules; plain at-cove has no broker and authenticates the agent
+  itself — the interactive OAuth login, or the host-supplied GCP ADC for
+  `vertex` — so `principal` must be omitted;
+- **`claude.provider` is `anthropic` or `vertex`** — at-cove has no Bedrock
+  credential flow;
+- **`vertex` requires `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION`** in
+  `provider-env` (the region derives the egress, below).
+
+**What applies, and when:**
+
+| Field | Applied |
+|-------|---------|
+| `version`, `claude.plugins` | at **`install`**: the image's [harness layer](jam/model-spec-harness.md) installs exactly them (an edit makes the install stale). |
+| `claude.provider`, `claude.provider-env` | in the **`chat`** session env: `vertex` → `CLAUDE_CODE_USE_VERTEX=1` plus every `provider-env` key (the rendering a Jam cove uses), and the GCP ADC demand below. |
+| `model.id` / `model.effort`, `policy`, `claude.settings` | as claude argv for **`chat`** and **dispatched workers** (`work`/`dispatch`), rendered by the one renderer Jam's harness uses: `--model`, `--effort`, `--permission-mode=MODE` plus `--allowedTools=`/`--disallowedTools=` per rule, `--settings JSON`. An empty/`bypassPermissions` mode adds nothing to `chat` (already the image's interactive default) and keeps a worker's `--dangerously-skip-permissions`; under another mode a worker is always allowed to write `.at-task/worker-result.json`. |
+| `claude.provider-env` on workers | applied for `anthropic` only: a worker authenticates with its worker-bucket Anthropic bearer and no GCP ADC is seeded, so a `vertex` spec stays `chat`-only (`work` logs a WARN). |
+| `version-constraint`, `note` | validated only — no runtime check in a plain cove. |
+
+Teammate sessions get the build-time parts (the image) only.
+
+**Hardening.** `provider-env` is kit-authored with no host gate, so its
+protected variables ([list](jam/model-specs.md#validation)) are refused at load
+and dropped again at injection — the per-session env file is *sourced*, so a
+proxy var there would shadow the sealed `/etc/environment` and defeat egress.
+
+**Vertex egress is auto-derived:** `install` folds the GCP hosts Vertex needs,
+from `CLOUD_ML_REGION`, into the always-on infra list — see
+[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling). The GCP
+credential is **not** in the block: it is supplied host-side and seeded as a file
+— see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
 [`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
+
+#### Migrating from `model-provider:`
+
+The old `model-provider: {vertex: {env: …}}` block is **removed**: loading a
+kit that still has it is a hard error that prints the equivalent `model-spec:`
+block to paste in its place: `claude.provider: vertex`, the old `env` as
+`claude.provider-env`, claude-default's plugins, and **no `version`** (so the kit
+keeps tracking `DefaultClaudeVersion`, as before). Each old env key goes through
+the model-spec validator; one it would refuse (a credential such as
+`ANTHROPIC_API_KEY`, an `AT_JAM_*` name, …) is left out and named, with the
+reason, in a `#` comment above the block — never its value. A run command
+(`create`/`chat`/`work`) refuses an install built from such a kit until you edit
+and `at-cove install`; `destroy`, `status` and `uninstall` keep working on it.
 
 ### jam
 *optional; routes the cove's Anthropic + git through a Jam broker (COV-138)*
@@ -435,8 +451,8 @@ connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 
-`jam:` is **mutually exclusive with `model-provider`** (Jam supersedes the
-agent's Anthropic auth). With `jam:` set, the first-session **auto-clone is
+`jam:` is **mutually exclusive with `model-spec`** (Jam supersedes the
+agent's Anthropic auth, and a Jam cove's model-spec comes from its role binding). With `jam:` set, the first-session **auto-clone is
 disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove (that
 PAT would be misrouted to Jam's git connector); the agent clones through Jam
 on demand instead.
@@ -1039,10 +1055,10 @@ the template kit for `at-cove dispatch`.
   declare exactly `AT_DISPATCH_TRACKER_TOKEN` (demand-only);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
-- `model-provider` sets more than one provider; `model-provider.vertex.env` is missing
-  `ANTHROPIC_VERTEX_PROJECT_ID` or `CLOUD_ML_REGION`; or it sets a protected key
-  (an egress proxy var, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`, or
-  `PATH`) — see [model-provider](#model-provider);
+- `model-spec` fails the shared model-spec validation (with `version` optional), sets a `principal`, names a
+  provider other than `anthropic`/`vertex`, or (vertex) lacks
+  `ANTHROPIC_VERTEX_PROJECT_ID`/`CLOUD_ML_REGION`; `model-spec` is set with `jam`; or
+  the removed `model-provider` is present — see [model-spec](#model-spec);
 - a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`,
   `default`, `share-repo-dir`, or `shadow-dirs`; or more than one class sets `default: true`;
 - a `collaborators.*.shadow-dirs` entry is set without that class's `share-repo-dir: true`, is

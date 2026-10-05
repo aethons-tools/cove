@@ -57,12 +57,16 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cred string
+	fromPool := false // the credential is a subscription-OAuth token from the pool
 	if dec.NeedCred {
 		// Prefer an identity-aware resolver (the subscription pool: the token
 		// depends on which account this identity is bound to). tokenHash is the
 		// same hash used for Lookup above.
 		if ir, ok := b.creds.(IdentityCredResolver); ok {
 			cred, err = ir.ResolveFor(dec.CredName, HashToken(tok))
+			if pr, ok := b.creds.(PoolCredResolver); ok && pr.PoolCredential(dec.CredName) {
+				fromPool = true
+			}
 		} else {
 			cred, err = b.creds.Resolve(dec.CredName)
 		}
@@ -92,11 +96,11 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				spec.apply(out.Header, cred) // never logged
 			}
 		}
-		// Principal rules after the credential but before the destination's
-		// oauth_beta ensure, so a set rule can never drop the flag's beta.
+		// Principal rules after the credential; then, for a pool token, the
+		// subscription-OAuth beta — last, so no rule can drop it.
 		applyHeaderRules(out.Header, rules)
-		if dest.OAuthBeta {
-			ensureAnthropicOAuthBeta(out.Header)
+		if fromPool {
+			ensureListItem(out.Header, "anthropic-beta", subscriptionOAuthBeta)
 		}
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
@@ -110,11 +114,10 @@ func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, 
 // the identity-in spec.
 func presentedToken(r *http.Request, in InboundSpec) (string, bool) { return in.extract(r.Header) }
 
-// anthropicOAuthBeta is the beta flag Anthropic requires for a subscription-OAuth
-// bearer. A cove on ANTHROPIC_AUTH_TOKEN doesn't send it, so the broker adds it.
-const anthropicOAuthBeta = "oauth-2025-04-20"
-
-// ensureAnthropicOAuthBeta adds anthropicOAuthBeta to the request's anthropic-beta
-// header (a comma-separated list), preserving any betas already present and never
-// duplicating — the destination OAuthBeta flag, via the generalized ensureListItem.
-func ensureAnthropicOAuthBeta(h http.Header) { ensureListItem(h, "anthropic-beta", anthropicOAuthBeta) }
+// subscriptionOAuthBeta is the anthropic-beta item Anthropic requires to accept
+// a subscription-OAuth bearer. It belongs to the credential TYPE: the broker
+// ensures it on every request whose credential the subscription pool supplied
+// (a cove on ANTHROPIC_AUTH_TOKEN does not send it) — whatever the route, the
+// actor's model-spec, or its header rules. It replaced the destination
+// oauth_beta flag (COV-241).
+const subscriptionOAuthBeta = "oauth-2025-04-20"
