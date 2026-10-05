@@ -19,7 +19,7 @@ func TestClientModelSpecRoundTrip(t *testing.T) {
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 
-	m := jam.ModelSpec{Name: "claude-default", Type: jam.HarnessClaude, Version: "2.x",
+	m := jam.ModelSpec{Name: "claude-default", Type: jam.HarnessClaude, Version: "2.1.0",
 		Principal: jam.ModelPrincipal{Credential: "anthropic"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}
 	if err := c.CreateModelSpec(m); err != nil {
 		t.Fatalf("CreateModelSpec: %v", err)
@@ -27,12 +27,12 @@ func TestClientModelSpecRoundTrip(t *testing.T) {
 	if err := c.CreateModelSpec(m); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate CreateModelSpec = %v, want ErrConflict", err)
 	}
-	m.Version = "2.1.x"
+	m.Version = "2.1.1"
 	if err := c.UpdateModelSpec(m); err != nil {
 		t.Fatalf("UpdateModelSpec: %v", err)
 	}
 	got, err := c.GetModelSpec(m.Name)
-	if err != nil || got.Version != "2.1.x" {
+	if err != nil || got.Version != "2.1.1" {
 		t.Fatalf("GetModelSpec = %+v, %v", got, err)
 	}
 	list, err := c.ListModelSpecs()

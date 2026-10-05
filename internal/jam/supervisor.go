@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
@@ -238,6 +239,14 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			return Instance{}, "", "", fmt.Errorf("raise: resolve kit for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, kerr)
 		}
 		if have {
+			// The image is keyed on the role's model-spec too (the harness
+			// layer: CLI version + plugins), resolved above with the connector.
+			if ref, kerr = HarnessKitRef(s.store, ref, harnessFor(spec)); kerr != nil {
+				if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+					s.log.Warn("raise rollback: failed to revoke identity after kit resolve failure", "id", spec.ActorID, "error", rmErr)
+				}
+				return Instance{}, "", "", fmt.Errorf("raise: resolve kit for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, kerr)
+			}
 			spec.Kit = ref
 		}
 	}
@@ -325,6 +334,7 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, cre
 	if !ok {
 		return "", fmt.Errorf("kit %s not in registry", spec.Kit)
 	}
+	def.Harness = harnessFor(spec)
 	status, err := s.launcher.PrepareKit(ctx, def)
 	if err != nil {
 		return "", fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
@@ -339,6 +349,16 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, cre
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
 	}
 	return s.launcher.Raise(ctx, spec, creds)
+}
+
+// harnessFor is the harness layer a raise's image installs: its role's
+// model-spec (delivered in the connector Raise resolved), or claude-default's
+// install when none is (harnessinstall.FromSpec(nil)).
+func harnessFor(spec RaiseSpec) harnessinstall.Install {
+	if spec.Connector == nil {
+		return harnessinstall.Default()
+	}
+	return harnessinstall.FromSpec(spec.Connector.ModelSpec)
 }
 
 // RecordConnector records the connector fingerprint a cove reports having

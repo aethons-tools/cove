@@ -7,7 +7,8 @@
   {{if not .Spec.Name}}<label>Name <span class="req">required</span><input name="name" required autocomplete="off"></label>{{end}}
   <label>Type <span class="hint">harness family</span>
     <select name="type">{{$v := .Spec.Type}}{{range .Choices.Types}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
-  <label>Version <span class="req">required</span><input name="version" value="{{.Spec.Version}}" required placeholder="2.x" spellcheck="false"></label>
+  <label>Version <span class="req">required</span> <span class="hint">exact X.Y.Z the image installs</span><input name="version" value="{{.Spec.Version}}" required placeholder="2.1.287" pattern="[0-9]+\.[0-9]+\.[0-9]+" spellcheck="false"></label>
+  <label>Version constraint <span class="hint">runtime check; empty = exactly the version</span><input name="version-constraint" value="{{.Spec.VersionConstraint}}" placeholder="2.x" spellcheck="false"></label>
   <label>Principal credential <span class="req">required</span>
     <select name="principal" required>{{$v := .Spec.Principal.Credential}}<option value=""{{if not $v}} selected{{end}}>—</option>{{range .Choices.Principals}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Model id <span class="hint">empty = harness default</span><input name="model-id" value="{{.Spec.Model.ID}}" placeholder="claude-opus-5-5" spellcheck="false"></label>

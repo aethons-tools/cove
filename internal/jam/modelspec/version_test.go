@@ -81,3 +81,15 @@ func TestParseConstraintRejects(t *testing.T) {
 		}
 	}
 }
+
+// A model-spec's version is an exact install pin: digits only, three parts.
+func TestParseExactVersion(t *testing.T) {
+	if v, err := ParseExactVersion("2.1.287"); err != nil || v != (Version{2, 1, 287}) {
+		t.Fatalf("2.1.287 = %v, %v", v, err)
+	}
+	for _, bad := range []string{"", "2.x", ">=2.0.0", "2.1", "v2.1.0", "2.1.0-beta", " 2.1.0", "2.1.0 ", "2.01.0", "1.2.3;id", "latest", "*"} {
+		if _, err := ParseExactVersion(bad); err == nil {
+			t.Errorf("%q accepted as an exact version", bad)
+		}
+	}
+}

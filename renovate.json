@@ -109,6 +109,14 @@
     },
     {
       "customType": "regex",
+      "description": "Claude Code — modelspec.DefaultClaudeVersion, the ONE pinned harness CLI release: claude-default's version and the harness every full config.yml kit installs (COV-242). The native installer's releases share the npm package's version numbers. A bump changes every default image's digest (a rebuild) and claude-default's runtime check.",
+      "managerFilePatterns": ["internal/jam/modelspec/modelspec.go"],
+      "matchStrings": ["const DefaultClaudeVersion = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "@anthropic-ai/claude-code"
+    },
+    {
+      "customType": "regex",
       "description": "samber/cc-skills-golang — Go agent skills pinned in the cove-image Dockerfile, cloned at build and seeded into the agent-data skills set.",
       "managerFilePatterns": ["images/cove-image/Dockerfile"],
       "matchStrings": ["ARG CC_SKILLS_GOLANG_VERSION=(?<currentValue>\\S+)"],

@@ -94,8 +94,10 @@ func (c Claude) kitMCPServers() string {
 //     that is not an accepted Claude permission mode
 //     (modelspec.CheckPermissionMode — plan included: a headless cove could
 //     never leave it). Defense in depth over Jam's write-time validation;
-//   - the CLI version check: `claude --version` must satisfy spec.Version
-//     (modelspec.ParseConstraint; an empty or "*" constraint skips the check).
+//   - the CLI version check: `claude --version` must satisfy the spec's
+//     runtime constraint (spec.RuntimeConstraint: version-constraint, default
+//     == version, the exact release the image's harness layer installed;
+//     modelspec.ParseConstraint — an empty or "*" constraint skips the check).
 //     A missing or unrunnable claude, an unparseable version, or a mismatch is
 //     an error naming the spec, the constraint and what was found;
 //   - the run's one MCP config — the guaranteed messaging server plus the kit's
@@ -125,9 +127,10 @@ func (c Claude) Validate(spec *modelspec.Spec) error {
 	return c.writeSettings(spec)
 }
 
-// checkVersion runs `claude --version` and matches it against spec.Version.
+// checkVersion runs `claude --version` and matches it against the spec's
+// runtime constraint.
 func (c Claude) checkVersion(spec *modelspec.Spec) error {
-	con, err := modelspec.ParseConstraint(spec.Version)
+	con, err := modelspec.ParseConstraint(spec.RuntimeConstraint())
 	if err != nil {
 		return fmt.Errorf("agentrun: model-spec %q: %w", spec.Name, err)
 	}
@@ -143,7 +146,7 @@ func (c Claude) checkVersion(spec *modelspec.Spec) error {
 		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but `claude --version` printed no version: %w", spec.Name, con, err)
 	}
 	if !con.Allows(v) {
-		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but this image has claude %s — rebuild the image or change the spec's version", spec.Name, con, v)
+		return fmt.Errorf("agentrun: model-spec %q requires claude %s, but this image has claude %s — rebuild the image or change the spec's version / version-constraint", spec.Name, con, v)
 	}
 	return nil
 }
@@ -233,7 +236,8 @@ func writeFileAtomic(path string, data []byte) error {
 // model.id (--model), model.effort (--effort), a non-empty claude.settings
 // (--settings, the file Validate wrote) and the provider env (see claudeEnv).
 // The MCP config is not taken from the spec (yet): the generated --mcp-config
-// stays; claude.plugins are not applied (yet).
+// stays; claude.plugins are installed at image build by the harness layer
+// (internal/harnessinstall), not per episode.
 func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	args := []string{"-p"}
 	if ep.Continued {

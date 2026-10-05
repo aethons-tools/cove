@@ -10,10 +10,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -111,7 +113,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 // studioKitDef is a small studio KitDefinition for prepare tests: its ref's
 // Digest is the build-digest, so l.imageTag(ref) == cove-kit:<digest>-<asm>.
 func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
-	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk)}, Kit: sk}
+	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk, harnessinstall.Default())}, Kit: sk, Harness: harnessinstall.Default()}
 }
 
 // A studio kit builds by its build-digest tag, FROM the substrate-resolved base
@@ -124,7 +126,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	l := newPrepareLauncher(ops, inv, asm)
 
 	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com", ".anthropic.com"}, BuildArgs: map[string]string{"X": "1"}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit = %+v, %v", st, err)
@@ -164,7 +166,7 @@ func TestPrepareStudioKitContextFilesBase(t *testing.T) {
 			"scripts":    {Dir: studio.ContextTree{"setup.sh": {File: sp("echo setup")}}},
 		},
 	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit = %+v, %v", st, err)
@@ -221,7 +223,7 @@ func TestPrepareStudioKitTarContextBase(t *testing.T) {
 	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
 		Context: base64.StdEncoding.EncodeToString(raw),
 	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit = %+v, %v", st, err)
@@ -251,7 +253,7 @@ func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
 	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
 		ContextFiles: studio.ContextTree{"dockerfile": {File: sp("FROM scratch")}},
 	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk)}
+	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
 	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
 	if err == nil || st.State == KitReady {
 		t.Fatalf("want a fail-closed prepare, got st=%+v err=%v", st, err)
@@ -344,5 +346,24 @@ func TestDefaultAssembleBakesKitMCPServers(t *testing.T) {
 	}
 	if want := `{"linear":{"type":"http","url":"${LINEAR_MCP_URL}"}}` + "\n"; string(got) != want {
 		t.Fatalf("baked mcp-servers = %s, want %s", got, want)
+	}
+}
+
+// The real assembler builds the definition's harness layer — the raising
+// role's model-spec version + plugins — between the base and hardening.
+func TestDefaultAssembleBuildsDefinitionHarness(t *testing.T) {
+	def := studioKitDef("web", 1, studio.StudioKit{Kind: studio.Kind})
+	def.Harness = harnessinstall.Install{Type: "claude", Version: "2.1.100", Plugins: []string{}}
+	l := New(Config{PublicKey: []byte("k\n")})
+	buildDir := filepath.Join(t.TempDir(), "b")
+	if err := l.defaultAssemble(def, buildDir); err != nil {
+		t.Fatal(err)
+	}
+	df, err := os.ReadFile(filepath.Join(buildDir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(df), "bash -s 2.1.100'") || strings.Contains(string(df), "seed-plugins.sh") {
+		t.Fatalf("assembled Dockerfile does not install the definition's harness:\n%s", df)
 	}
 }

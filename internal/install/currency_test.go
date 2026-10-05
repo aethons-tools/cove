@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 )
 
 func TestCurrencyHashDeterministicAndFieldSensitive(t *testing.T) {
@@ -167,5 +169,28 @@ func TestAtCoveIdentityDeterministicAndNonEmpty(t *testing.T) {
 	}
 	if id1 != id2 {
 		t.Fatalf("AtCoveIdentity must be stable: %s != %s", id1, id2)
+	}
+}
+
+// A full kit's harness (claude-default's pinned CLI version + plugins) is part
+// of at-cove's build identity, so bumping DefaultClaudeVersion invalidates
+// every install and the next run rebuilds with the new CLI (COV-242).
+func TestAtCoveIdentityIncludesDefaultHarness(t *testing.T) {
+	a := harnessinstall.Default()
+	b := a
+	b.Version = "2.1.100"
+	ida, err := atCoveIdentity(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idb, err := atCoveIdentity(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ida == idb {
+		t.Fatal("a default harness version change must change AtCoveIdentity")
+	}
+	if cur, _ := AtCoveIdentity(); cur != ida {
+		t.Fatal("AtCoveIdentity must key on harnessinstall.Default()")
 	}
 }

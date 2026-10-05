@@ -41,6 +41,22 @@ func ParseVersion(s string) (Version, error) {
 	return Version{n[0], n[1], n[2]}, nil
 }
 
+// ParseExactVersion parses an exact release pin: MAJOR.MINOR.PATCH, digits
+// only (no "v", suffix or whitespace) — the form a model-spec's version takes,
+// because it is passed verbatim to the harness installer.
+func ParseExactVersion(s string) (Version, error) {
+	n, err := numbers(s, 3, 3)
+	if err != nil {
+		return Version{}, fmt.Errorf("version %q is not an exact X.Y.Z release: %w", s, err)
+	}
+	for _, p := range strings.Split(s, ".") {
+		if len(p) > 1 && p[0] == '0' || len(p) > 9 {
+			return Version{}, fmt.Errorf("version %q is not an exact X.Y.Z release", s)
+		}
+	}
+	return Version{n[0], n[1], n[2]}, nil
+}
+
 // numbers parses a dotted list of between lo and hi non-negative integers.
 func numbers(s string, lo, hi int) ([]int, error) {
 	parts := strings.Split(s, ".")

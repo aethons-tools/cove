@@ -15,7 +15,8 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 ## Working in this repo
 
 - **This repo *builds* sandboxes — keep template files distinct from the repo's own files.**
-  Everything under `internal/assemble/*/image-files/` is *payload*:
+  Everything under `internal/assemble/*/image-files/` (and the harness layer's
+  `internal/harnessinstall/payload/`) is *payload*:
   a template tree copied into the sandbox VMs that `at-cove` builds,
   not configuration for this repo.
   For example, `internal/assemble/hardening/image-files/home/agent/.init-agent-data/CLAUDE.md`

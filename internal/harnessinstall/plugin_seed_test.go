@@ -1,7 +1,6 @@
-package assemble
+package harnessinstall
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,7 +48,8 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 	buildCfg := filepath.Join(dir, "buildcfg")
 	seed := filepath.Join(dir, "seed")
 
-	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/seed-plugins.sh")
+	cmd := exec.Command("bash", "payload/claude/seed-plugins.sh",
+		"-m", "anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"COVE_PLUGIN_BUILD_CFG="+buildCfg,
@@ -89,34 +89,41 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 	}
 }
 
-// Every plugin enabled in managed-settings.json must have its marketplace
-// declared there too, so the seeded known_marketplaces.json entry is
-// declaratively backed and the reconciler will not prune it.
-func TestManagedSettingsDeclaresMarketplaceForEnabledPlugins(t *testing.T) {
-	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, ""); err != nil {
+// The script refuses to run with nothing to seed (the stage only invokes it
+// when the spec names plugins) and on an unknown argument.
+func TestSeedPluginsRefusesBadArgs(t *testing.T) {
+	requireBash(t)
+	for _, args := range [][]string{{}, {"-x", "y"}} {
+		cmd := exec.Command("bash", append([]string{"payload/claude/seed-plugins.sh"}, args...)...)
+		cmd.Env = append(os.Environ(), "COVE_PLUGIN_BUILD_CFG="+filepath.Join(t.TempDir(), "b"), "COVE_PLUGIN_RUN_AS=")
+		if out, err := cmd.CombinedOutput(); err == nil {
+			t.Errorf("args %q accepted:\n%s", args, out)
+		}
+	}
+}
+
+func requireBash(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+}
+
+func mustWrite(t *testing.T, p, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	raw := read(t, filepath.Join(buildDir, "image-files/etc/claude-code/managed-settings.json"))
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	var ms struct {
-		EnabledPlugins         map[string]bool            `json:"enabledPlugins"`
-		ExtraKnownMarketplaces map[string]json.RawMessage `json:"extraKnownMarketplaces"`
+func read(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(raw), &ms); err != nil {
-		t.Fatalf("managed-settings.json is not valid JSON: %v", err)
-	}
-	if len(ms.EnabledPlugins) == 0 {
-		t.Fatal("managed-settings.json declares no enabledPlugins")
-	}
-	for plugin := range ms.EnabledPlugins {
-		at := strings.LastIndex(plugin, "@")
-		if at < 0 {
-			t.Fatalf("enabled plugin %q is not in name@marketplace form", plugin)
-		}
-		mkt := plugin[at+1:]
-		if _, ok := ms.ExtraKnownMarketplaces[mkt]; !ok {
-			t.Fatalf("enabled plugin %q references marketplace %q not declared in extraKnownMarketplaces", plugin, mkt)
-		}
-	}
+	return string(b)
 }

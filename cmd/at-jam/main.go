@@ -45,6 +45,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -1598,6 +1599,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		st = ps
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
+	}
+	// Upgrade model-specs stored before the version split (COV-242): a legacy
+	// constraint in `version` moves to `version-constraint`, and `version` gets
+	// the pinned modelspec.DefaultClaudeVersion. Before seeding, so an untouched
+	// legacy claude-default is migrated rather than kept.
+	if migrated, err := jam.MigrateModelSpecs(st); err != nil {
+		log.Warn("model-spec version migration incomplete", "migrated", migrated, "reason", err.Error())
+	} else if len(migrated) > 0 {
+		log.Info("model-specs migrated to an exact version pin", "names", migrated, "version", modelspec.DefaultClaudeVersion)
 	}
 	// Seed the default model-spec every unbound role resolves to. Not fatal when
 	// no principal resolves: unbound roles then deliver no spec and their coves

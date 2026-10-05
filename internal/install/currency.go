@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"hash"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 )
 
 // CurrencyInputs are the build-affecting inputs a run command recomputes to
@@ -110,11 +112,18 @@ func KitSourceTree(kitDir string) (string, error) {
 }
 
 // AtCoveIdentity hashes at-cove's embedded build contributions (§5): the sealed
-// hardening layer and the embedded at-task, at-switchboard, and cove-master
-// binaries. An at-cove upgrade that changes any of these flips the digest,
-// invalidating every install. install (S2) and the run commands both call this,
-// so they agree on the identity by construction.
+// hardening layer, the harness layer's payload and the default harness install
+// a full kit gets (claude-default's pinned CLI version + plugins, COV-242), and
+// the embedded at-task, at-switchboard, and cove-master binaries. An at-cove
+// upgrade that changes any of these flips the digest, invalidating every
+// install. install (S2) and the run commands both call this, so they agree on
+// the identity by construction.
 func AtCoveIdentity() (string, error) {
+	return atCoveIdentity(harnessinstall.Default())
+}
+
+// atCoveIdentity is AtCoveIdentity with the default harness install injected.
+func atCoveIdentity(defaultHarness harnessinstall.Install) (string, error) {
 	h := sha256.New()
 
 	hard, err := HashTree(assemble.HardeningFS())
@@ -123,6 +132,18 @@ func AtCoveIdentity() (string, error) {
 	}
 	writeField(h, []byte("hardening"))
 	writeField(h, []byte(hard))
+
+	hp, err := HashTree(harnessinstall.PayloadFS())
+	if err != nil {
+		return "", err
+	}
+	writeField(h, []byte("harness"))
+	writeField(h, []byte(hp))
+	dh, err := json.Marshal(defaultHarness)
+	if err != nil {
+		return "", err
+	}
+	writeField(h, dh)
 
 	at, err := HashTree(attask.BinFS())
 	if err != nil {

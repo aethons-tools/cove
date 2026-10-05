@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
@@ -157,7 +158,7 @@ func kitListRows(store jam.Store) []kitListRow {
 func displayKit(sk studio.StudioKit) studio.StudioKit {
 	sk.LegacyName = ""
 	if sk.Base.Context != "" {
-		sk.Base.Context = fmt.Sprintf("<packed tar.gz, %s, build digest %s>", sizeLabel(len(sk.Base.Context)), shortDigest(studio.BuildDigest(sk)))
+		sk.Base.Context = fmt.Sprintf("<packed tar.gz, %s, build digest %s>", sizeLabel(len(sk.Base.Context)), shortDigest(studio.BuildDigest(sk, harnessinstall.Default())))
 	}
 	return sk
 }
@@ -243,7 +244,7 @@ func viewKit(n int, stored string) kitView {
 	full.LegacyName = ""
 	v.PushYAML = toYAML(full)
 	v.YAML = toYAML(displayKit(sk))
-	v.Base, v.Image, v.Digest = baseLabel(sk.Base), sk.Base.Image, studio.BuildDigest(sk)
+	v.Base, v.Image, v.Digest = baseLabel(sk.Base), sk.Base.Image, studio.BuildDigest(sk, harnessinstall.Default())
 	if len(sk.Base.ContextFiles) > 0 {
 		v.Files = treePaths(sk.Base.ContextFiles, "")
 	}
@@ -279,7 +280,7 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		ver := kitVersion{N: n, Prev: prev, Current: n == k.Current}
 		prev = n
 		if sk, err := studio.ParseStudioKit([]byte(k.Versions[n])); err == nil {
-			ver.Digest = shortDigest(studio.BuildDigest(sk))
+			ver.Digest = shortDigest(studio.BuildDigest(sk, harnessinstall.Default()))
 		}
 		d.Versions = append(d.Versions, ver)
 	}

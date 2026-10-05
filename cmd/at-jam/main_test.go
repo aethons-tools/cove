@@ -1516,7 +1516,7 @@ func TestKitPushNotes(t *testing.T) {
 func TestRoleAddModelSpec(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "P")
-	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.x",
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.1.0",
 		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
 		t.Fatal(err)
 	}

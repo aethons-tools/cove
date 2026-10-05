@@ -84,10 +84,20 @@ func ValidateModelSpec(m ModelSpec, credExists func(string) bool, poolConfigured
 		return bad("type %q is not a known harness family (want %s)", m.Type, HarnessClaude)
 	}
 	if strings.TrimSpace(m.Version) == "" {
-		return bad("version is required (the harness CLI version constraint, e.g. \"2.x\")")
+		return bad("version is required (the exact harness CLI release the image installs, e.g. %q)", modelspec.DefaultClaudeVersion)
 	}
-	if _, err := modelspec.ParseConstraint(m.Version); err != nil {
-		return bad("%s", err.Error())
+	v, err := modelspec.ParseExactVersion(m.Version)
+	if err != nil {
+		return bad("%s (a range belongs in version-constraint)", err.Error())
+	}
+	if m.VersionConstraint != "" {
+		c, err := modelspec.ParseConstraint(m.VersionConstraint)
+		if err != nil {
+			return bad("version-constraint: %s", err.Error())
+		}
+		if !c.Allows(v) {
+			return bad("version-constraint %q does not admit version %s (every cove would fail its version check)", m.VersionConstraint, m.Version)
+		}
 	}
 	switch c := m.Principal.Credential; {
 	case c == "":
@@ -157,6 +167,9 @@ func validateClaudeSpec(c ClaudeSpec, bad func(string, ...any) error) error {
 		if slices.Contains(c.Plugins[:i], p) {
 			return bad("claude.plugins lists %q twice", p)
 		}
+		if err := modelspec.CheckClaudePlugin(p); err != nil {
+			return bad("claude.plugins: %s", err.Error())
+		}
 	}
 	return nil
 }
@@ -205,6 +218,27 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 		return writeErr(http.StatusNotFound, "model-spec %q does not exist", m.Name)
 	}
 	return store.PutModelSpec(m)
+}
+
+// MigrateModelSpecs upgrades every stored model-spec written before the
+// version split (COV-242) — a version holding a constraint rather than an exact
+// X.Y.Z — via modelspec.MigrateVersion, and returns the migrated names. Run at
+// serve startup, before EnsureDefaultModelSpec; idempotent.
+func MigrateModelSpecs(store Store) ([]string, error) {
+	modelSpecMu.Lock()
+	defer modelSpecMu.Unlock()
+	var migrated []string
+	for _, m := range store.ListModelSpecs() {
+		out, changed := modelspec.MigrateVersion(m)
+		if !changed {
+			continue
+		}
+		if err := store.PutModelSpec(out); err != nil {
+			return migrated, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
+		}
+		migrated = append(migrated, m.Name)
+	}
+	return migrated, nil
 }
 
 // ErrNoDefaultPrincipal is EnsureDefaultModelSpec's refusal when it can find

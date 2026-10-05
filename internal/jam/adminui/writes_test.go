@@ -147,7 +147,7 @@ func TestCreateAndDeleteRole(t *testing.T) {
 	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "model-spec") {
 		t.Fatalf("bad model-spec = %d %q, want 400 mentioning model-spec", bad.Code, bad.Body.String())
 	}
-	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.x",
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.1.0",
 		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
 		t.Fatal(err)
 	}

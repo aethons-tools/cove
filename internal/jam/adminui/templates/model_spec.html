@@ -48,6 +48,7 @@
       <dl class="kv">
         <dt>Type</dt><dd class="mono">{{.Spec.Type}}</dd>
         <dt>Version</dt><dd class="mono">{{.Spec.Version}}</dd>
+        <dt>Version constraint</dt><dd>{{if .Spec.VersionConstraint}}<span class="mono">{{.Spec.VersionConstraint}}</span>{{else}}<span class="unset">exactly the version</span>{{end}}</dd>
         <dt>Principal</dt><dd><span class="mono">{{.Spec.Principal.Credential}}</span> <span class="unset">credential name</span></dd>
         <dt>Model</dt><dd>{{if .Spec.Model.ID}}<span class="mono">{{.Spec.Model.ID}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
         <dt>Effort</dt><dd>{{if .Spec.Model.Effort}}<span class="mono">{{.Spec.Model.Effort}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
@@ -74,7 +75,7 @@
       <dl class="kv">
         <dt>Provider</dt><dd class="mono">{{.Provider}}</dd>
         <dt>Provider env</dt><dd>{{range $k, $v := .ProviderEnv}}<span class="chip">{{$k}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
-        <dt>Plugins</dt><dd>{{range .Plugins}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Plugins</dt><dd>{{range .Plugins}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}} <span class="unset">installed at image build</span></dd>
         <dt>Settings</dt><dd>{{range $k, $v := .Settings}}<span class="chip">{{$k}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
       </dl>
     </div>

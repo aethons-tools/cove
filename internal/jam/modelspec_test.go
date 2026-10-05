@@ -14,7 +14,7 @@ func validSpec() ModelSpec {
 	return ModelSpec{
 		Name:      "claude-default",
 		Type:      HarnessClaude,
-		Version:   "2.x",
+		Version:   "2.1.0",
 		Principal: ModelPrincipal{Credential: "anthropic"},
 		Model:     ModelChoice{ID: "claude-opus-5-5", Effort: "high"},
 		Policy:    ModelPolicy{Mode: "bypassPermissions", Allow: []string{"Bash(go test:*)"}, Deny: []string{"WebFetch"}},
@@ -23,7 +23,7 @@ func validSpec() ModelSpec {
 			Provider:    "vertex",
 			ProviderEnv: map[string]string{"ANTHROPIC_VERTEX_PROJECT_ID": "proj", "CLOUD_ML_REGION": "us-east5"},
 			Settings:    map[string]any{"theme": "dark", "attribution": map[string]any{"commit": ""}},
-			Plugins:     []string{"superpowers@official"},
+			Plugins:     []string{"superpowers@claude-plugins-official"},
 		},
 	}
 }
@@ -49,7 +49,7 @@ func TestValidateModelSpecAcceptsValid(t *testing.T) {
 		}
 	}
 	// Minimal: only the required fields.
-	minimal := ModelSpec{Name: "m", Type: HarnessClaude, Version: "2.x", Principal: ModelPrincipal{Credential: "anthropic"}, Claude: &ClaudeSpec{Provider: "anthropic"}}
+	minimal := ModelSpec{Name: "m", Type: HarnessClaude, Version: "2.1.0", Principal: ModelPrincipal{Credential: "anthropic"}, Claude: &ClaudeSpec{Provider: "anthropic"}}
 	if err := ValidateModelSpec(minimal, credIs("anthropic"), false); err != nil {
 		t.Fatalf("minimal spec refused: %v", err)
 	}
@@ -153,11 +153,11 @@ func TestCreateUpdateGetDeleteModelSpec(t *testing.T) {
 	if err := CreateModelSpec(s, m, creds, false); WriteStatus(err, 0) != http.StatusConflict {
 		t.Fatalf("duplicate create = %v, want 409", err)
 	}
-	m.Version = "2.1.x"
+	m.Version = "2.1.1"
 	if err := UpdateModelSpec(s, m, creds, false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if got, ok := s.GetModelSpec(m.Name); !ok || got.Version != "2.1.x" {
+	if got, ok := s.GetModelSpec(m.Name); !ok || got.Version != "2.1.1" {
 		t.Fatalf("after update: %+v %v", got, ok)
 	}
 	bad := m

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -20,7 +21,7 @@ func TestEnsureStudioKitIdempotentThenBumps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref.ID != "web" || ref.Version == 0 || ref.Digest != studio.BuildDigest(sk) {
+	if ref.ID != "web" || ref.Version == 0 || ref.Digest != studio.BuildDigest(sk, harnessinstall.Default()) {
 		t.Fatalf("bad ref: %+v", ref)
 	}
 	ref2, _ := EnsureStudioKit(st, "web", sk)

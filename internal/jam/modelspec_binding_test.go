@@ -6,10 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -201,7 +203,8 @@ func TestEnsureDefaultModelSpec(t *testing.T) {
 		t.Fatalf("seed = %v, %v", created, err)
 	}
 	m, _ := st.GetModelSpec(DefaultModelSpec)
-	if m.Principal.Credential != PoolPrincipal || m.Type != HarnessClaude || m.Version != ">=2.0.0" ||
+	if m.Principal.Credential != PoolPrincipal || m.Type != HarnessClaude || m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "" ||
+		!slices.Equal(m.Claude.Plugins, modelspec.DefaultClaudePlugins()) ||
 		m.Policy.Mode != "bypassPermissions" || m.Claude == nil || m.Claude.Provider != "anthropic" || m.Model != (ModelChoice{}) {
 		t.Fatalf("seeded = %+v", m)
 	}
@@ -249,19 +252,93 @@ func TestEnsureDefaultModelSpec(t *testing.T) {
 	}
 }
 
+// The version split (COV-242): version is an exact X.Y.Z install pin; any
+// range goes in version-constraint, which must admit the pin.
 func TestValidateModelSpecVersionConstraint(t *testing.T) {
-	for _, v := range []string{"2.x", "2.1.x", "2.1.287", ">=2.0.0", "*"} {
+	for _, v := range []string{"2.1.287", "0.0.1", "10.20.30"} {
 		m := validSpec()
 		m.Version = v
 		if err := ValidateModelSpec(m, credIs("anthropic"), false); err != nil {
 			t.Errorf("version %q refused: %v", v, err)
 		}
 	}
-	for _, v := range []string{"latest", "~2.1", "2"} {
+	for _, v := range []string{"2.x", "2.1.x", ">=2.0.0", "*", "latest", "~2.1", "2", "v2.1.0", "2.1.0-beta", "2.1.0;id"} {
 		m := validSpec()
 		m.Version = v
-		if err := ValidateModelSpec(m, credIs("anthropic"), false); WriteStatus(err, 0) != http.StatusBadRequest {
+		if err := ValidateModelSpec(m, credIs("anthropic"), false); WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "version") {
 			t.Errorf("version %q: err = %v, want 400", v, err)
 		}
+	}
+	for _, c := range []string{"", "2.x", "2.1.x", "2.1.287", ">=2.0.0", "*"} {
+		m := validSpec()
+		m.Version, m.VersionConstraint = "2.1.287", c
+		if err := ValidateModelSpec(m, credIs("anthropic"), false); err != nil {
+			t.Errorf("version-constraint %q refused: %v", c, err)
+		}
+	}
+	for c, want := range map[string]string{"latest": "version-constraint", "3.x": "does not admit", ">=2.2.0": "does not admit", "2.1.288": "does not admit"} {
+		m := validSpec()
+		m.Version, m.VersionConstraint = "2.1.287", c
+		if err := ValidateModelSpec(m, credIs("anthropic"), false); WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), want) {
+			t.Errorf("version-constraint %q: err = %v, want 400 mentioning %q", c, err, want)
+		}
+	}
+}
+
+// Plugin ids reach a Dockerfile RUN line: name@marketplace, shell-inert, known
+// marketplace only.
+func TestValidateModelSpecPlugins(t *testing.T) {
+	for id, want := range map[string]string{
+		"superpowers":                    "name@marketplace",
+		"x@unknown-market":               "not a known marketplace",
+		"a$(id)@claude-plugins-official": "name@marketplace",
+		"a'b@claude-plugins-official":    "name@marketplace",
+	} {
+		m := validSpec()
+		m.Claude.Plugins = []string{id}
+		if err := ValidateModelSpec(m, credIs("anthropic"), false); WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), want) {
+			t.Errorf("plugin %q: err = %v, want 400 mentioning %q", id, err, want)
+		}
+	}
+}
+
+// Specs stored before the version split are migrated at serve startup: the
+// legacy constraint moves to version-constraint, version gets the pin, and the
+// untouched claude-default seed becomes a fresh one.
+func TestMigrateModelSpecs(t *testing.T) {
+	st := NewMemStore()
+	legacySeed := modelspec.Default("pool")
+	legacySeed.Version, legacySeed.Claude.Plugins = modelspec.LegacyDefaultVersion, nil
+	custom := validSpec()
+	custom.Name, custom.Version = "custom", "2.x"
+	current := validSpec()
+	current.Name, current.Version = "current", "2.1.0"
+	for _, m := range []ModelSpec{legacySeed, custom, current} {
+		if err := st.PutModelSpec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := MigrateModelSpecs(st)
+	if err != nil || !slices.Equal(got, []string{"claude-default", "custom"}) {
+		t.Fatalf("migrated = %v, %v", got, err)
+	}
+	if m, _ := st.GetModelSpec("claude-default"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "" ||
+		!slices.Equal(m.Claude.Plugins, modelspec.DefaultClaudePlugins()) {
+		t.Fatalf("migrated seed = %+v", m)
+	}
+	if m, _ := st.GetModelSpec("custom"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "2.x" {
+		t.Fatalf("migrated custom = %+v", m)
+	}
+	for _, name := range []string{"claude-default", "custom"} {
+		m, _ := st.GetModelSpec(name)
+		if err := ValidateModelSpec(m, credIs("anthropic"), true); err != nil {
+			t.Errorf("migrated %s is invalid: %v", name, err)
+		}
+	}
+	if m, _ := st.GetModelSpec("current"); m.Version != "2.1.0" || m.VersionConstraint != "" {
+		t.Fatalf("an exact spec must be left alone: %+v", m)
+	}
+	if again, err := MigrateModelSpecs(st); err != nil || len(again) != 0 {
+		t.Fatalf("migration must be idempotent: %v, %v", again, err)
 	}
 }

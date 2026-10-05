@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# seed-plugins.sh — pre-install the Claude Code plugin marketplace and the
-# plugins enabled in managed-settings.json at BUILD time, then fold them into
-# the first-boot seed (.init-agent-data/ -> /agent-data).
+# seed-plugins.sh — pre-install Claude Code plugin marketplaces and plugins at
+# BUILD time (the harness layer, between the kit base and the sealed hardening
+# layer), then fold them into the first-boot seed (.init-agent-data/ ->
+# /agent-data).
 #
-# Why at build time: managed-settings.json enables
-# superpowers@claude-plugins-official, but Claude Code's boot-time auto-installer
-# would otherwise clone the marketplace and each plugin at RUNTIME. In the
-# egress-locked sandbox that clone must traverse the proxy, and two installer
-# invocations racing into the same directory leave it half-written
-# ("could not lock config file .git/config: No such file or directory"), so the
-# plugin never installs. Provisioning here — on the build host's open network,
-# before the runtime egress lock, mirroring the build-time Claude Code install —
-# means the sandbox never clones plugins at runtime and the race cannot occur.
+# Usage: seed-plugins.sh -m MARKETPLACE_SOURCE... -p PLUGIN_ID...
+#   -m  a `claude plugin marketplace add` source, e.g. anthropics/claude-plugins-official
+#   -p  a plugin id, name@marketplace, e.g. superpowers@claude-plugins-official
+# The marketplaces and plugins come from the model-spec's claude.plugins
+# (internal/harnessinstall generates the invocation; ids are validated there to
+# a shell-inert alphabet).
+#
+# Why at build time: Claude Code's boot-time auto-installer would otherwise
+# clone the marketplace and each enabled plugin at RUNTIME. In the egress-locked
+# sandbox that clone must traverse the proxy, and two installer invocations
+# racing into the same directory leave it half-written ("could not lock config
+# file .git/config: No such file or directory"), so the plugin never installs.
+# Provisioning here — on the build host's open network, before the runtime
+# egress lock, right after the build-time Claude Code install — means the
+# sandbox never clones plugins at runtime and the race cannot occur.
 #
 # Env overrides (defaults are the real build/runtime paths; tests inject temps):
 #   COVE_PLUGIN_BUILD_CFG    throwaway CLAUDE_CONFIG_DIR used for the install
@@ -25,18 +32,30 @@ SEED="${COVE_PLUGIN_SEED:-/home/agent/.init-agent-data}"
 RUNTIME_CFG="${COVE_PLUGIN_RUNTIME_CFG:-/agent-data}"
 RUN_AS="${COVE_PLUGIN_RUN_AS-agent}"
 
-# The marketplace and the plugins to provision. Keep in sync with the
-# enabledPlugins block of etc/claude-code/managed-settings.json.
-MARKETPLACE="anthropics/claude-plugins-official"
-PLUGINS=("superpowers@claude-plugins-official")
+MARKETPLACES=()
+PLUGINS=()
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-m) MARKETPLACES+=("$2"); shift 2 ;;
+	-p) PLUGINS+=("$2"); shift 2 ;;
+	*) echo "seed-plugins.sh: unknown argument $1" >&2; exit 2 ;;
+	esac
+done
+if [ "${#PLUGINS[@]}" -eq 0 ]; then
+	echo "seed-plugins.sh: no plugins to seed" >&2
+	exit 2
+fi
 
 rm -rf "$BUILD_CFG"
 mkdir -p "$BUILD_CFG"
 
 # Assemble the install as a single command string so it can run under `su -`.
-# Values are fixed identifiers with no shell metacharacters, so single-quoting
-# is sufficient.
-steps="export CLAUDE_CONFIG_DIR='$BUILD_CFG'; claude plugin marketplace add '$MARKETPLACE';"
+# Values are validated identifiers with no shell metacharacters, so
+# single-quoting is sufficient.
+steps="export CLAUDE_CONFIG_DIR='$BUILD_CFG';"
+for m in "${MARKETPLACES[@]}"; do
+	steps="$steps claude plugin marketplace add '$m';"
+done
 for p in "${PLUGINS[@]}"; do
 	steps="$steps claude plugin install '$p';"
 done

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -165,6 +166,10 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 	for _, ms := range s.ModelSpecs {
 		// Credentials are serve-config, not snapshot, state: check the structure
 		// only (a restored Jam's credentials may differ from the exporter's).
+		// A spec from before the version split (COV-242) is checked in the
+		// form serve startup migrates it to (MigrateModelSpecs); the admin
+		// import handler stores it migrated already.
+		ms, _ = modelspec.MigrateVersion(ms)
 		if err := ValidateModelSpec(ms, func(string) bool { return true }, true); err != nil {
 			return bad("model-spec "+ms.Name, err)
 		}

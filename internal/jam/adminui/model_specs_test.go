@@ -23,7 +23,7 @@ func specHandler(store jam.Store, pool bool) http.Handler {
 func seedSpec(t *testing.T, store jam.Store) {
 	t.Helper()
 	if err := store.PutModelSpec(jam.ModelSpec{
-		Name: "default", Type: jam.HarnessClaude, Version: "2.x",
+		Name: "default", Type: jam.HarnessClaude, Version: "2.1.0",
 		Principal: jam.ModelPrincipal{Credential: "anth"},
 		Model:     jam.ModelChoice{ID: "claude-opus-5-5", Effort: "high"},
 		Policy:    jam.ModelPolicy{Mode: "dontAsk", Allow: []string{"Bash(go test:*)", "Read"}, Deny: []string{"WebFetch"}},
@@ -32,7 +32,7 @@ func seedSpec(t *testing.T, store jam.Store) {
 			Provider:    "vertex",
 			ProviderEnv: map[string]string{"CLOUD_ML_REGION": "us-east5", "ANTHROPIC_VERTEX_PROJECT_ID": "proj"},
 			Settings:    map[string]any{"theme": "dark"},
-			Plugins:     []string{"superpowers"},
+			Plugins:     []string{"superpowers@claude-plugins-official"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -42,11 +42,11 @@ func seedSpec(t *testing.T, store jam.Store) {
 // specForm is a valid create form; tests override single fields.
 func specForm(over url.Values) url.Values {
 	f := url.Values{
-		"name": {"s1"}, "type": {"claude"}, "version": {"2.x"}, "principal": {"anth"},
+		"name": {"s1"}, "type": {"claude"}, "version": {"2.1.0"}, "version-constraint": {"2.x"}, "principal": {"anth"},
 		"model-id": {"claude-opus-5-5"}, "effort": {"high"}, "mode": {"acceptEdits"},
 		"allow": {"Read\r\n\r\nBash(ls:*)\n"}, "deny": {"WebFetch"}, "note": {"n"},
 		"provider": {"vertex"}, "provider-env": {"CLOUD_ML_REGION=us-east5\nANTHROPIC_VERTEX_PROJECT_ID = proj"},
-		"plugins": {"superpowers\nother"}, "settings": {`{"theme": "dark", "nested": {"a": 1}}`},
+		"plugins": {"superpowers@claude-plugins-official\nother@claude-plugins-official"}, "settings": {`{"theme": "dark", "nested": {"a": 1}}`},
 	}
 	for k, v := range over {
 		f[k] = v
@@ -63,7 +63,7 @@ func TestModelSpecsListAndNav(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`href="/ui/model-specs/default"`, "2.x", "anth", "claude-opus-5-5", "vertex",
+		`href="/ui/model-specs/default"`, "2.1.0", "anth", "claude-opus-5-5", "vertex",
 		`aria-current="page">Model-specs`,
 		`hx-post="/ui/model-specs"`,                // the create form
 		`<option value="anth">anth</option>`,       // credential select, names only
@@ -94,7 +94,7 @@ func TestModelSpecDetailPrefilled(t *testing.T) {
 	for _, want := range []string{
 		"<h1>default</h1>", "the house default",
 		`hx-post="/ui/model-specs/default"`,
-		`name="version" value="2.x"`,
+		`name="version" value="2.1.0"`,
 		`name="model-id" value="claude-opus-5-5"`,
 		`<option value="anth" selected>`,
 		`<option value="dontAsk" selected>`,
@@ -102,7 +102,7 @@ func TestModelSpecDetailPrefilled(t *testing.T) {
 		`<option value="vertex" selected>`,
 		"Bash(go test:*)\nRead</textarea>",
 		"ANTHROPIC_VERTEX_PROJECT_ID=proj\nCLOUD_ML_REGION=us-east5</textarea>",
-		"superpowers</textarea>",
+		"superpowers@claude-plugins-official</textarea>",
 		"&#34;theme&#34;: &#34;dark&#34;",
 		`aria-current="page">Model-specs`,
 	} {
@@ -146,7 +146,7 @@ func TestCreateModelSpecAllFields(t *testing.T) {
 	if !ok {
 		t.Fatal("model-spec not stored")
 	}
-	if m.Type != jam.HarnessClaude || m.Version != "2.x" || m.Principal.Credential != "anth" ||
+	if m.Type != jam.HarnessClaude || m.Version != "2.1.0" || m.VersionConstraint != "2.x" || m.Principal.Credential != "anth" ||
 		m.Model.ID != "claude-opus-5-5" || m.Model.Effort != "high" || m.Policy.Mode != "acceptEdits" ||
 		len(m.Policy.Allow) != 2 || m.Policy.Allow[1] != "Bash(ls:*)" || len(m.Policy.Deny) != 1 || m.Note != "n" {
 		t.Fatalf("stored envelope = %+v", m)
@@ -164,7 +164,7 @@ func TestCreateModelSpecAllFields(t *testing.T) {
 func TestCreateModelSpecMinimal(t *testing.T) {
 	store := newStore(t)
 	rec := post(t, specHandler(store, false), "/ui/model-specs", url.Values{
-		"name": {"min"}, "type": {"claude"}, "version": {"2.x"}, "principal": {"anth"}, "provider": {"anthropic"},
+		"name": {"min"}, "type": {"claude"}, "version": {"2.1.0"}, "principal": {"anth"}, "provider": {"anthropic"},
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create minimal = %d: %s", rec.Code, rec.Body.String())
@@ -194,8 +194,10 @@ func TestCreateModelSpecValidation(t *testing.T) {
 		"settings array":    {url.Values{"settings": {`[1,2]`}}, "JSON object"},
 		"settings garbage":  {url.Values{"settings": {`{nope`}}, "JSON object"},
 		"settings env":      {url.Values{"settings": {`{"env": {"X": "1"}}`}}, "not a preference"},
-		"dup plugin":        {url.Values{"plugins": {"a\na"}}, "twice"},
+		"dup plugin":        {url.Values{"plugins": {"a@claude-plugins-official\na@claude-plugins-official"}}, "twice"},
 		"bad type":          {url.Values{"type": {"codex"}}, "harness family"},
+		"range version":     {url.Values{"version": {"2.x"}}, "version-constraint"},
+		"bad constraint":    {url.Values{"version-constraint": {"3.x"}}, "does not admit"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -226,14 +228,14 @@ func TestEditModelSpecReplacesEveryField(t *testing.T) {
 	seedSpec(t, store)
 	h := specHandler(store, false)
 	rec := post(t, h, "/ui/model-specs/default", url.Values{
-		"type": {"claude"}, "version": {"3.x"}, "principal": {"anth"}, "provider": {"anthropic"},
+		"type": {"claude"}, "version": {"3.0.0"}, "principal": {"anth"}, "provider": {"anthropic"},
 		"name": {"renamed"}, // ignored: the name is the key
 	})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="spec"`) {
 		t.Fatalf("edit = %d: %s", rec.Code, rec.Body.String())
 	}
 	m, _ := store.GetModelSpec("default")
-	if m.Version != "3.x" || m.Model.ID != "" || m.Policy.Mode != "" || m.Policy.Allow != nil || m.Note != "" ||
+	if m.Version != "3.0.0" || m.Model.ID != "" || m.Policy.Mode != "" || m.Policy.Allow != nil || m.Note != "" ||
 		m.Claude.Provider != "anthropic" || m.Claude.ProviderEnv != nil || m.Claude.Settings != nil || m.Claude.Plugins != nil {
 		t.Fatalf("after edit = %+v %+v", m, m.Claude)
 	}
@@ -243,7 +245,7 @@ func TestEditModelSpecReplacesEveryField(t *testing.T) {
 	if rec := post(t, h, "/ui/model-specs/default", specForm(url.Values{"mode": {"yolo"}})); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid edit = %d, want 400", rec.Code)
 	}
-	if m2, _ := store.GetModelSpec("default"); m2.Version != "3.x" {
+	if m2, _ := store.GetModelSpec("default"); m2.Version != "3.0.0" {
 		t.Error("a refused edit must not change the stored spec")
 	}
 	if rec := post(t, h, "/ui/model-specs/ghost", specForm(nil)); rec.Code != http.StatusNotFound {
@@ -294,7 +296,7 @@ func TestModelSpecWritesCSRF(t *testing.T) {
 			t.Errorf("cross-origin %s %s = %d, want 403", tc.method, tc.path, rec.Code)
 		}
 	}
-	if m, ok := store.GetModelSpec("default"); !ok || m.Version != "2.x" || len(store.ListModelSpecs()) != 1 {
+	if m, ok := store.GetModelSpec("default"); !ok || m.Version != "2.1.0" || len(store.ListModelSpecs()) != 1 {
 		t.Error("cross-origin writes must change nothing")
 	}
 }

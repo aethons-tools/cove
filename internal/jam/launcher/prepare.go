@@ -57,7 +57,8 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
 	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
-	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", l.imageTag(ref), "asm", shortAsm(l.asm), "ceiling_excludes", excluded)
+	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", l.imageTag(ref), "asm", shortAsm(l.asm), "ceiling_excludes", excluded,
+		"harness", string(def.Harness.Type), "harness_version", def.Harness.Version, "plugins", len(def.Harness.Plugins))
 	return KitStatus{State: KitReady}, nil
 }
 
@@ -104,13 +105,14 @@ func (l *Launcher) lockRef(ref KitRef) func() {
 	return m.Unlock
 }
 
-// defaultAssemble is the real assembler: it stages the sealed hardening layer,
-// the injected binaries, the kit's egress lists and MCP servers, and the launcher's public key
-// into buildDir. Everything comes from the KitDefinition (data) plus resources
+// defaultAssemble is the real assembler: it stages the harness layer (the
+// definition's Harness: the raising role's model-spec CLI version + plugins),
+// the sealed hardening layer, the injected binaries, the kit's egress lists and
+// MCP servers, and the launcher's public key into buildDir. Everything comes from the KitDefinition (data) plus resources
 // compiled into this binary — no source kit directory — so the build is a
 // data-only transfer that a remote substrate could run too. Wired unless a test
 // injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
 	eg, _ := studioEgress(def.Kit, l.cfg.JamHost)
-	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "", def.Kit.MCPServers)
+	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "", def.Kit.MCPServers, def.Harness)
 }

@@ -177,10 +177,11 @@ func specFromForm(r *http.Request, name string) (jam.ModelSpec, error) {
 		return jam.ModelSpec{}, err
 	}
 	m := jam.ModelSpec{
-		Name:      name,
-		Type:      jam.HarnessType(strings.TrimSpace(r.FormValue("type"))),
-		Version:   strings.TrimSpace(r.FormValue("version")),
-		Principal: jam.ModelPrincipal{Credential: strings.TrimSpace(r.FormValue("principal"))},
+		Name:              name,
+		Type:              jam.HarnessType(strings.TrimSpace(r.FormValue("type"))),
+		Version:           strings.TrimSpace(r.FormValue("version")),
+		VersionConstraint: strings.TrimSpace(r.FormValue("version-constraint")),
+		Principal:         jam.ModelPrincipal{Credential: strings.TrimSpace(r.FormValue("principal"))},
 		Model: jam.ModelChoice{
 			ID:     strings.TrimSpace(r.FormValue("model-id")),
 			Effort: strings.TrimSpace(r.FormValue("effort")),

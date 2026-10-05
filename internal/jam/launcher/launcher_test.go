@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/connect"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -21,7 +22,7 @@ import (
 
 // testKitRef is the prepared studio kit the raise-path tests run from; its image
 // tag is l.imageTag(ref) (cove-kit:<Digest>-<asm>).
-var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind})}
+var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind}, harnessinstall.Default())}
 
 // readyInv is an inventory with testKitRef already prepared.
 func readyInv() *fakeInv {

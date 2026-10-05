@@ -152,8 +152,8 @@ git** is ticked; the form says so. **Delete** is on the page header.
 ## Model-spec pages
 
 Each model-spec name in the Model-specs table (`/ui/model-specs`) links to
-`/ui/model-specs/<name>`. The table shows type, version, principal, model,
-policy mode and provider. The page shows the harness (type, version, principal
+`/ui/model-specs/<name>`. The table shows type, version (with any version-constraint as a chip), principal, model,
+policy mode and provider. The page shows the harness (type, version, version-constraint, principal
 credential *name*, model, effort, note), the policy (mode, allow/deny rules)
 and the claude body (provider; provider-env keys, plugins and settings keys).
 
@@ -161,7 +161,8 @@ and the claude body (provider; provider-env keys, plugins and settings keys).
 provider are selects; principal is a select of the configured credential
 names, plus `pool` when a [pool](pool.md) is configured (a stored principal no
 longer configured stays selected); policy mode is a select (empty = harness
-default); allow, deny and plugins take one entry per line; provider-env one
+default); version is the exact `X.Y.Z` the image installs and version-constraint
+the optional runtime check; allow, deny and plugins take one entry per line; provider-env one
 `KEY=VALUE` per line; settings a JSON object. Writes go through the same
 validation as `at-jam model-spec` ([model-specs.md](model-specs.md#validation));
 a refusal shows in the page banner and stores nothing. **Delete** is on the

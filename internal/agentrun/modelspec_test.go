@@ -157,7 +157,7 @@ func TestClaudeValidateVersionFailsLoud(t *testing.T) {
 func TestClaudeValidateSkipsVersionWithoutConstraint(t *testing.T) {
 	dir := t.TempDir()
 	calls := 0
-	c := specClaude(t, dir, "2.1.287", &calls)
+	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, &calls)
 	if err := c.Validate(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestClaudeValidateSkipsVersionWithoutConstraint(t *testing.T) {
 
 func TestClaudeValidateWritesAndClearsSettings(t *testing.T) {
 	dir := t.TempDir()
-	c := specClaude(t, dir, "2.1.287", nil)
+	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
 	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Settings = map[string]any{"theme": "dark"} })); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestRunLaunchesWithSpecModel(t *testing.T) {
 	})
 	conn := specConnector(spec)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := specWL(t, dir, specClaude(t, dir, "2.1.287", nil), f, conn, &fakeSource{c: conn}, false)
+	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, conn, &fakeSource{c: conn}, false)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestRunPicksUpEditedSpecNextEpisode(t *testing.T) {
 	src := &seqSource{connectors: []snippet.Connector{first, edited}}
 	calls := 0
 	f := &scriptedSpawner{dir: dir}
-	w := specWL(t, dir, specClaude(t, dir, "2.1.287", &calls), f, first, src, true)
+	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, &calls), f, first, src, true)
 	h := &recordHandle{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -278,10 +278,10 @@ func TestRunFailsOnVersionMismatch(t *testing.T) {
 	dir := t.TempDir()
 	conn := specConnector(specWith(func(s *modelspec.Spec) { s.Version = "3.x" }))
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := specWL(t, dir, specClaude(t, dir, "2.1.287", nil), f, conn, &fakeSource{c: conn}, false)
+	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, conn, &fakeSource{c: conn}, false)
 	h := &recordHandle{}
 	err := w.Run(context.Background(), h)
-	if err == nil || !strings.Contains(err.Error(), "requires claude 3.x") || !strings.Contains(err.Error(), "2.1.287") {
+	if err == nil || !strings.Contains(err.Error(), "requires claude 3.x") || !strings.Contains(err.Error(), modelspec.DefaultClaudeVersion) {
 		t.Fatalf("Run err = %v", err)
 	}
 	if f.bin != "" || h.count(covemaster.Running) != 0 {
@@ -297,7 +297,7 @@ func TestRunFailsWhenEditedSpecMismatches(t *testing.T) {
 	bad := specConnector(specWith(func(s *modelspec.Spec) { s.Version = "9.x" }))
 	src := &seqSource{connectors: []snippet.Connector{ok, bad}}
 	f := &scriptedSpawner{dir: dir}
-	w := specWL(t, dir, specClaude(t, dir, "2.1.287", nil), f, ok, src, true)
+	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, ok, src, true)
 	h := &recordHandle{}
 	done := runAsync(context.Background(), w, h)
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
@@ -322,7 +322,7 @@ func TestRunFailsWhenEditedSpecMismatches(t *testing.T) {
 func TestClaudeValidateRejectsBadPolicyMode(t *testing.T) {
 	for mode, want := range map[string]string{"yolo": `"yolo"`, "plan": "never leave plan mode"} {
 		dir := t.TempDir()
-		c := specClaude(t, dir, "2.1.287", nil)
+		c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
 		err := c.Validate(specWith(func(s *modelspec.Spec) { s.Name, s.Policy.Mode = "odd", mode }))
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), `"odd"`) {
 			t.Errorf("mode %q: err = %v, want one naming the spec and mentioning %q", mode, err, want)
@@ -333,7 +333,7 @@ func TestClaudeValidateRejectsBadPolicyMode(t *testing.T) {
 	}
 	for _, mode := range append(modelspec.PermissionModes(), "") {
 		dir := t.TempDir()
-		if err := specClaude(t, dir, "2.1.287", nil).Validate(specWith(func(s *modelspec.Spec) { s.Policy.Mode = mode })); err != nil {
+		if err := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil).Validate(specWith(func(s *modelspec.Spec) { s.Policy.Mode = mode })); err != nil {
 			t.Errorf("mode %q refused: %v", mode, err)
 		}
 	}
@@ -370,7 +370,7 @@ func TestRunPicksUpEditedPolicyNextEpisode(t *testing.T) {
 	}))
 	src := &seqSource{connectors: []snippet.Connector{first, edited}}
 	f := &scriptedSpawner{dir: dir}
-	w := specWL(t, dir, specClaude(t, dir, "2.1.287", nil), f, first, src, true)
+	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, first, src, true)
 	h := &recordHandle{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -391,5 +391,25 @@ func TestRunPicksUpEditedPolicyNextEpisode(t *testing.T) {
 	a := f.calls[1].args
 	if slices.Contains(a, "--dangerously-skip-permissions") || !slices.Contains(a, "--permission-mode=acceptEdits") || !slices.Contains(a, "--disallowedTools=WebFetch") {
 		t.Fatalf("episode 2 argv = %q (the policy edit must apply at the next episode)", a)
+	}
+}
+
+// The version split (COV-242): version is the exact pin the image installed,
+// and the runtime check is version-constraint — defaulting to == version.
+func TestClaudeValidateRuntimeConstraint(t *testing.T) {
+	for _, c := range []struct {
+		version, constraint, have string
+		ok                        bool
+	}{
+		{"2.1.287", "", "2.1.287", true},
+		{"2.1.287", "", "2.1.288", false}, // default == version
+		{"2.1.287", "2.x", "2.5.0", true}, // the explicit constraint wins
+		{"2.1.287", "2.1.x", "2.2.0", false},
+	} {
+		spec := specWith(func(s *modelspec.Spec) { s.Version, s.VersionConstraint = c.version, c.constraint })
+		err := specClaude(t, t.TempDir(), c.have, nil).Validate(spec)
+		if (err == nil) != c.ok {
+			t.Errorf("version %s constraint %q vs %s: err = %v, want ok=%v", c.version, c.constraint, c.have, err, c.ok)
+		}
 	}
 }

@@ -5,12 +5,15 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // EnsureStudioKit records sk in the kit registry under name and returns the
 // reference a raise carries: {ID: name, Version: registry version, Digest:
-// studio.BuildDigest(sk)}. Idempotent — an unchanged definition reuses the
+// studio.BuildDigest(sk, harnessinstall.Default())} — the image under
+// claude-default's harness; a raise re-keys it to its role's model-spec
+// (HarnessKitRef). Idempotent — an unchanged definition reuses the
 // current version; any change bumps a new monotonic one. The registry stores the
 // WHOLE definition (canonical JSON, prompt included); the ref's Digest is the
 // BUILD-digest (build-affecting fields only), so a prompt-only edit bumps the
@@ -40,7 +43,7 @@ func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, boo
 	if err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())
 	}
-	digest := studio.BuildDigest(sk)
+	digest := studio.BuildDigest(sk, harnessinstall.Default())
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	if k, ok := store.GetKit(name); ok && k.Current != 0 {
@@ -69,7 +72,8 @@ func PushStudioKit(store Store, name, config string) (version int, unchanged boo
 }
 
 // StudioKitRef resolves a registered studio kit's current version into a raise
-// reference. Fails closed (no silent fallback) when name is not tag-safe, is
+// reference, its Digest keyed under claude-default's harness (a raise re-keys
+// it with HarnessKitRef). Fails closed (no silent fallback) when name is not tag-safe, is
 // absent, or its stored config is not a valid studio kit.
 func StudioKitRef(store Store, name string) (KitRef, error) {
 	if !studio.TagSafeName(name) {
@@ -84,7 +88,23 @@ func StudioKitRef(store Store, name string) (KitRef, error) {
 		return KitRef{}, fmt.Errorf("studio kit %q: %w", name, err)
 	}
 	k, _ := store.GetKit(name)
-	return KitRef{ID: name, Version: k.Current, Digest: studio.BuildDigest(sk)}, nil
+	return KitRef{ID: name, Version: k.Current, Digest: studio.BuildDigest(sk, harnessinstall.Default())}, nil
+}
+
+// HarnessKitRef re-keys ref's Digest to the image its kit builds under the
+// harness install h (the raising role's model-spec): the same kit version
+// under a different harness CLI version or plugins is a different image.
+// Fails closed when the registry has no such (id, version).
+func HarnessKitRef(store Store, ref KitRef, h harnessinstall.Install) (KitRef, error) {
+	def, ok, err := ResolveKitDefinition(store, ref)
+	if err != nil {
+		return KitRef{}, err
+	}
+	if !ok {
+		return KitRef{}, fmt.Errorf("studio kit %s not in registry", ref)
+	}
+	ref.Digest = studio.BuildDigest(def.Kit, h)
+	return ref, nil
 }
 
 // EnsureDefaultStudioKit seeds the built-in default studio kit into the registry
@@ -95,7 +115,7 @@ func EnsureDefaultStudioKit(store Store) (KitRef, error) {
 
 // ResolveKitDefinition fetches the full studio-kit definition a KitRef names —
 // the chunky payload the supervisor resolves on an ErrKitNotReady miss before
-// PrepareKit. ok=false when the registry has no such (id, version).
+// PrepareKit (which then sets its Harness from the raise's model-spec). ok=false when the registry has no such (id, version).
 func ResolveKitDefinition(store Store, ref KitRef) (KitDefinition, bool, error) {
 	text, ok := store.KitConfig(ref.ID, ref.Version)
 	if !ok {
@@ -105,5 +125,5 @@ func ResolveKitDefinition(store Store, ref KitRef) (KitDefinition, bool, error) 
 	if err != nil {
 		return KitDefinition{}, false, fmt.Errorf("resolve kit %s: %w", ref, err)
 	}
-	return KitDefinition{Ref: ref, Kit: sk}, true, nil
+	return KitDefinition{Ref: ref, Kit: sk, Harness: harnessinstall.Default()}, true, nil
 }

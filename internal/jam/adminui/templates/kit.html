@@ -72,7 +72,7 @@
         {{if .Prev}}<a href="{{kitURL $name}}?v={{.N}}&diff={{.Prev}}">diff v{{.Prev}}</a>{{end}}
         {{if not .Current}}<a href="{{kitURL $name}}?v={{.N}}&diff={{$cur}}">diff current</a>{{end}}
       </div>
-      {{if .Digest}}<span class="dig" title="Build digest: versions sharing it reuse one image">{{.Digest}}</span>{{else}}<span class="dig">invalid</span>{{end}}
+      {{if .Digest}}<span class="dig" title="Build digest under claude-default's harness: versions sharing it reuse one image (a role bound to another model-spec builds its own)">{{.Digest}}</span>{{else}}<span class="dig">invalid</span>{{end}}
     </div>
     {{end}}
   </section>
