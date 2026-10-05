@@ -2,15 +2,22 @@ package agentrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -105,6 +112,10 @@ type Workload struct {
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
 	ctxr *contextRefresher
+	// spec is the model-spec in effect (last Validated); specKey its identity,
+	// compared with each delivered spec to re-validate on a change.
+	spec    *modelspec.Spec
+	specKey string
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -163,9 +174,13 @@ func (w *Workload) resumeText() string {
 // episode ends in Waiting and only a Wake or ctx cancel moves the loop on.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	// Fail loud rather than launch a broken agent (e.g. a toolless one,
-	// COV-190).
-	if err := w.cfg.Harness.Validate(); err != nil {
-		w.log.Error("agentrun: harness pre-flight failed — refusing to start the agent", "err", err.Error())
+	// COV-190, or the wrong CLI version for its model-spec). The raise-time
+	// connector carries the spec the first episode is checked against.
+	var initial *modelspec.Spec
+	if w.cfg.Connector != nil {
+		initial = w.cfg.Connector.Initial.ModelSpec
+	}
+	if err := w.applySpec(initial); err != nil {
 		return err
 	}
 	if w.cfg.Context == nil {
@@ -200,7 +215,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	continued := false
 	var turn uint32
 	for {
-		bin, args := w.cfg.Harness.Command(continued, w.contextCore)
 		turn++
 		t := turn
 		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
@@ -222,10 +236,18 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			var fp string
 			var changed bool
 			env, fp, changed = w.conn.prepare(ctx)
+			// A model-spec edit takes effect here, at the next episode: the
+			// harness re-checks the new spec first and the run fails loud if
+			// it can't satisfy it.
+			if err := w.applySpec(w.conn.last.ModelSpec); err != nil {
+				return err
+			}
 			if changed {
 				h.ConnectorApplied(fp)
 			}
 		}
+		bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+		env = w.overlayEnv(env, extra)
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
@@ -309,6 +331,75 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			return fmt.Errorf("agentrun: unexpected worker status %q", status)
 		}
 	}
+}
+
+// applySpec validates spec with the harness when it differs from the one in
+// effect (and always on the first call), then makes it current. A failure is
+// logged and returned: Run refuses to start the agent.
+func (w *Workload) applySpec(spec *modelspec.Spec) error {
+	key := specKey(spec)
+	if w.specKey != "" && key == w.specKey {
+		return nil
+	}
+	if err := w.cfg.Harness.Validate(spec); err != nil {
+		w.log.Error("agentrun: harness pre-flight failed — refusing to start the agent", "model_spec", specName(spec), "err", err.Error())
+		return err
+	}
+	if w.specKey != "" || spec != nil {
+		w.log.Info("agentrun: model-spec applied", "model_spec", specName(spec), "fingerprint", short(key))
+	}
+	w.spec, w.specKey = spec, key
+	return nil
+}
+
+// specKey identifies a spec's content (never empty, so "" means "none
+// validated yet"): sha256 of its JSON, or of "null" for no spec.
+func specKey(spec *modelspec.Spec) string {
+	b, _ := json.Marshal(spec) // a delivered spec decoded from JSON re-encodes
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func specName(spec *modelspec.Spec) string {
+	if spec == nil {
+		return "(none)"
+	}
+	return spec.Name
+}
+
+// overlayEnv sets the harness's extra env over the spawn env (nil = inherit
+// cove-master's env), except a key the current connector sets: the connector
+// owns routing and identity. Logs never carry the values.
+func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
+	if len(extra) == 0 {
+		return env
+	}
+	if env == nil {
+		env = os.Environ()
+	}
+	owned := map[string]bool{}
+	if w.conn != nil {
+		for k := range w.conn.last.Expand(w.conn.cfg.BaseURL, "") {
+			owned[k] = true
+		}
+	}
+	set := map[string]bool{}
+	for k := range extra {
+		if !owned[k] {
+			set[k] = true
+		}
+	}
+	out := make([]string, 0, len(env)+len(set))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		if !set[k] {
+			out = append(out, kv)
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(set)) {
+		out = append(out, k+"="+extra[k])
+	}
+	return out
 }
 
 // episode drives one agent process: writes prompt, then reacts to tracker

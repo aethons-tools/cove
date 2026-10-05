@@ -3,6 +3,7 @@ package jam
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -521,6 +522,23 @@ func (m *memState) applyRemoveDestination(name string) bool {
 // applyPutModelSpec caches ms, which the caller has already deep-copied
 // (prepareModelSpec). Caller holds mu.Lock().
 func (m *memState) applyPutModelSpec(ms ModelSpec) { m.specs[ms.Name] = ms }
+
+// checkRemoveModelSpec validates a RemoveModelSpec: the spec exists and no
+// role resolves to it (an unbound role resolves to DefaultModelSpec). Caller
+// holds the lock.
+func (m *memState) checkRemoveModelSpec(name string) error {
+	if _, ok := m.specs[name]; !ok {
+		return fmt.Errorf("model-spec %q not found", name)
+	}
+	for _, project := range slices.Sorted(maps.Keys(m.roles)) {
+		for _, role := range slices.Sorted(maps.Keys(m.roles[project])) {
+			if m.roles[project][role].ModelSpecName() == name {
+				return fmt.Errorf("%w: %q is bound to role %s/%s", ErrModelSpecInUse, name, project, role)
+			}
+		}
+	}
+	return nil
+}
 
 func (m *memState) applyRemoveModelSpec(name string) bool {
 	if _, ok := m.specs[name]; !ok {

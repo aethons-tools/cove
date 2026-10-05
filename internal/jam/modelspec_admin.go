@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 )
@@ -12,7 +13,7 @@ import (
 //	POST   /admin/model-specs         create (409 if the name exists)
 //	GET    /admin/model-specs/{name}  show (404 if absent)
 //	PUT    /admin/model-specs/{name}  replace (404 if absent; body name must match)
-//	DELETE /admin/model-specs/{name}  delete (404 if absent)
+//	DELETE /admin/model-specs/{name}  delete (404 if absent; 409 while a role resolves to it)
 //
 // credExists and poolConfigured feed ValidateModelSpec's principal check. Audit
 // logs carry the operator, name and type only — never provider-env or settings.
@@ -64,11 +65,20 @@ func WithModelSpecs(store Store, credExists func(string) bool, poolConfigured bo
 		mux.HandleFunc("DELETE /admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 			name := r.PathValue("name")
 			if err := store.RemoveModelSpec(name); err != nil {
-				http.Error(w, err.Error(), http.StatusNotFound)
+				http.Error(w, err.Error(), ModelSpecRemoveStatus(err))
 				return
 			}
 			log.Info("admin model-spec deleted", "operator", OperatorID(r), "name", name)
 			w.WriteHeader(http.StatusNoContent)
 		})
 	}
+}
+
+// ModelSpecRemoveStatus maps a RemoveModelSpec error to its HTTP status: 409
+// while a role resolves to the spec, else 404 (absent).
+func ModelSpecRemoveStatus(err error) int {
+	if errors.Is(err, ErrModelSpecInUse) {
+		return http.StatusConflict
+	}
+	return http.StatusNotFound
 }

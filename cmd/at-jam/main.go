@@ -425,6 +425,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
+	modelSpec := fs.String("model-spec", "", "bind a model-spec (name); empty = "+jam.DefaultModelSpec)
 	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (Requisitioner) sessions (0 = unset: the Requisitioner's max-concurrent applies)")
 	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
 	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
@@ -461,7 +462,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 2
 		}
 		r := jam.Role{
-			Name: *name, Kit: *kitName,
+			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
 			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
@@ -480,7 +481,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1597,6 +1598,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		st = ps
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
+	}
+	// Seed the default model-spec every unbound role resolves to. Not fatal when
+	// no principal resolves: unbound roles then deliver no spec and their coves
+	// keep the harness's built-in defaults (re-tried at every startup).
+	if created, err := jam.EnsureDefaultModelSpec(st, cfg.Pool != nil); err != nil {
+		log.Warn("default model-spec not seeded", "name", jam.DefaultModelSpec, "reason", err.Error())
+	} else if created {
+		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
 	base := jam.NewSecretResolver(runner.OS{}, specs)

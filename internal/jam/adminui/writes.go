@@ -197,7 +197,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 				Credentials:  creds,
 				TTL:          time.Duration(ttl) * time.Second,
 			},
-			Kit: kit,
+			Kit:       kit,
+			ModelSpec: strings.TrimSpace(r.FormValue("model-spec")), // CreateRole checks it exists
 		}
 		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
 			renderError(w, http.StatusBadRequest, err.Error())

@@ -278,7 +278,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			return
 		}
 		if err := u.store.RemoveModelSpec(r.PathValue("name")); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
+			renderError(w, jam.ModelSpecRemoveStatus(err), err.Error())
 			return
 		}
 		log.Info("ui model-spec deleted", "operator", jam.OperatorID(r), "name", r.PathValue("name"))

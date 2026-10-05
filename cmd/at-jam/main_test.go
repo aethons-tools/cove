@@ -1468,3 +1468,38 @@ func TestKitPushNotes(t *testing.T) {
 		}
 	}
 }
+
+func TestRoleAddModelSpec(t *testing.T) {
+	store := jam.NewMemStore()
+	mustCreateProject(t, store, "P")
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.x",
+		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--model-spec", "opus"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	}
+	if r, _ := store.GetRole("P", "w"); r.ModelSpec != "opus" {
+		t.Fatalf("binding = %q", r.ModelSpec)
+	}
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "u"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	}
+	out.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "model-spec=opus") || !strings.Contains(out.String(), "model-spec=claude-default") {
+		t.Fatalf("role list:\n%s", out.String())
+	}
+	errb.Reset()
+	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--model-spec", "ghost"}, getenv, &out, &errb); code == 0 ||
+		!strings.Contains(errb.String(), "does not exist") {
+		t.Fatalf("unknown spec: exit=%d stderr=%s", code, errb.String())
+	}
+}

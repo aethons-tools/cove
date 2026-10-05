@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
 
 // Connector is what a client sets up to reach the destinations in its scope:
@@ -20,9 +22,15 @@ import (
 // {base}<route> before handing a Connector out, so the token never sits in a
 // template — the client substitutes it in memory (Expand) or references
 // $AT_JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
+//
+// For a cove, ModelSpec is its role's resolved model-spec (names only — never
+// a secret value): cove-master re-reads it with every connector refresh, so an
+// edit takes effect at the cove's next episode. nil = none (a Jam predating
+// model-specs, or the default spec not seeded): the harness's built-in defaults.
 type Connector struct {
-	Env      map[string]string `json:"env,omitempty"`
-	GitRoute string            `json:"git_route,omitempty"` // e.g. "/git/"; "" = no git routing
+	Env       map[string]string `json:"env,omitempty"`
+	GitRoute  string            `json:"git_route,omitempty"` // e.g. "/git/"; "" = no git routing
+	ModelSpec *modelspec.Spec   `json:"model_spec,omitempty"`
 }
 
 // ErrNoConnectorEndpoint is Fetch's error for a Jam that predates GET /connector;
@@ -141,13 +149,14 @@ func FetchContext(ctx context.Context, hc *http.Client, baseURL, token string) (
 	return c, nil
 }
 
-// Fingerprint identifies a connector's content (templates + git route, never a
-// token — a Connector holds none): sha256 of its JSON, whose map keys
-// encoding/json sorts, so it is order-independent; nil and empty Env coincide
-// (omitempty). cove-master reports it after applying a connector and Jam compares
+// Fingerprint identifies a connector's content (templates, git route and the
+// delivered model-spec, never a token — a Connector holds none): sha256 of its
+// JSON, whose map keys encoding/json sorts, so it is order-independent; nil and
+// empty Env coincide (omitempty). A model-spec edit therefore shows the cove's
+// connector as stale until its next episode applies it. cove-master reports it after applying a connector and Jam compares
 // it with the role's current one, so both sides must use this function.
 func Fingerprint(c Connector) string {
-	b, _ := json.Marshal(c) // map[string]string + string: never errors
+	b, _ := json.Marshal(c) // a validated spec's settings always marshal
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

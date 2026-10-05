@@ -25,10 +25,28 @@ func UpdateRole(store Store, project, name string, fn func(*Role) error) error {
 	if !ok {
 		return writeErr(http.StatusNotFound, "role %s/%s does not exist", project, name)
 	}
+	before := role.ModelSpec
 	if err := fn(&role); err != nil {
 		return err
 	}
+	if role.ModelSpec != before {
+		if err := checkRoleModelSpec(store, role.ModelSpec); err != nil {
+			return err
+		}
+	}
 	return store.PutRole(project, role)
+}
+
+// checkRoleModelSpec refuses a role binding to a model-spec that does not
+// exist (400). "" (unbound → DefaultModelSpec) is always accepted.
+func checkRoleModelSpec(store Store, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, ok := store.GetModelSpec(name); !ok {
+		return writeErr(http.StatusBadRequest, "model-spec %q does not exist", name)
+	}
+	return nil
 }
 
 // CreateRole stores a new role; an existing one is a 409 WriteError.
@@ -37,6 +55,9 @@ func CreateRole(store Store, project string, role Role) error {
 	defer roleMu.Unlock()
 	if _, ok := store.GetRole(project, role.Name); ok {
 		return writeErr(http.StatusConflict, "role %s/%s already exists", orDefaultProject(project), role.Name)
+	}
+	if err := checkRoleModelSpec(store, role.ModelSpec); err != nil {
+		return err
 	}
 	return store.PutRole(project, role)
 }
@@ -48,6 +69,9 @@ func CreateRole(store Store, project string, role Role) error {
 func PutRoleKeeping(store Store, project string, role Role) error {
 	roleMu.Lock()
 	defer roleMu.Unlock()
+	if err := checkRoleModelSpec(store, role.ModelSpec); err != nil {
+		return err
+	}
 	if existing, ok := store.GetRole(project, role.Name); ok {
 		role.Allocation.Standing = existing.Allocation.Standing
 		role.Scope.Egress = existing.Scope.Egress

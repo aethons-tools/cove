@@ -275,10 +275,10 @@ func TestRunSpawnFailure(t *testing.T) {
 // /etc/claude-code/mcp.json.
 func TestNewDefaultsMCPConfigPath(t *testing.T) {
 	w := New(Config{WorkDir: t.TempDir(), Prompt: "x"}, nil)
-	if w.cfg.Harness != (Claude{}) {
+	if c, ok := w.cfg.Harness.(Claude); !ok || c.MCPConfigPath != "" || c.KitMCPServersPath != "" || c.SettingsPath != "" || c.CLIVersion != nil {
 		t.Fatalf("default Harness = %#v; want Claude{}", w.cfg.Harness)
 	}
-	_, args := w.cfg.Harness.Command(false, "")
+	_, args, _ := w.cfg.Harness.Command(Episode{})
 	if !slices.Contains(args, "/dev/shm/cove-agent-mcp.json") {
 		t.Fatalf("default harness argv lacks the generated MCP config: %q", args)
 	}

@@ -211,7 +211,9 @@ before the first spawn the harness **generates** that one config — the guarant
 `messaging` server plus the kit's [`mcp-servers`](kits.md#mcp-servers-cov-240) —
 and **fails loud** if it can't (the baked kit file is missing — a stale image —
 or invalid, or the config can't be written) rather than launch a silently
-toolless agent (COV-190). With the config written it proceeds:
+toolless agent (COV-190). The same pre-flight checks `claude --version` against
+the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds
+no flags, so its coves launch with exactly the argv above). With the config written it proceeds:
 
 - `ok` → the client reports `done` and the supervisor tears the studio down.
 - `needs-input` → the client reports `waiting` and blocks until Jam sends a
@@ -239,6 +241,10 @@ edit reaches a running studio at its next episode (never within one: a wake deli
 keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every episode until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
+The connector also carries the role's resolved [model-spec](model-specs.md#what-a-cove-applies):
+an episode whose spec changed is re-checked by the harness first (CLI version; a
+mismatch fails the run loud), then launched with the spec's model, effort,
+provider env and settings — a spec edit reaches a studio at its next episode too.
 
 **Context refresh.** Beside the connector, cove-master re-fetches the session
 context (`GET /context`) before every later episode *and* before each wake it writes

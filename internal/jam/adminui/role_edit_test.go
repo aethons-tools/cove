@@ -195,3 +195,36 @@ func TestRoleEditsKeepContext(t *testing.T) {
 		}
 	}
 }
+
+// The scope form binds the role's model-spec: an unknown name is refused, a
+// known one stored, and the role page shows (and prefills) the binding.
+func TestEditScopeBindsModelSpec(t *testing.T) {
+	store := seedRichRole(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
+	if rec := post(t, h, "/ui/roles/acme/review/scope", url.Values{"model-spec": {"ghost"}}); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "does not exist") {
+		t.Fatalf("unknown model-spec = %d %s", rec.Code, rec.Body)
+	}
+	body := get(t, h, "/ui/roles/acme/review").Body.String()
+	if !strings.Contains(body, `href="/ui/model-specs/claude-default"`) || !strings.Contains(body, `placeholder="blank = claude-default"`) {
+		t.Errorf("unbound role page should show the claude-default resolution")
+	}
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.x",
+		Principal: jam.ModelPrincipal{Credential: "git-pat"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, h, "/ui/roles/acme/review/scope", url.Values{"destinations": {"git=git-pat"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
+		t.Fatalf("bind = %d %s", rec.Code, rec.Body)
+	}
+	if r, _ := store.GetRole("acme", "review"); r.ModelSpec != "opus" {
+		t.Fatalf("binding = %q", r.ModelSpec)
+	}
+	body = get(t, h, "/ui/roles/acme/review").Body.String()
+	if !strings.Contains(body, `name="model-spec" data-ta="model-specs" value="opus"`) {
+		t.Errorf("role page should prefill the binding")
+	}
+	// The bound spec cannot be deleted from its page.
+	if rec := del(t, h, "/ui/model-specs/opus"); rec.Code != http.StatusConflict {
+		t.Fatalf("delete bound spec = %d %s", rec.Code, rec.Body)
+	}
+}

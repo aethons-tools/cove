@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a Jam — defining roles, sett
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy and its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -68,7 +68,7 @@ at-jam role rm   [--project acme] guest
 - `--ttl` is the default identity lifetime applied at enrollment (`0` = no
   expiry). **A role with no `--ttl` mints non-expiring tokens** — set one for
   ephemeral studios.
-- `--kit` binds a registered kit by name (optional; [kits.md](kits.md)).
+- `--kit` binds a registered kit by name (optional; [kits.md](kits.md)); `--model-spec` binds a [model-spec](model-specs.md#binding-a-role) by name (must exist; empty = `claude-default`); `role list` shows `model-spec=…`.
 - `--max-ephemeral N` is the role's **allocation policy**: the cap on its
   concurrent ephemeral (Requisitioner-raised) sessions. Jam's Allocator reads it
   live from the roster on each grant, so an edit applies on the next grant with no

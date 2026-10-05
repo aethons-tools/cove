@@ -33,6 +33,13 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			}
 			return out
 		},
+		"model-specs": func(string) []string {
+			var out []string
+			for _, m := range store.ListModelSpecs() {
+				out = append(out, m.Name)
+			}
+			return out
+		},
 		"destinations": func(string) []string {
 			var out []string
 			for _, d := range store.ListDestinations() {

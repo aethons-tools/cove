@@ -25,7 +25,8 @@ func ScopesFor(store Store, a Actor) []Scope {
 
 // ConnectorFor assembles the client connector for an actor: the union of the
 // ClientEnv of every destination in its effective scopes, plus git routing when
-// one of them routes git. Unknown destination names contribute nothing. Two
+// one of them routes git, plus the model-spec its roles resolve to
+// (ModelSpecFor) — so a cove re-reads its spec with every connector refresh. Unknown destination names contribute nothing. Two
 // destinations setting one variable to different values, or two different git
 // routes, are an error — fail closed rather than pick one.
 func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
@@ -68,5 +69,52 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 			c.GitRoute = d.Route
 		}
 	}
+	spec, err := ModelSpecFor(store, a)
+	if err != nil {
+		return snippet.Connector{}, err
+	}
+	c.ModelSpec = spec
 	return c, nil
+}
+
+// ModelSpecFor resolves the model-spec an actor's agent runs under: the one
+// every granted role resolves to (Role.ModelSpecName — unbound means
+// DefaultModelSpec). nil, nil when the actor has no resolvable grant, or when
+// its roles are unbound and DefaultModelSpec is not stored (never seeded: the
+// harness keeps its built-in defaults). Roles resolving to different specs, or
+// an explicit binding to a spec that no longer exists, are an error — fail
+// closed rather than pick one. The spec carries names only, never a secret.
+func ModelSpecFor(store Store, a Actor) (*ModelSpec, error) {
+	by := map[string]string{} // spec name → the first project/role resolving to it
+	explicit := map[string]bool{}
+	for _, g := range a.Grants {
+		r, ok := store.GetRole(g.Project, g.Role)
+		if !ok {
+			continue
+		}
+		n := r.ModelSpecName()
+		if _, seen := by[n]; !seen {
+			by[n] = orDefaultProject(g.Project) + "/" + r.Name
+		}
+		if r.ModelSpec != "" {
+			explicit[n] = true
+		}
+	}
+	names := slices.Sorted(maps.Keys(by))
+	switch len(names) {
+	case 0:
+		return nil, nil
+	case 1:
+	default:
+		return nil, fmt.Errorf("roles %s and %s resolve to different model-specs (%s, %s)", by[names[0]], by[names[1]], names[0], names[1])
+	}
+	n := names[0]
+	m, ok := store.GetModelSpec(n)
+	if !ok {
+		if !explicit[n] {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("model-spec %q bound by role %s does not exist", n, by[n])
+	}
+	return &m, nil
 }

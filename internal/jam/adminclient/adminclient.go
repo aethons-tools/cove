@@ -153,6 +153,7 @@ func (c *Client) PutRole(project string, r jam.Role) error {
 		Destinations: r.Scope.Destinations, Credentials: r.Scope.Credentials, Addressing: r.Scope.Addressing,
 		TTLSeconds:          int64(r.Scope.TTL / time.Second),
 		Kit:                 r.Kit,
+		ModelSpec:           r.ModelSpec,
 		MaxEphemeral:        r.Allocation.MaxEphemeral,
 		MaxPersonal:         r.Allocation.MaxPersonal,
 		MaxPersonalPerOwner: r.Allocation.MaxPersonalPerOwner,
@@ -174,7 +175,7 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 	}
 	roles := make([]jam.Role, 0, len(out))
 	for _, rs := range out {
-		roles = append(roles, jam.Role{Name: rs.Name, Kit: rs.Kit, Scope: jam.Scope{
+		roles = append(roles, jam.Role{Name: rs.Name, Kit: rs.Kit, ModelSpec: rs.ModelSpec, Scope: jam.Scope{
 			Destinations: rs.Destinations, Credentials: rs.Credentials, Addressing: rs.Addressing, TTL: time.Duration(rs.TTLSeconds) * time.Second,
 		}, Allocation: jam.RoleAllocation{
 			MaxEphemeral: rs.MaxEphemeral, MaxPersonal: rs.MaxPersonal, MaxPersonalPerOwner: rs.MaxPersonalPerOwner,

@@ -135,6 +135,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, cr
 				return badRequest("kit " + strconv.Quote(kit) + " does not exist")
 			}
 		}
+		spec := strings.TrimSpace(r.FormValue("model-spec"))
 		addressing := splitList(r.FormValue("addressing"))
 		return jam.UpdateRole(store, project, name, func(role *jam.Role) error {
 			// Fresh slices/maps: never mutate what the stored role may alias.
@@ -143,7 +144,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, cr
 			if err := jam.ValidateCredentials(scope, credExists); err != nil {
 				return badRequest(err.Error())
 			}
-			role.Scope, role.Kit = scope, kit
+			role.Scope, role.Kit, role.ModelSpec = scope, kit, spec // UpdateRole checks spec exists
 			return nil
 		})
 	}))
