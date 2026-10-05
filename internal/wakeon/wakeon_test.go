@@ -1348,7 +1348,7 @@ func (f *fakeAlarms) FireAlarms(id string, now time.Time) ([]jam.Alarm, error) {
 			continue
 		}
 		for j, a := range f.reg.insts[i].Alarms {
-			if !a.NextAt.IsZero() && !a.NextAt.After(now) {
+			if a.Gate == "" && !a.NextAt.IsZero() && !a.NextAt.After(now) { // gated alarms fire on their gate's verdict
 				if a.FiredAt.IsZero() {
 					a.FiredAt = now
 				}
@@ -1463,5 +1463,179 @@ func TestTick_WaitMaxSparesSessionsWithAlarms(t *testing.T) {
 	}
 	if len(wake.woke) != 1 || wake.woke[0] != "due" {
 		t.Fatalf("woke=%v; want the due alarm to wake", wake.woke)
+	}
+}
+
+// fakeGates mirrors Supervisor.StartGate/ResolveGate on the registry and
+// records the gates run (attach.Server.RunGate).
+type fakeGates struct {
+	reg          *fakeReg
+	disconnected bool
+	ran          []string // "actor/alarm/command"
+	resolved     []jam.GateOutcome
+}
+
+func (f *fakeGates) alarm(id, name string) *jam.Alarm {
+	for i := range f.reg.insts {
+		if f.reg.insts[i].ActorID == id {
+			for j := range f.reg.insts[i].Alarms {
+				if f.reg.insts[i].Alarms[j].Name == name {
+					return &f.reg.insts[i].Alarms[j]
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (f *fakeGates) StartGate(id, name, runID string, now time.Time) (jam.Alarm, bool, error) {
+	a := f.alarm(id, name)
+	if a == nil || a.GateRun != nil {
+		return jam.Alarm{}, false, nil
+	}
+	a.GateRun = &jam.GateRun{RunID: runID, StartedAt: now}
+	return *a, true, nil
+}
+
+func (f *fakeGates) ResolveGate(id, runID string, o jam.GateOutcome) error {
+	f.resolved = append(f.resolved, o)
+	for i := range f.reg.insts {
+		for j := range f.reg.insts[i].Alarms {
+			a := &f.reg.insts[i].Alarms[j]
+			if a.GateRun == nil || a.GateRun.RunID != runID {
+				continue
+			}
+			a.GateRun = nil
+			switch o.Verdict() {
+			case jam.GatePass:
+				a.FiredAt, a.FireKind, a.FireDetail = o.At, jam.WakeAlarm, o.Output
+			case jam.GateFailed:
+				a.FiredAt, a.FireKind, a.FireDetail = o.At, jam.WakeGateFailed, "failed: timed out"
+			}
+		}
+	}
+	return nil
+}
+
+func (f *fakeGates) Connected(string) bool { return !f.disconnected }
+
+func (f *fakeGates) RunGate(id, runID, alarm, command string, _ time.Duration) {
+	f.ran = append(f.ran, id+"/"+alarm+"/"+command)
+}
+
+func gateEngine(inst jam.Instance) (*Engine, *fakeWaker, *fakeIdler, *fakeGates) {
+	e, wake, _, idler, _ := turnEndEngine([]jam.Instance{inst}, nil, nil)
+	g := &fakeGates{reg: e.reg.(*fakeReg)}
+	e.SetGates(g, g)
+	return e, wake, idler, g
+}
+
+func gatedInst(phase jam.Phase, act jam.Activity) jam.Instance {
+	return jam.Instance{ActorID: "a1", Phase: phase, Activity: act, SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0),
+		Alarms: []jam.Alarm{{Name: "ci", Schedule: "*/5 * * * *", Note: "CI changed", Gate: "gh run view", NextAt: due}}}
+}
+
+func TestTick_GateRunsWhenDue(t *testing.T) {
+	e, wake, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityWaiting))
+	e.tick(context.Background())
+	if len(g.ran) != 1 || g.ran[0] != "a1/ci/gh run view" || len(wake.woke) != 0 {
+		t.Fatalf("ran=%v woke=%v", g.ran, wake.woke)
+	}
+}
+
+func TestTick_GatePassWakesWithOutput(t *testing.T) {
+	e, wake, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityWaiting))
+	e.tick(context.Background())
+	_ = g.ResolveGate("a1", g.alarm("a1", "ci").GateRun.RunID, jam.GateOutcome{At: time.Unix(10000, 0), Exit: 0, Output: "green"})
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0] != (jam.WakeReason{Kind: jam.WakeAlarm, Alarm: "ci", Note: "CI changed", Detail: "green"}) {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_GateFailureWakesGateFailed(t *testing.T) {
+	e, wake, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityWaiting))
+	e.tick(context.Background())
+	_ = g.ResolveGate("a1", g.alarm("a1", "ci").GateRun.RunID, jam.GateOutcome{At: time.Unix(10000, 0), Exit: -1, TimedOut: true})
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0].Kind != jam.WakeGateFailed || !strings.Contains(wake.reasons[0][0].Detail, "timed out") {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_GateNoResultFailsAfterGrace(t *testing.T) {
+	inst := gatedInst(jam.PhaseLive, jam.ActivityWaiting)
+	inst.Alarms[0].GateRun = &jam.GateRun{RunID: "r0", StartedAt: time.Unix(10000-91, 0)}
+	e, wake, _, g := gateEngine(inst)
+	e.tick(context.Background())
+	if len(g.resolved) != 1 || !g.resolved[0].NoResult || len(g.ran) != 0 {
+		t.Fatalf("resolved=%v ran=%v; want a no-result resolution, no new run", g.resolved, g.ran)
+	}
+	if len(wake.woke) != 1 || wake.reasons[0][0].Kind != jam.WakeGateFailed {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_GateInFlightNotRerun(t *testing.T) {
+	inst := gatedInst(jam.PhaseLive, jam.ActivityWaiting)
+	inst.Alarms[0].GateRun = &jam.GateRun{RunID: "r0", StartedAt: time.Unix(10000-10, 0)}
+	e, _, _, g := gateEngine(inst)
+	e.tick(context.Background())
+	if len(g.ran) != 0 || len(g.resolved) != 0 {
+		t.Fatalf("ran=%v resolved=%v", g.ran, g.resolved)
+	}
+}
+
+func TestTick_GateResumesPausedFirst(t *testing.T) {
+	e, _, idler, g := gateEngine(gatedInst(jam.PhaseIdled, jam.ActivityWaiting))
+	e.tick(context.Background())
+	if len(idler.resumed) != 1 || len(g.ran) != 0 {
+		t.Fatalf("resumed=%v ran=%v", idler.resumed, g.ran)
+	}
+	e.reg.(*fakeReg).insts[0].Phase = jam.PhaseLive
+	e.tick(context.Background())
+	if len(g.ran) != 1 {
+		t.Fatalf("after resume: ran=%v", g.ran)
+	}
+}
+
+func TestTick_GateHeldWhileRunning(t *testing.T) {
+	e, _, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityRunning))
+	e.tick(context.Background())
+	if len(g.ran) != 0 {
+		t.Fatalf("ran while running: %v", g.ran)
+	}
+}
+
+func TestTick_GateRunsForHolding(t *testing.T) {
+	e, _, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityHolding))
+	e.tick(context.Background())
+	if len(g.ran) != 1 {
+		t.Fatalf("ran=%v", g.ran)
+	}
+}
+
+// A cove with a gate in flight is not paused at warm-timeout: freezing it would
+// turn a real answer into a "no result" failure.
+func TestTick_NoPauseWhileGateRuns(t *testing.T) {
+	inst := gatedInst(jam.PhaseLive, jam.ActivityWaiting)
+	inst.WaitingSince = time.Unix(10000-90000, 0) // well past any warm-timeout
+	inst.Alarms[0].GateRun = &jam.GateRun{RunID: "r0", StartedAt: time.Unix(10000-10, 0)}
+	e, _, idler, _ := gateEngine(inst)
+	e.cfg.WarmTimeout = time.Second
+	e.tick(context.Background())
+	if len(idler.idled) != 0 {
+		t.Fatalf("paused a cove mid-gate: %v", idler.idled)
+	}
+}
+
+// RunGate is only sent over a connected stream (a request to a cove with no
+// stream would be dropped and later fail as "no result").
+func TestTick_GateWaitsForStream(t *testing.T) {
+	e, _, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityWaiting))
+	g.disconnected = true
+	e.tick(context.Background())
+	if len(g.ran) != 0 || g.alarm("a1", "ci").GateRun != nil {
+		t.Fatalf("ran=%v run=%+v with no stream", g.ran, g.alarm("a1", "ci").GateRun)
 	}
 }

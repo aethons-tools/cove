@@ -559,7 +559,7 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 
 // SetAlarm validates and schedules the named alarm on the cove (replacing one
 // of the same name), in its role's time zone.
-func (s *Supervisor) SetAlarm(actorID, name, schedule, note string) (Alarm, error) {
+func (s *Supervisor) SetAlarm(actorID, name, schedule, note, gate string) (Alarm, error) {
 	s.instMu.Lock()
 	defer s.instMu.Unlock()
 	if err := ValidateAlarmName(name); err != nil {
@@ -567,6 +567,9 @@ func (s *Supervisor) SetAlarm(actorID, name, schedule, note string) (Alarm, erro
 	}
 	if len(note) > maxAlarmNote {
 		return Alarm{}, fmt.Errorf("note must be at most %d bytes", maxAlarmNote)
+	}
+	if len(gate) > maxGateBytes {
+		return Alarm{}, fmt.Errorf("gate must be at most %d bytes", maxGateBytes)
 	}
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
@@ -576,7 +579,7 @@ func (s *Supervisor) SetAlarm(actorID, name, schedule, note string) (Alarm, erro
 	if err != nil {
 		return Alarm{}, err
 	}
-	a := Alarm{Name: name, Schedule: schedule, Note: note, NextAt: next}
+	a := Alarm{Name: name, Schedule: schedule, Note: note, NextAt: next, Gate: gate}
 	alarms := slices.Clone(inst.Alarms)
 	if i := slices.IndexFunc(alarms, func(x Alarm) bool { return x.Name == name }); i >= 0 {
 		alarms[i] = a
@@ -622,11 +625,11 @@ func (s *Supervisor) FireAlarms(actorID string, now time.Time) ([]Alarm, error) 
 	}
 	changed := false
 	for i, a := range alarms {
-		if a.NextAt.IsZero() || a.NextAt.After(now) {
-			continue
+		if a.Gate != "" || a.NextAt.IsZero() || a.NextAt.After(now) {
+			continue // a gated alarm fires only on its gate's verdict (ResolveGate)
 		}
 		if a.FiredAt.IsZero() {
-			a.FiredAt = now
+			a.FiredAt, a.FireKind, a.FireDetail = now, WakeAlarm, ""
 		}
 		a.NextAt = NextAfter(a, s.alarmZone(inst), now)
 		alarms[i], changed = a, true
@@ -636,6 +639,79 @@ func (s *Supervisor) FireAlarms(actorID string, now time.Time) ([]Alarm, error) 
 	}
 	inst.Alarms = alarms
 	return alarms, s.store.PutInstance(inst)
+}
+
+// StartGate records a gate run for the named alarm when it is gated, due, has
+// no run in flight, and the cove's turn is over; it reports whether it did
+// (the caller then sends RunGate).
+func (s *Supervisor) StartGate(actorID, name, runID string, now time.Time) (Alarm, bool, error) {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return Alarm{}, false, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Activity != ActivityHolding && inst.Activity != ActivityWaiting {
+		return Alarm{}, false, nil
+	}
+	alarms := slices.Clone(inst.Alarms)
+	i := slices.IndexFunc(alarms, func(x Alarm) bool { return x.Name == name })
+	if i < 0 {
+		return Alarm{}, false, nil
+	}
+	a := alarms[i]
+	if a.Gate == "" || a.GateRun != nil || a.NextAt.IsZero() || a.NextAt.After(now) {
+		return a, false, nil
+	}
+	a.GateRun = &GateRun{RunID: runID, StartedAt: now}
+	alarms[i] = a
+	inst.Alarms = alarms
+	return a, true, s.store.PutInstance(inst)
+}
+
+// ResolveGate applies a gate run's outcome to the alarm whose run it is (a
+// stale run — the alarm cleared, re-set, or already resolved — is ignored):
+// pass fires it with the output, failed fires it as gate-failed with the
+// cause, not-yet lets it sleep (a cron alarm to its next match; a one-shot is
+// removed).
+func (s *Supervisor) ResolveGate(actorID, runID string, o GateOutcome) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	alarms := slices.Clone(inst.Alarms)
+	i := slices.IndexFunc(alarms, func(x Alarm) bool { return x.GateRun != nil && x.GateRun.RunID == runID })
+	if i < 0 {
+		return nil
+	}
+	a := alarms[i]
+	a.GateRun, a.LastGate = nil, &o
+	a.NextAt = NextAfter(a, s.alarmZone(inst), o.At)
+	switch o.Verdict() {
+	case GatePass:
+		a.FireKind, a.FireDetail = WakeAlarm, o.Output
+	case GateFailed:
+		a.FireKind, a.FireDetail = WakeGateFailed, gateFailure(o)
+	default: // not yet
+		if a.OneShot() {
+			if s.log != nil {
+				s.log.Info("alarm gate said not yet; one-shot alarm dropped", "id", actorID, "alarm", a.Name, "exit", o.Exit)
+			}
+			inst.Alarms = slices.Delete(alarms, i, i+1)
+			return s.store.PutInstance(inst)
+		}
+		alarms[i] = a
+		inst.Alarms = alarms
+		return s.store.PutInstance(inst)
+	}
+	if a.FiredAt.IsZero() {
+		a.FiredAt = o.At
+	}
+	alarms[i] = a
+	inst.Alarms = alarms
+	return s.store.PutInstance(inst)
 }
 
 // alarmZone is the cove's role time zone (UTC when the role is gone).

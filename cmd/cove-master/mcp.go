@@ -107,6 +107,7 @@ type alarmSetIn struct {
 	Name     string `json:"name" jsonschema:"the alarm's name: lowercase letters, digits, - and _ (setting an existing name replaces it)"`
 	Schedule string `json:"schedule" jsonschema:"an RFC 3339 time (fires once, e.g. 2026-10-05T14:30:00Z) or a 5-field cron expression in the role's time zone (recurring, at most once a minute, e.g. */5 * * * *)"`
 	Note     string `json:"note,omitempty" jsonschema:"what the wake tells you to do when the alarm fires"`
+	Gate     string `json:"gate,omitempty" jsonschema:"optional shell command run in your workspace when the alarm comes due (60s limit): exit 0 wakes you with its output; any other exit keeps sleeping; a timeout or a missing command wakes you with the error"`
 }
 
 // alarmNameIn is the "alarm_clear" tool's typed input.
@@ -124,6 +125,13 @@ type alarmItem struct {
 	Note     string `json:"note,omitempty"`
 	NextAt   string `json:"next_at,omitempty"`
 	Fired    bool   `json:"fired,omitempty"`
+	Gate     string `json:"gate,omitempty"`
+	LastGate *struct {
+		At      string `json:"at"`
+		Verdict string `json:"verdict"`
+		Exit    int    `json:"exit"`
+		Output  string `json:"output,omitempty"`
+	} `json:"last_gate,omitempty"`
 }
 
 // alarmsOut is the "alarm_list" tool's typed output.
@@ -350,11 +358,12 @@ func (c *messagingClient) idleTimeout(ctx context.Context, duration, scope strin
 }
 
 // setAlarm sets (or replaces) a named alarm (PUT /alarms/{name}).
-func (c *messagingClient) setAlarm(ctx context.Context, name, schedule, note string) error {
+func (c *messagingClient) setAlarm(ctx context.Context, name, schedule, note, gate string) error {
 	payload, err := json.Marshal(struct {
 		Schedule string `json:"schedule"`
 		Note     string `json:"note,omitempty"`
-	}{Schedule: schedule, Note: note})
+		Gate     string `json:"gate,omitempty"`
+	}{Schedule: schedule, Note: note, Gate: gate})
 	if err != nil {
 		return fmt.Errorf("encoding alarm payload: %w", err)
 	}
@@ -486,12 +495,12 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "alarm_set",
-		Description: "Set (or replace) a named alarm that wakes you after your turn ends: schedule is an RFC 3339 time (once) or a 5-field cron expression in the role's time zone (recurring, at most once a minute); note is what the wake tells you to do. Up to 20 alarms. Alarms due while you are working fire when your turn ends.",
+		Description: "Set (or replace) a named alarm that wakes you after your turn ends: schedule is an RFC 3339 time (once) or a 5-field cron expression in the role's time zone (recurring, at most once a minute); note is what the wake tells you to do; gate optionally decides whether a due alarm wakes you. Up to 20 alarms. Alarms due while you are working fire when your turn ends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in alarmSetIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
 		}
-		return nil, nil, client.setAlarm(ctx, in.Name, in.Schedule, in.Note)
+		return nil, nil, client.setAlarm(ctx, in.Name, in.Schedule, in.Note, in.Gate)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

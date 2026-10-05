@@ -11,7 +11,7 @@ import (
 
 // alarmSetter is the narrow slice of *Supervisor the /alarms handler needs.
 type alarmSetter interface {
-	SetAlarm(actorID, name, schedule, note string) (Alarm, error)
+	SetAlarm(actorID, name, schedule, note, gate string) (Alarm, error)
 	ClearAlarm(actorID, name string) error
 }
 
@@ -32,17 +32,31 @@ func NewAlarmHandler(store escalateStore, setter alarmSetter, log *slog.Logger) 
 
 // alarmView is one alarm on the wire.
 type alarmView struct {
-	Name     string `json:"name"`
-	Schedule string `json:"schedule"`
-	Note     string `json:"note,omitempty"`
-	NextAt   string `json:"next_at,omitempty"` // RFC 3339; empty once a one-shot fired
-	Fired    bool   `json:"fired,omitempty"`   // fired, awaiting the session's next run
+	Name     string    `json:"name"`
+	Schedule string    `json:"schedule"`
+	Note     string    `json:"note,omitempty"`
+	NextAt   string    `json:"next_at,omitempty"` // RFC 3339; empty once a one-shot fired
+	Fired    bool      `json:"fired,omitempty"`   // fired, awaiting the session's next run
+	Gate     string    `json:"gate,omitempty"`
+	LastGate *gateView `json:"last_gate,omitempty"`
+}
+
+// gateView is an alarm's latest gate result on the wire.
+type gateView struct {
+	At      string `json:"at"`
+	Verdict string `json:"verdict"` // pass | failed | not-yet
+	Exit    int    `json:"exit"`
+	Output  string `json:"output,omitempty"`
 }
 
 func viewAlarm(a Alarm) alarmView {
 	v := alarmView{Name: a.Name, Schedule: a.Schedule, Note: a.Note, Fired: !a.FiredAt.IsZero()}
 	if !a.NextAt.IsZero() {
 		v.NextAt = a.NextAt.UTC().Format(time.RFC3339)
+	}
+	v.Gate = a.Gate
+	if g := a.LastGate; g != nil {
+		v.LastGate = &gateView{At: g.At.UTC().Format(time.RFC3339), Verdict: g.Verdict(), Exit: g.Exit, Output: g.Output}
 	}
 	return v
 }
@@ -97,6 +111,7 @@ func (h *AlarmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Schedule string `json:"schedule"`
 			Note     string `json:"note"`
+			Gate     string `json:"gate"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			var maxErr *http.MaxBytesError
@@ -107,7 +122,7 @@ func (h *AlarmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		a, err := h.setter.SetAlarm(actor.ID, name, req.Schedule, req.Note)
+		a, err := h.setter.SetAlarm(actor.ID, name, req.Schedule, req.Note, req.Gate)
 		if err != nil {
 			// Validation and the alarm limit: the agent reads the reason.
 			http.Error(w, err.Error(), http.StatusBadRequest)

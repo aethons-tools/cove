@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,5 +65,23 @@ func TestValidateAlarmName(t *testing.T) {
 		if err := ValidateAlarmName(bad); err == nil {
 			t.Errorf("accepted %q", bad)
 		}
+	}
+}
+
+func TestGateVerdict(t *testing.T) {
+	for _, c := range []struct {
+		o    GateOutcome
+		want string
+	}{
+		{GateOutcome{Exit: 0}, GatePass}, {GateOutcome{Exit: 1}, GateNotYet}, {GateOutcome{Exit: 128}, GateNotYet},
+		{GateOutcome{Exit: 126}, GateFailed}, {GateOutcome{Exit: 127}, GateFailed}, {GateOutcome{Exit: 137}, GateFailed},
+		{GateOutcome{Exit: -1, TimedOut: true}, GateFailed}, {GateOutcome{NoResult: true}, GateFailed},
+	} {
+		if got := c.o.Verdict(); got != c.want {
+			t.Errorf("%+v → %s, want %s", c.o, got, c.want)
+		}
+	}
+	if d := gateFailure(GateOutcome{Exit: 137}); !strings.Contains(d, "signal 9") {
+		t.Errorf("signal cause = %q", d)
 	}
 }

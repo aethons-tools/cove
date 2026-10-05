@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
@@ -108,6 +109,12 @@ type Workload struct {
 	spawner Spawner
 	conn    *connectorRefresher
 	wake    *wakeBox
+	// gate is what a RunGate control needs from the running unit: its ctx, the
+	// handle results go up on, and the agent's last spawn env (nil = inherit).
+	gateMu  sync.Mutex
+	gateCtx context.Context
+	gateH   covemaster.Handle
+	gateEnv []string
 	// contextCore is the written CORE.md path; "" = no context in effect.
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
@@ -173,6 +180,9 @@ func (w *Workload) resumeText() string {
 // (completed, or gave up waiting). In resident mode (personal sessions) every
 // episode ends in Waiting and only a Wake or ctx cancel moves the loop on.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
+	w.gateMu.Lock()
+	w.gateCtx, w.gateH = ctx, h
+	w.gateMu.Unlock()
 	// Fail loud rather than launch a broken agent (e.g. a toolless one,
 	// COV-190, or the wrong CLI version for its model-spec). The raise-time
 	// connector carries the spec the first episode is checked against.
@@ -248,6 +258,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		}
 		bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
 		env = w.overlayEnv(env, extra)
+		w.gateMu.Lock()
+		w.gateEnv = env // gates run with the agent's env
+		w.gateMu.Unlock()
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
@@ -565,6 +578,8 @@ func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
 		w.log.Info("agentrun: teardown requested; run context cancelled, agent terminating")
+	case covemaster.RunGate:
+		w.startGate(c.Gate)
 	case covemaster.Wake:
 		w.log.Info("agentrun: wake requested", "reasons", len(c.Reasons))
 		w.wake.post(c.Reasons)
@@ -572,3 +587,22 @@ func (w *Workload) Control(c covemaster.Control) {
 }
 
 var _ covemaster.Workload = (*Workload)(nil)
+
+// startGate runs an alarm's gate in the background (see runGate) and reports
+// its result up the handle. Before Run has started there is nowhere to report:
+// the request is dropped and Jam times it out.
+func (w *Workload) startGate(req *covemaster.GateRequest) {
+	w.gateMu.Lock()
+	ctx, h, env := w.gateCtx, w.gateH, w.gateEnv
+	w.gateMu.Unlock()
+	if req == nil || h == nil {
+		w.log.Warn("agentrun: gate requested before the run started; dropped")
+		return
+	}
+	w.log.Info("agentrun: running gate", "alarm", req.Alarm, "run", req.RunID)
+	go func() {
+		exit, timedOut, out, truncated := runGate(ctx, w.cfg.WorkDir, env, req.Command, req.Timeout)
+		w.log.Info("agentrun: gate done", "alarm", req.Alarm, "run", req.RunID, "exit", exit, "timed_out", timedOut)
+		h.GateResult(covemaster.GateResult{RunID: req.RunID, Exit: exit, TimedOut: timedOut, Output: out, Truncated: truncated})
+	}()
+}

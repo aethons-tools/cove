@@ -15,12 +15,12 @@ type fakeAlarmSetter struct {
 	clearErr error
 }
 
-func (f *fakeAlarmSetter) SetAlarm(_, n, s, note string) (Alarm, error) {
+func (f *fakeAlarmSetter) SetAlarm(_, n, s, note, gate string) (Alarm, error) {
 	if f.setErr != nil {
 		return Alarm{}, f.setErr
 	}
-	f.set = append(f.set, n+"|"+s+"|"+note)
-	return Alarm{Name: n, Schedule: s, Note: note, NextAt: time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC)}, nil
+	f.set = append(f.set, n+"|"+s+"|"+note+"|"+gate)
+	return Alarm{Name: n, Schedule: s, Note: note, Gate: gate, NextAt: time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC)}, nil
 }
 
 func (f *fakeAlarmSetter) ClearAlarm(_, n string) error {
@@ -31,7 +31,11 @@ func (f *fakeAlarmSetter) ClearAlarm(_, n string) error {
 func alarmFixture() (*AlarmHandler, *fakeAlarmSetter) {
 	st := newFakeEscStore()
 	st.actors[HashToken("tok")] = Actor{ID: "cove-1"}
-	st.instances["cove-1"] = Instance{ActorID: "cove-1", Alarms: []Alarm{{Name: "nightly", Schedule: "0 2 * * *", Note: "backup", NextAt: time.Date(2026, 10, 6, 2, 0, 0, 0, time.UTC)}}}
+	st.instances["cove-1"] = Instance{ActorID: "cove-1", Alarms: []Alarm{
+		{Name: "nightly", Schedule: "0 2 * * *", Note: "backup", NextAt: time.Date(2026, 10, 6, 2, 0, 0, 0, time.UTC)},
+		{Name: "ci", Schedule: "*/5 * * * *", Gate: "gh run view", NextAt: time.Date(2026, 10, 6, 2, 5, 0, 0, time.UTC),
+			LastGate: &GateOutcome{At: time.Date(2026, 10, 6, 2, 0, 0, 0, time.UTC), Exit: 1, Output: "in progress"}},
+	}}
 	set := &fakeAlarmSetter{}
 	return NewAlarmHandler(st, set, testLogger()), set
 }
@@ -49,7 +53,7 @@ func TestAlarmsSetAndClear(t *testing.T) {
 	if rec := doTurnEnd(h, "PUT", "/alarms/pr-watch", "tok", `{"schedule":"*/5 * * * *","note":"check the PR"}`); rec.Code != 200 {
 		t.Fatalf("PUT %d %s", rec.Code, rec.Body)
 	}
-	if len(set.set) != 1 || set.set[0] != "pr-watch|*/5 * * * *|check the PR" {
+	if len(set.set) != 1 || set.set[0] != "pr-watch|*/5 * * * *|check the PR|" {
 		t.Fatalf("set = %v", set.set)
 	}
 	if rec := doTurnEnd(h, "DELETE", "/alarms/pr-watch", "tok", ""); rec.Code != 204 {
@@ -106,5 +110,21 @@ func TestAlarmsRejects(t *testing.T) {
 	}
 	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != MaxAlarms {
 		t.Fatalf("rejected sets changed the alarms: %d", len(inst.Alarms))
+	}
+}
+
+func TestAlarmsGate(t *testing.T) {
+	h, set := alarmFixture()
+	if rec := doTurnEnd(h, "PUT", "/alarms/ci", "tok", `{"schedule":"*/5 * * * *","gate":"gh run view --exit-status"}`); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"gate":"gh run view --exit-status"`) {
+		t.Fatalf("PUT %d %s", rec.Code, rec.Body)
+	}
+	if set.set[0] != "ci|*/5 * * * *||gh run view --exit-status" {
+		t.Fatalf("set = %v", set.set)
+	}
+	rec := doTurnEnd(h, "GET", "/alarms", "tok", "")
+	for _, want := range []string{`"gate":"gh run view"`, `"last_gate":{`, `"verdict":"not-yet"`, `"exit":1`, `"output":"in progress"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("list missing %s: %s", want, rec.Body)
+		}
 	}
 }

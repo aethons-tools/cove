@@ -36,9 +36,10 @@ type Client struct {
 	mu        sync.Mutex
 	latest    Activity
 	hasLatest bool
-	activity  chan Activity // coalesced (buffer 1)
-	connector string        // latest applied-connector fingerprint (guarded by mu)
-	connCh    chan string   // coalesced (buffer 1)
+	activity  chan Activity   // coalesced (buffer 1)
+	connector string          // latest applied-connector fingerprint (guarded by mu)
+	connCh    chan string     // coalesced (buffer 1)
+	gates     chan GateResult // gate results awaiting the stream (buffer gateBuffer; overflow dropped)
 	events    *eventBuf
 }
 
@@ -55,7 +56,7 @@ func New(cfg Config, log *slog.Logger) *Client {
 	if cfg.FlushTimeout <= 0 {
 		cfg.FlushTimeout = defaultFlushTimeout
 	}
-	return &Client{cfg: cfg, log: newLogger(log), activity: make(chan Activity, 1), connCh: make(chan string, 1),
+	return &Client{cfg: cfg, log: newLogger(log), activity: make(chan Activity, 1), connCh: make(chan string, 1), gates: make(chan GateResult, gateBuffer),
 		events: newEventBuf(newStreamID(), cfg.EventBufferEvents, cfg.EventBufferBytes)}
 }
 
@@ -105,6 +106,18 @@ func (c *Client) ConnectorApplied(fp string) {
 		case c.connCh <- fp:
 		default:
 		}
+	}
+}
+
+// GateResult implements Handle: it queues a gate's result for the stream,
+// never blocking. A result that finds the queue full, or is lost with a
+// dropped stream, is not retried: Jam resolves a gate with no result as
+// failed after its grace period.
+func (c *Client) GateResult(g GateResult) {
+	select {
+	case c.gates <- g:
+	default:
+		c.log.Warn("gate result dropped: queue full", "run", g.RunID)
 	}
 }
 
@@ -292,6 +305,10 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			if err := stream.Send(connectorMsg(fp)); err != nil {
 				return classify(ctx, err, recvErr)
 			}
+		case g := <-c.gates:
+			if err := stream.Send(gateResultMsg(g)); err != nil {
+				return classify(ctx, err, recvErr)
+			}
 		case <-c.events.notify:
 			if err := sendEvents(); err != nil {
 				return classify(ctx, err, recvErr)
@@ -320,18 +337,14 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 			}
 			return outcome{kind: stopDone}
 		case cd := <-controlCh:
-			switch m := cd.GetMsg().(type) {
-			case *attachpb.ControlDown_Teardown:
-				w.Control(Control{Kind: Teardown})
-				return outcome{kind: stopTeardown}
-			case *attachpb.ControlDown_Wake:
-				var rs []WakeReason
-				for _, r := range m.Wake.GetReasons() {
-					rs = append(rs, WakeReason{Kind: r.GetKind(), Alarm: r.GetAlarm(), Note: r.GetNote(), Detail: r.GetDetail()})
-				}
-				w.Control(Control{Kind: Wake, Reasons: rs})
-			default:
+			ctl, ok := controlFromPB(cd)
+			if !ok {
 				c.log.Info("ignoring unsupported control message") // TierChanged/RotateToken (reserved)
+				continue
+			}
+			w.Control(ctl)
+			if ctl.Kind == Teardown {
+				return outcome{kind: stopTeardown}
 			}
 		case err := <-recvErr:
 			return classify(ctx, err, nil)

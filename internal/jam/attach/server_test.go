@@ -1,10 +1,12 @@
 package attach
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -384,5 +386,98 @@ func TestAttachRecordsConnector(t *testing.T) {
 	if !eventually(func() bool { i, ok := store.GetInstance("w1"); return ok && i.Connector == "fp-1" }) {
 		i, _ := store.GetInstance("w1")
 		t.Fatalf("connector not recorded: %+v", i)
+	}
+}
+
+func TestRunGateDelivery(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Heartbeat{Heartbeat: &attachpb.Heartbeat{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { return srv.connected("w1") }) {
+		t.Fatal("stream never registered")
+	}
+	srv.RunGate("w1", "r1", "ci", "gh run view --exit-status", time.Minute)
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := msg.GetGate()
+	if g == nil || g.GetRunId() != "r1" || g.GetAlarm() != "ci" || g.GetCommand() != "gh run view --exit-status" || g.GetTimeoutS() != 60 {
+		t.Fatalf("got %+v", msg)
+	}
+}
+
+func TestGateResultResolves(t *testing.T) {
+	store, sup, srv, dial, tok, secret := harness(t)
+	if _, err := sup.SetAlarm("w1", "ci", "@every 1m", "CI changed", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", jam.ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := sup.StartGate("w1", "ci", "r1", time.Now().Add(2*time.Minute)); !ok || err != nil {
+		t.Fatalf("start gate: %v %v", ok, err)
+	}
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Gate{Gate: &attachpb.GateResult{RunId: "r1", Exit: 0, Output: []byte("ok")}}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = srv
+	if !eventually(func() bool {
+		inst, _ := store.GetInstance("w1")
+		return len(inst.Alarms) == 1 && inst.Alarms[0].FireKind == jam.WakeAlarm && inst.Alarms[0].FireDetail == "ok"
+	}) {
+		inst, _ := store.GetInstance("w1")
+		t.Fatalf("alarm not resolved: %+v", inst.Alarms)
+	}
+}
+
+// Jam re-sanitizes and re-caps a cove's gate output: NUL would make the
+// Postgres store reject the instance, and a modified client could send MBs.
+func TestGateResultSanitized(t *testing.T) {
+	store, sup, _, dial, tok, secret := harness(t)
+	if _, err := sup.SetAlarm("w1", "ci", "@every 1m", "", "true"); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", jam.ActivityWaiting)
+	if _, ok, _ := sup.StartGate("w1", "ci", "r1", time.Now().Add(2*time.Minute)); !ok {
+		t.Fatal("gate not started")
+	}
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := append([]byte("a\x00b"), bytes.Repeat([]byte("x"), 100000)...)
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Gate{Gate: &attachpb.GateResult{RunId: "r1", Exit: 0, Output: big}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { inst, _ := store.GetInstance("w1"); return inst.Alarms[0].FireKind == jam.WakeAlarm }) {
+		t.Fatal("not resolved")
+	}
+	inst, _ := store.GetInstance("w1")
+	d := inst.Alarms[0].FireDetail
+	if strings.ContainsRune(d, 0) || len(d) > 4096+64 || !strings.HasSuffix(d, "[output truncated]") {
+		t.Fatalf("detail len=%d nul=%v suffix=%v", len(d), strings.ContainsRune(d, 0), strings.HasSuffix(d, "[output truncated]"))
+	}
+}
+
+func TestServerConnected(t *testing.T) {
+	_, _, srv, _, _, _ := harness(t)
+	if srv.Connected("w1") {
+		t.Fatal("connected with no stream")
 	}
 }
