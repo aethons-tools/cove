@@ -34,6 +34,7 @@ const (
 	Activity_WAITING              Activity = 2
 	Activity_BLOCKED              Activity = 3
 	Activity_DONE                 Activity = 4
+	Activity_HOLDING              Activity = 5 // turn ended, background tasks outstanding: wakeable, never paused
 )
 
 // Enum value maps for Activity.
@@ -44,6 +45,7 @@ var (
 		2: "WAITING",
 		3: "BLOCKED",
 		4: "DONE",
+		5: "HOLDING",
 	}
 	Activity_value = map[string]int32{
 		"ACTIVITY_UNSPECIFIED": 0,
@@ -51,6 +53,7 @@ var (
 		"WAITING":              2,
 		"BLOCKED":              3,
 		"DONE":                 4,
+		"HOLDING":              5,
 	}
 )
 
@@ -546,8 +549,11 @@ func (x *EventAck) GetSeq() uint64 {
 	return 0
 }
 
+// Wake asks the cove to start (or resume) a turn. reasons says why; empty from
+// an older Jam (the cove then uses its generic resume prompt).
 type Wake struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reasons       []*WakeReason          `protobuf:"bytes,1,rep,name=reasons,proto3" json:"reasons,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -582,6 +588,83 @@ func (*Wake) Descriptor() ([]byte, []int) {
 	return file_attach_proto_rawDescGZIP(), []int{6}
 }
 
+func (x *Wake) GetReasons() []*WakeReason {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+// WakeReason is one cause of a Wake. kind: squawk | alarm | gate-failed | idle |
+// context-changed (unknown kinds are rendered generically).
+type WakeReason struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Alarm         string                 `protobuf:"bytes,2,opt,name=alarm,proto3" json:"alarm,omitempty"`   // alarm name (alarm, gate-failed)
+	Note          string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`     // the alarm's note
+	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"` // free text: gate stdout, failure cause, …
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WakeReason) Reset() {
+	*x = WakeReason{}
+	mi := &file_attach_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WakeReason) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WakeReason) ProtoMessage() {}
+
+func (x *WakeReason) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WakeReason.ProtoReflect.Descriptor instead.
+func (*WakeReason) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WakeReason) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *WakeReason) GetAlarm() string {
+	if x != nil {
+		return x.Alarm
+	}
+	return ""
+}
+
+func (x *WakeReason) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *WakeReason) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 type Teardown struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -591,7 +674,7 @@ type Teardown struct {
 
 func (x *Teardown) Reset() {
 	*x = Teardown{}
-	mi := &file_attach_proto_msgTypes[7]
+	mi := &file_attach_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -603,7 +686,7 @@ func (x *Teardown) String() string {
 func (*Teardown) ProtoMessage() {}
 
 func (x *Teardown) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[7]
+	mi := &file_attach_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -616,7 +699,7 @@ func (x *Teardown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Teardown.ProtoReflect.Descriptor instead.
 func (*Teardown) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{7}
+	return file_attach_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Teardown) GetReason() string {
@@ -635,7 +718,7 @@ type TierChanged struct {
 
 func (x *TierChanged) Reset() {
 	*x = TierChanged{}
-	mi := &file_attach_proto_msgTypes[8]
+	mi := &file_attach_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -647,7 +730,7 @@ func (x *TierChanged) String() string {
 func (*TierChanged) ProtoMessage() {}
 
 func (x *TierChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[8]
+	mi := &file_attach_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -660,7 +743,7 @@ func (x *TierChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TierChanged.ProtoReflect.Descriptor instead.
 func (*TierChanged) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{8}
+	return file_attach_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *TierChanged) GetTier() int32 {
@@ -679,7 +762,7 @@ type RotateToken struct {
 
 func (x *RotateToken) Reset() {
 	*x = RotateToken{}
-	mi := &file_attach_proto_msgTypes[9]
+	mi := &file_attach_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -691,7 +774,7 @@ func (x *RotateToken) String() string {
 func (*RotateToken) ProtoMessage() {}
 
 func (x *RotateToken) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[9]
+	mi := &file_attach_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -704,7 +787,7 @@ func (x *RotateToken) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateToken.ProtoReflect.Descriptor instead.
 func (*RotateToken) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{9}
+	return file_attach_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RotateToken) GetToken() string {
@@ -744,20 +827,28 @@ const file_attach_proto_rawDesc = "" +
 	"\x03msg\"9\n" +
 	"\bEventAck\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x04R\x03seq\"\x06\n" +
-	"\x04Wake\"\"\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\">\n" +
+	"\x04Wake\x126\n" +
+	"\areasons\x18\x01 \x03(\v2\x1c.harbor.attach.v1.WakeReasonR\areasons\"b\n" +
+	"\n" +
+	"WakeReason\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05alarm\x18\x02 \x01(\tR\x05alarm\x12\x12\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\"\"\n" +
 	"\bTeardown\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"!\n" +
 	"\vTierChanged\x12\x12\n" +
 	"\x04tier\x18\x01 \x01(\x05R\x04tier\"#\n" +
 	"\vRotateToken\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token*U\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token*b\n" +
 	"\bActivity\x12\x18\n" +
 	"\x14ACTIVITY_UNSPECIFIED\x10\x00\x12\v\n" +
 	"\aRUNNING\x10\x01\x12\v\n" +
 	"\aWAITING\x10\x02\x12\v\n" +
 	"\aBLOCKED\x10\x03\x12\b\n" +
-	"\x04DONE\x10\x042R\n" +
+	"\x04DONE\x10\x04\x12\v\n" +
+	"\aHOLDING\x10\x052R\n" +
 	"\aRuntime\x12G\n" +
 	"\x06Attach\x12\x1a.harbor.attach.v1.StatusUp\x1a\x1d.harbor.attach.v1.ControlDown(\x010\x01B<Z:github.com/aethons-tools/cove/internal/jam/attach/attachpbb\x06proto3"
 
@@ -774,7 +865,7 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_attach_proto_goTypes = []any{
 	(Activity)(0),            // 0: harbor.attach.v1.Activity
 	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
@@ -784,9 +875,10 @@ var file_attach_proto_goTypes = []any{
 	(*ControlDown)(nil),      // 5: harbor.attach.v1.ControlDown
 	(*EventAck)(nil),         // 6: harbor.attach.v1.EventAck
 	(*Wake)(nil),             // 7: harbor.attach.v1.Wake
-	(*Teardown)(nil),         // 8: harbor.attach.v1.Teardown
-	(*TierChanged)(nil),      // 9: harbor.attach.v1.TierChanged
-	(*RotateToken)(nil),      // 10: harbor.attach.v1.RotateToken
+	(*WakeReason)(nil),       // 8: harbor.attach.v1.WakeReason
+	(*Teardown)(nil),         // 9: harbor.attach.v1.Teardown
+	(*TierChanged)(nil),      // 10: harbor.attach.v1.TierChanged
+	(*RotateToken)(nil),      // 11: harbor.attach.v1.RotateToken
 }
 var file_attach_proto_depIdxs = []int32{
 	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
@@ -794,17 +886,18 @@ var file_attach_proto_depIdxs = []int32{
 	3,  // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
 	2,  // 3: harbor.attach.v1.StatusUp.connector:type_name -> harbor.attach.v1.ConnectorApplied
 	7,  // 4: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
-	8,  // 5: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
-	9,  // 6: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
-	10, // 7: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
+	9,  // 5: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
+	10, // 6: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
+	11, // 7: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
 	6,  // 8: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
-	1,  // 9: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	5,  // 10: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	10, // [10:11] is the sub-list for method output_type
-	9,  // [9:10] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	8,  // 9: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
+	1,  // 10: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	5,  // 11: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	11, // [11:12] is the sub-list for method output_type
+	10, // [10:11] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -831,7 +924,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -866,8 +866,8 @@ type fakeSink struct {
 	wakes     []string
 }
 
-func (f *fakeSink) RequestTeardown(id string) { f.teardowns = append(f.teardowns, id) }
-func (f *fakeSink) Wake(id string)            { f.wakes = append(f.wakes, id) }
+func (f *fakeSink) RequestTeardown(id string)       { f.teardowns = append(f.teardowns, id) }
+func (f *fakeSink) Wake(id string, _ ...WakeReason) { f.wakes = append(f.wakes, id) }
 
 // fakeReleaser records RecordRelease calls for assertions (the actual-state-out
 // half of the Supervisor↔Allocator seam).
@@ -1539,5 +1539,31 @@ func TestRaiseResolvesKitOnce(t *testing.T) {
 	}
 	if counted.reads != 1 {
 		t.Fatalf("kit registry read %d times in one raise, want 1", counted.reads)
+	}
+}
+
+// holding → running is the same run resuming (a delivered Wake or a background
+// task's self-started turn), not a new run: WaitSeq must not jump past a reply
+// that landed while holding and has not been woken for yet.
+func TestReportHoldingToRunningKeepsWaitSeq(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	tail := &fakeTailReader{seq: 2, ok: true}
+	sup.SetTailReader(tail)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", ActivityHolding); err != nil {
+		t.Fatal(err)
+	}
+	tail.seq = 5 // a reply landed while holding
+	if err := sup.Report(context.Background(), "w1", ActivityRunning); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	if inst.WaitSeq != 2 {
+		t.Fatalf("WaitSeq = %d, want 2 (holding→running keeps the baseline)", inst.WaitSeq)
+	}
+	if !inst.WaitingSince.IsZero() {
+		t.Fatal("holding must not stamp WaitingSince")
 	}
 }

@@ -228,14 +228,25 @@ func TestWakeDelivery(t *testing.T) {
 		t.Fatal("stream never registered")
 	}
 
-	srv.Wake("w1")
+	srv.Wake("w1", jam.WakeReason{Kind: jam.WakeSquawk})
 
 	msg, err := stream.Recv()
 	if err != nil {
 		t.Fatalf("Recv failed: %v", err)
 	}
-	if _, ok := msg.GetMsg().(*attachpb.ControlDown_Wake); !ok {
+	wk, ok := msg.GetMsg().(*attachpb.ControlDown_Wake)
+	if !ok {
 		t.Fatalf("expected ControlDown_Wake, got %T", msg.GetMsg())
+	}
+	if rs := wk.Wake.GetReasons(); len(rs) != 1 || rs[0].GetKind() != "squawk" {
+		t.Fatalf("wake reasons = %v, want [squawk]", rs)
+	}
+}
+
+func TestFromPBActivityHolding(t *testing.T) {
+	got, ok := fromPBActivity(attachpb.Activity_HOLDING)
+	if !ok || got != jam.ActivityHolding {
+		t.Fatalf("fromPBActivity(HOLDING) = %q, %v; want holding, true", got, ok)
 	}
 }
 

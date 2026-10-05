@@ -222,8 +222,12 @@ func (s *Server) enqueue(actorID string, cd *attachpb.ControlDown) {
 func (s *Server) RequestTeardown(actorID string) {
 	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Teardown{Teardown: &attachpb.Teardown{}}})
 }
-func (s *Server) Wake(actorID string) {
-	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Wake{Wake: &attachpb.Wake{}}})
+func (s *Server) Wake(actorID string, reasons ...jam.WakeReason) {
+	pb := make([]*attachpb.WakeReason, 0, len(reasons))
+	for _, r := range reasons {
+		pb = append(pb, &attachpb.WakeReason{Kind: r.Kind, Alarm: r.Alarm, Note: r.Note, Detail: r.Detail})
+	}
+	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Wake{Wake: &attachpb.Wake{Reasons: pb}}})
 }
 
 // connected reports whether a live Attach stream is registered for actorID.
@@ -244,6 +248,8 @@ func fromPBActivity(a attachpb.Activity) (jam.Activity, bool) {
 		return jam.ActivityBlocked, true
 	case attachpb.Activity_DONE:
 		return jam.ActivityDone, true
+	case attachpb.Activity_HOLDING:
+		return jam.ActivityHolding, true
 	}
 	return "", false
 }

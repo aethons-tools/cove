@@ -32,8 +32,10 @@ two status fields with different owners:
   lease-reaping suspended — and back `→ live` on reply or teardown past
   `wait-max`; see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
-- **Activity** (the studio reports it, only while `live`): `running | waiting |
-  blocked | done`. Reporting `done` tells Jam to tear the studio down.
+- **Activity** (the studio reports it, only while `live`): `running | holding |
+  waiting | blocked | done`. Reporting `done` tells Jam to tear the studio down.
+  `holding` means the turn ended but background tasks are still running — see
+  [turn-end.md](turn-end.md#holding).
 
 Each Instance is **leased** to the Jam process supervising it. A lease has a
 TTL; the owner renews it, and if it expires another process may take over

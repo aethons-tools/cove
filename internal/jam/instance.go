@@ -26,6 +26,7 @@ const (
 	ActivityWaiting Activity = "waiting"
 	ActivityBlocked Activity = "blocked"
 	ActivityDone    Activity = "done"
+	ActivityHolding Activity = "holding" // turn ended, background tasks outstanding: wakeable, never paused or reaped
 )
 
 // Lease records which Jam process owns an Instance and until when. Past

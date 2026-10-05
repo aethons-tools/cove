@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -243,5 +244,46 @@ func TestEventsEndToEndWithRealAttachServer(t *testing.T) {
 	}
 	if time.Since(start) > 3*time.Second {
 		t.Fatal("Done waited for the flush timeout — real server did not ack")
+	}
+}
+
+func TestClientDecodesWakeReasons(t *testing.T) {
+	_, srv, dial, tok, secret := serverHarness(t)
+	w := &blockWorkload{first: Running, controls: make(chan Control, 4)}
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, w)
+	time.Sleep(100 * time.Millisecond) // attached (as TestClientTeardownFromServer)
+	srv.Wake("w1", jam.WakeReason{Kind: jam.WakeSquawk}, jam.WakeReason{Kind: jam.WakeAlarm, Alarm: "pr-watch", Note: "check the PR"})
+	select {
+	case got := <-w.controls:
+		want := Control{Kind: Wake, Reasons: []WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "pr-watch", Note: "check the PR"}}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("control = %+v, want %+v", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no Wake control delivered")
+	}
+}
+
+// End to end: a Holding report lands on the instance as jam.ActivityHolding.
+func TestClientReportsHolding(t *testing.T) {
+	store, _, dial, tok, secret := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 20 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, &blockWorkload{first: Holding, controls: make(chan Control, 4)})
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Activity == jam.ActivityHolding }) {
+		inst, _ := store.GetInstance("w1")
+		t.Fatalf("activity never reached holding: %+v", inst)
+	}
+}
+
+func TestToPBActivityHolding(t *testing.T) {
+	if got := toPBActivity(Holding); got != attachpb.Activity_HOLDING {
+		t.Fatalf("toPBActivity(Holding) = %v", got)
 	}
 }

@@ -19,7 +19,9 @@ import (
 )
 
 type Registry interface{ ListInstances() []jam.Instance }
-type Waker interface{ Wake(actorID string) }
+type Waker interface {
+	Wake(actorID string, reasons ...jam.WakeReason)
+}
 type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }
@@ -146,7 +148,9 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if inst.Activity == jam.ActivityRunning {
+		if inst.Activity == jam.ActivityRunning || inst.Activity == jam.ActivityHolding {
+			// holding (turn over, background tasks running) is woken like running
+			// and, like running, never paused or reaped here.
 			e.wakeRunning(inst)
 			continue
 		}
@@ -178,7 +182,7 @@ func (e *Engine) tick(ctx context.Context) {
 				continue
 			}
 			e.log.Info("wakeon: reply detected, waking", "actor", inst.ActorID)
-			e.wake.Wake(inst.ActorID)
+			e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
 			continue
 		}
 		// no reply. The idle ladder is personal-only: a standing session has no
@@ -194,7 +198,7 @@ func (e *Engine) tick(ctx context.Context) {
 	}
 }
 
-// wakeRunning Wakes a Live, Running cove that has replies past its baseline and
+// wakeRunning Wakes a Live, Running or Holding cove that has replies past its baseline and
 // advances the baseline past them (see SetRunningWake). A failed advance is
 // logged; the next tick then wakes again, which the cove coalesces.
 func (e *Engine) wakeRunning(inst jam.Instance) {
@@ -210,7 +214,7 @@ func (e *Engine) wakeRunning(inst jam.Instance) {
 		last = max(last, m.Seq)
 	}
 	e.log.Info("wakeon: reply to a running cove, waking", "actor", inst.ActorID)
-	e.wake.Wake(inst.ActorID)
+	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
 	if err := e.cursor.SetWaitSeq(inst.ActorID, last); err != nil {
 		e.log.Warn("wakeon: advance wait baseline failed", "actor", inst.ActorID, "error", err.Error())
 	}
