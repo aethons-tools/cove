@@ -182,3 +182,33 @@ func TestDestinationDetailShowsNote(t *testing.T) {
 		}
 	}
 }
+
+// The selects offer the raw preset; a custom spec is shown read-only and an
+// edit that keeps "custom" keeps the stored spec (the form can't edit it).
+func TestDestinationHeaderSpecsInUI(t *testing.T) {
+	store := newStore(t)
+	spec := &jam.OutboundSpec{Header: "Private-Token", Template: "{cred}"}
+	if err := store.AddDestination(jam.Destination{Name: "gl", Route: "/gl/", Upstream: "https://gitlab.example",
+		IdentityIn: jam.ApplyRaw, Apply: jam.ApplyCustom, ApplySpec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	body := get(t, h, "/ui/destinations/gl").Body.String()
+	for _, want := range []string{`<option value="raw" selected>`, `<option value="custom" selected>`, "Private-Token"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail page missing %q", want)
+		}
+	}
+	if list := get(t, h, "/ui/destinations").Body.String(); !strings.Contains(list, `<option value="raw">`) || strings.Contains(list, `value="custom"`) {
+		t.Error("create form should offer raw and not custom")
+	}
+	rec := post(t, h, "/ui/destinations/gl", url.Values{
+		"route": {"/gl/"}, "upstream": {"https://gitlab.example"}, "identity-in": {"raw"}, "apply": {"custom"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit = %d: %s", rec.Code, rec.Body.String())
+	}
+	if d := store.ListDestinations()[0]; d.ApplySpec == nil || *d.ApplySpec != *spec {
+		t.Fatalf("custom spec dropped: %+v", d)
+	}
+}

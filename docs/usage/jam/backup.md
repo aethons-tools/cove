@@ -21,9 +21,13 @@ control-plane aggregates:
 - the **Jam-wide session context**
 
 Import applies the admin API's authoring rules to session context (layer budgets,
-leaf names, resources), destination notes and model-spec structure (credential
+leaf names, resources), destination notes and
+[header specs](header-specs.md), and model-spec structure (credential
 names are not checked — they are serve-config, not backup, state); a snapshot
-that breaks them is refused with 400 and nothing is written.
+that breaks them is refused with 400 and nothing is written. Older Jams didn't
+check `identity_in`/`apply`, so a backup may hold a value this Jam doesn't
+know: the error names the destination and field — fix it in the file
+(a preset, or `custom` plus a spec) and re-import.
 
 They deliberately **exclude** runtime/studio state (raised instances), intercom
 unread cursors, the intercom squawk log, and allocator events. A backup restores

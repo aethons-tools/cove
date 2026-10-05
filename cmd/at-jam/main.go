@@ -308,9 +308,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	fs.StringVar(&d.Route, "route", "", "inbound path prefix, e.g. /git/")
 	fs.StringVar(&d.Upstream, "upstream", "", "upstream base URL")
 	var identityIn, apply string
-	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key")
+	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
 	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
-	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key")
+	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
 	fs.BoolVar(&d.OAuthBeta, "oauth-beta", false, "add the oauth-2025-04-20 anthropic-beta on forwarded requests (subscription pool)")
 	var envKV []string
 	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {

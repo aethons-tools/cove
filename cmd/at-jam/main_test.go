@@ -1418,6 +1418,50 @@ func TestDestinationAddEnvAndGit(t *testing.T) {
 	}
 }
 
+// --identity-in/--apply take preset names (incl. raw); a custom header spec
+// comes in through `destination import` YAML.
+func TestDestinationRawPresetAndCustomSpecImport(t *testing.T) {
+	store := jam.NewMemStore()
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "linear", "--route", "/linear/", "--upstream", "https://api.linear.app",
+		"--identity-in", "raw", "--apply", "raw"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("destination add raw: exit=%d stderr=%s", code, errb.String())
+	}
+	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "bad", "--route", "/bad/", "--upstream", "https://x",
+		"--apply", "custom"}, getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "apply_spec") {
+		t.Fatalf("custom without spec: exit=%d stderr=%s", code, errb.String())
+	}
+	f := filepath.Join(t.TempDir(), "d.yaml")
+	if err := os.WriteFile(f, []byte(`destinations:
+  - name: gl
+    route: /gl/
+    upstream: https://gitlab.example
+    identity_in: custom
+    identity_in_spec: {header: Private-Token}
+    apply: custom
+    apply_spec: {header: Private-Token, template: "{cred}"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"destination", "import", "--admin-url", ts.URL, f}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("destination import: exit=%d stderr=%s", code, errb.String())
+	}
+	got := map[string]jam.Destination{}
+	for _, d := range store.ListDestinations() {
+		got[d.Name] = d
+	}
+	if got["linear"].Apply != jam.ApplyRaw || got["linear"].IdentityIn != jam.ApplyRaw {
+		t.Fatalf("linear = %+v", got["linear"])
+	}
+	if gl := got["gl"]; gl.ApplySpec == nil || gl.ApplySpec.Header != "Private-Token" || gl.IdentityInSpec == nil {
+		t.Fatalf("gl = %+v", gl)
+	}
+}
+
 // An older Jam returns no connector with the enrollment: the CLI falls back to
 // the legacy Anthropic + git snippet.
 func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {

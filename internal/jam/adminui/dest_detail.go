@@ -11,8 +11,11 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// methods are the ApplyMethod choices for identity-in / apply selects.
-var methods = []jam.ApplyMethod{jam.ApplyBearer, jam.ApplyBasicPassword, jam.ApplyXAPIKey}
+// methods are the ApplyMethod choices for identity-in / apply selects: the
+// presets. "custom" is offered (selected) only on a destination that already
+// uses it — custom specs are set via the admin API / `destination import` and
+// shown read-only here.
+var methods = jam.Presets
 
 // destListRow is one destinations-table row.
 type destListRow struct {
@@ -265,7 +268,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		d, err := destFromForm(r, r.PathValue("name"))
 		if err == nil {
-			err = jam.UpdateDestination(store, d, credExists)
+			err = jam.UpdateDestinationKeepSpecs(store, d, credExists) // the form can't edit custom specs: keep them
 		}
 		if err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
