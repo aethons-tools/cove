@@ -85,4 +85,9 @@ type Store interface {
 	// session-context layer; an empty layer clears it.
 	GetJamContext() sessionctx.Layer
 	SetJamContext(l sessionctx.Layer) error
+	// ModelSpecSchema / SetModelSpecSchema read and record which one-time
+	// model-spec store migrations have run (ModelSpecSchemaVersion; 0 = none,
+	// a store written before COV-242). See MigrateModelSpecs.
+	ModelSpecSchema() int
+	SetModelSpecSchema(v int) error
 }

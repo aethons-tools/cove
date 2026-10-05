@@ -14,7 +14,7 @@ which harness (and CLI version), which principal it authenticates as, which mode
 and which permission policy. Every **role** resolves to one (unbound = `claude-default`);
 Jam delivers the resolved spec to each of the role's coves, which apply it at their
 next episode — except its harness CLI `version` and `claude.plugins`, which are
-[built into the image](#the-harness-layer-what-a-spec-builds). The permission
+[built into the image](model-spec-harness.md). The permission
 policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md).
 
 ## Schema
@@ -62,7 +62,7 @@ is a 400 naming the field, and nothing is stored.
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
 | `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS` — the same list a kit's `model-provider` env obeys); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
-| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); and the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers). |
+| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); and `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them). |
 | `claude.plugins` | No empty or duplicate entries; each `name@marketplace`, both halves `[A-Za-z0-9._-]` (they reach a build `RUN` line), and the marketplace a known one (today only `claude-plugins-official` → `anthropics/claude-plugins-official`; adding one is a code change). |
 
 **No secrets in a model-spec.** Credentials appear by name only (`principal`);
@@ -98,35 +98,22 @@ cannot be deleted (409 naming the role).
 
 **`claude-default`** is seeded at `at-jam serve` startup when absent (an
 operator's edits to it are kept): type `claude`, provider `anthropic`,
-`policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` (one
-Renovate-bumped constant, also the harness of every full `config.yml` kit) with
+`policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` with
 no separate constraint, plugins `[superpowers@claude-plugins-official]`, no
-model/effort/settings — exactly how coves ran before model-specs. Its principal is `pool` when a
+model/effort/settings — exactly how coves ran before model-specs.
+`DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
+seeds, every full `config.yml` kit's harness, and raises that deliver no spec —
+**not** a `claude-default` already stored. Bump that one yourself
+(`at-jam model-spec show claude-default > s.yaml`, edit `version`,
+`at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
 [`pool:`](pool.md) is configured, else the `cred_name` of the destination named
 `anthropic` (or else routed at `/anthropic/`). With neither, nothing is seeded
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves
 keep the built-in defaults, with no version check.
 
-**Migration (COV-242).** At `at-jam serve` startup, and on a config
-[import](backup.md), a spec stored before the version split — `version` holding a
-constraint — is upgraded: the old value moves to `version-constraint` and
-`version` becomes `DefaultClaudeVersion`; a spec with no `claude.plugins` gets
-claude-default's (every image carried them before), so its coves keep them. The
-untouched legacy seed (`>=2.0.0`) becomes exactly a fresh seed. A spec already on
-an exact version is left as is.
-
-## The harness layer: what a spec builds
-
-A spec's `type`, `version` and `claude.plugins` are **build inputs**: the image's
-harness layer, between the kit base and the sealed hardening
-([OVERVIEW](../../OVERVIEW.md#how-the-build-context-is-assembled)), installs the
-CLI with the native installer at exactly `version` and pre-seeds the plugins
-(marketplace added, plugins installed at build, folded into `/agent-data`). The
-raise resolves the role's spec **before** the kit image, whose build-digest
-includes them ([kits.md](kits.md)) — so changing `version` or `plugins` builds a
-new image at each role's next raise, and a running cove keeps its image. No
-spec delivered = claude-default's install. The managed settings'
-`enabledPlugins` is still image-wide for now (COV-245).
+What a spec's `version` and `plugins` build into the image, and the one-time
+migration of specs stored before the version split, are in
+[model-spec-harness.md](model-spec-harness.md).
 
 ## What a cove applies
 
@@ -151,11 +138,11 @@ rebuild the image or change the spec's version / version-constraint`). Then each
 | `model.effort` | `--effort LEVEL` (Claude Code's flag; `low`…`max`) |
 | `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1`; `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
 | `claude.provider-env` | set in the agent env — never over a key the connector sets (routing and identity stay Jam's) |
-| `claude.settings` | written to `/dev/shm/cove-agent-settings.json`, passed as `--settings` (only when non-empty) |
+| `claude.settings` + `claude.plugins` | written to `/dev/shm/cove-agent-settings.json` — the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces — passed as `--settings` (only when either is non-empty) |
 | `policy` | permission flags — see [model-spec-policy.md](model-spec-policy.md) |
 
-`claude.plugins` are not applied per episode — the [harness layer](#the-harness-layer-what-a-spec-builds)
-installed them. **Not applied yet:** `principal` on the cove side — the broker
+`claude.plugins` are *installed* by the [harness layer](model-spec-harness.md),
+not per episode. **Not applied yet:** `principal` on the cove side — the broker
 resolves the credential. A Jam predating model-specs delivers none: no check,
 built-in defaults.
 

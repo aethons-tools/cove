@@ -1,6 +1,7 @@
 package harnessinstall
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,7 +50,7 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 	seed := filepath.Join(dir, "seed")
 
 	cmd := exec.Command("bash", "payload/claude/seed-plugins.sh",
-		"-m", "anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
+		"-m", "claude-plugins-official=anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"COVE_PLUGIN_BUILD_CFG="+buildCfg,
@@ -86,6 +87,57 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 	// The throwaway build config dir is cleaned up.
 	if _, err := os.Stat(buildCfg); !os.IsNotExist(err) {
 		t.Fatalf("build config dir not cleaned up (stat err = %v)", err)
+	}
+}
+
+// The seed enables what it installed in the first-boot user settings
+// (/agent-data/settings.json), merged over the base image's seeded settings —
+// so interactive sessions (no per-run --settings) get exactly the harness
+// layer's plugins, with their marketplace declared. It never reads the sealed
+// managed settings, which no longer enable any plugin (COV-242).
+func TestSeedPluginsEnablesInSeedSettings(t *testing.T) {
+	requireBash(t)
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not available")
+	}
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	mustWrite(t, filepath.Join(binDir, "claude"), fakeClaude)
+	if err := os.Chmod(filepath.Join(binDir, "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(dir, "seed")
+	mustWrite(t, filepath.Join(seed, "settings.json"), `{"theme": "dark", "enabledPlugins": {"old@x": true}}`)
+	cmd := exec.Command("bash", "payload/claude/seed-plugins.sh",
+		"-m", "claude-plugins-official=anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"COVE_PLUGIN_BUILD_CFG="+filepath.Join(dir, "buildcfg"),
+		"COVE_PLUGIN_SEED="+seed,
+		"COVE_PLUGIN_RUN_AS=",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("seed-plugins.sh failed: %v\n%s", err, out)
+	}
+	var got struct {
+		Theme                  string          `json:"theme"`
+		EnabledPlugins         map[string]bool `json:"enabledPlugins"`
+		ExtraKnownMarketplaces map[string]struct {
+			Source struct{ Source, Repo string } `json:"source"`
+		} `json:"extraKnownMarketplaces"`
+	}
+	raw := read(t, filepath.Join(seed, "settings.json"))
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("seed settings.json: %v\n%s", err, raw)
+	}
+	m := got.ExtraKnownMarketplaces["claude-plugins-official"]
+	if got.Theme != "dark" || len(got.EnabledPlugins) != 1 || !got.EnabledPlugins["superpowers@claude-plugins-official"] ||
+		m.Source.Source != "github" || m.Source.Repo != "anthropics/claude-plugins-official" {
+		t.Fatalf("seed settings.json = %s", raw)
+	}
+	script := read(t, "payload/claude/seed-plugins.sh")
+	if strings.Contains(script, "managed-settings") {
+		t.Fatal("seed-plugins.sh must not read the sealed managed settings")
 	}
 }
 

@@ -1600,14 +1600,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
 	}
-	// Upgrade model-specs stored before the version split (COV-242): a legacy
-	// constraint in `version` moves to `version-constraint`, and `version` gets
-	// the pinned modelspec.DefaultClaudeVersion. Before seeding, so an untouched
-	// legacy claude-default is migrated rather than kept.
-	if migrated, err := jam.MigrateModelSpecs(st); err != nil {
-		log.Warn("model-spec version migration incomplete", "migrated", migrated, "reason", err.Error())
-	} else if len(migrated) > 0 {
-		log.Info("model-specs migrated to an exact version pin", "names", migrated, "version", modelspec.DefaultClaudeVersion)
+	// The one-time model-spec store migration (COV-242), before seeding: every
+	// spec stored before the version split gets an exact version pin (a legacy
+	// range kept as version-constraint when it admits the pin), unknown-
+	// marketplace plugins dropped, and the image-wide default plugins when it
+	// has none. Each loss is a WARN naming the spec. A no-op once recorded.
+	mig, err := jam.MigrateModelSpecs(st)
+	for _, w := range mig.Warnings {
+		log.Warn("model-spec migration", "detail", w)
+	}
+	if err != nil {
+		log.Warn("model-spec migration incomplete (retried next startup)", "migrated", mig.Migrated, "reason", err.Error())
+	} else if len(mig.Migrated) > 0 {
+		log.Info("model-specs migrated (COV-242)", "names", mig.Migrated, "default_version", modelspec.DefaultClaudeVersion)
 	}
 	// Seed the default model-spec every unbound role resolves to. Not fatal when
 	// no principal resolves: unbound roles then deliver no spec and their coves

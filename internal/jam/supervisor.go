@@ -230,8 +230,14 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// resolves it against its prepared-kit inventory. A role that names a kit uses
 	// a managed variant of it; otherwise the default managed kit (nil = legacy
 	// static-image path). Fail closed on a bad role.Kit, rolling back the identity.
+	//
+	// The image is keyed on the role's model-spec too (the harness layer: CLI
+	// version + plugins), resolved above with the connector, so the kit is
+	// resolved — parsed and hashed once — for that harness; the one definition
+	// serves the image key, the session context and a PrepareKit.
+	var def *KitDefinition
 	if roleOK {
-		ref, have, kerr := s.kitRefFor(role)
+		d, have, kerr := s.kitFor(role, harnessFor(spec))
 		if kerr != nil {
 			if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
 				s.log.Warn("raise rollback: failed to revoke identity after kit resolve failure", "id", spec.ActorID, "error", rmErr)
@@ -239,18 +245,10 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			return Instance{}, "", "", fmt.Errorf("raise: resolve kit for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, kerr)
 		}
 		if have {
-			// The image is keyed on the role's model-spec too (the harness
-			// layer: CLI version + plugins), resolved above with the connector.
-			if ref, kerr = HarnessKitRef(s.store, ref, harnessFor(spec)); kerr != nil {
-				if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
-					s.log.Warn("raise rollback: failed to revoke identity after kit resolve failure", "id", spec.ActorID, "error", rmErr)
-				}
-				return Instance{}, "", "", fmt.Errorf("raise: resolve kit for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, kerr)
-			}
-			spec.Kit = ref
+			spec.Kit, def = d.Ref, &d
 		}
 	}
-	bundle := s.compileContext(spec, actor, spec.Kit)
+	bundle := s.compileContext(spec, actor, spec.Kit, def)
 	// Warnings are logged once, here — not on every GET /context refresh.
 	for _, w := range bundle.Warnings {
 		if s.log != nil {
@@ -262,9 +260,10 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	loc, err := s.launcher.Raise(ctx, spec, creds)
 	if errors.Is(err, ErrKitNotReady) {
 		// The launcher lacks this kit: send it the full definition (from the
-		// registry) and retry once. A still-preparing build does not block — the
-		// raise fails and the caller's reconcile retries on a later tick.
-		loc, err = s.prepareKitAndRetry(ctx, spec, creds)
+		// registry, unless Raise resolved it) and retry once. A still-preparing
+		// build does not block — the raise fails and the caller's reconcile
+		// retries on a later tick.
+		loc, err = s.prepareKitAndRetry(ctx, spec, creds, def)
 	}
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
@@ -300,41 +299,54 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	return inst, tok, secret, nil
 }
 
-// kitRefFor returns the studio kit reference a raise for role should carry. A
-// role that names a kit (role.Kit) resolves that registered studio kit's current
-// version (fail closed if the kit is absent, not tag-safe, or not a studio kit);
-// an unnamed kit falls back to the wiring-set default studio ref. ok=false (no
-// default set) leaves the raise with no kit, so un-wired setups and hermetic
-// tests are unaffected.
-func (s *Supervisor) kitRefFor(role Role) (KitRef, bool, error) {
+// kitFor resolves the studio kit a raise for role runs, for harness install h
+// (its definition, Ref keyed on h). A role that names a kit (role.Kit) resolves
+// that registered studio kit's current version (fail closed if the kit is
+// absent, not tag-safe, or not a studio kit); an unnamed kit falls back to the
+// wiring-set default studio kit (fail closed if it left the registry).
+// ok=false (no default set) leaves the raise with no kit, so un-wired setups
+// and hermetic tests are unaffected.
+func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition, bool, error) {
 	if role.Kit != "" {
-		ref, err := StudioKitRef(s.store, role.Kit)
+		def, err := StudioKitDefinition(s.store, role.Kit, h)
 		if err != nil {
-			return KitRef{}, false, err
+			return KitDefinition{}, false, err
 		}
-		return ref, true, nil
+		return def, true, nil
 	}
 	if s.defaultStudioKit != nil {
-		return *s.defaultStudioKit, true, nil
+		def, ok, err := ResolveKitDefinition(s.store, *s.defaultStudioKit, h)
+		if err != nil {
+			return KitDefinition{}, false, err
+		}
+		if !ok {
+			return KitDefinition{}, false, fmt.Errorf("default studio kit %s not in registry", s.defaultStudioKit)
+		}
+		return def, true, nil
 	}
-	return KitRef{}, false, nil
+	return KitDefinition{}, false, nil
 }
 
-// prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it resolves
-// the full kit definition from the registry, asks the launcher to prepare it, and
+// prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it takes the
+// kit definition Raise resolved (else resolves it from the registry), asks the launcher to prepare it, and
 // retries the Raise once when the kit is ready. A KitPreparing status (an async
 // remote build) returns an error WITHOUT blocking — the caller's reconcile loop
 // retries the raise on a later tick, by which point the build may be done. The
 // caller (Raise) rolls back the enrollment on any error this returns.
-func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
-	def, ok, err := ResolveKitDefinition(s.store, spec.Kit)
-	if err != nil {
-		return "", err
+func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, creds LaunchCreds, resolved *KitDefinition) (string, error) {
+	var def KitDefinition
+	if resolved != nil && resolved.Ref == spec.Kit {
+		def = *resolved
+	} else {
+		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(spec))
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", fmt.Errorf("kit %s not in registry", spec.Kit)
+		}
+		def = d
 	}
-	if !ok {
-		return "", fmt.Errorf("kit %s not in registry", spec.Kit)
-	}
-	def.Harness = harnessFor(spec)
 	status, err := s.launcher.PrepareKit(ctx, def)
 	if err != nil {
 		return "", fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
@@ -811,7 +823,9 @@ func (s *Supervisor) revokeActor(actorID string) error {
 // spec.Kit is the kit image the cove runs (its build-args and egress ceiling);
 // promptKit, when it names the same kit, supplies the prompt and notes — a
 // newer version's text edits reach a running session, its image changes don't.
-func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRef) sessionctx.Bundle {
+// raised, when it is spec.Kit's definition (Raise resolved it), is used as is
+// rather than re-read from the registry.
+func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRef, raised *KitDefinition) sessionctx.Bundle {
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
@@ -821,10 +835,16 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	haveKit := false
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
-		if def, ok, derr := ResolveKitDefinition(s.store, spec.Kit); derr == nil && ok {
+		def, ok := KitDefinition{}, false
+		if raised != nil && raised.Ref == spec.Kit {
+			def, ok = *raised, true
+		} else if d, found, derr := ResolveKitDefinition(s.store, spec.Kit, harnessinstall.Default()); derr == nil && found {
+			def, ok = d, true // only the kit text is read: the harness does not matter
+		}
+		if ok {
 			text := def.Kit
-			if promptKit.ID == spec.Kit.ID && promptKit != spec.Kit {
-				if cur, ok, cerr := ResolveKitDefinition(s.store, promptKit); cerr == nil && ok {
+			if promptKit.ID == spec.Kit.ID && promptKit.Version != spec.Kit.Version {
+				if cur, ok, cerr := ResolveKitDefinition(s.store, promptKit, harnessinstall.Default()); cerr == nil && ok {
 					text = cur.Kit
 				}
 			}
@@ -870,14 +890,16 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 		if role.Scope.Egress != nil {
 			spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
 		}
-		if ref, have, err := s.kitRefFor(role); err == nil && have {
+		// Only the current version's id/version matter here, not its image key.
+		if d, have, err := s.kitFor(role, harnessinstall.Default()); err == nil && have {
+			ref := d.Ref
 			promptKit = ref
 			if spec.Kit.ID == "" { // raised before instances recorded their kit
 				spec.Kit = ref
 			}
 		}
 	}
-	return s.compileContext(spec, actor, promptKit), nil
+	return s.compileContext(spec, actor, promptKit, nil), nil
 }
 
 // ErrNoInstance means an identity has no registered instance (e.g. a

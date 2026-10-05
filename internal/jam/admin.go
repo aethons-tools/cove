@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -370,10 +369,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &snap) {
 			return
 		}
-		// A backup taken before the version split (COV-242) carries legacy
-		// version constraints: upgrade them exactly as serve startup does.
-		for i, ms := range snap.ModelSpecs {
-			snap.ModelSpecs[i], _ = modelspec.MigrateVersion(ms)
+		// A backup taken before the model-spec migration (COV-242) is migrated
+		// exactly as serve startup migrates a store, and imports as current.
+		for _, w := range MigrateSnapshotModelSpecs(&snap) {
+			log.Warn("admin config import: model-spec migrated with a loss", "detail", w)
 		}
 		if err := store.ImportConfig(snap); err != nil {
 			switch {

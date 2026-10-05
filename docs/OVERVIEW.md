@@ -331,10 +331,10 @@ is no kit overlay anymore. The image is layered
    the native installer `curl -fsSL https://claude.ai/install.sh | bash -s X.Y.Z`
    as `agent`, the `/usr/local/bin/claude` symlink, `ENV DISABLE_AUTOUPDATER=1`)
    and seeds the spec's `claude.plugins` (below). It is **model-spec-mediated, not
-   a hardening concern**: a full `config.yml` kit gets `claude-default`'s install —
+   a hardening concern**: a full `config.yml` kit gets the default install —
    the one pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its
    plugins — until a kit can name a model-spec (COV-241); a Jam studio kit gets its
-   raising role's spec ([model-specs.md](usage/jam/model-specs.md#the-harness-layer-what-a-spec-builds)).
+   raising role's spec ([model-spec-harness.md](usage/jam/model-spec-harness.md)).
    Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
    layer cache). It needs no secret — the install is unauthenticated.
 1. **Non-overridable hardening** (embedded; `FROM harness`) —
@@ -351,10 +351,12 @@ The hardening extracting last is the **security boundary**:
 nothing a kit — or a model-spec's harness layer — provides can weaken the egress
 lock or sshd hardening; the harness stage only installs a CLI and plugins on the
 open-network builder, before any of the sealed steps run. The harness and its
-plugins are part of the image's identity: at-cove's build identity hashes the
-harness payload and the default install (so a `DefaultClaudeVersion` bump makes
-every full-kit install stale), and a studio kit's build-digest includes the
-harness type, version and plugins.
+plugins are part of the image's identity: at-cove's build identity hashes only
+the harness layer's payload (its scripts), while the install itself (type,
+version, plugins) is in a full kit's currency inputs (so a
+`DefaultClaudeVersion` bump makes every full-kit install stale) and in a studio
+kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
+doesn't retag every studio image.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
 After it,
@@ -637,7 +639,8 @@ sandboxes still tear down cleanly under their own (pre-rename) names.
 
 The seed also carries the Claude Code **plugins** the harness layer installs —
 the model-spec's `claude.plugins` (`claude-default`: `superpowers` from the
-`claude-plugins-official` marketplace, the same plugin managed settings enables) —
+`claude-plugins-official` marketplace), enabled in the seed's `settings.json`
+(the sealed managed settings enable no plugin) —
 pre-installed into the image at build time by the harness layer's `seed-plugins.sh`
 rather than left to Claude Code's boot-time auto-installer.
 That installer would clone the marketplace and each plugin through the egress proxy at runtime,

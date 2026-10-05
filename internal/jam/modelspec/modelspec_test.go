@@ -85,33 +85,71 @@ func TestCheckClaudePlugin(t *testing.T) {
 	}
 }
 
-func TestMigrateVersion(t *testing.T) {
-	// An exact version is left alone.
-	exact := Spec{Name: "x", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic"}}
-	if got, changed := MigrateVersion(exact); changed || got.Version != "2.1.0" || got.Claude.Plugins != nil {
-		t.Fatalf("exact spec migrated: %+v", got)
+func TestMigrateLegacyVersion(t *testing.T) {
+	claude := func(v string, plugins ...string) Spec {
+		return Spec{Name: "x", Type: HarnessClaude, Version: v, Claude: &Claude{Provider: "anthropic", Plugins: plugins}}
 	}
-	// A legacy constraint moves to version-constraint; version gets the pin;
-	// the image-wide plugins are kept explicitly.
-	legacy := Spec{Name: "x", Type: HarnessClaude, Version: "2.x", Claude: &Claude{Provider: "anthropic"}}
-	got, changed := MigrateVersion(legacy)
-	if !changed || got.Version != DefaultClaudeVersion || got.VersionConstraint != "2.x" ||
-		!slices.Equal(got.Claude.Plugins, DefaultClaudePlugins()) {
-		t.Fatalf("legacy migration = %+v (%+v)", got, got.Claude)
+	// An exact version is kept; a range that admits the pin is preserved as the
+	// runtime constraint, so coves on images built by the old hardening (latest
+	// claude) keep passing their check.
+	for _, c := range []struct{ in, wantVersion, wantConstraint string }{
+		{"2.1.0", "2.1.0", ""},
+		{"2.x", DefaultClaudeVersion, "2.x"},
+		{"*", DefaultClaudeVersion, "*"},
+		{LegacyDefaultVersion, DefaultClaudeVersion, LegacyDefaultVersion},
+	} {
+		got, warns := MigrateLegacy(claude(c.in, "a@claude-plugins-official"))
+		if got.Version != c.wantVersion || got.VersionConstraint != c.wantConstraint || len(warns) != 0 {
+			t.Errorf("%q → %q / %q (warnings %v), want %q / %q", c.in, got.Version, got.VersionConstraint, warns, c.wantVersion, c.wantConstraint)
+		}
 	}
-	if legacy.Claude.Plugins != nil {
-		t.Fatal("MigrateVersion mutated its input's claude body")
+	// A range that does not admit the pin (or does not parse) is dropped for the
+	// pin itself — never a spec validation would refuse — with a warning naming
+	// the spec and the dropped constraint.
+	for _, old := range []string{"2.0.x", "1.x", ">=3.0.0", "latest"} {
+		got, warns := MigrateLegacy(claude(old, "a@claude-plugins-official"))
+		if got.Version != DefaultClaudeVersion || got.VersionConstraint != DefaultClaudeVersion {
+			t.Errorf("%q → %q / %q, want the pin for both", old, got.Version, got.VersionConstraint)
+		}
+		if len(warns) != 1 || !strings.Contains(warns[0], `"x"`) || !strings.Contains(warns[0], old) {
+			t.Errorf("%q: warnings = %v, want one naming the spec and %q", old, warns, old)
+		}
 	}
-	// Declared plugins are kept as they are.
-	withPlugins := Spec{Name: "x", Type: HarnessClaude, Version: "*", Claude: &Claude{Provider: "anthropic", Plugins: []string{"a@claude-plugins-official"}}}
-	if got, _ := MigrateVersion(withPlugins); !slices.Equal(got.Claude.Plugins, []string{"a@claude-plugins-official"}) || got.VersionConstraint != "*" {
-		t.Fatalf("declared plugins changed: %+v", got)
+}
+
+func TestMigrateLegacyPlugins(t *testing.T) {
+	// No plugins: before COV-242 every image carried the default ones.
+	got, warns := MigrateLegacy(Spec{Name: "x", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic"}})
+	if !slices.Equal(got.Claude.Plugins, DefaultClaudePlugins()) || len(warns) != 0 {
+		t.Fatalf("backfill = %v, %v", got.Claude.Plugins, warns)
 	}
-	// The untouched claude-default seed becomes exactly a fresh seed.
-	seed := Default("pool")
-	seed.Version, seed.Claude.Plugins = LegacyDefaultVersion, nil
-	got, changed = MigrateVersion(seed)
-	if fresh := Default("pool"); !changed || got.Version != fresh.Version || got.VersionConstraint != "" || !slices.Equal(got.Claude.Plugins, fresh.Claude.Plugins) {
-		t.Fatalf("legacy seed migration = %+v", got)
+	// Unknown-marketplace / malformed ids are dropped with a warning naming the
+	// spec and the plugin; valid ones are kept.
+	in := Spec{Name: "x", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic",
+		Plugins: []string{"keep@claude-plugins-official", "superpowers@official", "bare"}}}
+	got, warns = MigrateLegacy(in)
+	if !slices.Equal(got.Claude.Plugins, []string{"keep@claude-plugins-official"}) || len(warns) != 2 ||
+		!strings.Contains(strings.Join(warns, "\n"), "superpowers@official") || !strings.Contains(warns[0], `"x"`) {
+		t.Fatalf("drop = %v, %v", got.Claude.Plugins, warns)
+	}
+	if len(in.Claude.Plugins) != 3 {
+		t.Fatal("MigrateLegacy mutated its input")
+	}
+	// All dropped → the default ones (the image carried them before).
+	got, _ = MigrateLegacy(Spec{Name: "x", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic", Plugins: []string{"a@nowhere"}}})
+	if !slices.Equal(got.Claude.Plugins, DefaultClaudePlugins()) {
+		t.Fatalf("all dropped = %v", got.Claude.Plugins)
+	}
+}
+
+func TestMigrateLegacyDropsPluginSettings(t *testing.T) {
+	in := Spec{Name: "x", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic",
+		Settings: map[string]any{"theme": "dark", "enabledPlugins": map[string]any{"a@b": true}}}}
+	got, warns := MigrateLegacy(in)
+	if _, ok := got.Claude.Settings["enabledPlugins"]; ok || got.Claude.Settings["theme"] != "dark" || len(warns) != 1 {
+		t.Fatalf("settings = %v, warnings %v", got.Claude.Settings, warns)
+	}
+	if _, ok := in.Claude.Settings["enabledPlugins"]; !ok {
+		t.Fatal("MigrateLegacy mutated its input's settings")
 	}
 }

@@ -3,38 +3,30 @@ package assemble
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// Every plugin enabled in managed-settings.json must have its marketplace
-// declared there too, so the seeded known_marketplaces.json entry is
-// declaratively backed and the reconciler will not prune it.
-func TestManagedSettingsDeclaresMarketplaceForEnabledPlugins(t *testing.T) {
+// Plugin enablement follows the model-spec (COV-242): the harness layer seeds
+// and enables the spec's plugins, and the claude harness enables them per run.
+// The sealed managed settings must not enable (or declare a marketplace for)
+// any plugin — a managed enablement would make every image auto-install it
+// through the egress proxy at runtime when its spec seeded none.
+func TestManagedSettingsEnablesNoPlugins(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, ""); err != nil {
 		t.Fatal(err)
 	}
 	raw := read(t, filepath.Join(buildDir, "image-files/etc/claude-code/managed-settings.json"))
-
-	var ms struct {
-		EnabledPlugins         map[string]bool            `json:"enabledPlugins"`
-		ExtraKnownMarketplaces map[string]json.RawMessage `json:"extraKnownMarketplaces"`
-	}
+	var ms map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &ms); err != nil {
 		t.Fatalf("managed-settings.json is not valid JSON: %v", err)
 	}
-	if len(ms.EnabledPlugins) == 0 {
-		t.Fatal("managed-settings.json declares no enabledPlugins")
+	for _, k := range []string{"enabledPlugins", "extraKnownMarketplaces"} {
+		if _, ok := ms[k]; ok {
+			t.Errorf("managed-settings.json must not set %q:\n%s", k, raw)
+		}
 	}
-	for plugin := range ms.EnabledPlugins {
-		at := strings.LastIndex(plugin, "@")
-		if at < 0 {
-			t.Fatalf("enabled plugin %q is not in name@marketplace form", plugin)
-		}
-		mkt := plugin[at+1:]
-		if _, ok := ms.ExtraKnownMarketplaces[mkt]; !ok {
-			t.Fatalf("enabled plugin %q references marketplace %q not declared in extraKnownMarketplaces", plugin, mkt)
-		}
+	if _, ok := ms["permissions"]; !ok {
+		t.Error("managed-settings.json lost its other keys (only the plugin keys move out)")
 	}
 }

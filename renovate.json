@@ -109,7 +109,7 @@
     },
     {
       "customType": "regex",
-      "description": "Claude Code — modelspec.DefaultClaudeVersion, the ONE pinned harness CLI release: claude-default's version and the harness every full config.yml kit installs (COV-242). The native installer's releases share the npm package's version numbers. A bump changes every default image's digest (a rebuild) and claude-default's runtime check.",
+      "description": "Claude Code — modelspec.DefaultClaudeVersion, the pinned harness CLI release the code defaults to (COV-242): the version a NEW claude-default is seeded with, the harness every full config.yml kit installs (their installs go stale and rebuild), and the install a Jam raise uses when no model-spec is delivered. It does NOT change a claude-default already stored in a Jam: an operator bumps that with `at-jam model-spec update`. The native installer's releases share the npm package's version numbers.",
       "managerFilePatterns": ["internal/jam/modelspec/modelspec.go"],
       "matchStrings": ["const DefaultClaudeVersion = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
       "datasourceTemplate": "npm",

@@ -83,7 +83,7 @@ func TestStageClaude(t *testing.T) {
 		"RUN ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude\n",
 		"ENV DISABLE_AUTOUPDATER=1\n",
 		"COPY harness/ /tmp/cove-harness/\n",
-		"seed-plugins.sh -m 'anthropics/claude-plugins-official' -p 'superpowers@claude-plugins-official'",
+		"seed-plugins.sh -m 'claude-plugins-official=anthropics/claude-plugins-official' -p 'superpowers@claude-plugins-official'",
 	} {
 		if !strings.Contains(df, want) {
 			t.Errorf("stage missing %q:\n%s", want, df)

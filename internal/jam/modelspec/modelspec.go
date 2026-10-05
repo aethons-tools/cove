@@ -8,6 +8,7 @@ package modelspec
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -186,15 +187,19 @@ var credentialEnvKeys = map[string]bool{
 // never be set by a model-spec's provider-env.
 func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 
-// DefaultClaudeVersion is THE pinned Claude Code release: claude-default's
-// version, and the harness every full config.yml kit (plain at-cove Assemble)
-// installs. Bump it here, and only here, to move every default image.
+// DefaultClaudeVersion is THE pinned Claude Code release the code defaults
+// to: the version Jam seeds a NEW claude-default with, the harness every full
+// config.yml kit (plain at-cove Assemble) installs, and the install a raise
+// uses when no spec is delivered (harnessinstall.Default). Bumping it does NOT
+// change a claude-default already stored in a Jam — an operator moves that one
+// with `at-jam model-spec update` (or the admin UI).
 //
 // renovate: datasource=npm depName=@anthropic-ai/claude-code
 const DefaultClaudeVersion = "2.1.287"
 
 // LegacyDefaultVersion is the version constraint claude-default was seeded with
-// before the version split (COV-242); MigrateVersion recognizes it.
+// before the version split (COV-242); MigrateLegacy keeps it as a migrated
+// claude-default's version-constraint (it admits the pin).
 const LegacyDefaultVersion = ">=2.0.0"
 
 // defaultClaudePlugins are the plugins claude-default installs — what every
@@ -221,34 +226,63 @@ func Default(principal string) Spec {
 	}
 }
 
-// MigrateVersion upgrades a spec stored before the version split (COV-242),
-// whose Version held a constraint rather than an exact X.Y.Z. It reports
-// whether s changed. A legacy spec:
+// MigrateLegacy upgrades a spec stored before the version split (COV-242) —
+// Jam's one-time model-spec store migration applies it to every stored spec,
+// whatever its version — and returns warnings (each naming the spec) for
+// anything it had to drop. The result always passes the version and plugin
+// checks of Jam's write validation:
 //
-//   - keeps its old constraint as VersionConstraint (unless one is set) and is
-//     pinned to DefaultClaudeVersion — except the untouched claude-default seed
-//     (LegacyDefaultVersion), which becomes exactly a fresh seed's pin with no
-//     separate constraint;
-//   - with no claude.plugins gets DefaultClaudePlugins: before COV-242 every
-//     image carried them regardless of the spec, so its coves keep them.
-//
-// A spec whose Version is already exact is returned unchanged.
-func MigrateVersion(s Spec) (Spec, bool) {
-	if _, err := ParseExactVersion(s.Version); err == nil {
-		return s, false
+//   - a non-exact Version (a legacy constraint) becomes DefaultClaudeVersion.
+//     The old range is kept as VersionConstraint when it admits the pin, so
+//     coves on images the old hardening built (latest claude) keep passing
+//     their runtime check; otherwise the constraint becomes the pin and a
+//     warning names the dropped range. A set VersionConstraint that does not
+//     admit Version is treated the same way;
+//   - plugin ids that are malformed or name an unknown marketplace are dropped
+//     with a warning (a legacy spec must never make every raise fail);
+//   - a claude spec left with no plugins gets DefaultClaudePlugins: before
+//     COV-242 every image carried them regardless of the spec;
+//   - claude.settings' enabledPlugins / extraKnownMarketplaces are dropped
+//     with a warning (claude.plugins owns enablement now).
+func MigrateLegacy(s Spec) (Spec, []string) {
+	var warns []string
+	if _, err := ParseExactVersion(s.Version); err != nil {
+		old := strings.TrimSpace(s.Version)
+		s.Version = DefaultClaudeVersion
+		if strings.TrimSpace(s.VersionConstraint) == "" {
+			s.VersionConstraint = old
+		}
 	}
-	old := strings.TrimSpace(s.Version)
-	s.Version = DefaultClaudeVersion
-	switch {
-	case s.Name == DefaultName && old == LegacyDefaultVersion && s.VersionConstraint == "":
-		// The untouched seed: same pin as a fresh one, constraint == version.
-	case strings.TrimSpace(s.VersionConstraint) == "":
-		s.VersionConstraint = old
+	if s.VersionConstraint != "" {
+		v, _ := ParseExactVersion(s.Version)
+		if c, err := ParseConstraint(s.VersionConstraint); err != nil || !c.Allows(v) {
+			warns = append(warns, fmt.Sprintf("model-spec %q: version constraint %q does not admit the pinned version %s; dropped (the runtime check is now exactly %s)", s.Name, s.VersionConstraint, s.Version, s.Version))
+			s.VersionConstraint = s.Version
+		}
 	}
-	if s.Type == HarnessClaude && s.Claude != nil && len(s.Claude.Plugins) == 0 {
+	if s.Type == HarnessClaude && s.Claude != nil {
 		c := *s.Claude
-		c.Plugins = DefaultClaudePlugins()
+		c.Plugins = nil
+		for _, p := range s.Claude.Plugins {
+			if err := CheckClaudePlugin(p); err != nil {
+				warns = append(warns, fmt.Sprintf("model-spec %q: dropped plugin %q: %v", s.Name, p, err))
+				continue
+			}
+			if !slices.Contains(c.Plugins, p) {
+				c.Plugins = append(c.Plugins, p)
+			}
+		}
+		if len(c.Plugins) == 0 {
+			c.Plugins = DefaultClaudePlugins()
+		}
+		for _, k := range []string{"enabledPlugins", "extraKnownMarketplaces"} {
+			if _, ok := c.Settings[k]; ok {
+				warns = append(warns, fmt.Sprintf("model-spec %q: dropped claude.settings %q (plugin enablement follows claude.plugins)", s.Name, k))
+				c.Settings = maps.Clone(c.Settings)
+				delete(c.Settings, k)
+			}
+		}
 		s.Claude = &c
 	}
-	return s, true
+	return s, warns
 }

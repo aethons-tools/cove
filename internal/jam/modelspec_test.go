@@ -102,6 +102,8 @@ func TestValidateModelSpecRefusals(t *testing.T) {
 		"settings disabled mcpjson": {func(m *ModelSpec) { m.Claude.Settings["disabledMcpjsonServers"] = []any{"x"} }, `"disabledMcpjsonServers"`},
 		"settings allowed mcp":      {func(m *ModelSpec) { m.Claude.Settings["allowedMcpServers"] = []any{} }, `"allowedMcpServers"`},
 		"settings denied mcp":       {func(m *ModelSpec) { m.Claude.Settings["deniedMcpServers"] = []any{} }, `"deniedMcpServers"`},
+		"settings enabledPlugins":   {func(m *ModelSpec) { m.Claude.Settings["enabledPlugins"] = map[string]any{"x@y": true} }, `"enabledPlugins"`},
+		"settings marketplaces":     {func(m *ModelSpec) { m.Claude.Settings["extraKnownMarketplaces"] = map[string]any{} }, `"extraKnownMarketplaces"`},
 		"settings non-json":         {func(m *ModelSpec) { m.Claude.Settings["bad"] = make(chan int) }, "settings"},
 		"empty plugin":              {func(m *ModelSpec) { m.Claude.Plugins = []string{""} }, "plugin"},
 		"duplicate plugin":          {func(m *ModelSpec) { m.Claude.Plugins = []string{"a", "a"} }, `"a"`},

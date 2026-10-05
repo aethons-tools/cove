@@ -57,14 +57,18 @@ func Default() Install {
 }
 
 // FromSpec derives a model-spec's install. nil (no spec delivered) is Default.
-// A legacy spec still holding a version constraint is read as Jam's startup
-// migration would leave it (modelspec.MigrateVersion), so its image is the
-// one it will run under after migration.
+// A spec whose version is not an exact X.Y.Z is certainly from before the
+// version split (COV-242) and not yet migrated: it is read as Jam's one-time
+// migration will leave it (modelspec.MigrateLegacy), so its image is the one it
+// will run under. Any other spec is taken as written.
 func FromSpec(s *modelspec.Spec) Install {
 	if s == nil {
 		return Default()
 	}
-	spec, _ := modelspec.MigrateVersion(*s)
+	spec := *s
+	if _, err := modelspec.ParseExactVersion(spec.Version); err != nil {
+		spec, _ = modelspec.MigrateLegacy(spec)
+	}
 	in := Install{Type: spec.Type, Version: spec.Version, Plugins: []string{}}
 	if spec.Claude != nil {
 		in.Plugins = append(in.Plugins, spec.Claude.Plugins...)

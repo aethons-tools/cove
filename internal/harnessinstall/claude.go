@@ -41,7 +41,7 @@ func claudeStage(in Install) string {
 		var args []string
 		for _, m := range claudeMarketplaces(in.Plugins) {
 			src, _ := modelspec.ClaudeMarketplaceSource(m) // Validated: known
-			args = append(args, "-m '"+src+"'")
+			args = append(args, "-m '"+m+"="+src+"'")
 		}
 		for _, p := range in.Plugins {
 			args = append(args, "-p '"+p+"'")

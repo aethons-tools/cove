@@ -26,7 +26,7 @@ func TestAssembleContextHarnessStageBetweenBaseAndHardening(t *testing.T) {
 		"FROM ${BASE} AS harness\n",
 		"bash -s 2.1.100'",
 		"ENV DISABLE_AUTOUPDATER=1\n",
-		"seed-plugins.sh -m 'anthropics/claude-plugins-official' -p 'superpowers@claude-plugins-official'",
+		"seed-plugins.sh -m 'claude-plugins-official=anthropics/claude-plugins-official' -p 'superpowers@claude-plugins-official'",
 		"FROM harness\n",
 		"PasswordAuthentication no",
 		"COPY image-files/. /.",

@@ -17,16 +17,16 @@ import (
 // Raise that returned ErrKitNotReady.
 //
 // It is idempotent — a PrepareKit for an already-present tag is a no-op success —
-// and de-duped: concurrent PrepareKit calls for the same ref serialize on a
-// per-ref lock, so only the first builds and the rest short-circuit on the now
+// and de-duped: concurrent PrepareKit calls for the same image serialize on a
+// per-image-tag lock, so only the first builds and the rest short-circuit on the now
 // present image. Colima builds synchronously, so success returns {State:
 // KitReady}; the KitStatus/KitPreparing return exists so a future remote launcher
 // can report an in-progress build without changing this contract.
 func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus, error) {
 	ref := def.Ref
 
-	// Serialize prepares of the same ref: the winner builds, the rest wait and
-	// then see the image present. Different refs never contend.
+	// Serialize prepares of the same image: the winner builds, the rest wait and
+	// then see the image present. Different images never contend.
 	unlock := l.lockRef(ref)
 	defer unlock()
 
@@ -88,9 +88,11 @@ func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
 	}
 }
 
-// lockRef returns the per-ref build lock, held; the returned func releases it.
+// lockRef returns the build lock for ref's image, held; the returned func
+// releases it. It is keyed on the image tag (build-digest + assembly), not on
+// id@version: one kit version raised under two harnesses is two images.
 func (l *Launcher) lockRef(ref KitRef) func() {
-	key := ref.String()
+	key := l.imageTag(ref)
 	l.mu.Lock()
 	if l.inflight == nil {
 		l.inflight = map[string]*sync.Mutex{}

@@ -46,7 +46,10 @@ func argAfter(args []string, flag string) string {
 }
 
 func TestClaudeCommandAppliesModelAndEffort(t *testing.T) {
-	spec := specWith(func(s *modelspec.Spec) { s.Model = modelspec.Choice{ID: "claude-opus-5-5", Effort: "high"} })
+	spec := specWith(func(s *modelspec.Spec) {
+		s.Model = modelspec.Choice{ID: "claude-opus-5-5", Effort: "high"}
+		s.Claude.Plugins = nil
+	})
 	_, args, _ := Claude{}.Command(Episode{Spec: spec, ContextCore: "/c/CORE.md"})
 	if argAfter(args, "--model") != "claude-opus-5-5" || argAfter(args, "--effort") != "high" {
 		t.Fatalf("argv = %q", args)
@@ -57,7 +60,7 @@ func TestClaudeCommandAppliesModelAndEffort(t *testing.T) {
 		t.Fatalf("argv = %q", args)
 	}
 	if slices.Contains(args, "--settings") {
-		t.Fatalf("no settings → no --settings: %q", args)
+		t.Fatalf("no settings, no plugins → no --settings: %q", args)
 	}
 	// Model flags sit before the context flags.
 	if slices.Index(args, "--model") > slices.Index(args, "--append-system-prompt-file") {
@@ -183,7 +186,7 @@ func TestClaudeValidateWritesAndClearsSettings(t *testing.T) {
 	if json.Unmarshal(b, &got) != nil || got["theme"] != "dark" {
 		t.Fatalf("settings file = %s", b)
 	}
-	if err := c.Validate(specWith(func(*modelspec.Spec) {})); err != nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Plugins = nil })); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(c.SettingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -411,5 +414,62 @@ func TestClaudeValidateRuntimeConstraint(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("version %s constraint %q vs %s: err = %v, want ok=%v", c.version, c.constraint, c.have, err, c.ok)
 		}
+	}
+}
+
+// Plugin enablement follows the spec, not the image (COV-242): each
+// claude.plugins id is enabled, and its marketplace declared, in the per-run
+// settings — merged over claude.settings, so the file is written when either
+// is set. No plugins and no settings → no file, no --settings.
+func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
+	dir := t.TempDir()
+	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
+	spec := specWith(func(s *modelspec.Spec) {
+		s.Claude.Settings = map[string]any{"theme": "dark"}
+		s.Claude.Plugins = []string{"superpowers@claude-plugins-official"}
+	})
+	if err := c.Validate(spec); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(c.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Theme                  string          `json:"theme"`
+		EnabledPlugins         map[string]bool `json:"enabledPlugins"`
+		ExtraKnownMarketplaces map[string]struct {
+			Source struct{ Source, Repo string } `json:"source"`
+		} `json:"extraKnownMarketplaces"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	m := got.ExtraKnownMarketplaces["claude-plugins-official"]
+	if got.Theme != "dark" || !got.EnabledPlugins["superpowers@claude-plugins-official"] || len(got.EnabledPlugins) != 1 ||
+		m.Source.Source != "github" || m.Source.Repo != "anthropics/claude-plugins-official" {
+		t.Fatalf("settings file = %s", b)
+	}
+	if spec.Claude.Settings["enabledPlugins"] != nil {
+		t.Fatal("the spec's settings map was mutated")
+	}
+	// Plugins alone still write the file and pass --settings.
+	only := specWith(func(s *modelspec.Spec) { s.Claude.Plugins = []string{"superpowers@claude-plugins-official"} })
+	if err := c.Validate(only); err != nil {
+		t.Fatal(err)
+	}
+	if _, args, _ := c.Command(Episode{Spec: only}); argAfter(args, "--settings") != c.SettingsPath {
+		t.Fatalf("plugins only → --settings expected: %q", args)
+	}
+	// Neither → no file, no flag: nothing enabled, nothing to auto-install.
+	none := specWith(func(s *modelspec.Spec) { s.Claude.Plugins = nil })
+	if err := c.Validate(none); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(c.SettingsPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("settings file kept with no settings and no plugins: %v", err)
+	}
+	if _, args, _ := c.Command(Episode{Spec: none}); slices.Contains(args, "--settings") {
+		t.Fatalf("argv = %q", args)
 	}
 }

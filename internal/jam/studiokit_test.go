@@ -39,9 +39,9 @@ func TestEnsureStudioKitIdempotentThenBumps(t *testing.T) {
 	}
 }
 
-func TestStudioKitRefFailsClosed(t *testing.T) {
+func TestStudioKitDefinitionFailsClosed(t *testing.T) {
 	st := newKitTestStore(t)
-	if _, err := StudioKitRef(st, "missing"); err == nil {
+	if _, err := StudioKitDefinition(st, "missing", harnessinstall.Default()); err == nil {
 		t.Fatal("want fail-closed on an absent kit")
 	}
 }
@@ -50,9 +50,19 @@ func TestResolveKitDefinitionParsesStudio(t *testing.T) {
 	st := newKitTestStore(t)
 	sk := studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com", ".anthropic.com"}}
 	ref, _ := EnsureStudioKit(st, "web", sk)
-	def, ok, err := ResolveKitDefinition(st, ref)
+	def, ok, err := ResolveKitDefinition(st, ref, harnessinstall.Default())
 	if err != nil || !ok {
 		t.Fatalf("resolve: ok=%v err=%v", ok, err)
+	}
+	// The definition is keyed on (and carries) the harness it resolves for.
+	h := harnessinstall.Install{Type: "claude", Version: "2.1.100", Plugins: []string{}}
+	other, _, _ := ResolveKitDefinition(st, ref, h)
+	if other.Ref.Digest != studio.BuildDigest(sk, h) || other.Harness.Version != "2.1.100" || other.Ref.Version != ref.Version {
+		t.Fatalf("resolve under a harness = %+v", other)
+	}
+	cur, err := StudioKitDefinition(st, "web", h)
+	if err != nil || cur.Ref != other.Ref || cur.Harness.Version != "2.1.100" {
+		t.Fatalf("StudioKitDefinition = %+v, %v", cur, err)
 	}
 	if !slices.Contains(def.Kit.Egress, ".anthropic.com") {
 		t.Fatalf("definition carries the authored kit verbatim (ceiling is applied at assemble): %+v", def.Kit)

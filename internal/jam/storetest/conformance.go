@@ -538,6 +538,40 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("model_spec_schema_marker", func(t *testing.T) {
+		s := newStore(t)
+		if got := s.ModelSpecSchema(); got != 0 {
+			t.Fatalf("fresh store schema = %d, want 0", got)
+		}
+		if err := s.SetModelSpecSchema(1); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.ModelSpecSchema(); got != 1 {
+			t.Fatalf("schema = %d, want 1", got)
+		}
+		// The marker rides in a config backup and is restored by an import.
+		snap := s.ExportConfig()
+		if snap.ModelSpecSchema != 1 {
+			t.Fatalf("export ModelSpecSchema = %d, want 1", snap.ModelSpecSchema)
+		}
+		dst := newStore(t)
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatal(err)
+		}
+		if got := dst.ModelSpecSchema(); got != 1 {
+			t.Fatalf("imported schema = %d, want 1", got)
+		}
+		// A pre-marker backup imports as schema 0 (still to migrate).
+		old := newStore(t)
+		snap.ModelSpecSchema = 0
+		if err := old.ImportConfig(snap); err != nil {
+			t.Fatal(err)
+		}
+		if got := old.ModelSpecSchema(); got != 0 {
+			t.Fatalf("pre-marker import schema = %d, want 0", got)
+		}
+	})
+
 	t.Run("roster_and_escalation", func(t *testing.T) {
 		s := newStoreWithAcme(t)
 		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {

@@ -26,16 +26,28 @@ type CurrencyInputs struct {
 	KitSourceTree       string // hash of config.yml + the kit's image/ tree (KitSourceTree)
 	AtCoveBuildIdentity string // hash of at-cove's embedded sealed layer + at-task binaries (AtCoveIdentity)
 	BaseRef             string // the configured base string, or the blessed default ref
+	Harness             string // the full kit's harness install (HarnessIdentity): claude-default's CLI version + plugins
 }
 
 // CurrencyHash combines the build-affecting inputs into the manifest's currency
-// hash: sha256( kitSourceTree ‖ atCoveBuildIdentity ‖ baseRef ). Pure — no I/O.
+// hash: sha256( kitSourceTree ‖ atCoveBuildIdentity ‖ baseRef ‖ harness ). Pure — no I/O.
 func CurrencyHash(in CurrencyInputs) string {
 	h := sha256.New()
 	writeField(h, []byte(in.KitSourceTree))
 	writeField(h, []byte(in.AtCoveBuildIdentity))
 	writeField(h, []byte(in.BaseRef))
+	writeField(h, []byte(in.Harness))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// HarnessIdentity is the currency input for a full kit's harness install (its
+// type, exact CLI version and plugins — harnessinstall.Default() until kits
+// name a model-spec, COV-241): a DefaultClaudeVersion bump makes every full-kit
+// install stale, so the next run rebuilds with the new CLI.
+func HarnessIdentity(in harnessinstall.Install) string {
+	b, _ := json.Marshal(in) // a struct of strings; never errors
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // writeField feeds a length-prefixed field into h, so a sequence of fields hashes
@@ -112,18 +124,13 @@ func KitSourceTree(kitDir string) (string, error) {
 }
 
 // AtCoveIdentity hashes at-cove's embedded build contributions (§5): the sealed
-// hardening layer, the harness layer's payload and the default harness install
-// a full kit gets (claude-default's pinned CLI version + plugins, COV-242), and
-// the embedded at-task, at-switchboard, and cove-master binaries. An at-cove
-// upgrade that changes any of these flips the digest, invalidating every
-// install. install (S2) and the run commands both call this, so they agree on
-// the identity by construction.
+// hardening layer, the harness layer's payload (its scripts — NOT any
+// install's version/plugins, which are per-image: the studio build-digest and
+// a full kit's CurrencyInputs.Harness), and the embedded at-task,
+// at-switchboard, and cove-master binaries. An at-cove upgrade that changes any
+// of these flips the digest, invalidating every install. install (S2) and the
+// run commands both call this, so they agree on the identity by construction.
 func AtCoveIdentity() (string, error) {
-	return atCoveIdentity(harnessinstall.Default())
-}
-
-// atCoveIdentity is AtCoveIdentity with the default harness install injected.
-func atCoveIdentity(defaultHarness harnessinstall.Install) (string, error) {
 	h := sha256.New()
 
 	hard, err := HashTree(assemble.HardeningFS())
@@ -139,11 +146,6 @@ func atCoveIdentity(defaultHarness harnessinstall.Install) (string, error) {
 	}
 	writeField(h, []byte("harness"))
 	writeField(h, []byte(hp))
-	dh, err := json.Marshal(defaultHarness)
-	if err != nil {
-		return "", err
-	}
-	writeField(h, dh)
 
 	at, err := HashTree(attask.BinFS())
 	if err != nil {

@@ -41,24 +41,35 @@ func TestGoldenClaudeArgv(t *testing.T) {
 			"--append-system-prompt-file", goldenCore, "--system-prompt-snapshot", "off"}},
 	}
 	// COV-238: a cove under the seeded claude-default spec launches exactly as
-	// one with no spec delivered — same argv, no extra env.
+	// one with no spec delivered — same argv, no extra env — except that, since
+	// COV-242, its plugins are enabled through the per-run --settings file
+	// (inserted after --strict-mcp-config) rather than the sealed managed
+	// settings. A spec with no plugins (and no settings) passes none.
 	def := modelspec.Default("anthropic")
 	noMode := modelspec.Default("anthropic")
 	noMode.Name = "no-mode"
 	noMode.Policy = modelspec.Policy{}
-	for _, spec := range []*modelspec.Spec{nil, &def, &noMode} {
+	noPlugins := modelspec.Default("anthropic")
+	noPlugins.Name = "no-plugins"
+	noPlugins.Claude.Plugins = nil
+	for _, spec := range []*modelspec.Spec{nil, &def, &noMode, &noPlugins} {
 		variant := "none"
 		if spec != nil {
 			variant = fmt.Sprintf("%s(mode=%q)", spec.Name, spec.Policy.Mode)
 		}
 		for _, c := range cases {
+			want := c.want
+			if spec != nil && len(spec.Claude.Plugins) > 0 {
+				i := slices.Index(want, "--strict-mcp-config") + 1
+				want = slices.Concat(want[:i], []string{"--settings", "/dev/shm/cove-agent-settings.json"}, want[i:])
+			}
 			t.Run(fmt.Sprintf("%s/spec=%s", c.name, variant), func(t *testing.T) {
 				bin, args, env := goldenCommand(Episode{Continued: c.continued, ContextCore: c.core, Spec: spec})
 				if bin != "claude" {
 					t.Errorf("bin = %q, want claude", bin)
 				}
-				if !slices.Equal(args, c.want) {
-					t.Errorf("argv:\n got %q\nwant %q", args, c.want)
+				if !slices.Equal(args, want) {
+					t.Errorf("argv:\n got %q\nwant %q", args, want)
 				}
 				if len(env) != 0 {
 					t.Errorf("extra env = %v, want none", env)
@@ -98,6 +109,7 @@ func TestGoldenClaudePolicyArgv(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			spec := modelspec.Default("anthropic")
 			spec.Policy = c.policy
+			spec.Claude.Plugins = nil // policy flags only (plugins add --settings)
 			_, args, _ := goldenCommand(Episode{Spec: &spec})
 			want := slices.Concat(head, c.want, tail)
 			if !slices.Equal(args, want) {

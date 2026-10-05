@@ -4,12 +4,19 @@
 # layer), then fold them into the first-boot seed (.init-agent-data/ ->
 # /agent-data).
 #
-# Usage: seed-plugins.sh -m MARKETPLACE_SOURCE... -p PLUGIN_ID...
-#   -m  a `claude plugin marketplace add` source, e.g. anthropics/claude-plugins-official
+# Usage: seed-plugins.sh -m NAME=GITHUB_SOURCE... -p PLUGIN_ID...
+#   -m  a marketplace: its name and the `claude plugin marketplace add` (GitHub)
+#       source, e.g. claude-plugins-official=anthropics/claude-plugins-official
 #   -p  a plugin id, name@marketplace, e.g. superpowers@claude-plugins-official
 # The marketplaces and plugins come from the model-spec's claude.plugins
 # (internal/harnessinstall generates the invocation; ids are validated there to
 # a shell-inert alphabet).
+#
+# It also ENABLES exactly these plugins (and declares their marketplaces) in the
+# first-boot user settings ($SEED/settings.json, merged over the base image's),
+# so interactive sessions — which get no per-run --settings — have them on. It
+# never reads the sealed managed settings: plugin enablement follows the
+# model-spec, and the headless agent's per-run settings carry it too.
 #
 # Why at build time: Claude Code's boot-time auto-installer would otherwise
 # clone the marketplace and each enabled plugin at RUNTIME. In the egress-locked
@@ -54,7 +61,7 @@ mkdir -p "$BUILD_CFG"
 # single-quoting is sufficient.
 steps="export CLAUDE_CONFIG_DIR='$BUILD_CFG';"
 for m in "${MARKETPLACES[@]}"; do
-	steps="$steps claude plugin marketplace add '$m';"
+	steps="$steps claude plugin marketplace add '${m#*=}';"
 done
 for p in "${PLUGINS[@]}"; do
 	steps="$steps claude plugin install '$p';"
@@ -87,3 +94,21 @@ if [ -n "$RUN_AS" ]; then
 fi
 
 rm -rf "$BUILD_CFG"
+
+# Enable the seeded plugins in the first-boot user settings (see header).
+settings="$SEED/settings.json"
+[ -s "$settings" ] || echo '{}' >"$settings"
+enabled='{}'
+for p in "${PLUGINS[@]}"; do
+	enabled="$(jq -c --arg p "$p" '. + {($p): true}' <<<"$enabled")"
+done
+markets='{}'
+for m in "${MARKETPLACES[@]}"; do
+	markets="$(jq -c --arg n "${m%%=*}" --arg r "${m#*=}" '. + {($n): {source: {source: "github", repo: $r}}}' <<<"$markets")"
+done
+jq --argjson e "$enabled" --argjson k "$markets" '.enabledPlugins = $e | .extraKnownMarketplaces = $k' \
+	"$settings" >"$settings.tmp"
+mv "$settings.tmp" "$settings"
+if [ -n "$RUN_AS" ]; then
+	chown "$RUN_AS":"$RUN_AS" "$settings"
+fi

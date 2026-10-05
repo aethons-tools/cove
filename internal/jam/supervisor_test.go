@@ -1506,3 +1506,38 @@ func TestRaiseWithoutModelSpecUsesDefaultHarness(t *testing.T) {
 		t.Fatalf("kit = %+v, harness = %+v; want claude-default's", fl.gotSpec.Kit, fl.preparedDef.Harness)
 	}
 }
+
+// kitConfigCounter counts registry reads (each one is a parse of the kit).
+type kitConfigCounter struct {
+	Store
+	reads int
+}
+
+func (c *kitConfigCounter) KitConfig(name string, version int) (string, bool) {
+	c.reads++
+	return c.Store.KitConfig(name, version)
+}
+
+// A raise parses (and hashes) its kit once: the definition resolved for the
+// role's harness serves the image key, the session context and the prepare.
+func TestRaiseResolvesKitOnce(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, notReadyOnce: true, prepareState: KitReady}
+	_, store, _ := supTestKit(t, fl)
+	if _, err := EnsureStudioKit(store, "web", studio.StudioKit{Kind: studio.Kind, Prompt: "K"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "web", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	counted := &kitConfigCounter{Store: store}
+	sup := NewSupervisor(counted, fl, "holder-A", 60*time.Second, 30*time.Second, time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if fl.prepareCalls != 1 || fl.gotSpec.Context == nil || !strings.Contains(fl.gotSpec.Context.Core, "K") {
+		t.Fatalf("raise did not prepare + compile the kit: prepares=%d ctx=%+v", fl.prepareCalls, fl.gotSpec.Context)
+	}
+	if counted.reads != 1 {
+		t.Fatalf("kit registry read %d times in one raise, want 1", counted.reads)
+	}
+}

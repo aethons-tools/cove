@@ -66,6 +66,10 @@ var claudeNonPreferenceSettings = []string{
 	"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
 	"hooks", "disableAllHooks", "statusLine",
 	"enableAllProjectMcpServers", "enabledMcpjsonServers", "disabledMcpjsonServers", "allowedMcpServers", "deniedMcpServers",
+	// Plugin enablement is claude.plugins' (installed at build, enabled per
+	// run): enabling an uninstalled plugin would make claude auto-install it
+	// through the egress proxy at runtime.
+	"enabledPlugins", "extraKnownMarketplaces",
 }
 
 // ValidateModelSpec checks a model-spec at write time. credExists resolves a
@@ -220,25 +224,70 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 	return store.PutModelSpec(m)
 }
 
-// MigrateModelSpecs upgrades every stored model-spec written before the
-// version split (COV-242) — a version holding a constraint rather than an exact
-// X.Y.Z — via modelspec.MigrateVersion, and returns the migrated names. Run at
-// serve startup, before EnsureDefaultModelSpec; idempotent.
-func MigrateModelSpecs(store Store) ([]string, error) {
+// ModelSpecSchemaVersion is the model-spec store schema this binary writes:
+// 1 = the version split + build-time plugins (COV-242). A store (or a config
+// backup) recording less still holds legacy specs.
+const ModelSpecSchemaVersion = 1
+
+// ModelSpecMigration reports a MigrateModelSpecs run: the specs it rewrote and
+// the warnings (each naming its spec) for anything it dropped.
+type ModelSpecMigration struct {
+	Migrated []string
+	Warnings []string
+}
+
+// MigrateModelSpecs is the one-time model-spec store migration (COV-242): when
+// the store's schema marker is below ModelSpecSchemaVersion it rewrites EVERY
+// stored spec with modelspec.MigrateLegacy — exact-version specs included, as
+// only the marker tells a legacy "no plugins" from an explicit one — then
+// records the marker, so it never runs again. Run at serve startup, before
+// EnsureDefaultModelSpec.
+func MigrateModelSpecs(store Store) (ModelSpecMigration, error) {
 	modelSpecMu.Lock()
 	defer modelSpecMu.Unlock()
-	var migrated []string
+	var rep ModelSpecMigration
+	if store.ModelSpecSchema() >= ModelSpecSchemaVersion {
+		return rep, nil
+	}
 	for _, m := range store.ListModelSpecs() {
-		out, changed := modelspec.MigrateVersion(m)
-		if !changed {
+		out, warns := modelspec.MigrateLegacy(m)
+		rep.Warnings = append(rep.Warnings, warns...)
+		if sameSpec(m, out) {
 			continue
 		}
 		if err := store.PutModelSpec(out); err != nil {
-			return migrated, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
+			return rep, fmt.Errorf("migrate model-spec %q: %w", m.Name, err)
 		}
-		migrated = append(migrated, m.Name)
+		rep.Migrated = append(rep.Migrated, m.Name)
 	}
-	return migrated, nil
+	if err := store.SetModelSpecSchema(ModelSpecSchemaVersion); err != nil {
+		return rep, fmt.Errorf("record model-spec schema: %w", err)
+	}
+	return rep, nil
+}
+
+// MigrateSnapshotModelSpecs applies the one-time migration to a config backup
+// taken before it (ModelSpecSchema below ModelSpecSchemaVersion) and marks the
+// snapshot current, returning the warnings; a current snapshot is untouched.
+func MigrateSnapshotModelSpecs(snap *ConfigSnapshot) []string {
+	if snap.ModelSpecSchema >= ModelSpecSchemaVersion {
+		return nil
+	}
+	var warns []string
+	for i, ms := range snap.ModelSpecs {
+		var w []string
+		snap.ModelSpecs[i], w = modelspec.MigrateLegacy(ms)
+		warns = append(warns, w...)
+	}
+	snap.ModelSpecSchema = ModelSpecSchemaVersion
+	return warns
+}
+
+// sameSpec reports whether a and b store identically.
+func sameSpec(a, b ModelSpec) bool {
+	ja, errA := json.Marshal(a)
+	jb, errB := json.Marshal(b)
+	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 
 // ErrNoDefaultPrincipal is EnsureDefaultModelSpec's refusal when it can find

@@ -78,7 +78,7 @@ The session context is compiled at raise ([session-context.md](session-context.m
 so it lives *outside* the image.
 The image is layered **kit base → harness → hardening**: between the kit's base
 and the sealed hardening steps sits a **harness layer** that installs the agent
-CLI at the raising role's [model-spec](model-specs.md#the-harness-layer-what-a-spec-builds)
+CLI at the raising role's [model-spec](model-spec-harness.md)
 version and its plugins — a kit never installs Claude Code itself. The raise
 resolves the role's model-spec *before* it looks for (or builds) the image.
 The image is tagged by a **build-digest** over only the build-affecting fields

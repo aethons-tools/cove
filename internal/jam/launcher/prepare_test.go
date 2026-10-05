@@ -367,3 +367,29 @@ func TestDefaultAssembleBuildsDefinitionHarness(t *testing.T) {
 		t.Fatalf("assembled Dockerfile does not install the definition's harness:\n%s", df)
 	}
 }
+
+// The build lock is keyed on the image tag (build-digest + assembly), not on
+// the kit's id@version: the same kit version under two harnesses is two images
+// that build independently, while the same image still serializes.
+func TestPrepareLockKeyedOnImageTag(t *testing.T) {
+	l := New(Config{PublicKey: []byte("k\n")})
+	a := KitRef{ID: "web", Version: 1, Digest: "aaaa"}
+	b := KitRef{ID: "web", Version: 1, Digest: "bbbb"}
+	unlock := l.lockRef(a)
+	got := make(chan struct{})
+	go func() { l.lockRef(b)(); close(got) }()
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a different image of the same kit version blocked on the held lock")
+	}
+	same := make(chan struct{})
+	go func() { l.lockRef(KitRef{ID: "other", Version: 9, Digest: "aaaa"})(); close(same) }()
+	select {
+	case <-same:
+		t.Fatal("the same image tag must serialize on one lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock()
+	<-same
+}

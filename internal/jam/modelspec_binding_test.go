@@ -302,43 +302,86 @@ func TestValidateModelSpecPlugins(t *testing.T) {
 	}
 }
 
-// Specs stored before the version split are migrated at serve startup: the
-// legacy constraint moves to version-constraint, version gets the pin, and the
-// untouched claude-default seed becomes a fresh one.
+// The one-time store migration (COV-242) rewrites every stored spec — exact
+// versions included — keeps a legacy range that admits the pin, drops what it
+// must with warnings, backfills the default plugins, and records the marker so
+// it never runs again (an explicit plugins: [] written later is kept).
 func TestMigrateModelSpecs(t *testing.T) {
 	st := NewMemStore()
 	legacySeed := modelspec.Default("pool")
 	legacySeed.Version, legacySeed.Claude.Plugins = modelspec.LegacyDefaultVersion, nil
 	custom := validSpec()
-	custom.Name, custom.Version = "custom", "2.x"
-	current := validSpec()
-	current.Name, current.Version = "current", "2.1.0"
-	for _, m := range []ModelSpec{legacySeed, custom, current} {
+	custom.Name, custom.Version, custom.Claude.Plugins = "custom", "2.x", []string{"superpowers@official"}
+	narrow := validSpec()
+	narrow.Name, narrow.Version = "narrow", "1.x"
+	exact := validSpec()
+	exact.Name, exact.Version, exact.Claude.Plugins = "exact", "2.1.0", nil
+	for _, m := range []ModelSpec{legacySeed, custom, narrow, exact} {
 		if err := st.PutModelSpec(m); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := MigrateModelSpecs(st)
-	if err != nil || !slices.Equal(got, []string{"claude-default", "custom"}) {
-		t.Fatalf("migrated = %v, %v", got, err)
+	rep, err := MigrateModelSpecs(st)
+	if err != nil || !slices.Equal(rep.Migrated, []string{"claude-default", "custom", "exact", "narrow"}) {
+		t.Fatalf("migrated = %+v, %v", rep, err)
 	}
-	if m, _ := st.GetModelSpec("claude-default"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "" ||
+	if st.ModelSpecSchema() != ModelSpecSchemaVersion {
+		t.Fatalf("marker = %d", st.ModelSpecSchema())
+	}
+	if m, _ := st.GetModelSpec("claude-default"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != modelspec.LegacyDefaultVersion ||
 		!slices.Equal(m.Claude.Plugins, modelspec.DefaultClaudePlugins()) {
-		t.Fatalf("migrated seed = %+v", m)
+		t.Fatalf("migrated seed = %+v %+v", m, m.Claude)
 	}
-	if m, _ := st.GetModelSpec("custom"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "2.x" {
-		t.Fatalf("migrated custom = %+v", m)
+	if m, _ := st.GetModelSpec("custom"); m.Version != modelspec.DefaultClaudeVersion || m.VersionConstraint != "2.x" ||
+		!slices.Equal(m.Claude.Plugins, modelspec.DefaultClaudePlugins()) {
+		t.Fatalf("migrated custom = %+v %+v", m, m.Claude)
 	}
-	for _, name := range []string{"claude-default", "custom"} {
-		m, _ := st.GetModelSpec(name)
-		if err := ValidateModelSpec(m, credIs("anthropic"), true); err != nil {
-			t.Errorf("migrated %s is invalid: %v", name, err)
+	if m, _ := st.GetModelSpec("narrow"); m.VersionConstraint != m.Version {
+		t.Fatalf("a non-admitting range must become the pin: %+v", m)
+	}
+	if m, _ := st.GetModelSpec("exact"); m.Version != "2.1.0" || !slices.Equal(m.Claude.Plugins, modelspec.DefaultClaudePlugins()) {
+		t.Fatalf("an exact legacy spec must keep its version and get the default plugins: %+v", m)
+	}
+	joined := strings.Join(rep.Warnings, "\n")
+	for _, want := range []string{`"custom"`, "superpowers@official", `"narrow"`, "1.x"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("warnings lack %q:\n%s", want, joined)
 		}
 	}
-	if m, _ := st.GetModelSpec("current"); m.Version != "2.1.0" || m.VersionConstraint != "" {
-		t.Fatalf("an exact spec must be left alone: %+v", m)
+	for _, m := range st.ListModelSpecs() {
+		if err := ValidateModelSpec(m, credIs("anthropic"), true); err != nil {
+			t.Errorf("migrated %s is invalid: %v", m.Name, err)
+		}
 	}
-	if again, err := MigrateModelSpecs(st); err != nil || len(again) != 0 {
-		t.Fatalf("migration must be idempotent: %v, %v", again, err)
+	// Once recorded, never again: an explicit plugins: [] stays empty.
+	exact, _ = st.GetModelSpec("exact")
+	exact.Claude.Plugins = nil
+	if err := st.PutModelSpec(exact); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := MigrateModelSpecs(st); err != nil || len(again.Migrated) != 0 {
+		t.Fatalf("second run = %+v, %v", again, err)
+	}
+	if m, _ := st.GetModelSpec("exact"); len(m.Claude.Plugins) != 0 {
+		t.Fatalf("a post-migration explicit empty plugin list was backfilled: %v", m.Claude.Plugins)
+	}
+}
+
+// A pre-marker backup is migrated on import and imports as current; a current
+// one is taken as written.
+func TestMigrateSnapshotModelSpecs(t *testing.T) {
+	legacy := validSpec()
+	legacy.Version, legacy.Claude.Plugins = "2.x", nil
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, ModelSpecs: []ModelSpec{legacy}}
+	MigrateSnapshotModelSpecs(&snap)
+	if snap.ModelSpecSchema != ModelSpecSchemaVersion || snap.ModelSpecs[0].Version != modelspec.DefaultClaudeVersion ||
+		!slices.Equal(snap.ModelSpecs[0].Claude.Plugins, modelspec.DefaultClaudePlugins()) {
+		t.Fatalf("migrated snapshot = %+v", snap)
+	}
+	current := ConfigSnapshot{ModelSpecSchema: ModelSpecSchemaVersion, ModelSpecs: []ModelSpec{validSpec()}}
+	current.ModelSpecs[0].Claude.Plugins = nil
+	MigrateSnapshotModelSpecs(&current)
+	if current.ModelSpecs[0].Claude.Plugins != nil {
+		t.Fatal("a current snapshot must not be migrated")
 	}
 }
