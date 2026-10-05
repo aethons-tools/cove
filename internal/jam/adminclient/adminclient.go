@@ -160,6 +160,8 @@ func (c *Client) PutRole(project string, r jam.Role) error {
 		IdleAfterSeconds:    int64(r.Allocation.IdleAfter / time.Second),
 		NagEverySeconds:     int64(r.Allocation.NagEvery / time.Second),
 		ReclaimAfterSeconds: int64(r.Allocation.ReclaimAfter / time.Second),
+		IdleTimeoutSeconds:  int64(r.TurnEnd.IdleTimeout / time.Second),
+		OnIdle:              r.TurnEnd.OnIdle,
 	}, nil)
 }
 
@@ -182,7 +184,7 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,
 			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
 			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
-		}})
+		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle}})
 		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil
@@ -364,7 +366,7 @@ func (c *Client) ListCoves() ([]jam.CoveSummary, error) {
 	return out, err
 }
 
-// ReportCoveStatus reports a cove's activity (running|waiting|blocked|done).
+// ReportCoveStatus reports a cove's activity (running|holding|waiting|blocked|done).
 func (c *Client) ReportCoveStatus(id, activity string) error {
 	return c.do("POST", "/admin/coves/"+url.PathEscape(id)+"/status", jam.CoveStatusBody{Activity: activity}, nil)
 }

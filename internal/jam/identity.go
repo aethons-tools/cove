@@ -104,6 +104,9 @@ type Role struct {
 	// to exist at every role write; a bound spec cannot be deleted.
 	ModelSpec  string         `json:"model_spec,omitempty"`
 	Allocation RoleAllocation `json:"allocation,omitzero"` // zero = no role policy
+	// TurnEnd is the role's turn-end policy (idle timeout + on-idle action).
+	// Separate from Allocation, whose UI form rebuilds it on save.
+	TurnEnd TurnEndPolicy `json:"turn_end,omitzero"`
 	// Context is the role's authored session-context layer (rules for this
 	// role). Managed only by the context endpoints (`at-jam context … --role`);
 	// a role re-put keeps it.

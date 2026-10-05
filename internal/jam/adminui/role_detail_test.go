@@ -138,3 +138,27 @@ func TestRoleLinksFromRolesAndRoster(t *testing.T) {
 		t.Errorf("roster grant chips should link to the role")
 	}
 }
+
+func TestRoleDetailShowsTurnEnd(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "worker", TurnEnd: jam.TurnEndPolicy{IdleTimeout: 45 * time.Minute, OnIdle: jam.OnIdleTeardown}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("acme", jam.Role{Name: "bare"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
+	body := get(t, h, "/ui/roles/acme/worker").Body.String()
+	for _, want := range []string{"Idle timeout", "45m", "On idle", "teardown"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("worker role detail missing %q", want)
+		}
+	}
+	bare := get(t, h, "/ui/roles/acme/bare").Body.String()
+	for _, want := range []string{"Idle timeout", "none", "On idle", "wake"} {
+		if !strings.Contains(bare, want) {
+			t.Errorf("bare role detail missing %q", want)
+		}
+	}
+}
