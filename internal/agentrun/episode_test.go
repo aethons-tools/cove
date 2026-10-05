@@ -512,3 +512,34 @@ func TestEpisodeBackgroundWaitCapLeavesHolding(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A RunGate control runs the gate in the workspace and reports its result,
+// without starting an agent turn.
+func TestControlRunGateReportsResult(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnResult)
+	p.in.waitClosed(t)
+	p.exit <- nil // episode over: waiting
+	w.Control(covemaster.Control{Kind: covemaster.RunGate, Gate: &covemaster.GateRequest{RunID: "r1", Alarm: "ci", Command: "echo ok", Timeout: 5 * time.Second}})
+	if !eventually(func() bool { return len(h.gateResults()) == 1 }) {
+		t.Fatal("no gate result")
+	}
+	if g := h.gateResults()[0]; g.RunID != "r1" || g.Exit != 0 || string(g.Output) != "ok\n" {
+		t.Fatalf("result = %+v", g)
+	}
+	select {
+	case p2 := <-s.procs:
+		t.Fatalf("a gate started an agent turn: %+v", p2)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	<-done
+}
