@@ -91,6 +91,17 @@ type escalateIn struct {
 	Category string `json:"category" jsonschema:"the block category to route escalation by, e.g. infra / ticket-blocked / code-architecture (free-form; unknown falls back to the default tier chain)"`
 }
 
+// endIn is the "end" tool's typed input.
+type endIn struct {
+	Reason string `json:"reason" jsonschema:"why the session is ending (shown to its owner); the session is torn down after this turn ends and is never woken again"`
+}
+
+// idleTimeoutIn is the "idle_timeout" tool's typed input.
+type idleTimeoutIn struct {
+	Duration string `json:"duration" jsonschema:"how long after this turn ends to apply the role's on-idle action if nothing else wakes you, e.g. 45m or 2h; or off"`
+	Scope    string `json:"scope" jsonschema:"next (only the next turn end) or always (until the session ends)"`
+}
+
 // targetItem mirrors one entry of Jam's GET /squawks/targets response.
 type targetItem struct {
 	Target string `json:"target"`
@@ -284,6 +295,31 @@ func (c *messagingClient) escalate(ctx context.Context, category string) error {
 	return err
 }
 
+// end asks Jam (POST /end) to tear the cove down once this turn ends.
+func (c *messagingClient) end(ctx context.Context, reason string) error {
+	payload, err := json.Marshal(struct {
+		Reason string `json:"reason"`
+	}{Reason: reason})
+	if err != nil {
+		return fmt.Errorf("encoding end payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPost, "/end", payload)
+	return err
+}
+
+// idleTimeout overrides the cove's idle timeout (PUT /idle).
+func (c *messagingClient) idleTimeout(ctx context.Context, duration, scope string) error {
+	payload, err := json.Marshal(struct {
+		Duration string `json:"duration"`
+		Scope    string `json:"scope"`
+	}{Duration: duration, Scope: scope})
+	if err != nil {
+		return fmt.Errorf("encoding idle payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPut, "/idle", payload)
+	return err
+}
+
 // newMessagingServer builds the "intercom" MCP server exposing read/send.
 //
 // Configuration errors (missing env vars, a malformed address) are captured
@@ -365,6 +401,26 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, nil, err
 		}
 		return nil, nil, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "end",
+		Description: "End this session for good once the current turn finishes: do any wrap-up first, then call this as your last action. Irrevocable; the session is never woken again.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in endIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.end(ctx, in.Reason)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "idle_timeout",
+		Description: "Change how long after this turn ends Jam waits before applying the role's on-idle action (wake you, or end the session) if nothing else wakes you. scope next = only the next turn end; always = until the session ends. duration off disables it.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in idleTimeoutIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.idleTimeout(ctx, in.Duration, in.Scope)
 	})
 
 	return s
