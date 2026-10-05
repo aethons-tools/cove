@@ -11,7 +11,7 @@ import (
 
 // alarmSetter is the narrow slice of *Supervisor the /alarms handler needs.
 type alarmSetter interface {
-	SetAlarm(actorID, name, schedule, note string) (Alarm, error)
+	SetAlarm(actorID, name, schedule, note, gate string) (Alarm, error)
 	ClearAlarm(actorID, name string) error
 }
 
@@ -107,7 +107,7 @@ func (h *AlarmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		a, err := h.setter.SetAlarm(actor.ID, name, req.Schedule, req.Note)
+		a, err := h.setter.SetAlarm(actor.ID, name, req.Schedule, req.Note, "")
 		if err != nil {
 			// Validation and the alarm limit: the agent reads the reason.
 			http.Error(w, err.Error(), http.StatusBadRequest)

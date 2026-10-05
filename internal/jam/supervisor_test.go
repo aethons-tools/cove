@@ -1674,7 +1674,7 @@ func TestReportRunningClearsIdleDeadline(t *testing.T) {
 func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
 	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{TimeZone: "America/New_York"})
 	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	a, err := sup.SetAlarm("w1", "standup", "0 9 * * *", "post the standup")
+	a, err := sup.SetAlarm("w1", "standup", "0 9 * * *", "post the standup", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1684,7 +1684,7 @@ func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
 	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Note != "post the standup" {
 		t.Fatalf("alarms = %+v", inst.Alarms)
 	}
-	if _, err := sup.SetAlarm("w1", "standup", "0 10 * * *", ""); err != nil {
+	if _, err := sup.SetAlarm("w1", "standup", "0 10 * * *", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Schedule != "0 10 * * *" {
@@ -1695,15 +1695,15 @@ func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
 func TestSetAlarmLimits(t *testing.T) {
 	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
 	for i := 0; i < MaxAlarms; i++ {
-		if _, err := sup.SetAlarm("w1", fmt.Sprintf("a%d", i), "@hourly", ""); err != nil {
+		if _, err := sup.SetAlarm("w1", fmt.Sprintf("a%d", i), "@hourly", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := sup.SetAlarm("w1", "one-more", "@hourly", ""); !errors.Is(err, ErrAlarmLimit) {
+	if _, err := sup.SetAlarm("w1", "one-more", "@hourly", "", ""); !errors.Is(err, ErrAlarmLimit) {
 		t.Fatalf("21st alarm: err = %v, want ErrAlarmLimit", err)
 	}
 	for _, c := range [][3]string{{"BAD", "@hourly", ""}, {"ok", "@every 1s", ""}, {"ok", "@hourly", strings.Repeat("x", 1001)}} {
-		if _, err := sup.SetAlarm("w1", c[0], c[1], c[2]); err == nil {
+		if _, err := sup.SetAlarm("w1", c[0], c[1], c[2], ""); err == nil {
 			t.Errorf("accepted %q", c)
 		}
 	}
@@ -1714,7 +1714,7 @@ func TestSetAlarmLimits(t *testing.T) {
 
 func TestClearAlarm(t *testing.T) {
 	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
-	_, _ = sup.SetAlarm("w1", "x", "@hourly", "")
+	_, _ = sup.SetAlarm("w1", "x", "@hourly", "", "")
 	if err := sup.ClearAlarm("w1", "x"); err != nil {
 		t.Fatal(err)
 	}
@@ -1729,9 +1729,9 @@ func TestClearAlarm(t *testing.T) {
 func TestFireAlarmsNoCatchUp(t *testing.T) {
 	sup, _, now := raiseWithTurnEnd(t, TurnEndPolicy{})
 	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
-	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
-	_, _ = sup.SetAlarm("w1", "later", "2026-10-06T00:00:00Z", "")
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "", "")
+	_, _ = sup.SetAlarm("w1", "later", "2026-10-06T00:00:00Z", "", "")
 	_ = sup.Report(context.Background(), "w1", ActivityWaiting) // alarms fire once the turn is over
 	at := time.Date(2026, 10, 5, 17, 5, 0, 0, time.UTC)         // 5 hourly matches missed
 	got, err := sup.FireAlarms("w1", at)
@@ -1762,8 +1762,8 @@ func TestFireAlarmsNoCatchUp(t *testing.T) {
 func TestReportTurnStartRetiresFiredAlarms(t *testing.T) {
 	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{})
 	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
-	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "", "")
 	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
 	_, _ = sup.FireAlarms("w1", time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC))
 	_ = sup.Report(context.Background(), "w1", ActivityRunning)
@@ -1797,7 +1797,7 @@ func (r *racyStore) GetInstance(id string) (Instance, bool) {
 func TestFireAlarmsHeldWhileRunning(t *testing.T) {
 	sup, _, now := raiseWithTurnEnd(t, TurnEndPolicy{})
 	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	_, _ = sup.SetAlarm("w1", "x", "@hourly", "")
+	_, _ = sup.SetAlarm("w1", "x", "@hourly", "", "")
 	got, err := sup.FireAlarms("w1", time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC))
 	if err != nil || len(got) != 1 || !got[0].FiredAt.IsZero() {
 		t.Fatalf("fired while running: %+v %v", got, err)
@@ -1817,7 +1817,7 @@ func TestInstanceWritersSerialized(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
-	if _, err := sup.SetAlarm("w1", "due", "2026-10-05T12:30:00Z", ""); err != nil {
+	if _, err := sup.SetAlarm("w1", "due", "2026-10-05T12:30:00Z", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
@@ -1825,7 +1825,7 @@ func TestInstanceWritersSerialized(t *testing.T) {
 	rs.hook = func() {
 		go func() {
 			defer close(done)
-			if _, err := sup.SetAlarm("w1", "added", "@hourly", ""); err != nil {
+			if _, err := sup.SetAlarm("w1", "added", "@hourly", "", ""); err != nil {
 				t.Error(err)
 			}
 			_ = sup.Report(context.Background(), "w1", ActivityRunning)
@@ -1844,5 +1844,112 @@ func TestInstanceWritersSerialized(t *testing.T) {
 	}
 	if !names["added"] || inst.Activity != ActivityRunning {
 		t.Fatalf("lost a concurrent write: alarms=%+v activity=%s", inst.Alarms, inst.Activity)
+	}
+}
+
+func gatedSession(t *testing.T, extra func(*Supervisor)) (*Supervisor, Store, *time.Time) {
+	t.Helper()
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	if _, err := sup.SetAlarm("w1", "ci", "*/5 * * * *", "CI changed", "gh run view --exit-status"); err != nil {
+		t.Fatal(err)
+	}
+	if extra != nil {
+		extra(sup)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	*now = time.Date(2026, 10, 5, 12, 5, 0, 0, time.UTC)
+	return sup, store, now
+}
+
+func mustAlarm(t *testing.T, store Store, name string) Alarm {
+	t.Helper()
+	inst, _ := store.GetInstance("w1")
+	for _, a := range inst.Alarms {
+		if a.Name == name {
+			return a
+		}
+	}
+	t.Fatalf("no alarm %q in %+v", name, inst.Alarms)
+	return Alarm{}
+}
+
+func TestSetAlarmGateLimit(t *testing.T) {
+	sup, _, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	if _, err := sup.SetAlarm("w1", "g", "@hourly", "", strings.Repeat("x", 4097)); err == nil {
+		t.Fatal("accepted a gate over 4096 bytes")
+	}
+}
+
+func TestFireAlarmsSkipsGated(t *testing.T) {
+	sup, _, now := gatedSession(t, nil)
+	got, _ := sup.FireAlarms("w1", *now)
+	if !got[0].FiredAt.IsZero() {
+		t.Fatalf("a gated alarm fired without its gate: %+v", got[0])
+	}
+}
+
+func TestStartGateOncePerRun(t *testing.T) {
+	sup, _, now := gatedSession(t, nil)
+	a, ok, err := sup.StartGate("w1", "ci", "r1", *now)
+	if err != nil || !ok || a.GateRun == nil || a.GateRun.RunID != "r1" {
+		t.Fatalf("start = %+v %v %v", a, ok, err)
+	}
+	if _, ok, _ := sup.StartGate("w1", "ci", "r2", *now); ok {
+		t.Fatal("a second run started while one is in flight")
+	}
+}
+
+func TestResolveGatePassFiresWithOutput(t *testing.T) {
+	sup, store, now := gatedSession(t, nil)
+	_, _, _ = sup.StartGate("w1", "ci", "r1", *now)
+	if err := sup.ResolveGate("w1", "r1", GateOutcome{At: *now, Exit: 0, Output: "all green"}); err != nil {
+		t.Fatal(err)
+	}
+	a := mustAlarm(t, store, "ci")
+	if a.FiredAt.IsZero() || a.FireKind != WakeAlarm || a.FireDetail != "all green" || a.GateRun != nil || !a.NextAt.Equal(time.Date(2026, 10, 5, 12, 10, 0, 0, time.UTC)) {
+		t.Fatalf("alarm = %+v", a)
+	}
+}
+
+func TestResolveGateFailureWakesWithCause(t *testing.T) {
+	for _, o := range []GateOutcome{{Exit: -1, TimedOut: true}, {Exit: 127, Output: "sh: gh: not found"}, {Exit: 126}, {NoResult: true}} {
+		sup, store, now := gatedSession(t, nil)
+		_, _, _ = sup.StartGate("w1", "ci", "r1", *now)
+		o.At = *now
+		_ = sup.ResolveGate("w1", "r1", o)
+		a := mustAlarm(t, store, "ci")
+		if a.FiredAt.IsZero() || a.FireKind != WakeGateFailed || a.FireDetail == "" {
+			t.Fatalf("%+v → alarm %+v; want a gate-failed fire with a cause", o, a)
+		}
+	}
+}
+
+func TestResolveGateNotYet(t *testing.T) {
+	sup, store, now := gatedSession(t, func(sup *Supervisor) {
+		if _, err := sup.SetAlarm("w1", "once", "2026-10-05T12:01:00Z", "", "false"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	_, _, _ = sup.StartGate("w1", "ci", "r1", *now)
+	_, _, _ = sup.StartGate("w1", "once", "r2", *now)
+	_ = sup.ResolveGate("w1", "r1", GateOutcome{At: *now, Exit: 1})
+	_ = sup.ResolveGate("w1", "r2", GateOutcome{At: *now, Exit: 1})
+	inst, _ := store.GetInstance("w1")
+	if len(inst.Alarms) != 1 || inst.Alarms[0].Name != "ci" || !inst.Alarms[0].FiredAt.IsZero() || inst.Alarms[0].LastGate == nil ||
+		!inst.Alarms[0].NextAt.Equal(time.Date(2026, 10, 5, 12, 10, 0, 0, time.UTC)) {
+		t.Fatalf("alarms = %+v; want ci un-fired with LastGate and its next match, the one-shot removed", inst.Alarms)
+	}
+}
+
+func TestResolveGateIgnoresStaleRun(t *testing.T) {
+	sup, store, now := gatedSession(t, nil)
+	_, _, _ = sup.StartGate("w1", "ci", "r1", *now)
+	_, _ = sup.SetAlarm("w1", "ci", "*/5 * * * *", "CI changed", "true") // re-set while r1 runs
+	if err := sup.ResolveGate("w1", "r1", GateOutcome{At: *now, Exit: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if a := mustAlarm(t, store, "ci"); !a.FiredAt.IsZero() {
+		t.Fatalf("a stale run's result fired the re-set alarm: %+v", a)
 	}
 }

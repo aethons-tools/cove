@@ -386,3 +386,58 @@ func TestAttachRecordsConnector(t *testing.T) {
 		t.Fatalf("connector not recorded: %+v", i)
 	}
 }
+
+func TestRunGateDelivery(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Heartbeat{Heartbeat: &attachpb.Heartbeat{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { return srv.connected("w1") }) {
+		t.Fatal("stream never registered")
+	}
+	srv.RunGate("w1", "r1", "ci", "gh run view --exit-status", time.Minute)
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := msg.GetGate()
+	if g == nil || g.GetRunId() != "r1" || g.GetAlarm() != "ci" || g.GetCommand() != "gh run view --exit-status" || g.GetTimeoutS() != 60 {
+		t.Fatalf("got %+v", msg)
+	}
+}
+
+func TestGateResultResolves(t *testing.T) {
+	store, sup, srv, dial, tok, secret := harness(t)
+	if _, err := sup.SetAlarm("w1", "ci", "@every 1m", "CI changed", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Report(context.Background(), "w1", jam.ActivityWaiting); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := sup.StartGate("w1", "ci", "r1", time.Now().Add(2*time.Minute)); !ok || err != nil {
+		t.Fatalf("start gate: %v %v", ok, err)
+	}
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Gate{Gate: &attachpb.GateResult{RunId: "r1", Exit: 0, Output: []byte("ok")}}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = srv
+	if !eventually(func() bool {
+		inst, _ := store.GetInstance("w1")
+		return len(inst.Alarms) == 1 && inst.Alarms[0].FireKind == jam.WakeAlarm && inst.Alarms[0].FireDetail == "ok"
+	}) {
+		inst, _ := store.GetInstance("w1")
+		t.Fatalf("alarm not resolved: %+v", inst.Alarms)
+	}
+}

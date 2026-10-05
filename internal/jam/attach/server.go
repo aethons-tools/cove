@@ -153,6 +153,16 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			_ = s.sup.RecordConnector(actorID, m.Connector.GetFingerprint())
 		case *attachpb.StatusUp_Heartbeat:
 			_ = s.sup.Heartbeat(actorID)
+		case *attachpb.StatusUp_Gate:
+			g := m.Gate
+			out := string(g.GetOutput())
+			if g.GetTruncated() && !strings.HasSuffix(out, "[output truncated]") {
+				out += "\n[output truncated]"
+			}
+			if err := s.sup.ResolveGate(actorID, g.GetRunId(), jam.GateOutcome{
+				At: time.Now(), Exit: int(g.GetExit()), TimedOut: g.GetTimedOut(), Output: out}); err != nil {
+				s.log.Warn("gate result not recorded", "actor", actorID, "run", g.GetRunId(), "err", err.Error())
+			}
 		case *attachpb.StatusUp_Event:
 			if s.events == nil {
 				continue
@@ -228,6 +238,14 @@ func (s *Server) Wake(actorID string, reasons ...jam.WakeReason) {
 		pb = append(pb, &attachpb.WakeReason{Kind: r.Kind, Alarm: r.Alarm, Note: r.Note, Detail: r.Detail})
 	}
 	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Wake{Wake: &attachpb.Wake{Reasons: pb}}})
+}
+
+// RunGate asks the cove to run an alarm's gate (best-effort and non-blocking
+// like Wake: with no stream the request is dropped, and Jam resolves the gate
+// as failed after its grace period).
+func (s *Server) RunGate(actorID, runID, alarm, command string, timeout time.Duration) {
+	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Gate{Gate: &attachpb.RunGate{
+		RunId: runID, Alarm: alarm, Command: command, TimeoutS: uint32(timeout / time.Second)}}})
 }
 
 // connected reports whether a live Attach stream is registered for actorID.

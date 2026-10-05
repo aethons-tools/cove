@@ -15,7 +15,7 @@ type fakeAlarmSetter struct {
 	clearErr error
 }
 
-func (f *fakeAlarmSetter) SetAlarm(_, n, s, note string) (Alarm, error) {
+func (f *fakeAlarmSetter) SetAlarm(_, n, s, note, gate string) (Alarm, error) {
 	if f.setErr != nil {
 		return Alarm{}, f.setErr
 	}
