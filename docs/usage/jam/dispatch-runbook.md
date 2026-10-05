@@ -76,8 +76,7 @@ doc that owns the detail; this runbook only owns the **order** and the
   pre-rename `serve` (or vice versa) gets a 404 and the agent silently has no
   intercom tools. If a studio's tools 404, rebuild **both** the image (`at-cove
   install`) and the host binary (`just build`) from the same commit.
-- **Discord replies must be real replies; tell a wait-for-reply task to
-  `needs-input`.** Reply-routing matches an inbound message by the message id it
+- **Discord replies must be real replies; a wait-for-reply task ends its turn.** Reply-routing matches an inbound message by the message id it
   *replies to*, so a **bare** post in the channel carries no reference and is
   dropped by design (that's also how Jam's own echoed posts don't
   mis-route). Use Discord's reply-to-message. And a task that waits for a reply

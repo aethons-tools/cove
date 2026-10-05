@@ -72,6 +72,9 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity != jam.ActivityWaiting || inst.EndRequested != nil {
 			continue // a session that asked to end is not soliciting anyone
 		}
+		if inst.Report == nil || inst.Report.State != jam.ReportNeedsInput {
+			continue // every turn ends in Waiting: only a needs-input report asks for a person
+		}
 		if inst.Unit == "" {
 			continue // no ticket to escalate on (a personal session waits on its owner)
 		}

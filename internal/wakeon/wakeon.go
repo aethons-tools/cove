@@ -112,6 +112,15 @@ type TicketCloser interface {
 	BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error
 }
 
+// ReportRecorder stamps a session's ticket report (Supervisor.SetReport).
+type ReportRecorder interface {
+	SetReport(actorID string, r jam.TicketReport) error
+}
+
+// blockTimeout bounds the tracker call made before a teardown, so a stalled
+// tracker can't freeze the wake-on tick.
+const blockTimeout = 15 * time.Second
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -144,7 +153,8 @@ type Engine struct {
 	ender   Ender      // nil = no end notices
 	alarms  AlarmFirer // nil = no alarms
 
-	tickets TicketCloser // nil = no ticket updates on teardown
+	tickets TicketCloser   // nil = no ticket updates on teardown
+	reports ReportRecorder // records the blocked report so it is made once
 
 	// Alarm gates (SetGates); off while either is nil.
 	gates      GateState
@@ -195,17 +205,30 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 func (e *Engine) SetGates(state GateState, runner GateRunner) { e.gates, e.gateRunner = state, runner }
 
 // SetTickets has every teardown wake-on performs (end, idle timeout,
-// wait-max) first mark an unfinished ticket blocked. Call before Run.
-func (e *Engine) SetTickets(t TicketCloser) { e.tickets = t }
+// wait-max) first mark an unfinished ticket blocked, and record that as the
+// session's report (so a teardown retried next tick doesn't mark it again).
+// Call before Run.
+func (e *Engine) SetTickets(t TicketCloser, reports ReportRecorder) {
+	e.tickets, e.reports = t, reports
+}
 
-// blockUnfinished marks inst's ticket blocked before Jam ends it (best-effort:
-// a failure is logged and the teardown goes ahead).
+// blockUnfinished marks inst's ticket blocked before Jam ends it (best-effort
+// and time-bounded: a failure is logged and the teardown goes ahead).
 func (e *Engine) blockUnfinished(ctx context.Context, inst jam.Instance, reason string) {
-	if e.tickets == nil || inst.Unit == "" {
+	if e.tickets == nil || inst.Unit == "" || (inst.Report != nil && inst.Report.Terminal()) {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, blockTimeout)
+	defer cancel()
 	if err := e.tickets.BlockUnfinished(ctx, inst, reason); err != nil {
 		e.log.Warn("wakeon: mark ticket blocked failed; tearing down anyway", "actor", inst.ActorID, "ticket", inst.Unit, "error", err.Error())
+		return
+	}
+	if e.reports != nil {
+		r := jam.TicketReport{State: jam.ReportBlocked, Summary: "session ended without a final report: " + reason, At: e.now()}
+		if err := e.reports.SetReport(inst.ActorID, r); err != nil {
+			e.log.Warn("wakeon: record blocked report failed", "actor", inst.ActorID, "error", err.Error())
+		}
 	}
 }
 

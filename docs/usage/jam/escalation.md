@@ -4,7 +4,7 @@ read_when: You want a raised studio's Waiting state to actively nudge humans ins
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.requisitioner.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # Escalation (human tiers)
@@ -48,9 +48,9 @@ tools](intercom.md#what-the-tools-do): Jam stamps
 studio re-declares it or the instance tears down — entering Waiting does not clear
 it (only the per-tier state below resets there). Calling `escalate` **only
 categorizes** the block; it does not itself open an escalation — pinging still
-starts solely on entering Waiting, as above. A studio typically calls `escalate`
-before ending a turn `needs-input`, so the category is set before Jam
-evaluates who to ping.
+starts solely on entering Waiting with a `needs-input` report, as above. A studio
+typically calls `escalate` before `report(needs-input)` and ending its turn, so the
+category is set before Jam evaluates who to ping.
 
 Operator commands take a matching `--category <name>` flag — see [Operator
 commands](#operator-commands-at-jam-project-escalation) below. Jam
@@ -60,9 +60,9 @@ denial or a `401`, without the studio calling `escalate`) is not implemented yet
 
 ## Auto-on-Waiting: immediate tier-0, then advance on timeout
 
-Escalation isn't triggered by a separate command — it starts the moment a studio's
-Activity transitions to **Waiting** (typically after the agent reports
-`needs-input`; see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)):
+Escalation isn't triggered by a separate command — it starts the moment a studio is
+**Waiting** with a **`needs-input`** [report](turn-end.md#reporting-a-ticket) (every
+turn ends in Waiting, so only that report means it needs a person):
 
 1. **Tier 0 is pinged immediately**, with no grace period. If you want a delay
    before the first nudge, give tier 0 a longer timeout — there is no separate

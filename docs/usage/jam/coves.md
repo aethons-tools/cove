@@ -66,9 +66,8 @@ With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
 Colima studio from the configured image, injects the agent connector — the client env
 and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the cove-master env, your prompt and the compiled [session context](session-context.md) over SSH, and starts
 `cove-master`, which runs `claude -p` on the prompt. The studio reports
-`running` → `done` over the [Attach stream](#the-attach-stream), and the supervisor
-tears it down when the agent finishes (or on `error`/`needs-input`, which report a
-brief `waiting` first). The **role must grant the `anthropic` and `git`
+`running` → `waiting` over the [Attach stream](#the-attach-stream) after each turn,
+and the supervisor tears it down when Jam ends the session ([turn-end.md](turn-end.md)). The **role must grant the `anthropic` and `git`
 destinations** for the agent to reach them. This validates the managed-cove
 lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
 Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Instance only
@@ -123,9 +122,9 @@ per ready ticket — not only by this manual `studio raise` verb.
 
 A raised studio's agent also gets a brokered [intercom MCP](intercom.md) — `read`/`send`
 on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
-A studio is no longer strictly one-shot: on `needs-input` it **suspends** (Activity `waiting`)
-and Jam **wakes** it to resume (`claude --continue`) when a reply lands on its ticket,
-bounded by `wait-max` — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
+A studio is not one-shot: after each turn it **waits** (Activity `waiting`) and Jam
+**wakes** it to resume (`claude --continue`) when a reply lands, an alarm fires, or its
+idle timeout passes — see [turn-end.md](turn-end.md).
 
 All `studio` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
 see [operators.md](operators.md).
@@ -226,7 +225,7 @@ is written to stdin as the resume prompt at once; mid-turn, any number of wakes 
 coalesced into **one** resume prompt written when the turn ends. A wake that is still
 owed when the process exits — coalesced but undelivered, or written but not yet
 acted on (the write failed, or the agent exited before starting that turn) — is
-kept, so the next `needs-input` (or resident) wait resumes at once.
+kept, so the next wait resumes at once.
 
 **Connector refresh.** Before every episode (agent spawn) — the first, and each resume after the process exited —
 cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))

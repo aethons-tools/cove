@@ -115,9 +115,9 @@ view — it's a conversation to process in order, not an email list.
 
 ## Waiting for a reply (wake-on)
 
-A raised studio is no longer strictly one-shot. When its agent reports **`needs-input`**
-(typically after asking a question via `send`), the studio **suspends** — it reports
-Activity `waiting` and blocks instead of ending. Jam's resident **wake-on engine**
+A raised studio is not one-shot. When its agent's turn ends (typically after asking
+a question via `send`), the studio **suspends** — it reports Activity `waiting` and
+blocks instead of ending ([turn-end.md](turn-end.md)). Jam's resident **wake-on engine**
 watches the studio's ticket and, when a **new comment** (a reply) arrives, **wakes** it
 over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. When its [session context](session-context.md#refresh) changed

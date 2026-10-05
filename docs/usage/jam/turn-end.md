@@ -28,8 +28,8 @@ up" does its housekeeping, then calls `end` as its last action.
 - From the moment it is requested, the session is **never woken again** — not by
   a squawk, nor by its idle timeout. The first request's reason wins.
 - A personal session's owner gets a squawk: *ended itself: <reason>*. A standing
-  or ticket session has no owner: the end is logged. (Moving a ticket's state on
-  `end` arrives with `report`.)
+  or ticket session has no owner: the end is logged, and a ticket without a final
+  report is first marked blocked ([below](#reporting-a-ticket)).
 
 ## Reporting a ticket
 
@@ -49,7 +49,13 @@ read.
 - **Ending without a final report:** when Jam ends a ticket session — `end`, the
   idle timeout's teardown, or `wait-max` — and its last report is not `done` or
   `blocked`, Jam first moves the ticket to **blocked** with a comment saying why.
-  The teardown goes ahead even if that tracker call fails.
+  The teardown goes ahead even if that tracker call fails (it is bounded at 15s);
+  once marked, the session's report is `blocked`, so a retried teardown doesn't
+  mark it again. Teardowns outside wake-on (a lost VM, an operator's teardown)
+  don't move the ticket.
+- **Escalation** ([escalation.md](escalation.md)) pings people only while a
+  ticket session's last report is `needs-input` — every turn ends in `waiting`,
+  so waiting alone no longer means it needs someone.
 - **A typical ticket:** work → `report(in-review, pr=…)` → `alarm_set` a PR-watch
   alarm whose [gate](#gates) passes on new review comments, failing CI, a branch
   behind main, or the merge → end the turn → woken only when there is something

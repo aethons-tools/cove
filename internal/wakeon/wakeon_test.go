@@ -1654,7 +1654,7 @@ func (f *fakeTickets) BlockUnfinished(_ context.Context, inst jam.Instance, reas
 func ticketEngine(insts []jam.Instance, roles fakeRoles) (*Engine, *fakeReaper, *fakeTickets) {
 	e, _, reap, _, _ := turnEndEngine(insts, nil, roles)
 	tk := &fakeTickets{}
-	e.SetTickets(tk)
+	e.SetTickets(tk, &fakeReports{reg: e.reg.(*fakeReg)})
 	return e, reap, tk
 }
 
@@ -1684,5 +1684,78 @@ func TestTick_WaitMaxBlocks(t *testing.T) {
 	e.tick(context.Background())
 	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:wait-max" || len(reap.down) != 1 {
 		t.Fatalf("blocked=%v teardown=%v", tk.blocked, reap.down)
+	}
+}
+
+// fakeReports records the blocked report wake-on stamps after marking a
+// ticket, onto the registry (like Supervisor.SetReport).
+type fakeReports struct{ reg *fakeReg }
+
+func (f *fakeReports) SetReport(id string, r jam.TicketReport) error {
+	for i := range f.reg.insts {
+		if f.reg.insts[i].ActorID == id {
+			f.reg.insts[i].Report = &r
+		}
+	}
+	return nil
+}
+
+// failingReaper never tears down.
+type flakyReaper struct{ tries int }
+
+func (f *flakyReaper) Teardown(context.Context, string) error {
+	f.tries++
+	return errors.New("launcher down")
+}
+
+// A teardown that keeps failing must not re-post "blocked" every tick: the
+// block is recorded as the session's report, so it happens once.
+func TestTick_BlockOnceAcrossFailedTeardowns(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Unit: "AET-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		WaitingSince: time.Unix(9990, 0), EndRequested: &jam.EndRequest{Reason: "done"}}}}
+	reap := &flakyReaper{}
+	e := New(reg, &fakeWaker{}, reap, &fakeIdler{}, &fakeInbox{}, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetTurnEnd(nil, nil, nil)
+	tk := &blockingTickets{}
+	e.SetTickets(tk, &fakeReports{reg: reg})
+	e.now = func() time.Time { return time.Unix(10000, 0) }
+	e.tick(context.Background())
+	e.tick(context.Background())
+	if reap.tries != 2 || tk.calls != 1 {
+		t.Fatalf("teardown tries=%d block calls=%d; want 2 tries, 1 block", reap.tries, tk.calls)
+	}
+}
+
+// blockingTickets mirrors linearTicketer.BlockUnfinished's no-op for a
+// terminally-reported session, and checks the call is time-bounded.
+type blockingTickets struct {
+	calls      int
+	noDeadline bool
+}
+
+func (b *blockingTickets) BlockUnfinished(ctx context.Context, inst jam.Instance, _ string) error {
+	if inst.Report != nil && inst.Report.Terminal() {
+		return nil
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		b.noDeadline = true
+	}
+	b.calls++
+	return nil
+}
+
+// The tracker call during a teardown is time-bounded: a stalled tracker must
+// not freeze the wake-on tick.
+func TestTick_BlockCallHasDeadline(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Unit: "AET-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		WaitingSince: time.Unix(9990, 0), EndRequested: &jam.EndRequest{Reason: "done"}}}}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, &fakeInbox{}, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetTurnEnd(nil, nil, nil)
+	tk := &blockingTickets{}
+	e.SetTickets(tk, &fakeReports{reg: reg})
+	e.now = func() time.Time { return time.Unix(10000, 0) }
+	e.tick(context.Background())
+	if tk.calls != 1 || tk.noDeadline {
+		t.Fatalf("calls=%d noDeadline=%v", tk.calls, tk.noDeadline)
 	}
 }
