@@ -88,7 +88,7 @@ at-jam role rm   [--project acme] guest
   Negative values are refused. The admin API carries them as
   `idle_after_seconds`/`nag_every_seconds`/`reclaim_after_seconds`; `role list`
   shows them as `idle-after=…`, `nag-every=…`, `reclaim-after=…`. What the ladder
-  does: [personal-sessions.md](personal-sessions.md#the-idle-ladder). (Not to be confused with `--idle-timeout D` / `--on-idle wake|teardown`, API `idle_timeout_seconds`/`on_idle`: the role's [turn-end idle timeout](turn-end.md#idle-timeout).)
+  does: [personal-sessions.md](personal-sessions.md#the-idle-ladder). (Not to be confused with `--idle-timeout D` / `--on-idle wake|teardown` / `--time-zone Z`, API `idle_timeout_seconds`/`on_idle`/`time_zone`: the role's [turn-end policy](turn-end.md#idle-timeout).)
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
   `at-jam standing add|list|rm`, not with `role add` flags. Re-running

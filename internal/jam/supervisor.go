@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
@@ -118,6 +119,11 @@ type Releaser interface {
 // Supervisor owns the managed-cove lifecycle: the durable registry (via Store),
 // the lease model, and the state machine. One supervisor per Jam process.
 type Supervisor struct {
+	// instMu serializes every read-modify-write of an Instance: the attach
+	// stream (Report, Heartbeat), the wake-on engine (SetWaitSeq, FireAlarms,
+	// RecordNag…) and the cove endpoints (SetAlarm, SetEndRequested…) all
+	// write whole records, so an unserialized pair loses one write.
+	instMu    sync.Mutex
 	store     Store
 	launcher  Launcher
 	holder    string // this process's lease-holder id
@@ -377,6 +383,8 @@ func harnessFor(spec RaiseSpec) harnessinstall.Install {
 // applied to its latest agent spawn. Staleness is derived on read
 // (CoveSummaries), never stored, so it cannot itself drift.
 func (s *Supervisor) RecordConnector(actorID, fp string) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -392,6 +400,8 @@ func (s *Supervisor) RecordConnector(actorID, fp string) error {
 // Activity or Phase (the stream keepalive path). Errors if the instance is
 // absent or gone.
 func (s *Supervisor) Heartbeat(actorID string) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -409,12 +419,26 @@ func (s *Supervisor) Heartbeat(actorID string) error {
 // the lease — a report means the cove is talking to THIS process now. The only
 // phase effect is ActivityDone ⇒ Terminating (then teardown).
 func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) error {
+	inst, err := s.recordActivity(actorID, a)
+	if err != nil {
+		return err
+	}
+	if inst.Phase == PhaseTerminating {
+		return s.Teardown(ctx, actorID)
+	}
+	return nil
+}
+
+// recordActivity is Report's read-modify-write of the instance, under instMu.
+func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error) {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
-		return fmt.Errorf("no instance for actor %q", actorID)
+		return Instance{}, fmt.Errorf("no instance for actor %q", actorID)
 	}
 	if inst.Phase == PhaseGone {
-		return fmt.Errorf("instance %q is gone", actorID)
+		return Instance{}, fmt.Errorf("instance %q is gone", actorID)
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
@@ -439,6 +463,17 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		// Whatever woke it answered this turn end, so the idle deadline is
 		// disarmed until the next one.
 		inst.IdleDeadline = time.Time{}
+		// Fired alarms were answered too: retire one-shots, re-arm the rest.
+		var kept []Alarm
+		for _, al := range inst.Alarms {
+			if al.FiredAt.IsZero() {
+				kept = append(kept, al)
+			} else if !al.OneShot() {
+				al.FiredAt = time.Time{}
+				kept = append(kept, al)
+			}
+		}
+		inst.Alarms = kept
 	}
 	if turnEnded {
 		s.armIdleDeadline(&inst, now)
@@ -456,19 +491,15 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	if a == ActivityDone {
 		inst.Phase = PhaseTerminating
 	}
-	if err := s.store.PutInstance(inst); err != nil {
-		return err
-	}
-	if inst.Phase == PhaseTerminating {
-		return s.Teardown(ctx, actorID)
-	}
-	return nil
+	return inst, s.store.PutInstance(inst)
 }
 
 // SetWaitSeq persists a wake-on baseline (squawk log append Seq) on the
 // instance (used by the wake-on engine to detect a new ticket comment). No-op
 // semantics if the actor is gone.
 func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -500,6 +531,8 @@ func (s *Supervisor) armIdleDeadline(inst *Instance, now time.Time) {
 // SetEndRequested records that the cove asked to end (first request wins).
 // Wake-on tears it down once it is Waiting and never wakes it again.
 func (s *Supervisor) SetEndRequested(actorID, reason string) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -514,6 +547,8 @@ func (s *Supervisor) SetEndRequested(actorID, reason string) error {
 // SetIdleOverride replaces the cove's idle-timeout override; it applies from
 // the next turn end (a next-scoped one only to that turn end).
 func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -522,11 +557,102 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 	return s.store.PutInstance(inst)
 }
 
+// SetAlarm validates and schedules the named alarm on the cove (replacing one
+// of the same name), in its role's time zone.
+func (s *Supervisor) SetAlarm(actorID, name, schedule, note string) (Alarm, error) {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	if err := ValidateAlarmName(name); err != nil {
+		return Alarm{}, err
+	}
+	if len(note) > maxAlarmNote {
+		return Alarm{}, fmt.Errorf("note must be at most %d bytes", maxAlarmNote)
+	}
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return Alarm{}, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	next, err := ParseSchedule(schedule, s.alarmZone(inst), s.now())
+	if err != nil {
+		return Alarm{}, err
+	}
+	a := Alarm{Name: name, Schedule: schedule, Note: note, NextAt: next}
+	alarms := slices.Clone(inst.Alarms)
+	if i := slices.IndexFunc(alarms, func(x Alarm) bool { return x.Name == name }); i >= 0 {
+		alarms[i] = a
+	} else if len(alarms) >= MaxAlarms {
+		return Alarm{}, ErrAlarmLimit
+	} else {
+		alarms = append(alarms, a)
+	}
+	inst.Alarms = alarms
+	return a, s.store.PutInstance(inst)
+}
+
+// ClearAlarm removes the named alarm (ErrNoSuchAlarm if absent).
+func (s *Supervisor) ClearAlarm(actorID, name string) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	i := slices.IndexFunc(inst.Alarms, func(x Alarm) bool { return x.Name == name })
+	if i < 0 {
+		return ErrNoSuchAlarm
+	}
+	inst.Alarms = slices.Delete(slices.Clone(inst.Alarms), i, i+1)
+	return s.store.PutInstance(inst)
+}
+
+// FireAlarms marks the cove's due alarms fired (keeping an earlier FiredAt)
+// and moves each cron alarm to its next match after now (no catch-up); a
+// one-shot's NextAt goes zero. It returns the alarms after the update. Report
+// retires fired alarms when the cove next starts a turn.
+func (s *Supervisor) FireAlarms(actorID string, now time.Time) ([]Alarm, error) {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return nil, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	alarms := slices.Clone(inst.Alarms)
+	if inst.Activity != ActivityHolding && inst.Activity != ActivityWaiting {
+		return alarms, nil // it started a turn since the caller looked: held
+	}
+	changed := false
+	for i, a := range alarms {
+		if a.NextAt.IsZero() || a.NextAt.After(now) {
+			continue
+		}
+		if a.FiredAt.IsZero() {
+			a.FiredAt = now
+		}
+		a.NextAt = NextAfter(a, s.alarmZone(inst), now)
+		alarms[i], changed = a, true
+	}
+	if !changed {
+		return alarms, nil
+	}
+	inst.Alarms = alarms
+	return alarms, s.store.PutInstance(inst)
+}
+
+// alarmZone is the cove's role time zone (UTC when the role is gone).
+func (s *Supervisor) alarmZone(inst Instance) *time.Location {
+	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
+		return role.TurnEnd.Location()
+	}
+	return time.UTC
+}
+
 // SetEscalationCategory stamps the cove-declared block category on its instance.
 // Persists until re-declared or teardown (Report does not clear it); the
 // escalation engine reads it to pick the tier chain, falling back to the default
 // when the category isn't configured. No-op semantics if the actor is gone.
 func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -539,6 +665,8 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 // tier was last pinged, and when). The zero TierPingedAt means "no escalation
 // open" — see the escalation engine. No-op semantics if the actor is gone.
 func (s *Supervisor) SetEscalation(actorID string, tier int, at time.Time) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -552,6 +680,8 @@ func (s *Supervisor) SetEscalation(actorID string, tier int, at time.Time) error
 // owner at at: LastNagAt = at, Nags++. Both reset when the cove enters a new
 // Waiting period (see Report). Errors if the actor is gone.
 func (s *Supervisor) RecordNag(actorID string, at time.Time) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
@@ -567,6 +697,8 @@ func (s *Supervisor) RecordNag(actorID string, at time.Time) error {
 // (LastNagAt zero, Nags 0). Phase is untouched: an Idled cove stays paused.
 // Errors if the instance is gone or not Waiting.
 func (s *Supervisor) KeepWaiting(actorID string, afterSeq int64, at time.Time) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok || inst.Phase == PhaseGone {
 		return fmt.Errorf("keep waiting: no live instance for %q", actorID)
@@ -595,8 +727,10 @@ func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
 	if err := s.launcher.Pause(ctx, inst); err != nil {
 		return err
 	}
-	inst.Phase = PhaseIdled
-	return s.store.PutInstance(inst)
+	if _, ok := s.patchInstance(actorID, func(i *Instance) { i.Phase = PhaseIdled }); !ok {
+		return fmt.Errorf("idle: record %q failed", actorID)
+	}
+	return nil
 }
 
 // Resume unpauses a previously Idled cove (Launcher.Unpause) and marks it
@@ -629,9 +763,15 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 		inst.Egress, inst.EgressFailures = EgressFingerprint(want), 0
 		s.logEgressApplied(inst, want)
 	}
-	inst.Phase = PhaseLive
-	inst.WaitingSince = s.now()
-	return s.store.PutInstance(inst)
+	now := s.now()
+	if _, ok := s.patchInstance(actorID, func(i *Instance) {
+		i.Egress, i.EgressFailures = inst.Egress, inst.EgressFailures
+		i.Phase = PhaseLive
+		i.WaitingSince = now
+	}); !ok {
+		return fmt.Errorf("resume: record %q failed", actorID)
+	}
+	return nil
 }
 
 // Teardown tears the cove down and deregisters it: Launcher.Teardown, then
@@ -649,7 +789,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating
-		_ = s.store.PutInstance(inst)
+		s.patchInstance(actorID, func(i *Instance) {
+			if i.Phase != PhaseTerminating && i.Phase != PhaseLost {
+				i.Phase = PhaseTerminating
+			}
+		})
 	}
 	if err := s.launcher.Teardown(ctx, inst); err != nil {
 		return fmt.Errorf("teardown launcher: %w", err)
@@ -792,6 +936,8 @@ func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
 // patchInstance applies fn to a fresh read of the instance and writes it back,
 // returning the written instance. An instance gone meanwhile is left alone.
 func (s *Supervisor) patchInstance(actorID string, fn func(*Instance)) (Instance, bool) {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	cur, ok := s.store.GetInstance(actorID)
 	if !ok || cur.Phase == PhaseGone {
 		return Instance{}, false
@@ -808,6 +954,8 @@ func (s *Supervisor) patchInstance(actorID string, fn func(*Instance)) (Instance
 // only while it is still Live (a torn-down or paused cove is left alone; Resume
 // re-checks a paused one). It reports whether it wrote.
 func (s *Supervisor) patchEgress(actorID string, fn func(*Instance)) bool {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
 	cur, ok := s.store.GetInstance(actorID)
 	if !ok || cur.Phase != PhaseLive {
 		return false

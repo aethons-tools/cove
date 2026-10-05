@@ -17,6 +17,18 @@ const (
 type TurnEndPolicy struct {
 	IdleTimeout time.Duration `json:"idle_timeout,omitempty"` // 0 = no idle timeout
 	OnIdle      string        `json:"on_idle,omitempty"`      // OnIdleWake | OnIdleTeardown; "" = wake
+	TimeZone    string        `json:"time_zone,omitempty"`    // IANA zone cron alarms run in; "" = UTC
+}
+
+// Location is the zone cron alarms are evaluated in: TimeZone, or UTC.
+func (p TurnEndPolicy) Location() *time.Location {
+	if p.TimeZone == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(p.TimeZone); err == nil {
+		return loc
+	}
+	return time.UTC
 }
 
 // Action is OnIdle with its default applied.
@@ -31,6 +43,11 @@ func (p TurnEndPolicy) Action() string {
 func ValidateTurnEnd(p TurnEndPolicy) error {
 	if p.IdleTimeout < 0 {
 		return fmt.Errorf("idle timeout must be >= 0")
+	}
+	if p.TimeZone != "" {
+		if _, err := time.LoadLocation(p.TimeZone); err != nil {
+			return fmt.Errorf("unknown time zone %q", p.TimeZone)
+		}
 	}
 	switch p.OnIdle {
 	case "", OnIdleWake, OnIdleTeardown:

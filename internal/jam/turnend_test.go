@@ -26,3 +26,15 @@ func TestValidateTurnEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestTurnEndTimeZone(t *testing.T) {
+	if (TurnEndPolicy{}).Location() != time.UTC {
+		t.Fatal("default location is not UTC")
+	}
+	if loc := (TurnEndPolicy{TimeZone: "Europe/Berlin"}).Location(); loc.String() != "Europe/Berlin" {
+		t.Fatalf("location = %v", loc)
+	}
+	if err := ValidateTurnEnd(TurnEndPolicy{TimeZone: "Mars/Olympus"}); err == nil {
+		t.Fatal("accepted an unknown time zone")
+	}
+}

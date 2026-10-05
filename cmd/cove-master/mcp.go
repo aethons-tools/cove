@@ -102,6 +102,35 @@ type idleTimeoutIn struct {
 	Scope    string `json:"scope" jsonschema:"next (only the next turn end) or always (until the session ends)"`
 }
 
+// alarmSetIn is the "alarm_set" tool's typed input.
+type alarmSetIn struct {
+	Name     string `json:"name" jsonschema:"the alarm's name: lowercase letters, digits, - and _ (setting an existing name replaces it)"`
+	Schedule string `json:"schedule" jsonschema:"an RFC 3339 time (fires once, e.g. 2026-10-05T14:30:00Z) or a 5-field cron expression in the role's time zone (recurring, at most once a minute, e.g. */5 * * * *)"`
+	Note     string `json:"note,omitempty" jsonschema:"what the wake tells you to do when the alarm fires"`
+}
+
+// alarmNameIn is the "alarm_clear" tool's typed input.
+type alarmNameIn struct {
+	Name string `json:"name" jsonschema:"the alarm to remove"`
+}
+
+// alarmListIn is the "alarm_list" tool's (empty) input.
+type alarmListIn struct{}
+
+// alarmItem mirrors one entry of Jam's GET /alarms response.
+type alarmItem struct {
+	Name     string `json:"name"`
+	Schedule string `json:"schedule"`
+	Note     string `json:"note,omitempty"`
+	NextAt   string `json:"next_at,omitempty"`
+	Fired    bool   `json:"fired,omitempty"`
+}
+
+// alarmsOut is the "alarm_list" tool's typed output.
+type alarmsOut struct {
+	Alarms []alarmItem `json:"alarms"`
+}
+
 // targetItem mirrors one entry of Jam's GET /squawks/targets response.
 type targetItem struct {
 	Target string `json:"target"`
@@ -320,6 +349,38 @@ func (c *messagingClient) idleTimeout(ctx context.Context, duration, scope strin
 	return err
 }
 
+// setAlarm sets (or replaces) a named alarm (PUT /alarms/{name}).
+func (c *messagingClient) setAlarm(ctx context.Context, name, schedule, note string) error {
+	payload, err := json.Marshal(struct {
+		Schedule string `json:"schedule"`
+		Note     string `json:"note,omitempty"`
+	}{Schedule: schedule, Note: note})
+	if err != nil {
+		return fmt.Errorf("encoding alarm payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPut, "/alarms/"+url.PathEscape(name), payload)
+	return err
+}
+
+// clearAlarm removes a named alarm (DELETE /alarms/{name}).
+func (c *messagingClient) clearAlarm(ctx context.Context, name string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/alarms/"+url.PathEscape(name), nil)
+	return err
+}
+
+// listAlarms lists the cove's alarms (GET /alarms).
+func (c *messagingClient) listAlarms(ctx context.Context) (alarmsOut, error) {
+	body, err := c.do(ctx, http.MethodGet, "/alarms", nil)
+	if err != nil {
+		return alarmsOut{}, err
+	}
+	var out alarmsOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		return alarmsOut{}, fmt.Errorf("decoding Jam alarms response")
+	}
+	return out, nil
+}
+
 // newMessagingServer builds the "intercom" MCP server exposing read/send.
 //
 // Configuration errors (missing env vars, a malformed address) are captured
@@ -421,6 +482,40 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, nil, cfgErr
 		}
 		return nil, nil, client.idleTimeout(ctx, in.Duration, in.Scope)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "alarm_set",
+		Description: "Set (or replace) a named alarm that wakes you after your turn ends: schedule is an RFC 3339 time (once) or a 5-field cron expression in the role's time zone (recurring, at most once a minute); note is what the wake tells you to do. Up to 20 alarms. Alarms due while you are working fire when your turn ends.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in alarmSetIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.setAlarm(ctx, in.Name, in.Schedule, in.Note)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "alarm_clear",
+		Description: "Remove a named alarm.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in alarmNameIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.clearAlarm(ctx, in.Name)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "alarm_list",
+		Description: "List your alarms with their next fire time.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ alarmListIn) (*mcp.CallToolResult, alarmsOut, error) {
+		if cfgErr != nil {
+			return nil, alarmsOut{}, cfgErr
+		}
+		out, err := client.listAlarms(ctx)
+		if err != nil {
+			return nil, alarmsOut{}, err
+		}
+		return nil, out, nil
 	})
 
 	return s

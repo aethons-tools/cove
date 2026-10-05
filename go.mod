@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/moby/patternmatcher v0.6.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/net v0.59.0
 	google.golang.org/grpc v1.84.0

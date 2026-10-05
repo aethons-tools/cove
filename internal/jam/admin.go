@@ -102,6 +102,7 @@ type RoleBody struct {
 	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
 	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
 	OnIdle             string `json:"on_idle,omitempty"`
+	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -130,6 +131,7 @@ type RoleSummary struct {
 	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
 	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
 	OnIdle             string `json:"on_idle,omitempty"`
+	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
 	// Egress is the role's egress policy; nil = the kit's default list.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
@@ -490,6 +492,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
 				IdleTimeoutSeconds:  int64(ro.TurnEnd.IdleTimeout / time.Second),
 				OnIdle:              ro.TurnEnd.OnIdle,
+				TimeZone:            ro.TurnEnd.TimeZone,
 				Egress:              ro.Scope.Egress,
 			})
 		}
@@ -513,7 +516,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
 			return
 		}
-		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle}
+		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle, TimeZone: b.TimeZone}
 		if err := ValidateTurnEnd(te); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

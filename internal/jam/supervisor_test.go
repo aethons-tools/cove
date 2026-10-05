@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1667,5 +1668,181 @@ func TestReportRunningClearsIdleDeadline(t *testing.T) {
 	_ = sup.Report(context.Background(), "w1", ActivityRunning)
 	if inst, _ := store.GetInstance("w1"); !inst.IdleDeadline.IsZero() {
 		t.Fatalf("deadline %v survived entering Running", inst.IdleDeadline)
+	}
+}
+
+func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{TimeZone: "America/New_York"})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	a, err := sup.SetAlarm("w1", "standup", "0 9 * * *", "post the standup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.NextAt.Equal(time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC)) {
+		t.Fatalf("NextAt = %v", a.NextAt)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Note != "post the standup" {
+		t.Fatalf("alarms = %+v", inst.Alarms)
+	}
+	if _, err := sup.SetAlarm("w1", "standup", "0 10 * * *", ""); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Schedule != "0 10 * * *" {
+		t.Fatalf("replace: alarms = %+v", inst.Alarms)
+	}
+}
+
+func TestSetAlarmLimits(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	for i := 0; i < MaxAlarms; i++ {
+		if _, err := sup.SetAlarm("w1", fmt.Sprintf("a%d", i), "@hourly", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sup.SetAlarm("w1", "one-more", "@hourly", ""); !errors.Is(err, ErrAlarmLimit) {
+		t.Fatalf("21st alarm: err = %v, want ErrAlarmLimit", err)
+	}
+	for _, c := range [][3]string{{"BAD", "@hourly", ""}, {"ok", "@every 1s", ""}, {"ok", "@hourly", strings.Repeat("x", 1001)}} {
+		if _, err := sup.SetAlarm("w1", c[0], c[1], c[2]); err == nil {
+			t.Errorf("accepted %q", c)
+		}
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != MaxAlarms {
+		t.Fatalf("rejected sets changed the alarms: %d", len(inst.Alarms))
+	}
+}
+
+func TestClearAlarm(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_, _ = sup.SetAlarm("w1", "x", "@hourly", "")
+	if err := sup.ClearAlarm("w1", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.ClearAlarm("w1", "x"); !errors.Is(err, ErrNoSuchAlarm) {
+		t.Fatalf("second clear: %v", err)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 0 {
+		t.Fatalf("alarms = %+v", inst.Alarms)
+	}
+}
+
+func TestFireAlarmsNoCatchUp(t *testing.T) {
+	sup, _, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
+	_, _ = sup.SetAlarm("w1", "later", "2026-10-06T00:00:00Z", "")
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting) // alarms fire once the turn is over
+	at := time.Date(2026, 10, 5, 17, 5, 0, 0, time.UTC)         // 5 hourly matches missed
+	got, err := sup.FireAlarms("w1", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Alarm{}
+	for _, a := range got {
+		byName[a.Name] = a
+	}
+	if h := byName["hourly"]; !h.FiredAt.Equal(at) || !h.NextAt.Equal(time.Date(2026, 10, 5, 18, 0, 0, 0, time.UTC)) {
+		t.Fatalf("hourly = %+v", h)
+	}
+	if o := byName["once"]; !o.FiredAt.Equal(at) || !o.NextAt.IsZero() {
+		t.Fatalf("once = %+v", o)
+	}
+	if l := byName["later"]; !l.FiredAt.IsZero() {
+		t.Fatalf("later fired early: %+v", l)
+	}
+	got, _ = sup.FireAlarms("w1", time.Date(2026, 10, 5, 18, 0, 0, 0, time.UTC))
+	for _, a := range got {
+		if a.Name == "hourly" && !a.FiredAt.Equal(at) {
+			t.Fatalf("FiredAt moved to %v", a.FiredAt)
+		}
+	}
+}
+
+func TestReportTurnStartRetiresFiredAlarms(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	_, _ = sup.FireAlarms("w1", time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC))
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	inst, _ := store.GetInstance("w1")
+	if len(inst.Alarms) != 1 || inst.Alarms[0].Name != "hourly" || !inst.Alarms[0].FiredAt.IsZero() {
+		t.Fatalf("alarms after the turn started = %+v; want hourly only, un-fired", inst.Alarms)
+	}
+}
+
+// racyStore runs hook (once) inside the next GetInstance, after the read: a
+// concurrent writer squeezed between another writer's read and its write.
+type racyStore struct {
+	Store
+	mu   sync.Mutex
+	hook func()
+}
+
+func (r *racyStore) GetInstance(id string) (Instance, bool) {
+	inst, ok := r.Store.GetInstance(id)
+	r.mu.Lock()
+	h := r.hook
+	r.hook = nil
+	r.mu.Unlock()
+	if h != nil {
+		h()
+	}
+	return inst, ok
+}
+
+// FireAlarms holds alarms for a cove that started a turn since wake-on looked.
+func TestFireAlarmsHeldWhileRunning(t *testing.T) {
+	sup, _, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = sup.SetAlarm("w1", "x", "@hourly", "")
+	got, err := sup.FireAlarms("w1", time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC))
+	if err != nil || len(got) != 1 || !got[0].FiredAt.IsZero() {
+		t.Fatalf("fired while running: %+v %v", got, err)
+	}
+}
+
+// Instance writers are serialized: a SetAlarm racing FireAlarms (wake-on) is
+// not lost to FireAlarms writing back its stale read, and a Report racing it
+// does not have its Activity reverted.
+func TestInstanceWritersSerialized(t *testing.T) {
+	base, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	rs := &racyStore{Store: base.store}
+	clk := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	sup := NewSupervisor(rs, &fakeLauncher{liveness: LivenessAlive}, "holder-A", 60*time.Second, 30*time.Second,
+		func() time.Time { return clk }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	if _, err := sup.SetAlarm("w1", "due", "2026-10-05T12:30:00Z", ""); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	rs.mu.Lock()
+	rs.hook = func() {
+		go func() {
+			defer close(done)
+			if _, err := sup.SetAlarm("w1", "added", "@hourly", ""); err != nil {
+				t.Error(err)
+			}
+			_ = sup.Report(context.Background(), "w1", ActivityRunning)
+		}()
+		time.Sleep(50 * time.Millisecond) // let the racer run now, if it can
+	}
+	rs.mu.Unlock()
+	if _, err := sup.FireAlarms("w1", time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	inst, _ := rs.GetInstance("w1")
+	names := map[string]bool{}
+	for _, a := range inst.Alarms {
+		names[a.Name] = true
+	}
+	if !names["added"] || inst.Activity != ActivityRunning {
+		t.Fatalf("lost a concurrent write: alarms=%+v activity=%s", inst.Alarms, inst.Activity)
 	}
 }
