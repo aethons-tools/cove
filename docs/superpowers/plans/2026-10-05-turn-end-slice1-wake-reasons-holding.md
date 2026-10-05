@@ -293,6 +293,7 @@ func TestClientReportsHolding(t *testing.T) {
 		t.Fatalf("activity never reached holding: %+v", inst)
 	}
 }
+```
 
 (`client_test.go` is `package covemaster` and already imports `internal/jam`, `attachpb`, `grpc`, `insecure`; add `reflect`.)
 
