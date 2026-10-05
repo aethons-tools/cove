@@ -72,9 +72,15 @@ type fakeReg struct{ insts []jam.Instance }
 
 func (f *fakeReg) ListInstances() []jam.Instance { return f.insts }
 
-type fakeWaker struct{ woke []string }
+type fakeWaker struct {
+	woke    []string
+	reasons [][]jam.WakeReason
+}
 
-func (f *fakeWaker) Wake(a string, _ ...jam.WakeReason) { f.woke = append(f.woke, a) }
+func (f *fakeWaker) Wake(a string, rs ...jam.WakeReason) {
+	f.woke = append(f.woke, a)
+	f.reasons = append(f.reasons, rs)
+}
 
 type fakeReaper struct{ down []string }
 
@@ -1131,6 +1137,9 @@ func TestTick_ReplyToRunningCoveWakesOnceAndAdvancesBaseline(t *testing.T) {
 	if len(wake.woke) != 1 || wake.woke[0] != "a1" {
 		t.Fatalf("a reply to a Running cove must Wake it once, got wake=%v", wake.woke)
 	}
+	if rs := wake.reasons[0]; len(rs) != 1 || rs[0].Kind != jam.WakeSquawk {
+		t.Fatalf("a reply wake carries the squawk reason, got %v", rs)
+	}
 	if cur.set["a1"] != 8 {
 		t.Fatalf("baseline advanced to %d, want 8 (the latest reply woken for)", cur.set["a1"])
 	}
@@ -1154,5 +1163,39 @@ func TestTick_RunningCoveIgnoredWithoutCursor(t *testing.T) {
 	e.tick(context.Background())
 	if len(wake.woke) != 0 {
 		t.Fatalf("no cursor: Running coves must not be woken, got %v", wake.woke)
+	}
+}
+
+func TestTick_ReplyToHoldingCoveWakesWithSquawkReason(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityHolding, SessionKind: jam.SessionKindStanding, WaitSeq: 5},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	wake := &fakeWaker{}
+	cur := &fakeCursor{reg: reg}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
+	e.SetRunningWake(cur)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || len(wake.reasons[0]) != 1 || wake.reasons[0][0].Kind != jam.WakeSquawk {
+		t.Fatalf("want one squawk wake, got woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+	if cur.set["a1"] != 6 {
+		t.Fatalf("baseline = %d, want 6", cur.set["a1"])
+	}
+}
+
+func TestTick_HoldingCoveNeverPausedOrReaped(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityHolding, SessionKind: "", // a ticket (non-resident) session: wait-max would reap it if it were waiting
+			WaitingSince: time.Unix(0, 0)}, // stale stamp from an earlier wait must not matter
+	}}
+	reap, idler := &fakeReaper{}, &fakeIdler{}
+	e := New(reg, &fakeWaker{}, reap, idler, &fakeInbox{}, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
+	e.SetRunningWake(&fakeCursor{reg: reg})
+	e.now = func() time.Time { return time.Unix(100000, 0) }
+	e.tick(context.Background())
+	if len(reap.down) != 0 || len(idler.idled) != 0 {
+		t.Fatalf("holding cove paused/reaped: teardown=%v idle=%v", reap.down, idler.idled)
 	}
 }

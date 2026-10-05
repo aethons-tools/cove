@@ -418,7 +418,9 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
-	enteringRunning := a == ActivityRunning && inst.Activity != ActivityRunning
+	// holding → running is the same run resuming, not a new one: keep WaitSeq so
+	// a reply that landed while holding (not yet woken for) still wakes it.
+	enteringRunning := a == ActivityRunning && inst.Activity != ActivityRunning && inst.Activity != ActivityHolding
 	inst.Activity = a
 	inst.LastSeen = now
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
