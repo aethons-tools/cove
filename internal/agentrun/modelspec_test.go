@@ -51,7 +51,8 @@ func TestClaudeCommandAppliesModelAndEffort(t *testing.T) {
 	if argAfter(args, "--model") != "claude-opus-5-5" || argAfter(args, "--effort") != "high" {
 		t.Fatalf("argv = %q", args)
 	}
-	// The permission policy and MCP config are not the spec's (yet).
+	// claude-default's bypassPermissions keeps today's flag; the MCP config is
+	// not the spec's (yet).
 	if !slices.Contains(args, "--dangerously-skip-permissions") || argAfter(args, "--mcp-config") != claudeMCPConfigPath {
 		t.Fatalf("argv = %q", args)
 	}

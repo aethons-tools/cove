@@ -121,11 +121,35 @@ rebuild the image or change the spec's version`). Then each episode applies:
 | `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1`; `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
 | `claude.provider-env` | set in the agent env — never over a key the connector sets (routing and identity stay Jam's) |
 | `claude.settings` | written to `/dev/shm/cove-agent-settings.json`, passed as `--settings` (only when non-empty) |
+| `policy` | see [Permission policy](#permission-policy) |
 
-**Not applied yet:** `policy` (coves keep `--dangerously-skip-permissions`),
-`claude.plugins` (stored only), and `principal` on the cove side — the broker
+**Not applied yet:** `claude.plugins` (stored only), and `principal` on the cove side — the broker
 resolves the credential. A Jam predating model-specs delivers none: no check,
 built-in defaults.
+
+### Permission policy
+
+Jam owns the agent's permission policy; the claude harness renders `policy` as flags:
+
+| `policy` | Argv |
+|----------|------|
+| `mode` empty, or no spec delivered | `--dangerously-skip-permissions` (exactly the argv before model-specs) |
+| `mode: bypassPermissions` (`claude-default`) | `--dangerously-skip-permissions` too — the same session mode as `--permission-mode bypassPermissions`, kept byte-identical so existing roles launch unchanged |
+| any other `mode` | `--permission-mode MODE` |
+| each `allow` rule | `--allowedTools=RULE` |
+| each `deny` rule | `--disallowedTools=RULE` |
+
+Rules use Claude's syntax (`Bash`, `Bash(git *)`, `WebFetch`). Each rule is one
+`--flag=RULE` argv element, so a rule can never be read as a flag. Deny wins over
+allow and applies in every mode, `bypassPermissions` included. Allow only matters
+where claude would otherwise ask. Headless (`-p`) has nobody to answer, so a tool
+call that would prompt is denied.
+
+The rules are flags, not a `permissions` block in the `--settings` file. `policy`
+owns permissions (`claude.settings` may not set them), and the rules stay visible
+in the argv. The image's managed `permissions.defaultMode: bypassPermissions`
+does not override `--permission-mode`. It only applies when no mode flag is
+passed, which never happens under the harness.
 
 ## The `at-jam model-spec` verb
 
