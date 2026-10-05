@@ -25,6 +25,19 @@ type recordHandle struct {
 	got        []covemaster.Activity
 	events     []recordedEvent
 	connectors []string
+	gates      []covemaster.GateResult
+}
+
+func (h *recordHandle) GateResult(g covemaster.GateResult) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.gates = append(h.gates, g)
+}
+
+func (h *recordHandle) gateResults() []covemaster.GateResult {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]covemaster.GateResult(nil), h.gates...)
 }
 
 func (h *recordHandle) ConnectorApplied(fp string) {

@@ -92,6 +92,7 @@ type StatusUp struct {
 	//	*StatusUp_Heartbeat
 	//	*StatusUp_Event
 	//	*StatusUp_Connector
+	//	*StatusUp_Gate
 	Msg           isStatusUp_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -170,6 +171,15 @@ func (x *StatusUp) GetConnector() *ConnectorApplied {
 	return nil
 }
 
+func (x *StatusUp) GetGate() *GateResult {
+	if x != nil {
+		if x, ok := x.Msg.(*StatusUp_Gate); ok {
+			return x.Gate
+		}
+	}
+	return nil
+}
+
 type isStatusUp_Msg interface {
 	isStatusUp_Msg()
 }
@@ -190,6 +200,10 @@ type StatusUp_Connector struct {
 	Connector *ConnectorApplied `protobuf:"bytes,4,opt,name=connector,proto3,oneof"`
 }
 
+type StatusUp_Gate struct {
+	Gate *GateResult `protobuf:"bytes,5,opt,name=gate,proto3,oneof"`
+}
+
 func (*StatusUp_Status) isStatusUp_Msg() {}
 
 func (*StatusUp_Heartbeat) isStatusUp_Msg() {}
@@ -197,6 +211,8 @@ func (*StatusUp_Heartbeat) isStatusUp_Msg() {}
 func (*StatusUp_Event) isStatusUp_Msg() {}
 
 func (*StatusUp_Connector) isStatusUp_Msg() {}
+
+func (*StatusUp_Gate) isStatusUp_Msg() {}
 
 // ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
 // connector cove-master applied to the agent's most recent spawn. Jam compares it
@@ -375,6 +391,7 @@ type ControlDown struct {
 	//	*ControlDown_Tier
 	//	*ControlDown_Rotate
 	//	*ControlDown_Ack
+	//	*ControlDown_Gate
 	Msg           isControlDown_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -462,6 +479,15 @@ func (x *ControlDown) GetAck() *EventAck {
 	return nil
 }
 
+func (x *ControlDown) GetGate() *RunGate {
+	if x != nil {
+		if x, ok := x.Msg.(*ControlDown_Gate); ok {
+			return x.Gate
+		}
+	}
+	return nil
+}
+
 type isControlDown_Msg interface {
 	isControlDown_Msg()
 }
@@ -486,6 +512,10 @@ type ControlDown_Ack struct {
 	Ack *EventAck `protobuf:"bytes,5,opt,name=ack,proto3,oneof"`
 }
 
+type ControlDown_Gate struct {
+	Gate *RunGate `protobuf:"bytes,6,opt,name=gate,proto3,oneof"`
+}
+
 func (*ControlDown_Wake) isControlDown_Msg() {}
 
 func (*ControlDown_Teardown) isControlDown_Msg() {}
@@ -495,6 +525,8 @@ func (*ControlDown_Tier) isControlDown_Msg() {}
 func (*ControlDown_Rotate) isControlDown_Msg() {}
 
 func (*ControlDown_Ack) isControlDown_Msg() {}
+
+func (*ControlDown_Gate) isControlDown_Msg() {}
 
 // EventAck is cumulative: every event of stream_id with seq <= this is durable.
 type EventAck struct {
@@ -797,16 +829,166 @@ func (x *RotateToken) GetToken() string {
 	return ""
 }
 
+// RunGate asks cove-master to run an alarm's gate (sh -c command in the
+// agent's workspace, killed at timeout_s) and answer with a GateResult.
+type RunGate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Alarm         string                 `protobuf:"bytes,2,opt,name=alarm,proto3" json:"alarm,omitempty"`
+	Command       string                 `protobuf:"bytes,3,opt,name=command,proto3" json:"command,omitempty"`
+	TimeoutS      uint32                 `protobuf:"varint,4,opt,name=timeout_s,json=timeoutS,proto3" json:"timeout_s,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunGate) Reset() {
+	*x = RunGate{}
+	mi := &file_attach_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunGate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunGate) ProtoMessage() {}
+
+func (x *RunGate) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunGate.ProtoReflect.Descriptor instead.
+func (*RunGate) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RunGate) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *RunGate) GetAlarm() string {
+	if x != nil {
+		return x.Alarm
+	}
+	return ""
+}
+
+func (x *RunGate) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *RunGate) GetTimeoutS() uint32 {
+	if x != nil {
+		return x.TimeoutS
+	}
+	return 0
+}
+
+// GateResult answers a RunGate: exit is the shell's status (-1 when killed),
+// timed_out is set when it was killed at timeout_s, output is its combined
+// stdout+stderr (capped; truncated set when cut).
+type GateResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Exit          int32                  `protobuf:"varint,2,opt,name=exit,proto3" json:"exit,omitempty"`
+	TimedOut      bool                   `protobuf:"varint,3,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
+	Output        []byte                 `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
+	Truncated     bool                   `protobuf:"varint,5,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GateResult) Reset() {
+	*x = GateResult{}
+	mi := &file_attach_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GateResult) ProtoMessage() {}
+
+func (x *GateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GateResult.ProtoReflect.Descriptor instead.
+func (*GateResult) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GateResult) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *GateResult) GetExit() int32 {
+	if x != nil {
+		return x.Exit
+	}
+	return 0
+}
+
+func (x *GateResult) GetTimedOut() bool {
+	if x != nil {
+		return x.TimedOut
+	}
+	return false
+}
+
+func (x *GateResult) GetOutput() []byte {
+	if x != nil {
+		return x.Output
+	}
+	return nil
+}
+
+func (x *GateResult) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
 var File_attach_proto protoreflect.FileDescriptor
 
 const file_attach_proto_rawDesc = "" +
 	"\n" +
-	"\fattach.proto\x12\x10harbor.attach.v1\"\x80\x02\n" +
+	"\fattach.proto\x12\x10harbor.attach.v1\"\xb4\x02\n" +
 	"\bStatusUp\x124\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1a.harbor.attach.v1.ActivityH\x00R\x06status\x12;\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x1b.harbor.attach.v1.HeartbeatH\x00R\theartbeat\x126\n" +
 	"\x05event\x18\x03 \x01(\v2\x1e.harbor.attach.v1.SessionEventH\x00R\x05event\x12B\n" +
-	"\tconnector\x18\x04 \x01(\v2\".harbor.attach.v1.ConnectorAppliedH\x00R\tconnectorB\x05\n" +
+	"\tconnector\x18\x04 \x01(\v2\".harbor.attach.v1.ConnectorAppliedH\x00R\tconnector\x122\n" +
+	"\x04gate\x18\x05 \x01(\v2\x1c.harbor.attach.v1.GateResultH\x00R\x04gateB\x05\n" +
 	"\x03msg\"4\n" +
 	"\x10ConnectorApplied\x12 \n" +
 	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\"\xb6\x01\n" +
@@ -817,13 +999,14 @@ const file_attach_proto_rawDesc = "" +
 	"\x10observed_unix_ms\x18\x04 \x01(\x03R\x0eobservedUnixMs\x12\x10\n" +
 	"\x03raw\x18\x05 \x01(\fR\x03raw\x12'\n" +
 	"\x0ftruncated_bytes\x18\x06 \x01(\x04R\x0etruncatedBytes\"\v\n" +
-	"\tHeartbeat\"\x9a\x02\n" +
+	"\tHeartbeat\"\xcb\x02\n" +
 	"\vControlDown\x12,\n" +
 	"\x04wake\x18\x01 \x01(\v2\x16.harbor.attach.v1.WakeH\x00R\x04wake\x128\n" +
 	"\bteardown\x18\x02 \x01(\v2\x1a.harbor.attach.v1.TeardownH\x00R\bteardown\x123\n" +
 	"\x04tier\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TierChangedH\x00R\x04tier\x127\n" +
 	"\x06rotate\x18\x04 \x01(\v2\x1d.harbor.attach.v1.RotateTokenH\x00R\x06rotate\x12.\n" +
-	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ackB\x05\n" +
+	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ack\x12/\n" +
+	"\x04gate\x18\x06 \x01(\v2\x19.harbor.attach.v1.RunGateH\x00R\x04gateB\x05\n" +
 	"\x03msg\"9\n" +
 	"\bEventAck\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
@@ -841,7 +1024,19 @@ const file_attach_proto_rawDesc = "" +
 	"\vTierChanged\x12\x12\n" +
 	"\x04tier\x18\x01 \x01(\x05R\x04tier\"#\n" +
 	"\vRotateToken\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token*b\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"m\n" +
+	"\aRunGate\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
+	"\x05alarm\x18\x02 \x01(\tR\x05alarm\x12\x18\n" +
+	"\acommand\x18\x03 \x01(\tR\acommand\x12\x1b\n" +
+	"\ttimeout_s\x18\x04 \x01(\rR\btimeoutS\"\x8a\x01\n" +
+	"\n" +
+	"GateResult\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
+	"\x04exit\x18\x02 \x01(\x05R\x04exit\x12\x1b\n" +
+	"\ttimed_out\x18\x03 \x01(\bR\btimedOut\x12\x16\n" +
+	"\x06output\x18\x04 \x01(\fR\x06output\x12\x1c\n" +
+	"\ttruncated\x18\x05 \x01(\bR\ttruncated*b\n" +
 	"\bActivity\x12\x18\n" +
 	"\x14ACTIVITY_UNSPECIFIED\x10\x00\x12\v\n" +
 	"\aRUNNING\x10\x01\x12\v\n" +
@@ -865,7 +1060,7 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_attach_proto_goTypes = []any{
 	(Activity)(0),            // 0: harbor.attach.v1.Activity
 	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
@@ -879,25 +1074,29 @@ var file_attach_proto_goTypes = []any{
 	(*Teardown)(nil),         // 9: harbor.attach.v1.Teardown
 	(*TierChanged)(nil),      // 10: harbor.attach.v1.TierChanged
 	(*RotateToken)(nil),      // 11: harbor.attach.v1.RotateToken
+	(*RunGate)(nil),          // 12: harbor.attach.v1.RunGate
+	(*GateResult)(nil),       // 13: harbor.attach.v1.GateResult
 }
 var file_attach_proto_depIdxs = []int32{
 	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
 	4,  // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
 	3,  // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
 	2,  // 3: harbor.attach.v1.StatusUp.connector:type_name -> harbor.attach.v1.ConnectorApplied
-	7,  // 4: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
-	9,  // 5: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
-	10, // 6: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
-	11, // 7: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
-	6,  // 8: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
-	8,  // 9: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
-	1,  // 10: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	5,  // 11: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	11, // [11:12] is the sub-list for method output_type
-	10, // [10:11] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	13, // 4: harbor.attach.v1.StatusUp.gate:type_name -> harbor.attach.v1.GateResult
+	7,  // 5: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
+	9,  // 6: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
+	10, // 7: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
+	11, // 8: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
+	6,  // 9: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
+	12, // 10: harbor.attach.v1.ControlDown.gate:type_name -> harbor.attach.v1.RunGate
+	8,  // 11: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
+	1,  // 12: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	5,  // 13: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	13, // [13:14] is the sub-list for method output_type
+	12, // [12:13] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -910,6 +1109,7 @@ func file_attach_proto_init() {
 		(*StatusUp_Heartbeat)(nil),
 		(*StatusUp_Event)(nil),
 		(*StatusUp_Connector)(nil),
+		(*StatusUp_Gate)(nil),
 	}
 	file_attach_proto_msgTypes[4].OneofWrappers = []any{
 		(*ControlDown_Wake)(nil),
@@ -917,6 +1117,7 @@ func file_attach_proto_init() {
 		(*ControlDown_Tier)(nil),
 		(*ControlDown_Rotate)(nil),
 		(*ControlDown_Ack)(nil),
+		(*ControlDown_Gate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -924,7 +1125,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
