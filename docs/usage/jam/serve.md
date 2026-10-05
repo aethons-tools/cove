@@ -250,6 +250,8 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 
 - `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —
   how the studio presents its identity, and how Jam applies the real credential.
+  The header carrying the studio's identity (per `--identity-in`) is always
+  stripped before forwarding, so a Jam identity token never reaches the upstream.
 - `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
   forwarded requests — required for the subscription [pool](pool.md) (a cove on
   `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).
