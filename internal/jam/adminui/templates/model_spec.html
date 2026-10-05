@@ -60,7 +60,7 @@
     <header><h2>Policy</h2><span class="sub">the harness permission policy</span></header>
     <div class="body">
       <dl class="kv">
-        <dt>Mode</dt><dd>{{if .Spec.Policy.Mode}}<span class="mono">{{.Spec.Policy.Mode}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
+        <dt>Mode</dt><dd>{{if .Spec.Policy.Mode}}<span class="mono">{{.Spec.Policy.Mode}}</span>{{else}}<span class="unset">unset = bypassPermissions (legacy)</span>{{end}}</dd>
         <dt>Allow</dt><dd>{{range .Spec.Policy.Allow}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
         <dt>Deny</dt><dd>{{range .Spec.Policy.Deny}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
       </dl>

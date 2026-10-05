@@ -51,7 +51,8 @@ func TestClaudeCommandAppliesModelAndEffort(t *testing.T) {
 	if argAfter(args, "--model") != "claude-opus-5-5" || argAfter(args, "--effort") != "high" {
 		t.Fatalf("argv = %q", args)
 	}
-	// The permission policy and MCP config are not the spec's (yet).
+	// claude-default's bypassPermissions keeps today's flag; the MCP config is
+	// not the spec's (yet).
 	if !slices.Contains(args, "--dangerously-skip-permissions") || argAfter(args, "--mcp-config") != claudeMCPConfigPath {
 		t.Fatalf("argv = %q", args)
 	}
@@ -313,5 +314,82 @@ func TestRunFailsWhenEditedSpecMismatches(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.calls) != 1 {
 		t.Fatalf("spawned %d episodes, want 1", len(f.calls))
+	}
+}
+
+// The pre-flight refuses a policy.mode the harness can't run — an unknown one,
+// or plan (a headless cove can never leave it) — before writing any config.
+func TestClaudeValidateRejectsBadPolicyMode(t *testing.T) {
+	for mode, want := range map[string]string{"yolo": `"yolo"`, "plan": "never leave plan mode"} {
+		dir := t.TempDir()
+		c := specClaude(t, dir, "2.1.287", nil)
+		err := c.Validate(specWith(func(s *modelspec.Spec) { s.Name, s.Policy.Mode = "odd", mode }))
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), `"odd"`) {
+			t.Errorf("mode %q: err = %v, want one naming the spec and mentioning %q", mode, err, want)
+		}
+		if _, err := os.Stat(c.MCPConfigPath); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("mode %q: MCP config written despite a failed pre-flight: %v", mode, err)
+		}
+	}
+	for _, mode := range append(modelspec.PermissionModes(), "") {
+		dir := t.TempDir()
+		if err := specClaude(t, dir, "2.1.287", nil).Validate(specWith(func(s *modelspec.Spec) { s.Policy.Mode = mode })); err != nil {
+			t.Errorf("mode %q refused: %v", mode, err)
+		}
+	}
+}
+
+// The policy flags sit right after the stream-json flags and before the MCP,
+// model, settings and context flags, with --continue still second.
+func TestClaudeCommandPolicyFlagPosition(t *testing.T) {
+	spec := specWith(func(s *modelspec.Spec) {
+		s.Policy = modelspec.Policy{Mode: "dontAsk", Allow: []string{"Read"}, Deny: []string{"WebFetch"}}
+		s.Model.ID = "claude-opus-5-5"
+		s.Claude.Settings = map[string]any{"theme": "dark"}
+	})
+	_, args, _ := Claude{SettingsPath: "/x/s.json"}.Command(Episode{Continued: true, ContextCore: "/c/CORE.md", Spec: spec})
+	want := []string{"-p", "--continue", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+		"--permission-mode=dontAsk",
+		"--allowedTools=mcp__messaging", "--allowedTools=Edit(.at-task/worker-result.json)",
+		"--allowedTools=Read", "--disallowedTools=WebFetch",
+		"--mcp-config", claudeMCPConfigPath, "--strict-mcp-config",
+		"--model", "claude-opus-5-5",
+		"--settings", "/x/s.json",
+		"--append-system-prompt-file", "/c/CORE.md", "--system-prompt-snapshot", "off"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("argv:\n got %q\nwant %q", args, want)
+	}
+}
+
+// A policy edit is picked up at the next episode like any other spec edit.
+func TestRunPicksUpEditedPolicyNextEpisode(t *testing.T) {
+	dir := t.TempDir()
+	first := specConnector(specWith(func(*modelspec.Spec) {}))
+	edited := specConnector(specWith(func(s *modelspec.Spec) {
+		s.Policy = modelspec.Policy{Mode: "acceptEdits", Deny: []string{"WebFetch"}}
+	}))
+	src := &seqSource{connectors: []snippet.Connector{first, edited}}
+	f := &scriptedSpawner{dir: dir}
+	w := specWL(t, dir, specClaude(t, dir, "2.1.287", nil), f, first, src, true)
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 2 {
+		t.Fatalf("want 2 episodes, got %d", len(f.calls))
+	}
+	if a := f.calls[0].args; !slices.Contains(a, "--dangerously-skip-permissions") || slices.ContainsFunc(a, func(s string) bool { return strings.HasPrefix(s, "--permission-mode") }) {
+		t.Fatalf("episode 1 argv = %q, want bypass", a)
+	}
+	a := f.calls[1].args
+	if slices.Contains(a, "--dangerously-skip-permissions") || !slices.Contains(a, "--permission-mode=acceptEdits") || !slices.Contains(a, "--disallowedTools=WebFetch") {
+		t.Fatalf("episode 2 argv = %q (the policy edit must apply at the next episode)", a)
 	}
 }

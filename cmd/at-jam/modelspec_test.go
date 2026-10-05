@@ -31,8 +31,8 @@ claude:
     CLOUD_ML_REGION: us-east5
   settings:
     theme: dark
-    statusLine:
-      type: command
+    attribution:
+      commit: ""
   plugins: [superpowers@official]
 `
 
@@ -71,7 +71,7 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 	}
 	got, ok := store.GetModelSpec("claude-default")
 	if !ok || got.Claude == nil || got.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" ||
-		got.Claude.Settings["statusLine"].(map[string]any)["type"] != "command" || got.Policy.Mode != "bypassPermissions" {
+		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" {
 		t.Fatalf("stored spec = %+v", got)
 	}
 	if code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, path); code != 1 || !strings.Contains(errs, "already exists") {

@@ -196,7 +196,9 @@ Everything specific to the agent CLI — argv, stdin encoding, parsing stdout
 into turn/background events, the pre-flight check — sits behind agentrun's
 `Harness` interface; the only implementation, and the default, is Claude. An
 episode is one `claude -p --input-format stream-json --output-format stream-json
---verbose --dangerously-skip-permissions` process in `AT_COVE_WORKDIR` (plus
+--verbose --dangerously-skip-permissions` process in `AT_COVE_WORKDIR` (the
+permission flags come from the role's [model-spec policy](model-specs.md#permission-policy);
+this is `claude-default`'s; plus
 `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`
 when a [session context](session-context.md) is in effect); the prompt
 is its first stdin message. cove-master reports `running` and watches the

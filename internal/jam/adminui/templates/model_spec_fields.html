@@ -13,7 +13,7 @@
   <label>Model id <span class="hint">empty = harness default</span><input name="model-id" value="{{.Spec.Model.ID}}" placeholder="claude-opus-5-5" spellcheck="false"></label>
   <label>Effort <span class="hint">empty = harness default</span><input name="effort" value="{{.Spec.Model.Effort}}" spellcheck="false"></label>
   <label>Policy mode <span class="hint">Claude permission mode</span>
-    <select name="mode">{{$v := .Spec.Policy.Mode}}<option value=""{{if not $v}} selected{{end}}>harness default</option>{{range .Choices.Modes}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <select name="mode">{{$v := .Spec.Policy.Mode}}<option value=""{{if not $v}} selected{{end}}>unset = bypassPermissions (legacy)</option>{{range .Choices.Modes}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label>Claude provider <span class="req">required</span>
     <select name="provider">{{$v := .Provider}}{{range .Choices.Providers}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <label class="wide">Allow <span class="hint">permission rules, one per line</span>

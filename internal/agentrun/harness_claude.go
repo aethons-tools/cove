@@ -90,7 +90,10 @@ func (c Claude) kitMCPServers() string {
 // Validate is the pre-flight for spec (nil = built-in defaults). It fails loud
 // rather than launch a broken agent (COV-190):
 //
-//   - a spec for another harness family is refused;
+//   - a spec for another harness family is refused, and so is a policy.mode
+//     that is not an accepted Claude permission mode
+//     (modelspec.CheckPermissionMode — plan included: a headless cove could
+//     never leave it). Defense in depth over Jam's write-time validation;
 //   - the CLI version check: `claude --version` must satisfy spec.Version
 //     (modelspec.ParseConstraint; an empty or "*" constraint skips the check).
 //     A missing or unrunnable claude, an unparseable version, or a mismatch is
@@ -108,6 +111,9 @@ func (c Claude) Validate(spec *modelspec.Spec) error {
 	if spec != nil {
 		if spec.Type != modelspec.HarnessClaude {
 			return fmt.Errorf("agentrun: model-spec %q is for harness %q, not %q", spec.Name, spec.Type, modelspec.HarnessClaude)
+		}
+		if err := modelspec.CheckPermissionMode(spec.Policy.Mode); err != nil {
+			return fmt.Errorf("agentrun: model-spec %q: %w", spec.Name, err)
 		}
 		if err := c.checkVersion(spec); err != nil {
 			return err
@@ -223,11 +229,11 @@ func writeFileAtomic(path string, data []byte) error {
 
 // Command builds claude's argv for one episode. ep.Continued prepends
 // --continue. The prompt is not in argv: it is the first stream-json message
-// on stdin. From ep.Spec it applies model.id (--model), model.effort
-// (--effort), a non-empty claude.settings (--settings, the file Validate
-// wrote) and the provider env (see claudeEnv). The permission policy and MCP
-// config are not taken from the spec (yet): --dangerously-skip-permissions and
-// the generated --mcp-config stay; claude.plugins are not applied (yet).
+// on stdin. From ep.Spec it applies the permission policy (see claudePolicy),
+// model.id (--model), model.effort (--effort), a non-empty claude.settings
+// (--settings, the file Validate wrote) and the provider env (see claudeEnv).
+// The MCP config is not taken from the spec (yet): the generated --mcp-config
+// stays; claude.plugins are not applied (yet).
 func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	args := []string{"-p"}
 	if ep.Continued {
@@ -235,7 +241,8 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	}
 	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
 	args = append(args, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose")
-	args = append(args, "--dangerously-skip-permissions", "--mcp-config", c.mcpConfig(), "--strict-mcp-config")
+	args = append(args, claudePolicy(ep.Spec)...)
+	args = append(args, "--mcp-config", c.mcpConfig(), "--strict-mcp-config")
 	if spec := ep.Spec; spec != nil {
 		if spec.Model.ID != "" {
 			args = append(args, "--model", spec.Model.ID)
@@ -255,6 +262,64 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 		args = append(args, "--append-system-prompt-file", ep.ContextCore, "--system-prompt-snapshot", "off")
 	}
 	return "claude", args, claudeEnv(ep.Spec)
+}
+
+// workerResultRel is the worker-result file the agent is told to write (the
+// session boilerplate and resumePrompt), relative to its cwd, the work dir.
+const workerResultRel = ".at-task/worker-result.json"
+
+// claudeAlwaysAllowed are the allow rules every non-bypass mode gets ahead of
+// the spec's own: the guaranteed messaging server's tools (mcp__SERVER allows
+// all of a server's tools), so a headless agent can always read and send on
+// the intercom, and the worker-result file the run's outcome is read from
+// (Edit rules cover the Write tool; the path is relative to the agent's cwd,
+// the work dir). A spec deny rule still wins over these.
+var claudeAlwaysAllowed = []string{
+	"mcp__" + kit.MCPReservedName,
+	"Edit(" + workerResultRel + ")",
+}
+
+// claudePolicy renders spec.policy as claude flags (COV-239):
+//
+//   - mode empty (or no spec) or modelspec.ModeBypassPermissions →
+//     --dangerously-skip-permissions, byte-identical to the argv before
+//     model-specs. Both spellings reach the same bypassPermissions session in
+//     today's image; the flag is kept so claude-default and a legacy
+//     (spec-less) cove launch exactly as before, whatever the one-time bypass
+//     acceptance (managed bypassPermissionsModeAccepted /
+//     skipDangerousModePermissionPrompt) does.
+//   - any other mode → one --permission-mode=MODE element (Validate has
+//     already refused an unknown mode, and plan), then claudeAlwaysAllowed.
+//   - each allow / deny rule → one --allowedTools=<rule> / --disallowedTools=<rule>
+//     element (claude accumulates repeated flags). The = form keeps a rule one
+//     argv element that can never be read as a flag, and keeps the variadic
+//     flag from swallowing the next argument. Deny applies in every mode,
+//     bypassPermissions included; allow only matters where claude would ask.
+//
+// Flags, not a permissions block in the --settings file: Jam refuses
+// permissions in claude.settings (policy owns it), the rules stay visible in
+// argv, and session flags don't merge with settings-file permissions.
+func claudePolicy(spec *modelspec.Spec) []string {
+	var p modelspec.Policy
+	if spec != nil {
+		p = spec.Policy
+	}
+	var args []string
+	if p.Mode == "" || p.Mode == modelspec.ModeBypassPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	} else {
+		args = append(args, "--permission-mode="+p.Mode)
+		for _, r := range claudeAlwaysAllowed {
+			args = append(args, "--allowedTools="+r)
+		}
+	}
+	for _, r := range p.Allow {
+		args = append(args, "--allowedTools="+r)
+	}
+	for _, r := range p.Deny {
+		args = append(args, "--disallowedTools="+r)
+	}
+	return args
 }
 
 // claudeEnv is the provider env a spec implies: vertex sets
