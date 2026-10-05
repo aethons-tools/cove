@@ -62,7 +62,7 @@ func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
 // the credential helpers (which produce secrets), hooks and statusLine (run
 // commands, and hooks can override the permission policy) and MCP server
 // selection (owned by the kit and the harness's generated --mcp-config).
-var claudeNonPreferenceSettings = []string{
+var claudeNonPreferenceSettings = append([]string{
 	"env", "permissions",
 	"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
 	"hooks", "disableAllHooks", "statusLine",
@@ -71,13 +71,9 @@ var claudeNonPreferenceSettings = []string{
 	// run): enabling an uninstalled plugin would make claude auto-install it
 	// through the egress proxy at runtime.
 	"enabledPlugins", "extraKnownMarketplaces",
-	// Sandbox policy, set image-wide by the harness layer's managed settings
-	// (COV-245), which outrank --settings: update control, remote control, the
-	// bypass-mode acceptance, and disableAutoMode (which permission modes
-	// exist is permission policy; policy.mode owns a cove's mode).
-	"autoUpdates", "disableRemoteControl", "remoteControlAtStartup",
-	"skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted", "disableAutoMode",
-}
+	// + modelspec.ManagedPolicySettings: sandbox policy, set image-wide by the
+	// harness layer's managed settings (COV-245).
+}, modelspec.ManagedPolicySettings()...)
 
 // ValidateModelSpec checks a model-spec at write time. credExists resolves a
 // serve-config credential name; poolConfigured says whether the PoolPrincipal
@@ -241,8 +237,9 @@ func UpdateModelSpec(store Store, m ModelSpec, credExists func(string) bool, poo
 //  1. the version split + build-time plugins (COV-242): modelspec.MigrateLegacy
 //     on every stored spec;
 //  2. the Claude preferences moved out of the sealed managed settings into
-//     claude-default (COV-245): modelspec.MigrateDefaultSettings, which only
-//     adds the preference keys a stored claude-default lacks.
+//     claude-default (COV-245): modelspec.MigrateSettings — a stored
+//     claude-default gains only the preference keys it lacks, and every spec
+//     drops the managed sandbox-policy keys Jam now refuses (with warnings).
 const ModelSpecSchemaVersion = 2
 
 // ModelSpecMigration reports a MigrateModelSpecs run: the specs it rewrote and
@@ -260,7 +257,9 @@ func migrateModelSpec(m ModelSpec, from int) (ModelSpec, []string) {
 		m, warns = modelspec.MigrateLegacy(m)
 	}
 	if from < 2 {
-		m, _ = modelspec.MigrateDefaultSettings(m)
+		var w []string
+		m, w = modelspec.MigrateSettings(m)
+		warns = append(warns, w...)
 	}
 	return m, warns
 }

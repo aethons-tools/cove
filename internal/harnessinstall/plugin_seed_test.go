@@ -179,3 +179,41 @@ func read(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// merge-baseline-settings.sh puts the baseline preferences UNDER the first-boot
+// seed settings.json: every key already there (the base image's, the plugin
+// seed's enablement) wins; a missing or empty file becomes the baseline.
+func TestMergeBaselineSettings(t *testing.T) {
+	requireBash(t)
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not available")
+	}
+	dir := t.TempDir()
+	baseline := filepath.Join(dir, "baseline.json")
+	mustWrite(t, baseline, `{"theme":"dark","showTurnDuration":true,"spinnerTipsEnabled":false}`)
+	run := func(seed string) {
+		t.Helper()
+		cmd := exec.Command("bash", "payload/claude/merge-baseline-settings.sh", baseline)
+		cmd.Env = append(os.Environ(), "COVE_PLUGIN_SEED="+seed, "COVE_PLUGIN_RUN_AS=")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("merge-baseline-settings.sh: %v\n%s", err, out)
+		}
+	}
+	seed := filepath.Join(dir, "seed")
+	mustWrite(t, filepath.Join(seed, "settings.json"),
+		`{"theme":"light","model":"opus","enabledPlugins":{"superpowers@claude-plugins-official":true}}`)
+	run(seed)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(seed, "settings.json"))), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["theme"] != "light" || got["model"] != "opus" || got["showTurnDuration"] != true ||
+		got["spinnerTipsEnabled"] != false || got["enabledPlugins"] == nil {
+		t.Fatalf("merged = %v", got)
+	}
+	empty := filepath.Join(dir, "empty")
+	run(empty) // no settings.json at all (a custom kit base)
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(empty, "settings.json"))), &got); err != nil || got["theme"] != "dark" {
+		t.Fatalf("baseline-only = %v (%v)", got, err)
+	}
+}

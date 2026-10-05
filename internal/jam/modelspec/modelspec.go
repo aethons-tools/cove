@@ -328,31 +328,55 @@ func MigrateLegacy(s Spec) (Spec, []string) {
 	return s, warns
 }
 
-// MigrateDefaultSettings is schema step 2 (COV-245) of Jam's one-time
-// model-spec store migration: a stored DefaultName claude spec gains each
-// DefaultClaudeSettings key its claude.settings lacks — the preferences moved
-// out of the sealed managed settings — and never has a value it already holds
-// overwritten. Any other spec is returned as is. changed reports an addition;
+// managedPolicySettings are the Claude settings the harness layer's managed
+// settings own as sandbox-wide policy (COV-245; they outrank --settings, so a
+// spec could never change them): update control, remote control, the
+// bypass-mode acceptance, and disableAutoMode — which permission modes exist
+// is permission policy (policy.mode owns a cove's mode). Jam refuses them in
+// claude.settings; MigrateSettings drops them from stored specs.
+var managedPolicySettings = []string{
+	"autoUpdates", "disableRemoteControl", "remoteControlAtStartup",
+	"skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted", "disableAutoMode",
+}
+
+// ManagedPolicySettings returns the managed sandbox-policy setting keys (a copy).
+func ManagedPolicySettings() []string { return slices.Clone(managedPolicySettings) }
+
+// MigrateSettings is schema step 2 (COV-245) of Jam's one-time model-spec
+// store migration, for a claude spec with a body (any other is returned as is):
+//
+//   - every spec's claude.settings loses the ManagedPolicySettings keys —
+//     accepted before, refused now — with a warning naming the spec and key,
+//     so a stored spec or an old backup stays updatable and importable;
+//   - a DefaultName spec gains each DefaultClaudeSettings key its
+//     claude.settings lacks (the preferences moved out of the sealed managed
+//     settings); a value it already holds is never overwritten.
+//
 // s is never mutated.
-func MigrateDefaultSettings(s Spec) (out Spec, changed bool) {
-	if s.Name != DefaultName || s.Type != HarnessClaude || s.Claude == nil {
-		return s, false
+func MigrateSettings(s Spec) (Spec, []string) {
+	if s.Type != HarnessClaude || s.Claude == nil {
+		return s, nil
 	}
+	var warns []string
 	settings := maps.Clone(s.Claude.Settings)
-	if settings == nil {
-		settings = map[string]any{}
-	}
-	for k, v := range defaultClaudeSettings {
-		if _, ok := settings[k]; !ok {
-			settings[k] = v
-			changed = true
+	for _, k := range managedPolicySettings {
+		if _, ok := settings[k]; ok {
+			warns = append(warns, fmt.Sprintf("model-spec %q: dropped claude.settings %q (sandbox policy, set by the image's managed settings)", s.Name, k))
+			delete(settings, k)
 		}
 	}
-	if !changed {
-		return s, false
+	if s.Name == DefaultName {
+		if settings == nil {
+			settings = map[string]any{}
+		}
+		for k, v := range defaultClaudeSettings {
+			if _, ok := settings[k]; !ok {
+				settings[k] = v
+			}
+		}
 	}
 	c := *s.Claude
 	c.Settings = settings
 	s.Claude = &c
-	return s, true
+	return s, warns
 }

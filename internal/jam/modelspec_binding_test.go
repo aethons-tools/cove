@@ -396,7 +396,11 @@ func TestMigrateModelSpecsDefaultSettings(t *testing.T) {
 	def.Claude.Settings = map[string]any{"theme": "light"}
 	custom := validSpec()
 	custom.Name, custom.Claude.Settings, custom.Claude.Plugins = "custom", nil, nil
-	for _, m := range []ModelSpec{def, custom} {
+	// A spec stored when the managed policy keys were still accepted.
+	policy := validSpec()
+	policy.Name = "policy"
+	policy.Claude.Settings = map[string]any{"theme": "light", "autoUpdates": true, "disableAutoMode": "disable"}
+	for _, m := range []ModelSpec{def, custom, policy} {
 		if err := st.PutModelSpec(m); err != nil {
 			t.Fatal(err)
 		}
@@ -405,8 +409,16 @@ func TestMigrateModelSpecsDefaultSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep, err := MigrateModelSpecs(st)
-	if err != nil || !slices.Equal(rep.Migrated, []string{"claude-default"}) || len(rep.Warnings) != 0 {
+	if err != nil || !slices.Equal(rep.Migrated, []string{"claude-default", "policy"}) || len(rep.Warnings) != 2 {
 		t.Fatalf("migrated = %+v, %v", rep, err)
+	}
+	if w := strings.Join(rep.Warnings, "\n"); !strings.Contains(w, `"policy"`) || !strings.Contains(w, "autoUpdates") || !strings.Contains(w, "disableAutoMode") {
+		t.Fatalf("warnings = %v", rep.Warnings)
+	}
+	if m, _ := st.GetModelSpec("policy"); !maps.Equal(m.Claude.Settings, map[string]any{"theme": "light"}) {
+		t.Fatalf("policy keys kept: %v", m.Claude.Settings)
+	} else if err := UpdateModelSpec(st, m, credIs("anthropic"), true); err != nil {
+		t.Fatalf("a migrated spec must stay updatable: %v", err)
 	}
 	if ModelSpecSchemaVersion != 2 || st.ModelSpecSchema() != 2 {
 		t.Fatalf("marker = %d (want 2)", st.ModelSpecSchema())
@@ -436,14 +448,25 @@ func TestMigrateModelSpecsDefaultSettings(t *testing.T) {
 	}
 }
 
-// A schema-1 backup gets only the preference step on import.
+// A schema-1 backup gets only step 2 on import: preferences for
+// claude-default, the managed policy keys dropped (with a warning) — so it
+// stays importable.
 func TestMigrateSnapshotModelSpecsDefaultSettings(t *testing.T) {
 	def := modelspec.Default("pool")
 	def.Claude.Settings = nil
 	custom := validSpec()
 	custom.Name, custom.Claude.Plugins = "custom", nil
+	custom.Claude.Settings["skipDangerousModePermissionPrompt"] = true
 	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, ModelSpecSchema: 1, ModelSpecs: []ModelSpec{def, custom}}
-	MigrateSnapshotModelSpecs(&snap)
+	if err := validateSnapshotContext(snap); err != nil {
+		t.Fatalf("a schema-1 backup with a now-refused key must validate (as migrated): %v", err)
+	}
+	if w := MigrateSnapshotModelSpecs(&snap); len(w) != 1 || !strings.Contains(w[0], "skipDangerousModePermissionPrompt") {
+		t.Fatalf("warnings = %v", w)
+	}
+	if _, ok := snap.ModelSpecs[1].Claude.Settings["skipDangerousModePermissionPrompt"]; ok {
+		t.Fatal("managed policy key kept on import")
+	}
 	if snap.ModelSpecSchema != ModelSpecSchemaVersion || !maps.Equal(snap.ModelSpecs[0].Claude.Settings, modelspec.DefaultClaudeSettings()) {
 		t.Fatalf("migrated snapshot = %+v", snap.ModelSpecs[0].Claude)
 	}

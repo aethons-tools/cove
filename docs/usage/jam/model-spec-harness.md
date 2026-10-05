@@ -45,14 +45,32 @@ sandbox-wide policy**, which outranks any `--settings` or user setting:
 | `permissions.defaultMode: bypassPermissions` | For **interactive** sessions (`at-cove connect`/`chat` run `claude` without the harness argv). A Jam episode's `--dangerously-skip-permissions` / `--permission-mode` flag outranks it ([model-spec-policy.md](model-spec-policy.md)). |
 
 Model-specs may not set these keys ([validation](model-specs.md#validation)).
+
 The **preferences** the managed settings used to force — `agentPushNotifEnabled`,
 `alwaysThinkingEnabled`, `disableAgentView` (it only hides a UI view),
 `inputNeededNotifEnabled`, `prefersReducedMotion`, `showThinkingSummaries`,
-`showTurnDuration`, `spinnerTipsEnabled: false`, `theme: dark` — are
-claude-default's `claude.settings` (`modelspec.DefaultClaudeSettings`), applied
-per episode via `--settings`, so a cove under claude-default runs with the same
-values. Interactive sessions get the same values from the base image's seeded
-user `settings.json` (a kit's own base may differ — they are preferences).
+`showTurnDuration`, `spinnerTipsEnabled: false`, `theme: dark`
+(`modelspec.DefaultClaudeSettings`, the one source) — are now a **baseline**:
+the claude stage renders them at build and merges them *under* the first-boot
+seed `settings.json` (`merge-baseline-settings.sh`, after the plugin seed), so
+every session starts from them — interactive or headless, with any spec or
+none, on any kit base. claude-default also carries them as its
+`claude.settings`, explicitly.
+
+### Where a Claude setting comes from (highest wins)
+
+1. **Managed settings** — the sandbox policy above; nothing overrides it.
+2. **Session flags** — a Jam episode's permission flags and `--settings` file:
+   the spec's `claude.settings` plus its plugin enablement.
+3. Project settings in the repo being worked on (Claude Code's own rules).
+4. **User settings** (`/agent-data/settings.json`, seeded on a fresh state
+   volume): the base image's `settings.json` and the plugin seed's enablement,
+   over the **baseline preferences**, which are lowest.
+
+Stage order is CLI → plugin seed → baseline → managed settings, each its own
+`COPY`/`RUN` layer: the seed's build-time `claude plugin` commands never run
+under the managed update controls, and editing one layer's input never re-runs
+the network-bound seed.
 
 ## The one-time migration
 
@@ -74,7 +92,13 @@ step ever re-runs (an operator's later edits are never undone).
 - a spec left with no plugins gets claude-default's — every image carried them
   before. After the marker, an explicit `plugins: []` is kept as written.
 
-**Step 2 (COV-245, preferences)** touches only a stored `claude-default`: it
-gains each [claude-default preference](#managed-settings-vs-preferences-cov-245)
-key its `claude.settings` lacks; a value the operator already set (say
-`theme: light`) is kept, and every other spec is untouched.
+**Step 2 (COV-245, settings)** rewrites `claude.settings`:
+
+- every spec drops the managed sandbox-policy keys Jam now refuses
+  (`autoUpdates`, `disableRemoteControl`, `remoteControlAtStartup`,
+  `skipDangerousModePermissionPrompt`, `bypassPermissionsModeAccepted`,
+  `disableAutoMode`), each with a WARN naming the spec and key — so stored
+  specs stay updatable and old backups importable;
+- a stored `claude-default` gains each
+  [baseline preference](#managed-settings-vs-preferences-cov-245) key it
+  lacks; a value the operator already set (say `theme: light`) is kept.

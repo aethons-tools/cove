@@ -1,6 +1,7 @@
 package harnessinstall
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,20 +27,30 @@ const ClaudeInstallerURL = "https://claude.ai/install.sh"
 //     version change is a model-spec edit and an image rebuild (claude.ai is
 //     still reached at runtime for the subscription OAuth login — see the
 //     sealed squid allow-list);
+//   - when in.Plugins is non-empty, seed-plugins.sh adds each named
+//     marketplace and installs the plugins into the first-boot seed — BEFORE
+//     the managed settings exist, so their update controls never apply to the
+//     build-time `claude plugin` commands;
+//   - the baseline preferences (BaselineSettings, from
+//     modelspec.DefaultClaudeSettings — what the sealed managed settings used
+//     to force, COV-245) merged UNDER the first-boot seed settings.json by
+//     merge-baseline-settings.sh: the lowest-precedence user settings of
+//     every session (interactive, spec-less, any spec, any kit base); a
+//     model-spec's claude.settings overrides them per run;
 //   - Claude Code's managed settings (payload/claude/managed-settings.json)
 //     at /etc/claude-code/managed-settings.json, root-owned 0644: ONLY
-//     sandbox-wide policy every claude session in the image gets (COV-245) —
-//     update control, remote control, the bypass-mode acceptance,
-//     disableAutoMode, and permissions.defaultMode bypassPermissions for
-//     interactive sessions (at-cove connect/chat run claude without the
-//     harness argv; a Jam cove's --dangerously-skip-permissions /
-//     --permission-mode flag overrides it, COV-239). Preferences live in
-//     claude-default's claude.settings, plugin enablement in claude.plugins.
-//     It lives here, not in the sealed hardening layer, because it is
-//     Claude-specific; the kit still cannot override it (the harness stage
-//     builds on top of the kit base and only hardening follows);
-//   - when in.Plugins is non-empty, seed-plugins.sh adds each named
-//     marketplace and installs the plugins into the first-boot seed.
+//     sandbox-wide policy every claude session in the image gets — update
+//     control, remote control, the bypass-mode acceptance, disableAutoMode,
+//     and permissions.defaultMode bypassPermissions for interactive sessions
+//     (at-cove connect/chat run claude without the harness argv; a Jam cove's
+//     --dangerously-skip-permissions / --permission-mode flag overrides it,
+//     COV-239). It lives here, not in the sealed hardening layer, because it
+//     is Claude-specific; the kit still cannot override it (the harness stage
+//     builds on top of the kit base and only hardening follows).
+//
+// Each of the last three is its own COPY/RUN layer naming only its own files,
+// so editing one (say the managed settings) never re-runs another (the
+// network-bound plugin seed).
 func claudeStage(in Install) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n# Claude Code %s (native installer, pinned by the model-spec's version).\n", in.Version)
@@ -49,15 +60,6 @@ func claudeStage(in Install) string {
 	b.WriteString("\n# No background self-updates inside the sandbox: change the model-spec's\n")
 	b.WriteString("# version and rebuild instead. (DISABLE_UPDATES=1 would also block manual ones.)\n")
 	b.WriteString("ENV DISABLE_AUTOUPDATER=1\n")
-	b.WriteString("\n# Claude Code's managed settings: sandbox-wide policy only (preferences are\n")
-	b.WriteString("# the model-spec's claude.settings), root-owned and world-readable.\n")
-	if len(in.Plugins) > 0 {
-		b.WriteString("# Then pre-install the model-spec's plugin marketplaces + plugins at BUILD\n")
-		b.WriteString("# time (open network, before the runtime egress lock) into the first-boot\n")
-		b.WriteString("# seed, so the sandbox never clones plugins through the locked proxy.\n")
-	}
-	fmt.Fprintf(&b, "COPY %s/ /tmp/cove-harness/\n", ContextDir)
-	b.WriteString("RUN install -D -o root -g root -m 0644 /tmp/cove-harness/managed-settings.json /etc/claude-code/managed-settings.json \\\n")
 	if len(in.Plugins) > 0 {
 		var args []string
 		for _, m := range claudeMarketplaces(in.Plugins) {
@@ -67,11 +69,34 @@ func claudeStage(in Install) string {
 		for _, p := range in.Plugins {
 			args = append(args, "-p '"+p+"'")
 		}
-		fmt.Fprintf(&b, " && bash /tmp/cove-harness/seed-plugins.sh %s \\\n", strings.Join(args, " "))
+		b.WriteString("\n# Pre-install the model-spec's plugin marketplaces + plugins at BUILD time\n")
+		b.WriteString("# (open network, before the runtime egress lock) into the first-boot seed, so\n")
+		b.WriteString("# the sandbox never clones plugins through the locked proxy at runtime.\n")
+		fmt.Fprintf(&b, "COPY %s/seed-plugins.sh /tmp/cove-seed/\n", ContextDir)
+		fmt.Fprintf(&b, "RUN bash /tmp/cove-seed/seed-plugins.sh %s \\\n && rm -rf /tmp/cove-seed\n", strings.Join(args, " "))
 	}
-	b.WriteString(" && rm -rf /tmp/cove-harness\n")
+	b.WriteString("\n# Baseline Claude preferences, merged UNDER the first-boot user settings\n")
+	b.WriteString("# (lowest precedence; a model-spec's claude.settings overrides them per run).\n")
+	fmt.Fprintf(&b, "COPY %[1]s/merge-baseline-settings.sh %[1]s/%[2]s /tmp/cove-baseline/\n", ContextDir, baselineFile)
+	fmt.Fprintf(&b, "RUN bash /tmp/cove-baseline/merge-baseline-settings.sh /tmp/cove-baseline/%s \\\n && rm -rf /tmp/cove-baseline\n", baselineFile)
+	b.WriteString("\n# Claude Code's managed settings: sandbox-wide policy only, root-owned and\n")
+	b.WriteString("# world-readable. Last, so no build-time claude command runs under them.\n")
+	fmt.Fprintf(&b, "COPY %s/managed-settings.json /tmp/cove-managed/\n", ContextDir)
+	b.WriteString("RUN install -D -o root -g root -m 0644 /tmp/cove-managed/managed-settings.json /etc/claude-code/managed-settings.json \\\n && rm -rf /tmp/cove-managed\n")
 	b.WriteString("\n")
 	return b.String()
+}
+
+// baselineFile is the build-context name of the rendered BaselineSettings.
+const baselineFile = "baseline-settings.json"
+
+// BaselineSettings is the harness layer's baseline Claude preferences file,
+// rendered from modelspec.DefaultClaudeSettings (the one source). It is
+// generated, not embedded payload, so at-cove's build identity hashes it
+// explicitly (internal/install.AtCoveIdentity).
+func BaselineSettings() []byte {
+	b, _ := json.MarshalIndent(modelspec.DefaultClaudeSettings(), "", "  ") // bools and strings; never errors
+	return append(b, '\n')
 }
 
 // claudeMarketplaces returns the distinct marketplaces plugins name, sorted.

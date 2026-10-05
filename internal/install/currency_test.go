@@ -194,3 +194,20 @@ func TestAtCoveIdentityExcludesDefaultHarnessData(t *testing.T) {
 		t.Fatal("a full kit's harness plugins change must change its currency Harness input")
 	}
 }
+
+// The harness layer's rendered baseline preferences (COV-245) are generated
+// from code, not embedded payload, so the identity hashes them explicitly: a
+// change to the baseline must flip it like a payload edit does.
+func TestAtCoveIdentityIncludesHarnessBaseline(t *testing.T) {
+	id, err := AtCoveIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := harnessBaseline
+	t.Cleanup(func() { harnessBaseline = orig })
+	harnessBaseline = func() []byte { return []byte(`{"theme":"light"}`) }
+	other, err := AtCoveIdentity()
+	if err != nil || other == id {
+		t.Fatalf("a baseline change must change the identity (err %v)", err)
+	}
+}

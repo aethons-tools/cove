@@ -191,44 +191,69 @@ func TestDefaultClaudeSettings(t *testing.T) {
 
 // Schema step 2 (COV-245): a stored claude-default gains only the preference
 // keys it lacks — an operator's values are kept — and any other spec, or a
-// claude-default for another harness/without a body, is untouched.
-func TestMigrateDefaultSettings(t *testing.T) {
+// claude-default for another harness/without a body, gains nothing.
+func TestMigrateSettingsAddsDefaultPreferences(t *testing.T) {
 	stored := Default("pool")
 	stored.Claude.Settings = map[string]any{"theme": "light", "model": "opus"}
-	got, changed := MigrateDefaultSettings(stored)
-	if !changed {
-		t.Fatal("a claude-default missing preferences was not migrated")
+	got, warns := MigrateSettings(stored)
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %v", warns)
 	}
 	if got.Claude.Settings["theme"] != "light" || got.Claude.Settings["model"] != "opus" {
 		t.Fatalf("operator values overwritten: %v", got.Claude.Settings)
 	}
 	for k, v := range DefaultClaudeSettings() {
-		if k == "theme" {
-			continue
-		}
-		if got.Claude.Settings[k] != v {
+		if k != "theme" && got.Claude.Settings[k] != v {
 			t.Errorf("missing key %q = %v, want %v", k, got.Claude.Settings[k], v)
 		}
 	}
 	if len(stored.Claude.Settings) != 2 {
-		t.Fatal("MigrateDefaultSettings mutated its input")
+		t.Fatal("MigrateSettings mutated its input")
 	}
 	none := Default("pool")
 	none.Claude.Settings = nil
-	if got, changed := MigrateDefaultSettings(none); !changed || !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
-		t.Fatalf("no settings → %v (changed %v)", got.Claude.Settings, changed)
-	}
-	if _, changed := MigrateDefaultSettings(Default("pool")); changed {
-		t.Fatal("a complete claude-default must be left as is")
+	if got, _ := MigrateSettings(none); !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
+		t.Fatalf("no settings → %v", got.Claude.Settings)
 	}
 	other := Default("pool")
 	other.Name = "custom"
 	other.Claude.Settings = nil
-	if got, changed := MigrateDefaultSettings(other); changed || got.Claude.Settings != nil {
-		t.Fatalf("a non-default spec was migrated: %v", got.Claude.Settings)
+	if got, _ := MigrateSettings(other); got.Claude.Settings != nil {
+		t.Fatalf("a non-default spec gained preferences: %v", got.Claude.Settings)
 	}
 	bodiless := Spec{Name: DefaultName, Type: HarnessClaude}
-	if _, changed := MigrateDefaultSettings(bodiless); changed {
-		t.Fatal("a claude-default with no claude body was migrated")
+	if got, _ := MigrateSettings(bodiless); got.Claude != nil {
+		t.Fatal("a claude-default with no claude body was given one")
+	}
+}
+
+// Schema step 2 also drops, from EVERY claude spec, the claude.settings keys
+// that became managed sandbox policy (ManagedPolicySettings), each with a
+// warning naming the spec and key — so stored specs stay updatable.
+func TestMigrateSettingsDropsManagedPolicyKeys(t *testing.T) {
+	in := Spec{Name: "custom", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic",
+		Settings: map[string]any{"theme": "light", "autoUpdates": true, "disableAutoMode": "disable"}}}
+	got, warns := MigrateSettings(in)
+	if !maps.Equal(got.Claude.Settings, map[string]any{"theme": "light"}) {
+		t.Fatalf("settings = %v", got.Claude.Settings)
+	}
+	joined := strings.Join(warns, "\n")
+	if len(warns) != 2 || !strings.Contains(joined, `"custom"`) || !strings.Contains(joined, "autoUpdates") || !strings.Contains(joined, "disableAutoMode") {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if len(in.Claude.Settings) != 3 {
+		t.Fatal("MigrateSettings mutated its input")
+	}
+	def := Default("pool")
+	def.Claude.Settings["remoteControlAtStartup"] = false
+	got, warns = MigrateSettings(def)
+	if _, ok := got.Claude.Settings["remoteControlAtStartup"]; ok || len(warns) != 1 || !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
+		t.Fatalf("claude-default = %v, %v", got.Claude.Settings, warns)
+	}
+	for _, k := range []string{"autoUpdates", "disableRemoteControl", "remoteControlAtStartup",
+		"skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted", "disableAutoMode"} {
+		if !slices.Contains(ManagedPolicySettings(), k) {
+			t.Errorf("ManagedPolicySettings lacks %q", k)
+		}
 	}
 }
