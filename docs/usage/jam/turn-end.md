@@ -1,7 +1,7 @@
 ---
-summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
-read_when: You want a session to end itself, to be woken at a time or on a schedule, or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
-owns: the turn-end model, the `end`, `idle_timeout` and `alarm_*` tools and their `/end`, `/idle`, `/alarms` endpoints, the alarm limits and firing rules, the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
+summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone, optionally gated by a shell command run in the cove), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
+read_when: You want a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
+owns: the turn-end model, the `end`, `idle_timeout` and `alarm_*` tools and their `/end`, `/idle`, `/alarms` endpoints, the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
 updated: 2026-10-05
@@ -13,9 +13,9 @@ When a managed session's turn ends, it either **ends** (it called `end`) or
 **waits** for something worth another turn — an inbound squawk
 ([intercom.md](intercom.md#waiting-for-a-reply-wake-on)), one of its
 **alarms**, or its **idle timeout** — and every Wake tells the agent **why** it
-was woken. Alarm gates and `report` are designed in the
+was woken. `report` is designed in the
 [turn-end spec](../../superpowers/specs/2026-10-05-turn-end-lifecycle-design.md)
-and land in later slices.
+and lands in a later slice.
 
 ## Ending a session
 
@@ -39,9 +39,9 @@ with several duties at different times, or "check the PR every 5 minutes".
 
 | Tool | Endpoint | |
 |------|----------|---|
-| `alarm_set(name, schedule, note?)` | `PUT /alarms/{name}` | set, or replace the same name |
+| `alarm_set(name, schedule, note?, gate?)` | `PUT /alarms/{name}` | set, or replace the same name |
 | `alarm_clear(name)` | `DELETE /alarms/{name}` | `404` if absent |
-| `alarm_list()` | `GET /alarms` | name, schedule, note, next fire time, whether fired |
+| `alarm_list()` | `GET /alarms` | name, schedule, note, gate, next fire time, whether fired, last gate result |
 
 - **`schedule`** is an RFC 3339 time (fires once; future, within 366 days) or a
   5-field cron expression or descriptor (`*/5 * * * *`, `@daily`), evaluated in
@@ -58,6 +58,28 @@ with several duties at different times, or "check the PR every 5 minutes".
   tick — until the session next runs; then a one-shot alarm is removed and a cron
   alarm waits for its next match. One wake carries a pending reply and every
   fired alarm together, and an alarm wake pre-empts the idle timeout.
+
+### Gates
+
+A **gate** is an optional shell command that decides whether a due alarm wakes
+the session — e.g. a `*/5 * * * *` alarm with gate `gh run view --exit-status`
+wakes the agent only once CI is green, at no turn cost while it isn't.
+
+- When the alarm comes due (the session `holding` or `waiting`; a paused one is
+  resumed first, and re-paused by the usual warm-timeout afterwards), Jam asks
+  cove-master over the Attach stream to run it: `sh -c <gate>` in the agent's
+  workspace with the agent's environment, killed after **60s**, stdout+stderr
+  capped at **4 KiB**. No agent turn is spent.
+- **exit 0** → the alarm fires and the wake includes the gate's output.
+- **timed out, exit 126/127 (not executable / not found), or no result** within
+  60s + 30s grace (an older cove-master, a dropped stream, a Jam restart) → the
+  alarm fires as **`gate-failed`**, and the wake says what went wrong, with the
+  output. A broken gate never silently never-fires.
+- **any other exit** → not yet: a cron alarm waits for its next match; a
+  one-shot alarm is dropped.
+- One run per alarm at a time; replacing or clearing the alarm drops a run in
+  flight. `alarm_list` shows the latest gate result (`pass`, `failed`,
+  `not-yet`, exit, output). Gates are at most 4096 bytes.
 
 ## Idle timeout
 

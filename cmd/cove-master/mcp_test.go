@@ -483,10 +483,10 @@ func TestMCPIdleTimeoutForwards(t *testing.T) {
 func TestMCPAlarmSetForwards(t *testing.T) {
 	var m, p, b string
 	c := turnEndClient(t, &m, &p, &b)
-	if err := c.setAlarm(context.Background(), "pr-watch", "*/5 * * * *", "check"); err != nil {
+	if err := c.setAlarm(context.Background(), "pr-watch", "*/5 * * * *", "check", "gh pr checks"); err != nil {
 		t.Fatal(err)
 	}
-	if m != "PUT" || p != "/alarms/pr-watch" || !strings.Contains(b, `"schedule":"*/5 * * * *"`) || !strings.Contains(b, `"note":"check"`) {
+	if m != "PUT" || p != "/alarms/pr-watch" || !strings.Contains(b, `"schedule":"*/5 * * * *"`) || !strings.Contains(b, `"note":"check"`) || !strings.Contains(b, `"gate":"gh pr checks"`) {
 		t.Fatalf("%s %s %s", m, p, b)
 	}
 }
@@ -504,7 +504,7 @@ func TestMCPAlarmClearForwards(t *testing.T) {
 
 func TestMCPAlarmListDecodes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"alarms":[{"name":"nightly","schedule":"0 2 * * *","note":"backup","next_at":"2026-10-06T02:00:00Z"}]}`)
+		_, _ = io.WriteString(w, `{"alarms":[{"name":"nightly","schedule":"0 2 * * *","note":"backup","next_at":"2026-10-06T02:00:00Z","gate":"true","last_gate":{"at":"2026-10-05T02:00:00Z","verdict":"pass","exit":0}}]}`)
 	}))
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
@@ -514,7 +514,8 @@ func TestMCPAlarmListDecodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := c.listAlarms(context.Background())
-	if err != nil || len(out.Alarms) != 1 || out.Alarms[0].Name != "nightly" || out.Alarms[0].NextAt != "2026-10-06T02:00:00Z" {
+	if err != nil || len(out.Alarms) != 1 || out.Alarms[0].Name != "nightly" || out.Alarms[0].NextAt != "2026-10-06T02:00:00Z" ||
+		out.Alarms[0].Gate != "true" || out.Alarms[0].LastGate == nil || out.Alarms[0].LastGate.Verdict != "pass" {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }
