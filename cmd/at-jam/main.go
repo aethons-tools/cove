@@ -1825,7 +1825,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// httpHandler is the cove-facing HTTP handler mounted on the :443 mux below:
 	// the broker, plus /squawks and /escalate (always available).
-	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, log)
+	// tickets moves a ticket session's ticket (POST /report, and blocked on an
+	// unfinished teardown); its tracker is set below with the Requisitioner's.
+	tickets := &ticketHolder{}
+	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, tickets, log)
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
@@ -1918,6 +1921,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
 		}
+		tickets.set(linearTicketer{tracker})
 		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
