@@ -93,7 +93,7 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 // The seed enables what it installed in the first-boot user settings
 // (/agent-data/settings.json), merged over the base image's seeded settings —
 // so interactive sessions (no per-run --settings) get exactly the harness
-// layer's plugins, with their marketplace declared. It never reads the sealed
+// layer's plugins, with their marketplace declared. It never reads the
 // managed settings, which no longer enable any plugin (COV-242).
 func TestSeedPluginsEnablesInSeedSettings(t *testing.T) {
 	requireBash(t)
@@ -137,7 +137,7 @@ func TestSeedPluginsEnablesInSeedSettings(t *testing.T) {
 	}
 	script := read(t, "payload/claude/seed-plugins.sh")
 	if strings.Contains(script, "managed-settings") {
-		t.Fatal("seed-plugins.sh must not read the sealed managed settings")
+		t.Fatal("seed-plugins.sh must not read the managed settings")
 	}
 }
 

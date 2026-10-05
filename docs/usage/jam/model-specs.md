@@ -64,7 +64,7 @@ is a 400 naming the field, and nothing is stored.
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
 | `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS` — the same list a kit's `model-provider` env obeys); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
-| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); and `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them). |
+| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them); and the managed sandbox-policy keys `autoUpdates`, `disableRemoteControl`, `remoteControlAtStartup`, `skipDangerousModePermissionPrompt`, `bypassPermissionsModeAccepted`, `disableAutoMode` ([why](model-spec-harness.md#managed-settings-vs-preferences-cov-245)). |
 | `claude.plugins` | No empty or duplicate entries; each `name@marketplace`, both halves `[A-Za-z0-9._-]` (they reach a build `RUN` line), and the marketplace a known one (today only `claude-plugins-official` → `anthropics/claude-plugins-official`; adding one is a code change). |
 
 **No secrets in a model-spec.** Credentials appear by name only (`principal`);
@@ -101,8 +101,9 @@ cannot be deleted (409 naming the role).
 **`claude-default`** is seeded at `at-jam serve` startup when absent (an
 operator's edits to it are kept): type `claude`, provider `anthropic`,
 `policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` with
-no separate constraint, plugins `[superpowers@claude-plugins-official]`, no
-model/effort/settings — exactly how coves ran before model-specs.
+no separate constraint, plugins `[superpowers@claude-plugins-official]`, the claude-default preferences as `claude.settings` (moved out of the managed
+settings, [model-spec-harness.md](model-spec-harness.md#managed-settings-vs-preferences-cov-245)),
+no model/effort — exactly how coves ran before model-specs.
 `DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
 seeds, every full `config.yml` kit's harness, and raises that deliver no spec —
 **not** a `claude-default` already stored. Bump that one yourself
@@ -113,8 +114,8 @@ seeds, every full `config.yml` kit's harness, and raises that deliver no spec �
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves
 keep the built-in defaults, with no version check.
 
-What a spec's `version` and `plugins` build into the image, and the one-time
-migration of specs stored before the version split, are in
+What a spec's `version` and `plugins` build into the image, the image's managed
+settings, and the one-time store migration, are in
 [model-spec-harness.md](model-spec-harness.md).
 
 ## What a cove applies

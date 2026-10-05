@@ -1,6 +1,7 @@
 package modelspec
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -151,5 +152,83 @@ func TestMigrateLegacyDropsPluginSettings(t *testing.T) {
 	}
 	if _, ok := in.Claude.Settings["enabledPlugins"]; !ok {
 		t.Fatal("MigrateLegacy mutated its input's settings")
+	}
+}
+
+// claude-default carries the Claude preferences the sealed managed settings
+// used to force (COV-245), exactly those values, and nothing that is sandbox
+// policy (that stays in the harness layer's managed settings).
+func TestDefaultClaudeSettings(t *testing.T) {
+	want := map[string]any{
+		"agentPushNotifEnabled":   true,
+		"alwaysThinkingEnabled":   true,
+		"disableAgentView":        true,
+		"inputNeededNotifEnabled": true,
+		"prefersReducedMotion":    true,
+		"showThinkingSummaries":   true,
+		"showTurnDuration":        true,
+		"spinnerTipsEnabled":      false,
+		"theme":                   "dark",
+	}
+	d := Default("pool")
+	if !maps.Equal(d.Claude.Settings, want) {
+		t.Fatalf("default settings = %v, want %v", d.Claude.Settings, want)
+	}
+	if !maps.Equal(DefaultClaudeSettings(), want) {
+		t.Fatalf("DefaultClaudeSettings = %v", DefaultClaudeSettings())
+	}
+	d.Claude.Settings["theme"] = "light"
+	if Default("pool").Claude.Settings["theme"] != "dark" || DefaultClaudeSettings()["theme"] != "dark" {
+		t.Fatal("Default shares its settings map")
+	}
+	for _, k := range []string{"disableAutoMode", "permissions", "env", "autoUpdates", "remoteControlAtStartup",
+		"disableRemoteControl", "skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted"} {
+		if _, ok := want[k]; ok {
+			t.Errorf("%q is sandbox policy, not a claude-default preference", k)
+		}
+	}
+}
+
+// Schema step 2 (COV-245): a stored claude-default gains only the preference
+// keys it lacks — an operator's values are kept — and any other spec, or a
+// claude-default for another harness/without a body, is untouched.
+func TestMigrateDefaultSettings(t *testing.T) {
+	stored := Default("pool")
+	stored.Claude.Settings = map[string]any{"theme": "light", "model": "opus"}
+	got, changed := MigrateDefaultSettings(stored)
+	if !changed {
+		t.Fatal("a claude-default missing preferences was not migrated")
+	}
+	if got.Claude.Settings["theme"] != "light" || got.Claude.Settings["model"] != "opus" {
+		t.Fatalf("operator values overwritten: %v", got.Claude.Settings)
+	}
+	for k, v := range DefaultClaudeSettings() {
+		if k == "theme" {
+			continue
+		}
+		if got.Claude.Settings[k] != v {
+			t.Errorf("missing key %q = %v, want %v", k, got.Claude.Settings[k], v)
+		}
+	}
+	if len(stored.Claude.Settings) != 2 {
+		t.Fatal("MigrateDefaultSettings mutated its input")
+	}
+	none := Default("pool")
+	none.Claude.Settings = nil
+	if got, changed := MigrateDefaultSettings(none); !changed || !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
+		t.Fatalf("no settings → %v (changed %v)", got.Claude.Settings, changed)
+	}
+	if _, changed := MigrateDefaultSettings(Default("pool")); changed {
+		t.Fatal("a complete claude-default must be left as is")
+	}
+	other := Default("pool")
+	other.Name = "custom"
+	other.Claude.Settings = nil
+	if got, changed := MigrateDefaultSettings(other); changed || got.Claude.Settings != nil {
+		t.Fatalf("a non-default spec was migrated: %v", got.Claude.Settings)
+	}
+	bodiless := Spec{Name: DefaultName, Type: HarnessClaude}
+	if _, changed := MigrateDefaultSettings(bodiless); changed {
+		t.Fatal("a claude-default with no claude body was migrated")
 	}
 }

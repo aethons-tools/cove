@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -383,5 +384,70 @@ func TestMigrateSnapshotModelSpecs(t *testing.T) {
 	MigrateSnapshotModelSpecs(&current)
 	if current.ModelSpecs[0].Claude.Plugins != nil {
 		t.Fatal("a current snapshot must not be migrated")
+	}
+}
+
+// Schema step 2 (COV-245): a store already at schema 1 gets only the
+// preference step — its stored claude-default gains the preference keys it
+// lacks, an operator's values are kept, and every other spec is untouched.
+func TestMigrateModelSpecsDefaultSettings(t *testing.T) {
+	st := NewMemStore()
+	def := modelspec.Default("pool")
+	def.Claude.Settings = map[string]any{"theme": "light"}
+	custom := validSpec()
+	custom.Name, custom.Claude.Settings, custom.Claude.Plugins = "custom", nil, nil
+	for _, m := range []ModelSpec{def, custom} {
+		if err := st.PutModelSpec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetModelSpecSchema(1); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := MigrateModelSpecs(st)
+	if err != nil || !slices.Equal(rep.Migrated, []string{"claude-default"}) || len(rep.Warnings) != 0 {
+		t.Fatalf("migrated = %+v, %v", rep, err)
+	}
+	if ModelSpecSchemaVersion != 2 || st.ModelSpecSchema() != 2 {
+		t.Fatalf("marker = %d (want 2)", st.ModelSpecSchema())
+	}
+	got, _ := st.GetModelSpec("claude-default")
+	if got.Claude.Settings["theme"] != "light" {
+		t.Fatalf("operator theme overwritten: %v", got.Claude.Settings)
+	}
+	for k, v := range modelspec.DefaultClaudeSettings() {
+		if k != "theme" && got.Claude.Settings[k] != v {
+			t.Errorf("claude-default %q = %v, want %v", k, got.Claude.Settings[k], v)
+		}
+	}
+	if err := ValidateModelSpec(got, credIs("anthropic"), true); err != nil {
+		t.Errorf("migrated claude-default is invalid: %v", err)
+	}
+	if m, _ := st.GetModelSpec("custom"); m.Claude.Settings != nil || m.Claude.Plugins != nil {
+		t.Fatalf("a schema-1 non-default spec was touched: %+v", m.Claude)
+	}
+	// Recorded: an operator later removing a preference is not undone.
+	got.Claude.Settings = map[string]any{}
+	if err := st.PutModelSpec(got); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := MigrateModelSpecs(st); err != nil || len(again.Migrated) != 0 {
+		t.Fatalf("second run = %+v, %v", again, err)
+	}
+}
+
+// A schema-1 backup gets only the preference step on import.
+func TestMigrateSnapshotModelSpecsDefaultSettings(t *testing.T) {
+	def := modelspec.Default("pool")
+	def.Claude.Settings = nil
+	custom := validSpec()
+	custom.Name, custom.Claude.Plugins = "custom", nil
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, ModelSpecSchema: 1, ModelSpecs: []ModelSpec{def, custom}}
+	MigrateSnapshotModelSpecs(&snap)
+	if snap.ModelSpecSchema != ModelSpecSchemaVersion || !maps.Equal(snap.ModelSpecs[0].Claude.Settings, modelspec.DefaultClaudeSettings()) {
+		t.Fatalf("migrated snapshot = %+v", snap.ModelSpecs[0].Claude)
+	}
+	if snap.ModelSpecs[1].Claude.Plugins != nil {
+		t.Fatal("a schema-1 snapshot's custom spec got the schema-1 step again")
 	}
 }

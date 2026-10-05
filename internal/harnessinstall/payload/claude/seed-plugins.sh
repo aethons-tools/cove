@@ -15,8 +15,9 @@
 # It also ENABLES exactly these plugins (and declares their marketplaces) in the
 # first-boot user settings ($SEED/settings.json, merged over the base image's),
 # so interactive sessions — which get no per-run --settings — have them on. It
-# never reads the sealed managed settings: plugin enablement follows the
-# model-spec, and the headless agent's per-run settings carry it too.
+# never reads the managed settings (harness-layer sandbox policy, COV-245):
+# plugin enablement follows the model-spec, and the headless agent's per-run
+# settings carry it too.
 #
 # Why at build time: Claude Code's boot-time auto-installer would otherwise
 # clone the marketplace and each enabled plugin at RUNTIME. In the egress-locked

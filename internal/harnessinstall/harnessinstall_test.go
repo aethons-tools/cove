@@ -1,6 +1,8 @@
 package harnessinstall
 
 import (
+	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -108,5 +110,73 @@ func TestStageClaudeNoPlugins(t *testing.T) {
 	}
 	if strings.Contains(df, "seed-plugins.sh") || !strings.Contains(df, "bash -s 2.1.100") {
 		t.Fatalf("stage without plugins:\n%s", df)
+	}
+}
+
+// The claude stage installs Claude Code's managed settings (COV-245, moved out
+// of the sealed hardening layer: they are Claude-specific) at
+// /etc/claude-code/managed-settings.json, root-owned 0644, whether or not the
+// spec has plugins — and after the CLI install.
+func TestStageClaudeManagedSettings(t *testing.T) {
+	for _, plugins := range [][]string{{}, {"superpowers@claude-plugins-official"}} {
+		dir := t.TempDir()
+		df, err := Stage(dir, Install{Type: modelspec.HarnessClaude, Version: "2.1.100", Plugins: plugins})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"COPY harness/ /tmp/cove-harness/\n",
+			"install -D -o root -g root -m 0644 /tmp/cove-harness/managed-settings.json /etc/claude-code/managed-settings.json",
+			"rm -rf /tmp/cove-harness",
+		} {
+			if !strings.Contains(df, want) {
+				t.Errorf("plugins=%v: stage missing %q:\n%s", plugins, want, df)
+			}
+		}
+		if strings.Index(df, "install.sh") > strings.Index(df, "managed-settings.json") {
+			t.Errorf("managed settings must follow the CLI install:\n%s", df)
+		}
+		if _, err := os.Stat(filepath.Join(dir, ContextDir, "managed-settings.json")); err != nil {
+			t.Fatalf("managed-settings.json not staged: %v", err)
+		}
+	}
+}
+
+// The managed settings hold ONLY sandbox-wide, non-preference policy:
+// preferences moved to claude-default's claude.settings (COV-245), plugin
+// enablement follows the spec (COV-242), and permissions keeps only the
+// bypassPermissions default interactive (non-harness) sessions rely on.
+func TestManagedSettingsAreSandboxPolicyOnly(t *testing.T) {
+	raw, err := fs.ReadFile(PayloadFS(), "payload/claude/managed-settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("managed-settings.json is not JSON: %v", err)
+	}
+	want := map[string]any{
+		"$schema":                           "https://json.schemastore.org/claude-code-settings.json",
+		"autoUpdates":                       false,
+		"disableAutoMode":                   "disable",
+		"disableRemoteControl":              false,
+		"remoteControlAtStartup":            true,
+		"env":                               map[string]any{"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"},
+		"permissions":                       map[string]any{"allow": []any{}, "deny": []any{}, "defaultMode": "bypassPermissions"},
+		"skipDangerousModePermissionPrompt": true,
+		"bypassPermissionsModeAccepted":     true,
+	}
+	gj, _ := json.Marshal(got)
+	wj, _ := json.Marshal(want)
+	if string(gj) != string(wj) {
+		t.Fatalf("managed settings:\n got %s\nwant %s", gj, wj)
+	}
+	for k := range modelspec.DefaultClaudeSettings() {
+		if _, ok := got[k]; ok {
+			t.Errorf("preference %q must live in claude-default's claude.settings, not managed settings", k)
+		}
+	}
+	if strings.Contains(string(raw), "forceLoginMethod") {
+		t.Error("managed settings must not force a login method (env-driven auth)")
 	}
 }

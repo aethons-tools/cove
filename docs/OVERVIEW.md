@@ -329,7 +329,10 @@ is no kit overlay anymore. The image is layered
 0. **Harness layer** (generated, `internal/harnessinstall`) — a `FROM ${BASE} AS harness`
    stage that installs the agent CLI at the model-spec's **exact version** (claude:
    the native installer `curl -fsSL https://claude.ai/install.sh | bash -s X.Y.Z`
-   as `agent`, the `/usr/local/bin/claude` symlink, `ENV DISABLE_AUTOUPDATER=1`)
+   as `agent`, the `/usr/local/bin/claude` symlink, `ENV DISABLE_AUTOUPDATER=1`,
+   and Claude Code's managed settings `/etc/claude-code/managed-settings.json` —
+   sandbox-wide policy only, Claude-specific so not a hardening file; preferences
+   are the model-spec's, see [model-spec-harness.md](usage/jam/model-spec-harness.md#managed-settings-vs-preferences-cov-245))
    and seeds the spec's `claude.plugins` (below). It is **model-spec-mediated, not
    a hardening concern**: a full `config.yml` kit gets the default install —
    the one pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its
@@ -350,7 +353,8 @@ overrides them the normal way and the sealed layer stays purely sealed.
 The hardening extracting last is the **security boundary**:
 nothing a kit — or a model-spec's harness layer — provides can weaken the egress
 lock or sshd hardening; the harness stage only installs a CLI and plugins on the
-open-network builder, before any of the sealed steps run. The harness and its
+open-network builder, before any of the sealed steps run. Its managed settings
+sit above the kit base too, so a kit cannot override them either. The harness and its
 plugins are part of the image's identity: at-cove's build identity hashes only
 the harness layer's payload (its scripts), while the install itself (type,
 version, plugins) is in a full kit's currency inputs (so a
@@ -640,7 +644,7 @@ sandboxes still tear down cleanly under their own (pre-rename) names.
 The seed also carries the Claude Code **plugins** the harness layer installs —
 the model-spec's `claude.plugins` (`claude-default`: `superpowers` from the
 `claude-plugins-official` marketplace), enabled in the seed's `settings.json`
-(the sealed managed settings enable no plugin) —
+(the harness layer's managed settings enable no plugin) —
 pre-installed into the image at build time by the harness layer's `seed-plugins.sh`
 rather than left to Claude Code's boot-time auto-installer.
 That installer would clone the marketplace and each plugin through the egress proxy at runtime,

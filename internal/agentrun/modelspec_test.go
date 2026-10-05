@@ -48,7 +48,7 @@ func argAfter(args []string, flag string) string {
 func TestClaudeCommandAppliesModelAndEffort(t *testing.T) {
 	spec := specWith(func(s *modelspec.Spec) {
 		s.Model = modelspec.Choice{ID: "claude-opus-5-5", Effort: "high"}
-		s.Claude.Plugins = nil
+		s.Claude.Plugins, s.Claude.Settings = nil, nil
 	})
 	_, args, _ := Claude{}.Command(Episode{Spec: spec, ContextCore: "/c/CORE.md"})
 	if argAfter(args, "--model") != "claude-opus-5-5" || argAfter(args, "--effort") != "high" {
@@ -186,7 +186,7 @@ func TestClaudeValidateWritesAndClearsSettings(t *testing.T) {
 	if json.Unmarshal(b, &got) != nil || got["theme"] != "dark" {
 		t.Fatalf("settings file = %s", b)
 	}
-	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Plugins = nil })); err != nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Plugins, s.Claude.Settings = nil, nil })); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(c.SettingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -454,7 +454,9 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 		t.Fatal("the spec's settings map was mutated")
 	}
 	// Plugins alone still write the file and pass --settings.
-	only := specWith(func(s *modelspec.Spec) { s.Claude.Plugins = []string{"superpowers@claude-plugins-official"} })
+	only := specWith(func(s *modelspec.Spec) {
+		s.Claude.Settings, s.Claude.Plugins = nil, []string{"superpowers@claude-plugins-official"}
+	})
 	if err := c.Validate(only); err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +464,7 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 		t.Fatalf("plugins only → --settings expected: %q", args)
 	}
 	// Neither → no file, no flag: nothing enabled, nothing to auto-install.
-	none := specWith(func(s *modelspec.Spec) { s.Claude.Plugins = nil })
+	none := specWith(func(s *modelspec.Spec) { s.Claude.Plugins, s.Claude.Settings = nil, nil })
 	if err := c.Validate(none); err != nil {
 		t.Fatal(err)
 	}
@@ -471,5 +473,39 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 	}
 	if _, args, _ := c.Command(Episode{Spec: none}); slices.Contains(args, "--settings") {
 		t.Fatalf("argv = %q", args)
+	}
+}
+
+// COV-245: claude-default's per-run settings file carries the preferences the
+// sealed managed settings used to force (same values) plus its plugins'
+// enablement — and nothing that is sandbox policy (the harness layer's managed
+// settings keep that).
+func TestClaudeDefaultSettingsFile(t *testing.T) {
+	dir := t.TempDir()
+	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
+	def := modelspec.Default("anthropic")
+	if err := c.Validate(&def); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(c.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"agentPushNotifEnabled": true, "alwaysThinkingEnabled": true, "disableAgentView": true,
+		"inputNeededNotifEnabled": true, "prefersReducedMotion": true, "showThinkingSummaries": true,
+		"showTurnDuration": true, "spinnerTipsEnabled": false, "theme": "dark",
+		"enabledPlugins": map[string]any{"superpowers@claude-plugins-official": true},
+		"extraKnownMarketplaces": map[string]any{"claude-plugins-official": map[string]any{
+			"source": map[string]any{"source": "github", "repo": "anthropics/claude-plugins-official"}}},
+	}
+	gj, _ := json.Marshal(got)
+	wj, _ := json.Marshal(want)
+	if string(gj) != string(wj) {
+		t.Fatalf("claude-default settings file:\n got %s\nwant %s", gj, wj)
 	}
 }
