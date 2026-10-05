@@ -6,6 +6,12 @@
 // and storage.
 package modelspec
 
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
+
 // HarnessType is a model-spec's harness family; it implies the harness a cove
 // runs and selects the per-type body. Only claude exists today.
 type HarnessType string
@@ -47,9 +53,40 @@ type Choice struct {
 
 // Policy is the harness permission policy.
 type Policy struct {
-	Mode  string   `json:"mode,omitempty"  yaml:"mode,omitempty"` // a Claude permission mode; empty = harness default
+	// Mode is a Claude permission mode (PermissionModes). Empty means
+	// ModeBypassPermissions — the legacy --dangerously-skip-permissions launch —
+	// NOT Claude's own "default" mode.
+	Mode  string   `json:"mode,omitempty"  yaml:"mode,omitempty"`
 	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`
 	Deny  []string `json:"deny,omitempty"  yaml:"deny,omitempty"`
+}
+
+// ModeBypassPermissions is the permission mode claude-default runs under, and
+// what an empty Policy.Mode means; the claude harness renders it as
+// --dangerously-skip-permissions.
+const ModeBypassPermissions = "bypassPermissions"
+
+// ModePlan is Claude's plan mode, refused for a cove: a headless stream-json
+// agent has nobody to approve its plan, so it could never leave plan mode.
+const ModePlan = "plan"
+
+// permissionModes are the Claude permission modes a model-spec may name.
+var permissionModes = []string{"default", "acceptEdits", ModeBypassPermissions, "dontAsk"}
+
+// PermissionModes lists the accepted Policy.Mode values (a copy) — the one
+// list Jam validation, the admin UI and the claude harness all check against.
+func PermissionModes() []string { return slices.Clone(permissionModes) }
+
+// CheckPermissionMode reports why mode is not an accepted Policy.Mode (nil when
+// it is, or when it is empty).
+func CheckPermissionMode(mode string) error {
+	switch {
+	case mode == "" || slices.Contains(permissionModes, mode):
+		return nil
+	case mode == ModePlan:
+		return fmt.Errorf("policy.mode %q cannot be used: a cove runs claude headless (-p, stream-json) with nobody to approve a plan, so the agent could never leave plan mode (want one of %s)", mode, strings.Join(permissionModes, ", "))
+	}
+	return fmt.Errorf("policy.mode %q is not a supported Claude permission mode (want one of %s)", mode, strings.Join(permissionModes, ", "))
 }
 
 // Claude is the claude per-type body.
@@ -90,7 +127,7 @@ func Default(principal string) Spec {
 		Type:      HarnessClaude,
 		Version:   DefaultVersion,
 		Principal: Principal{Credential: principal},
-		Policy:    Policy{Mode: "bypassPermissions"},
+		Policy:    Policy{Mode: ModeBypassPermissions},
 		Note:      "Seeded by Jam: the built-in Claude Code defaults every unbound role runs under.",
 		Claude:    &Claude{Provider: "anthropic"},
 	}

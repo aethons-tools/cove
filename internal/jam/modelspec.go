@@ -46,23 +46,27 @@ const PoolPrincipal = "pool"
 // MaxModelSpecNote bounds ModelSpec.Note (an operator hint, like a destination's).
 const MaxModelSpecNote = 300
 
-// claudePermissionModes are Claude Code's permission modes.
-var claudePermissionModes = []string{"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk"}
-
 // claudeProviders are the model providers a claude spec can target.
 var claudeProviders = []string{"anthropic", "vertex", "bedrock"}
 
-// ClaudePermissionModes lists the accepted policy.mode values (a copy), for
-// forms that offer them as choices.
-func ClaudePermissionModes() []string { return slices.Clone(claudePermissionModes) }
+// ClaudePermissionModes lists the accepted policy.mode values (a copy of
+// modelspec.PermissionModes), for forms that offer them as choices.
+func ClaudePermissionModes() []string { return modelspec.PermissionModes() }
 
 // ClaudeProviders lists the accepted claude.provider values (a copy).
 func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
 
 // claudeNonPreferenceSettings are settings.json keys that are not preferences:
-// env (would bypass the provider-env checks), permissions (owned by policy) and
-// the credential helpers (which produce secrets).
-var claudeNonPreferenceSettings = []string{"env", "permissions", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"}
+// env (would bypass the provider-env checks), permissions (owned by policy),
+// the credential helpers (which produce secrets), hooks and statusLine (run
+// commands, and hooks can override the permission policy) and MCP server
+// selection (owned by the kit and the harness's generated --mcp-config).
+var claudeNonPreferenceSettings = []string{
+	"env", "permissions",
+	"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
+	"hooks", "disableAllHooks", "statusLine",
+	"enableAllProjectMcpServers", "enabledMcpjsonServers", "disabledMcpjsonServers", "allowedMcpServers", "deniedMcpServers",
+}
 
 // ValidateModelSpec checks a model-spec at write time. credExists resolves a
 // serve-config credential name; poolConfigured says whether the PoolPrincipal
@@ -95,13 +99,16 @@ func ValidateModelSpec(m ModelSpec, credExists func(string) bool, poolConfigured
 	case !credExists(c):
 		return bad("principal.credential %q does not resolve to a configured credential", c)
 	}
-	if mode := m.Policy.Mode; mode != "" && !slices.Contains(claudePermissionModes, mode) {
-		return bad("policy.mode %q is not a Claude permission mode (want one of %s)", mode, strings.Join(claudePermissionModes, ", "))
+	if err := modelspec.CheckPermissionMode(m.Policy.Mode); err != nil {
+		return bad("%s", err.Error())
 	}
 	for field, rules := range map[string][]string{"allow": m.Policy.Allow, "deny": m.Policy.Deny} {
 		for _, r := range rules {
-			if strings.TrimSpace(r) == "" {
+			switch {
+			case strings.TrimSpace(r) == "":
 				return bad("policy.%s has an empty rule", field)
+			case strings.TrimSpace(r) != r:
+				return bad("policy.%s rule %q has leading or trailing whitespace", field, r)
 			}
 		}
 	}

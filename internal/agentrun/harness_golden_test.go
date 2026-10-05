@@ -16,7 +16,8 @@ import (
 // nothing here. COV-239 takes the permission policy from the spec: no spec,
 // a spec without policy.mode, and claude-default (bypassPermissions) all keep
 // --dangerously-skip-permissions byte-identically; any other mode and the
-// allow/deny rules are rendered (TestGoldenClaudePolicyArgv).
+// allow/deny rules are rendered (TestGoldenClaudePolicyArgv), and a non-bypass
+// mode always also allows the messaging tools and the worker-result file.
 
 const goldenMCP = "/dev/shm/cove-agent-mcp.json"
 const goldenCore = "/agent-data/context/CORE.md"
@@ -43,10 +44,15 @@ func TestGoldenClaudeArgv(t *testing.T) {
 	// one with no spec delivered — same argv, no extra env.
 	def := modelspec.Default("anthropic")
 	noMode := modelspec.Default("anthropic")
+	noMode.Name = "no-mode"
 	noMode.Policy = modelspec.Policy{}
 	for _, spec := range []*modelspec.Spec{nil, &def, &noMode} {
+		variant := "none"
+		if spec != nil {
+			variant = fmt.Sprintf("%s(mode=%q)", spec.Name, spec.Policy.Mode)
+		}
 		for _, c := range cases {
-			t.Run(fmt.Sprintf("%s/spec=%v", c.name, spec != nil), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/spec=%s", c.name, variant), func(t *testing.T) {
 				bin, args, env := goldenCommand(Episode{Continued: c.continued, ContextCore: c.core, Spec: spec})
 				if bin != "claude" {
 					t.Errorf("bin = %q, want claude", bin)
@@ -65,16 +71,19 @@ func TestGoldenClaudeArgv(t *testing.T) {
 func TestGoldenClaudePolicyArgv(t *testing.T) {
 	head := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}
 	tail := []string{"--mcp-config", goldenMCP, "--strict-mcp-config"}
+	// Every non-bypass mode always allows the guaranteed messaging server's
+	// tools and the worker-result file, ahead of the spec's own rules.
+	always := []string{"--allowedTools=mcp__messaging", "--allowedTools=Edit(.at-task/worker-result.json)"}
 	cases := []struct {
 		name   string
 		policy modelspec.Policy
 		want   []string // between head and tail
 	}{
 		{"default+allow+deny", modelspec.Policy{Mode: "default", Allow: []string{"Read", "Bash(git *)"}, Deny: []string{"WebFetch", "Bash(rm -rf *)"}},
-			[]string{"--permission-mode", "default",
+			slices.Concat([]string{"--permission-mode=default"}, always, []string{
 				"--allowedTools=Read", "--allowedTools=Bash(git *)",
-				"--disallowedTools=WebFetch", "--disallowedTools=Bash(rm -rf *)"}},
-		{"plan", modelspec.Policy{Mode: "plan"}, []string{"--permission-mode", "plan"}},
+				"--disallowedTools=WebFetch", "--disallowedTools=Bash(rm -rf *)"})},
+		{"acceptEdits", modelspec.Policy{Mode: "acceptEdits"}, slices.Concat([]string{"--permission-mode=acceptEdits"}, always)},
 		// bypassPermissions keeps today's flag; a deny list still applies under it.
 		{"bypass+deny", modelspec.Policy{Mode: "bypassPermissions", Deny: []string{"Bash"}},
 			[]string{"--dangerously-skip-permissions", "--disallowedTools=Bash"}},
@@ -83,7 +92,7 @@ func TestGoldenClaudePolicyArgv(t *testing.T) {
 			[]string{"--dangerously-skip-permissions", "--allowedTools=Edit"}},
 		// A rule that looks like a flag stays one argv element, never a flag.
 		{"flag-like rule", modelspec.Policy{Mode: "dontAsk", Deny: []string{"--dangerously-skip-permissions"}},
-			[]string{"--permission-mode", "dontAsk", "--disallowedTools=--dangerously-skip-permissions"}},
+			slices.Concat([]string{"--permission-mode=dontAsk"}, always, []string{"--disallowedTools=--dangerously-skip-permissions"})},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

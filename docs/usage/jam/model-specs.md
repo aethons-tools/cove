@@ -30,7 +30,7 @@ model:                      # optional; empty = harness default
   id: claude-opus-5-5
   effort: ""
 policy:
-  mode: bypassPermissions   # optional; empty = harness default
+  mode: bypassPermissions   # optional; empty = bypassPermissions (legacy), NOT Claude's `default`
   allow: []                 # permission rules
   deny: []
 note: ""                    # operator hint, ≤ 300 bytes
@@ -52,13 +52,13 @@ is a 400 naming the field, and nothing is stored.
 | `type` | Required; a known harness family (`claude`). |
 | `version` | Required; a valid [version constraint](#version-constraints). |
 | `principal.credential` | Required. A [`credentials:`](serve.md#the-serve-config) name (or the pool's `cred-name`), or the keyword `pool` — accepted only when a [`pool:`](pool.md) is configured. |
-| `policy.mode` | Empty, or one of Claude's modes: `default`, `acceptEdits`, `plan`, `bypassPermissions`, `dontAsk`. |
-| `policy.allow` / `deny` | No empty rules. |
+| `policy.mode` | Empty (= `bypassPermissions`), or one of Claude's modes `default`, `acceptEdits`, `bypassPermissions`, `dontAsk`. `plan` is refused: a cove runs claude headless with nobody to approve a plan, so it could never leave plan mode. |
+| `policy.allow` / `deny` | No empty rules, and no leading or trailing whitespace on a rule. |
 | `note` | ≤ 300 bytes. |
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
 | `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS` — the same list a kit's `model-provider` env obeys); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
-| `claude.settings` | A JSON object without the non-preference keys `env`, `permissions`, `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`. |
+| `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); and the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers). |
 | `claude.plugins` | No empty or duplicate entries. |
 
 **No secrets in a model-spec.** Credentials appear by name only (`principal`);
@@ -110,7 +110,8 @@ is a connector conflict (409; a raise fails closed).
 
 Before the first episode, and before any episode whose spec changed, the claude
 harness **validates** it and fails the run loud on error: a non-`claude` type,
-a missing `claude` binary, or a version outside the constraint
+a `policy.mode` outside the list above (including `plan`), a missing `claude`
+binary, or a version outside the constraint
 (`model-spec "x" requires claude 3.x, but this image has claude 2.1.287 —
 rebuild the image or change the spec's version`). Then each episode applies:
 
@@ -134,8 +135,8 @@ Jam owns the agent's permission policy; the claude harness renders `policy` as f
 | `policy` | Argv |
 |----------|------|
 | `mode` empty, or no spec delivered | `--dangerously-skip-permissions` (exactly the argv before model-specs) |
-| `mode: bypassPermissions` (`claude-default`) | `--dangerously-skip-permissions` too — the same session mode as `--permission-mode bypassPermissions`, kept byte-identical so existing roles launch unchanged |
-| any other `mode` | `--permission-mode MODE` |
+| `mode: bypassPermissions` (`claude-default`) | `--dangerously-skip-permissions` too — the same session mode as `--permission-mode=bypassPermissions`, kept byte-identical so existing roles launch unchanged |
+| any other `mode` | `--permission-mode=MODE`, then the [always-allowed rules](#always-allowed-in-non-bypass-modes) |
 | each `allow` rule | `--allowedTools=RULE` |
 | each `deny` rule | `--disallowedTools=RULE` |
 
@@ -150,6 +151,14 @@ owns permissions (`claude.settings` may not set them), and the rules stay visibl
 in the argv. The image's managed `permissions.defaultMode: bypassPermissions`
 does not override `--permission-mode`. It only applies when no mode flag is
 passed, which never happens under the harness.
+
+#### Always allowed in non-bypass modes
+
+Under any mode but `bypassPermissions`, two allow rules precede the spec's own:
+`--allowedTools=mcp__messaging` (every intercom tool, so a headless agent can
+always read and send) and `--allowedTools=Edit(.at-task/worker-result.json)`
+(the self-report, relative to the work dir; `Edit` rules cover `Write` too —
+without it `default`/`dontAsk` deny the write). A `deny` rule still wins over both.
 
 ## The `at-jam model-spec` verb
 

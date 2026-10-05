@@ -26,7 +26,7 @@ func seedSpec(t *testing.T, store jam.Store) {
 		Name: "default", Type: jam.HarnessClaude, Version: "2.x",
 		Principal: jam.ModelPrincipal{Credential: "anth"},
 		Model:     jam.ModelChoice{ID: "claude-opus-5-5", Effort: "high"},
-		Policy:    jam.ModelPolicy{Mode: "plan", Allow: []string{"Bash(go test:*)", "Read"}, Deny: []string{"WebFetch"}},
+		Policy:    jam.ModelPolicy{Mode: "dontAsk", Allow: []string{"Bash(go test:*)", "Read"}, Deny: []string{"WebFetch"}},
 		Note:      "the house default",
 		Claude: &jam.ClaudeSpec{
 			Provider:    "vertex",
@@ -97,7 +97,8 @@ func TestModelSpecDetailPrefilled(t *testing.T) {
 		`name="version" value="2.x"`,
 		`name="model-id" value="claude-opus-5-5"`,
 		`<option value="anth" selected>`,
-		`<option value="plan" selected>`,
+		`<option value="dontAsk" selected>`,
+		`<option value="">unset = bypassPermissions (legacy)</option>`,
 		`<option value="vertex" selected>`,
 		"Bash(go test:*)\nRead</textarea>",
 		"ANTHROPIC_VERTEX_PROJECT_ID=proj\nCLOUD_ML_REGION=us-east5</textarea>",
