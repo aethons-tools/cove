@@ -1849,6 +1849,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Turn end: enforce end(reason) and the role's idle timeout.
 	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/, sup /*AlarmFirer*/)
 	eng.SetGates(sup /*GateState*/, rsrv /*GateRunner*/)
+	eng.SetTickets(tickets /*TicketCloser*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 

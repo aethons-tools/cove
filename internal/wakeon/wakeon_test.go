@@ -1639,3 +1639,50 @@ func TestTick_GateWaitsForStream(t *testing.T) {
 		t.Fatalf("ran=%v run=%+v with no stream", g.ran, g.alarm("a1", "ci").GateRun)
 	}
 }
+
+// fakeTickets records BlockUnfinished calls as "actor:reason".
+type fakeTickets struct {
+	blocked []string
+	err     error
+}
+
+func (f *fakeTickets) BlockUnfinished(_ context.Context, inst jam.Instance, reason string) error {
+	f.blocked = append(f.blocked, inst.ActorID+":"+reason)
+	return f.err
+}
+
+func ticketEngine(insts []jam.Instance, roles fakeRoles) (*Engine, *fakeReaper, *fakeTickets) {
+	e, _, reap, _, _ := turnEndEngine(insts, nil, roles)
+	tk := &fakeTickets{}
+	e.SetTickets(tk)
+	return e, reap, tk
+}
+
+func TestTick_EndUnfinishedBlocksThenTearsDown(t *testing.T) {
+	e, reap, tk := ticketEngine([]jam.Instance{{ActorID: "a1", Unit: "AET-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		WaitingSince: time.Unix(9990, 0), EndRequested: &jam.EndRequest{Reason: "gave up"}}}, nil)
+	tk.err = errors.New("linear down")
+	e.tick(context.Background())
+	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:gave up" || len(reap.down) != 1 {
+		t.Fatalf("blocked=%v teardown=%v; want block attempted, teardown anyway", tk.blocked, reap.down)
+	}
+}
+
+func TestTick_IdleTeardownBlocks(t *testing.T) {
+	e, reap, tk := ticketEngine([]jam.Instance{{ActorID: "a1", Unit: "AET-1", Project: "p", Role: "r", Phase: jam.PhaseLive,
+		Activity: jam.ActivityWaiting, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}},
+		fakeRoles{"p/r": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute, OnIdle: jam.OnIdleTeardown}}})
+	e.tick(context.Background())
+	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:idle timeout" || len(reap.down) != 1 {
+		t.Fatalf("blocked=%v teardown=%v", tk.blocked, reap.down)
+	}
+}
+
+func TestTick_WaitMaxBlocks(t *testing.T) {
+	e, reap, tk := ticketEngine([]jam.Instance{{ActorID: "a1", Unit: "AET-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		WaitingSince: time.Unix(10000-7200, 0)}}, nil)
+	e.tick(context.Background())
+	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:wait-max" || len(reap.down) != 1 {
+		t.Fatalf("blocked=%v teardown=%v", tk.blocked, reap.down)
+	}
+}

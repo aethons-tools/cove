@@ -105,6 +105,13 @@ type GateRunner interface {
 	RunGate(actorID, runID, alarm, command string, timeout time.Duration)
 }
 
+// TicketCloser marks a ticket session's ticket blocked when Jam ends the
+// session without a final report (implemented in cmd/at-jam; a no-op for a
+// ticketless or terminally-reported session).
+type TicketCloser interface {
+	BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error
+}
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -136,6 +143,8 @@ type Engine struct {
 	turnEnd bool
 	ender   Ender      // nil = no end notices
 	alarms  AlarmFirer // nil = no alarms
+
+	tickets TicketCloser // nil = no ticket updates on teardown
 
 	// Alarm gates (SetGates); off while either is nil.
 	gates      GateState
@@ -184,6 +193,21 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 // (resuming a paused one first) and its verdict decides whether it fires; a
 // run with no result within GateTimeout+GateGrace fails. Call before Run.
 func (e *Engine) SetGates(state GateState, runner GateRunner) { e.gates, e.gateRunner = state, runner }
+
+// SetTickets has every teardown wake-on performs (end, idle timeout,
+// wait-max) first mark an unfinished ticket blocked. Call before Run.
+func (e *Engine) SetTickets(t TicketCloser) { e.tickets = t }
+
+// blockUnfinished marks inst's ticket blocked before Jam ends it (best-effort:
+// a failure is logged and the teardown goes ahead).
+func (e *Engine) blockUnfinished(ctx context.Context, inst jam.Instance, reason string) {
+	if e.tickets == nil || inst.Unit == "" {
+		return
+	}
+	if err := e.tickets.BlockUnfinished(ctx, inst, reason); err != nil {
+		e.log.Warn("wakeon: mark ticket blocked failed; tearing down anyway", "actor", inst.ActorID, "ticket", inst.Unit, "error", err.Error())
+	}
+}
 
 func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender, alarms AlarmFirer) {
 	if roles != nil {
@@ -242,6 +266,7 @@ func (e *Engine) tick(ctx context.Context) {
 		// condition; wait-max is the backstop when neither is set.
 		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) && !(e.alarms != nil && len(inst.Alarms) > 0) &&
 			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
+			e.blockUnfinished(ctx, inst, "wait-max")
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
 			}
@@ -436,6 +461,7 @@ func (e *Engine) idleAction(inst jam.Instance) string {
 func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 	if e.idleAction(inst) == jam.OnIdleTeardown {
 		e.log.Info("wakeon: idle timeout, tearing down", "actor", inst.ActorID)
+		e.blockUnfinished(ctx, inst, "idle timeout")
 		if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 			e.log.Warn("wakeon: teardown (idle) failed", "actor", inst.ActorID, "error", err.Error())
 		}
@@ -455,6 +481,7 @@ func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 // owner (best-effort). A failed teardown is retried next tick.
 func (e *Engine) endSession(ctx context.Context, inst jam.Instance) {
 	e.log.Info("wakeon: session ended itself", "actor", inst.ActorID, "reason", inst.EndRequested.Reason)
+	e.blockUnfinished(ctx, inst, inst.EndRequested.Reason)
 	if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 		e.log.Warn("wakeon: teardown (end) failed; retrying next tick", "actor", inst.ActorID, "error", err.Error())
 		return
