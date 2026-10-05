@@ -1953,3 +1953,14 @@ func TestResolveGateIgnoresStaleRun(t *testing.T) {
 		t.Fatalf("a stale run's result fired the re-set alarm: %+v", a)
 	}
 }
+
+func TestSetReport(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	r := TicketReport{State: ReportDone, Summary: "merged", At: time.Unix(5, 0)}
+	if err := sup.SetReport("w1", r); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := store.GetInstance("w1"); inst.Report == nil || *inst.Report != r {
+		t.Fatalf("report = %+v", inst.Report)
+	}
+}
