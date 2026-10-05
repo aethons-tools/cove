@@ -6,8 +6,9 @@
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
 // nag with "keep" or "release", which Jam acts on without waking). With
 // SetTurnEnd it also enforces turn end: a session that asked to end is torn
-// down once Waiting and never woken again, and an armed idle deadline wakes
-// the session or tears it down per its role. Wired from cmd/at-jam; not
+// down once Waiting and never woken again, an armed idle deadline wakes the
+// session or tears it down per its role, and due alarms fire for a Holding or
+// Waiting session (held while it runs). Wired from cmd/at-jam; not
 // imported by internal/jam core.
 package wakeon
 
@@ -81,6 +82,13 @@ type Ender interface {
 	NotifyEnded(ctx context.Context, inst jam.Instance, reason string) error
 }
 
+// AlarmFirer marks a cove's due alarms fired and returns its alarms
+// (Supervisor.FireAlarms). Fired alarms stay pending — their Wake re-sent each
+// tick — until the cove next runs and Report retires them.
+type AlarmFirer interface {
+	FireAlarms(actorID string, now time.Time) ([]jam.Alarm, error)
+}
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -110,7 +118,8 @@ type Engine struct {
 
 	// Turn-end enforcement (SetTurnEnd); off until set.
 	turnEnd bool
-	ender   Ender // nil = no end notices
+	ender   Ender      // nil = no end notices
+	alarms  AlarmFirer // nil = no alarms
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -148,13 +157,14 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 // SetTurnEnd turns on turn-end enforcement: end(reason) and the idle
 // deadline. roles supplies each role's on-idle action (nil keeps any set by
 // SetIdleLadder); ender (may be nil) notifies an owner that a session ended
-// itself. The deadline is disarmed by the supervisor when the cove next runs,
-// so an idle wake is re-sent every tick until it is answered. Call before Run.
-func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender) {
+// itself; alarms (may be nil) fires due alarms. The idle deadline and fired
+// alarms are retired by the supervisor when the cove next runs, so their Wake
+// is re-sent every tick until it is answered. Call before Run.
+func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender, alarms AlarmFirer) {
 	if roles != nil {
 		e.roles = roles
 	}
-	e.turnEnd, e.ender = true, ender
+	e.turnEnd, e.ender, e.alarms = true, ender, alarms
 }
 
 func (e *Engine) Run(ctx context.Context) {
@@ -183,7 +193,12 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity == jam.ActivityRunning || inst.Activity == jam.ActivityHolding {
 			// holding (turn over, background tasks running) is woken like running
 			// and, like running, never paused or reaped here.
-			if !e.wakeRunning(inst) && inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
+			// Alarms are held while it runs; a Holding cove's turn is over.
+			var alarms []jam.WakeReason
+			if inst.Activity == jam.ActivityHolding {
+				alarms = e.alarmReasons(inst)
+			}
+			if !e.wakeRunning(inst, alarms) && inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
 				// A teardown action waits for Waiting: never end a cove mid-hold.
 				e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
 				e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
@@ -205,12 +220,17 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			continue
 		}
+		// One Wake carries every reason: a pending reply and each fired alarm.
+		reasons := e.alarmReasons(inst)
 		if rs := e.replies(inst); len(rs) > 0 {
 			// A personal session's owner may answer a nag with "keep" or
 			// "release" instead of waking it (see command).
 			if inst.SessionKind == jam.SessionKindPersonal && e.command(ctx, inst, rs) {
 				continue
 			}
+			reasons = append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, reasons...)
+		}
+		if len(reasons) > 0 {
 			if inst.Phase == jam.PhaseIdled {
 				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
@@ -218,8 +238,8 @@ func (e *Engine) tick(ctx context.Context) {
 				// Wake is sent on a later tick, once it's Live+Waiting and the stream has reconnected.
 				continue
 			}
-			e.log.Info("wakeon: reply detected, waking", "actor", inst.ActorID)
-			e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
+			e.log.Info("wakeon: waking", "actor", inst.ActorID, "reasons", len(reasons))
+			e.wake.Wake(inst.ActorID, reasons...)
 			continue
 		}
 		if e.idleDue(inst) {
@@ -241,26 +261,59 @@ func (e *Engine) tick(ctx context.Context) {
 
 // wakeRunning Wakes a Live, Running or Holding cove that has replies past its baseline and
 // advances the baseline past them (see SetRunningWake), reporting whether it
-// woke it. A failed advance is logged; the next tick then wakes again, which
+// woke it; extra reasons (a Holding cove's fired alarms) ride along, or wake
+// it alone. A failed advance is logged; the next tick then wakes again, which
 // the cove coalesces.
-func (e *Engine) wakeRunning(inst jam.Instance) bool {
+func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 	if e.cursor == nil || inst.Phase != jam.PhaseLive {
 		return false
 	}
 	rs := e.replies(inst)
 	if len(rs) == 0 {
-		return false
+		if len(extra) == 0 {
+			return false
+		}
+		e.log.Info("wakeon: alarm for a holding cove, waking", "actor", inst.ActorID)
+		e.wake.Wake(inst.ActorID, extra...)
+		return true
 	}
 	last := inst.WaitSeq
 	for _, m := range rs {
 		last = max(last, m.Seq)
 	}
 	e.log.Info("wakeon: reply to a running cove, waking", "actor", inst.ActorID)
-	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
+	e.wake.Wake(inst.ActorID, append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, extra...)...)
 	if err := e.cursor.SetWaitSeq(inst.ActorID, last); err != nil {
 		e.log.Warn("wakeon: advance wait baseline failed", "actor", inst.ActorID, "error", err.Error())
 	}
 	return true
+}
+
+// alarmReasons fires inst's due alarms and returns a reason for every alarm
+// fired and not yet answered (re-sent until the cove runs).
+func (e *Engine) alarmReasons(inst jam.Instance) []jam.WakeReason {
+	if e.alarms == nil {
+		return nil
+	}
+	alarms, now := inst.Alarms, e.now()
+	for _, a := range alarms {
+		if !a.NextAt.IsZero() && !a.NextAt.After(now) {
+			fired, err := e.alarms.FireAlarms(inst.ActorID, now)
+			if err != nil {
+				e.log.Warn("wakeon: fire alarms failed", "actor", inst.ActorID, "error", err.Error())
+				break
+			}
+			alarms = fired
+			break
+		}
+	}
+	var out []jam.WakeReason
+	for _, a := range alarms {
+		if !a.FiredAt.IsZero() {
+			out = append(out, jam.WakeReason{Kind: jam.WakeAlarm, Alarm: a.Name, Note: a.Note})
+		}
+	}
+	return out
 }
 
 // idleArmed reports whether inst has an idle deadline this engine enforces.

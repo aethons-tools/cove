@@ -1216,7 +1216,7 @@ func turnEndEngine(insts []jam.Instance, inbox Inbox, roles fakeRoles) (*Engine,
 	}
 	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: 24 * time.Hour}, nil)
 	e.SetRunningWake(&fakeCursor{reg: reg})
-	e.SetTurnEnd(roles, ender)
+	e.SetTurnEnd(roles, ender, &fakeAlarms{reg: reg})
 	e.now = func() time.Time { return time.Unix(10000, 0) }
 	return e, wake, reap, idler, ender
 }
@@ -1335,6 +1335,112 @@ func TestTick_SquawkBeatsIdleAcrossTicks(t *testing.T) {
 	for i, rs := range wake.reasons {
 		if len(rs) != 1 || rs[0].Kind != jam.WakeSquawk {
 			t.Fatalf("wake %d reasons=%v; want squawk only", i, rs)
+		}
+	}
+}
+
+// fakeAlarms mirrors Supervisor.FireAlarms on the registry's instances.
+type fakeAlarms struct{ reg *fakeReg }
+
+func (f *fakeAlarms) FireAlarms(id string, now time.Time) ([]jam.Alarm, error) {
+	for i := range f.reg.insts {
+		if f.reg.insts[i].ActorID != id {
+			continue
+		}
+		for j, a := range f.reg.insts[i].Alarms {
+			if !a.NextAt.IsZero() && !a.NextAt.After(now) {
+				if a.FiredAt.IsZero() {
+					a.FiredAt = now
+				}
+				a.NextAt = jam.NextAfter(a, time.UTC, now)
+				f.reg.insts[i].Alarms[j] = a
+			}
+		}
+		return f.reg.insts[i].Alarms, nil
+	}
+	return nil, nil
+}
+
+var due = time.Unix(9999, 0) // before turnEndEngine's now (10000)
+
+const dueAt = "1970-01-01T02:46:39Z" // == due, a one-shot schedule
+
+func TestTick_AlarmWakesWaiting(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0),
+		Alarms: []jam.Alarm{{Name: "nightly", Schedule: dueAt, Note: "backup", NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || len(wake.reasons[0]) != 1 || wake.reasons[0][0] != (jam.WakeReason{Kind: jam.WakeAlarm, Alarm: "nightly", Note: "backup"}) {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_FiredAlarmResentUntilRunning(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0),
+		Alarms: []jam.Alarm{{Name: "x", Schedule: dueAt, NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	e.tick(context.Background())
+	if len(wake.woke) != 2 {
+		t.Fatalf("woke=%v; want the alarm wake re-sent while still waiting", wake.woke)
+	}
+}
+
+func TestTick_AlarmHeldWhileRunning(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityRunning,
+		Alarms: []jam.Alarm{{Name: "x", Schedule: "@hourly", NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 0 || !e.reg.(*fakeReg).insts[0].Alarms[0].FiredAt.IsZero() {
+		t.Fatalf("fired while running: woke=%v alarms=%+v", wake.woke, e.reg.(*fakeReg).insts[0].Alarms)
+	}
+}
+
+func TestTick_AlarmAndSquawkOneWake(t *testing.T) {
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitSeq: 5, WaitingSince: time.Unix(9000, 0),
+		Alarms: []jam.Alarm{{Name: "x", Note: "n", Schedule: "@hourly", NextAt: due}}}}, inbox, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || len(wake.reasons[0]) != 2 || wake.reasons[0][0].Kind != jam.WakeSquawk || wake.reasons[0][1].Alarm != "x" {
+		t.Fatalf("woke=%v reasons=%v; want one wake with squawk then the alarm", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_AlarmWakesHolding(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityHolding,
+		Alarms: []jam.Alarm{{Name: "x", Schedule: "@hourly", NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0].Kind != jam.WakeAlarm {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_AlarmResumesPausedThenWakes(t *testing.T) {
+	e, wake, _, idler, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0),
+		Alarms: []jam.Alarm{{Name: "x", Schedule: "@hourly", NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	if len(idler.resumed) != 1 || len(wake.woke) != 0 {
+		t.Fatalf("resumed=%v woke=%v", idler.resumed, wake.woke)
+	}
+	e.reg.(*fakeReg).insts[0].Phase = jam.PhaseLive
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0].Alarm != "x" {
+		t.Fatalf("after resume: woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_AlarmBeatsIdle(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), IdleDeadline: due,
+		Alarms: []jam.Alarm{{Name: "x", Schedule: "@hourly", NextAt: due}}}}, nil, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 1 {
+		t.Fatalf("woke=%v", wake.woke)
+	}
+	for _, r := range wake.reasons[0] {
+		if r.Kind == jam.WakeIdle {
+			t.Fatalf("idle wake alongside a fired alarm: %v", wake.reasons)
 		}
 	}
 }

@@ -1844,7 +1844,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// a background task is Running, and its owner's reply must reach it then.
 	eng.SetRunningWake(sup /*Cursor*/)
 	// Turn end: enforce end(reason) and the role's idle timeout.
-	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/)
+	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/, sup /*AlarmFirer*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 
