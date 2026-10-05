@@ -98,8 +98,10 @@ type GateState interface {
 	ResolveGate(actorID, runID string, o jam.GateOutcome) error
 }
 
-// GateRunner asks a cove to run a gate (attach.Server.RunGate).
+// GateRunner asks a cove to run a gate (attach.Server). RunGate is sent only
+// while Connected: a request to a cove with no stream would be dropped.
 type GateRunner interface {
+	Connected(actorID string) bool
 	RunGate(actorID, runID, alarm, command string, timeout time.Duration)
 }
 
@@ -279,7 +281,7 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.SessionKind == jam.SessionKindPersonal && e.idleLadder(ctx, inst) {
 			continue // reclaimed
 		}
-		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout {
+		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) {
 			if err := e.idler.Idle(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
 			}
@@ -344,12 +346,26 @@ func (e *Engine) runGates(ctx context.Context, inst jam.Instance) bool {
 			}
 			return true
 		}
+		if !e.gateRunner.Connected(inst.ActorID) {
+			continue // the stream is (re)connecting: run it on a later tick
+		}
 		runID := newRunID()
 		if _, ok, err := e.gates.StartGate(inst.ActorID, a.Name, runID, now); err != nil {
 			e.log.Warn("wakeon: start gate failed", "actor", inst.ActorID, "alarm", a.Name, "error", err.Error())
 		} else if ok {
 			e.log.Info("wakeon: running gate", "actor", inst.ActorID, "alarm", a.Name, "run", runID)
 			e.gateRunner.RunGate(inst.ActorID, runID, a.Name, a.Gate, jam.GateTimeout)
+		}
+	}
+	return false
+}
+
+// gateInFlight reports whether any of inst's alarms has a gate running: the
+// cove must not be paused under it.
+func gateInFlight(inst jam.Instance) bool {
+	for _, a := range inst.Alarms {
+		if a.GateRun != nil {
+			return true
 		}
 	}
 	return false

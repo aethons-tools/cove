@@ -1,10 +1,12 @@
 package attach
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -439,5 +441,43 @@ func TestGateResultResolves(t *testing.T) {
 	}) {
 		inst, _ := store.GetInstance("w1")
 		t.Fatalf("alarm not resolved: %+v", inst.Alarms)
+	}
+}
+
+// Jam re-sanitizes and re-caps a cove's gate output: NUL would make the
+// Postgres store reject the instance, and a modified client could send MBs.
+func TestGateResultSanitized(t *testing.T) {
+	store, sup, _, dial, tok, secret := harness(t)
+	if _, err := sup.SetAlarm("w1", "ci", "@every 1m", "", "true"); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", jam.ActivityWaiting)
+	if _, ok, _ := sup.StartGate("w1", "ci", "r1", time.Now().Add(2*time.Minute)); !ok {
+		t.Fatal("gate not started")
+	}
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := append([]byte("a\x00b"), bytes.Repeat([]byte("x"), 100000)...)
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Gate{Gate: &attachpb.GateResult{RunId: "r1", Exit: 0, Output: big}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { inst, _ := store.GetInstance("w1"); return inst.Alarms[0].FireKind == jam.WakeAlarm }) {
+		t.Fatal("not resolved")
+	}
+	inst, _ := store.GetInstance("w1")
+	d := inst.Alarms[0].FireDetail
+	if strings.ContainsRune(d, 0) || len(d) > 4096+64 || !strings.HasSuffix(d, "[output truncated]") {
+		t.Fatalf("detail len=%d nul=%v suffix=%v", len(d), strings.ContainsRune(d, 0), strings.HasSuffix(d, "[output truncated]"))
+	}
+}
+
+func TestServerConnected(t *testing.T) {
+	_, _, srv, _, _, _ := harness(t)
+	if srv.Connected("w1") {
+		t.Fatal("connected with no stream")
 	}
 }

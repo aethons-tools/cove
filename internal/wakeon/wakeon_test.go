@@ -1469,9 +1469,10 @@ func TestTick_WaitMaxSparesSessionsWithAlarms(t *testing.T) {
 // fakeGates mirrors Supervisor.StartGate/ResolveGate on the registry and
 // records the gates run (attach.Server.RunGate).
 type fakeGates struct {
-	reg      *fakeReg
-	ran      []string // "actor/alarm/command"
-	resolved []jam.GateOutcome
+	reg          *fakeReg
+	disconnected bool
+	ran          []string // "actor/alarm/command"
+	resolved     []jam.GateOutcome
 }
 
 func (f *fakeGates) alarm(id, name string) *jam.Alarm {
@@ -1515,6 +1516,8 @@ func (f *fakeGates) ResolveGate(id, runID string, o jam.GateOutcome) error {
 	}
 	return nil
 }
+
+func (f *fakeGates) Connected(string) bool { return !f.disconnected }
 
 func (f *fakeGates) RunGate(id, runID, alarm, command string, _ time.Duration) {
 	f.ran = append(f.ran, id+"/"+alarm+"/"+command)
@@ -1609,5 +1612,30 @@ func TestTick_GateRunsForHolding(t *testing.T) {
 	e.tick(context.Background())
 	if len(g.ran) != 1 {
 		t.Fatalf("ran=%v", g.ran)
+	}
+}
+
+// A cove with a gate in flight is not paused at warm-timeout: freezing it would
+// turn a real answer into a "no result" failure.
+func TestTick_NoPauseWhileGateRuns(t *testing.T) {
+	inst := gatedInst(jam.PhaseLive, jam.ActivityWaiting)
+	inst.WaitingSince = time.Unix(10000-90000, 0) // well past any warm-timeout
+	inst.Alarms[0].GateRun = &jam.GateRun{RunID: "r0", StartedAt: time.Unix(10000-10, 0)}
+	e, _, idler, _ := gateEngine(inst)
+	e.cfg.WarmTimeout = time.Second
+	e.tick(context.Background())
+	if len(idler.idled) != 0 {
+		t.Fatalf("paused a cove mid-gate: %v", idler.idled)
+	}
+}
+
+// RunGate is only sent over a connected stream (a request to a cove with no
+// stream would be dropped and later fail as "no result").
+func TestTick_GateWaitsForStream(t *testing.T) {
+	e, _, _, g := gateEngine(gatedInst(jam.PhaseLive, jam.ActivityWaiting))
+	g.disconnected = true
+	e.tick(context.Background())
+	if len(g.ran) != 0 || g.alarm("a1", "ci").GateRun != nil {
+		t.Fatalf("ran=%v run=%+v with no stream", g.ran, g.alarm("a1", "ci").GateRun)
 	}
 }

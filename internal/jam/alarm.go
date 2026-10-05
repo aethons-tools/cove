@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 )
@@ -70,17 +71,42 @@ const (
 	GateNotYet = "not-yet" // any other exit: keep sleeping
 )
 
-// Verdict classifies the outcome: exit 0 passes; a timeout, no result, or a
-// command the shell couldn't find (127) or run (126) failed; anything else is
-// not yet.
+// Verdict classifies the outcome: exit 0 passes; a timeout, no result, a
+// command the shell couldn't find (127) or run (126), or a kill by a signal
+// (128+n) failed; anything else is not yet.
 func (o GateOutcome) Verdict() string {
 	switch {
-	case o.TimedOut || o.NoResult || o.Exit == 126 || o.Exit == 127:
+	case o.TimedOut || o.NoResult || o.Exit == 126 || o.Exit == 127 || o.Exit > 128:
 		return GateFailed
 	case o.Exit == 0:
 		return GatePass
 	}
 	return GateNotYet
+}
+
+// maxGateOutput caps a gate's output as Jam stores it (the cove caps it too;
+// Jam does not trust that).
+const maxGateOutput = 4096
+
+// CleanGateOutput makes a cove-reported gate output safe to store: valid
+// UTF-8 with no NUL (Postgres jsonb rejects it), capped on a rune boundary,
+// marked when cut.
+func CleanGateOutput(b []byte, truncated bool) string {
+	const marker = "\n[output truncated]"
+	s := strings.ReplaceAll(strings.ToValidUTF8(string(b), "\uFFFD"), "\x00", "\uFFFD")
+	s, had := strings.CutSuffix(s, marker)
+	truncated = truncated || had
+	if len(s) > maxGateOutput {
+		cut := maxGateOutput
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s, truncated = s[:cut], true
+	}
+	if truncated {
+		s += marker
+	}
+	return s
 }
 
 // gateFailure says why a failed gate couldn't answer, with its output.
@@ -93,6 +119,8 @@ func gateFailure(o GateOutcome) string {
 		why = fmt.Sprintf("timed out after %s", GateTimeout)
 	case o.Exit == 127:
 		why = "exit 127 (command not found)"
+	case o.Exit > 128:
+		why = fmt.Sprintf("killed by signal %d", o.Exit-128)
 	default:
 		why = "exit 126 (not executable)"
 	}

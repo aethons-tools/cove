@@ -35,7 +35,8 @@ func (c *capWriter) Write(p []byte) (int, error) {
 
 // runGate runs an alarm's gate: sh -c command in dir with env (nil inherits
 // cove-master's), killed after timeout. exit is the shell's status (-1 when
-// killed at the timeout; 127 when the shell itself could not start); out is
+// killed at the timeout; 128+n when killed by signal n; 127 when the shell
+// itself could not start); out is
 // the capped, UTF-8-safe combined output, marked when truncated. It never
 // starts an agent turn.
 func runGate(ctx context.Context, dir string, env []string, command string, timeout time.Duration) (exit int, timedOut bool, out []byte, truncated bool) {
@@ -46,10 +47,14 @@ func runGate(ctx context.Context, dir string, env []string, command string, time
 	var w capWriter
 	cmd.Stdout, cmd.Stderr = &w, &w
 	cmd.WaitDelay = 2 * time.Second // a child holding the pipe can't hang us
+	inOwnGroup(cmd)
 	err := cmd.Run()
+	var exitErr *exec.ExitError
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		exit, timedOut = -1, true
+	case errors.As(err, &exitErr) && signalExit(exitErr) > 0:
+		exit = signalExit(exitErr) // killed by a signal: 128+n, as a shell reports it
 	case cmd.ProcessState != nil:
 		exit = cmd.ProcessState.ExitCode()
 	case err != nil:
@@ -58,7 +63,8 @@ func runGate(ctx context.Context, dir string, env []string, command string, time
 	}
 	// Invalid bytes become U+FFFD, which can grow the text: re-cap on a rune
 	// boundary.
-	s, truncated := strings.ToValidUTF8(string(w.buf), "\uFFFD"), w.truncated
+	// NUL can't be stored (Postgres jsonb), so it is replaced too.
+	s, truncated := strings.ReplaceAll(strings.ToValidUTF8(string(w.buf), "\uFFFD"), "\x00", "\uFFFD"), w.truncated
 	if len(s) > gateOutputCap {
 		cut := gateOutputCap
 		for cut > 0 && !utf8.RuneStart(s[cut]) {

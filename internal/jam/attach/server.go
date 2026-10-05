@@ -155,12 +155,9 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			_ = s.sup.Heartbeat(actorID)
 		case *attachpb.StatusUp_Gate:
 			g := m.Gate
-			out := string(g.GetOutput())
-			if g.GetTruncated() && !strings.HasSuffix(out, "[output truncated]") {
-				out += "\n[output truncated]"
-			}
 			if err := s.sup.ResolveGate(actorID, g.GetRunId(), jam.GateOutcome{
-				At: time.Now(), Exit: int(g.GetExit()), TimedOut: g.GetTimedOut(), Output: out}); err != nil {
+				At: time.Now(), Exit: int(g.GetExit()), TimedOut: g.GetTimedOut(),
+				Output: jam.CleanGateOutput(g.GetOutput(), g.GetTruncated())}); err != nil {
 				s.log.Warn("gate result not recorded", "actor", actorID, "run", g.GetRunId(), "err", err.Error())
 			}
 		case *attachpb.StatusUp_Event:
@@ -247,6 +244,10 @@ func (s *Server) RunGate(actorID, runID, alarm, command string, timeout time.Dur
 	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Gate{Gate: &attachpb.RunGate{
 		RunId: runID, Alarm: alarm, Command: command, TimeoutS: uint32(timeout / time.Second)}}})
 }
+
+// Connected reports whether a live Attach stream is registered for actorID
+// (wake-on sends RunGate only then).
+func (s *Server) Connected(actorID string) bool { return s.connected(actorID) }
 
 // connected reports whether a live Attach stream is registered for actorID.
 func (s *Server) connected(actorID string) bool {
