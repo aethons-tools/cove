@@ -4,7 +4,7 @@ read_when: You are enabling or operating the subscription account pool — seedi
 owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the `at-jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
 prereqs: serve.md for the `pool:` config block + the broker model and `destination` verb; coves.md for how a raised cove is credentialed
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-05
 ---
 
 # The subscription account pool
@@ -70,6 +70,9 @@ block configured, destination validation accepts it and the pool resolves it by
 identity. `--oauth-beta` makes the broker add the `oauth-2025-04-20`
 `anthropic-beta` on forwarded requests, which Anthropic requires to accept a
 subscription-OAuth token (a cove on `ANTHROPIC_AUTH_TOKEN` doesn't send it).
+The same beta can instead ride on the model-spec: give the `pool` principal an
+`ensure-list-item` header rule for `anthropic-beta` (see
+[model-spec-headers.md](model-spec-headers.md)); with both, it is added once.
 
 **Account exclusivity.** A pool account must be a `claude auth login` **grant
 nothing else holds.** Subscription refresh tokens rotate on every use, and reusing

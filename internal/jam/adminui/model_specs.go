@@ -23,7 +23,7 @@ func WithPoolConfigured(on bool) Option {
 
 // specForm is a model-spec's list/map fields in the edit form's input syntax.
 type specForm struct {
-	Allow, Deny, ProviderEnv, Plugins, Settings string
+	Allow, Deny, ProviderEnv, Plugins, Settings, Headers string
 }
 
 // specChoices are the select options of the model-spec form. Principals are
@@ -76,6 +76,7 @@ func (u specUI) detail(m jam.ModelSpec) specDetail {
 	d := specDetail{Title: "Model-specs", Spec: m, Choices: u.choices(m.Principal.Credential)}
 	d.Form.Allow = strings.Join(m.Policy.Allow, "\n")
 	d.Form.Deny = strings.Join(m.Policy.Deny, "\n")
+	d.Form.Headers = formatHeaderRules(m.Principal.Headers)
 	if c := m.Claude; c != nil {
 		d.Provider = c.Provider
 		d.Form.Plugins = strings.Join(c.Plugins, "\n")
@@ -144,6 +145,49 @@ func parseProviderEnv(s string) (map[string]string, error) {
 	return env, nil
 }
 
+// formatHeaderRules renders principal header rules one per line:
+// `NAME += ITEM` (ensure-list-item) or `NAME = VALUE` (set).
+func formatHeaderRules(rules []jam.ModelHeaderRule) string {
+	lines := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if r.EnsureListItem != "" {
+			lines = append(lines, r.Name+" += "+r.EnsureListItem)
+		} else {
+			lines = append(lines, r.Name+" = "+r.Set)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// parseHeaderRules reads formatHeaderRules' syntax, splitting at the first
+// "=" (header names never contain one); a "+" right before it makes the rule
+// ensure-list-item. Errors name the line number, never a value.
+func parseHeaderRules(s string) ([]jam.ModelHeaderRule, error) {
+	var rules []jam.ModelHeaderRule
+	n := 0
+	for line := range strings.Lines(s) {
+		n++
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, v, ok := strings.Cut(line, "=")
+		name, ensure := strings.CutSuffix(strings.TrimSpace(name), "+")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return nil, badRequest("header rule line " + strconv.Itoa(n) + " is not NAME = VALUE or NAME += ITEM")
+		}
+		r := jam.ModelHeaderRule{Name: name}
+		if ensure {
+			r.EnsureListItem = strings.TrimSpace(v)
+		} else {
+			r.Set = strings.TrimSpace(v)
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
 // parseSettings reads the settings textarea: empty, or a JSON object.
 func parseSettings(s string) (map[string]any, error) {
 	if strings.TrimSpace(s) == "" {
@@ -176,12 +220,16 @@ func specFromForm(r *http.Request, name string) (jam.ModelSpec, error) {
 	if err != nil {
 		return jam.ModelSpec{}, err
 	}
+	headers, err := parseHeaderRules(r.FormValue("headers"))
+	if err != nil {
+		return jam.ModelSpec{}, err
+	}
 	m := jam.ModelSpec{
 		Name:              name,
 		Type:              jam.HarnessType(strings.TrimSpace(r.FormValue("type"))),
 		Version:           strings.TrimSpace(r.FormValue("version")),
 		VersionConstraint: strings.TrimSpace(r.FormValue("version-constraint")),
-		Principal:         jam.ModelPrincipal{Credential: strings.TrimSpace(r.FormValue("principal"))},
+		Principal:         jam.ModelPrincipal{Credential: strings.TrimSpace(r.FormValue("principal")), Headers: headers},
 		Model: jam.ModelChoice{
 			ID:     strings.TrimSpace(r.FormValue("model-id")),
 			Effort: strings.TrimSpace(r.FormValue("effort")),

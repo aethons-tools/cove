@@ -76,6 +76,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad upstream", http.StatusInternalServerError)
 		return
 	}
+	rules := b.principalHeaderRules(actor, dest)
 	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
 	rp := &httputil.ReverseProxy{Director: func(out *http.Request) {
 		out.URL.Scheme = up.Scheme
@@ -93,6 +94,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if dest.OAuthBeta {
 			ensureAnthropicOAuthBeta(out.Header)
 		}
+		b.applyPrincipalHeaders(out.Header, rules, actor, dest) // after the credential
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
@@ -111,17 +113,5 @@ const anthropicOAuthBeta = "oauth-2025-04-20"
 
 // ensureAnthropicOAuthBeta adds anthropicOAuthBeta to the request's anthropic-beta
 // header (a comma-separated list), preserving any betas already present and never
-// duplicating.
-func ensureAnthropicOAuthBeta(h http.Header) {
-	existing := h.Get("anthropic-beta")
-	if existing == "" {
-		h.Set("anthropic-beta", anthropicOAuthBeta)
-		return
-	}
-	for _, b := range strings.Split(existing, ",") {
-		if strings.TrimSpace(b) == anthropicOAuthBeta {
-			return
-		}
-	}
-	h.Set("anthropic-beta", existing+","+anthropicOAuthBeta)
-}
+// duplicating — the destination OAuthBeta flag, via the generalized ensureListItem.
+func ensureAnthropicOAuthBeta(h http.Header) { ensureListItem(h, "anthropic-beta", anthropicOAuthBeta) }

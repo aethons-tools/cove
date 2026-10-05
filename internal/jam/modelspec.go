@@ -113,6 +113,9 @@ func ValidateModelSpec(m ModelSpec, credExists func(string) bool, poolConfigured
 	case !credExists(c):
 		return bad("principal.credential %q does not resolve to a configured credential", c)
 	}
+	if err := validatePrincipalHeaders(m.Principal.Headers, bad); err != nil {
+		return err
+	}
 	if err := modelspec.CheckPermissionMode(m.Policy.Mode); err != nil {
 		return bad("%s", err.Error())
 	}
@@ -304,10 +307,7 @@ func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
 		cred = PoolPrincipal
 	} else {
 		dests := store.ListDestinations()
-		for _, match := range []func(Destination) bool{
-			func(d Destination) bool { return d.Name == "anthropic" },
-			func(d Destination) bool { return d.Route == "/anthropic/" },
-		} {
+		for _, match := range anthropicDestinationMatchers {
 			if i := slices.IndexFunc(dests, match); i >= 0 && dests[i].CredName != "" {
 				cred = dests[i].CredName
 				break
