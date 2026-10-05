@@ -265,6 +265,11 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 
 		waitErr := w.episode(ctx, h, proc, tr, first)
 		split.Flush()
+		if tr.ResumeOwed() {
+			// The last resume prompt was written but the agent never started the
+			// turn it asked for: its reasons are owed again.
+			w.wake.restore()
+		}
 		if tr.WakeOwed() {
 			// Coalesced mid-turn but never delivered, or delivered but the process
 			// exited (or the write failed) before the agent started the turn it
@@ -281,13 +286,12 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		if w.cfg.Resident {
 			w.logResidentTurn(waitErr)
 			h.Report(covemaster.Waiting)
-			select {
-			case <-w.wake.signal():
-				prompt, continued = renderWake(w.resumeText(), w.wake.take()), true
-				continue
-			case <-ctx.Done():
+			rs, ok := w.awaitWake(ctx, nil)
+			if !ok {
 				return ctx.Err()
 			}
+			prompt, continued = renderWake(w.resumeText(), rs), true
+			continue
 		}
 
 		wr, _, ok, rerr := worker.ReadWorkerResult(w.cfg.WorkDir)
@@ -308,16 +312,16 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		case "needs-input":
 			w.log.Info("agentrun: agent needs input; reporting Waiting")
 			h.Report(covemaster.Waiting)
-			select {
-			case <-w.wake.signal():
-				prompt, continued = renderWake(resumePrompt, w.wake.take()), true
+			rs, ok := w.awaitWake(ctx, time.After(w.cfg.MaxWait))
+			if ok {
+				prompt, continued = renderWake(resumePrompt, rs), true
 				continue
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(w.cfg.MaxWait):
-				w.log.Info("agentrun: max-wait elapsed; ending unit")
-				return nil
 			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			w.log.Info("agentrun: max-wait elapsed; ending unit")
+			return nil
 		case "error":
 			msg := ""
 			if wr.Status.Error != nil {
@@ -464,7 +468,8 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		case <-ctx.Done():
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
-			if tr.Wake() {
+			// A signal whose reasons an earlier prompt already took is stale.
+			if w.wake.has() && tr.Wake() {
 				write(resume())
 				tr.Wrote()
 				unhold()
@@ -499,6 +504,23 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		case actWait:
 			stopHold()
 			unhold()
+		}
+	}
+}
+
+// awaitWake blocks until a Wake with reasons still to answer arrives, skipping
+// stale signals. ok is false when ctx ends or timeout (nil = none) fires.
+func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs []covemaster.WakeReason, ok bool) {
+	for {
+		select {
+		case <-w.wake.signal():
+			if rs = w.wake.take(); len(rs) > 0 {
+				return rs, true
+			}
+		case <-ctx.Done():
+			return nil, false
+		case <-timeout:
+			return nil, false
 		}
 	}
 }

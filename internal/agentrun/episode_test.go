@@ -421,3 +421,48 @@ func TestEpisodeReportsHoldingThenRunning(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A resume prompt written but never answered (the agent died before starting
+// the turn) is re-delivered to the next episode with its reasons intact.
+func TestEpisodeUnansweredWakeKeepsReasons(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident, c.SessionKind = true, "standing" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, &recordHandle{})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnResult) // turn over, holding for the task
+	p.in.staysOpen(t, 30*time.Millisecond)
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "check"}}})
+	want := "Alarm \"nightly\" fired: check\nContinue."
+	if got := p.in.next(t); got != want {
+		t.Fatalf("delivered %q, want %q", got, want)
+	}
+	p.exit <- nil // died before starting the resumed turn
+	p2 := s.next(t)
+	if got := p2.in.next(t); got != want {
+		t.Fatalf("re-delivered %q, want %q", got, want)
+	}
+	cancel()
+	<-done
+}
+
+// A wake signal whose reasons were already answered writes nothing.
+func TestEpisodeStaleWakeSignalWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, &recordHandle{})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnResult) // turn over, holding for the task
+	p.in.staysOpen(t, 30*time.Millisecond)
+	w.wake.repost() // a signal with nothing pending
+	p.in.noMessage(t, 80*time.Millisecond)
+	cancel()
+	<-done
+}

@@ -163,3 +163,11 @@ func (t *idleTracker) WakeOwed() bool {
 	defer t.mu.Unlock()
 	return t.pendingWake || t.resumeOwed
 }
+
+// ResumeOwed reports whether a resume prompt was written that the agent never
+// started the turn for (as opposed to a wake coalesced and not yet written).
+func (t *idleTracker) ResumeOwed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.resumeOwed
+}
