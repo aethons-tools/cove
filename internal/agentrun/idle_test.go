@@ -37,12 +37,12 @@ func wantAct(t *testing.T, tr *idleTracker, want idleAction) []string {
 }
 
 func TestIdleTrackerStartsBusy(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	wantAct(t, tr, actWait)
 }
 
 func TestIdleTrackerPlainTurnThenIdle(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnAssistant, lnToolRes, lnAssistant, lnRate)
 	wantAct(t, tr, actWait)
 	feed(tr, lnResult)
@@ -50,7 +50,7 @@ func TestIdleTrackerPlainTurnThenIdle(t *testing.T) {
 }
 
 func TestIdleTrackerQueuedTurnStaysBusy(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnResultQ1)
 	wantAct(t, tr, actWait)
 	feed(tr, lnInit, lnResult)
@@ -60,7 +60,7 @@ func TestIdleTrackerQueuedTurnStaysBusy(t *testing.T) {
 // The verified background sequence: result while a task runs → hold; task
 // completes and claude self-starts a turn → not idle until that turn's result.
 func TestIdleTrackerBackgroundTaskSequence(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnAssistant, lnTasks1, lnStarted, lnToolRes, lnAssistant, lnResult)
 	if tasks := wantAct(t, tr, actHold); !slices.Equal(tasks, []string{"Sleep 25 seconds"}) {
 		t.Fatalf("hold tasks = %v", tasks)
@@ -80,20 +80,20 @@ func TestIdleTrackerBackgroundTaskSequence(t *testing.T) {
 // A task that leaves the list but never gets a notification keeps the episode
 // on hold (the BackgroundWait cap is the backstop), never closes early.
 func TestIdleTrackerMissingNotificationHolds(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnTasks1, lnResult, lnTasks0)
 	wantAct(t, tr, actHold)
 }
 
 // A notification for a task we never saw listed must not wedge anything.
 func TestIdleTrackerUnknownNotification(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnNotify, lnResult)
 	wantAct(t, tr, actClose)
 }
 
 func TestIdleTrackerWakeWhileBusyIsCoalesced(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit)
 	for i := 0; i < 3; i++ {
 		if tr.Wake() {
@@ -114,7 +114,7 @@ func TestIdleTrackerWakeWhileBusyIsCoalesced(t *testing.T) {
 }
 
 func TestIdleTrackerPendingWakeBeatsHold(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnTasks1)
 	tr.Wake()
 	feed(tr, lnResult)
@@ -122,7 +122,7 @@ func TestIdleTrackerPendingWakeBeatsHold(t *testing.T) {
 }
 
 func TestIdleTrackerWakeDuringHoldDeliversNow(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnTasks1, lnResult)
 	wantAct(t, tr, actHold)
 	if !tr.Wake() {
@@ -134,7 +134,7 @@ func TestIdleTrackerWakeDuringHoldDeliversNow(t *testing.T) {
 
 func TestIdleTrackerUnparseableLineIgnored(t *testing.T) {
 	var warned int
-	tr := newIdleTracker(func(string, ...any) { warned++ })
+	tr := newIdleTracker(Claude{}.ParseEvent, func(string, ...any) { warned++ })
 	feed(tr, lnInit, lnResult)
 	tr.Observe([]byte("not json"))
 	tr.Observe(nil)
@@ -145,7 +145,7 @@ func TestIdleTrackerUnparseableLineIgnored(t *testing.T) {
 }
 
 func TestIdleTrackerSignalsChange(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnResult)
 	select {
 	case <-tr.changed:
@@ -164,7 +164,7 @@ func TestIdleTrackerSignalsChange(t *testing.T) {
 // coalesced mid-turn) serves that pending wake too: the resumed turn's result
 // must close, not send a second resume prompt.
 func TestIdleTrackerWakeAtTurnBoundaryServesPendingWake(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit)
 	if tr.Wake() {
 		t.Fatal("Wake while busy must not deliver now")
@@ -184,7 +184,7 @@ func TestIdleTrackerWakeAtTurnBoundaryServesPendingWake(t *testing.T) {
 // A resume prompt is owed until claude starts the turn it asked for: if the
 // process exits first, the wake must be handed back.
 func TestIdleTrackerResumeOwedUntilTurnStarts(t *testing.T) {
-	tr := newIdleTracker(nil)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit, lnTasks1, lnResult)
 	if tr.WakeOwed() {
 		t.Fatal("nothing owed before any wake")
@@ -202,7 +202,7 @@ func TestIdleTrackerResumeOwedUntilTurnStarts(t *testing.T) {
 	}
 
 	// The coalesced path: actDeliverWake owes the resume until the turn starts.
-	tr = newIdleTracker(nil)
+	tr = newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit)
 	tr.Wake()
 	feed(tr, lnResult)

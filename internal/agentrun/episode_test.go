@@ -131,7 +131,7 @@ func (s *streamSpawner) next(t *testing.T) *streamProc {
 
 func streamWL(t *testing.T, dir string, s *streamSpawner, mut func(*Config)) *Workload {
 	t.Helper()
-	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: s}
+	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: s}
 	if mut != nil {
 		mut(&cfg)
 	}
@@ -340,7 +340,7 @@ func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 }
 
 func TestUserMessageIsOneStreamJSONLine(t *testing.T) {
-	b := userMessage("line1\nline2 \"q\"")
+	b := Claude{}.EncodeInput("line1\nline2 \"q\"")
 	if b[len(b)-1] != '\n' || bytesCount(b, '\n') != 1 {
 		t.Fatalf("not a single line: %q", b)
 	}
