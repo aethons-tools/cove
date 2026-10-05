@@ -102,6 +102,13 @@ type idleTimeoutIn struct {
 	Scope    string `json:"scope" jsonschema:"next (only the next turn end) or always (until the session ends)"`
 }
 
+// reportIn is the "report" tool's typed input.
+type reportIn struct {
+	State   string `json:"state" jsonschema:"in-progress, in-review (needs pr), needs-input (put the question in summary), blocked, or done"`
+	Summary string `json:"summary" jsonschema:"what changed, for the ticket's comment"`
+	PR      string `json:"pr,omitempty" jsonschema:"the pull request URL, when there is one"`
+}
+
 // alarmSetIn is the "alarm_set" tool's typed input.
 type alarmSetIn struct {
 	Name     string `json:"name" jsonschema:"the alarm's name: lowercase letters, digits, - and _ (setting an existing name replaces it)"`
@@ -357,6 +364,20 @@ func (c *messagingClient) idleTimeout(ctx context.Context, duration, scope strin
 	return err
 }
 
+// report updates the cove's ticket (POST /report).
+func (c *messagingClient) report(ctx context.Context, state, summary, pr string) error {
+	payload, err := json.Marshal(struct {
+		State   string `json:"state"`
+		Summary string `json:"summary"`
+		PR      string `json:"pr,omitempty"`
+	}{State: state, Summary: summary, PR: pr})
+	if err != nil {
+		return fmt.Errorf("encoding report payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPost, "/report", payload)
+	return err
+}
+
 // setAlarm sets (or replaces) a named alarm (PUT /alarms/{name}).
 func (c *messagingClient) setAlarm(ctx context.Context, name, schedule, note, gate string) error {
 	payload, err := json.Marshal(struct {
@@ -491,6 +512,16 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, nil, cfgErr
 		}
 		return nil, nil, client.idleTimeout(ctx, in.Duration, in.Scope)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "report",
+		Description: "Update your ticket's state (ticket sessions only): in-progress, in-review (with pr), needs-input (put the question in summary), blocked, or done. Jam moves the ticket and comments. Call it as often as the state changes; it does not end the session — end does.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in reportIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.report(ctx, in.State, in.Summary, in.PR)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

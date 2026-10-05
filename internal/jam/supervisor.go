@@ -714,6 +714,18 @@ func (s *Supervisor) ResolveGate(actorID, runID string, o GateOutcome) error {
 	return s.store.PutInstance(inst)
 }
 
+// SetReport stamps the session's last accepted ticket report.
+func (s *Supervisor) SetReport(actorID string, r TicketReport) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.Report = &r
+	return s.store.PutInstance(inst)
+}
+
 // alarmZone is the cove's role time zone (UTC when the role is gone).
 func (s *Supervisor) alarmZone(inst Instance) *time.Location {
 	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {

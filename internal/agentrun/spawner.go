@@ -4,8 +4,7 @@
 // Activity stream.
 // An episode stays open while the agent works or has background tasks, and
 // takes Wakes as stdin messages. It depends on internal/covemaster (the
-// Workload seam) and internal/dispatch/worker (the worker-result.json
-// contract); it never imports internal/jam.
+// Workload seam); it never imports internal/jam.
 package agentrun
 
 import (

@@ -142,7 +142,7 @@ func TestEpisodePromptOnStdinAndCloseWhenIdle(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
 	w := streamWL(t, dir, s, nil)
-	done := runAsync(context.Background(), w, &recordHandle{})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
 	p := s.next(t)
 	if hasArg(p.args, "do it") {
 		t.Fatalf("prompt must not be in argv: %v", p.args)
@@ -154,7 +154,6 @@ func TestEpisodePromptOnStdinAndCloseWhenIdle(t *testing.T) {
 	p.in.staysOpen(t, 50*time.Millisecond)
 	p.emit(lnResult)
 	p.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -166,7 +165,7 @@ func TestEpisodeHoldsStdinUntilBackgroundTasksDone(t *testing.T) {
 	s := newStreamSpawner()
 	w := streamWL(t, dir, s, nil)
 	h := &recordHandle{}
-	done := runAsync(context.Background(), w, h)
+	done := runAsyncEpisodes(w, h, 1)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnStarted, lnResult)
@@ -180,7 +179,6 @@ func TestEpisodeHoldsStdinUntilBackgroundTasksDone(t *testing.T) {
 	p.in.staysOpen(t, 50*time.Millisecond)
 	p.emit(lnInit, lnAssistant, lnResult)
 	p.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -196,7 +194,7 @@ func TestEpisodeCoalescesWakesDuringTurn(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
 	w := streamWL(t, dir, s, nil)
-	done := runAsync(context.Background(), w, &recordHandle{})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit)
@@ -212,7 +210,6 @@ func TestEpisodeCoalescesWakesDuringTurn(t *testing.T) {
 	p.in.noMessage(t, 50*time.Millisecond) // three wakes → one prompt
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -250,12 +247,11 @@ func TestEpisodeBackgroundWaitCapClosesStdin(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
 	w := streamWL(t, dir, s, func(c *Config) { c.BackgroundWait = 50 * time.Millisecond })
-	done := runAsync(context.Background(), w, &recordHandle{})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnResult)
 	p.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -263,19 +259,18 @@ func TestEpisodeBackgroundWaitCapClosesStdin(t *testing.T) {
 }
 
 // A wake coalesced mid-turn must not be lost when the process exits before
-// delivering it: a needs-input outcome resumes at once.
+// delivering it: the next episode resumes at once.
 func TestEpisodePendingWakeSurvivesExit(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
 	w := streamWL(t, dir, s, nil)
 	h := &recordHandle{}
-	done := runAsync(context.Background(), w, h)
+	done := runAsyncEpisodes(w, h, 2)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit)
 	w.Control(covemaster.Control{Kind: covemaster.Wake})
 	p.in.noMessage(t, 30*time.Millisecond)
-	writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
 	p.exit <- nil // crashed mid-turn, wake undelivered
 	p2 := s.next(t)
 	if !hasArg(p2.args, "--continue") {
@@ -286,7 +281,6 @@ func TestEpisodePendingWakeSurvivesExit(t *testing.T) {
 	}
 	p2.emit(lnInit, lnResult)
 	p2.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p2.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -295,7 +289,7 @@ func TestEpisodePendingWakeSurvivesExit(t *testing.T) {
 
 // A Wake the episode took out of w.wake must not be lost when claude exits
 // before acting on the resume prompt: whether the write failed (EPIPE) or the
-// prompt was written but no turn started, a needs-input outcome resumes at once.
+// prompt was written but no turn started, the next episode resumes at once.
 func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -305,7 +299,7 @@ func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 			dir := t.TempDir()
 			s := newStreamSpawner()
 			w := streamWL(t, dir, s, nil)
-			done := runAsync(context.Background(), w, &recordHandle{})
+			done := runAsyncEpisodes(w, &recordHandle{}, 2)
 			p := s.next(t)
 			p.in.next(t)
 			p.emit(lnInit, lnTasks1, lnResult) // turn over, holding for the task
@@ -319,7 +313,6 @@ func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 			} else if got := p.in.next(t); got != resumePrompt {
 				t.Fatalf("delivered %q, want resumePrompt", got)
 			}
-			writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
 			p.exit <- nil // claude died before starting the resumed turn
 			p2 := s.next(t)
 			if !hasArg(p2.args, "--continue") {
@@ -330,7 +323,6 @@ func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 			}
 			p2.emit(lnInit, lnResult)
 			p2.in.waitClosed(t)
-			writeResult(t, dir, `{"status":{"ok":{}}}`)
 			p2.exit <- nil
 			if err := <-done; err != nil {
 				t.Fatalf("Run: %v", err)

@@ -27,14 +27,13 @@ func Boilerplate(f SessionFacts) Layer {
 		turns += " Ending your turn is how you wait."
 	default:
 		who = fmt.Sprintf("an ephemeral worker session for role %s in project %s", f.Role, f.Project)
+		turns += " Ending your turn is how you wait."
 		if f.Unit != "" {
 			comms = "`send` without `to` posts to your ticket."
+			turns += "\n- Your ticket: keep its state current with `report` (in-review with the PR link, needs-input, blocked, done), and call `end` as your last action once it is finished."
 		} else {
 			comms = strings.TrimSpace(noDefault)
 		}
-		turns += "\n- Finishing: before every turn ends, write `.at-task/worker-result.json` in your working directory as exactly one of " +
-			"`{\"status\":{\"ok\":{}}}`, `{\"status\":{\"needs-input\":{\"doing\":\"…\",\"blocker\":\"…\",\"need\":\"…\",\"tried\":\"…\"}}}` or " +
-			"`{\"status\":{\"error\":{\"message\":\"…\"}}}`. needs-input is how you wait for a reply; a turn that ends without the file fails the session."
 	}
 	core := strings.Join([]string{
 		"You are " + who + ", running in a Jam-managed at-cove sandbox.",

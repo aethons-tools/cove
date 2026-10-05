@@ -17,25 +17,19 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
-	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 const defaultGrace = 10 * time.Second
 
-// defaultMaxWait bounds how long a Waiting unit blocks for a Wake before Run
-// gives up and reports Done.
-const defaultMaxWait = 30 * time.Minute
-
 // defaultBackgroundWait bounds how long an episode holds stdin open after the
 // agent's turn ended while background tasks are still running.
 const defaultBackgroundWait = 30 * time.Minute
 
-// resumePrompt is the stdin message a Wake delivers: written into a live
-// episode, or as the first message of a new continued episode once a Wake has
-// broken the unit out of a needs-input wait.
-const resumePrompt = "New input may have arrived on your ticket — use the messaging `read` tool to fetch it, then continue the task. When finished, write .at-task/worker-result.json as before."
+// resumePrompt is a ticket studio's wake text: written into a live episode, or
+// as the first message of a new continued episode.
+const resumePrompt = "New input may have arrived on your ticket — use the intercom `read` tool to fetch it, then continue. Use `report` to update the ticket and `end` when the ticket is finished."
 
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the
@@ -49,10 +43,10 @@ const standingResumePrompt = "A message may have arrived — use the intercom `r
 
 // Config configures the agent wrapper.
 type Config struct {
-	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
+	WorkDir string        // cwd for the agent (and its gates)
 	Prompt  string        // the full prompt, written as the first message on the agent's stdin
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
-	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
+	MaxWait time.Duration // unused (Jam bounds waiting); kept so old configs still set it
 	// BackgroundWait bounds how long stdin stays open after a turn ends with
 	// background tasks outstanding; then stdin is closed and the agent stops them.
 	// Default 30m.
@@ -67,10 +61,8 @@ type Config struct {
 	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
 	// cove-master's env unchanged (an older launcher).
 	Connector *ConnectorConfig
-	// Resident keeps the cove alive between episodes (personal and standing
-	// sessions): after every episode, whatever its outcome, Run reports Waiting
-	// and blocks until a Wake (a new continued episode) or shutdown —
-	// never MaxWait.
+	// Resident marks a personal or standing session; it only picks the resume
+	// prompt now — every session waits after every episode.
 	Resident bool
 	// StreamLogPath is the VM-local file the agent's stdout is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
@@ -100,9 +92,8 @@ const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 var defaultContextDir = sessionctx.Dir
 
 // Workload runs the agent (via its Harness) as a turn loop and maps its lifecycle onto
-// the covemaster Activity stream: a needs-input turn suspends (reports
-// Waiting) until a Wake arrives or MaxWait elapses. It implements
-// covemaster.Workload.
+// the covemaster Activity stream: every turn ends in Waiting until a Wake
+// arrives. It implements covemaster.Workload.
 type Workload struct {
 	cfg     Config
 	log     *slog.Logger
@@ -126,13 +117,10 @@ type Workload struct {
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
-// non-positive Grace defaults to 10s; a non-positive MaxWait defaults to 30m.
+// non-positive Grace defaults to 10s.
 func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.Grace <= 0 {
 		cfg.Grace = defaultGrace
-	}
-	if cfg.MaxWait <= 0 {
-		cfg.MaxWait = defaultMaxWait
 	}
 	if cfg.BackgroundWait <= 0 {
 		cfg.BackgroundWait = defaultBackgroundWait
@@ -172,13 +160,10 @@ func (w *Workload) resumeText() string {
 // process fed messages on stdin: the prompt first, then one coalesced
 // resume prompt per batch of Wakes. Stdin is closed only when the agent's turn
 // has ended and no background task is outstanding (or BackgroundWait elapsed),
-// so the agent's backgrounding works. After the process exits, its worker-result
-// maps to Activity as before: a needs-input episode reports Waiting and blocks
-// until a Wake resumes it (a new continued episode) or MaxWait elapses
-// (Run then returns nil, ending the unit). Returning nil or an error both lead
-// the client to report Done; a nil error means the unit ended cleanly
-// (completed, or gave up waiting). In resident mode (personal sessions) every
-// episode ends in Waiting and only a Wake or ctx cancel moves the loop on.
+// so the agent's backgrounding works. After the process exits, Run reports
+// Waiting and blocks until a Wake resumes it (a new continued episode) or ctx
+// is cancelled (Jam tearing the session down: end, idle timeout, wait-max).
+// No result file is read (worker-result.json is the at-cove work path's).
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	w.gateMu.Lock()
 	w.gateCtx, w.gateH = ctx, h
@@ -296,54 +281,16 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			return ctx.Err()
 		}
 
-		if w.cfg.Resident {
-			w.logResidentTurn(waitErr)
-			h.Report(covemaster.Waiting)
-			rs, ok := w.awaitWake(ctx, nil)
-			if !ok {
-				return ctx.Err()
-			}
-			prompt, continued = renderWake(w.resumeText(), rs), true
-			continue
-		}
-
-		wr, _, ok, rerr := worker.ReadWorkerResult(w.cfg.WorkDir)
-		if rerr != nil {
-			return fmt.Errorf("agentrun: read worker-result: %w", rerr)
-		}
+		// Every turn ends the same way, whatever the session kind: wait for a
+		// Wake (a reply, an alarm, the idle timeout). Jam decides when the
+		// session ends (end, idle teardown, wait-max); no result file is read.
+		w.logTurn(waitErr)
+		h.Report(covemaster.Waiting)
+		rs, ok := w.awaitWake(ctx, nil)
 		if !ok {
-			return fmt.Errorf("agentrun: agent wrote no worker-result (exit: %v)", waitErr)
+			return ctx.Err()
 		}
-		status, serr := wr.Status.Active()
-		if serr != nil {
-			return fmt.Errorf("agentrun: %w", serr)
-		}
-		switch status {
-		case "ok":
-			w.log.Info("agentrun: agent completed ok")
-			return nil
-		case "needs-input":
-			w.log.Info("agentrun: agent needs input; reporting Waiting")
-			h.Report(covemaster.Waiting)
-			rs, ok := w.awaitWake(ctx, time.After(w.cfg.MaxWait))
-			if ok {
-				prompt, continued = renderWake(resumePrompt, rs), true
-				continue
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			w.log.Info("agentrun: max-wait elapsed; ending unit")
-			return nil
-		case "error":
-			msg := ""
-			if wr.Status.Error != nil {
-				msg = wr.Status.Error.Message
-			}
-			return fmt.Errorf("agentrun: agent reported error: %s", msg)
-		default:
-			return fmt.Errorf("agentrun: unexpected worker status %q", status)
-		}
+		prompt, continued = renderWake(w.resumeText(), rs), true
 	}
 }
 
@@ -539,31 +486,17 @@ func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs 
 	}
 }
 
-// logResidentTurn logs a resident turn's outcome. In resident mode no outcome
-// ends the session — an ok, error, or missing worker-result is only reported —
-// so the owner can reply and the cove carries on.
-func (w *Workload) logResidentTurn(waitErr error) {
-	wr, _, ok, rerr := worker.ReadWorkerResult(w.cfg.WorkDir)
-	switch {
-	case rerr != nil:
-		w.log.Warn("agentrun: resident turn: unreadable worker-result; waiting for the owner", "err", rerr.Error())
-	case !ok && waitErr != nil:
-		// A non-zero exit with no worker-result is a FAILED turn — the agent
-		// crashed or errored (auth/model-not-accessible/…) before writing a
-		// result. In resident mode the session still waits for the owner rather
-		// than ending, but the failure must be loud, not mistaken for a healthy
-		// idle wait. The cause is in the agent's own log (cove-master.log).
-		w.log.Warn("agentrun: resident turn FAILED — agent exited non-zero and wrote no worker-result; waiting for the owner (cause is in the agent log)", "exit", waitErr.Error())
-	case !ok:
-		w.log.Info("agentrun: resident turn ended cleanly without a worker-result; waiting for the owner")
-	default:
-		status, serr := wr.Status.Active()
-		if serr != nil {
-			w.log.Warn("agentrun: resident turn: invalid worker status; waiting for the owner", "err", serr.Error())
-			return
-		}
-		w.log.Info("agentrun: resident turn ended; waiting for the owner", "status", status)
+// logTurn logs how a turn's agent process ended. A non-zero exit is a FAILED
+// turn — the agent crashed or errored (auth/model-not-accessible/…) — and must
+// be loud, not mistaken for a healthy wait; the session still waits, and Jam
+// ends it (an unfinished ticket is then marked blocked). The cause is in the
+// agent's own log (cove-master.log).
+func (w *Workload) logTurn(waitErr error) {
+	if waitErr != nil {
+		w.log.Warn("agentrun: turn FAILED — agent exited non-zero; waiting (cause is in the agent log)", "exit", waitErr.Error())
+		return
 	}
+	w.log.Info("agentrun: turn ended; waiting")
 }
 
 // Control handles control messages. The client already cancels Run's ctx on
@@ -572,7 +505,7 @@ func (w *Workload) logResidentTurn(waitErr error) {
 // Wake posts its reasons to the wake box and signals. While an episode is
 // live, the episode loop consumes it (delivered now between turns, or
 // coalesced into one resume prompt at turn end); after the process exited, a
-// Run blocked on a needs-input wait consumes it and resumes. Coalesced wakes
+// Run waiting after an episode consumes it and resumes. Coalesced wakes
 // merge their reasons: the one resume prompt names them all (renderWake).
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {

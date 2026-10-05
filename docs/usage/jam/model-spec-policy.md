@@ -33,8 +33,6 @@ passed, which never happens under the harness.
 
 ## Always allowed in non-bypass modes
 
-Under any mode but `bypassPermissions`, two allow rules precede the spec's own:
+Under any mode but `bypassPermissions`, one allow rule precedes the spec's own:
 `--allowedTools=mcp__messaging` (every intercom tool, so a headless agent can
-always read and send) and `--allowedTools=Edit(.at-task/worker-result.json)`
-(the self-report, relative to the work dir; `Edit` rules cover `Write` too —
-without it `default`/`dontAsk` deny the write). A `deny` rule still wins over both.
+always read and send). A `deny` rule still wins over it.

@@ -12,7 +12,7 @@
 // Each AT_JAM_* variable falls back to its deprecated AT_HARBOR_* name, which
 // an older Jam launcher sets (docs/usage/jam/renamed-from-harbor.md).
 //
-//	AT_COVE_WORKDIR          the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
+//	AT_COVE_WORKDIR          the agent's cwd (default /home/agent/workspace)
 //	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 //	AT_COVE_RESIDENT         "1"/"true" keeps the agent resident between turns
 //	                         (personal sessions): it waits for a Wake after every turn

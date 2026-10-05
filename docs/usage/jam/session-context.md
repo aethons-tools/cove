@@ -14,7 +14,7 @@ layers, in delivery order:
 
 | Layer | Source | Core budget |
 |-------|--------|-------------|
-| Boilerplate | built in, per session kind (ephemeral / personal / standing): the sandbox rules (persistence, the egress proxy, human-gated kit changes — leaves `boilerplate/changing-the-kit.md` and `boilerplate/hardening-limits.md`), turn model, intercom rules (the default recipient, if any), and for ephemeral sessions the `worker-result.json` contract | 2400 B |
+| Boilerplate | built in, per session kind (ephemeral / personal / standing): the sandbox rules (persistence, the egress proxy, human-gated kit changes — leaves `boilerplate/changing-the-kit.md` and `boilerplate/hardening-limits.md`), turn model, intercom rules (the default recipient, if any), and for ticket sessions how they finish (`report`, `end`) | 2400 B |
 | Kit | the studio kit's `prompt` as the core, its `notes` as leaves, and a generated `kit/tools.md` from its `build-args` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
 | Studio | generated at raise: granted destinations (upstream, env keys, git routing, each destination's [note](connector.md#notes-for-sessions)), effective egress (the role's policy, else the kit ceiling), message targets | 1600 B — never truncated: long lists move to `studio/destinations.md`, `egress.md`, `targets.md` |
 | Project | authored: the project's goals and [resources](session-context-authoring.md) | 1200 B |

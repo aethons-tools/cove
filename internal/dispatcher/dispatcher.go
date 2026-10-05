@@ -58,19 +58,18 @@ type Config struct {
 
 const defaultPollInterval = 30 * time.Second
 
-// resultProtocol instructs the agent to record its outcome. The task is inline
-// (the brief precedes this), so unlike the dispatch-worker protocol there is no
-// ".at-task/task.json" to read; output-handling (PR/push) is deferred. The
-// worker-result.json schema matches internal/dispatch/worker.WorkerResult, which
-// the cove's agent wrapper reads to map ok/needs-input/error onto its lifecycle.
-const resultProtocol = `---
+// turnEndProtocol tells a ticket studio how it finishes (see
+// docs/usage/jam/turn-end.md#reporting-a-ticket): it owns its branch and PR
+// through merge, reports the ticket's state with `report`, and ends with
+// `end`. The cove's agent wrapper reads no result file.
+const turnEndProtocol = `---
 Your task is described above. Do the work in this repository: make the changes and run the project's tests.
-
-When finished, write your result to .at-task/worker-result.json as EXACTLY ONE of:
-  {"status":{"ok":{}}}
-  {"status":{"needs-input":{"doing":"…","blocker":"…","need":"…","tried":"…"}}}
-  {"status":{"error":{"message":"<what went wrong>"}}}
-Use ok only if the change is complete and tests pass.`
+You own this ticket through merge:
+- Work on a branch, push it, and open a pull request yourself (gh pr create).
+- Use the intercom ` + "`report`" + ` tool to keep the ticket's state current: in-review with the PR link once it is up, needs-input with your question when you are blocked on a person, blocked if you cannot proceed, done once it has merged.
+- While the PR is open, set an alarm (` + "`alarm_set`" + `) whose gate checks the PR (new review comments, failing CI, branch behind main, merged) so you are woken only when there is something to do; address review comments and keep the branch mergeable.
+- When the ticket is finished (merged, reported done), call ` + "`end`" + ` as your last action.
+If you need a person, ask with ` + "`send`" + ` and end your turn; their reply wakes you.`
 
 type Dispatcher struct {
 	tracker  Tracker
@@ -179,7 +178,7 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (stri
 	if err != nil {
 		return "", fmt.Errorf("comments: %w", err)
 	}
-	return scheduler.AssembleBrief(iss, comments) + "\n\n" + resultProtocol, nil
+	return scheduler.AssembleBrief(iss, comments) + "\n\n" + turnEndProtocol, nil
 }
 
 func (d *Dispatcher) needsInput(ctx context.Context, iss scheduler.Issue) {

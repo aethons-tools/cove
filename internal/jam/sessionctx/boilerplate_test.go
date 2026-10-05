@@ -57,22 +57,19 @@ func TestCompiledBundleNeverTruncatesBoilerplate(t *testing.T) {
 	}
 }
 
-// An ephemeral session is not resident: a turn that ends without a
-// worker-result fails it, so its boilerplate carries that contract and never
-// says that ending a turn is how to wait.
-func TestBoilerplateEphemeralResultContract(t *testing.T) {
+// Every session waits when its turn ends; a ticket session is also told how
+// it finishes (report, end) and never about worker-result.json, which the Jam
+// path no longer reads.
+func TestBoilerplateTicketTurnContract(t *testing.T) {
 	l := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r", Unit: "AET-9"})
-	for _, want := range []string{".at-task/worker-result.json", `{"status":{"ok":{}}}`, `"needs-input"`, `{"status":{"error":`} {
+	for _, want := range []string{"Ending your turn is how you wait", "`report`", "`end`"} {
 		if !strings.Contains(l.Core, want) {
-			t.Errorf("ephemeral boilerplate missing %q:\n%s", want, l.Core)
+			t.Errorf("ticket boilerplate missing %q:\n%s", want, l.Core)
 		}
 	}
-	if strings.Contains(l.Core, "Ending your turn is how you wait") {
-		t.Error("ephemeral sessions must not be told that ending the turn waits")
-	}
-	for _, k := range []string{KindPersonal, KindStanding} {
-		if c := Boilerplate(SessionFacts{Kind: k, Owner: "o", Name: "n"}).Core; !strings.Contains(c, "Ending your turn is how you wait") || strings.Contains(c, "worker-result.json") {
-			t.Errorf("%s: resident turn model wrong:\n%s", k, c)
+	for _, k := range []string{KindEphemeral, KindPersonal, KindStanding} {
+		if c := Boilerplate(SessionFacts{Kind: k, Owner: "o", Name: "n", Unit: "AET-9"}).Core; !strings.Contains(c, "Ending your turn is how you wait") || strings.Contains(c, "worker-result") {
+			t.Errorf("%s: turn model wrong:\n%s", k, c)
 		}
 	}
 }

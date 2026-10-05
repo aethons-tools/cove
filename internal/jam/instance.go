@@ -75,6 +75,7 @@ type Instance struct {
 	IdleOverride       *IdleOverride `json:"idle_override,omitempty"`       // the cove's own idle-timeout override (PUT /idle)
 	Alarms             []Alarm       `json:"alarms,omitempty"`              // the cove's alarms (alarm_* tools)
 	EndRequested       *EndRequest   `json:"end_requested,omitempty"`       // the cove asked to end (POST /end); wake-on tears it down once Waiting
+	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal

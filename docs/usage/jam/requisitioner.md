@@ -4,7 +4,7 @@ read_when: You are enabling or operating Jam's automatic intake — having it po
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-09-26
+updated: 2026-10-05
 ---
 
 # The Requisitioner
@@ -34,15 +34,16 @@ raise (run → report → teardown).
 5. **Claim** — transition the issue READY → IN PROGRESS *before* raising, so a
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
-6. **Raise** — build the prompt (the issue brief + a result protocol asking the
-   agent to write `.at-task/worker-result.json`) and call the supervisor's raise
+6. **Raise** — build the prompt (the issue brief + the turn-end protocol: own the
+   branch and PR through merge, keep the ticket current with `report`, finish with
+   `end` — see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
    with `role`/`project` from config and `unit = <identifier>`. On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
 
 ## The model: elastic raise under a cap
 
-Studios are **one-shot ephemeral** — each raised studio does one ticket and tears
-itself down — so there is no pool of idle actors to assign to; each ready ticket
+Studios are **ephemeral, one per ticket** — each raised studio works one ticket
+through merge and then ends itself — so there is no pool of idle actors to assign to; each ready ticket
 is a fresh raise, bounded by `max-concurrent`. The tracker's READY column is the
 durable queue; the Requisitioner is the bounded consumer. This is the middle ground
 between the old single-task dispatcher and raising unboundedly.
