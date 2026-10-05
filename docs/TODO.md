@@ -25,8 +25,11 @@ updated: 2026-10-03
   (204 → a body with warnings) — design first ([session-context.md](usage/jam/session-context.md)).
 * Session context: report the applied context fingerprint up the Attach stream and show a
   `context` column (current/stale) for studios, like the connector's `stale` column.
-* Session context: a timed self-wake — let an agent end its turn asking to be woken at
-  time T / after D (a wake-on timer plus an intercom `sleep` tool); until then the
-  Boilerplate only says "Ending your turn is how you wait." (for a message).
+* Turn-end lifecycle (alarms, gates, idle timeout, `holding`, `end`, `report`): designed in
+  [the turn-end spec](superpowers/specs/2026-10-05-turn-end-lifecycle-design.md), not yet built.
+  Supersedes the timed self-wake / `sleep` item.
+* Context lifecycle for long-running (resident) sessions: compaction, clearing and memory.
+  Today resident sessions `--continue` forever and rely on claude's auto-compaction. Design
+  first; a timer or idle wake is a natural seam to start a fresh episode.
 * Session context: a Postgres restart test for `jam_settings` (the Jam-wide layer
   survives a store reopen), in the store-integration suite.
