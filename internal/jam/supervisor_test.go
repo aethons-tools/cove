@@ -1669,3 +1669,104 @@ func TestReportRunningClearsIdleDeadline(t *testing.T) {
 		t.Fatalf("deadline %v survived entering Running", inst.IdleDeadline)
 	}
 }
+
+func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{TimeZone: "America/New_York"})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	a, err := sup.SetAlarm("w1", "standup", "0 9 * * *", "post the standup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.NextAt.Equal(time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC)) {
+		t.Fatalf("NextAt = %v", a.NextAt)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Note != "post the standup" {
+		t.Fatalf("alarms = %+v", inst.Alarms)
+	}
+	if _, err := sup.SetAlarm("w1", "standup", "0 10 * * *", ""); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 1 || inst.Alarms[0].Schedule != "0 10 * * *" {
+		t.Fatalf("replace: alarms = %+v", inst.Alarms)
+	}
+}
+
+func TestSetAlarmLimits(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	for i := 0; i < MaxAlarms; i++ {
+		if _, err := sup.SetAlarm("w1", fmt.Sprintf("a%d", i), "@hourly", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sup.SetAlarm("w1", "one-more", "@hourly", ""); !errors.Is(err, ErrAlarmLimit) {
+		t.Fatalf("21st alarm: err = %v, want ErrAlarmLimit", err)
+	}
+	for _, c := range [][3]string{{"BAD", "@hourly", ""}, {"ok", "@every 1s", ""}, {"ok", "@hourly", strings.Repeat("x", 1001)}} {
+		if _, err := sup.SetAlarm("w1", c[0], c[1], c[2]); err == nil {
+			t.Errorf("accepted %q", c)
+		}
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != MaxAlarms {
+		t.Fatalf("rejected sets changed the alarms: %d", len(inst.Alarms))
+	}
+}
+
+func TestClearAlarm(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_, _ = sup.SetAlarm("w1", "x", "@hourly", "")
+	if err := sup.ClearAlarm("w1", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.ClearAlarm("w1", "x"); !errors.Is(err, ErrNoSuchAlarm) {
+		t.Fatalf("second clear: %v", err)
+	}
+	if inst, _ := store.GetInstance("w1"); len(inst.Alarms) != 0 {
+		t.Fatalf("alarms = %+v", inst.Alarms)
+	}
+}
+
+func TestFireAlarmsNoCatchUp(t *testing.T) {
+	sup, _, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
+	_, _ = sup.SetAlarm("w1", "later", "2026-10-06T00:00:00Z", "")
+	at := time.Date(2026, 10, 5, 17, 5, 0, 0, time.UTC) // 5 hourly matches missed
+	got, err := sup.FireAlarms("w1", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Alarm{}
+	for _, a := range got {
+		byName[a.Name] = a
+	}
+	if h := byName["hourly"]; !h.FiredAt.Equal(at) || !h.NextAt.Equal(time.Date(2026, 10, 5, 18, 0, 0, 0, time.UTC)) {
+		t.Fatalf("hourly = %+v", h)
+	}
+	if o := byName["once"]; !o.FiredAt.Equal(at) || !o.NextAt.IsZero() {
+		t.Fatalf("once = %+v", o)
+	}
+	if l := byName["later"]; !l.FiredAt.IsZero() {
+		t.Fatalf("later fired early: %+v", l)
+	}
+	got, _ = sup.FireAlarms("w1", time.Date(2026, 10, 5, 18, 0, 0, 0, time.UTC))
+	for _, a := range got {
+		if a.Name == "hourly" && !a.FiredAt.Equal(at) {
+			t.Fatalf("FiredAt moved to %v", a.FiredAt)
+		}
+	}
+}
+
+func TestReportTurnStartRetiresFiredAlarms(t *testing.T) {
+	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{})
+	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	_, _ = sup.SetAlarm("w1", "hourly", "0 * * * *", "")
+	_, _ = sup.SetAlarm("w1", "once", "2026-10-05T12:30:00Z", "")
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	_, _ = sup.FireAlarms("w1", time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC))
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	inst, _ := store.GetInstance("w1")
+	if len(inst.Alarms) != 1 || inst.Alarms[0].Name != "hourly" || !inst.Alarms[0].FiredAt.IsZero() {
+		t.Fatalf("alarms after the turn started = %+v; want hourly only, un-fired", inst.Alarms)
+	}
+}

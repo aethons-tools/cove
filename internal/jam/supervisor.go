@@ -439,6 +439,17 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		// Whatever woke it answered this turn end, so the idle deadline is
 		// disarmed until the next one.
 		inst.IdleDeadline = time.Time{}
+		// Fired alarms were answered too: retire one-shots, re-arm the rest.
+		var kept []Alarm
+		for _, al := range inst.Alarms {
+			if al.FiredAt.IsZero() {
+				kept = append(kept, al)
+			} else if !al.OneShot() {
+				al.FiredAt = time.Time{}
+				kept = append(kept, al)
+			}
+		}
+		inst.Alarms = kept
 	}
 	if turnEnded {
 		s.armIdleDeadline(&inst, now)
@@ -520,6 +531,86 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 	}
 	inst.IdleOverride = &o
 	return s.store.PutInstance(inst)
+}
+
+// SetAlarm validates and schedules the named alarm on the cove (replacing one
+// of the same name), in its role's time zone.
+func (s *Supervisor) SetAlarm(actorID, name, schedule, note string) (Alarm, error) {
+	if err := ValidateAlarmName(name); err != nil {
+		return Alarm{}, err
+	}
+	if len(note) > maxAlarmNote {
+		return Alarm{}, fmt.Errorf("note must be at most %d bytes", maxAlarmNote)
+	}
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return Alarm{}, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	next, err := ParseSchedule(schedule, s.alarmZone(inst), s.now())
+	if err != nil {
+		return Alarm{}, err
+	}
+	a := Alarm{Name: name, Schedule: schedule, Note: note, NextAt: next}
+	alarms := slices.Clone(inst.Alarms)
+	if i := slices.IndexFunc(alarms, func(x Alarm) bool { return x.Name == name }); i >= 0 {
+		alarms[i] = a
+	} else if len(alarms) >= MaxAlarms {
+		return Alarm{}, ErrAlarmLimit
+	} else {
+		alarms = append(alarms, a)
+	}
+	inst.Alarms = alarms
+	return a, s.store.PutInstance(inst)
+}
+
+// ClearAlarm removes the named alarm (ErrNoSuchAlarm if absent).
+func (s *Supervisor) ClearAlarm(actorID, name string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	i := slices.IndexFunc(inst.Alarms, func(x Alarm) bool { return x.Name == name })
+	if i < 0 {
+		return ErrNoSuchAlarm
+	}
+	inst.Alarms = slices.Delete(slices.Clone(inst.Alarms), i, i+1)
+	return s.store.PutInstance(inst)
+}
+
+// FireAlarms marks the cove's due alarms fired (keeping an earlier FiredAt)
+// and moves each cron alarm to its next match after now (no catch-up); a
+// one-shot's NextAt goes zero. It returns the alarms after the update. Report
+// retires fired alarms when the cove next starts a turn.
+func (s *Supervisor) FireAlarms(actorID string, now time.Time) ([]Alarm, error) {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return nil, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	alarms := slices.Clone(inst.Alarms)
+	changed := false
+	for i, a := range alarms {
+		if a.NextAt.IsZero() || a.NextAt.After(now) {
+			continue
+		}
+		if a.FiredAt.IsZero() {
+			a.FiredAt = now
+		}
+		a.NextAt = NextAfter(a, s.alarmZone(inst), now)
+		alarms[i], changed = a, true
+	}
+	if !changed {
+		return alarms, nil
+	}
+	inst.Alarms = alarms
+	return alarms, s.store.PutInstance(inst)
+}
+
+// alarmZone is the cove's role time zone (UTC when the role is gone).
+func (s *Supervisor) alarmZone(inst Instance) *time.Location {
+	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
+		return role.TurnEnd.Location()
+	}
+	return time.UTC
 }
 
 // SetEscalationCategory stamps the cove-declared block category on its instance.
