@@ -44,22 +44,27 @@ func TestGoldenClaudeArgv(t *testing.T) {
 	// one with no spec delivered — same argv, no extra env — except that, since
 	// COV-242, its plugins are enabled through the per-run --settings file
 	// (inserted after --strict-mcp-config) rather than the sealed managed
-	// settings. A spec with no plugins (and no settings) passes none.
+	// settings. COV-245 moved claude-default's preferences into that same
+	// file (its content, not the argv: TestClaudeDefaultSettingsFile). A spec
+	// with no plugins and no settings passes none.
 	def := modelspec.Default("anthropic")
 	noMode := modelspec.Default("anthropic")
 	noMode.Name = "no-mode"
 	noMode.Policy = modelspec.Policy{}
 	noPlugins := modelspec.Default("anthropic")
 	noPlugins.Name = "no-plugins"
-	noPlugins.Claude.Plugins = nil
-	for _, spec := range []*modelspec.Spec{nil, &def, &noMode, &noPlugins} {
+	noPlugins.Claude.Plugins, noPlugins.Claude.Settings = nil, nil
+	prefsOnly := modelspec.Default("anthropic")
+	prefsOnly.Name = "prefs-only"
+	prefsOnly.Claude.Plugins = nil
+	for _, spec := range []*modelspec.Spec{nil, &def, &noMode, &noPlugins, &prefsOnly} {
 		variant := "none"
 		if spec != nil {
 			variant = fmt.Sprintf("%s(mode=%q)", spec.Name, spec.Policy.Mode)
 		}
 		for _, c := range cases {
 			want := c.want
-			if spec != nil && len(spec.Claude.Plugins) > 0 {
+			if spec != nil && (len(spec.Claude.Plugins) > 0 || len(spec.Claude.Settings) > 0) {
 				i := slices.Index(want, "--strict-mcp-config") + 1
 				want = slices.Concat(want[:i], []string{"--settings", "/dev/shm/cove-agent-settings.json"}, want[i:])
 			}
@@ -109,7 +114,7 @@ func TestGoldenClaudePolicyArgv(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			spec := modelspec.Default("anthropic")
 			spec.Policy = c.policy
-			spec.Claude.Plugins = nil // policy flags only (plugins add --settings)
+			spec.Claude.Plugins, spec.Claude.Settings = nil, nil // policy flags only (these add --settings)
 			_, args, _ := goldenCommand(Episode{Spec: &spec})
 			want := slices.Concat(head, c.want, tail)
 			if !slices.Equal(args, want) {

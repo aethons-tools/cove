@@ -1,6 +1,7 @@
 package modelspec
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -151,5 +152,108 @@ func TestMigrateLegacyDropsPluginSettings(t *testing.T) {
 	}
 	if _, ok := in.Claude.Settings["enabledPlugins"]; !ok {
 		t.Fatal("MigrateLegacy mutated its input's settings")
+	}
+}
+
+// claude-default carries the Claude preferences the sealed managed settings
+// used to force (COV-245), exactly those values, and nothing that is sandbox
+// policy (that stays in the harness layer's managed settings).
+func TestDefaultClaudeSettings(t *testing.T) {
+	want := map[string]any{
+		"agentPushNotifEnabled":   true,
+		"alwaysThinkingEnabled":   true,
+		"disableAgentView":        true,
+		"inputNeededNotifEnabled": true,
+		"prefersReducedMotion":    true,
+		"showThinkingSummaries":   true,
+		"showTurnDuration":        true,
+		"spinnerTipsEnabled":      false,
+		"theme":                   "dark",
+	}
+	d := Default("pool")
+	if !maps.Equal(d.Claude.Settings, want) {
+		t.Fatalf("default settings = %v, want %v", d.Claude.Settings, want)
+	}
+	if !maps.Equal(DefaultClaudeSettings(), want) {
+		t.Fatalf("DefaultClaudeSettings = %v", DefaultClaudeSettings())
+	}
+	d.Claude.Settings["theme"] = "light"
+	if Default("pool").Claude.Settings["theme"] != "dark" || DefaultClaudeSettings()["theme"] != "dark" {
+		t.Fatal("Default shares its settings map")
+	}
+	for _, k := range []string{"disableAutoMode", "permissions", "env", "autoUpdates", "remoteControlAtStartup",
+		"disableRemoteControl", "skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted"} {
+		if _, ok := want[k]; ok {
+			t.Errorf("%q is sandbox policy, not a claude-default preference", k)
+		}
+	}
+}
+
+// Schema step 2 (COV-245): a stored claude-default gains only the preference
+// keys it lacks — an operator's values are kept — and any other spec, or a
+// claude-default for another harness/without a body, gains nothing.
+func TestMigrateSettingsAddsDefaultPreferences(t *testing.T) {
+	stored := Default("pool")
+	stored.Claude.Settings = map[string]any{"theme": "light", "model": "opus"}
+	got, warns := MigrateSettings(stored)
+	if len(warns) != 0 {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if got.Claude.Settings["theme"] != "light" || got.Claude.Settings["model"] != "opus" {
+		t.Fatalf("operator values overwritten: %v", got.Claude.Settings)
+	}
+	for k, v := range DefaultClaudeSettings() {
+		if k != "theme" && got.Claude.Settings[k] != v {
+			t.Errorf("missing key %q = %v, want %v", k, got.Claude.Settings[k], v)
+		}
+	}
+	if len(stored.Claude.Settings) != 2 {
+		t.Fatal("MigrateSettings mutated its input")
+	}
+	none := Default("pool")
+	none.Claude.Settings = nil
+	if got, _ := MigrateSettings(none); !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
+		t.Fatalf("no settings → %v", got.Claude.Settings)
+	}
+	other := Default("pool")
+	other.Name = "custom"
+	other.Claude.Settings = nil
+	if got, _ := MigrateSettings(other); got.Claude.Settings != nil {
+		t.Fatalf("a non-default spec gained preferences: %v", got.Claude.Settings)
+	}
+	bodiless := Spec{Name: DefaultName, Type: HarnessClaude}
+	if got, _ := MigrateSettings(bodiless); got.Claude != nil {
+		t.Fatal("a claude-default with no claude body was given one")
+	}
+}
+
+// Schema step 2 also drops, from EVERY claude spec, the claude.settings keys
+// that became managed sandbox policy (ManagedPolicySettings), each with a
+// warning naming the spec and key — so stored specs stay updatable.
+func TestMigrateSettingsDropsManagedPolicyKeys(t *testing.T) {
+	in := Spec{Name: "custom", Type: HarnessClaude, Version: "2.1.0", Claude: &Claude{Provider: "anthropic",
+		Settings: map[string]any{"theme": "light", "autoUpdates": true, "disableAutoMode": "disable"}}}
+	got, warns := MigrateSettings(in)
+	if !maps.Equal(got.Claude.Settings, map[string]any{"theme": "light"}) {
+		t.Fatalf("settings = %v", got.Claude.Settings)
+	}
+	joined := strings.Join(warns, "\n")
+	if len(warns) != 2 || !strings.Contains(joined, `"custom"`) || !strings.Contains(joined, "autoUpdates") || !strings.Contains(joined, "disableAutoMode") {
+		t.Fatalf("warnings = %v", warns)
+	}
+	if len(in.Claude.Settings) != 3 {
+		t.Fatal("MigrateSettings mutated its input")
+	}
+	def := Default("pool")
+	def.Claude.Settings["remoteControlAtStartup"] = false
+	got, warns = MigrateSettings(def)
+	if _, ok := got.Claude.Settings["remoteControlAtStartup"]; ok || len(warns) != 1 || !maps.Equal(got.Claude.Settings, DefaultClaudeSettings()) {
+		t.Fatalf("claude-default = %v, %v", got.Claude.Settings, warns)
+	}
+	for _, k := range []string{"autoUpdates", "disableRemoteControl", "remoteControlAtStartup",
+		"skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted", "disableAutoMode"} {
+		if !slices.Contains(ManagedPolicySettings(), k) {
+			t.Errorf("ManagedPolicySettings lacks %q", k)
+		}
 	}
 }

@@ -123,10 +123,15 @@ func KitSourceTree(kitDir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// harnessBaseline is the harness layer's rendered baseline preferences (a
+// var so a test can swap it).
+var harnessBaseline = harnessinstall.BaselineSettings
+
 // AtCoveIdentity hashes at-cove's embedded build contributions (§5): the sealed
-// hardening layer, the harness layer's payload (its scripts — NOT any
+// hardening layer, the harness layer's payload (its scripts and the managed
+// settings' sandbox policy) and its rendered baseline preferences — NOT any
 // install's version/plugins, which are per-image: the studio build-digest and
-// a full kit's CurrencyInputs.Harness), and the embedded at-task,
+// a full kit's CurrencyInputs.Harness — and the embedded at-task,
 // at-switchboard, and cove-master binaries. An at-cove upgrade that changes any
 // of these flips the digest, invalidating every install. install (S2) and the
 // run commands both call this, so they agree on the identity by construction.
@@ -146,6 +151,8 @@ func AtCoveIdentity() (string, error) {
 	}
 	writeField(h, []byte("harness"))
 	writeField(h, []byte(hp))
+	writeField(h, []byte("harness-baseline"))
+	writeField(h, harnessBaseline())
 
 	at, err := HashTree(attask.BinFS())
 	if err != nil {

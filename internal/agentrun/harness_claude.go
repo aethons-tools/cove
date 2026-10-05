@@ -178,7 +178,7 @@ func (c Claude) writeSettings(spec *modelspec.Spec) error {
 // plugin enablement merged over it — each claude.plugins id under
 // enabledPlugins and its marketplace under extraKnownMarketplaces. Enablement
 // follows the spec (the image's harness layer installed exactly these), not
-// the sealed managed settings; a spec with no plugins enables none. nil when
+// the image's managed settings; a spec with no plugins enables none. nil when
 // there is nothing to write.
 func claudeSettings(spec *modelspec.Spec) map[string]any {
 	if spec == nil || spec.Claude == nil {

@@ -222,11 +222,39 @@ var defaultClaudePlugins = []string{"superpowers@claude-plugins-official"}
 // DefaultClaudePlugins returns claude-default's plugin ids (a copy).
 func DefaultClaudePlugins() []string { return slices.Clone(defaultClaudePlugins) }
 
+// defaultClaudeSettings are claude-default's claude.settings: the Claude Code
+// PREFERENCES the sealed managed settings used to force on every image
+// (COV-245), with the same values, so a cove bound to claude-default behaves
+// as before. Classification (docs/usage/jam/model-spec-harness.md owns it):
+//
+//   - preferences (here): display and notification choices, plus
+//     disableAgentView — it only hides Claude Code's agent-view UI, and grants
+//     or withholds nothing;
+//   - sandbox policy (the harness layer's managed settings, never here):
+//     update control, remote control, the bypass-mode acceptance, the
+//     permissions default for interactive sessions, and disableAutoMode — it
+//     governs which permission modes exist, which is permission policy (a Jam
+//     cove's mode comes from policy.mode, which never offers auto).
+var defaultClaudeSettings = map[string]any{
+	"agentPushNotifEnabled":   true,
+	"alwaysThinkingEnabled":   true,
+	"disableAgentView":        true,
+	"inputNeededNotifEnabled": true,
+	"prefersReducedMotion":    true,
+	"showThinkingSummaries":   true,
+	"showTurnDuration":        true,
+	"spinnerTipsEnabled":      false,
+	"theme":                   "dark",
+}
+
+// DefaultClaudeSettings returns claude-default's claude.settings (a copy).
+func DefaultClaudeSettings() map[string]any { return maps.Clone(defaultClaudeSettings) }
+
 // Default is DefaultName as Jam seeds it, authenticating as principal: claude
 // on the anthropic provider, bypassPermissions, version DefaultClaudeVersion
-// (runtime constraint == version), the DefaultClaudePlugins, no model, effort
-// or settings — so a cove under it launches exactly as it did before
-// model-specs.
+// (runtime constraint == version), the DefaultClaudePlugins and the
+// DefaultClaudeSettings preferences, no model or effort — so a cove under it
+// launches exactly as it did before model-specs.
 func Default(principal string) Spec {
 	return Spec{
 		Name:      DefaultName,
@@ -235,7 +263,7 @@ func Default(principal string) Spec {
 		Principal: Principal{Credential: principal},
 		Policy:    Policy{Mode: ModeBypassPermissions},
 		Note:      "Seeded by Jam: the built-in Claude Code defaults every unbound role runs under.",
-		Claude:    &Claude{Provider: "anthropic", Plugins: DefaultClaudePlugins()},
+		Claude:    &Claude{Provider: "anthropic", Plugins: DefaultClaudePlugins(), Settings: DefaultClaudeSettings()},
 	}
 }
 
@@ -297,5 +325,58 @@ func MigrateLegacy(s Spec) (Spec, []string) {
 		}
 		s.Claude = &c
 	}
+	return s, warns
+}
+
+// managedPolicySettings are the Claude settings the harness layer's managed
+// settings own as sandbox-wide policy (COV-245; they outrank --settings, so a
+// spec could never change them): update control, remote control, the
+// bypass-mode acceptance, and disableAutoMode — which permission modes exist
+// is permission policy (policy.mode owns a cove's mode). Jam refuses them in
+// claude.settings; MigrateSettings drops them from stored specs.
+var managedPolicySettings = []string{
+	"autoUpdates", "disableRemoteControl", "remoteControlAtStartup",
+	"skipDangerousModePermissionPrompt", "bypassPermissionsModeAccepted", "disableAutoMode",
+}
+
+// ManagedPolicySettings returns the managed sandbox-policy setting keys (a copy).
+func ManagedPolicySettings() []string { return slices.Clone(managedPolicySettings) }
+
+// MigrateSettings is schema step 2 (COV-245) of Jam's one-time model-spec
+// store migration, for a claude spec with a body (any other is returned as is):
+//
+//   - every spec's claude.settings loses the ManagedPolicySettings keys —
+//     accepted before, refused now — with a warning naming the spec and key,
+//     so a stored spec or an old backup stays updatable and importable;
+//   - a DefaultName spec gains each DefaultClaudeSettings key its
+//     claude.settings lacks (the preferences moved out of the sealed managed
+//     settings); a value it already holds is never overwritten.
+//
+// s is never mutated.
+func MigrateSettings(s Spec) (Spec, []string) {
+	if s.Type != HarnessClaude || s.Claude == nil {
+		return s, nil
+	}
+	var warns []string
+	settings := maps.Clone(s.Claude.Settings)
+	for _, k := range managedPolicySettings {
+		if _, ok := settings[k]; ok {
+			warns = append(warns, fmt.Sprintf("model-spec %q: dropped claude.settings %q (sandbox policy, set by the image's managed settings)", s.Name, k))
+			delete(settings, k)
+		}
+	}
+	if s.Name == DefaultName {
+		if settings == nil {
+			settings = map[string]any{}
+		}
+		for k, v := range defaultClaudeSettings {
+			if _, ok := settings[k]; !ok {
+				settings[k] = v
+			}
+		}
+	}
+	c := *s.Claude
+	c.Settings = settings
+	s.Claude = &c
 	return s, warns
 }

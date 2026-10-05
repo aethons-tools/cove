@@ -21,7 +21,6 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/systemd/system/cove-egress.service",
 		"hardening/image-files/etc/systemd/system/squid.service.d/cove-egress.conf",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
-		"hardening/image-files/etc/claude-code/managed-settings.json",
 		// Agent-instruction docs are hardening-owned (moved from overridable in
 		// 63984c6) so a kit override cannot shadow them.
 		"hardening/image-files/home/agent/.init-agent-data/SANDBOX.md",
@@ -204,21 +203,6 @@ func TestInnerDockerDaemonJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "127.0.0.1:3128") {
 		t.Errorf("daemon.json must point the daemon proxy at squid (127.0.0.1:3128); got:\n%s", b)
-	}
-}
-
-// TestManagedSettingsNoForcedLoginMethod guards that managed settings do NOT
-// force a login method: auth is env-driven, so interactive `connect` selects
-// subscription OAuth explicitly (`claude auth login --claudeai`) while a
-// dispatched `work` agent uses an injected ANTHROPIC_API_KEY. Forcing claudeai
-// here would block (or contradict) the worker's API key.
-func TestManagedSettingsNoForcedLoginMethod(t *testing.T) {
-	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/claude-code/managed-settings.json")
-	if err != nil {
-		t.Fatalf("managed-settings.json not embedded: %v", err)
-	}
-	if strings.Contains(string(b), "forceLoginMethod") {
-		t.Errorf("managed-settings.json must NOT force a login method (env-driven auth; a forced claudeai blocks the worker API key); got:\n%s", b)
 	}
 }
 

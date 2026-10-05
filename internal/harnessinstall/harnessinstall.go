@@ -115,6 +115,9 @@ func Stage(buildDir string, in Install) (string, error) {
 	if err := copyPayload(string(in.Type), dir); err != nil {
 		return "", err
 	}
+	if err := os.WriteFile(filepath.Join(dir, baselineFile), BaselineSettings(), 0o644); err != nil {
+		return "", err
+	}
 	return header + claudeStage(in), nil
 }
 

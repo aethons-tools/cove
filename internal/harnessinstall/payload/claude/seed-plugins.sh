@@ -15,8 +15,12 @@
 # It also ENABLES exactly these plugins (and declares their marketplaces) in the
 # first-boot user settings ($SEED/settings.json, merged over the base image's),
 # so interactive sessions — which get no per-run --settings — have them on. It
-# never reads the sealed managed settings: plugin enablement follows the
-# model-spec, and the headless agent's per-run settings carry it too.
+# never reads the managed settings: the harness stage installs them only AFTER
+# this script runs (COV-245), so their update controls never apply to these
+# build-time `claude plugin` commands. Plugin enablement follows the
+# model-spec, and the headless agent's per-run settings carry it too. The
+# baseline preferences (merge-baseline-settings.sh) are merged under this same
+# file afterwards and never override the enablement written here.
 #
 # Why at build time: Claude Code's boot-time auto-installer would otherwise
 # clone the marketplace and each enabled plugin at RUNTIME. In the egress-locked

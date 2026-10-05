@@ -104,6 +104,12 @@ func TestValidateModelSpecRefusals(t *testing.T) {
 		"settings denied mcp":       {func(m *ModelSpec) { m.Claude.Settings["deniedMcpServers"] = []any{} }, `"deniedMcpServers"`},
 		"settings enabledPlugins":   {func(m *ModelSpec) { m.Claude.Settings["enabledPlugins"] = map[string]any{"x@y": true} }, `"enabledPlugins"`},
 		"settings marketplaces":     {func(m *ModelSpec) { m.Claude.Settings["extraKnownMarketplaces"] = map[string]any{} }, `"extraKnownMarketplaces"`},
+		"settings disableAutoMode":  {func(m *ModelSpec) { m.Claude.Settings["disableAutoMode"] = "disable" }, `"disableAutoMode"`},
+		"settings autoUpdates":      {func(m *ModelSpec) { m.Claude.Settings["autoUpdates"] = true }, `"autoUpdates"`},
+		"settings remote control":   {func(m *ModelSpec) { m.Claude.Settings["remoteControlAtStartup"] = false }, `"remoteControlAtStartup"`},
+		"settings no remote":        {func(m *ModelSpec) { m.Claude.Settings["disableRemoteControl"] = true }, `"disableRemoteControl"`},
+		"settings bypass prompt":    {func(m *ModelSpec) { m.Claude.Settings["skipDangerousModePermissionPrompt"] = false }, `"skipDangerousModePermissionPrompt"`},
+		"settings bypass accepted":  {func(m *ModelSpec) { m.Claude.Settings["bypassPermissionsModeAccepted"] = false }, `"bypassPermissionsModeAccepted"`},
 		"settings non-json":         {func(m *ModelSpec) { m.Claude.Settings["bad"] = make(chan int) }, "settings"},
 		"empty plugin":              {func(m *ModelSpec) { m.Claude.Plugins = []string{""} }, "plugin"},
 		"duplicate plugin":          {func(m *ModelSpec) { m.Claude.Plugins = []string{"a", "a"} }, `"a"`},
@@ -172,5 +178,18 @@ func TestCreateUpdateGetDeleteModelSpec(t *testing.T) {
 	}
 	if _, ok := s.GetModelSpec(m.Name); ok {
 		t.Fatal("spec still present after remove")
+	}
+}
+
+// claude-default's preferences (COV-245) are all accepted as claude.settings —
+// none is on the non-preference list.
+func TestValidateModelSpecAcceptsDefaultSettings(t *testing.T) {
+	m := validSpec()
+	m.Claude.Settings = modelspec.DefaultClaudeSettings()
+	if err := ValidateModelSpec(m, credIs("anthropic"), false); err != nil {
+		t.Fatalf("claude-default preferences refused: %v", err)
+	}
+	if err := ValidateModelSpec(modelspec.Default("anthropic"), credIs("anthropic"), false); err != nil {
+		t.Fatalf("seeded claude-default refused: %v", err)
 	}
 }
