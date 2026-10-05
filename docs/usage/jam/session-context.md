@@ -1,10 +1,10 @@
 ---
 summary: How a Jam session learns its context — the layered bundle compiled at raise and refreshed while it runs (GET /context), its always-on core and on-demand leaves, and how cove-master delivers it.
 read_when: You are writing a kit prompt, debugging what a session was told (or why an edit did or did not reach it), or changing how session context is compiled, delivered or refreshed.
-owns: session-context layers, delivery order and precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
+owns: session-context layers, delivery order and precedence, the SANDBOX.md suppression in Jam sessions, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # Session context
@@ -14,7 +14,7 @@ layers, in delivery order:
 
 | Layer | Source | Core budget |
 |-------|--------|-------------|
-| Boilerplate | built in, per session kind (ephemeral / personal / standing): sandbox, turn model, intercom rules (the default recipient, if any), and for ephemeral sessions the `worker-result.json` contract | 2400 B |
+| Boilerplate | built in, per session kind (ephemeral / personal / standing): the sandbox rules (persistence, the egress proxy, human-gated kit changes — leaves `boilerplate/changing-the-kit.md` and `boilerplate/hardening-limits.md`), turn model, intercom rules (the default recipient, if any), and for ephemeral sessions the `worker-result.json` contract | 2400 B |
 | Kit | the studio kit's `prompt` as the core, its `notes` as leaves, and a generated `kit/tools.md` from its `build-args` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
 | Studio | generated at raise: granted destinations (upstream, env keys, git routing, each destination's [note](connector.md#notes-for-sessions)), effective egress (the role's policy, else the kit ceiling), message targets | 1600 B — never truncated: long lists move to `studio/destinations.md`, `egress.md`, `targets.md` |
 | Project | authored: the project's goals and [resources](session-context-authoring.md) | 1200 B |
@@ -51,8 +51,17 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 4. No file or malformed JSON → the agent runs without context, exactly as before
    (`cove-master.log` then has no `session context applied` line). An unwritable
    directory is warned in `cove-master.log` and also runs without it. Either way any
-   earlier bundle in `/agent-data/context/` is removed, so a stale `CORE.md` never
-   makes `SANDBOX.md` treat the session as a Jam one.
+   earlier bundle in `/agent-data/context/` is removed.
+
+### The sandbox rules: context over `SANDBOX.md`
+
+A plain at-cove sandbox learns the sandbox rules from the image's `SANDBOX.md`,
+which the seeded `CLAUDE.md` imports ([OVERVIEW](../../OVERVIEW.md#workspace-and-state-volumes)).
+In a Jam session the Boilerplate layer owns them, so once cove-master has written a
+bundle it blanks `/agent-data/SANDBOX.md` (the import stays valid, like the empty
+`COLLABORATOR.md`) — the session sees the rules once, with the Jam path for changing
+the kit. Running without a bundle restores the image copy, as does the next boot's
+seed refresh. A kit that ships no `SANDBOX.md` gets none created.
 
 ## Refresh
 

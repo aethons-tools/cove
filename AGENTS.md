@@ -19,7 +19,8 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   `internal/harnessinstall/payload/`) is *payload*:
   a template tree copied into the sandbox VMs that `at-cove` builds,
   not configuration for this repo.
-  For example, `internal/assemble/hardening/image-files/home/agent/.init-agent-data/CLAUDE.md`
+  Likewise `images/*/image-files/`: for example,
+  `images/cove-base-image/image-files/home/agent/.init-agent-data/CLAUDE.md`
   and its `SANDBOX.md` are instructions *for an agent running inside a built sandbox* —
   they are not instructions for you working in this repo (that's this file).
   When reviewing or documenting, always say which side of the line a file is on,

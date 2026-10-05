@@ -52,8 +52,8 @@ RUN arch="$(dpkg --print-architecture)" \
  && rm -rf /tmp/covemaster
 
 COPY image-files/. /.
-# `COPY image-files/. /.` carries home/agent/ directory entries (for .ssh and
-# .init-agent-data), and Docker stamps the build context's root ownership onto
+# `COPY image-files/. /.` carries home/agent/ directory entries (for the
+# staged .ssh/authorized_keys), and Docker stamps the build context's root ownership onto
 # the pre-existing /home/agent — leaving the agent unable to write to its own
 # $HOME. Restore it (and .ssh, whose contents COPY also re-owned).
 # Also create an agent-owned /home/agent/workspace: an isolated workspace is a
@@ -67,9 +67,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
  && chmod 600 /home/agent/.ssh/authorized_keys \
  && mkdir -p /home/agent/workspace \
  && chown agent:agent /home/agent/workspace
-# && find /etc/claude-code -type d -exec chmod 0755 {} + \
-# && find /etc/claude-code -type f -exec chmod 0644 {} + \
-# && chmod 0755 /etc/claude-code/skills/docs-audit/scripts/docs_audit.py
+# The agent docs and skills seeded into /agent-data are NOT sealed: they ship in
+# the kit base (cove-base-image's /home/agent/.init-agent-data), so a kit
+# overrides them by COPY. This layer owns only the seeding mechanism
+# (entrypoint.sh -> /usr/local/lib/cove/seed-agent-data.sh).
 
 # docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed nftables
 # drop (cove-egress) and the base image's distro squid.service (the egress proxy) at
@@ -83,16 +84,17 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 RUN systemctl enable cove-egress.service squid.service
 
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
-# time, migration flags, …) UNDER our startup-experience overrides, so that the
-# valuable per-install data survives once CLAUDE_CONFIG_DIR redirects claude to
-# /agent-data. Our keys win on conflict (jq `*` is a deep merge, right side
-# wins). The entrypoint later seeds .init-agent-data/. into /agent-data.
-RUN if [ -f /home/agent/.claude.json ]; then \
-      jq -s '.[0] * .[1]' /home/agent/.claude.json /home/agent/.init-agent-data/.claude.json \
-        > /tmp/claude.json \
-      && mv /tmp/claude.json /home/agent/.init-agent-data/.claude.json; \
-    fi \
- && chown agent:agent /home/agent/.init-agent-data/.claude.json
+# time, migration flags, …) UNDER the base's startup-experience overrides, so
+# that the valuable per-install data survives once CLAUDE_CONFIG_DIR redirects
+# claude to /agent-data. The base's keys win on conflict (jq `*` is a deep merge,
+# right side wins). Skipped when either side is absent (a kit base may seed no
+# .claude.json). The entrypoint later seeds .init-agent-data/. into /agent-data.
+RUN seed=/home/agent/.init-agent-data/.claude.json \
+ && if [ -f /home/agent/.claude.json ] && [ -f "$seed" ]; then \
+      jq -s '.[0] * .[1]' /home/agent/.claude.json "$seed" > /tmp/claude.json \
+      && mv /tmp/claude.json "$seed" \
+      && chown agent:agent "$seed"; \
+    fi
 
 
 # SSH sessions read /etc/environment via pam_env. Bridge the image's Docker ENV

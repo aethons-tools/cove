@@ -140,6 +140,13 @@ jobs:
             # Go agent skills (samber/cc-skills-golang) seeded into the skills set.
             test -f /home/agent/.init-agent-data/skills/golang-how-to/SKILL.md
             test -f /usr/share/doc/cc-skills-golang/LICENSE
+            # Agent docs/skills seeded by cove-base-image (COV-246), agent-owned.
+            seed=/home/agent/.init-agent-data
+            for f in CLAUDE.md SANDBOX.md .refresh reference/sandbox-kit-changes.md skills/docs-audit/SKILL.md; do
+              test -f "$seed/$f"
+            done
+            test -x "$seed/skills/docs-audit/scripts/docs_audit.py"
+            test "$(stat -c %U "$seed/CLAUDE.md")" = agent
           '
 
       # main only: push this arch's smoke-tested image(s) under an intermediate

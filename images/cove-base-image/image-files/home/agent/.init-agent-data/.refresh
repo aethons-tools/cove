@@ -1,0 +1,11 @@
+# Entries of this seed re-copied into /agent-data on EVERY boot (image
+# authoritative; a directory is replaced whole), so a rebuilt image's updated
+# docs and skills reach an existing sandbox. Everything else is seeded once on
+# first boot and then left to the runtime (settings.json, .claude.json,
+# plugins/, COLLABORATOR.md, the saved login). One top-level name per line.
+# Read by the sealed /usr/local/lib/cove/seed-agent-data.sh.
+CLAUDE.md
+PROGRESSIVE_DISCLOSURE.md
+SANDBOX.md
+reference
+skills

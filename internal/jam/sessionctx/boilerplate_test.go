@@ -36,13 +36,14 @@ func TestBoilerplatePerKind(t *testing.T) {
 		if len(l.Core) > BudgetBoilerplate {
 			t.Errorf("%s: boilerplate %d bytes > budget %d", c.f.Kind, len(l.Core), BudgetBoilerplate)
 		}
-		for _, common := range []string{"one `claude -p` run", "Background processes", "allow-listed", "/home/agent/workspace", "/agent-data/reference/sandbox-hardening-limits.md"} {
+		for _, common := range []string{"one `claude -p` run", "Background processes", "allow-listed", "/home/agent/workspace", "boilerplate/hardening-limits.md"} {
 			if !strings.Contains(l.Core, common) {
 				t.Errorf("%s: missing common %q", c.f.Kind, common)
 			}
 		}
-		if len(l.Leaves) != 1 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "at-jam kit push") {
-			t.Errorf("%s: want the changing-the-kit leaf, got %+v", c.f.Kind, l.Leaves)
+		if len(l.Leaves) != 2 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "at-jam kit push") ||
+			l.Leaves[1].Name != "hardening-limits.md" {
+			t.Errorf("%s: want the changing-the-kit and hardening-limits leaves, got %+v", c.f.Kind, l.Leaves)
 		}
 	}
 }
@@ -81,5 +82,38 @@ func TestBoilerplateEphemeralWithoutUnitNeedsTo(t *testing.T) {
 	c := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r"}).Core
 	if strings.Contains(c, "ticket") || !strings.Contains(c, "always pass `to`") {
 		t.Fatalf("unit-less ephemeral must be told to always pass `to`:\n%s", c)
+	}
+}
+
+// The sandbox rules a plain at-cove sandbox reads from the image's SANDBOX.md
+// are Jam built-in boilerplate (COV-246): every compiled Jam session carries
+// them, self-contained — never pointing at the kit-overridable
+// /agent-data/reference docs — so cove-master can blank SANDBOX.md without the
+// session losing them.
+func TestCompiledContextCarriesSandboxRules(t *testing.T) {
+	for _, k := range []string{KindEphemeral, KindPersonal, KindStanding} {
+		b := Compile(Inputs{Session: SessionFacts{Kind: k, Name: "n", Owner: "o", Project: "p", Role: "r"}})
+		for _, want := range []string{
+			"allow-listed", "http(s)_proxy=http://127.0.0.1:3128", "nftables", "not a transient fault",
+			"/home/agent/workspace", "/agent-data", "CLAUDE_CONFIG_DIR", "reset when the cove is rebuilt",
+			"human-gated", "never weaken the hardening",
+			"boilerplate/changing-the-kit.md", "boilerplate/hardening-limits.md",
+		} {
+			if !strings.Contains(b.Core, want) {
+				t.Errorf("%s: compiled core missing sandbox rule %q:\n%s", k, want, b.Core)
+			}
+		}
+		if strings.Contains(b.Core, "/agent-data/reference/") || strings.Contains(b.Core, "SANDBOX.md") {
+			t.Errorf("%s: sandbox rules must be self-contained, not point at image docs:\n%s", k, b.Core)
+		}
+		lim := b.Files["boilerplate/hardening-limits.md"]
+		for _, want := range []string{"nftables", "sshd", "entrypoint", "credential helper", "CLAUDE_CONFIG_DIR", "managed-settings.json", "at-jam egress set"} {
+			if !strings.Contains(lim, want) {
+				t.Errorf("%s: hardening-limits leaf missing %q:\n%s", k, want, lim)
+			}
+		}
+		if !strings.Contains(b.Files["boilerplate/changing-the-kit.md"], "will not survive a rebuild") {
+			t.Errorf("%s: changing-the-kit leaf lost the one-off install rule", k)
+		}
 	}
 }

@@ -1,10 +1,10 @@
 ---
 summary: How to make a persistent change to the at-cove sandbox by editing the kit's config.yml.
 read_when: A network request is blocked, or you need a tool / PATH entry / env var to survive a rebuild, and you are about to edit `.at-cove/config.yml`.
-owns: kit change workflow, the `image:` block schema (allowed-domains, setup-scripts, paths, env), the at-cove recreate rebuild step, how to request a domain in a Jam-managed cove
+owns: kit change workflow, the `image:` block schema (allowed-domains, setup-scripts, paths, env), the at-cove recreate rebuild step, how the image is layered
 prereqs: SANDBOX.md
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-05
 ---
 
 # Changing the sandbox — editing the kit
@@ -30,17 +30,17 @@ baseline — it can add, never override (for what it can't touch, see
 Be explicit in your report: name the exact `config.yml` edit you made and why, so
 the human can review it before rebuilding.
 
-## In a Jam-managed cove: egress is your role's
+## How the image is layered
 
-If Jam raised you (you run under `cove-master`, not an interactive
-`at-cove` session), your role may set your egress. That list *replaces* the
-kit's `image.allowed-domains` and is applied before you start. Editing the kit
-and recreating doesn't change it. To add a domain, ask an operator to run
-`at-jam egress set` for your role. The kit's `image.allowed-domains` must
-already cover the domain, because it is the ceiling a role's list must fit
-inside. If it doesn't, the kit needs the domain first (the workflow above, then
-a kit push). The change takes effect at your role's next raise, not in this
-cove. For a dev sandbox, the workflow above is unchanged.
+Your image is built in three layers, in order:
+
+1. **Kit base** — the kit's own image, built on the blessed `cove-base-image`
+   (the `image:` block's additions are applied on top). It also ships the docs and
+   skills seeded into `/agent-data` (this file, `CLAUDE.md`, `skills/`), so a kit
+   can replace them.
+2. **Harness** — installs the agent CLI at its pinned version and its plugins.
+3. **Hardening** — sealed, applied last; it always wins (see
+   `/agent-data/reference/sandbox-hardening-limits.md`).
 
 ## The `image:` block — reference
 

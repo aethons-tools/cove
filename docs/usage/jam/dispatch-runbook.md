@@ -96,7 +96,8 @@ doc that owns the detail; this runbook only owns the **order** and the
 > Discord path end to end: `send(to=channel:…)` → posted to Discord → the human's
 > **reply** routed back → agent `read` + `commit` → (on a wait-for-reply task)
 > **idle → wake-on-reply → resume** → ack → done → teardown. COV-188 (tools not
-> registering) was a *stale image* missing `/etc/claude-code/mcp.json`; COV-190
+> registering) was a *stale image* missing `/etc/claude-code/mcp.json` (since COV-240
+> cove-master generates the MCP config per episode; that file is gone); COV-190
 > (a missing `--mcp-config` now fails loud) is merged — rebuild the image **and**
 > host binary from the same commit if a studio comes up toolless.
 

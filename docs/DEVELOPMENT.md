@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # Development notes
@@ -197,10 +197,11 @@ full rationale.
   [`samber/cc-skills-golang`](https://github.com/samber/cc-skills-golang) release
   and seeds its Go agent skills into `.init-agent-data/skills/` — so agents
   working on *this* repo get Go-specific skills. This lives in `cove-image` (not
-  the shared hardening layer, which carries the generic board/docs skills global
-  to every kit), so other kits are unaffected; `entrypoint.sh` re-mirrors the
-  seed's `skills/` into `/agent-data/skills` on every boot, so a rebuilt image
-  reaches existing sandboxes on restart. The MIT notice is kept at
+  `cove-base-image`, which carries the generic board/docs skills and agent docs
+  every kit inherits), so other kits are unaffected; the base seed's `.refresh`
+  manifest lists `skills`, so the sealed entrypoint re-mirrors the seed's
+  `skills/` into `/agent-data/skills` on every boot and a rebuilt image reaches
+  existing sandboxes on restart. The MIT notice is kept at
   `/usr/share/doc/cc-skills-golang/LICENSE`.
 
 **Reproducible by pinning.** Every input is pinned: the `FROM ubuntu:24.04`

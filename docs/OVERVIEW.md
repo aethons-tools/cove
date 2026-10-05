@@ -48,6 +48,8 @@ or touch files it shouldn't.
    the security-critical files (egress rules, sshd config, entrypoint) ship embedded in the binary
    and are layered on *last*,
    so they always win over anything the user supplies.
+   Agent docs and skills are not security-critical:
+   they ship in the kit base (`cove-base-image`), so a kit can override them.
 
 The governing design principle is **SSH as the universal interface**:
 backends differ only in how a VM is provisioned and how its `sshd` is reached.
@@ -342,14 +344,16 @@ is no kit overlay anymore. The image is layered
    Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
    layer cache). It needs no secret — the install is unauthenticated.
 1. **Non-overridable hardening** (embedded; `FROM harness`) —
-   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint, `sshd` `AcceptEnv` config, the git credential helper, the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
+   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint and its `/agent-data` seeding *mechanism* (`seed-agent-data.sh` — not the seeded content, see [the state volume](#workspace-and-state-volumes)), `sshd` `AcceptEnv` config, the git credential helper, the managed Claude settings, the sealed env (`CLAUDE_CONFIG_DIR=/agent-data`, the proxy vars), the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
 2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/Jam hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
 for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
-(see the base-image section below). The **overridable startup defaults**
-(`settings.json`, `.claude.json`) ship in `cove-base-image`, so a kit's Dockerfile
-overrides them the normal way and the sealed layer stays purely sealed.
+(see the base-image section below). The **overridable agent defaults** — the
+startup settings (`settings.json`, `.claude.json`) and the agent docs and skills
+(`CLAUDE.md` and its imports, `reference/`, `skills/`) — ship in `cove-base-image`,
+so a kit's Dockerfile overrides them the normal way (`COPY` over
+`/home/agent/.init-agent-data`) and the sealed layer stays purely sealed (COV-246).
 
 The hardening extracting last is the **security boundary**:
 nothing a kit — or a model-spec's harness layer — provides can weaken the egress
@@ -427,8 +431,10 @@ alone. A watermark absent from the registry **fails the build loudly**. The full
 model is in [the release-pipeline spec](superpowers/specs/2026-07-17-monolithic-release-pipeline-design.md#4-blessing-the-low-watermark--the-registry).
 
 Because hardening trusts the base, `cove-base-image` carries the overridable
-startup defaults every sandbox needs (`settings.json`, `.claude.json` in
-`/home/agent/.init-agent-data`). The sealed layer then, last: installs the
+defaults every sandbox needs in `/home/agent/.init-agent-data`: the startup
+settings (`settings.json`, `.claude.json`), the agent docs (`CLAUDE.md`,
+`PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, `reference/`), the
+generic board/docs `skills/`, and the `.refresh` manifest. The sealed layer then, last: installs the
 embedded version-locked `at-task`; populates `/etc/environment` (so `pam_env`
 exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
 egress/sshd hardening.
@@ -579,14 +585,27 @@ chowning it at boot).
 
 A second volume, **`<instance>-agent-data`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
 It preserves Claude session history and the saved OAuth login across recreates.
-The full seed runs once (guarded by a `.seeded` marker), which now holds only for
-the **runtime-owned** set (`.claude.json`, `settings.json`, `plugins/`,
-`COLLABORATOR.md` — empty by default — and user state). The image-owned **reference set** — `skills/`,
-`reference/`, and the CLAUDE doc tree (`CLAUDE.md`, `PROGRESSIVE_DISCLOSURE.md`,
-`SANDBOX.md`, which defers to a Jam session's [session context](usage/jam/session-context.md)
-when `/agent-data/context/CORE.md` exists) — instead **refreshes every boot** (image authoritative, prune
-semantics), so a rebuilt image's updated skills/docs reach an existing sandbox. The
-suffix matches the mount (`-agent-data`, not the historical `-state`).
+The suffix matches the mount (`-agent-data`, not the historical `-state`).
+The sealed entrypoint seeds it from whatever `/home/agent/.init-agent-data` the image
+provides (`seed-agent-data.sh`; it names no files): the full seed runs once
+(guarded by a `.seeded` marker), and on **every boot** it re-copies the top-level
+entries the seed's own **`.refresh`** manifest lists (image authoritative, prune
+semantics; none without a manifest; an entry must be a single safe name, so the
+manifest can't reach outside `/agent-data`). `cove-base-image` lists the
+image-owned **reference set** — `skills/`, `reference/`, `CLAUDE.md`,
+`PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md` — so a rebuilt image's updated
+skills/docs reach an existing sandbox, and leaves the **runtime-owned** set
+(`.claude.json`, `settings.json`, `plugins/`, `COLLABORATOR.md` — empty by default
+— and user state) seeded once. A kit changes either by overriding the seed.
+
+**Sandbox rules: `SANDBOX.md` vs the Jam session context.** A plain at-cove
+sandbox reads the rules (persistence, egress, how to change the kit) from the
+seeded `SANDBOX.md`, which `CLAUDE.md` imports. A Jam session gets them as built-in
+boilerplate of its compiled [session context](usage/jam/session-context.md), so
+cove-master **blanks `/agent-data/SANDBOX.md`** when it writes a context (and
+restores the image copy when it runs without one; the next boot's refresh
+restores it too). The session context therefore always takes precedence, and a
+Jam session never sees both.
 
 **Every runtime docker name comes from one helper (`internal/naming`, COV-77),**
 under the consistent `atcove-{kit}-{class}-{type}` scheme so an at-cove object

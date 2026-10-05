@@ -19,9 +19,7 @@ allow-list** — not a transient fault. Don't retry blindly or hunt for a mirror
 the domain to the kit.
 
 **Changing the sandbox is declarative and human-gated.** You cannot rebuild your own
-image and must never weaken the hardening. **If `/agent-data/context/CORE.md` exists,
-you are a Jam session: its instructions for changing the kit apply, not the rest of
-this paragraph.** Otherwise, the path is: edit `.at-cove/config.yml`, then ask the
+image and must never weaken the hardening. Edit `.at-cove/config.yml`, then ask the
 human to run `at-cove recreate` on the host — the change does not take effect until
 they do. Name the exact edit and why so they can review it.
 
@@ -29,8 +27,7 @@ For the detail, load only the leaf your task needs:
 
 - **Editing the kit** — adding an allowed domain, installing a tool, extending
   PATH/env, the `image:` block schema, the rebuild steps →
-  `/agent-data/reference/sandbox-kit-changes.md` (in a Jam session:
-  `/agent-data/context/boilerplate/changing-the-kit.md`)
+  `/agent-data/reference/sandbox-kit-changes.md`
 - **Hitting a wall you can't get past from inside** — what the hardening layer owns
   and refuses to let the kit override →
   `/agent-data/reference/sandbox-hardening-limits.md`
