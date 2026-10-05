@@ -1444,3 +1444,24 @@ func TestTick_AlarmBeatsIdle(t *testing.T) {
 		}
 	}
 }
+
+// An alarm is a wake condition: wait-max does not reap a session that has one
+// scheduled (or fired and pending), and a due alarm wakes rather than loses to
+// wait-max on the same tick.
+func TestTick_WaitMaxSparesSessionsWithAlarms(t *testing.T) {
+	old := time.Unix(10000-7200, 0) // waited 2h > MaxWait 1h; non-resident
+	e, wake, reap, _, _ := turnEndEngine([]jam.Instance{
+		{ActorID: "later", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: old,
+			Alarms: []jam.Alarm{{Name: "x", Schedule: "@daily", NextAt: time.Unix(50000, 0)}}},
+		{ActorID: "due", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: old,
+			Alarms: []jam.Alarm{{Name: "y", Schedule: dueAt, NextAt: due}}},
+		{ActorID: "none", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: old},
+	}, nil, nil)
+	e.tick(context.Background())
+	if len(reap.down) != 1 || reap.down[0] != "none" {
+		t.Fatalf("teardown=%v; want only the session without alarms", reap.down)
+	}
+	if len(wake.woke) != 1 || wake.woke[0] != "due" {
+		t.Fatalf("woke=%v; want the due alarm to wake", wake.woke)
+	}
+}

@@ -81,7 +81,8 @@ A role can give its sessions an idle timeout: `at-jam role add --idle-timeout D
   reply pending on the same tick wakes it as a squawk instead (never both).
 - [`wait-max`](intercom.md#waiting-for-a-reply-wake-on) still tears down a
   non-resident session, but **only when no idle deadline is armed** (no role
-  timeout, or the agent turned it `off`).
+  timeout, or the agent turned it `off`) **and it has no alarms** — an alarm is
+  itself a wake condition.
 
 ## Holding
 

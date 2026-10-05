@@ -212,8 +212,9 @@ func (e *Engine) tick(ctx context.Context) {
 		// takes: it is never reaped for waiting (it is still idled and woken
 		// below). A personal one ends when its owner releases it, a standing one
 		// when an operator dismisses it. With an idle deadline armed, the role's
-		// on-idle action decides instead; wait-max is the backstop when none is.
-		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) &&
+		// on-idle action decides instead, and an alarm is itself a wake
+		// condition; wait-max is the backstop when neither is set.
+		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) && !(e.alarms != nil && len(inst.Alarms) > 0) &&
 			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
