@@ -1,5 +1,5 @@
 ---
-summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + CLI version, principal credential by name, model, permission policy, per-harness body); the YAML schema, its validation rules, and the `at-jam model-spec` verb.
+summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + CLI version, principal credential by name, model, permission policy, per-harness body); the YAML schema, its validation rules, the `at-jam model-spec` verb, and where the admin UI edits them.
 read_when: You are authoring, listing, changing or deleting a model-spec with `at-jam model-spec`, a model-spec write was refused, or you need the model-spec schema or the `/admin/model-specs` API.
 owns: the model-spec entity — its schema, validation rules, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
@@ -80,6 +80,12 @@ at-jam model-spec delete <name>
 Spec files are decoded strictly: an unknown key (e.g. a typo like `notes:`) is an
 error rather than silently dropped. A typical edit is
 `show NAME > spec.yaml`, edit, `update spec.yaml`.
+
+## In the admin UI
+
+The [admin UI](ui.md) lists model-specs at `/ui/model-specs` and creates, edits
+and deletes them through the same validation as the verb — see
+[ui-pages.md](ui-pages.md#model-spec-pages).
 
 ## Admin API
 

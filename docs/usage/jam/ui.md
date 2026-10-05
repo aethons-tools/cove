@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry and destinations, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
-read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability + roster/kit/destination-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry, destinations and model-specs, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
+read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations/model-specs, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability + roster/kit/destination/model-spec-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -54,7 +54,7 @@ It renders:
   refresh (not a live tail); each recipient carries an internal/external reach
   badge. Empty until the log has writers, and absent-config renders a
   "not configured" notice. See [Intercom](#intercom) below.
-- **Roster / Roles / Kits / Destinations** — the control-plane objects as
+- **Roster / Roles / Kits / Destinations / Model-specs** — the control-plane objects as
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
 
@@ -237,7 +237,7 @@ Origin/Referer check, plus any exact origins listed in
 [`ui-origins`](serve.md)), so another site can't drive them through your browser.
 
 The kit registry and destinations are also editable from here — see
-[Config plane (kits & destinations)](#config-plane-kits-destinations) below.
+[Config plane (kits, destinations, model-specs)](#config-plane-kits-destinations-model-specs) below.
 Raising and tearing down studios is editable from the UI when a runtime
 supervisor is configured — see [Runtime (studios)](#runtime-studios) below.
 
@@ -265,7 +265,7 @@ Without a runtime supervisor, the Studios page is view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions
 obey the same gate, CSRF, and audit-logging as the roster edits above.
 
-### Config plane (kits & destinations)
+### Config plane (kits, destinations, model-specs)
 
 - **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
   and delete an unused one; each kit's page shows its versions, diffs them,
@@ -273,8 +273,10 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 - **Destinations** — create one (every field, including client env, git
   routing, oauth-beta and the session note) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).
+- **Model-specs** — create, edit and delete one, validated exactly like
+  `at-jam model-spec` — see [ui-pages.md](ui-pages.md#model-spec-pages).
 
 A kit config references credentials by name only (no secret values), and a
-destination's `cred-name` is a reference, not a secret — the UI shows the name
+destination's `cred-name` (or a model-spec's principal) is a reference, not a secret — the UI shows the name
 but never a credential value. These actions obey the same
 gate, CSRF, and audit-logging as the other edits.

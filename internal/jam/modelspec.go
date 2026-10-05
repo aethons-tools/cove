@@ -78,6 +78,13 @@ var claudePermissionModes = []string{"default", "acceptEdits", "plan", "bypassPe
 // claudeProviders are the model providers a claude spec can target.
 var claudeProviders = []string{"anthropic", "vertex", "bedrock"}
 
+// ClaudePermissionModes lists the accepted policy.mode values (a copy), for
+// forms that offer them as choices.
+func ClaudePermissionModes() []string { return slices.Clone(claudePermissionModes) }
+
+// ClaudeProviders lists the accepted claude.provider values (a copy).
+func ClaudeProviders() []string { return slices.Clone(claudeProviders) }
+
 // credentialEnvKeys carry credential values; a model-spec names credentials by
 // principal only, so provider-env may never set these.
 var credentialEnvKeys = map[string]bool{

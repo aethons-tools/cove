@@ -1,0 +1,92 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Model-spec not found</h1></div>
+<div class="banner">No model-spec <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/model-specs">Back to model-specs</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>.body{padding:12px 16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-all}
+  .unset{color:var(--faint)}
+  details.edit{border-top:1px dashed var(--border)}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit[open]>summary{background:var(--surface-2)}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/model-specs">Model-specs</a></div>
+{{template "spec-body" .}}
+{{end}}
+{{end}}
+
+{{define "spec-body"}}
+<div id="spec">
+<div class="page-head">
+  <h1>{{.Spec.Name}}</h1>
+  <span class="mono sub">{{.Spec.Type}} {{.Spec.Version}}</span>
+  <span class="spacer"></span>
+  <button class="danger" hx-delete="/ui/model-specs/{{.Spec.Name}}" hx-swap="none"
+      hx-confirm="Delete model-spec {{.Spec.Name}}?"
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/model-specs'">Delete</button>
+</div>
+
+<div class="sections">
+  <section class="card">
+    <header><h2>Harness</h2><span class="sub">who the agent runs as, and on what model</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Type</dt><dd class="mono">{{.Spec.Type}}</dd>
+        <dt>Version</dt><dd class="mono">{{.Spec.Version}}</dd>
+        <dt>Principal</dt><dd><span class="mono">{{.Spec.Principal.Credential}}</span> <span class="unset">credential name</span></dd>
+        <dt>Model</dt><dd>{{if .Spec.Model.ID}}<span class="mono">{{.Spec.Model.ID}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
+        <dt>Effort</dt><dd>{{if .Spec.Model.Effort}}<span class="mono">{{.Spec.Model.Effort}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
+        <dt>Note</dt><dd>{{if .Spec.Note}}{{.Spec.Note}}{{else}}<span class="unset">none</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Policy</h2><span class="sub">the harness permission policy</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Mode</dt><dd>{{if .Spec.Policy.Mode}}<span class="mono">{{.Spec.Policy.Mode}}</span>{{else}}<span class="unset">harness default</span>{{end}}</dd>
+        <dt>Allow</dt><dd>{{range .Spec.Policy.Allow}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Deny</dt><dd>{{range .Spec.Policy.Deny}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Claude</h2><span class="sub">the per-harness body</span></header>
+    {{with .Spec.Claude}}
+    <div class="body">
+      <dl class="kv">
+        <dt>Provider</dt><dd class="mono">{{.Provider}}</dd>
+        <dt>Provider env</dt><dd>{{range $k, $v := .ProviderEnv}}<span class="chip">{{$k}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Plugins</dt><dd>{{range .Plugins}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Settings</dt><dd>{{range $k, $v := .Settings}}<span class="chip">{{$k}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+      </dl>
+    </div>
+    {{else}}<div class="body"><span class="unset">No body.</span></div>{{end}}
+    <details class="edit">
+      <summary>Edit model-spec</summary>
+      <form hx-post="/ui/model-specs/{{.Spec.Name}}" hx-target="#spec" hx-swap="outerHTML">
+        {{template "spec-fields" .}}
+        <div class="form-actions"><button type="submit" class="primary">Save model-spec</button></div>
+      </form>
+    </details>
+  </section>
+</div>
+</div>
+{{end}}
