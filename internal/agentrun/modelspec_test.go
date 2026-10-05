@@ -212,7 +212,6 @@ func specWL(t *testing.T, dir string, c Claude, sp Spawner, initial snippet.Conn
 // connector owns.
 func TestRunLaunchesWithSpecModel(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	spec := specWith(func(s *modelspec.Spec) {
 		s.Name, s.Model.ID = "opus", "claude-opus-5-5"
 		s.Claude.Provider = "vertex"
@@ -221,7 +220,7 @@ func TestRunLaunchesWithSpecModel(t *testing.T) {
 	conn := specConnector(spec)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, conn, &fakeSource{c: conn}, false)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if f.bin != "claude" || argAfter(f.args, "--model") != "claude-opus-5-5" {
@@ -283,7 +282,7 @@ func TestRunFailsOnVersionMismatch(t *testing.T) {
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, conn, &fakeSource{c: conn}, false)
 	h := &recordHandle{}
-	err := w.Run(context.Background(), h)
+	err := runEpisodes(w, h, 1)
 	if err == nil || !strings.Contains(err.Error(), "requires claude 3.x") || !strings.Contains(err.Error(), modelspec.DefaultClaudeVersion) {
 		t.Fatalf("Run err = %v", err)
 	}
@@ -302,7 +301,7 @@ func TestRunFailsWhenEditedSpecMismatches(t *testing.T) {
 	f := &scriptedSpawner{dir: dir}
 	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, ok, src, true)
 	h := &recordHandle{}
-	done := runAsync(context.Background(), w, h)
+	done := runAsyncEpisodes(w, h, 2)
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
 	w.Control(covemaster.Control{Kind: covemaster.Wake})
 	select {
@@ -353,7 +352,7 @@ func TestClaudeCommandPolicyFlagPosition(t *testing.T) {
 	_, args, _ := Claude{SettingsPath: "/x/s.json"}.Command(Episode{Continued: true, ContextCore: "/c/CORE.md", Spec: spec})
 	want := []string{"-p", "--continue", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-mode=dontAsk",
-		"--allowedTools=mcp__messaging", "--allowedTools=Edit(.at-task/worker-result.json)",
+		"--allowedTools=mcp__messaging",
 		"--allowedTools=Read", "--disallowedTools=WebFetch",
 		"--mcp-config", claudeMCPConfigPath, "--strict-mcp-config",
 		"--model", "claude-opus-5-5",

@@ -113,7 +113,8 @@ func TestTickClaimsAndRaises(t *testing.T) {
 	if s.ActorID != "cove-AET-1" || s.Role != "worker" || s.Project != "acme" || s.Unit != "AET-1" {
 		t.Fatalf("raise spec = %+v", s)
 	}
-	if !strings.Contains(s.Prompt, "do a thing") || !strings.Contains(s.Prompt, "worker-result.json") {
+	if !strings.Contains(s.Prompt, "do a thing") || strings.Contains(s.Prompt, "worker-result") ||
+		!strings.Contains(s.Prompt, "`report`") || !strings.Contains(s.Prompt, "`end`") || !strings.Contains(s.Prompt, "gh pr create") {
 		t.Fatalf("prompt missing brief or result-protocol:\n%s", s.Prompt)
 	}
 }

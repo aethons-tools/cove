@@ -295,19 +295,12 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	return "claude", args, claudeEnv(ep.Spec)
 }
 
-// workerResultRel is the worker-result file the agent is told to write (the
-// session boilerplate and resumePrompt), relative to its cwd, the work dir.
-const workerResultRel = ".at-task/worker-result.json"
-
 // claudeAlwaysAllowed are the allow rules every non-bypass mode gets ahead of
 // the spec's own: the guaranteed messaging server's tools (mcp__SERVER allows
 // all of a server's tools), so a headless agent can always read and send on
-// the intercom, and the worker-result file the run's outcome is read from
-// (Edit rules cover the Write tool; the path is relative to the agent's cwd,
-// the work dir). A spec deny rule still wins over these.
+// the intercom. A spec deny rule still wins over these.
 var claudeAlwaysAllowed = []string{
 	"mcp__" + kit.MCPReservedName,
-	"Edit(" + workerResultRel + ")",
 }
 
 // claudePolicy renders spec.policy as claude flags with the shared renderer

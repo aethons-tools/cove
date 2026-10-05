@@ -149,76 +149,8 @@ func newWL(t *testing.T, dir string, f *fakeSpawner) (*Workload, *recordHandle) 
 	return w, &recordHandle{}
 }
 
-func TestRunOK(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
-	if err := w.Run(context.Background(), h); err != nil {
-		t.Fatalf("Run: want nil, got %v", err)
-	}
-	if len(h.got) != 1 || h.got[0] != covemaster.Running {
-		t.Fatalf("activities: want [Running], got %v", h.got)
-	}
-}
-
-// TestRunNeedsInput checks that a needs-input turn reports Waiting; with no
-// Wake and a short MaxWait, Run then gives up and ends the unit (nil).
-// (Resuming on Wake and blocking past MaxWait are covered by
-// TestRunResumesOnWake / TestRunMaxWaitEndsUnit.)
-func TestRunNeedsInput(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, Harness: testClaude(t, dir), Spawner: f}, nil)
-	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
-		t.Fatalf("Run: want nil, got %v", err)
-	}
-	want := []covemaster.Activity{covemaster.Running, covemaster.Waiting}
-	if len(h.got) != 2 || h.got[0] != want[0] || h.got[1] != want[1] {
-		t.Fatalf("activities: want [Running Waiting], got %v", h.got)
-	}
-}
-
-func TestRunErrorResult(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"error":{"message":"boom"}}}`)
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
-	err := w.Run(context.Background(), h)
-	if err == nil {
-		t.Fatal("Run: want error, got nil")
-	}
-	if len(h.got) != 1 || h.got[0] != covemaster.Running {
-		t.Fatalf("activities: want [Running], got %v", h.got)
-	}
-}
-
-func TestRunNoResultFile(t *testing.T) {
-	dir := t.TempDir() // no .at-task/worker-result.json
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
-	if err := w.Run(context.Background(), h); err == nil {
-		t.Fatal("Run: want error for missing result, got nil")
-	}
-	_ = h
-}
-
-func TestRunUnparseableResult(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{}}`) // no variant set → Active() errors
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w, h := newWL(t, dir, f)
-	if err := w.Run(context.Background(), h); err == nil {
-		t.Fatal("Run: want error for empty status, got nil")
-	}
-	_ = h
-}
-
 func TestRunTeardownCancel(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`) // present, but must NOT be consulted
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { <-ctx.Done(); return ctx.Err() }}}
 	w, h := newWL(t, dir, f)
@@ -241,14 +173,13 @@ func TestRunTeardownCancel(t *testing.T) {
 
 func TestRunSpawnArgs(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	c := testClaude(t, dir)
 	mcp := c.MCPConfigPath
 	in := newPipeInput()
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }, in: in}}
 	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: c, Spawner: f}, nil)
 	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
+	if err := runEpisodes(w, h, 1); err != nil {
 		t.Fatal(err)
 	}
 	if f.bin != "claude" {
@@ -275,7 +206,7 @@ func TestRunSpawnFailure(t *testing.T) {
 	dir := t.TempDir()
 	f := &fakeSpawner{err: os.ErrPermission}
 	w, h := newWL(t, dir, f)
-	if err := w.Run(context.Background(), h); err == nil {
+	if err := runEpisodes(w, h, 1); err == nil {
 		t.Fatal("Run: want spawn error, got nil")
 	}
 	if len(h.got) != 0 {
@@ -306,7 +237,7 @@ func TestRunFailsLoudOnMissingMCPConfig(t *testing.T) {
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: Claude{MCPConfigPath: filepath.Join(dir, "no-such-dir", "mcp.json"), KitMCPServersPath: testClaude(t, dir).KitMCPServersPath}, Spawner: f}, nil)
 	h := &recordHandle{}
-	err := w.Run(context.Background(), h)
+	err := runEpisodes(w, h, 1)
 	if err == nil {
 		t.Fatal("Run: want error for missing MCP config, got nil")
 	}
@@ -331,15 +262,13 @@ type scriptedCall struct {
 	in       *pipeInput
 }
 
-// scriptedSpawner scripts a worker-result.json body per call: call i's Wait
-// writes results[i] (if present) into dir/.at-task/worker-result.json before
-// returning nil.
+// scriptedSpawner scripts each call's stdout: call i's Wait writes lines[i]
+// (if present) and returns nil.
 type scriptedSpawner struct {
-	mu      sync.Mutex
-	results []string
-	lines   [][]string // per call: stdout lines written before the result file
-	dir     string
-	calls   []scriptedCall
+	mu    sync.Mutex
+	lines [][]string // per call: stdout lines
+	dir   string
+	calls []scriptedCall
 }
 
 func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
@@ -352,15 +281,6 @@ func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, di
 		if i < len(f.lines) && stdout != nil {
 			for _, l := range f.lines[i] {
 				io.WriteString(stdout, l+"\n")
-			}
-		}
-		if i < len(f.results) {
-			atTask := filepath.Join(f.dir, ".at-task")
-			if err := os.MkdirAll(atTask, 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(filepath.Join(atTask, "worker-result.json"), []byte(f.results[i]), 0o644); err != nil {
-				return err
 			}
 		}
 		return nil
@@ -390,21 +310,15 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-// TestRunResumesOnWake: needs-input turn, then a Wake, then an ok turn → two
-// spawns, 2nd has --continue.
+// TestRunResumesOnWake: a turn, then a Wake, then a second turn → two spawns,
+// the 2nd has --continue.
 func TestRunResumesOnWake(t *testing.T) {
 	dir := t.TempDir()
-	f := &scriptedSpawner{
-		results: []string{
-			`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`,
-			`{"status":{"ok":{}}}`,
-		},
-		dir: dir,
-	}
+	f := &scriptedSpawner{dir: dir}
 	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
-	go func() { done <- w.Run(context.Background(), h) }()
+	go func() { done <- runEpisodes(w, h, 2) }()
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 }) // first turn reported Waiting
 	w.Control(covemaster.Control{Kind: covemaster.Wake})
 	select {
@@ -428,33 +342,11 @@ func TestRunResumesOnWake(t *testing.T) {
 	}
 }
 
-// TestRunMaxWaitEndsUnit: needs-input, no wake → after MaxWait, Run returns
-// nil (Done), one spawn.
-func TestRunMaxWaitEndsUnit(t *testing.T) {
-	dir := t.TempDir()
-	f := &scriptedSpawner{
-		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
-		dir:     dir,
-	}
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, Harness: testClaude(t, dir), Spawner: f}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.calls) != 1 {
-		t.Fatalf("want 1 spawn (no resume), got %d", len(f.calls))
-	}
-}
-
-// TestRunCtxCancelWhileWaiting: needs-input, cancel ctx while waiting for a
-// wake → Run returns ctx.Err().
+// TestRunCtxCancelWhileWaiting: cancel ctx while waiting for a wake → Run
+// returns ctx.Err().
 func TestRunCtxCancelWhileWaiting(t *testing.T) {
 	dir := t.TempDir()
-	f := &scriptedSpawner{
-		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
-		dir:     dir,
-	}
+	f := &scriptedSpawner{dir: dir}
 	ctx, cancel := context.WithCancel(context.Background())
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
@@ -479,6 +371,51 @@ func residentWL(t *testing.T, dir string, f *scriptedSpawner, maxWait time.Durat
 }
 
 // runAsync starts Run in a goroutine and returns its result channel.
+// stopHandle wraps a Handle and cancels the run once Waiting has been reported
+// n times: every episode ends in Waiting, so this is how a test ends a run
+// after n episodes.
+type stopHandle struct {
+	covemaster.Handle
+	n      int
+	cancel context.CancelFunc
+	mu     sync.Mutex
+	seen   int
+}
+
+func (s *stopHandle) Report(a covemaster.Activity) {
+	s.Handle.Report(a)
+	if a != covemaster.Waiting {
+		return
+	}
+	s.mu.Lock()
+	s.seen++
+	if s.seen == s.n {
+		s.cancel()
+	}
+	s.mu.Unlock()
+}
+
+// runEpisodes runs w for n episodes and returns Run's error (nil for the
+// cancel that ends it).
+func runEpisodes(w *Workload, h covemaster.Handle, n int) error {
+	return <-runAsyncEpisodes(w, h, n)
+}
+
+// runAsyncEpisodes is runEpisodes in the background.
+func runAsyncEpisodes(w *Workload, h covemaster.Handle, n int) chan error {
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan error, 1)
+	go func() {
+		defer cancel()
+		err := w.Run(ctx, &stopHandle{Handle: h, n: n, cancel: cancel})
+		if errors.Is(err, context.Canceled) {
+			err = nil
+		}
+		out <- err
+	}()
+	return out
+}
+
 func runAsync(ctx context.Context, w *Workload, h covemaster.Handle) chan error {
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx, h) }()
@@ -495,30 +432,20 @@ func assertBlocked(t *testing.T, done chan error, d time.Duration) {
 	}
 }
 
-// TestResidentWaitsAfterEveryOutcome: in resident mode an ok, error, or
-// missing worker-result turn reports Waiting and keeps waiting (no Done), even
-// past a short MaxWait.
+// TestResidentWaitsAfterEveryOutcome: a resident turn, clean or crashed,
+// reports Waiting and keeps waiting (no Done).
 func TestResidentWaitsAfterEveryOutcome(t *testing.T) {
-	for name, result := range map[string]string{
-		"ok":          `{"status":{"ok":{}}}`,
-		"needs-input": `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`,
-		"error":       `{"status":{"error":{"message":"boom"}}}`,
-		"unparseable": `{"status":{}}`,
-		"missing":     "",
-	} {
+	for name, exitErr := range map[string]error{"clean": nil, "crashed": errors.New("exit status 1")} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			f := &scriptedSpawner{dir: dir}
-			if result != "" {
-				f.results = []string{result}
-			}
+			f := &fakeSpawner{proc: scriptedProc{wait: func() error { return exitErr }}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			w := residentWL(t, dir, f, 20*time.Millisecond)
+			w := New(Config{WorkDir: dir, Prompt: "p", Resident: true, Harness: testClaude(t, dir), Spawner: f}, nil)
 			h := &recordHandle{}
 			done := runAsync(ctx, w, h)
 			waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-			assertBlocked(t, done, 150*time.Millisecond) // well past MaxWait
+			assertBlocked(t, done, 150*time.Millisecond)
 			cancel()
 			select {
 			case err := <-done:
@@ -536,10 +463,7 @@ func TestResidentWaitsAfterEveryOutcome(t *testing.T) {
 // resident resume prompt; the loop keeps going after an ok turn.
 func TestResidentResumesOnWake(t *testing.T) {
 	dir := t.TempDir()
-	f := &scriptedSpawner{
-		results: []string{`{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`},
-		dir:     dir,
-	}
+	f := &scriptedSpawner{dir: dir}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	w := residentWL(t, dir, f, time.Minute)
@@ -573,29 +497,13 @@ func TestResidentResumesOnWake(t *testing.T) {
 	}
 }
 
-// TestNonResidentOKStillEnds guards that Resident defaults off: an ok turn
-// ends the unit with no Waiting.
-func TestNonResidentOKStillEnds(t *testing.T) {
-	dir := t.TempDir()
-	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
-	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f}, nil)
-	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if h.count(covemaster.Waiting) != 0 {
-		t.Fatalf("non-resident ok must not wait; got %v", h.got)
-	}
-}
-
 func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
 	dir := t.TempDir()
 	f := &scriptedSpawner{dir: dir,
-		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}, {`{"type":"assistant"}`}},
-		results: []string{`{"status":{"needs-input":{}}}`, `{"status":{"ok":{}}}`}}
+		lines: [][]string{{`{"type":"system"}`, `{"type":"result"}`}, {`{"type":"assistant"}`}}}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
-	done := runAsync(context.Background(), w, h)
+	done := runAsyncEpisodes(w, h, 2)
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
 	w.Control(covemaster.Control{Kind: covemaster.Wake})
 	if err := <-done; err != nil {
@@ -615,12 +523,11 @@ func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
 
 func TestRunForwardsTrailingPartialLine(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	f := &fakeSpawner{}
 	f.proc = scriptedProc{wait: func() error { io.WriteString(f.stdout, `{"no":"newline"}`); return nil }}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
+	if err := runEpisodes(w, h, 1); err != nil {
 		t.Fatal(err)
 	}
 	if ev := h.eventList(); len(ev) != 1 || ev[0].raw != `{"no":"newline"}` {
@@ -632,11 +539,10 @@ func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "agent-stream.jsonl")
 	f := &scriptedSpawner{dir: dir,
-		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}},
-		results: []string{`{"status":{"ok":{}}}`}}
+		lines: [][]string{{`{"type":"system"}`, `{"type":"result"}`}}}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f, StreamLogPath: logPath}, nil)
 	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
+	if err := runEpisodes(w, h, 1); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(logPath)
@@ -656,14 +562,13 @@ func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
 
 func TestRunAppliesConnectorPerSpawn(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f,
 		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
 			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
 	h := &recordHandle{}
-	if err := w.Run(context.Background(), h); err != nil {
+	if err := runEpisodes(w, h, 1); err != nil {
 		t.Fatal(err)
 	}
 	if envMap(f.env)["GH_HOST"] != "jam.example" {
@@ -676,10 +581,9 @@ func TestRunAppliesConnectorPerSpawn(t *testing.T) {
 
 func TestRunWithoutConnectorInherits(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w, h := newWL(t, dir, f)
-	if err := w.Run(context.Background(), h); err != nil {
+	if err := runEpisodes(w, h, 1); err != nil {
 		t.Fatal(err)
 	}
 	if f.env != nil || len(h.connectors) != 0 {
@@ -702,13 +606,12 @@ func (s *seqSource) Fetch(context.Context) (snippet.Connector, error) {
 	return c, nil
 }
 
-// Across turns (needs-input → wake → needs-input → wake → ok) each spawn gets the
+// Across turns (turn → wake → turn → wake → turn) each spawn gets the
 // connector current at its start: a change between turns reaches the next
 // spawn's env and is reported once; an unchanged one is not re-reported.
 func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 	dir := t.TempDir()
-	needsInput := `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`
-	f := &scriptedSpawner{results: []string{needsInput, needsInput, `{"status":{"ok":{}}}`}, dir: dir}
+	f := &scriptedSpawner{dir: dir}
 	a := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "OLD": "1"}}
 	b := snippet.Connector{Env: map[string]string{"GH_HOST": "{base}/gh"}}
 	src := &seqSource{connectors: []snippet.Connector{a, b, b}}
@@ -717,7 +620,7 @@ func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
-	go func() { done <- w.Run(context.Background(), h) }()
+	go func() { done <- runEpisodes(w, h, 3) }()
 	for n := 1; n <= 2; n++ {
 		waitFor(t, func() bool { return h.count(covemaster.Waiting) == n })
 		w.Control(covemaster.Control{Kind: covemaster.Wake})
@@ -757,14 +660,13 @@ func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 
 func TestRunSpawnArgsWithContext(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	c := testClaude(t, dir)
 	mcp := c.MCPConfigPath
 	cdir := filepath.Join(dir, "context")
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	b := &sessionctx.Bundle{Core: "CORE", Files: map[string]string{"INDEX.md": "I"}}
 	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: c, Spawner: f, Context: b, ContextDir: cdir}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--mcp-config", mcp, "--strict-mcp-config",
@@ -781,13 +683,12 @@ func TestRunSpawnArgsWithContext(t *testing.T) {
 // on a missing --append-system-prompt-file.
 func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	blocker := filepath.Join(dir, "file")
 	os.WriteFile(blocker, nil, 0o644)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f,
 		Context: &sessionctx.Bundle{Core: "C"}, ContextDir: filepath.Join(blocker, "context")}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if hasArg(f.args, "--append-system-prompt-file") || hasArg(f.args, "--system-prompt-snapshot") {
@@ -799,7 +700,6 @@ func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
 // SANDBOX.md keys "you are a Jam session" on CORE.md existing.
 func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	cdir := filepath.Join(dir, "context")
 	if err := os.MkdirAll(cdir, 0o755); err != nil {
 		t.Fatal(err)
@@ -809,7 +709,7 @@ func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 	}
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f, ContextDir: cdir}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(cdir); !os.IsNotExist(err) {
@@ -822,7 +722,7 @@ func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 func TestRunRefreshesContextPerEpisode(t *testing.T) {
 	dir := t.TempDir()
 	cdir := filepath.Join(dir, "context")
-	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`, `{"status":{"ok":{}}}`}, dir: dir}
+	f := &scriptedSpawner{dir: dir}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	one, two := compileRole("ONE"), compileRole("TWO")
@@ -860,7 +760,7 @@ func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {
 		c.Context, c.ContextDir = &one, filepath.Join(dir, "context")
 		c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{one, two}}
 	})
-	done := runAsync(context.Background(), w, &recordHandle{})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit)
@@ -877,7 +777,6 @@ func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {
 	p.in.noMessage(t, 50*time.Millisecond)
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
@@ -898,11 +797,11 @@ func TestResumeTextPerKind(t *testing.T) {
 func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 	dir := t.TempDir()
 	cdir := filepath.Join(dir, "context")
-	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	f := &scriptedSpawner{dir: dir}
 	one, two := compileRole("ONE"), compileRole("TWO")
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f,
 		Context: &one, ContextDir: cdir, ContextSource: &seqContext{bundles: []sessionctx.Bundle{two}}}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.calls[0].in.next(t); got != "p" {
@@ -927,15 +826,73 @@ func (blockingContext) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
 // A hung Jam must not hold the first episode for the client's full timeout.
 func TestFirstEpisodeFetchIsBounded(t *testing.T) {
 	dir := t.TempDir()
-	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
+	f := &scriptedSpawner{dir: dir}
 	one := compileRole("ONE")
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f,
 		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}, ContextFetchTimeout: 30 * time.Millisecond}, nil)
 	start := time.Now()
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
+	if err := runEpisodes(w, &recordHandle{}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("first episode waited %v on a hung Jam", d)
 	}
+}
+
+// Ticket studios no longer read worker-result: a crashed turn (non-zero exit,
+// no result) waits for a Wake instead of ending the unit.
+func TestRunCrashedTurnWaits(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, nil) // a ticket (non-resident) studio
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.exit <- errors.New("exit status 1")
+	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+		t.Fatalf("crashed turn did not report Waiting")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned %v; want it to wait", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	p2 := s.next(t)
+	if !hasArg(p2.args, "--continue") || p2.in.next(t) != resumePrompt {
+		t.Fatalf("resume: args=%v", p2.args)
+	}
+	cancel()
+	<-done
+}
+
+// An old worker-result.json in the workspace is never read: it doesn't end
+// the unit.
+func TestRunNeverReadsWorkerResult(t *testing.T) {
+	dir := t.TempDir()
+	writeResult(t, dir, `{"status":{"ok":{}}}`)
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, nil)
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnResult)
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+		t.Fatal("did not wait")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned %v on a worker-result; want it to wait", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	<-done
 }

@@ -17,7 +17,7 @@ import (
 // a spec without policy.mode, and claude-default (bypassPermissions) all keep
 // --dangerously-skip-permissions byte-identically; any other mode and the
 // allow/deny rules are rendered (TestGoldenClaudePolicyArgv), and a non-bypass
-// mode always also allows the messaging tools and the worker-result file.
+// mode always also allows the messaging tools.
 
 const goldenMCP = "/dev/shm/cove-agent-mcp.json"
 const goldenCore = "/agent-data/context/CORE.md"
@@ -88,8 +88,8 @@ func TestGoldenClaudePolicyArgv(t *testing.T) {
 	head := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}
 	tail := []string{"--mcp-config", goldenMCP, "--strict-mcp-config"}
 	// Every non-bypass mode always allows the guaranteed messaging server's
-	// tools and the worker-result file, ahead of the spec's own rules.
-	always := []string{"--allowedTools=mcp__messaging", "--allowedTools=Edit(.at-task/worker-result.json)"}
+	// tools, ahead of the spec's own rules.
+	always := []string{"--allowedTools=mcp__messaging"}
 	cases := []struct {
 		name   string
 		policy modelspec.Policy
