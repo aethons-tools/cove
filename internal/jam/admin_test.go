@@ -541,21 +541,22 @@ func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 func TestAdminRoleTurnEndRoundTrip(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", IdleTimeoutSeconds: 1800, OnIdle: "teardown"})
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", IdleTimeoutSeconds: 1800, OnIdle: "teardown", TimeZone: "Europe/Berlin"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST role = %d", rec.Code)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
-	if len(roles) != 1 || roles[0].IdleTimeoutSeconds != 1800 || roles[0].OnIdle != "teardown" {
+	if len(roles) != 1 || roles[0].IdleTimeoutSeconds != 1800 || roles[0].OnIdle != "teardown" || roles[0].TimeZone != "Europe/Berlin" {
 		t.Fatalf("roles = %+v", roles)
 	}
-	if r, _ := store.GetRole("acme", "worker"); r.TurnEnd != (TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: OnIdleTeardown}) {
+	if r, _ := store.GetRole("acme", "worker"); r.TurnEnd != (TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: OnIdleTeardown, TimeZone: "Europe/Berlin"}) {
 		t.Fatalf("stored turn-end = %+v", r.TurnEnd)
 	}
 	for _, b := range []RoleBody{
 		{Project: "acme", Name: "bad", IdleTimeoutSeconds: -1},
 		{Project: "acme", Name: "bad", OnIdle: "nap"},
+		{Project: "acme", Name: "bad", TimeZone: "Mars/Olympus"},
 	} {
 		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
 			t.Fatalf("bad turn-end %+v = %d, want 400", b, rec.Code)

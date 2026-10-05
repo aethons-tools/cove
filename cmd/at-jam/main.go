@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // IANA zones for role time zones, whatever the image ships
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -441,6 +442,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
 	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
 	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
+	timeZone := fs.String("time-zone", "", "IANA time zone the role's cron alarms are evaluated in (default UTC)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -465,7 +467,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
 			return 2
 		}
-		te := jam.TurnEndPolicy{IdleTimeout: *idleTimeout, OnIdle: *onIdle}
+		te := jam.TurnEndPolicy{IdleTimeout: *idleTimeout, OnIdle: *onIdle, TimeZone: *timeZone}
 		if err := jam.ValidateTurnEnd(te); err != nil {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
@@ -496,7 +498,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {

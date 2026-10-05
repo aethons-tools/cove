@@ -2,6 +2,7 @@ package jam
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func TestInstanceJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out != in {
+	if !reflect.DeepEqual(out, in) {
 		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", out, in)
 	}
 }

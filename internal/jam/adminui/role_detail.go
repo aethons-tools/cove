@@ -89,6 +89,7 @@ func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
 		duration("Reclaim after", a.ReclaimAfter, "never"),
 		duration("Idle timeout", role.TurnEnd.IdleTimeout, "none"),
 		{Label: "On idle", Value: role.TurnEnd.Action()},
+		{Label: "Alarm time zone", Value: role.TurnEnd.Location().String()},
 	}
 
 	phases := map[string]string{}
