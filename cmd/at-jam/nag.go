@@ -72,6 +72,15 @@ func (n intercomNagger) NotifyReleased(_ context.Context, inst jam.Instance) err
 		"Released your personal session %s (%s).", inst.ActorID, inst.Role))
 }
 
+// NotifyEnded tells a personal session's owner that it ended itself. A
+// session with no owner (standing, ticket) gets no notice: wake-on logs it.
+func (n intercomNagger) NotifyEnded(_ context.Context, inst jam.Instance, reason string) error {
+	if inst.Owner == "" {
+		return nil
+	}
+	return n.send(inst, "", fmt.Sprintf("Your personal session %s (%s) ended itself: %s", inst.ActorID, inst.Role, reason))
+}
+
 // ownerAttributable reports whether, in a discord-chat project, a reply from
 // inst's owner to a nag in their inbox would be attributed to them
 // (jam.DiscordAuthor, by their bound id or by their unshared inbox) — the

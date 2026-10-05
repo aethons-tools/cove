@@ -321,3 +321,20 @@ func TestReclaimNoticeDeliversAfterInstanceRemoved(t *testing.T) {
 		t.Fatalf("posted = %+v", client.posts)
 	}
 }
+
+// NotifyEnded tells a personal session's owner it ended itself; an ownerless
+// session (standing, ticket) gets no notice.
+func TestIntercomNaggerNotifyEnded(t *testing.T) {
+	lg := openTestLog(t)
+	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	if err := n.NotifyEnded(context.Background(), nagInst, "wrapped up"); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.NotifyEnded(context.Background(), jam.Instance{ActorID: "s1", Project: "acme"}, "x"); err != nil {
+		t.Fatal(err)
+	}
+	got := lg.List(intercom.Filter{})
+	if len(got) != 1 || got[0].To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || !strings.Contains(got[0].Body, "wrapped up") {
+		t.Fatalf("sent %+v; want one notice to alice, none for the ownerless session", got)
+	}
+}

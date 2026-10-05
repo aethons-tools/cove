@@ -4,8 +4,11 @@
 // Running ones too, so a reply reaches an agent holding a live episode open), or tears them down past a
 // max-wait (personal sessions excepted — they wait on their owner, and instead
 // climb the idle ladder: nag the owner, optionally reclaim; the owner answers a
-// nag with "keep" or "release", which Jam acts on without waking). Wired from
-// cmd/at-jam; not imported by internal/jam core.
+// nag with "keep" or "release", which Jam acts on without waking). With
+// SetTurnEnd it also enforces turn end: a session that asked to end is torn
+// down once Waiting and never woken again, and an armed idle deadline wakes
+// the session or tears it down per its role. Wired from cmd/at-jam; not
+// imported by internal/jam core.
 package wakeon
 
 import (
@@ -72,6 +75,18 @@ type Cursor interface {
 	SetWaitSeq(actorID string, seq int64) error
 }
 
+// TurnEndState disarms a cove's idle deadline (Supervisor.ClearIdleDeadline)
+// once it fired or another wake answered the turn end.
+type TurnEndState interface {
+	ClearIdleDeadline(actorID string) error
+}
+
+// Ender tells a session's owner that it ended itself (the `end` tool).
+// Implemented in cmd/at-jam over the intercom log.
+type Ender interface {
+	NotifyEnded(ctx context.Context, inst jam.Instance, reason string) error
+}
+
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
@@ -98,6 +113,10 @@ type Engine struct {
 
 	// cursor, when set (SetRunningWake), lets the engine wake Running coves too.
 	cursor Cursor
+
+	// Turn-end enforcement (SetTurnEnd); off while turnEnd is nil.
+	turnEnd TurnEndState
+	ender   Ender // nil = no end notices
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -132,6 +151,17 @@ func (e *Engine) SetIdleLadder(roles RoleLookup, nags NagRecorder, nagger Nagger
 // wakes it once it reports Waiting. Call before Run.
 func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 
+// SetTurnEnd turns on turn-end enforcement: end(reason) and the idle
+// deadline. roles supplies each role's on-idle action (nil keeps any set by
+// SetIdleLadder); ender (may be nil) notifies an owner that a session ended
+// itself. Call before Run.
+func (e *Engine) SetTurnEnd(roles RoleLookup, state TurnEndState, ender Ender) {
+	if roles != nil {
+		e.roles = roles
+	}
+	e.turnEnd, e.ender = state, ender
+}
+
 func (e *Engine) Run(ctx context.Context) {
 	e.tick(ctx)
 	tk := time.NewTicker(e.cfg.PollInterval)
@@ -148,10 +178,24 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
+		if e.turnEnd != nil && inst.EndRequested != nil {
+			// Asked to end: never woken again; torn down once its turn is over.
+			if inst.Activity == jam.ActivityWaiting {
+				e.endSession(ctx, inst)
+			}
+			continue
+		}
 		if inst.Activity == jam.ActivityRunning || inst.Activity == jam.ActivityHolding {
 			// holding (turn over, background tasks running) is woken like running
 			// and, like running, never paused or reaped here.
-			e.wakeRunning(inst)
+			if e.wakeRunning(inst) {
+				e.clearIdle(inst)
+			} else if inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
+				// A teardown action waits for Waiting: never end a cove mid-hold.
+				e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
+				e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
+				e.clearIdle(inst)
+			}
 			continue
 		}
 		if inst.Activity != jam.ActivityWaiting {
@@ -160,8 +204,9 @@ func (e *Engine) tick(ctx context.Context) {
 		// A resident session (personal or standing) waits for as long as it
 		// takes: it is never reaped for waiting (it is still idled and woken
 		// below). A personal one ends when its owner releases it, a standing one
-		// when an operator dismisses it.
-		if !jam.IsResident(inst.SessionKind) &&
+		// when an operator dismisses it. With an idle deadline armed, the role's
+		// on-idle action decides instead; wait-max is the backstop when none is.
+		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) &&
 			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
@@ -183,6 +228,11 @@ func (e *Engine) tick(ctx context.Context) {
 			}
 			e.log.Info("wakeon: reply detected, waking", "actor", inst.ActorID)
 			e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
+			e.clearIdle(inst)
+			continue
+		}
+		if e.idleDue(inst) {
+			e.fireIdle(ctx, inst)
 			continue
 		}
 		// no reply. The idle ladder is personal-only: a standing session has no
@@ -199,15 +249,16 @@ func (e *Engine) tick(ctx context.Context) {
 }
 
 // wakeRunning Wakes a Live, Running or Holding cove that has replies past its baseline and
-// advances the baseline past them (see SetRunningWake). A failed advance is
-// logged; the next tick then wakes again, which the cove coalesces.
-func (e *Engine) wakeRunning(inst jam.Instance) {
+// advances the baseline past them (see SetRunningWake), reporting whether it
+// woke it. A failed advance is logged; the next tick then wakes again, which
+// the cove coalesces.
+func (e *Engine) wakeRunning(inst jam.Instance) bool {
 	if e.cursor == nil || inst.Phase != jam.PhaseLive {
-		return
+		return false
 	}
 	rs := e.replies(inst)
 	if len(rs) == 0 {
-		return
+		return false
 	}
 	last := inst.WaitSeq
 	for _, m := range rs {
@@ -217,6 +268,75 @@ func (e *Engine) wakeRunning(inst jam.Instance) {
 	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeSquawk})
 	if err := e.cursor.SetWaitSeq(inst.ActorID, last); err != nil {
 		e.log.Warn("wakeon: advance wait baseline failed", "actor", inst.ActorID, "error", err.Error())
+	}
+	return true
+}
+
+// idleArmed reports whether inst has an idle deadline this engine enforces.
+func (e *Engine) idleArmed(inst jam.Instance) bool {
+	return e.turnEnd != nil && !inst.IdleDeadline.IsZero()
+}
+
+// idleDue reports whether inst's armed idle deadline has passed.
+func (e *Engine) idleDue(inst jam.Instance) bool {
+	return e.idleArmed(inst) && !e.now().Before(inst.IdleDeadline)
+}
+
+// idleAction is the role's on-idle action for inst (wake when unknown).
+func (e *Engine) idleAction(inst jam.Instance) string {
+	if e.roles != nil {
+		if r, ok := e.roles.GetRole(inst.Project, inst.Role); ok {
+			return r.TurnEnd.Action()
+		}
+	}
+	return jam.OnIdleWake
+}
+
+// clearIdle disarms inst's idle deadline: it fired, or another wake answered
+// this turn end. A failure is logged (the deadline may then fire once more).
+func (e *Engine) clearIdle(inst jam.Instance) {
+	if !e.idleArmed(inst) {
+		return
+	}
+	if err := e.turnEnd.ClearIdleDeadline(inst.ActorID); err != nil {
+		e.log.Warn("wakeon: clear idle deadline failed", "actor", inst.ActorID, "error", err.Error())
+	}
+}
+
+// fireIdle applies a Waiting cove's on-idle action once its deadline passed:
+// teardown ends it; wake resumes a paused cove first (woken on a later tick,
+// once it is Live again) and otherwise wakes it with the idle reason.
+func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
+	if e.idleAction(inst) == jam.OnIdleTeardown {
+		e.log.Info("wakeon: idle timeout, tearing down", "actor", inst.ActorID)
+		if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
+			e.log.Warn("wakeon: teardown (idle) failed", "actor", inst.ActorID, "error", err.Error())
+		}
+		return
+	}
+	if inst.Phase == jam.PhaseIdled {
+		if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
+			e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
+		}
+		return
+	}
+	e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
+	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
+	e.clearIdle(inst)
+}
+
+// endSession tears down a Waiting session that asked to end, then tells its
+// owner (best-effort). A failed teardown is retried next tick.
+func (e *Engine) endSession(ctx context.Context, inst jam.Instance) {
+	e.log.Info("wakeon: session ended itself", "actor", inst.ActorID, "reason", inst.EndRequested.Reason)
+	if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
+		e.log.Warn("wakeon: teardown (end) failed; retrying next tick", "actor", inst.ActorID, "error", err.Error())
+		return
+	}
+	if e.ender != nil {
+		if err := e.ender.NotifyEnded(ctx, inst, inst.EndRequested.Reason); err != nil {
+			e.log.Warn("wakeon: end notice failed", "actor", inst.ActorID, "error", err.Error())
+		}
 	}
 }
 
