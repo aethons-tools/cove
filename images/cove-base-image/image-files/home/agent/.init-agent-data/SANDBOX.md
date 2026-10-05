@@ -1,3 +1,6 @@
+If `/agent-data/context/CORE.md` exists, this is a Jam session:
+its session context governs the sandbox rules — ignore the rest of this file.
+
 # Sandbox operating instructions
 
 You are running inside an **at-cove** hardened sandbox VM: isolated filesystem,

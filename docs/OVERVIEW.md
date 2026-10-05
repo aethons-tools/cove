@@ -598,14 +598,7 @@ skills/docs reach an existing sandbox, and leaves the **runtime-owned** set
 (`.claude.json`, `settings.json`, `plugins/`, `COLLABORATOR.md` — empty by default
 — and user state) seeded once. A kit changes either by overriding the seed.
 
-**Sandbox rules: `SANDBOX.md` vs the Jam session context.** A plain at-cove
-sandbox reads the rules (persistence, egress, how to change the kit) from the
-seeded `SANDBOX.md`, which `CLAUDE.md` imports. A Jam session gets them as built-in
-boilerplate of its compiled [session context](usage/jam/session-context.md), so
-cove-master **blanks `/agent-data/SANDBOX.md`** when it writes a context (and
-restores the image copy when it runs without one; the next boot's refresh
-restores it too). The session context therefore always takes precedence, and a
-Jam session never sees both.
+In a Jam session the session context, not the seeded `SANDBOX.md`, governs the sandbox rules — see [context over `SANDBOX.md`](usage/jam/session-context.md#the-sandbox-rules-context-over-sandboxmd).
 
 **Every runtime docker name comes from one helper (`internal/naming`, COV-77),**
 under the consistent `atcove-{kit}-{class}-{type}` scheme so an at-cove object

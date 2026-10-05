@@ -194,10 +194,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		} else {
 			w.contextCore = filepath.Join(w.cfg.ContextDir, "CORE.md")
 			w.log.Info("agentrun: session context applied", "fingerprint", short(w.cfg.Context.Fingerprint))
-			// The context carries the sandbox rules; drop the image's duplicate.
-			if err := suppressSandboxDoc(w.cfg.ContextDir); err != nil {
-				w.log.Warn("agentrun: SANDBOX.md not suppressed; the session sees it beside its context", "err", err.Error())
-			}
 			if w.cfg.ContextSource != nil {
 				w.ctxr = newContextRefresher(w.cfg.ContextSource, *w.cfg.Context, w.cfg.ContextDir, w.log)
 				w.ctxr.liveTimeout = w.cfg.ContextFetchTimeout

@@ -88,8 +88,8 @@ func TestBoilerplateEphemeralWithoutUnitNeedsTo(t *testing.T) {
 // The sandbox rules a plain at-cove sandbox reads from the image's SANDBOX.md
 // are Jam built-in boilerplate (COV-246): every compiled Jam session carries
 // them, self-contained — never pointing at the kit-overridable
-// /agent-data/reference docs — so cove-master can blank SANDBOX.md without the
-// session losing them.
+// /agent-data/reference docs — because the image's SANDBOX.md tells a Jam
+// session to ignore it.
 func TestCompiledContextCarriesSandboxRules(t *testing.T) {
 	for _, k := range []string{KindEphemeral, KindPersonal, KindStanding} {
 		b := Compile(Inputs{Session: SessionFacts{Kind: k, Name: "n", Owner: "o", Project: "p", Role: "r"}})

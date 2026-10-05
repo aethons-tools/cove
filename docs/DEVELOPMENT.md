@@ -291,8 +291,18 @@ digest via the GitHub packages API and pins by digest (never a moving tag). It
 needs `GITHUB_TOKEN` with `read:packages` (like `gen-blessed`) and cannot run
 offline. `--breaking` prints the new blessed floor; preview the resulting set with
 `just gen-blessed`. Only raise the watermark for a genuinely breaking base — doing
-it on a routine bump wrongly evicts still-valid older bases. Design:
+it on a routine bump wrongly evicts still-valid older bases. A base that the sealed
+hardening layer newly *depends on* counts as breaking too, even with an unchanged
+layer prefix. Design:
 [adopt-base-recipe](superpowers/specs/2026-08-09-adopt-base-recipe-design.md).
+
+> **Pending follow-up (COV-246).** The sealed layer no longer seeds the agent docs
+> and skills; they come from `cove-base-image` built after COV-246. Older blessed
+> bases still pass the provenance gate but boot without `CLAUDE.md`, docs or skills
+> (`seed-agent-data.sh` warns loudly on every boot). The new digest exists only once
+> the merge publishes the base, so the bump can't ride in COV-246: after that
+> publish, run `just adopt-base <tag> --breaking --pr` with the first post-COV-246
+> tag, then delete this note.
 
 ## Verified `claude` CLI facts
 

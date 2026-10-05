@@ -9,8 +9,8 @@ import (
 // sandbox and turn model, and the intercom rules for its kind. It owns the
 // facts the old per-kind preambles (standing.Prompt, personalPrompt) carried,
 // and — for a Jam session — the sandbox rules a plain at-cove sandbox reads
-// from the image's SANDBOX.md (COV-246): cove-master blanks that file when it
-// writes a context, so these are the session's only copy.
+// from the image's SANDBOX.md (COV-246). That file's guard tells a Jam session
+// (CORE.md present) to ignore it, so these are the rules the session follows.
 func Boilerplate(f SessionFacts) Layer {
 	const noDefault = "You have no default recipient: always pass `to` (`list_targets` shows who you may message). "
 	var who, comms, turns string

@@ -599,23 +599,37 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 }
 
-// SANDBOX.md is the plain at-cove (non-Jam) sandbox guide: a Jam session gets
-// the sandbox rules from its compiled context and cove-master blanks this file
-// (COV-246), so it carries only the local kit path and no Jam branch.
-func TestSandboxMDIsPlainAtCove(t *testing.T) {
+// SANDBOX.md is the plain at-cove sandbox guide. A Jam session gets the
+// sandbox rules from its compiled context, so the file opens with a short guard
+// telling a Jam session (CORE.md present) to ignore the rest; nothing in the
+// sealed layer rewrites this kit-overridable file (COV-246). The body after the
+// guard carries only the local kit path.
+func TestSandboxMDIsPlainAtCoveWithJamGuard(t *testing.T) {
 	b, err := os.ReadFile(baseInitAgentData("SANDBOX.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
+	head, body, ok := strings.Cut(s, "\n\n# ")
+	if !ok {
+		t.Fatalf("SANDBOX.md must open with a guard paragraph before its heading:\n%s", s)
+	}
+	for _, want := range []string{"/agent-data/context/CORE.md", "Jam", "session context", "ignore"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("the guard must mention %q:\n%s", want, head)
+		}
+	}
+	if len(head) > 300 {
+		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
+	}
 	for _, want := range []string{".at-cove/config.yml", "at-cove recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
-		if !strings.Contains(s, want) {
+		if !strings.Contains(body, want) {
 			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
 		}
 	}
 	for _, gone := range []string{"Jam", "/agent-data/context"} {
-		if strings.Contains(s, gone) {
-			t.Errorf("SANDBOX.md must not carry the Jam branch (%q) — the session context owns it:\n%s", gone, s)
+		if strings.Contains(body, gone) {
+			t.Errorf("only the guard may mention Jam (%q):\n%s", gone, body)
 		}
 	}
 }

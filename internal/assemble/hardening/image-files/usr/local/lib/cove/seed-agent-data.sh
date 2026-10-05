@@ -14,8 +14,12 @@
 #   Every boot   — re-copy the entries SEED/.refresh lists, image authoritative
 #                  (an entry is removed first, so a directory's deleted or
 #                  renamed files don't linger and a symlink planted in DEST is
-#                  replaced, never written through). No manifest = refresh
-#                  nothing.
+#                  replaced, never written through; an entry the seed no longer
+#                  ships is removed from DEST). No manifest = refresh nothing.
+#
+# It warns loudly (stderr, every boot) when the image has no seed, or a seed
+# without CLAUDE.md — the sign of a kit base older than COV-246, which moved
+# the agent docs out of the sealed layer into cove-base-image. The boot goes on.
 #
 # .refresh format: one top-level entry name per line; blank lines and #-comments
 # are ignored. An entry must be a single path segment of [A-Za-z0-9._-] other
@@ -30,6 +34,12 @@ if [ "$#" -ne 2 ]; then
 fi
 seed=$1
 dest=$2
+
+if [ ! -d "$seed" ]; then
+  echo "seed-agent-data: WARNING: the image has no seed at $seed — the agent starts without CLAUDE.md, docs or skills. Is the kit base older than COV-246? Rebuild it on a current cove-base-image." >&2
+elif [ ! -e "$seed/CLAUDE.md" ]; then
+  echo "seed-agent-data: WARNING: the seed at $seed has no CLAUDE.md — the agent starts without its docs. Is the kit base older than COV-246? Rebuild it on a current cove-base-image." >&2
+fi
 
 mkdir -p "$dest"
 if [ ! -e "$dest/.seeded" ]; then
@@ -53,7 +63,8 @@ while IFS= read -r line || [ -n "$line" ]; do
       continue
       ;;
   esac
-  [ -e "$seed/$entry" ] || [ -L "$seed/$entry" ] || continue
   rm -rf "${dest:?}/$entry"
-  cp -a "$seed/$entry" "$dest/$entry"
+  if [ -e "$seed/$entry" ] || [ -L "$seed/$entry" ]; then
+    cp -a "$seed/$entry" "$dest/$entry"
+  fi
 done <"$manifest"

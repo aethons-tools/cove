@@ -1,7 +1,7 @@
 ---
 summary: How a Jam session learns its context — the layered bundle compiled at raise and refreshed while it runs (GET /context), its always-on core and on-demand leaves, and how cove-master delivers it.
 read_when: You are writing a kit prompt, debugging what a session was told (or why an edit did or did not reach it), or changing how session context is compiled, delivered or refreshed.
-owns: session-context layers, delivery order and precedence, the SANDBOX.md suppression in Jam sessions, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
+owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
 updated: 2026-10-05
@@ -57,11 +57,13 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 
 A plain at-cove sandbox learns the sandbox rules from the image's `SANDBOX.md`,
 which the seeded `CLAUDE.md` imports ([OVERVIEW](../../OVERVIEW.md#workspace-and-state-volumes)).
-In a Jam session the Boilerplate layer owns them, so once cove-master has written a
-bundle it blanks `/agent-data/SANDBOX.md` (the import stays valid, like the empty
-`COLLABORATOR.md`) — the session sees the rules once, with the Jam path for changing
-the kit. Running without a bundle restores the image copy, as does the next boot's
-seed refresh. A kit that ships no `SANDBOX.md` gets none created.
+In a Jam session the Boilerplate layer owns them (with the Jam path for changing the
+kit), and they take precedence: the base image's `SANDBOX.md` opens with a two-line
+guard — if `/agent-data/context/CORE.md` exists this is a Jam session, its context
+governs, ignore the rest of the file. Nothing rewrites the file (it is the kit's,
+overridable), so the guard is the session's only cost; a kit that overrides
+`SANDBOX.md` should keep it. A session running without a bundle has no `CORE.md`
+(cove-master removes any stale one), so the file applies in full.
 
 ## Refresh
 

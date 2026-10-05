@@ -522,7 +522,7 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 			t.Errorf("seeded volume missing %s: %v", p, err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dest, "SANDBOX.md"), nil, 0o644); err != nil { // e.g. blanked by a Jam raise
+	if err := os.WriteFile(filepath.Join(dest, "SANDBOX.md"), nil, 0o644); err != nil { // e.g. an agent emptied it
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dest, "COLLABORATOR.md"), []byte("role"), 0o644); err != nil {
@@ -534,5 +534,46 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 	}
 	if read(t, filepath.Join(dest, "COLLABORATOR.md")) != "role" {
 		t.Fatal("the runtime-owned COLLABORATOR.md must not refresh")
+	}
+}
+
+// The image is authoritative for every .refresh entry: one it no longer ships
+// is removed from the volume rather than left stale.
+func TestSeedAgentDataRemovesEntryDroppedFromSeed(t *testing.T) {
+	seed, dest := t.TempDir(), filepath.Join(t.TempDir(), "agent-data")
+	writeTree(t, seed, map[string]string{".refresh": "CLAUDE.md\nGONE.md\ngone-dir\n", "CLAUDE.md": "c", "GONE.md": "g", "gone-dir/x": "x"})
+	seedAgentData(t, seed, dest)
+	for _, p := range []string{"GONE.md", "gone-dir"} {
+		if err := os.RemoveAll(filepath.Join(seed, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAgentData(t, seed, dest)
+	for _, p := range []string{"GONE.md", "gone-dir"} {
+		if _, err := os.Lstat(filepath.Join(dest, p)); !os.IsNotExist(err) {
+			t.Errorf("%s dropped from the seed must be removed from the volume: %v", p, err)
+		}
+	}
+	if read(t, filepath.Join(dest, "CLAUDE.md")) != "c" {
+		t.Error("a listed entry still in the seed must stay")
+	}
+}
+
+// An image built on a pre-COV-246 base has no agent docs in its seed; the boot
+// says so loudly instead of silently starting an agent without them.
+func TestSeedAgentDataWarnsWithoutAgentDocs(t *testing.T) {
+	out := seedAgentData(t, filepath.Join(t.TempDir(), "absent"), filepath.Join(t.TempDir(), "agent-data"))
+	if !strings.Contains(out, "WARNING") || !strings.Contains(out, "no seed") {
+		t.Errorf("a missing seed must warn loudly; got:\n%s", out)
+	}
+	seed := t.TempDir()
+	writeTree(t, seed, map[string]string{"settings.json": "{}"})
+	out = seedAgentData(t, seed, filepath.Join(t.TempDir(), "agent-data"))
+	if !strings.Contains(out, "WARNING") || !strings.Contains(out, "CLAUDE.md") {
+		t.Errorf("a seed without CLAUDE.md must warn loudly; got:\n%s", out)
+	}
+	writeTree(t, seed, map[string]string{"CLAUDE.md": "c"})
+	if out = seedAgentData(t, seed, filepath.Join(t.TempDir(), "agent-data")); strings.Contains(out, "WARNING") {
+		t.Errorf("a complete seed must not warn; got:\n%s", out)
 	}
 }

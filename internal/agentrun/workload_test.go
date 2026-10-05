@@ -783,7 +783,7 @@ func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
 }
 
 // With no bundle in effect, a previous raise's context must not linger:
-// a stale CORE.md would mislead the agent about its session.
+// SANDBOX.md keys "you are a Jam session" on CORE.md existing.
 func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"ok":{}}}`)
@@ -801,83 +801,6 @@ func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 	}
 	if _, err := os.Stat(cdir); !os.IsNotExist(err) {
 		t.Fatalf("stale context dir must be removed, stat err = %v", err)
-	}
-}
-
-// A Jam session gets the sandbox rules from its compiled context, so Run blanks
-// the image's /agent-data/SANDBOX.md (a sibling of ContextDir) once the context
-// is written — no duplicate in the CLAUDE.md tree. Run without a context puts
-// the image's copy back, since then SANDBOX.md is the agent's only copy.
-func TestRunContextSuppressesSandboxDoc(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
-	cdir := filepath.Join(dir, "context")
-	doc := filepath.Join(dir, "SANDBOX.md")
-	if err := os.WriteFile(doc, []byte("# Sandbox operating instructions\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f,
-		Context: &sessionctx.Bundle{Core: "C"}, ContextDir: cdir}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := os.ReadFile(doc); err != nil || len(got) != 0 {
-		t.Fatalf("SANDBOX.md must be blanked in a Jam session: %q, %v", got, err)
-	}
-
-	seed := filepath.Dir(sandboxDocSeed)
-	if err := os.MkdirAll(seed, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(seed) })
-	if err := os.WriteFile(sandboxDocSeed, []byte("SEED"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
-	w = New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f, ContextDir: cdir}, nil)
-	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(doc); string(got) != "SEED" {
-		t.Fatalf("without a context SANDBOX.md must be restored from the seed, got %q", got)
-	}
-}
-
-// A kit base that seeds no SANDBOX.md gets none created, and a symlink planted
-// at the path is replaced rather than written through.
-func TestRunContextSandboxDocAbsentOrSymlink(t *testing.T) {
-	dir := t.TempDir()
-	writeResult(t, dir, `{"status":{"ok":{}}}`)
-	cdir := filepath.Join(dir, "context")
-	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	run := func() {
-		t.Helper()
-		writeResult(t, dir, `{"status":{"ok":{}}}`)
-		w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f,
-			Context: &sessionctx.Bundle{Core: "C"}, ContextDir: cdir}, nil)
-		if err := w.Run(context.Background(), &recordHandle{}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run()
-	doc := filepath.Join(dir, "SANDBOX.md")
-	if _, err := os.Lstat(doc); !os.IsNotExist(err) {
-		t.Fatalf("no SANDBOX.md may be created when the image seeds none: %v", err)
-	}
-	target := filepath.Join(dir, "target.txt")
-	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, doc); err != nil {
-		t.Fatal(err)
-	}
-	run()
-	if got, _ := os.ReadFile(target); string(got) != "keep" {
-		t.Fatalf("blanking must not write through a symlink, target = %q", got)
-	}
-	if fi, err := os.Lstat(doc); err != nil || fi.Mode()&os.ModeSymlink != 0 || fi.Size() != 0 {
-		t.Fatalf("SANDBOX.md must be a blank regular file: %v %v", fi, err)
 	}
 }
 

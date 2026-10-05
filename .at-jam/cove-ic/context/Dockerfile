@@ -97,11 +97,11 @@ RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
  && rm /tmp/chrome.ldd
 
 # Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
-# its skill files into the first-boot skills set. Scoped to cove-image (this
-# repo's toolchain image + agent sandboxes), NOT the shared hardening layer, so
-# other kits are unaffected. entrypoint.sh re-mirrors $SEED/skills ->
-# /agent-data/skills on every boot, so a rebuilt image reaches existing sandboxes
-# on restart. MIT-licensed; the notice is retained under /usr/share/doc.
+# its skill files into the first-boot skills set, alongside the generic skills
+# the blessed base (cove-base-image) seeds. Scoped to this kit's image, so other
+# kits are unaffected. The base seed's .refresh manifest lists skills, so the
+# entrypoint re-mirrors $SEED/skills -> /agent-data/skills on every boot and a
+# rebuilt image reaches existing sandboxes on restart. MIT-licensed; the notice is retained under /usr/share/doc.
 # Version pinned for reproducibility; Renovate (github-releases) keeps it current.
 ARG CC_SKILLS_GOLANG_VERSION=v2.0.0
 RUN skills_seed=/home/agent/.init-agent-data/skills \
