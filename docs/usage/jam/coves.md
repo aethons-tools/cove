@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-05
 ---
 
 # Managed studios (the supervisor)
@@ -191,7 +191,10 @@ AT_JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + 
 Each `AT_JAM_*` variable falls back to its pre-rename name, which the launcher
 also sets for older images — see [renamed-from-harbor.md](renamed-from-harbor.md).
 
-cove-master runs the agent headless in **episodes** (`internal/agentrun`). An
+cove-master runs the agent headless in **episodes** (`internal/agentrun`).
+Everything specific to the agent CLI — argv, stdin encoding, parsing stdout
+into turn/background events, the pre-flight check — sits behind agentrun's
+`Harness` interface; the only implementation, and the default, is Claude. An
 episode is one `claude -p --input-format stream-json --output-format stream-json
 --verbose --dangerously-skip-permissions` process in `AT_COVE_WORKDIR` (plus
 `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`

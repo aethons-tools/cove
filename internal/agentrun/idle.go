@@ -1,7 +1,6 @@
 package agentrun
 
 import (
-	"encoding/json"
 	"slices"
 	"sync"
 )
@@ -21,44 +20,37 @@ const (
 	actClose                         // idle: close stdin
 )
 
-// idleTracker follows claude's stream-json stdout to decide when the agent
-// is truly idle: its turn has ended (a result with nothing queued) AND no
-// background task is outstanding. Wakes arriving mid-turn are coalesced into
-// one pending resume. Observe runs on the stdout copy goroutine; everything
-// else on Run's goroutine — hence the mutex. It never blocks the stdout path.
+// idleTracker follows the agent's stdout, normalized by the Harness into
+// Events, to decide when the agent is truly idle: its turn has ended (a TurnEnd
+// with nothing queued) AND no background task is outstanding. Wakes arriving
+// mid-turn are coalesced into one pending resume. Observe runs on the stdout
+// copy goroutine; everything else on Run's goroutine — hence the mutex. It
+// never blocks the stdout path.
 type idleTracker struct {
 	mu   sync.Mutex
 	busy bool
 	// tasks are the outstanding background tasks (id → description), per the
-	// latest background_tasks_changed snapshot. awaiting holds tasks that left
-	// that list but whose task_notification has not arrived yet: claude empties
-	// the list BEFORE notifying, and the notification starts a turn.
+	// latest BackgroundTasks snapshot. awaiting holds tasks that left that list
+	// but whose BackgroundDone has not arrived yet: the snapshot can drop a task
+	// BEFORE its completion is delivered, and the delivery starts a turn.
 	tasks, awaiting map[string]string
 	pendingWake     bool
-	// resumeOwed: a resume prompt was written but claude has not started the
-	// turn it asked for (no init/assistant/user/result seen since).
+	// resumeOwed: a resume prompt was written but the agent has not started the
+	// turn it asked for (no TurnStart/TurnEnd seen since).
 	resumeOwed bool
 	changed    chan struct{} // cap 1; signalled on every state change from Observe
+	parse      func(line []byte) (Event, error)
 	warn       func(msg string, args ...any)
 }
 
-func newIdleTracker(warn func(msg string, args ...any)) *idleTracker {
+// newIdleTracker builds a tracker that maps stdout lines to Events with parse
+// (the Harness's ParseEvent).
+func newIdleTracker(parse func(line []byte) (Event, error), warn func(msg string, args ...any)) *idleTracker {
 	if warn == nil {
 		warn = func(string, ...any) {}
 	}
 	return &idleTracker{busy: true, tasks: map[string]string{}, awaiting: map[string]string{},
-		changed: make(chan struct{}, 1), warn: warn}
-}
-
-type trackedEvent struct {
-	Type            string `json:"type"`
-	Subtype         string `json:"subtype"`
-	TaskID          string `json:"task_id"`
-	QueuedTurnCount int    `json:"queued_turn_count"`
-	Tasks           []struct {
-		TaskID      string `json:"task_id"`
-		Description string `json:"description"`
-	} `json:"tasks"`
+		changed: make(chan struct{}, 1), parse: parse, warn: warn}
 }
 
 // Observe updates state from one stdout line.
@@ -66,22 +58,22 @@ func (t *idleTracker) Observe(line []byte) {
 	if len(line) == 0 {
 		return
 	}
-	var ev trackedEvent
-	if err := json.Unmarshal(line, &ev); err != nil {
+	ev, err := t.parse(line)
+	if err != nil {
 		t.warn("agentrun: idle tracker ignored an unparseable stdout line", "err", err.Error())
 		return
 	}
 	t.mu.Lock()
-	switch {
-	case ev.Type == "result":
+	switch ev.Kind {
+	case EventTurnEnd:
 		t.resumeOwed = false
-		if ev.QueuedTurnCount == 0 {
+		if ev.QueuedEmpty {
 			t.busy = false
 		}
-	case ev.Type == "system" && ev.Subtype == "background_tasks_changed":
+	case EventBackgroundTasks:
 		next := make(map[string]string, len(ev.Tasks))
 		for _, k := range ev.Tasks {
-			next[k.TaskID] = k.Description
+			next[k.ID] = k.Description
 		}
 		for id, d := range t.tasks {
 			if _, still := next[id]; !still {
@@ -89,11 +81,10 @@ func (t *idleTracker) Observe(line []byte) {
 			}
 		}
 		t.tasks = next
-	case ev.Type == "system" && ev.Subtype == "task_notification":
+	case EventBackgroundDone:
 		delete(t.awaiting, ev.TaskID)
 		t.busy = true
-	case ev.Type == "system" && ev.Subtype == "init",
-		ev.Type == "assistant", ev.Type == "user":
+	case EventTurnStart:
 		t.busy, t.resumeOwed = true, false
 	default:
 		t.mu.Unlock()
@@ -106,7 +97,7 @@ func (t *idleTracker) Observe(line []byte) {
 	}
 }
 
-// Wrote records that a resume prompt was written to stdin: claude is busy, and
+// Wrote records that a resume prompt was written to stdin: the agent is busy, and
 // the wake stays owed until its turn starts.
 func (t *idleTracker) Wrote() {
 	t.mu.Lock()
@@ -114,7 +105,7 @@ func (t *idleTracker) Wrote() {
 	t.mu.Unlock()
 }
 
-// Wake reports whether a Wake can be delivered now (claude is between turns);
+// Wake reports whether a Wake can be delivered now (the agent is between turns);
 // otherwise it is coalesced into the pending wake. Delivering now also serves
 // any wake coalesced earlier (one resume prompt answers every Wake so far), so
 // it clears the pending wake rather than leave it to send a second prompt.
@@ -164,8 +155,8 @@ func (t *idleTracker) PendingWake() bool {
 }
 
 // WakeOwed reports whether a Wake is still unserved: coalesced but not yet
-// delivered, or delivered as a resume prompt that claude has not started a turn
-// for. Run hands an owed wake back to the post-exit wait so a process that dies
+// delivered, or delivered as a resume prompt that the agent has not started a
+// turn for. Run hands an owed wake back to the post-exit wait so a process that dies
 // before acting on it never loses it.
 func (t *idleTracker) WakeOwed() bool {
 	t.mu.Lock()

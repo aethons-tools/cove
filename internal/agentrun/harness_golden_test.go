@@ -51,11 +51,10 @@ func TestGoldenClaudeStdin(t *testing.T) {
 	}
 }
 
-// goldenCommand / goldenEncode bind the golden data to the code under test.
+// goldenCommand / goldenEncode bind the golden data to the code under test:
+// the default harness New installs.
 func goldenCommand(continued bool, core string) (string, []string) {
-	w := New(Config{}, nil)
-	w.contextCore = core
-	return "claude", w.claudeArgs(continued)
+	return New(Config{}, nil).cfg.Harness.Command(continued, core)
 }
 
-func goldenEncode(text string) []byte { return userMessage(text) }
+func goldenEncode(text string) []byte { return New(Config{}, nil).cfg.Harness.EncodeInput(text) }

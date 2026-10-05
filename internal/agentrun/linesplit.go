@@ -2,11 +2,11 @@ package agentrun
 
 import "bytes"
 
-// maxEventLine caps one stream-json line forwarded as a session event; the
+// maxEventLine caps one stdout line forwarded as a session event; the
 // rest is counted, not sent (the full line is still in cove-master.log).
 const maxEventLine = 1 << 20
 
-// lineSplitter is an io.Writer that cuts claude's stdout into lines and emits
+// lineSplitter is an io.Writer that cuts the agent's stdout into lines and emits
 // each (without the newline), keeping at most max bytes and counting the rest.
 // Write never fails, so it is safe inside an io.MultiWriter. emit's slice is
 // only valid during the call.

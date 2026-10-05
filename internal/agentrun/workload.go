@@ -2,7 +2,6 @@ package agentrun
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,14 +24,8 @@ const defaultMaxWait = 30 * time.Minute
 // agent's turn ended while background tasks are still running.
 const defaultBackgroundWait = 30 * time.Minute
 
-// mcpConfigPath is the baked-in MCP config (internal/assemble/hardening/
-// image-files/etc/claude-code/mcp.json) that gives claude -p the Jam
-// messaging tools. --strict-mcp-config keeps claude from also picking up any
-// project/user-level MCP config.
-const mcpConfigPath = "/etc/claude-code/mcp.json"
-
 // resumePrompt is the stdin message a Wake delivers: written into a live
-// episode, or as the first message of a new --continue episode once a Wake has
+// episode, or as the first message of a new continued episode once a Wake has
 // broken the unit out of a needs-input wait.
 const resumePrompt = "New input may have arrived on your ticket — use the messaging `read` tool to fetch it, then continue the task. When finished, write .at-task/worker-result.json as before."
 
@@ -49,18 +42,18 @@ const standingResumePrompt = "A message may have arrived — use the intercom `r
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent + dir whose .at-task/worker-result.json is read
-	Prompt  string        // the full prompt, written as the first stream-json message on claude's stdin
+	Prompt  string        // the full prompt, written as the first message on the agent's stdin
 	Grace   time.Duration // SIGTERM→SIGKILL grace on teardown; default 10s
 	MaxWait time.Duration // how long a needs-input turn waits for a Wake; default 30m
 	// BackgroundWait bounds how long stdin stays open after a turn ends with
-	// background tasks outstanding; then stdin is closed and claude stops them.
+	// background tasks outstanding; then stdin is closed and the agent stops them.
 	// Default 30m.
 	BackgroundWait time.Duration
 	Spawner        Spawner // nil → the real execSpawner
-	// MCPConfigPath is the --mcp-config file passed to claude; empty defaults to
-	// mcpConfigPath. Run refuses to start the agent if it is missing/unreadable
-	// (COV-190) so a stale image never yields a silently toolless agent.
-	MCPConfigPath string
+	// Harness is the agent CLI driven each episode (argv, stdin encoding,
+	// stdout events, pre-flight check); nil → Claude{}.
+	// Run refuses to start the agent if Harness.Validate fails.
+	Harness Harness
 	// Connector, when set, refreshes the agent's connector before every spawn
 	// (episode — not per prompt: a Wake written into a live episode keeps that
 	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
@@ -68,16 +61,16 @@ type Config struct {
 	Connector *ConnectorConfig
 	// Resident keeps the cove alive between episodes (personal and standing
 	// sessions): after every episode, whatever its outcome, Run reports Waiting
-	// and blocks until a Wake (a new episode with --continue) or shutdown —
+	// and blocks until a Wake (a new continued episode) or shutdown —
 	// never MaxWait.
 	Resident bool
-	// StreamLogPath is the VM-local file claude's stdout (stream-json) is
+	// StreamLogPath is the VM-local file the agent's stdout is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
 	// not cove-master's stdout, which Jam reads into its own log.
 	StreamLogPath string
 	// Context is the compiled session context; nil (an older launcher) runs
-	// claude without it. Written under ContextDir once at Run start; its core is
-	// passed with --append-system-prompt-file on every turn.
+	// the agent without it. Written under ContextDir once at Run start; its core
+	// is passed to Harness.Command on every turn.
 	Context *sessionctx.Bundle
 	// ContextDir is where Context is written; empty defaults to sessionctx.Dir.
 	ContextDir string
@@ -98,7 +91,7 @@ const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 // ContextDir empty. A var so tests can point it away from the real /agent-data.
 var defaultContextDir = sessionctx.Dir
 
-// Workload runs the claude agent as a turn loop and maps its lifecycle onto
+// Workload runs the agent (via its Harness) as a turn loop and maps its lifecycle onto
 // the covemaster Activity stream: a needs-input turn suspends (reports
 // Waiting) until a Wake arrives or MaxWait elapses. It implements
 // covemaster.Workload.
@@ -126,8 +119,8 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.BackgroundWait <= 0 {
 		cfg.BackgroundWait = defaultBackgroundWait
 	}
-	if cfg.MCPConfigPath == "" {
-		cfg.MCPConfigPath = mcpConfigPath
+	if cfg.Harness == nil {
+		cfg.Harness = Claude{}
 	}
 	if cfg.ContextDir == "" {
 		cfg.ContextDir = defaultContextDir
@@ -146,38 +139,6 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: make(chan struct{}, 1)}
 }
 
-// claudeArgs builds claude's argv for one episode. continued prepends
-// --continue, used for every episode after a resume-on-wake. The prompt is
-// not in argv: it is the first stream-json message on stdin.
-func (w *Workload) claudeArgs(continued bool) []string {
-	args := []string{"-p"}
-	if continued {
-		args = append(args, "--continue")
-	}
-	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
-	args = append(args, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose")
-	args = append(args, "--dangerously-skip-permissions", "--mcp-config", w.cfg.MCPConfigPath, "--strict-mcp-config")
-	if w.contextCore != "" {
-		// snapshot off: the default replays the first turn's system prompt on
-		// every --continue, which would hide context updates.
-		args = append(args, "--append-system-prompt-file", w.contextCore, "--system-prompt-snapshot", "off")
-	}
-	return args
-}
-
-// userMessage encodes text as one stream-json stdin line.
-func userMessage(text string) []byte {
-	type msg struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	b, _ := json.Marshal(struct {
-		Type    string `json:"type"`
-		Message msg    `json:"message"`
-	}{"user", msg{"user", text}})
-	return append(b, '\n')
-}
-
 // resumeText is the prompt a Wake delivers.
 func (w *Workload) resumeText() string {
 	switch {
@@ -189,32 +150,29 @@ func (w *Workload) resumeText() string {
 	return resumePrompt
 }
 
-// Run runs the agent as a sequence of episodes. An episode is one claude
-// process fed stream-json on stdin: the prompt first, then one coalesced
+// Run runs the agent as a sequence of episodes. An episode is one agent
+// process fed messages on stdin: the prompt first, then one coalesced
 // resume prompt per batch of Wakes. Stdin is closed only when the agent's turn
 // has ended and no background task is outstanding (or BackgroundWait elapsed),
-// so claude's backgrounding works. After the process exits, its worker-result
+// so the agent's backgrounding works. After the process exits, its worker-result
 // maps to Activity as before: a needs-input episode reports Waiting and blocks
-// until a Wake resumes it (a new episode with --continue) or MaxWait elapses
+// until a Wake resumes it (a new continued episode) or MaxWait elapses
 // (Run then returns nil, ending the unit). Returning nil or an error both lead
 // the client to report Done; a nil error means the unit ended cleanly
 // (completed, or gave up waiting). In resident mode (personal sessions) every
 // episode ends in Waiting and only a Wake or ctx cancel moves the loop on.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
-	// Fail loud if the MCP config is missing rather than launch a silently
-	// toolless agent (COV-190): claude with --mcp-config pointing at a
-	// nonexistent file registers no servers, so the agent would have no intercom
-	// read/send tools and flail. A stale image (built before mcp.json shipped in
-	// the hardening layer) is the typical cause.
-	if _, err := os.Stat(w.cfg.MCPConfigPath); err != nil {
-		w.log.Error("agentrun: MCP config missing — refusing to start a toolless agent", "path", w.cfg.MCPConfigPath, "err", err.Error())
-		return fmt.Errorf("agentrun: MCP config %q missing or unreadable: %w", w.cfg.MCPConfigPath, err)
+	// Fail loud rather than launch a broken agent (e.g. a toolless one,
+	// COV-190).
+	if err := w.cfg.Harness.Validate(); err != nil {
+		w.log.Error("agentrun: harness pre-flight failed — refusing to start the agent", "err", err.Error())
+		return err
 	}
 	if w.cfg.Context == nil {
 		clearContext(w.cfg.ContextDir)
 	} else {
 		if err := writeContext(w.cfg.ContextDir, *w.cfg.Context); err != nil {
-			// claude hard-fails on a missing --append-system-prompt-file, so run
+			// The harness may hard-fail on a missing context file, so run
 			// without the context rather than not at all.
 			w.log.Warn("agentrun: session context not written; running without it", "dir", w.cfg.ContextDir, "err", err.Error())
 			clearContext(w.cfg.ContextDir)
@@ -242,11 +200,11 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	continued := false
 	var turn uint32
 	for {
-		args := w.claudeArgs(continued)
+		bin, args := w.cfg.Harness.Command(continued, w.contextCore)
 		turn++
 		t := turn
 		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
-		tr := newIdleTracker(func(msg string, a ...any) { w.log.Warn(msg, a...) })
+		tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
 		trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
 			if dropped > 0 {
 				w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
@@ -276,9 +234,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 				first += contextNotice(changed, false)
 			}
 		}
-		proc, err := w.spawner.Spawn(ctx, "claude", args, w.cfg.WorkDir, env, sink)
+		proc, err := w.spawner.Spawn(ctx, bin, args, w.cfg.WorkDir, env, sink)
 		if err != nil {
-			return fmt.Errorf("agentrun: start claude: %w", err)
+			return fmt.Errorf("agentrun: start %s: %w", bin, err)
 		}
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
@@ -287,8 +245,8 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		split.Flush()
 		if tr.WakeOwed() {
 			// Coalesced mid-turn but never delivered, or delivered but the process
-			// exited (or the write failed) before claude started the turn it asked
-			// for: hand it to the post-exit wait so it resumes at once.
+			// exited (or the write failed) before the agent started the turn it
+			// asked for: hand it to the post-exit wait so it resumes at once.
 			select {
 			case w.wake <- struct{}{}:
 			default:
@@ -353,7 +311,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	}
 }
 
-// episode drives one claude process: writes prompt, then reacts to tracker
+// episode drives one agent process: writes prompt, then reacts to tracker
 // changes, Wakes, the background-wait timer and exit until the process exits.
 // It returns the process's exit error.
 func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, prompt string) error {
@@ -370,7 +328,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 		_ = in.Close()
 	}
 	write := func(text string) {
-		if _, err := in.Write(userMessage(text)); err != nil {
+		if _, err := in.Write(w.cfg.Harness.EncodeInput(text)); err != nil {
 			// The process is gone (EPIPE); its exit reports the real outcome.
 			w.log.Warn("agentrun: write to agent stdin failed; awaiting exit", "err", err.Error())
 			closeInput("stdin write failed")
@@ -415,7 +373,7 @@ func (w *Workload) episode(ctx context.Context, proc Process, tr *idleTracker, p
 		case <-tr.changed:
 		case <-holdC:
 			_, tasks := tr.Next()
-			w.log.Warn("agentrun: background-wait elapsed with tasks outstanding; closing stdin (claude stops them)",
+			w.log.Warn("agentrun: background-wait elapsed with tasks outstanding; closing stdin (the agent stops them)",
 				"wait", w.cfg.BackgroundWait.String(), "tasks", tasks)
 			holdC = nil
 			closeInput("background-wait elapsed")
@@ -451,7 +409,7 @@ func (w *Workload) logResidentTurn(waitErr error) {
 	case rerr != nil:
 		w.log.Warn("agentrun: resident turn: unreadable worker-result; waiting for the owner", "err", rerr.Error())
 	case !ok && waitErr != nil:
-		// A non-zero exit with no worker-result is a FAILED turn — claude
+		// A non-zero exit with no worker-result is a FAILED turn — the agent
 		// crashed or errored (auth/model-not-accessible/…) before writing a
 		// result. In resident mode the session still waits for the owner rather
 		// than ending, but the failure must be loud, not mistaken for a healthy

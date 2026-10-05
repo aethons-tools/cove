@@ -133,7 +133,7 @@ func mcpConfigFile(t *testing.T, dir string) string {
 
 func newWL(t *testing.T, dir string, f *fakeSpawner) (*Workload, *recordHandle) {
 	t.Helper()
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	return w, &recordHandle{}
 }
 
@@ -158,7 +158,7 @@ func TestRunNeedsInput(t *testing.T) {
 	dir := t.TempDir()
 	writeResult(t, dir, `{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", MaxWait: 40 * time.Millisecond, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatalf("Run: want nil, got %v", err)
@@ -233,7 +233,7 @@ func TestRunSpawnArgs(t *testing.T) {
 	mcp := mcpConfigFile(t, dir)
 	in := newPipeInput()
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }, in: in}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcp, Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: Claude{MCPConfigPath: mcp}, Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatal(err)
@@ -275,8 +275,12 @@ func TestRunSpawnFailure(t *testing.T) {
 // image's mcp.json unless a caller overrides it).
 func TestNewDefaultsMCPConfigPath(t *testing.T) {
 	w := New(Config{WorkDir: t.TempDir(), Prompt: "x"}, nil)
-	if w.cfg.MCPConfigPath != mcpConfigPath {
-		t.Fatalf("default MCPConfigPath = %q; want %q", w.cfg.MCPConfigPath, mcpConfigPath)
+	if w.cfg.Harness != (Claude{}) {
+		t.Fatalf("default Harness = %#v; want Claude{}", w.cfg.Harness)
+	}
+	_, args := w.cfg.Harness.Command(false, "")
+	if !slices.Contains(args, "/etc/claude-code/mcp.json") {
+		t.Fatalf("default harness argv lacks the baked MCP config: %q", args)
 	}
 }
 
@@ -287,7 +291,7 @@ func TestNewDefaultsMCPConfigPath(t *testing.T) {
 func TestRunFailsLoudOnMissingMCPConfig(t *testing.T) {
 	dir := t.TempDir()
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: filepath.Join(dir, "does-not-exist.json"), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: Claude{MCPConfigPath: filepath.Join(dir, "does-not-exist.json")}, Spawner: f}, nil)
 	h := &recordHandle{}
 	err := w.Run(context.Background(), h)
 	if err == nil {
@@ -384,7 +388,7 @@ func TestRunResumesOnWake(t *testing.T) {
 		},
 		dir: dir,
 	}
-	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- w.Run(context.Background(), h) }()
@@ -419,7 +423,7 @@ func TestRunMaxWaitEndsUnit(t *testing.T) {
 		results: []string{`{"status":{"needs-input":{"doing":"x","blocker":"y","need":"z","tried":"w"}}}`},
 		dir:     dir,
 	}
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: 40 * time.Millisecond, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -439,7 +443,7 @@ func TestRunCtxCancelWhileWaiting(t *testing.T) {
 		dir:     dir,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx, h) }()
@@ -458,7 +462,7 @@ func TestRunCtxCancelWhileWaiting(t *testing.T) {
 // residentWL builds a resident Workload over a scriptedSpawner.
 func residentWL(t *testing.T, dir string, f *scriptedSpawner, maxWait time.Duration) *Workload {
 	t.Helper()
-	return New(Config{WorkDir: dir, Prompt: "p", Resident: true, MaxWait: maxWait, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	return New(Config{WorkDir: dir, Prompt: "p", Resident: true, MaxWait: maxWait, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 }
 
 // runAsync starts Run in a goroutine and returns its result channel.
@@ -561,7 +565,7 @@ func TestResidentResumesOnWake(t *testing.T) {
 func TestNonResidentOKStillEnds(t *testing.T) {
 	dir := t.TempDir()
 	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -576,7 +580,7 @@ func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
 	f := &scriptedSpawner{dir: dir,
 		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}, {`{"type":"assistant"}`}},
 		results: []string{`{"status":{"needs-input":{}}}`, `{"status":{"ok":{}}}`}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	done := runAsync(context.Background(), w, h)
 	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
@@ -601,7 +605,7 @@ func TestRunForwardsTrailingPartialLine(t *testing.T) {
 	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	f := &fakeSpawner{}
 	f.proc = scriptedProc{wait: func() error { io.WriteString(f.stdout, `{"no":"newline"}`); return nil }}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatal(err)
@@ -617,7 +621,7 @@ func TestRunWritesStdoutToStreamLogAndEmitsEvents(t *testing.T) {
 	f := &scriptedSpawner{dir: dir,
 		lines:   [][]string{{`{"type":"system"}`, `{"type":"result"}`}},
 		results: []string{`{"status":{"ok":{}}}`}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f, StreamLogPath: logPath}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f, StreamLogPath: logPath}, nil)
 	h := &recordHandle{}
 	if err := w.Run(context.Background(), h); err != nil {
 		t.Fatal(err)
@@ -642,7 +646,7 @@ func TestRunAppliesConnectorPerSpawn(t *testing.T) {
 	writeResult(t, dir, `{"status":{"ok":{}}}`)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
 			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
 	h := &recordHandle{}
@@ -695,7 +699,7 @@ func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 	a := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "OLD": "1"}}
 	b := snippet.Connector{Env: map[string]string{"GH_HOST": "{base}/gh"}}
 	src := &seqSource{connectors: []snippet.Connector{a, b, b}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Connector: &ConnectorConfig{Source: src, Git: &fakeGit{}, BaseURL: "https://jam.example", Token: "t",
 			Environ: func() []string { return []string{"PATH=/bin"} }}}, nil)
 	h := &recordHandle{}
@@ -745,7 +749,7 @@ func TestRunSpawnArgsWithContext(t *testing.T) {
 	cdir := filepath.Join(dir, "context")
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
 	b := &sessionctx.Bundle{Core: "CORE", Files: map[string]string{"INDEX.md": "I"}}
-	w := New(Config{WorkDir: dir, Prompt: "do the thing", MCPConfigPath: mcp, Spawner: f, Context: b, ContextDir: cdir}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "do the thing", Harness: Claude{MCPConfigPath: mcp}, Spawner: f, Context: b, ContextDir: cdir}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +771,7 @@ func TestRunContextWriteFailureRunsWithoutFlags(t *testing.T) {
 	blocker := filepath.Join(dir, "file")
 	os.WriteFile(blocker, nil, 0o644)
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Context: &sessionctx.Bundle{Core: "C"}, ContextDir: filepath.Join(blocker, "context")}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
@@ -790,7 +794,7 @@ func TestRunWithoutContextRemovesStaleDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := &fakeSpawner{proc: scriptedProc{wait: func() error { return nil }}}
-	w := New(Config{WorkDir: dir, Prompt: "p", MCPConfigPath: mcpConfigFile(t, dir), Spawner: f, ContextDir: cdir}, nil)
+	w := New(Config{WorkDir: dir, Prompt: "p", Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f, ContextDir: cdir}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +812,7 @@ func TestRunRefreshesContextPerEpisode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	one, two := compileRole("ONE"), compileRole("TWO")
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Resident: true, SessionKind: "standing", Context: &one, ContextDir: cdir,
 		ContextSource: &seqContext{bundles: []sessionctx.Bundle{one, two}}}, nil)
 	h := &recordHandle{}
@@ -882,7 +886,7 @@ func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 	cdir := filepath.Join(dir, "context")
 	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
 	one, two := compileRole("ONE"), compileRole("TWO")
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Context: &one, ContextDir: cdir, ContextSource: &seqContext{bundles: []sessionctx.Bundle{two}}}, nil)
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
 		t.Fatal(err)
@@ -911,7 +915,7 @@ func TestFirstEpisodeFetchIsBounded(t *testing.T) {
 	dir := t.TempDir()
 	f := &scriptedSpawner{results: []string{`{"status":{"ok":{}}}`}, dir: dir}
 	one := compileRole("ONE")
-	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, MCPConfigPath: mcpConfigFile(t, dir), Spawner: f,
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: Claude{MCPConfigPath: mcpConfigFile(t, dir)}, Spawner: f,
 		Context: &one, ContextDir: filepath.Join(dir, "context"), ContextSource: blockingContext{}, ContextFetchTimeout: 30 * time.Millisecond}, nil)
 	start := time.Now()
 	if err := w.Run(context.Background(), &recordHandle{}); err != nil {
