@@ -73,6 +73,16 @@ RUN mkdir -p /run/sshd \
 RUN useradd -m -s /bin/bash agent \
  && usermod -aG docker agent
 
+# The agent's default docs and skills: /home/agent/.init-agent-data is the seed
+# the sealed entrypoint copies into /agent-data (CLAUDE_CONFIG_DIR) on first
+# boot — CLAUDE.md and its includes (SANDBOX.md is the plain at-cove sandbox
+# guide; a Jam session gets those rules from its session context instead),
+# reference/ and skills/, plus the startup defaults (settings.json,
+# .claude.json). Its .refresh manifest names the entries re-copied on every boot
+# (the image-owned docs; never the runtime-owned settings or COLLABORATOR.md).
+# They live here, not in the sealed hardening layer, so a kit overrides them by
+# COPY; hardening owns only the seeding mechanism.
 COPY image-files/. /.
 
-RUN chown -R agent:agent /home/agent
+RUN chown -R agent:agent /home/agent \
+ && chmod 0755 /home/agent/.init-agent-data/skills/docs-audit/scripts/docs_audit.py

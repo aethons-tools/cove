@@ -178,16 +178,15 @@ func TestSessionAllowlistBakedEmpty(t *testing.T) {
 }
 
 func TestCollaboratorRoleFileSeeded(t *testing.T) {
-	base := filepath.Join("hardening", "image-files", "home", "agent", ".init-agent-data")
-	b, err := os.ReadFile(filepath.Join(base, "CLAUDE.md"))
+	b, err := os.ReadFile(baseInitAgentData("CLAUDE.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(b), "@COLLABORATOR.md") {
-		t.Fatalf("hardening CLAUDE.md must @-include COLLABORATOR.md:\n%s", b)
+		t.Fatalf("base CLAUDE.md must @-include COLLABORATOR.md:\n%s", b)
 	}
-	if _, err := os.Stat(filepath.Join(base, "COLLABORATOR.md")); err != nil {
-		t.Fatalf("default COLLABORATOR.md missing from the hardening payload: %v", err)
+	if _, err := os.Stat(baseInitAgentData("COLLABORATOR.md")); err != nil {
+		t.Fatalf("default COLLABORATOR.md missing from the base seed: %v", err)
 	}
 }
 

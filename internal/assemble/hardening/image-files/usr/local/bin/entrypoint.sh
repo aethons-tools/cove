@@ -1,25 +1,15 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# First-boot seed of the persistent state volume (/agent-data is CLAUDE_CONFIG_DIR).
-# Guarded by a marker so a restart — or a recreate against an existing volume —
-# never clobbers saved state, including the OAuth credentials that
-# `claude auth login` writes to /agent-data/.credentials.json.
-SEED=/home/agent/.init-agent-data
-if [ ! -e /agent-data/.seeded ]; then
-  mkdir -p /agent-data
-  cp -a "$SEED/." /agent-data/
-  touch /agent-data/.seeded
-fi
-# Every boot: re-mirror the image-owned reference set so a rebuilt image's updates
-# reach existing sandboxes. These subtrees hold no user state; runtime-owned seed
-# files (.claude.json, settings.json, plugins/, COLLABORATOR.md) are NOT touched.
-for d in skills reference; do
-  [ -d "$SEED/$d" ] && rm -rf "/agent-data/$d" && cp -a "$SEED/$d" "/agent-data/$d"
-done
-for f in CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md; do
-  cp -a "$SEED/$f" "/agent-data/$f"
-done
+# Seed the persistent state volume (/agent-data is CLAUDE_CONFIG_DIR) from the
+# image's /home/agent/.init-agent-data — whatever the kit base provides
+# (cove-base-image ships the default agent docs and skills). The sealed script
+# owns only the mechanism: a first-boot full copy guarded by /agent-data/.seeded
+# (so a restart, or a recreate against an existing volume, never clobbers saved
+# state such as the OAuth login in .credentials.json), then an every-boot
+# re-copy of the entries the seed's own .refresh manifest lists (none without
+# one), so a rebuilt image's updated docs reach an existing sandbox.
+/usr/local/lib/cove/seed-agent-data.sh /home/agent/.init-agent-data /agent-data
 chown -R agent:agent /agent-data
 
 # A share-repo-dir class may overmount transient dirs (.venv, node_modules) with

@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "messaging": {
-      "command": "cove-master",
-      "args": ["mcp"]
-    }
-  }
-}

@@ -377,3 +377,203 @@ func TestApplyRoleEgress_KitDefaultNonRootRefused(t *testing.T) {
 	}
 	e.assertUnchanged(t)
 }
+
+// seedAgentData runs the sealed seed-agent-data.sh against seed → dest.
+func seedAgentData(t *testing.T, seed, dest string) string {
+	t.Helper()
+	requireBash(t)
+	out, err := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/seed-agent-data.sh", seed, dest).CombinedOutput()
+	if err != nil {
+		t.Fatalf("seed-agent-data.sh failed: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+func writeTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for p, body := range files {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The first boot copies the whole seed once (guarded by .seeded); later boots
+// re-copy only what the seed's .refresh manifest lists — directories replaced
+// whole (pruned), files overwritten — and leave everything else (runtime state)
+// alone (COV-246; the COV-113 refresh semantics, now image-declared).
+func TestSeedAgentDataFirstBootThenManifestRefresh(t *testing.T) {
+	seed, dest := t.TempDir(), filepath.Join(t.TempDir(), "agent-data")
+	writeTree(t, seed, map[string]string{
+		".refresh":            "# image-owned\nDOC.md\n\n  skills  # trailing comment\n",
+		"DOC.md":              "doc v1",
+		"settings.json":       "settings v1",
+		"skills/a/SKILL.md":   "a v1",
+		"skills/old/SKILL.md": "old",
+	})
+	seedAgentData(t, seed, dest)
+	if got := read(t, filepath.Join(dest, "settings.json")); got != "settings v1" {
+		t.Fatalf("first boot must copy the whole seed; settings.json = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".seeded")); err != nil {
+		t.Fatal("first boot must leave the .seeded marker")
+	}
+
+	// The runtime changes state; the image is rebuilt with new docs/skills.
+	writeTree(t, dest, map[string]string{"settings.json": "user edit", ".credentials.json": "login", "DOC.md": "agent edit"})
+	if err := os.RemoveAll(filepath.Join(seed, "skills", "old")); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, seed, map[string]string{"DOC.md": "doc v2", "settings.json": "settings v2", "skills/a/SKILL.md": "a v2"})
+	seedAgentData(t, seed, dest)
+
+	for p, want := range map[string]string{
+		"DOC.md": "doc v2", "skills/a/SKILL.md": "a v2", // listed: image authoritative
+		"settings.json": "user edit", ".credentials.json": "login", // unlisted: untouched
+	} {
+		if got := read(t, filepath.Join(dest, p)); got != want {
+			t.Errorf("%s = %q, want %q", p, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dest, "skills", "old")); !os.IsNotExist(err) {
+		t.Error("a refreshed directory must be pruned of entries the image dropped")
+	}
+}
+
+// No manifest: nothing refreshes after the first boot. No seed at all: the
+// volume is still marked seeded and the boot proceeds.
+func TestSeedAgentDataNoManifestNoSeed(t *testing.T) {
+	seed, dest := t.TempDir(), filepath.Join(t.TempDir(), "agent-data")
+	writeTree(t, seed, map[string]string{"CLAUDE.md": "v1"})
+	seedAgentData(t, seed, dest)
+	writeTree(t, seed, map[string]string{"CLAUDE.md": "v2"})
+	seedAgentData(t, seed, dest)
+	if got := read(t, filepath.Join(dest, "CLAUDE.md")); got != "v1" {
+		t.Fatalf("without .refresh nothing may be re-copied; CLAUDE.md = %q", got)
+	}
+
+	empty := filepath.Join(t.TempDir(), "agent-data")
+	seedAgentData(t, filepath.Join(t.TempDir(), "absent"), empty)
+	if _, err := os.Stat(filepath.Join(empty, ".seeded")); err != nil {
+		t.Fatal("a missing seed must still mark the volume seeded")
+	}
+}
+
+// The manifest is image content read by a root-run script: an entry may only
+// name a top-level seed entry, so it can never delete or copy outside DEST.
+// A symlink planted in DEST is replaced, never written through.
+func TestSeedAgentDataRejectsUnsafeEntries(t *testing.T) {
+	root := t.TempDir()
+	seed, dest := filepath.Join(root, "seed"), filepath.Join(root, "agent-data")
+	writeTree(t, root, map[string]string{"outside.txt": "keep", "victim/file": "keep"})
+	writeTree(t, seed, map[string]string{
+		".refresh": "../outside.txt\n/etc\n.\n..\nsub/x.md\n*\n$(touch pwned)\nOK.md\n",
+		"OK.md":    "ok",
+		"sub/x.md": "x",
+	})
+	seedAgentData(t, seed, dest)
+	if err := os.Remove(filepath.Join(dest, "OK.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "outside.txt"), filepath.Join(dest, "OK.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := seedAgentData(t, seed, dest)
+	if !strings.Contains(out, "skipping invalid .refresh entry") {
+		t.Errorf("invalid entries must be reported; got:\n%s", out)
+	}
+	if got := read(t, filepath.Join(root, "outside.txt")); got != "keep" {
+		t.Fatalf("a refresh must never write outside DEST; outside.txt = %q", got)
+	}
+	if got := read(t, filepath.Join(root, "victim", "file")); got != "keep" {
+		t.Fatal("a refresh must never delete outside DEST")
+	}
+	if fi, err := os.Lstat(filepath.Join(dest, "OK.md")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("a planted symlink must be replaced by the image copy: %v %v", fi, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "pwned")); !os.IsNotExist(err) {
+		t.Fatal("manifest entries must never be evaluated")
+	}
+}
+
+// A plain at-cove cove (no Jam session context) boots the real base-image seed:
+// it gets CLAUDE.md, the trimmed SANDBOX.md it imports and the reference set,
+// and an updated SANDBOX.md reaches an existing volume on the next boot.
+func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
+	src := filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data")
+	seed := filepath.Join(t.TempDir(), "seed")
+	if out, err := exec.Command("cp", "-a", src, seed).CombinedOutput(); err != nil {
+		t.Fatalf("copy seed: %v\n%s", err, out)
+	}
+	dest := filepath.Join(t.TempDir(), "agent-data")
+	seedAgentData(t, seed, dest)
+	if !strings.Contains(read(t, filepath.Join(dest, "CLAUDE.md")), "@SANDBOX.md") {
+		t.Fatal("CLAUDE.md must import SANDBOX.md in a plain at-cove cove")
+	}
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "at-cove recreate") {
+		t.Fatal("a plain at-cove cove must get the at-cove SANDBOX.md")
+	}
+	for _, p := range []string{"reference/sandbox-kit-changes.md", "skills/docs-audit/SKILL.md", "settings.json", "COLLABORATOR.md"} {
+		if _, err := os.Stat(filepath.Join(dest, p)); err != nil {
+			t.Errorf("seeded volume missing %s: %v", p, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dest, "SANDBOX.md"), nil, 0o644); err != nil { // e.g. an agent emptied it
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "COLLABORATOR.md"), []byte("role"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedAgentData(t, seed, dest)
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "at-cove recreate") {
+		t.Fatal("SANDBOX.md must be restored from the image every boot")
+	}
+	if read(t, filepath.Join(dest, "COLLABORATOR.md")) != "role" {
+		t.Fatal("the runtime-owned COLLABORATOR.md must not refresh")
+	}
+}
+
+// The image is authoritative for every .refresh entry: one it no longer ships
+// is removed from the volume rather than left stale.
+func TestSeedAgentDataRemovesEntryDroppedFromSeed(t *testing.T) {
+	seed, dest := t.TempDir(), filepath.Join(t.TempDir(), "agent-data")
+	writeTree(t, seed, map[string]string{".refresh": "CLAUDE.md\nGONE.md\ngone-dir\n", "CLAUDE.md": "c", "GONE.md": "g", "gone-dir/x": "x"})
+	seedAgentData(t, seed, dest)
+	for _, p := range []string{"GONE.md", "gone-dir"} {
+		if err := os.RemoveAll(filepath.Join(seed, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAgentData(t, seed, dest)
+	for _, p := range []string{"GONE.md", "gone-dir"} {
+		if _, err := os.Lstat(filepath.Join(dest, p)); !os.IsNotExist(err) {
+			t.Errorf("%s dropped from the seed must be removed from the volume: %v", p, err)
+		}
+	}
+	if read(t, filepath.Join(dest, "CLAUDE.md")) != "c" {
+		t.Error("a listed entry still in the seed must stay")
+	}
+}
+
+// An image built on a pre-COV-246 base has no agent docs in its seed; the boot
+// says so loudly instead of silently starting an agent without them.
+func TestSeedAgentDataWarnsWithoutAgentDocs(t *testing.T) {
+	out := seedAgentData(t, filepath.Join(t.TempDir(), "absent"), filepath.Join(t.TempDir(), "agent-data"))
+	if !strings.Contains(out, "WARNING") || !strings.Contains(out, "no seed") {
+		t.Errorf("a missing seed must warn loudly; got:\n%s", out)
+	}
+	seed := t.TempDir()
+	writeTree(t, seed, map[string]string{"settings.json": "{}"})
+	out = seedAgentData(t, seed, filepath.Join(t.TempDir(), "agent-data"))
+	if !strings.Contains(out, "WARNING") || !strings.Contains(out, "CLAUDE.md") {
+		t.Errorf("a seed without CLAUDE.md must warn loudly; got:\n%s", out)
+	}
+	writeTree(t, seed, map[string]string{"CLAUDE.md": "c"})
+	if out = seedAgentData(t, seed, filepath.Join(t.TempDir(), "agent-data")); strings.Contains(out, "WARNING") {
+		t.Errorf("a complete seed must not warn; got:\n%s", out)
+	}
+}

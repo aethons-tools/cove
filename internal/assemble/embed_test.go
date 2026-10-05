@@ -21,9 +21,7 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/systemd/system/cove-egress.service",
 		"hardening/image-files/etc/systemd/system/squid.service.d/cove-egress.conf",
 		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
-		// Agent-instruction docs are hardening-owned (moved from overridable in
-		// 63984c6) so a kit override cannot shadow them.
-		"hardening/image-files/home/agent/.init-agent-data/SANDBOX.md",
+		"hardening/image-files/usr/local/lib/cove/seed-agent-data.sh",
 	} {
 		if _, err := fs.Stat(hardeningFS, p); err != nil {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
@@ -418,46 +416,113 @@ func TestEntrypointStartsSSHD(t *testing.T) {
 	}
 }
 
-// TestEntrypointRefreshesReferenceSet guards the every-boot refresh (COV-113): a
-// rebuilt image's updated skills/reference docs/CLAUDE tree must reach an existing
-// (already-seeded) sandbox, while runtime-owned seed files stay untouched. The
-// first-boot full seed is unconditional-once; the refresh re-mirrors only the
-// image-owned reference set on every boot.
-func TestEntrypointRefreshesReferenceSet(t *testing.T) {
+// TestEntrypointSeedsGenerically guards the sealed seeding mechanism (COV-246):
+// the entrypoint hands the image's seed to seed-agent-data.sh and chowns the
+// volume, before the docker/systemd handoff so both boot paths seed. What is
+// seeded and refreshed is the image's business (its .refresh manifest), so the
+// sealed entrypoint must not hard-code any agent file name.
+func TestEntrypointSeedsGenerically(t *testing.T) {
 	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/entrypoint.sh")
 	if err != nil {
 		t.Fatalf("entrypoint.sh not embedded: %v", err)
 	}
 	s := string(b)
-
-	// (a) mirrors skills and reference (prune semantics: rm -rf + cp) and overwrites
-	// the three doc files, every boot.
-	if !strings.Contains(s, "for d in skills reference; do") {
-		t.Errorf("entrypoint must re-mirror the skills and reference subtrees every boot; got:\n%s", s)
+	call := "/usr/local/lib/cove/seed-agent-data.sh /home/agent/.init-agent-data /agent-data"
+	if !strings.Contains(s, call) || !strings.Contains(s, "chown -R agent:agent /agent-data") {
+		t.Fatalf("entrypoint must run %q and chown the volume; got:\n%s", call, s)
 	}
-	if !strings.Contains(s, `rm -rf "/agent-data/$d"`) {
-		t.Errorf("entrypoint must prune (rm -rf) the reference subtrees so removed/renamed entries don't linger; got:\n%s", s)
+	if strings.Index(s, call) > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
+		t.Error("seeding must run before the COVE_DOCKER branch")
 	}
-	if !strings.Contains(s, "for f in CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md; do") {
-		t.Errorf("entrypoint must overwrite the three CLAUDE doc files by name every boot; got:\n%s", s)
-	}
-
-	// (b) does NOT refresh the runtime-owned seed files. The refresh block names the
-	// reference set explicitly and must never operate on a runtime-owned entry — so
-	// inspect only the executable lines (a comment may legitimately name them to
-	// document what is deliberately skipped).
-	refresh := s[strings.Index(s, "Every boot:"):]
 	var code strings.Builder
-	for _, line := range strings.Split(refresh, "\n") {
+	for _, line := range strings.Split(s, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
-			code.WriteString(line)
-			code.WriteString("\n")
+			code.WriteString(line + "\n")
 		}
 	}
-	for _, forbidden := range []string{".claude.json", "settings.json", "plugins", "COLLABORATOR.md"} {
-		if strings.Contains(code.String(), forbidden) {
-			t.Errorf("every-boot refresh must NOT touch runtime-owned %q; got:\n%s", forbidden, code.String())
+	for _, name := range []string{"CLAUDE.md", "SANDBOX.md", "PROGRESSIVE_DISCLOSURE.md", "COLLABORATOR.md", "skills", "reference", ".claude.json", "settings.json"} {
+		if strings.Contains(code.String(), name) {
+			t.Errorf("the sealed entrypoint must not hard-code %q; got:\n%s", name, code.String())
 		}
+	}
+}
+
+// TestHardeningShipsNoAgentDocs guards decision B3 (COV-246): the agent docs
+// and skills seeded into /agent-data are the kit base's (cove-base-image), so a
+// kit can override them; the sealed layer ships none of them, nor the unused
+// /etc/claude-code/mcp.json (agentrun generates the MCP config since COV-240).
+func TestHardeningShipsNoAgentDocs(t *testing.T) {
+	err := fs.WalkDir(hardeningFS, "hardening/image-files", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case strings.Contains(p, ".init-agent-data"):
+			t.Errorf("hardening must not seed agent data: %s", p)
+		case strings.HasSuffix(p, "SKILL.md"), !d.IsDir() && strings.HasSuffix(p, ".md"):
+			t.Errorf("hardening must not ship agent docs or skills: %s", p)
+		case p == "hardening/image-files/etc/claude-code/mcp.json":
+			t.Errorf("the unused baked MCP config must be gone: %s", p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBaseImageSeedsAgentDocs guards where the agent docs live now: the base
+// image's seed carries CLAUDE.md and every file it imports, the reference docs
+// and skills, a .refresh manifest preserving the pre-COV-246 every-boot set,
+// and its Dockerfile copies them agent-owned with docs_audit.py executable.
+func TestBaseImageSeedsAgentDocs(t *testing.T) {
+	claude, err := os.ReadFile(baseInitAgentData("CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, imp := range []string{"@PROGRESSIVE_DISCLOSURE.md", "@SANDBOX.md", "@COLLABORATOR.md"} {
+		if !strings.Contains(string(claude), imp) {
+			t.Errorf("CLAUDE.md must import %s:\n%s", imp, claude)
+		}
+		if _, err := os.Stat(baseInitAgentData(strings.TrimPrefix(imp, "@"))); err != nil {
+			t.Errorf("CLAUDE.md import %s must resolve in the seed: %v", imp, err)
+		}
+	}
+	for _, f := range []string{
+		"reference/sandbox-kit-changes.md", "reference/sandbox-hardening-limits.md", "reference/progressive-disclosure.md",
+		"skills/board-execute/SKILL.md", "skills/docs-audit/SKILL.md", "skills/docs-navigate/SKILL.md",
+	} {
+		if _, err := os.Stat(baseInitAgentData(f)); err != nil {
+			t.Errorf("base seed missing %s: %v", f, err)
+		}
+	}
+	if fi, err := os.Stat(baseInitAgentData("skills/docs-audit/scripts/docs_audit.py")); err != nil || fi.Mode()&0o111 == 0 {
+		t.Errorf("docs_audit.py must be executable in the checkout: %v %v", fi, err)
+	}
+	m, err := os.ReadFile(baseInitAgentData(".refresh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []string
+	for _, line := range strings.Split(string(m), "\n") {
+		if l := strings.TrimSpace(line); l != "" && !strings.HasPrefix(l, "#") {
+			entries = append(entries, l)
+		}
+	}
+	if got, want := strings.Join(entries, " "), "CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md reference skills"; got != want {
+		t.Errorf(".refresh = %q, want %q (runtime-owned files must never refresh)", got, want)
+	}
+	df, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := string(df)
+	copyAt, chownAt := strings.Index(d, "COPY image-files/. /."), strings.Index(d, "chown -R agent:agent /home/agent")
+	if copyAt < 0 || chownAt < copyAt {
+		t.Errorf("base Dockerfile must COPY the seed then chown /home/agent to agent:\n%s", d)
+	}
+	if !strings.Contains(d, "chmod 0755 /home/agent/.init-agent-data/skills/docs-audit/scripts/docs_audit.py") {
+		t.Errorf("base Dockerfile must keep docs_audit.py executable:\n%s", d)
 	}
 }
 
@@ -534,41 +599,47 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 }
 
-// SANDBOX.md is loaded in every sandbox; in a Jam session it must defer to the
-// session context instead of prescribing the local at-cove kit path.
-func TestSandboxMDDefersToJamContext(t *testing.T) {
-	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/SANDBOX.md")
+// SANDBOX.md is the plain at-cove sandbox guide. A Jam session gets the
+// sandbox rules from its compiled context, so the file opens with a short guard
+// telling a Jam session (CORE.md present) to ignore the rest; nothing in the
+// sealed layer rewrites this kit-overridable file (COV-246). The body after the
+// guard carries only the local kit path.
+func TestSandboxMDIsPlainAtCoveWithJamGuard(t *testing.T) {
+	b, err := os.ReadFile(baseInitAgentData("SANDBOX.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if !strings.Contains(s, "/agent-data/context/CORE.md") {
-		t.Fatal("SANDBOX.md must route Jam sessions to their session context")
+	head, body, ok := strings.Cut(s, "\n\n# ")
+	if !ok {
+		t.Fatalf("SANDBOX.md must open with a guard paragraph before its heading:\n%s", s)
 	}
-	if !strings.Contains(s, ".at-cove/config.yml") {
-		t.Fatal("SANDBOX.md must keep the local at-cove path")
+	for _, want := range []string{"/agent-data/context/CORE.md", "Jam", "session context", "ignore"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("the guard must mention %q:\n%s", want, head)
+		}
+	}
+	if len(head) > 300 {
+		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
+	}
+	for _, want := range []string{".at-cove/config.yml", "at-cove recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
+		}
+	}
+	for _, gone := range []string{"Jam", "/agent-data/context"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("only the guard may mention Jam (%q):\n%s", gone, body)
+		}
 	}
 }
 
 func TestCollaboratorDefaultIsEmpty(t *testing.T) {
-	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/COLLABORATOR.md")
+	b, err := os.ReadFile(baseInitAgentData("COLLABORATOR.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(string(b)) != "" {
 		t.Fatalf("default COLLABORATOR.md must be empty, got %q", b)
-	}
-}
-
-// The leaf pointer for kit edits must also route Jam sessions to their context.
-func TestSandboxMDKitLeafDefersToJam(t *testing.T) {
-	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/home/agent/.init-agent-data/SANDBOX.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(b)
-	i := strings.Index(s, "**Editing the kit**")
-	if i < 0 || !strings.Contains(s[i:min(len(s), i+400)], "boilerplate/changing-the-kit.md") {
-		t.Fatalf("the Editing-the-kit bullet must name the Jam leaf:\n%s", s[i:])
 	}
 }
