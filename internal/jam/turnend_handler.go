@@ -47,7 +47,7 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	actor, ok := h.authenticate(w, r)
+	actor, ok := authenticateCove(w, r, h.store)
 	if !ok {
 		return
 	}
@@ -76,6 +76,7 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.setter.SetIdleOverride(actor.ID, o)
 		h.log.Info("turn-end: idle override", "actor", actor.ID, "duration", o.Duration.String(), "scope", o.Scope)
 	} else {
+		req.Reason = strings.TrimSpace(req.Reason)
 		if req.Reason == "" || len(req.Reason) > maxEndReason {
 			http.Error(w, fmt.Sprintf("reason is required, at most %d bytes", maxEndReason), http.StatusBadRequest)
 			return
@@ -91,20 +92,21 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// authenticate resolves the caller's identity token to an actor with a live
-// instance, writing the 401/403 itself. Same lookup primitive as /escalate.
-func (h *TurnEndHandler) authenticate(w http.ResponseWriter, r *http.Request) (Actor, bool) {
+// authenticateCove resolves the caller's identity token to an actor with a
+// live instance, writing the 401/403 itself. Same lookup primitive as
+// /escalate. Shared by /end, /idle and /alarms.
+func authenticateCove(w http.ResponseWriter, r *http.Request, store escalateStore) (Actor, bool) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {
 		http.Error(w, "missing identity", http.StatusUnauthorized)
 		return Actor{}, false
 	}
-	actor, ok := h.store.Lookup(HashToken(tok))
+	actor, ok := store.Lookup(HashToken(tok))
 	if !ok {
 		http.Error(w, "unknown identity", http.StatusUnauthorized)
 		return Actor{}, false
 	}
-	if _, ok := h.store.GetInstance(actor.ID); !ok {
+	if _, ok := store.GetInstance(actor.ID); !ok {
 		http.Error(w, "no instance", http.StatusForbidden)
 		return Actor{}, false
 	}

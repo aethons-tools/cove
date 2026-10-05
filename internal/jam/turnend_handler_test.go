@@ -62,6 +62,7 @@ func TestEndRejects(t *testing.T) {
 		{"POST", "", `{"reason":"x"}`, 401},
 		{"POST", "nope", `{"reason":"x"}`, 401},
 		{"POST", "tok", `{"reason":""}`, 400},
+		{"POST", "tok", `{"reason":"   "}`, 400},
 		{"POST", "tok", `{"reason":"` + strings.Repeat("x", 1001) + `"}`, 400},
 		{"POST", "tok", `{"reason":"` + strings.Repeat("x", 3000) + `"}`, 413},
 		{"GET", "tok", ``, 405},
