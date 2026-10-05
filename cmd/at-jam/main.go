@@ -439,6 +439,8 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
 	nagEvery := fs.Duration("nag-every", 0, "then re-nag the owner this often (0 = default 24h)")
 	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
+	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
+	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -463,13 +465,19 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
 			return 2
 		}
+		te := jam.TurnEndPolicy{IdleTimeout: *idleTimeout, OnIdle: *onIdle}
+		if err := jam.ValidateTurnEnd(te); err != nil {
+			fmt.Fprintln(stderr, "at-jam role add:", err)
+			return 2
+		}
 		ds, creds, err := jam.ParseDestinations(*dests)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
 		}
 		r := jam.Role{
-			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
+			TurnEnd: te,
+			Name:    *name, Kit: *kitName, ModelSpec: *modelSpec,
 			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
@@ -488,7 +496,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), egressState(r.Scope.Egress))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1060,7 +1068,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role to raise the studio for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
-	activity := fs.String("activity", "", "reported activity: running|waiting|blocked|done (status only)")
+	activity := fs.String("activity", "", "reported activity: running|holding|waiting|blocked|done (status only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1833,6 +1841,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
 	eng.SetRunningWake(sup /*Cursor*/)
+	// Turn end: enforce end(reason) and the role's idle timeout.
+	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 

@@ -95,8 +95,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] {
-		t.Fatalf("want read+send+list_targets+commit tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] {
+		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout tools, got %v", names)
 	}
 }
 
@@ -431,6 +431,52 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	}
 	if gotPath != "/escalate" || !strings.Contains(gotBody, `"category":"infra"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+}
+
+func turnEndClient(t *testing.T, gotMethod, gotPath, gotBody *string) *messagingClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*gotMethod, *gotPath = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		*gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestMCPEndForwardsReason(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.end(context.Background(), "merged"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "POST" || p != "/end" || !strings.Contains(b, `"reason":"merged"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPIdleTimeoutForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.idleTimeout(context.Background(), "45m", "next"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/idle" || !strings.Contains(b, `"duration":"45m"`) || !strings.Contains(b, `"scope":"next"`) {
+		t.Fatalf("%s %s %s", m, p, b)
 	}
 }
 

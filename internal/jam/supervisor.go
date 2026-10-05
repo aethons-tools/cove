@@ -418,6 +418,10 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
+	// A turn ends when the cove leaves Running for Holding or Waiting (not
+	// Holding → Waiting: same turn end).
+	turnEnded := inst.Activity == ActivityRunning && (a == ActivityHolding || a == ActivityWaiting)
+	turnStarted := a == ActivityRunning && inst.Activity != ActivityRunning // from Holding too
 	// holding → running is the same run resuming, not a new one: keep WaitSeq so
 	// a reply that landed while holding (not yet woken for) still wakes it.
 	enteringRunning := a == ActivityRunning && inst.Activity != ActivityRunning && inst.Activity != ActivityHolding
@@ -430,6 +434,14 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 		// the wake-on engine wakes the cove on each later reply and advances the
 		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+	}
+	if turnStarted {
+		// Whatever woke it answered this turn end, so the idle deadline is
+		// disarmed until the next one.
+		inst.IdleDeadline = time.Time{}
+	}
+	if turnEnded {
+		s.armIdleDeadline(&inst, now)
 	}
 	if enteringWaiting {
 		// WaitSeq is deliberately kept: a reply that landed while the cove was
@@ -462,6 +474,51 @@ func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.WaitSeq = seq
+	return s.store.PutInstance(inst)
+}
+
+// armIdleDeadline stamps a turn end on inst and arms its idle deadline from
+// the override (a next-scoped one is used up here) or the role's timeout.
+func (s *Supervisor) armIdleDeadline(inst *Instance, now time.Time) {
+	inst.TurnEndedAt = now
+	inst.IdleDeadline = time.Time{}
+	var d time.Duration
+	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
+		d = role.TurnEnd.IdleTimeout
+	}
+	if o := inst.IdleOverride; o != nil {
+		d = o.Duration
+		if o.Scope == IdleScopeNext {
+			inst.IdleOverride = nil
+		}
+	}
+	if d > 0 {
+		inst.IdleDeadline = now.Add(d)
+	}
+}
+
+// SetEndRequested records that the cove asked to end (first request wins).
+// Wake-on tears it down once it is Waiting and never wakes it again.
+func (s *Supervisor) SetEndRequested(actorID, reason string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.EndRequested != nil {
+		return nil
+	}
+	inst.EndRequested = &EndRequest{Reason: reason, At: s.now()}
+	return s.store.PutInstance(inst)
+}
+
+// SetIdleOverride replaces the cove's idle-timeout override; it applies from
+// the next turn end (a next-scoped one only to that turn end).
+func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.IdleOverride = &o
 	return s.store.PutInstance(inst)
 }
 

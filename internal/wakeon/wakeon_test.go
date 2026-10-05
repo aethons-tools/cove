@@ -1199,3 +1199,142 @@ func TestTick_HoldingCoveNeverPausedOrReaped(t *testing.T) {
 		t.Fatalf("holding cove paused/reaped: teardown=%v idle=%v", reap.down, idler.idled)
 	}
 }
+
+type fakeEnder struct{ ended []string }
+
+func (f *fakeEnder) NotifyEnded(_ context.Context, inst jam.Instance, reason string) error {
+	f.ended = append(f.ended, inst.ActorID+":"+reason)
+	return nil
+}
+
+// turnEndEngine builds an engine with the turn-end hooks on, at now=10000s.
+func turnEndEngine(insts []jam.Instance, inbox Inbox, roles fakeRoles) (*Engine, *fakeWaker, *fakeReaper, *fakeIdler, *fakeEnder) {
+	reg := &fakeReg{insts: insts}
+	wake, reap, idler, ender := &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, &fakeEnder{}
+	if inbox == nil {
+		inbox = &fakeInbox{}
+	}
+	e := New(reg, wake, reap, idler, inbox, Config{MaxWait: time.Hour, WarmTimeout: 24 * time.Hour}, nil)
+	e.SetRunningWake(&fakeCursor{reg: reg})
+	e.SetTurnEnd(roles, ender)
+	e.now = func() time.Time { return time.Unix(10000, 0) }
+	return e, wake, reap, idler, ender
+}
+
+func TestTick_EndRequestedWaitingTornDownAndNotified(t *testing.T) {
+	e, wake, reap, _, ender := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindPersonal, Owner: "alice", WaitingSince: time.Unix(9990, 0),
+		EndRequested: &jam.EndRequest{Reason: "wrapped up"}}}, nil, nil)
+	e.tick(context.Background())
+	if len(reap.down) != 1 || len(ender.ended) != 1 || ender.ended[0] != "a1:wrapped up" || len(wake.woke) != 0 {
+		t.Fatalf("teardown=%v ended=%v woke=%v", reap.down, ender.ended, wake.woke)
+	}
+}
+
+func TestTick_EndRequestedNeverWoken(t *testing.T) {
+	for _, act := range []jam.Activity{jam.ActivityRunning, jam.ActivityHolding} {
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+		e, wake, reap, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: act, WaitSeq: 5,
+			EndRequested: &jam.EndRequest{Reason: "x"}}}, inbox, nil)
+		e.tick(context.Background())
+		if len(wake.woke) != 0 || len(reap.down) != 0 {
+			t.Fatalf("%s: woke=%v teardown=%v; want neither until it waits", act, wake.woke, reap.down)
+		}
+	}
+}
+
+func TestTick_IdleDeadlineWakes(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Project: "p", Role: "r", Phase: jam.PhaseLive,
+		Activity: jam.ActivityWaiting, SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0),
+		IdleDeadline: time.Unix(9999, 0)}}, nil, fakeRoles{"p/r": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute}}})
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0].Kind != jam.WakeIdle {
+		t.Fatalf("woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_IdleDeadlineNotYetDue(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(10001, 0)}}, nil, nil)
+	e.tick(context.Background())
+	if len(wake.woke) != 0 {
+		t.Fatalf("woke before the deadline: %v", wake.woke)
+	}
+}
+
+func TestTick_IdleDeadlineTeardown(t *testing.T) {
+	e, wake, reap, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Project: "p", Role: "r", Phase: jam.PhaseLive,
+		Activity: jam.ActivityWaiting, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}},
+		nil, fakeRoles{"p/r": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute, OnIdle: jam.OnIdleTeardown}}})
+	e.tick(context.Background())
+	if len(reap.down) != 1 || len(wake.woke) != 0 {
+		t.Fatalf("teardown=%v woke=%v", reap.down, wake.woke)
+	}
+}
+
+func TestTick_IdleWakeResumesPausedSession(t *testing.T) {
+	e, wake, _, idler, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}}, nil, nil)
+	e.tick(context.Background())
+	if len(idler.resumed) != 1 || len(wake.woke) != 0 {
+		t.Fatalf("resumed=%v woke=%v; want resume now, wake later", idler.resumed, wake.woke)
+	}
+	// Once resumed (Live again) the still-armed deadline wakes it.
+	e.reg.(*fakeReg).insts[0].Phase = jam.PhaseLive
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.reasons[0][0].Kind != jam.WakeIdle {
+		t.Fatalf("after resume: woke=%v reasons=%v", wake.woke, wake.reasons)
+	}
+}
+
+func TestTick_HoldingIdleWakeButNotTeardown(t *testing.T) {
+	roles := fakeRoles{"p/w": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute}}, "p/t": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute, OnIdle: jam.OnIdleTeardown}}}
+	e, wake, reap, _, _ := turnEndEngine([]jam.Instance{
+		{ActorID: "w", Project: "p", Role: "w", Phase: jam.PhaseLive, Activity: jam.ActivityHolding, IdleDeadline: time.Unix(9999, 0)},
+		{ActorID: "t", Project: "p", Role: "t", Phase: jam.PhaseLive, Activity: jam.ActivityHolding, IdleDeadline: time.Unix(9999, 0)},
+	}, nil, roles)
+	e.tick(context.Background())
+	if len(wake.woke) != 1 || wake.woke[0] != "w" || len(reap.down) != 0 {
+		t.Fatalf("woke=%v teardown=%v", wake.woke, reap.down)
+	}
+}
+
+func TestTick_WaitMaxOnlyWithoutIdleDeadline(t *testing.T) {
+	// non-resident, waited 2h > MaxWait 1h
+	base := jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(10000-7200, 0)}
+	armed, unarmed := base, base
+	armed.ActorID, armed.IdleDeadline = "armed", time.Unix(20000, 0)
+	unarmed.ActorID = "unarmed"
+	e, _, reap, _, _ := turnEndEngine([]jam.Instance{armed, unarmed}, nil, nil)
+	e.tick(context.Background())
+	if len(reap.down) != 1 || reap.down[0] != "unarmed" {
+		t.Fatalf("teardown=%v, want only the session with no idle deadline", reap.down)
+	}
+}
+
+// A dropped idle wake (no stream yet) must be retried: the deadline stays armed
+// until the cove reports Running, so every tick while it is due re-sends.
+func TestTick_IdleWakeRetriedUntilRunning(t *testing.T) {
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}}, nil, nil)
+	e.tick(context.Background())
+	e.tick(context.Background())
+	if len(wake.woke) != 2 {
+		t.Fatalf("woke=%v; want the idle wake re-sent while still waiting", wake.woke)
+	}
+}
+
+// Squawk and idle deadline due together: only squawk wakes, on this tick and
+// the next (the reply is still unread until the cove runs).
+func TestTick_SquawkBeatsIdleAcrossTicks(t *testing.T) {
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitSeq: 5, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}}, inbox, nil)
+	e.tick(context.Background())
+	e.tick(context.Background())
+	for i, rs := range wake.reasons {
+		if len(rs) != 1 || rs[0].Kind != jam.WakeSquawk {
+			t.Fatalf("wake %d reasons=%v; want squawk only", i, rs)
+		}
+	}
+}

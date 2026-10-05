@@ -34,10 +34,13 @@ func TestSquawksMuxRouting(t *testing.T) {
 	escH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "escalate")
 	})
+	turnEndH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "turn-end")
+	})
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "broker")
 	})
-	mux := squawksMux(squawksH, escH, broker)
+	mux := squawksMux(squawksH, escH, turnEndH, broker)
 
 	for _, tc := range []struct {
 		path string
@@ -47,6 +50,9 @@ func TestSquawksMuxRouting(t *testing.T) {
 		{"/squawks/targets", "squawks"},
 		{"/squawks/commit", "squawks"},
 		{"/escalate", "escalate"},
+		{"/end", "turn-end"},
+		{"/idle", "turn-end"},
+		{"/end/extra", "broker"},
 		{"/", "broker"},
 		{"/git/some/repo", "broker"},
 		{"/squawks/extra", "broker"},  // exact-match only, not a prefix route

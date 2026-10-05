@@ -87,6 +87,8 @@ func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
 		duration("Idle after", a.IdleAfter, "default ("+fmtDur(jam.DefaultIdleAfter)+")"),
 		duration("Nag every", a.NagEvery, "default ("+fmtDur(jam.DefaultNagEvery)+")"),
 		duration("Reclaim after", a.ReclaimAfter, "never"),
+		duration("Idle timeout", role.TurnEnd.IdleTimeout, "none"),
+		{Label: "On idle", Value: role.TurnEnd.Action()},
 	}
 
 	phases := map[string]string{}

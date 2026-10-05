@@ -98,6 +98,10 @@ type RoleBody struct {
 	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
 	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
 	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
+	// IdleTimeoutSeconds / OnIdle are the role's turn-end policy
+	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
+	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
+	OnIdle             string `json:"on_idle,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -122,6 +126,10 @@ type RoleSummary struct {
 	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
 	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
 	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
+	// IdleTimeoutSeconds / OnIdle are the role's turn-end policy
+	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
+	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
+	OnIdle             string `json:"on_idle,omitempty"`
 	// Egress is the role's egress policy; nil = the kit's default list.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
@@ -480,6 +488,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				IdleAfterSeconds:    int64(ro.Allocation.IdleAfter / time.Second),
 				NagEverySeconds:     int64(ro.Allocation.NagEvery / time.Second),
 				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
+				IdleTimeoutSeconds:  int64(ro.TurnEnd.IdleTimeout / time.Second),
+				OnIdle:              ro.TurnEnd.OnIdle,
 				Egress:              ro.Scope.Egress,
 			})
 		}
@@ -503,6 +513,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
 			return
 		}
+		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle}
+		if err := ValidateTurnEnd(te); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if b.Kit != "" {
 			if _, ok := store.GetKit(b.Kit); !ok {
 				http.Error(w, "kit does not exist", http.StatusBadRequest)
@@ -520,6 +535,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
+			TurnEnd: te,
 		}
 		if err := ValidateCredentials(role.Scope, credExists); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
