@@ -125,8 +125,8 @@ Each destination name in the Destinations table links to
 
 The page shows:
 
-- **Broker** — route, upstream, identity-in, apply, default credential, and
-  whether oauth-beta is on.
+- **Broker** — route, upstream, identity-in, apply (any custom [header spec](header-specs.md)
+  read-only), default credential, and whether oauth-beta is on.
 - **Studio connector** — the client env a studio sets (`{url}` already resolved
   to `{base}<route>`) and git routing. A destination with no declared env shows
   its route's legacy default, labeled as implied (see
@@ -142,7 +142,8 @@ The page shows:
 
 **Edit destination** is one pre-filled form for every field but the name:
 client env is one `KEY=TEMPLATE` per line (empty = the route's legacy default),
-git routing and oauth-beta are checkboxes, and the note is the usage hint
+identity-in/apply select a preset (incl. `raw`; a `custom` one stays custom,
+spec kept), git routing and oauth-beta are checkboxes, and the note is the usage hint
 sessions see ([connector.md](connector.md#notes-for-sessions)). Validation matches the admin API
 (required fields, a configured default credential, env keys and placeholders).
 Changing env on the `/git/` route drops its implied git routing unless **Route

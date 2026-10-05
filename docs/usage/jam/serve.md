@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # Running Jam (`at-jam serve`)
@@ -248,10 +248,11 @@ at-jam destination rm <name>
 at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
 ```
 
-- `--identity-in` / `--apply` are one of `bearer | basic-password | x-api-key` —
-  how the studio presents its identity, and how Jam applies the real credential.
-  The header carrying the studio's identity (per `--identity-in`) is always
-  stripped before forwarding, so a Jam identity token never reaches the upstream.
+- `--identity-in` / `--apply` are a preset, `bearer | basic-password | x-api-key | raw` —
+  how the studio presents its identity, and how Jam applies the real credential;
+  other headers take a custom spec via `import` — see [header-specs.md](header-specs.md).
+  The identity header is always stripped before forwarding, so a Jam identity
+  token never reaches the upstream.
 - `--oauth-beta` makes the broker add the `oauth-2025-04-20` `anthropic-beta` on
   forwarded requests — required for the subscription [pool](pool.md) (a cove on
   `ANTHROPIC_AUTH_TOKEN` sends a bearer but not that beta).

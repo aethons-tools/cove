@@ -2,7 +2,9 @@ package jam
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +194,9 @@ func TestImportConfigValidatesAuthoredContext(t *testing.T) {
 		"long destination note": func(s *ConfigSnapshot) {
 			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Note: strings.Repeat("n", MaxDestinationNote+1)}}
 		},
+		"destination custom without spec": func(s *ConfigSnapshot) {
+			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Apply: ApplyCustom}}
+		},
 	} {
 		s := good()
 		mut(&s)
@@ -201,5 +206,35 @@ func TestImportConfigValidatesAuthoredContext(t *testing.T) {
 	}
 	if err := NewMemStore().ImportConfig(good()); err != nil {
 		t.Fatalf("a valid snapshot must import: %v", err)
+	}
+}
+
+// Backups carry destinations in both shapes: preset strings (pre-spec) and
+// custom header specs; both survive export → JSON → import.
+func TestConfigSnapshotDestinationHeaderSpecsRoundTrip(t *testing.T) {
+	src := NewMemStore()
+	for _, d := range []Destination{
+		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword},
+		{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Private-Token"},
+			Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "{cred}"}},
+	} {
+		if err := src.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := json.Marshal(src.ExportConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap ConfigSnapshot
+	if err := json.Unmarshal(b, &snap); err != nil {
+		t.Fatal(err)
+	}
+	dst := NewMemStore()
+	if err := dst.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(dst.ListDestinations(), src.ListDestinations()) {
+		t.Fatalf("round trip:\n got %+v\nwant %+v", dst.ListDestinations(), src.ListDestinations())
 	}
 }

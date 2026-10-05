@@ -16,7 +16,8 @@ const MaxDestinationNote = 300
 
 // ValidateDestination checks a destination at write time — the rules shared by
 // the JSON admin API and the UI: name, route and upstream are required, a
-// default credential must be configured, and env must pass ValidateEnv.
+// default credential must be configured, identity_in/apply must be a preset
+// or custom with a valid spec, and env must pass ValidateEnv.
 // Refusals are 400 WriteErrors.
 func ValidateDestination(d Destination, credExists func(string) bool) error {
 	if d.Name == "" || d.Route == "" || d.Upstream == "" {
@@ -27,6 +28,9 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	}
 	if len(d.Note) > MaxDestinationNote {
 		return writeErr(http.StatusBadRequest, "note is %d bytes; at most %d", len(d.Note), MaxDestinationNote)
+	}
+	if err := d.validateHeaderSpecs(); err != nil {
+		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := d.ValidateEnv(); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())

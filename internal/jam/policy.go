@@ -6,16 +6,6 @@ import (
 	"strings"
 )
 
-// ApplyMethod is how a credential (the inbound identity token, or the outbound
-// real credential) is carried on an HTTP request.
-type ApplyMethod string
-
-const (
-	ApplyBearer        ApplyMethod = "bearer"         // Authorization: Bearer <value>
-	ApplyBasicPassword ApplyMethod = "basic-password" // HTTP basic auth, <value> as the password
-	ApplyXAPIKey       ApplyMethod = "x-api-key"      // X-Api-Key: <value> (Anthropic API keys)
-)
-
 // Destination is one configured upstream the broker will proxy to. Anthropic and
 // git are simply two Destinations; the engine has no service-specific branches.
 type Destination struct {
@@ -25,6 +15,10 @@ type Destination struct {
 	IdentityIn ApplyMethod `json:"identity_in" yaml:"identity_in"`
 	CredName   string      `json:"cred_name"   yaml:"cred_name"`
 	Apply      ApplyMethod `json:"apply"       yaml:"apply"`
+	// IdentityInSpec / ApplySpec are the header specs used when IdentityIn /
+	// Apply is "custom" (and only then); presets expand in headerspec.go.
+	IdentityInSpec *InboundSpec  `json:"identity_in_spec,omitempty" yaml:"identity_in_spec,omitempty"`
+	ApplySpec      *OutboundSpec `json:"apply_spec,omitempty"       yaml:"apply_spec,omitempty"`
 	// OAuthBeta, when set, makes the broker ensure the `oauth-2025-04-20` beta is
 	// present in the forwarded `anthropic-beta` header. Used by the subscription
 	// pool: a cove on ANTHROPIC_AUTH_TOKEN sends a bearer but NOT that beta, and
@@ -46,7 +40,8 @@ type Destination struct {
 // to {base}<route>. A destination without Env keeps the pre-env contract: the
 // /anthropic/ route sets ANTHROPIC_BASE_URL plus the identity on
 // ANTHROPIC_API_KEY (identity-in x-api-key) or ANTHROPIC_AUTH_TOKEN (bearer —
-// the subscription pool's configuration).
+// the subscription pool's configuration). Other presets and custom specs imply
+// no token env.
 func (d Destination) ClientEnv() map[string]string {
 	env := d.Env
 	if env == nil && d.Route == "/anthropic/" {

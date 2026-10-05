@@ -7,9 +7,9 @@
   <label>Route <span class="req">required</span><input name="route" value="{{.Dest.Route}}" required placeholder="/anthropic/"></label>
   <label class="wide">Upstream URL <span class="req">required</span><input name="upstream" value="{{.Dest.Upstream}}" required placeholder="https://api.example.com"></label>
   <label>Identity in <span class="hint">how a studio presents its identity token</span>
-    <select name="identity-in">{{$v := .Dest.IdentityIn}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <select name="identity-in">{{$v := .Dest.IdentityIn}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}{{if eq $v "custom"}}<option value="custom" selected>custom (spec below, read-only)</option>{{end}}</select></label>
   <label>Apply as <span class="hint">how the credential is sent upstream</span>
-    <select name="apply">{{$v := .Dest.Apply}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <select name="apply">{{$v := .Dest.Apply}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}{{if eq $v "custom"}}<option value="custom" selected>custom (spec below, read-only)</option>{{end}}</select></label>
   <label>Default credential <span class="hint">cred-name; a role can map its own</span><input name="cred-name" data-ta="credentials" value="{{.Dest.CredName}}" autocomplete="off" spellcheck="false"></label>
   <label class="wide">Client env <span class="hint">one <code>KEY=TEMPLATE</code> per line; placeholders <code>{url}</code> <code>{base}</code> <code>{host}</code> <code>{token}</code>. Leave empty for the route's legacy default (<code>/anthropic/</code>, <code>/git/</code>).{{if and (eq .Dest.Route "/git/") (not .Dest.Env)}} Adding env here drops <code>/git/</code>'s implied git routing — tick “Route git” to keep it.{{end}}</span>
     <textarea name="env" spellcheck="false" placeholder="GH_HOST={host}">{{.Form.Env}}</textarea></label>

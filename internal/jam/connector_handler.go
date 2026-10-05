@@ -18,7 +18,7 @@ func NewConnectorHandler(store Store, now func() time.Time, log *slog.Logger) ht
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		tok, ok := presentedToken(r, ApplyBearer)
+		tok, ok := presentedToken(r, Destination{IdentityIn: ApplyBearer})
 		if !ok {
 			http.Error(w, "missing identity", http.StatusUnauthorized)
 			return

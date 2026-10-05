@@ -11,8 +11,11 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// methods are the ApplyMethod choices for identity-in / apply selects.
-var methods = []jam.ApplyMethod{jam.ApplyBearer, jam.ApplyBasicPassword, jam.ApplyXAPIKey}
+// methods are the ApplyMethod choices for identity-in / apply selects: the
+// presets. "custom" is offered (selected) only on a destination that already
+// uses it — custom specs are set via the admin API / `destination import` and
+// shown read-only here.
+var methods = jam.Presets
 
 // destListRow is one destinations-table row.
 type destListRow struct {
@@ -203,6 +206,22 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 	}, nil
 }
 
+// keepCustomSpecs carries the stored custom header specs onto an edit that
+// keeps identity-in / apply "custom": the form shows them but can't edit them.
+func keepCustomSpecs(store jam.Store, d *jam.Destination) {
+	for _, cur := range store.ListDestinations() {
+		if cur.Name != d.Name {
+			continue
+		}
+		if d.IdentityIn == jam.ApplyCustom && cur.IdentityIn == jam.ApplyCustom {
+			d.IdentityInSpec = cur.IdentityInSpec
+		}
+		if d.Apply == jam.ApplyCustom && cur.Apply == jam.ApplyCustom {
+			d.ApplySpec = cur.ApplySpec
+		}
+	}
+}
+
 func destTableData(store jam.Store) map[string]any {
 	return map[string]any{
 		"Destinations": destListRows(store),
@@ -265,6 +284,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		d, err := destFromForm(r, r.PathValue("name"))
 		if err == nil {
+			keepCustomSpecs(store, &d)
 			err = jam.UpdateDestination(store, d, credExists)
 		}
 		if err != nil {

@@ -30,11 +30,11 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return
 	}
-	tok, ok := presentedToken(r, dest.IdentityIn)
+	tok, ok := presentedToken(r, dest)
 	if !ok {
 		// Basic-auth clients (git) send credentials only after a challenge; without
 		// this header git reports "Authentication failed" and never presents the token.
-		if dest.IdentityIn == ApplyBasicPassword {
+		if in, _ := dest.InboundSpec(); in.Encoding == EncodingBasic {
 			w.Header().Set("WWW-Authenticate", `Basic realm="jam"`)
 		}
 		http.Error(w, "missing identity", http.StatusUnauthorized)
@@ -79,9 +79,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out.Host = up.Host
 		out.URL.Path = strings.TrimPrefix(r.URL.Path, trimmed) // strip the route prefix
 		out.Header.Del("Authorization")                        // never forward a caller's Authorization upstream
-		stripIdentity(out, dest.IdentityIn)
+		stripIdentity(out, dest)
 		if dec.NeedCred {
-			applyCred(out, dec.Apply, cred)
+			applyCred(out, dest, cred)
 		}
 		if dest.OAuthBeta {
 			ensureAnthropicOAuthBeta(out.Header)
@@ -94,38 +94,22 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // resolveScopes is ScopesFor over the broker's live store.
 func (b *Broker) resolveScopes(actor Actor) []Scope { return ScopesFor(b.store, actor) }
 
-// presentedToken extracts the caller's identity token from the request per how.
-func presentedToken(r *http.Request, how ApplyMethod) (string, bool) {
-	switch how {
-	case ApplyBearer:
-		// "token <x>" is what gh sends to a GitHub Enterprise host (GH_HOST=<jam>).
-		auth := r.Header.Get("Authorization")
-		for _, scheme := range []string{"Bearer ", "token "} {
-			if s, ok := strings.CutPrefix(auth, scheme); ok && s != "" {
-				return s, true
-			}
-		}
-	case ApplyBasicPassword:
-		if _, pass, ok := r.BasicAuth(); ok && pass != "" {
-			return pass, true
-		}
-	case ApplyXAPIKey:
-		if k := r.Header.Get("X-Api-Key"); k != "" {
-			return k, true
-		}
+// presentedToken extracts the caller's identity token from the request per
+// dest's identity-in spec.
+func presentedToken(r *http.Request, dest Destination) (string, bool) {
+	in, ok := dest.InboundSpec()
+	if !ok {
+		return "", false
 	}
-	return "", false
+	return in.extract(r.Header)
 }
 
 // stripIdentity removes the header that carries the caller's Jam identity token
-// (per how) from the upstream request: the token is Jam's, never the
-// upstream's, whatever header it arrived in.
-func stripIdentity(r *http.Request, how ApplyMethod) {
-	switch how {
-	case ApplyBearer, ApplyBasicPassword:
-		r.Header.Del("Authorization")
-	case ApplyXAPIKey:
-		r.Header.Del("X-Api-Key")
+// (per dest's identity-in spec) from the upstream request: the token is Jam's,
+// never the upstream's, whatever header it arrived in.
+func stripIdentity(r *http.Request, dest Destination) {
+	if in, ok := dest.InboundSpec(); ok {
+		r.Header.Del(in.Header)
 	}
 }
 
@@ -150,14 +134,10 @@ func ensureAnthropicOAuthBeta(h http.Header) {
 	h.Set("anthropic-beta", existing+","+anthropicOAuthBeta)
 }
 
-// applyCred sets Jam's real credential on the upstream request.
-func applyCred(r *http.Request, how ApplyMethod, cred string) {
-	switch how {
-	case ApplyBearer:
-		r.Header.Set("Authorization", "Bearer "+cred)
-	case ApplyBasicPassword:
-		r.SetBasicAuth("x-access-token", cred) // git smart-HTTP: any username, PAT as password
-	case ApplyXAPIKey:
-		r.Header.Set("X-Api-Key", cred) // Anthropic API-key auth; Director already stripped Authorization
+// applyCred sets Jam's real credential on the upstream request per dest's
+// apply spec. Never logs the rendered value.
+func applyCred(r *http.Request, dest Destination, cred string) {
+	if out, ok := dest.OutboundSpec(); ok {
+		out.apply(r.Header, cred)
 	}
 }
