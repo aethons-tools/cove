@@ -181,7 +181,7 @@ orchestration):
 AT_JAM_RUNTIME_ADDR       Jam's cove-facing Attach address, jam.host:443 (TLS, via the cove's proxy)
 AT_JAM_IDENTITY_TOKEN     the cove's identity token
 AT_JAM_LAUNCH_SECRET      the per-instance launch secret, minted at raise time
-AT_COVE_WORKDIR           the agent's cwd + where .at-task/worker-result.json is read (default /home/agent/workspace)
+AT_COVE_WORKDIR           the agent's cwd (default /home/agent/workspace)
 AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
 AT_COVE_AGENT_CONTEXT_FILE path to the compiled session context JSON (optional; see session-context.md)
 AT_COVE_RESIDENT          "1"/"true" → resident mode (set by the launcher for personal and standing sessions only)
@@ -208,8 +208,7 @@ stream-json output: it closes stdin only when the agent's turn has ended **and**
 no background task (`run_in_background` Bash, background subagents, Monitors) is
 outstanding, so backgrounding works. A turn that ends with tasks still running
 holds stdin open for at most `BackgroundWait` (30m), then closes it and claude
-stops the stragglers (logged at WARN). When the process exits cove-master reads
-`.at-task/worker-result.json` (the same contract as the dispatch worker). Every
+stops the stragglers (logged at WARN). When the process exits, its turn is over — no result file is read on the Jam path. Every
 episode also passes `--mcp-config /dev/shm/cove-agent-mcp.json --strict-mcp-config`:
 before the first spawn the harness **generates** that one config — the guaranteed
 `messaging` server plus the kit's [`mcp-servers`](kits.md#mcp-servers-cov-240) —
@@ -219,16 +218,7 @@ toolless agent (COV-190). The same pre-flight checks `claude --version` against
 the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds
 no flags, so its coves launch with exactly the argv above). With the config written it proceeds:
 
-- `ok` → the client reports `done` and the supervisor tears the studio down.
-- `needs-input` → the client reports `waiting` and blocks until Jam sends a
-  **wake**. The wake resumes the agent with `claude --continue` and a resume
-  prompt, which starts another turn. If no wake arrives within `MaxWait` (30m by
-  default), the unit ends and reports `done`. Jam's wake-on engine sends the
-  wake when a reply lands; see
-  [intercom.md](intercom.md#waiting-for-a-reply-wake-on).
-- `error` / no result → `done` with the failure logged.
-
-(Resident mode, below, replaces all three outcomes with a wait.)
+Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `cove-master.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), `wait-max`, or a resident session's release/removal.
 
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it
@@ -269,17 +259,11 @@ idempotent (pausing an already-paused cove, or unpausing a running one, is a
 no-op success), so the idle ladder never fails a reconcile on a cove it already
 paused.
 
-**Resident mode (personal and standing sessions).** With `AT_COVE_RESIDENT=1` — which the launcher
-sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — the agent never ends on its
-own: after **every** episode (`ok`, `needs-input`, `error`, or no worker-result) the
-client logs the outcome, reports `waiting`, and blocks on a **wake** or a teardown only
-— there is no `MaxWait`. A turn that **exited non-zero and wrote no worker-result**
-(a crashed or auth/model-failed `claude`) is logged at **WARN** — the session still
-waits for its owner, but the failure is loud, not mistaken for a healthy idle wait;
-the cause is in the agent's own `cove-master.log` (stderr) or `agent-stream.jsonl` (stdout). A wake resumes the agent with `claude --continue` and a prompt
-to `read` the reply and carry on. While an episode is still live (its turn over but a
-background task outstanding, so the studio is still `running`), a wake is written into
-it instead — see the wake paragraph above. The session ends only when a teardown cancels the
+**Resident mode (personal and standing sessions).** `AT_COVE_RESIDENT=1` — which the launcher
+sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — now only picks the
+resume prompt (every session waits after every episode, above). While an episode is still live (its turn over but a
+background task outstanding — [`holding`](turn-end.md#holding)), a wake is written into
+it instead — see the wake paragraph above. A resident session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears a resident session down for
 `wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.

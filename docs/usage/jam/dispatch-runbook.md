@@ -4,7 +4,7 @@ read_when: You are bringing up a real Jam dispatch loop for the first time (or r
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
 prereqs: serve.md, roster.md, requisitioner.md, coves.md, ../at-cove-config.md#jam — this runbook orders them, it does not replace them
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-05
 ---
 
 # Runbook: Jam dispatch, end to end
@@ -81,9 +81,8 @@ doc that owns the detail; this runbook only owns the **order** and the
   *replies to*, so a **bare** post in the channel carries no reference and is
   dropped by design (that's also how Jam's own echoed posts don't
   mis-route). Use Discord's reply-to-message. And a task that waits for a reply
-  should instruct the agent to write `worker-result.json` `needs-input` so it
-  **suspends/idles** (and wake-on resumes it when the reply lands) instead of
-  busy-polling `read` in a single long turn.
+  should have the agent **end its turn** (it then waits, idles, and wake-on resumes
+  it when the reply lands) instead of busy-polling `read` in a single long turn.
 
 ## Known issues (open)
 

@@ -95,7 +95,7 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] {
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["report"] {
 		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
@@ -517,6 +517,17 @@ func TestMCPAlarmListDecodes(t *testing.T) {
 	if err != nil || len(out.Alarms) != 1 || out.Alarms[0].Name != "nightly" || out.Alarms[0].NextAt != "2026-10-06T02:00:00Z" ||
 		out.Alarms[0].Gate != "true" || out.Alarms[0].LastGate == nil || out.Alarms[0].LastGate.Verdict != "pass" {
 		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestMCPReportForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.report(context.Background(), "in-review", "PR is up", "https://github.com/o/r/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "POST" || p != "/report" || !strings.Contains(b, `"state":"in-review"`) || !strings.Contains(b, `"summary":"PR is up"`) || !strings.Contains(b, `"pr":"https://github.com/o/r/pull/7"`) {
+		t.Fatalf("%s %s %s", m, p, b)
 	}
 }
 

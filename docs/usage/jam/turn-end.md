@@ -1,7 +1,7 @@
 ---
-summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone, optionally gated by a shell command run in the cove), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
-read_when: You want a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
-owns: the turn-end model, the `end`, `idle_timeout` and `alarm_*` tools and their `/end`, `/idle`, `/alarms` endpoints, the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
+summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, a ticket session's `report`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone, optionally gated by a shell command run in the cove), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
+read_when: You want a ticket session to report its ticket's state or a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
+owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
 updated: 2026-10-05
@@ -13,9 +13,8 @@ When a managed session's turn ends, it either **ends** (it called `end`) or
 **waits** for something worth another turn — an inbound squawk
 ([intercom.md](intercom.md#waiting-for-a-reply-wake-on)), one of its
 **alarms**, or its **idle timeout** — and every Wake tells the agent **why** it
-was woken. `report` is designed in the
-[turn-end spec](../../superpowers/specs/2026-10-05-turn-end-lifecycle-design.md)
-and lands in a later slice.
+was woken. A ticket session also reports its ticket's state. The design is in
+the [turn-end spec](../../superpowers/specs/2026-10-05-turn-end-lifecycle-design.md).
 
 ## Ending a session
 
@@ -31,6 +30,30 @@ up" does its housekeeping, then calls `end` as its last action.
 - A personal session's owner gets a squawk: *ended itself: <reason>*. A standing
   or ticket session has no owner: the end is logged. (Moving a ticket's state on
   `end` arrives with `report`.)
+
+## Reporting a ticket
+
+A ticket session (raised by the [Requisitioner](requisitioner.md)) owns its
+ticket through merge: it works on a branch, pushes, opens the PR itself, keeps
+the ticket current with `report`, and finishes with `end`. No result file is
+read.
+
+- **`report(state, summary, pr?)`** (`POST /report`): `state` is `in-progress`,
+  `in-review` (needs `pr`), `needs-input` (the question goes in `summary`),
+  `blocked` or `done`. Jam moves the ticket to that state and comments
+  `**<state>** — <summary>` (plus `PR: <url>`). Call it whenever the state
+  changes; it never ends the session.
+- **Errors:** a session with no ticket, or bad input, is a `400`; no tracker
+  configured is a `503`; a tracker failure is a `502` and nothing is recorded —
+  retry.
+- **Ending without a final report:** when Jam ends a ticket session — `end`, the
+  idle timeout's teardown, or `wait-max` — and its last report is not `done` or
+  `blocked`, Jam first moves the ticket to **blocked** with a comment saying why.
+  The teardown goes ahead even if that tracker call fails.
+- **A typical ticket:** work → `report(in-review, pr=…)` → `alarm_set` a PR-watch
+  alarm whose [gate](#gates) passes on new review comments, failing CI, a branch
+  behind main, or the merge → end the turn → woken only when there is something
+  to do → … → merged → `report(done)` → `end`.
 
 ## Alarms
 
