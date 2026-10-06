@@ -4,7 +4,7 @@
 
 **Spec:** slice 1 spec §4 (sessions), plus the re-sequencing note: project references, tombstones and rename moved here from 1a.
 
-**Status:** for review before any code. This series changes how running standing sessions find their state volumes.
+**Status:** reviewed 2026-10-06 (decisions below). This series changes how running standing sessions find their state volumes.
 
 ## Where things stand (inventory, 2026-10-06)
 
@@ -38,7 +38,7 @@
 - **New sessions get `ses_` ids:**
   - **ticket** sessions: a `ses_` id, with dedup by "a live instance whose `Unit` is the ticket". A re-dispatch is a new session.
   - **personal** sessions: `ses_`.
-  - **manual** raises: unchanged in this sub-plan. `--id` remains the session id, because the CLI and UI address the session by it. Turning `--id` into a label is listed under open questions.
+  - **manual** raises: mint a `ses_` id. `--id` becomes `Instance.Name`, a label unique among *live* sessions, so it can be reused after teardown. A reused label is a new session that inherits nothing. `studio teardown|status`, `/admin/coves/{id}` and the UI accept the label or the id.
 - **The `-docker` volume becomes studio-side** (decided 2026-10-06): removed on every teardown, any kind.
   - This fixes the non-standing leak.
   - A standing session upgraded or restarted into a new studio starts with a clean Docker store. agent-data and workspace stay with the session.
@@ -63,8 +63,9 @@
 - **`RenameProject`** is a single-row update. Admin API `PUT /admin/projects/{p}/name`, `at-jam project rename`, and the UI.
 - **`legacy_human_aliases`** stays keyed by project *name* at the time of migration (frozen history), so it needs no rewrite.
 
-## Open questions for review
+## Decided in review (2026-10-06)
 
-1. **Manual raises.** Keep `--id` as the session id (proposed), or mint `ses_` and make `--id` a unique label that `studio teardown <label>` resolves?
-2. **Ticket sessions.** Should a ticket's re-dispatch see the previous session's inbox history? The spec says no ("a session is a session"), and slice 2's ticket channel is where shared history lives. Proposed: no.
-3. **Upgrade drops the Docker cache** (images and build cache). This was agreed earlier. Confirm it's acceptable for your standing sessions, since the first build after an upgrade will be slower.
+1. **Manual raises mint `ses_` ids, and `--id` is a live-unique label.** Reusing the id as the session id would make a later raise with the same `--id` inherit the old session's inbox, events and receipts.
+2. **A re-dispatched ticket starts with an empty inbox.** Shared ticket history belongs to slice 2's ticket channel.
+3. **Upgrades drop the Docker cache:** fine "until it hurts".
+4. **1a-3e** (deleting the `Human` view) folds into slice 2.
