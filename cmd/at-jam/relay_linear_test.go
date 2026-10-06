@@ -761,40 +761,67 @@ func TestLinearDeliverEscapesPlainText(t *testing.T) {
 	}
 }
 
-// Linear ingress attributes a comment by its author's Linear user id: the
-// author's account (learned on first sight; the Linear @-handle is the display
-// name, so a member's handle account learns its uid) names the user when
-// linked; an unknown author is recorded as an unlinked account and the
-// comment stays from their display name.
-func TestRouteLinearAttributesByAccount(t *testing.T) {
+// Linear ingress records a comment's author as an account by their Linear
+// user id only — never by display name, which anyone can set: a stranger
+// naming themselves after a member's handle must not become them. A comment is
+// the user's once an operator has linked that account, and only in a project
+// the user is a member of.
+func TestRouteLinearAttributesByLinkedAccount(t *testing.T) {
 	st := newTestStore(t)
-	mustCreateProject(t, st, "acme")
+	mustCreateProject(t, st, "acme", "beta")
 	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.l"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddHuman("beta", jam.Human{Name: "bob"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Project: "acme", Unit: "ACME-1"}); err != nil {
 		t.Fatal(err)
 	}
 	d := &directory{store: st, accounts: st, project: "acme"}
-
-	from, to, _, ok := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "alice.l", AuthorID: "lin-u1", Body: "hi"})
-	if !ok || from != (intercom.Target{Kind: "human", Ref: "alice"}) || to[0].Ref != "cove-1" {
-		t.Fatalf("member comment = %v → %v, %v", from, to, ok)
+	route := func(author, id string) intercom.Target {
+		t.Helper()
+		from, to, _, ok := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: author, AuthorID: id, Body: "hi"})
+		if !ok || to[0].Ref != "cove-1" {
+			t.Fatalf("route %s = %v, %v", author, to, ok)
+		}
+		return from
 	}
 	lin, _ := st.ConnectionOfKind("linear")
-	if a, ok := st.AccountByUID(lin.ID, "lin-u1"); !ok || a.Handle != "alice.l" || a.UserID == "" {
-		t.Fatalf("alice's account = %+v, %v; want her handle account to learn the uid", a, ok)
+
+	// A stranger using alice's handle as their display name stays a stranger,
+	// and alice's handle account is untouched.
+	if from := route("alice.l", "lin-evil"); from.Ref != "alice.l" {
+		t.Fatalf("spoofed handle attributed as %v", from)
 	}
-	// Renamed on Linear: the uid still finds her.
-	if from, _, _, _ := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "alice.new", AuthorID: "lin-u1", Body: "hi"}); from.Ref != "alice" {
-		t.Fatalf("renamed author = %v, want alice", from)
+	if a, _ := st.AccountByHandle(lin.ID, "alice.l"); a.ServiceUID != "" {
+		t.Fatalf("alice's handle account learned the stranger's uid: %+v", a)
 	}
-	from, _, _, _ = d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "stranger", AuthorID: "lin-u2", Body: "hi"})
-	if from != (intercom.Target{Kind: "human", Ref: "stranger"}) {
-		t.Fatalf("unknown author = %v", from)
+	if a, ok := st.AccountByUID(lin.ID, "lin-evil"); !ok || a.UserID != "" || a.Label != "alice.l" {
+		t.Fatalf("stranger's account = %+v, %v", a, ok)
 	}
-	if a, ok := st.AccountByUID(lin.ID, "lin-u2"); !ok || a.UserID != "" || a.Label != "stranger" {
-		t.Fatalf("stranger's account = %+v, %v; want an unlinked account", a, ok)
+
+	// Once an operator links alice's real account, her comments are hers,
+	// whatever she calls herself on Linear.
+	route("Alice", "lin-alice")
+	a, _ := st.AccountByUID(lin.ID, "lin-alice")
+	alice, _ := st.LookupName(ident.User, "alice")
+	if err := st.LinkAccount(a.ID, alice); err != nil {
+		t.Fatal(err)
+	}
+	if from := route("Alice Renamed", "lin-alice"); from != (intercom.Target{Kind: "human", Ref: "alice"}) {
+		t.Fatalf("linked author = %v, want alice", from)
+	}
+
+	// A linked user who isn't a member of this project names nobody here.
+	route("Bob", "lin-bob")
+	b, _ := st.AccountByUID(lin.ID, "lin-bob")
+	bob, _ := st.LookupName(ident.User, "bob")
+	if err := st.LinkAccount(b.ID, bob); err != nil {
+		t.Fatal(err)
+	}
+	if from := route("Bob", "lin-bob"); from.Ref != "Bob" {
+		t.Fatalf("non-member linked author = %v, want the display name", from)
 	}
 }
 

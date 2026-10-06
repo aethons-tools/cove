@@ -80,11 +80,11 @@ When a Requisitioner (its tracker) is configured, Jam also runs a resident **rel
 > **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. Jam targets the schema captured during development; if it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**. This can't be exercised in an egress-locked build environment.
 >
 > A routed comment's author is recorded as an account on the linear connection by
-> their Linear user id (their display name is the account's handle and label, so a
-> member's handle account learns its id on first comment). A linked account makes
-> the comment that user's (`human:<user name>` in the log); an unknown author stays
-> `human:<display name>` and appears in `at-jam account list --connection linear`
-> to be linked.
+> their **Linear user id only** (labelled with their display name — never matched
+> by it, since anyone can set a display name). Once an operator links that account
+> to a user (`at-jam account list --connection linear`, then `account link`), a
+> comment in a project the user is a member of is theirs (`human:<user name>` in
+> the log); until then it stays `human:<display name>`.
 
 ## The inbox as a durable queue
 

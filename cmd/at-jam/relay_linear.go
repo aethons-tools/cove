@@ -138,19 +138,23 @@ type directory struct {
 	accounts accountRecorder
 }
 
-// accountRecorder is the slice of jam.Store ingress attribution writes.
+// accountRecorder is the slice of jam.Store ingress attribution uses.
 type accountRecorder interface {
 	ConnectionOfKind(kind string) (jam.Connection, bool)
+	CreateConnection(c jam.Connection) (jam.Connection, error)
+	AccountByUID(conn ident.ID, uid string) (jam.Account, bool)
 	UpsertAccount(a jam.Account) (jam.Account, error)
 	GetUser(id ident.ID) (jam.User, bool)
-	CreateConnection(c jam.Connection) (jam.Connection, error)
+	LookupName(k ident.Kind, name string) (ident.ID, bool)
+	IsMember(project, user ident.ID) bool
 }
 
-// recordAuthor upserts an ingress author as an account on the connection of
-// kind (created when absent, like the implicit connections), learning its
-// handle and label, and returns the live user it is linked to, if any.
+// recordAuthor records an ingress author as an account on the connection of
+// kind (created when absent) by their service uid ONLY — never by display
+// name, which anyone can set — labelled with that name, and returns the live
+// user an operator linked it to, when that user is a member of project.
 // Best-effort: a failure is logged and attributes nobody.
-func (d *directory) recordAuthor(kind, uid, handle, label string) (jam.User, bool) {
+func (d *directory) recordAuthor(kind, project, uid, label string) (jam.User, bool) {
 	if d.accounts == nil || uid == "" {
 		return jam.User{}, false
 	}
@@ -164,16 +168,25 @@ func (d *directory) recordAuthor(kind, uid, handle, label string) (jam.User, boo
 			}
 		}
 	}
-	a, err := d.accounts.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: uid, Handle: handle, Label: label})
-	if err != nil {
-		d.debug("relay: record author failed", "kind", kind, "error", err.Error())
-		return jam.User{}, false
+	a, ok := d.accounts.AccountByUID(c.ID, uid)
+	if !ok || a.Label != label {
+		var err error
+		if a, err = d.accounts.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: uid, Label: label}); err != nil {
+			d.debug("relay: record author failed", "kind", kind, "error", err.Error())
+			return jam.User{}, false
+		}
 	}
 	if a.UserID == "" {
 		return jam.User{}, false
 	}
 	u, ok := d.accounts.GetUser(a.UserID)
-	return u, ok && u.Status == jam.StatusLive
+	if !ok || u.Status != jam.StatusLive {
+		return jam.User{}, false
+	}
+	if pid, ok := d.accounts.LookupName(ident.Project, project); !ok || !d.accounts.IsMember(pid, u.ID) {
+		return jam.User{}, false
+	}
+	return u, true
 }
 
 func (d *directory) debug(msg string, args ...any) {
@@ -252,7 +265,7 @@ func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.T
 		// Record an unknown author so an operator can link them later; the
 		// reply stays theirs by display name (a linked account outside this
 		// project's roster names nobody here).
-		d.recordAuthor("discord", e.AuthorID, "", e.Author)
+		d.recordAuthor("discord", project, e.AuthorID, e.Author)
 	}
 	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
 }
@@ -287,10 +300,9 @@ func (d *directory) routeLinear(project string, e relay.Event) (from intercom.Ta
 	if to == nil {
 		return intercom.Target{}, nil, "", false
 	}
-	// The author's Linear user id names their account (the @-handle is the
-	// display name, so a member's handle account learns its uid); a linked
-	// account's user is the sender.
-	if u, ok := d.recordAuthor("linear", e.AuthorID, e.Author, e.Author); ok {
+	// The author's Linear user id names their account; once an operator has
+	// linked it, a member's comment is theirs.
+	if u, ok := d.recordAuthor("linear", project, e.AuthorID, e.Author); ok {
 		from.Ref = u.Name
 	}
 	if e.ReplyToForeign != "" {
