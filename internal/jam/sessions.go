@@ -237,8 +237,8 @@ func personalDeliveryProblem(store Store, project string, owner Human) string {
 		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-jam project chat-service set --project %s --service discord)", project, project)
 	}
 	if _, ok := owner.DeliveryFor("discord"); !ok {
-		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project roster add-human %s --name %s --handle %s --login %s --delivery discord:<inbox-channel>)",
-			owner.Name, project, project, owner.Name, owner.Handle, owner.Login)
+		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project member add %s %s --delivery discord:<inbox-channel>)",
+			owner.Name, project, project, owner.Name)
 	}
 	return ""
 }

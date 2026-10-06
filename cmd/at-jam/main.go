@@ -1109,7 +1109,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // cmdSession requests, lists and releases the caller's personal sessions. The
-// caller is the roster human linked (`project roster add-human --login`) to the
+// caller is the project member whose user holds the login (`user add --login`) of the
 // operator identity the admin API authenticates.
 func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
