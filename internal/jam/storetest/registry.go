@@ -393,4 +393,196 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("ListAccounts = %d, %d; want 1, 1", n1, n2)
 		}
 	})
+
+	t.Run("project_has_id_and_resolves", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := s.GetProject("acme")
+		if p.ID.Kind() != ident.Project {
+			t.Fatalf("project id = %q", p.ID)
+		}
+		if _, err := ident.Parse(string(p.ID)); err != nil {
+			t.Fatalf("project id does not parse: %v", err)
+		}
+		if id, ok := s.LookupName(ident.Project, "acme"); !ok || id != p.ID {
+			t.Fatalf("LookupName = %q, %v", id, ok)
+		}
+		if e, ok := s.Resolve(p.ID); !ok || e.Kind != ident.Project || e.Label() != "acme" {
+			t.Fatalf("Resolve = %+v, %v", e, ok)
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := s.GetProject("beta"); b.ID == p.ID {
+			t.Fatal("two projects share an id")
+		}
+	})
+
+	t.Run("default_project_materialized_with_id", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.PutRole("", jam.Role{Name: "r"}); err != nil {
+			t.Fatal(err)
+		}
+		if p, ok := s.GetProject(jam.DefaultProject); !ok || p.ID.Kind() != ident.Project {
+			t.Fatalf("default project = %+v, %v", p, ok)
+		}
+	})
+
+	t.Run("project_id_survives_edits", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := s.GetProject("acme")
+		if err := s.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		if after, _ := s.GetProject("acme"); after.ID != before.ID {
+			t.Fatalf("id changed on edit: %q → %q", before.ID, after.ID)
+		}
+	})
+
+	t.Run("project_recreated_gets_new_id", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		old, _ := s.GetProject("acme")
+		if err := s.RemoveProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := s.GetProject("acme"); p.ID == old.ID {
+			t.Fatal("a re-created project must get a new id")
+		}
+	})
+
+	t.Run("export_import_keeps_project_ids", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		want, _ := s.GetProject("acme")
+		s2 := newStore(t)
+		if err := s2.ImportConfig(s.ExportConfig()); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		if got, _ := s2.GetProject("acme"); got.ID != want.ID {
+			t.Fatalf("imported id = %q, want %q", got.ID, want.ID)
+		}
+	})
+
+	t.Run("import_mints_missing_project_ids", func(t *testing.T) {
+		s := newStore(t)
+		snap := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion,
+			Projects: []jam.Project{{Name: "acme"}},
+			Roles:    map[string]map[string]jam.Role{"beta": {"r": {Name: "r"}}}}
+		if err := s.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		for _, name := range []string{"acme", "beta"} {
+			p, ok := s.GetProject(name)
+			if !ok || p.ID.Kind() != ident.Project {
+				t.Fatalf("%s = %+v, %v", name, p, ok)
+			}
+			if e, ok := s.Resolve(p.ID); !ok || e.Name != name {
+				t.Fatalf("Resolve(%s) = %+v, %v", name, e, ok)
+			}
+		}
+	})
+
+	t.Run("import_rejects_bad_project_ids", func(t *testing.T) {
+		dup := ident.New(ident.Project)
+		for name, ps := range map[string][]jam.Project{
+			"wrong kind": {{ID: ident.New(ident.User), Name: "acme"}},
+			"malformed":  {{ID: "prj_nope", Name: "acme"}},
+			"duplicate":  {{ID: dup, Name: "acme"}, {ID: dup, Name: "beta"}},
+		} {
+			s := newStore(t)
+			if err := s.ImportConfig(jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: ps}); !errors.Is(err, jam.ErrInvalidConfig) {
+				t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
+			}
+		}
+	})
+
+	mustProject := func(t *testing.T, s jam.Store, name string) ident.ID {
+		t.Helper()
+		if err := s.CreateProject(name); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := s.GetProject(name)
+		return p.ID
+	}
+
+	t.Run("membership_lifecycle", func(t *testing.T) {
+		s := newStore(t)
+		acme, beta := mustProject(t, s, "acme"), mustProject(t, s, "beta")
+		a, b := mustUser(t, s, "alice"), mustUser(t, s, "bob")
+		for _, m := range [][2]ident.ID{{acme, a.ID}, {acme, b.ID}, {beta, a.ID}, {acme, a.ID}} {
+			if err := s.AddMember(m[0], m[1]); err != nil {
+				t.Fatalf("AddMember %v: %v", m, err)
+			}
+		}
+		if !s.IsMember(acme, a.ID) || s.IsMember(beta, b.ID) {
+			t.Fatal("IsMember wrong")
+		}
+		if got := s.ListMembers(acme); len(got) != 2 {
+			t.Fatalf("ListMembers = %v, want 2 (re-adding is a no-op)", got)
+		}
+		if got := s.ListMemberships(a.ID); len(got) != 2 {
+			t.Fatalf("ListMemberships = %v", got)
+		}
+		if err := s.RemoveMember(acme, b.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveMember(acme, b.ID); !errors.Is(err, jam.ErrMembershipNotFound) {
+			t.Fatalf("second RemoveMember: %v, want ErrMembershipNotFound", err)
+		}
+		if err := s.AddMember(ident.New(ident.Project), a.ID); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("unknown project: %v, want ErrProjectNotFound", err)
+		}
+		if err := s.AddMember(acme, ident.New(ident.User)); !errors.Is(err, jam.ErrUserNotFound) {
+			t.Fatalf("unknown user: %v, want ErrUserNotFound", err)
+		}
+	})
+
+	t.Run("membership_dropped_on_user_removal", func(t *testing.T) {
+		s := newStore(t)
+		acme := mustProject(t, s, "acme")
+		a := mustUser(t, s, "alice")
+		if err := s.AddMember(acme, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveUser(a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if s.IsMember(acme, a.ID) || len(s.ListMembers(acme)) != 0 {
+			t.Fatal("a removed user must not stay a member")
+		}
+		if err := s.AddMember(acme, a.ID); !errors.Is(err, jam.ErrRemoved) {
+			t.Fatalf("add removed user: %v, want ErrRemoved", err)
+		}
+	})
+
+	t.Run("project_with_members_not_removable", func(t *testing.T) {
+		s := newStore(t)
+		acme := mustProject(t, s, "acme")
+		a := mustUser(t, s, "alice")
+		if err := s.AddMember(acme, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("acme"); !errors.Is(err, jam.ErrProjectInUse) {
+			t.Fatalf("RemoveProject with members: %v, want ErrProjectInUse", err)
+		}
+		if err := s.RemoveMember(acme, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("acme"); err != nil {
+			t.Fatalf("RemoveProject after the last member left: %v", err)
+		}
+	})
 }

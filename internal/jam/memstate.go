@@ -38,6 +38,8 @@ type memState struct {
 	users       map[ident.ID]User
 	connections map[ident.ID]Connection
 	accounts    map[ident.ID]Account
+	// members is the project membership set: project id → user id → true.
+	members map[ident.ID]map[ident.ID]bool
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -61,6 +63,7 @@ func newMemState() *memState {
 		users:       map[ident.ID]User{},
 		connections: map[ident.ID]Connection{},
 		accounts:    map[ident.ID]Account{},
+		members:     map[ident.ID]map[ident.ID]bool{},
 		unread:      map[string]map[string]int64{},
 	}
 }
@@ -335,6 +338,12 @@ func (m *memState) roleReferencingKit(name string) (string, string, bool) {
 	return "", "", false
 }
 
+// newProject is a fresh project record: name plus a newly minted id. Every
+// path that creates a project record uses it.
+func newProject(name string) Project {
+	return Project{ID: ident.New(ident.Project), Name: name}
+}
+
 // requireProject resolves the project a write targets ("" means
 // DefaultProject): the stored record (no copy), or — for DefaultProject only — a
 // fresh record the caller must persist along with its write (created reports
@@ -347,7 +356,7 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 		return p, false, nil
 	}
 	if name == DefaultProject {
-		return Project{Name: name}, true, nil
+		return newProject(name), true, nil
 	}
 	return Project{}, false, fmt.Errorf("%w: %q (create it with `at-jam project create %s`)", ErrProjectNotFound, name, name)
 }
@@ -371,6 +380,9 @@ func (m *memState) grantProjects(a Actor) ([]Project, error) {
 // projectReference names a role or grant that still references project, for
 // RemoveProject's in-use refusal.
 func (m *memState) projectReference(project string) (string, bool) {
+	if n := len(m.members[m.projects[project].ID]); n > 0 {
+		return fmt.Sprintf("%d member(s)", n), true
+	}
 	for name := range m.roles[project] {
 		return fmt.Sprintf("role %s/%s", project, name), true
 	}
@@ -415,7 +427,7 @@ func (m *memState) backfillProjects() {
 			name = DefaultProject
 		}
 		if _, ok := m.projects[name]; !ok {
-			m.projects[name] = Project{Name: name}
+			m.projects[name] = newProject(name)
 		}
 	}
 	for p := range m.roles {

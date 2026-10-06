@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -400,6 +401,9 @@ type EscalationTier struct {
 // project fails with ErrProjectNotFound — except DefaultProject, which a write
 // naming it (or naming no project) materializes on first use.
 type Project struct {
+	// ID is the project's surrogate id (internal/ident), minted when the
+	// record is created. Store methods still key projects by Name until 1b.
+	ID                   ident.ID                    `json:"id,omitempty"`
 	Name                 string                      `json:"name"`
 	Roster               Roster                      `json:"roster"`
 	Escalation           []EscalationTier            `json:"escalation,omitempty"`

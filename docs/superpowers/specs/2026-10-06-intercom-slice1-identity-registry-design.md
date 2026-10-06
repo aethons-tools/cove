@@ -9,6 +9,8 @@ Slice 1 ships as two plans, in order:
 - **1a — registry:** `internal/ident`, projects / users / memberships / connections / accounts, rename and tombstones, admin API + CLI + UIs, config export/import v2, escalation tiers, the log's user/account refs.
 - **1b — sessions:** session ids distinct from studios, standing / ticket / personal / manual session starts, container + volume naming, session and allocator events, relay state.
 
+**Re-sequenced (2026-10-06, plan 1a-2):** project *references* (roles, grants and instances keyed by project id), project tombstones and project rename move from 1a to **1b**. A project name is baked into standing actor ids, allocator stream ids, session events and relay cursors, which 1b reworks anyway, and renaming a project before then would tear down its standing sessions. 1a gives projects ids and memberships only, and its store APIs stay keyed by project name.
+
 ## 1. Ids — `internal/ident` (new, stdlib-only)
 
 ```go

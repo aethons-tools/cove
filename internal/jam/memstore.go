@@ -105,7 +105,7 @@ func (fs *MemStore) CreateProject(name string) error {
 	if err := fs.checkCreateProject(name); err != nil {
 		return err
 	}
-	fs.applyPutProject(Project{Name: name})
+	fs.applyPutProject(newProject(name))
 	return nil
 }
 
