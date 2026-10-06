@@ -760,3 +760,95 @@ func TestLinearDeliverEscapesPlainText(t *testing.T) {
 		t.Fatalf("posts = %+v", fp.posts)
 	}
 }
+
+// Linear ingress records a comment's author as an account by their Linear
+// user id only — never by display name, which anyone can set: a stranger
+// naming themselves after a member's handle must not become them. A comment is
+// the user's once an operator has linked that account, and only in a project
+// the user is a member of.
+func TestRouteLinearAttributesByLinkedAccount(t *testing.T) {
+	st := newTestStore(t)
+	mustCreateProject(t, st, "acme", "beta")
+	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.l"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddHuman("beta", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Project: "acme", Unit: "ACME-1"}); err != nil {
+		t.Fatal(err)
+	}
+	d := &directory{store: st, accounts: st, project: "acme"}
+	route := func(author, id string) intercom.Target {
+		t.Helper()
+		from, to, _, ok := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: author, AuthorID: id, Body: "hi"})
+		if !ok || to[0].Ref != "cove-1" {
+			t.Fatalf("route %s = %v, %v", author, to, ok)
+		}
+		return from
+	}
+	lin, _ := st.ConnectionOfKind("linear")
+
+	// A stranger using alice's handle as their display name stays a stranger,
+	// and alice's handle account is untouched.
+	if from := route("alice.l", "lin-evil"); from.Ref != "alice.l" {
+		t.Fatalf("spoofed handle attributed as %v", from)
+	}
+	if a, _ := st.AccountByHandle(lin.ID, "alice.l"); a.ServiceUID != "" {
+		t.Fatalf("alice's handle account learned the stranger's uid: %+v", a)
+	}
+	if a, ok := st.AccountByUID(lin.ID, "lin-evil"); !ok || a.UserID != "" || a.Label != "alice.l" {
+		t.Fatalf("stranger's account = %+v, %v", a, ok)
+	}
+
+	// Once an operator links alice's real account, her comments are hers,
+	// whatever she calls herself on Linear.
+	route("Alice", "lin-alice")
+	a, _ := st.AccountByUID(lin.ID, "lin-alice")
+	alice, _ := st.LookupName(ident.User, "alice")
+	if err := st.LinkAccount(a.ID, alice); err != nil {
+		t.Fatal(err)
+	}
+	if from := route("Alice Renamed", "lin-alice"); from != (intercom.Target{Kind: "human", Ref: "alice"}) {
+		t.Fatalf("linked author = %v, want alice", from)
+	}
+
+	// A linked user who isn't a member of this project names nobody here.
+	route("Bob", "lin-bob")
+	b, _ := st.AccountByUID(lin.ID, "lin-bob")
+	bob, _ := st.LookupName(ident.User, "bob")
+	if err := st.LinkAccount(b.ID, bob); err != nil {
+		t.Fatal(err)
+	}
+	if from := route("Bob", "lin-bob"); from.Ref != "Bob" {
+		t.Fatalf("non-member linked author = %v, want the display name", from)
+	}
+}
+
+// An unknown Discord author of a routed reply is recorded as an unlinked
+// account; attribution is unchanged (their display name).
+func TestRouteDiscordRecordsUnknownAuthors(t *testing.T) {
+	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
+	rc, err := newFileReceipts(t.TempDir() + "/r.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Record("m1", "cove-1", "sq-1"); err != nil {
+		t.Fatal(err)
+	}
+	d := &directory{store: st, accounts: st, project: "acme", receipts: rc}
+	from, _, _, ok := d.Route("discord", "acme", relay.Event{Surface: "chan", Author: "Zed", AuthorID: "999", ReplyToForeign: "m1", Body: "hi"})
+	if !ok || from.Ref != "Zed" {
+		t.Fatalf("route = %v, %v", from, ok)
+	}
+	dc, _ := st.ConnectionOfKind("discord")
+	if a, ok := st.AccountByUID(dc.ID, "999"); !ok || a.UserID != "" || a.Label != "Zed" {
+		t.Fatalf("account = %+v, %v", a, ok)
+	}
+	// A bot is never recorded.
+	d.Route("discord", "acme", relay.Event{Surface: "chan", Author: "Bot", AuthorID: "777", AuthorBot: true, ReplyToForeign: "m1", Body: "x"})
+	if _, ok := st.AccountByUID(dc.ID, "777"); ok {
+		t.Fatal("a bot must not become an account")
+	}
+}
