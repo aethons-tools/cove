@@ -190,7 +190,8 @@ type CoveRaiseBody struct {
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
 // returned once (the launcher will consume it to connect the cove).
 type CoveRaiseResult struct {
-	ID           string `json:"id"`
+	ID           string `json:"id"`              // the new session's id
+	Label        string `json:"label,omitempty"` // the operator's --id, which also addresses it while live
 	Token        string `json:"token"`
 	LaunchSecret string `json:"launch_secret"`
 	Phase        string `json:"phase"`
@@ -200,6 +201,7 @@ type CoveRaiseResult struct {
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
 type CoveSummary struct {
 	ID          string    `json:"id"`
+	Name        string    `json:"name,omitempty"` // a standing session's name, or a manual session's label
 	Project     string    `json:"project"`
 	Role        string    `json:"role"`
 	Unit        string    `json:"unit,omitempty"`
@@ -252,7 +254,7 @@ func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []C
 			continue
 		}
 		out = append(out, CoveSummary{
-			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
+			ID: i.ActorID, Name: i.Name, Project: i.Project, Role: i.Role, Unit: i.Unit,
 			Phase: string(i.Phase), Activity: string(i.Activity),
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
 			Connector: connectorStatus(store, actors, i),
@@ -846,13 +848,13 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, tok, secret, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
-		log.Info("admin cove raised", "operator", OperatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role)
+		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
@@ -868,7 +870,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "activity must be one of running|waiting|blocked|done", http.StatusBadRequest)
 			return
 		}
-		if err := sup.Report(r.Context(), r.PathValue("id"), act); err != nil {
+		if err := sup.Report(r.Context(), ResolveSession(store, r.PathValue("id")), act); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -880,11 +882,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
 			return
 		}
-		if err := sup.Teardown(r.Context(), r.PathValue("id")); err != nil {
+		id := ResolveSession(store, r.PathValue("id"))
+		if err := sup.Teardown(r.Context(), id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("admin cove torn down", "operator", OperatorID(r), "id", r.PathValue("id"))
+		log.Info("admin cove torn down", "operator", OperatorID(r), "id", id)
 		w.WriteHeader(http.StatusNoContent)
 	})
 

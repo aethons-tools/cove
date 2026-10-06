@@ -1066,7 +1066,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "raised %s (phase=%s)\n", res.ID, res.Phase)
+		fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
@@ -1074,8 +1074,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, cv := range coves {
-			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
-				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
+			fmt.Fprintf(stdout, "%s\tname=%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
+				cv.ID, cv.Name, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
 		}
 	case "status":
 		if *id == "" || *activity == "" {

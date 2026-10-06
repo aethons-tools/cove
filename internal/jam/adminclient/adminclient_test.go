@@ -534,13 +534,13 @@ func TestCoveClientRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(coves) != 1 || coves[0].ID != "w1" {
+	if len(coves) != 1 || coves[0].ID != res.ID || coves[0].Name != "w1" {
 		t.Fatalf("list = %+v", coves)
 	}
 	if err := c.ReportCoveStatus("w1", "blocked"); err != nil {
 		t.Fatal(err)
 	}
-	if inst, _ := store.GetInstance("w1"); inst.Activity != jam.ActivityBlocked {
+	if inst, _ := store.GetInstance(res.ID); inst.Activity != jam.ActivityBlocked {
 		t.Fatalf("activity = %s", inst.Activity)
 	}
 	if err := c.TeardownCove("w1"); err != nil {

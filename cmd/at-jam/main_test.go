@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -764,10 +765,10 @@ func TestStudioCommandsRoundTrip(t *testing.T) {
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("studio raise: exit=%d stderr=%s", code, errb.String())
 	}
-	// Only id+phase may be printed — proves the minted identity token never
-	// reaches stdout.
-	if out.String() != "raised w1 (phase=live)\n" {
-		t.Fatalf("studio raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
+	// Only label, session id and phase may be printed — proves the minted
+	// identity token never reaches stdout.
+	if !regexp.MustCompile(`^raised w1 as session ses_[0-9a-z]{26} \(phase=live\)\n$`).MatchString(out.String()) {
+		t.Fatalf("studio raise output = %q, want \"raised w1 as session <ses_id> (phase=live)\" (must not leak the identity token)", out.String())
 	}
 
 	// studio list reflects the raised cove

@@ -296,15 +296,15 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		project := strings.TrimSpace(r.FormValue("project"))
 		// Discard the returned identity token + launch secret: with a real launcher
 		// Jam consumes them internally; they must never reach the browser or a log.
-		_, _, _, err := sup.Raise(r.Context(), jam.RaiseSpec{
-			ActorID: id, Project: project, Role: role,
+		_, sid, _, _, err := jam.RaiseManual(r.Context(), store, sup, id, jam.RaiseSpec{
+			Project: project, Role: role,
 			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),
 		})
 		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
-		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
+		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", sid, "label", id, "project", orDefaultProject(project), "role", role)
 		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
 	})
 
@@ -316,7 +316,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
 			return
 		}
-		id := r.PathValue("id")
+		id := jam.ResolveSession(store, r.PathValue("id"))
 		if err := sup.Teardown(r.Context(), id); err != nil {
 			renderError(w, http.StatusInternalServerError, err.Error())
 			return

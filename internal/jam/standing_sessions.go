@@ -2,7 +2,9 @@ package jam
 
 import (
 	"cmp"
+	"context"
 	"fmt"
+	"net/http"
 	"slices"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -98,4 +100,38 @@ func (fs *MemStore) RemoveStandingSession(project ident.ID, role, name string) e
 	defer fs.mu.Unlock()
 	fs.applyRemoveStandingSession(project, role, name)
 	return nil
+}
+
+// RaiseManual starts a manual session (`studio raise`, the admin UI): a new
+// session id, with label — the operator's --id — as its name, unique among
+// live sessions so it can address the session (ResolveSession) and be reused
+// once the session ends; a reused label is a new session that inherits
+// nothing. spec's ActorID and Name are set here.
+func RaiseManual(ctx context.Context, store Store, sup *Supervisor, label string, spec RaiseSpec) (Instance, string, string, string, error) {
+	if label == "" {
+		return Instance{}, "", "", "", writeErr(http.StatusBadRequest, "id (the session's label) is required")
+	}
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != PhaseGone && (inst.ActorID == label || (inst.Name == label && inst.SessionKind != SessionKindStanding)) {
+			return Instance{}, "", "", "", writeErr(http.StatusConflict, "a live session is already labelled %q", label)
+		}
+	}
+	spec.ActorID, spec.Name = string(ident.New(ident.Session)), label
+	inst, tok, secret, err := sup.Raise(ctx, spec)
+	return inst, spec.ActorID, tok, secret, err
+}
+
+// ResolveSession maps an operator's reference to a session id: an id as is,
+// else the live non-standing session labelled ref (a manual raise's --id).
+// An unknown ref comes back unchanged (callers report it as not found).
+func ResolveSession(store Store, ref string) string {
+	if _, ok := store.GetInstance(ref); ok {
+		return ref
+	}
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != PhaseGone && inst.SessionKind != SessionKindStanding && inst.Name == ref {
+			return inst.ActorID
+		}
+	}
+	return ref
 }
