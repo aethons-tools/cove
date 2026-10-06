@@ -169,19 +169,20 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		return registryErr(store.RemoveMember(p.ID, uid))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("channel put", func(r *http.Request, project string) error {
-		c := jam.RosterChannel{
-			Name:    strings.TrimSpace(r.FormValue("name")),
-			Service: strings.TrimSpace(r.FormValue("service")),
-			Ref:     strings.TrimSpace(r.FormValue("ref")),
+	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("room put", func(r *http.Request, project string) error {
+		b := jam.RoomBody{
+			Name:       strings.TrimSpace(r.FormValue("name")),
+			Connection: strings.TrimSpace(r.FormValue("service")),
+			Ref:        strings.TrimSpace(r.FormValue("ref")),
 		}
-		if c.Name == "" || c.Service == "" || c.Ref == "" {
-			return badRequest("channel name, service and ref are required")
+		if b.Name == "" || b.Connection == "" || b.Ref == "" {
+			return badRequest("room name, connection and ref are required")
 		}
-		return store.AddChannel(project, c)
+		_, _, err := jam.PutRoom(store, project, b)
+		return registryErr(err)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("channel removed", func(r *http.Request, project string) error {
-		return store.RemoveChannel(project, r.PathValue("name"))
+	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("room removed", func(r *http.Request, project string) error {
+		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
 	}))
 
 	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", func(r *http.Request, project string) error {

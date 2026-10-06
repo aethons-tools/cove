@@ -81,9 +81,10 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's members (member add|list|rm), roster channels (roster add-channel|list|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
+			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
@@ -529,10 +530,10 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's members, roster channels, escalation policy,
-// or chat service via the admin API. Member subcommands nest under "member"
-// (cmdProjectMember): `project member add|list|rm`. Roster subcommands nest
-// under "roster": `project roster add-channel|list|rm-channel`.
+// cmdProject manages a project's members, escalation policy, or chat service
+// via the admin API. Member subcommands nest under "member"
+// (cmdProjectMember): `project member add|list|rm`. (A project's channels
+// are rooms: cmdRoom.)
 // Escalation subcommands nest under "escalation" and are handled by
 // cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
 // subcommands nest under "chat-service" and are handled by
@@ -550,75 +551,8 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "member" {
 		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, member add|list|rm, roster add-channel|list|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
-		return 2
-	}
-	sub, rest := args[1], args[2:]
-	fs := flag.NewFlagSet("project roster "+sub, flag.ContinueOnError)
-	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
-	name := fs.String("name", "", "roster-local channel name (add-channel)")
-	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
-	service := fs.String("service", "linear", "channel service (add-channel)")
-	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
-	if !ok {
-		return code
-	}
-	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-jam project:", err)
-		return 2
-	}
-	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
-	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
-	switch sub {
-	case "add-channel":
-		if len(pos) != 1 || *name == "" || *ref == "" {
-			fmt.Fprintln(stderr, "at-jam project roster add-channel: expected <project> --name and --ref")
-			return 2
-		}
-		if err := c.AddChannel(pos[0], jam.RosterChannel{Name: *name, Service: *service, Ref: *ref}); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added channel", *name, "to", pos[0])
-	case "list":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-jam project roster list: expected one project name")
-			return 2
-		}
-		rr, err := c.GetRoster(pos[0])
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		ms, err := c.ListMembers(pos[0])
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		for _, m := range ms {
-			fmt.Fprintln(stdout, memberLine(m))
-		}
-		for _, ch := range rr.Channels {
-			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)
-		}
-	case "rm-channel":
-		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-jam project roster rm-channel: expected <project> <name>")
-			return 2
-		}
-		if err := c.RemoveChannel(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed channel", pos[1], "from", pos[0])
-	default:
-		fmt.Fprintln(stderr, "at-jam project roster: unknown subcommand", sub)
-		return 2
-	}
-	return 0
+	fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: at-jam room)")
+	return 2
 }
 
 // cmdProjectEscalation manages a project's escalation policy via the admin

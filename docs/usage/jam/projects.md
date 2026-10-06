@@ -31,7 +31,7 @@ sessions are set with `at-jam context --project` ([session-context-authoring.md]
 ## Existence is enforced
 
 Every project-scoped write names a project that must already exist:
-`role add`, `grant`, `enroll`, `project member add`, `project roster add-channel`,
+`role add`, `grant`, `enroll`, `project member add`, `room add`,
 `project escalation set`, `project chat-service set`. Naming an unknown project
 fails (HTTP **404**, and the error says to run `at-jam project create`). Nothing
 is created as a side effect.

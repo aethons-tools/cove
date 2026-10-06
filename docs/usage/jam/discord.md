@@ -42,7 +42,7 @@ id on another service, exits `2` (the admin route answers **400**). A Discord
 user id binds **one person Jam-wide** (their Discord account in the
 [identity registry](roster.md)) — binding it to anyone else, in any project, is
 **400**, like a duplicate login.
-`roster list` shows a binding as `discord-user=<id>`. To find your id: Discord
+`account list --connection discord` shows a binding as `uid=<id>`. To find your id: Discord
 → Settings → Advanced → **Developer Mode** on, then right-click yourself →
 **Copy User ID**.
 

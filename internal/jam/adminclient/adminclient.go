@@ -286,9 +286,28 @@ func (c *Client) RemoveKit(name string) error {
 	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }
 
-// AddChannel upserts a roster channel (by name) within project.
-func (c *Client) AddChannel(project string, ch jam.RosterChannel) error {
-	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/channels", ch, nil)
+// PutRoom adds project's room b.Name, or rebinds it.
+func (c *Client) PutRoom(project string, b jam.RoomBody) (jam.RoomView, error) {
+	var v jam.RoomView
+	err := c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/rooms", b, &v)
+	return v, err
+}
+
+// ListRooms lists project's rooms.
+func (c *Client) ListRooms(project string) ([]jam.RoomView, error) {
+	var out []jam.RoomView
+	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/rooms", nil, &out)
+	return out, err
+}
+
+// RenameRoom renames project's room (a name or an id).
+func (c *Client) RenameRoom(project, room, name string) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room)+"/name", jam.RenameBody{Name: name}, nil)
+}
+
+// RemoveRoom removes project's room (a name or an id).
+func (c *Client) RemoveRoom(project, room string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room), nil, nil)
 }
 
 // GetRoster fetches project's roster: its channels, and its members as humans.
@@ -296,11 +315,6 @@ func (c *Client) GetRoster(project string) (jam.Roster, error) {
 	var rr jam.Roster
 	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/roster", nil, &rr)
 	return rr, err
-}
-
-// RemoveChannel removes a channel (by name) from project's roster.
-func (c *Client) RemoveChannel(project, name string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/channels/"+url.PathEscape(name), nil, nil)
 }
 
 // SetEscalationPolicy replaces the tier chain for project's category wholesale

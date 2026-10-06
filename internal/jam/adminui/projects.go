@@ -102,6 +102,7 @@ type projectDetail struct {
 	Coves        []jam.CoveSummary
 	CanEdit      bool // always false: the page's studio table is read-only
 	Members      []memberRow
+	Rooms        []jam.RoomView
 	Escalation   []chainView // chains with at least one tier
 	DefaultChain chainView   // the default chain, possibly empty (its editor is always offered)
 	ChatService  string      // the chat-service connection's name; "" = none
@@ -140,6 +141,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 			Delivery: ms.Delivery, DeliverySpec: lines(ms.Delivery, jam.FormatDeliverySpec)})
 	}
 	slices.SortFunc(d.Members, func(a, b memberRow) int { return strings.Compare(a.Name, b.Name) })
+	d.Rooms = jam.ListRooms(store, p)
 	d.DefaultChain = chain("", p.Escalation, p.Roster)
 	if len(p.Escalation) > 0 {
 		d.Escalation = append(d.Escalation, d.DefaultChain)

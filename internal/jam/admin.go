@@ -677,26 +677,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		rr, _ := store.GetRoster(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, rr)
 	})
-	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
-		var b RosterChannel
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, RegistryErrStatus(err)))
-			return
-		}
-		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}/channels/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.RemoveChannel(r.PathValue("project"), r.PathValue("name")); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin roster channel removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	mux.HandleFunc("GET /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
@@ -896,6 +876,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerEgress(mux, store, log)
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
+	registerRooms(mux, store, log)
 
 	for _, o := range opts {
 		o(mux)
