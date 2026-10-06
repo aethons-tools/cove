@@ -4,7 +4,7 @@ read_when: You want a studio's agent to send to someone other than its own ticke
 owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-06
 ---
 
 # Comms addressing (target space & access-graph)
@@ -35,7 +35,7 @@ owns a **Roster** of addressable members:
   name (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver
   to them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
   `local` on loopback), so Jam knows who is behind an admin request, e.g. to
-  own a [personal session](personal-sessions.md). One human per login per project.
+  own a [personal session](personal-sessions.md).
   `Identity` (optional) is a list of **OIDC identity bindings** `{Issuer, Subject}`
   — a browser OIDC subject, so a login authenticated at a provider can later map to
   this roster actor. Both parts are opaque identifiers, never secrets; both must be
@@ -44,6 +44,18 @@ owns a **Roster** of addressable members:
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
   tracker issue identifier (e.g. `ACME-1`) the channel posts to.
+
+**Roster humans are Jam-wide users.** Since intercom slice 1a-3a, a human is
+a user in the [identity registry](roster.md) plus a project membership: the
+same name in two projects is one person, and a login, OIDC binding, tracker
+handle or Discord user id belongs to one person Jam-wide (claiming another
+person's is **400**). `add-human` on an existing name updates that person
+everywhere (their login, OIDC and accounts) and sets this project's delivery;
+`rm-human` ends only this project's membership. On upgrade, existing per-project
+humans were merged into users once: same login/OIDC/Discord id → one user, else
+same name → one user; two different people sharing a name keep it for the
+first and the other becomes `<name>-<project>` (logged at startup, with that
+project's exact `human:<name>` tiers, addressing and session owners rewritten).
 
 A Project's roster of humans also backs its **escalation policy** — ordered tiers
 that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
