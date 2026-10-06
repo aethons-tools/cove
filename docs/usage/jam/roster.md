@@ -1,7 +1,7 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
 read_when: You are deciding who can reach what on a Jam — defining roles, setting a role's raw egress, granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), the enrollment snippet, and the in-progress identity registry (users, connections, accounts)
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
 updated: 2026-10-06
@@ -196,4 +196,4 @@ Lists every Actor with its grants and each grant's **effective** destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in
-[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`](../../superpowers/specs/2026-09-12-harbor-actor-roster.md).
+[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`](../../superpowers/specs/2026-09-12-harbor-actor-roster.md). The roster is moving to a Jam-wide identity registry (surrogate ids for users, connections and accounts; removal is a tombstone); nothing uses it yet — see [`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`](../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md).
