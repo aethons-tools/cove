@@ -40,7 +40,7 @@ func seedProjects(t *testing.T) jam.Store {
 	if err := store.PutInstance(jam.Instance{ActorID: "studio-solo", Project: "default", Role: "solo", Phase: jam.PhaseLive}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", jam.Human{
+	if err := jam.AddPerson(store, "acme", jam.Human{
 		Name: "alice", Handle: "alice-h", Login: "sub-alice",
 		Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "dm-alice", UserID: "123456789"}},
 		Identity: []jam.OIDCIdentity{{Issuer: "https://idp.example", Subject: "oidc-alice"}},

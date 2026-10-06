@@ -35,7 +35,7 @@ func searchFixture(t *testing.T) http.Handler {
 	if err := store.PutInstance(jam.Instance{ActorID: "studio-7", Project: "acme", Role: "zephyr-dev", Unit: "COV-42", Phase: jam.PhaseLive}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", jam.Human{Name: "zoe", Handle: "zephyr-zoe"}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "zoe", Handle: "zephyr-zoe"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := putRoom(store, "acme", "ops", "discord", "zephyr-ops"); err != nil {
@@ -132,7 +132,7 @@ func TestSearchBoxOnEveryPage(t *testing.T) {
 func TestSearchHighlightEscapes(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "p")
-	if err := store.AddHuman("p", jam.Human{Name: "x", Handle: "<b>evil</b>"}); err != nil {
+	if err := jam.AddPerson(store, "p", jam.Human{Name: "x", Handle: "<b>evil</b>"}); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/search?q=evil").Body.String()

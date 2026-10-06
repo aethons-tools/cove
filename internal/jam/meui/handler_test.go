@@ -44,7 +44,7 @@ func fixture() (*env, jam.Participant) {
 	if err := st.CreateProject("proj"); err != nil {
 		panic(err)
 	}
-	if err := st.AddHuman("proj", jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}}}); err != nil {
+	if err := jam.AddPerson(st, "proj", jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}}}); err != nil {
 		panic(err)
 	}
 	proj, _ := st.GetProject("proj")
@@ -419,7 +419,7 @@ func railFor(t *testing.T, h http.Handler, p jam.Participant) string {
 // deliveries, then the legacy log's conversations as a read-only History.
 func TestRailUnreadAndHistory(t *testing.T) {
 	e, p := fixture()
-	if err := e.st.AddHuman("proj", jam.Human{Name: "bob"}); err != nil {
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
 		t.Fatal(err)
 	}
 	bob, _ := e.st.LookupName(ident.User, "bob")

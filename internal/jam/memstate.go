@@ -280,20 +280,7 @@ func (m *memState) GetProject(name string) (Project, bool) {
 	if !ok {
 		return Project{}, false
 	}
-	return m.viewProject(p), true
-}
-
-func (m *memState) GetRoster(project string) (Roster, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	p, ok := m.projects[project]
-	if !ok {
-		return Roster{}, false
-	}
-	return Roster{
-		Humans:   m.rosterHumans(p.ID),
-		Channels: m.rosterChannels(p.ID),
-	}, true
+	return copyProject(p), true
 }
 
 // ---- lock-free read/validation helpers (caller holds the lock) ----
@@ -628,28 +615,6 @@ func removeGrantFrom(a Actor, project, role string) (Actor, bool) {
 	}
 	a.Grants = kept
 	return a, found
-}
-
-func upsertHuman(p Project, h Human) Project {
-	for i := range p.Roster.Humans {
-		if p.Roster.Humans[i].Name == h.Name {
-			p.Roster.Humans[i] = h
-			return p
-		}
-	}
-	p.Roster.Humans = append(p.Roster.Humans, h)
-	return p
-}
-
-func removeHumanFrom(p Project, name string) Project {
-	out := p.Roster.Humans[:0]
-	for _, h := range p.Roster.Humans {
-		if h.Name != name {
-			out = append(out, h)
-		}
-	}
-	p.Roster.Humans = out
-	return p
 }
 
 func setEscalation(p Project, category string, tiers []EscalationTier) Project {

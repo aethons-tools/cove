@@ -785,42 +785,6 @@ func (s *PostgresStore) RemoveModelSpec(name string) error {
 	return nil
 }
 
-func (s *PostgresStore) AddHuman(project string, h Human) error {
-	if h.Name == "" {
-		return fmt.Errorf("human name required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	plan, err := s.prepareAddHuman(project, h)
-	if err != nil {
-		return err
-	}
-	if err := s.registryTx("AddHuman", func(ctx context.Context, tx pgx.Tx) error {
-		return writeHumanPlanTx(ctx, tx, plan)
-	}); err != nil {
-		return err
-	}
-	s.applyHumanPlan(plan)
-	return nil
-}
-
-func (s *PostgresStore) RemoveHuman(project, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ms, ok, err := s.prepareRemoveHuman(project, name)
-	if err != nil || !ok {
-		return err
-	}
-	if err := s.registryTx("RemoveHuman", func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `DELETE FROM memberships WHERE project_id = $1 AND user_id = $2`, ms.ProjectID, ms.UserID)
-		return err
-	}); err != nil {
-		return err
-	}
-	s.applyRemoveMember(ms.ProjectID, ms.UserID)
-	return nil
-}
-
 func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

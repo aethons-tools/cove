@@ -92,12 +92,8 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 		return Conversation{}, false
 	}
 	mine := map[string]bool{}
-	for _, proj := range p.Projects {
-		if roster, ok := d.Store.GetRoster(proj); ok {
-			if h, ok := roster.HumanByIdentity(p.Issuer, p.Subject); ok && h.Name != "" {
-				mine[intercom.Target{Kind: "human", Ref: h.Name}.String()] = true
-			}
-		}
+	for _, name := range legacyNames(p, d) {
+		mine[intercom.Target{Kind: "human", Ref: name}.String()] = true
 	}
 	conv := Conversation{ChannelID: channelID, Label: meta.Label, Kind: meta.Kind, Project: meta.Project, LastSeq: meta.LastSeq}
 	for _, m := range jam.ChannelSquawks(strings.TrimPrefix(channelID, legacyPrefix), d.Legacy, d.Store.ListInstances()) {

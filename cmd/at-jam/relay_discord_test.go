@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -296,43 +297,30 @@ func TestFileReceiptsMissingFile(t *testing.T) {
 }
 
 func TestDiscordPolledChannels(t *testing.T) {
-	store := &fakeRoster{
-		roster: map[string]jam.Roster{
-			"acme": {
-				Humans: []jam.Human{
-					{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
-					{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
-					{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
-					{Name: "dave"}, // no discord profile
-				},
-				Channels: []jam.RosterChannel{
-					{Name: "eng-help", Service: "discord", Ref: "chan-C"},   // discord channel → MUST be polled (reply-routing)
-					{Name: "chan-A-dup", Service: "discord", Ref: "chan-A"}, // duplicate of a human inbox → deduped
-					{Name: "linear-only", Service: "linear", Ref: "ACME-1"}, // non-discord → excluded
-				},
-			},
-		},
+	st := jam.NewMemStore()
+	mustCreateProject(t, st, "acme")
+	for _, h := range []jam.Human{
+		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
+		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
+		{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // a shared inbox, deduped
+		{Name: "dave"}, // no inbox
+	} {
+		if err := jam.AddPerson(st, "acme", h); err != nil {
+			t.Fatal(err)
+		}
 	}
-	got := discordPolledChannels(store, "acme")
-	seen := map[string]bool{}
-	for _, c := range got {
-		seen[c] = true
+	for _, r := range [][3]string{{"eng-help", "discord", "chan-C"}, {"linear-only", "linear", "ACME-1"}} {
+		if err := putRoom(st, "acme", r[0], r[1], r[2]); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !seen["chan-A"] || !seen["chan-B"] || !seen["chan-C"] {
-		t.Fatalf("channels = %v, want chan-A, chan-B, and the discord roster channel chan-C", got)
+	got := discordPolledChannels(st, "acme")
+	sort.Strings(got)
+	if strings.Join(got, ",") != "chan-A,chan-B,chan-C" {
+		t.Fatalf("channels = %v, want the inboxes and the discord room's channel", got)
 	}
-	if seen["ACME-1"] {
-		t.Fatalf("channels = %v, must exclude the non-discord (linear) channel ACME-1", got)
-	}
-	if len(got) != 3 {
-		t.Fatalf("channels = %v, want exactly 3 distinct (chan-A/B/C, deduped)", got)
-	}
-}
-
-func TestDiscordPolledChannelsNoRoster(t *testing.T) {
-	store := &fakeRoster{roster: map[string]jam.Roster{}}
-	if got := discordPolledChannels(store, "nope"); got != nil {
-		t.Fatalf("channels = %v, want nil", got)
+	if got := discordPolledChannels(st, "nope"); got != nil {
+		t.Fatalf("unknown project = %v", got)
 	}
 }
 

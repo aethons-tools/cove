@@ -24,25 +24,6 @@ func (r *recNotifier) Notify(inst jam.Instance, id, body string) (intercom.Squaw
 	return m, nil
 }
 
-// fakeRoster is the nagger's roster view: canned rosters and projects. A
-// project's ChatService names a connection whose kind is the name itself.
-type fakeRoster struct {
-	roster   map[string]jam.Roster
-	projects map[string]jam.Project
-}
-
-func (f *fakeRoster) GetRoster(p string) (jam.Roster, bool) {
-	r, ok := f.roster[p]
-	return r, ok
-}
-func (f *fakeRoster) GetProject(name string) (jam.Project, bool) {
-	p, ok := f.projects[name]
-	return p, ok
-}
-func (f *fakeRoster) GetConnection(id ident.ID) (jam.Connection, bool) {
-	return jam.Connection{ID: id, Kind: string(id), Name: string(id), Status: jam.StatusLive}, true
-}
-
 var nagInst = jam.Instance{
 	ActorID: "pers-1", Project: "acme", Role: "pair", Owner: "alice",
 	SessionKind: jam.SessionKindPersonal, Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting,
@@ -53,7 +34,7 @@ var nagInst = jam.Instance{
 // assigned like any squawk).
 func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	lg := &recNotifier{}
-	n := intercomNagger{log: lg, roster: &fakeRoster{}}
+	n := intercomNagger{log: lg, roster: nil}
 	ctx := context.Background()
 	if err := n.Nag(ctx, nagInst, 4*time.Hour+29*time.Second); err != nil {
 		t.Fatal(err)
@@ -78,7 +59,7 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 func TestNagCarriesNagID(t *testing.T) {
 	lg := &recNotifier{}
 	at := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	n := intercomNagger{log: lg, roster: &fakeRoster{}, now: func() time.Time { return at }}
+	n := intercomNagger{log: lg, roster: nil, now: func() time.Time { return at }}
 	if err := n.Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -94,37 +75,37 @@ func TestNagCarriesNagID(t *testing.T) {
 func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 	const base = "Your personal session pers-1 (pair) has been waiting on you for 5h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"
 	const hint = ` Reply "keep" to keep it, or "release" to end it.`
-	disc := func(addr string) []jam.DeliveryProfile {
-		return []jam.DeliveryProfile{{Service: "discord", Address: addr}}
+	disc := func(addr, uid string) []jam.DeliveryProfile {
+		return []jam.DeliveryProfile{{Service: "discord", Address: addr, UserID: uid}}
 	}
-	discordProj := map[string]jam.Project{"acme": {Name: "acme", ChatService: "discord"}}
 	for name, tc := range map[string]struct {
-		store *fakeRoster
-		want  string
+		discord bool
+		people  []jam.Human
+		want    string
 	}{
-		"unique inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Delivery: disc("inbox-A")}, {Name: "bob", Delivery: disc("inbox-B")},
-		}}}}, base + hint},
-		"shared inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Delivery: disc("shared")}, {Name: "bob", Delivery: disc("shared")},
-		}}}}, base},
-		"no discord profile": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice"},
-		}}}}, base},
-		"not a discord project": {&fakeRoster{roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Delivery: disc("inbox-A")},
-		}}}}, base},
-		"no roster": {&fakeRoster{projects: discordProj}, base},
-		"bound owner, shared inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}}, {Name: "bob", Delivery: disc("shared")},
-		}}}}, base + hint},
-		"bound owner, own inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A", UserID: "111"}}},
-		}}}}, base + hint},
+		"unique inbox":              {true, []jam.Human{{Name: "alice", Delivery: disc("inbox-A", "")}, {Name: "bob", Delivery: disc("inbox-B", "")}}, base + hint},
+		"shared inbox":              {true, []jam.Human{{Name: "alice", Delivery: disc("shared", "")}, {Name: "bob", Delivery: disc("shared", "")}}, base},
+		"no discord profile":        {true, []jam.Human{{Name: "alice"}}, base},
+		"not a discord project":     {false, []jam.Human{{Name: "alice", Delivery: disc("inbox-A", "")}}, base},
+		"not a member":              {true, nil, base},
+		"bound owner, shared inbox": {true, []jam.Human{{Name: "alice", Delivery: disc("shared", "111")}, {Name: "bob", Delivery: disc("shared", "")}}, base + hint},
+		"bound owner, own inbox":    {true, []jam.Human{{Name: "alice", Delivery: disc("inbox-A", "111")}}, base + hint},
 	} {
 		t.Run(name, func(t *testing.T) {
+			st := jam.NewMemStore()
+			mustCreateProject(t, st, "acme")
+			for _, h := range tc.people {
+				if err := jam.AddPerson(st, "acme", h); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.discord {
+				if err := st.SetChatService("acme", "discord"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			lg := &recNotifier{}
-			if err := (intercomNagger{log: lg, roster: tc.store}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
+			if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 				t.Fatal(err)
 			}
 			if got := lg.got[0].Body; got != tc.want {
@@ -137,7 +118,7 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 // The keep/release confirmations are sent as the cove to its owner, like nags.
 func TestNaggerConfirmations(t *testing.T) {
 	lg := &recNotifier{}
-	n := intercomNagger{log: lg, roster: &fakeRoster{}}
+	n := intercomNagger{log: lg, roster: nil}
 	ctx := context.Background()
 	if err := n.NotifyKept(ctx, nagInst, 4*time.Hour); err != nil {
 		t.Fatal(err)
@@ -184,7 +165,7 @@ func TestFormatIdle(t *testing.T) {
 // session (standing, ticket) gets no notice.
 func TestIntercomNaggerNotifyEnded(t *testing.T) {
 	lg := &recNotifier{}
-	n := intercomNagger{log: lg, roster: &fakeRoster{}}
+	n := intercomNagger{log: lg, roster: nil}
 	if err := n.NotifyEnded(context.Background(), nagInst, "wrapped up"); err != nil {
 		t.Fatal(err)
 	}

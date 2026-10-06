@@ -252,8 +252,8 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 			t.Fatalf("%v: exit=%d stderr=%s", argv, code, errb.String())
 		}
 	}
-	if hu, ok := jam.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
-		t.Fatalf("user add --login + member add did not link alice: %+v,%v", hu, ok)
+	if m, ok := jam.MemberByLogin(store, "acme", "auth0|abc"); !ok || m.User.Name != "alice" {
+		t.Fatalf("user add --login + member add did not link alice: %+v,%v", m, ok)
 	}
 
 	// connection add + room add/list/rename/rm
@@ -842,7 +842,7 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Personal sessions are delivered over Discord (request-time check).
-	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetChatService("acme", "discord"); err != nil {
@@ -1590,12 +1590,12 @@ func TestUserMemberAccountCommands(t *testing.T) {
 	exec(0, "project", "member", "add", "--delivery", "discord:chan-9", "acme", "dave")
 	exec(0, "account", "add", "--connection", "discord", "--uid", "123456789", "--user", "dave")
 
-	r, _ := store.GetRoster("acme")
-	if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|d" || len(r.Humans[0].Identity) != 1 {
-		t.Fatalf("roster = %+v", r.Humans)
+	m, ok := jam.MemberByLogin(store, "acme", "auth0|d")
+	if !ok || m.User.Name != "dave" || len(m.User.OIDC) != 1 || m.DiscordUID != "123456789" {
+		t.Fatalf("dave = %+v, %v", m, ok)
 	}
-	if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "chan-9" || d.UserID != "123456789" {
-		t.Fatalf("delivery = %+v, %v", d, ok)
+	if d, ok := m.Inbox("discord"); !ok || d != "chan-9" {
+		t.Fatalf("inbox = %q, %v", d, ok)
 	}
 	show := exec(0, "user", "show", "dave")
 	if !strings.Contains(show, "login=auth0|d") || !strings.Contains(show, "projects=acme") || !strings.Contains(show, "uid=123456789") {

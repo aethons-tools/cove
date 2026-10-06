@@ -44,7 +44,7 @@ func importSnapshot(t *testing.T) jam.ConfigSnapshot {
 	_, err := fs.PushKit("base", "image: x")
 	must(err)
 	must(fs.AddDestination(jam.Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}))
-	must(fs.AddHuman(jam.DefaultProject, jam.Human{Name: "alice", Handle: "@alice"}))
+	must(jam.AddPerson(fs, jam.DefaultProject, jam.Human{Name: "alice", Handle: "@alice"}))
 	return fs.ExportConfig()
 }
 

@@ -41,7 +41,7 @@ func requestKit(t *testing.T) (jam.Store, *promptLauncher, *grantingAlloc, http.
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|alice",
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|alice",
 		Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}

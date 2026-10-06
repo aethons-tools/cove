@@ -104,7 +104,7 @@ login routes themselves never expose mutation.
 ## The participant intercom (`/me/`)
 
 `/me/` is a **separate, participant-facing** surface on the same admin listener,
-distinct from the operator `/ui/`. It is where a **roster human** — not the
+distinct from the operator `/ui/`. It is where a **project member** — not the
 operator — reads and replies to their intercom channels: the two-pane inbox UI
 (see [intercom-ui.md](intercom-ui.md)) and the `/me/send` path are mounted here.
 It has its own gate, and a participant session
@@ -120,7 +120,7 @@ Auth differs from the operator UI in two deliberate ways:
   `/me/auth/login`. The operator god-view stays the loopback affordance.
 - **Reuses the operator's `browser-client-id`.** There is no separate IdP client
   to configure; operator vs participant is decided by mapping the login's OIDC
-  subject to a roster human, not by the client. `/me/` is mounted only when
+  subject to a user, not by the client. `/me/` is mounted only when
   browser login (`operator-auth.oidc.browser-client-id`) is configured.
 
 The session (cookie `jam_participant`, Path `/me`) is the ID token, verified
@@ -248,7 +248,7 @@ The Roles page gains a **Request** action per role: it raises a
 [personal session](personal-sessions.md) of that role **for you**, with the
 prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 session opens the conversation with you on the intercom. You must be signed in
-(`/ui/auth/login`) as a login linked to a roster human in the role's project.
+(`/ui/auth/login`) as a login linked to a member of the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
 the outcome (the new session id, or the refusal) shows in the page's banner.

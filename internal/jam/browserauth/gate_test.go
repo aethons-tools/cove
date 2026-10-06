@@ -252,7 +252,7 @@ func participantStore(t *testing.T, humans ...jam.Human) jam.Store {
 		t.Fatal(err)
 	}
 	for _, h := range humans {
-		if err := s.AddHuman("proj", h); err != nil {
+		if err := jam.AddPerson(s, "proj", h); err != nil {
 			t.Fatal(err)
 		}
 	}

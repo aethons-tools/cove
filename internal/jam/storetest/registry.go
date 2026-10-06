@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -619,13 +620,13 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		}
 	})
 
-	t.Run("roster_humans_are_jam_wide_users", func(t *testing.T) {
+	t.Run("people_are_jam_wide_users", func(t *testing.T) {
 		s := newStore(t)
 		acme, beta := mustProject(t, s, "acme"), mustProject(t, s, "beta")
-		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a"}); err != nil {
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
+		if err := jam.AddPerson(s, "beta", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
 			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-b"}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -636,14 +637,14 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		if ms, _ := s.GetMembership(beta, id); len(ms.Delivery) != 1 || ms.Delivery[0].Address != "inbox-b" {
 			t.Fatalf("beta membership = %+v", ms)
 		}
-		if p, _ := s.GetProject("beta"); len(p.Roster.Humans) != 1 || p.Roster.Humans[0].Handle != "@alice" {
-			t.Fatalf("beta roster view = %+v", p.Roster.Humans)
+		if m := memberNamed(t, s, "beta", "alice"); m.Handle != "@alice" {
+			t.Fatalf("beta alice = %+v", m)
 		}
-		if err := s.RemoveHuman("acme", "alice"); err != nil {
+		if err := jam.RemovePerson(s, "acme", "alice"); err != nil {
 			t.Fatal(err)
 		}
 		if s.IsMember(acme, id) || !s.IsMember(beta, id) {
-			t.Fatal("RemoveHuman ends only that project's membership")
+			t.Fatal("RemovePerson ends only that project's membership")
 		}
 		if _, ok := s.GetUser(id); !ok {
 			t.Fatal("the user outlives a membership")
@@ -669,12 +670,12 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 				t.Fatalf("alias %s/alice = %q, %v", project, got, ok)
 			}
 		}
-		r, _ := s.GetRoster("acme")
-		if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|a" || r.Humans[0].Handle != "@a" {
-			t.Fatalf("acme roster = %+v", r.Humans)
+		m := memberNamed(t, s, "acme", "alice")
+		if !slices.Equal(m.User.Logins, []string{"auth0|a"}) || m.Handle != "@a" || m.DiscordUID != "111" {
+			t.Fatalf("acme alice = %+v", m)
 		}
-		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
-			t.Fatalf("acme delivery = %+v, %v", d, ok)
+		if d, ok := m.Inbox("discord"); !ok || d != "inbox-a" {
+			t.Fatalf("acme inbox = %q, %v", d, ok)
 		}
 		// A (v2) export carries the people in the registry, not as humans.
 		if snap := s.ExportConfig(); len(snap.Users) != 1 || len(snap.Memberships) != 2 {
@@ -682,34 +683,34 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		}
 	})
 
-	t.Run("add_human_never_strips_identity_elsewhere", func(t *testing.T) {
+	t.Run("add_person_never_strips_identity_elsewhere", func(t *testing.T) {
 		s := newStore(t)
 		mustProject(t, s, "acme")
 		mustProject(t, s, "beta")
 		full := jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
 			Identity: []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}},
 			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}}
-		if err := s.AddHuman("acme", full); err != nil {
+		if err := jam.AddPerson(s, "acme", full); err != nil {
 			t.Fatal(err)
 		}
 		// alice joins beta with nothing but her name: acme's view must not change.
-		if err := s.AddHuman("beta", jam.Human{Name: "alice"}); err != nil {
+		if err := jam.AddPerson(s, "beta", jam.Human{Name: "alice"}); err != nil {
 			t.Fatal(err)
 		}
-		r, _ := s.GetRoster("acme")
-		h := r.Humans[0]
-		if h.Login != "auth0|a" || h.Handle != "@alice" || len(h.Identity) != 1 {
-			t.Fatalf("acme alice after a bare add in beta = %+v", h)
+		m := memberNamed(t, s, "acme", "alice")
+		if !slices.Equal(m.User.Logins, []string{"auth0|a"}) || m.Handle != "@alice" || len(m.User.OIDC) != 1 || m.DiscordUID != "111" {
+			t.Fatalf("acme alice after a bare add in beta = %+v", m)
 		}
-		if d, _ := h.DeliveryFor("discord"); d.UserID != "111" || d.Address != "inbox-a" {
-			t.Fatalf("acme delivery = %+v", d)
+		if d, _ := m.Inbox("discord"); d != "inbox-a" {
+			t.Fatalf("acme inbox = %q", d)
 		}
-		// A new handle given anywhere is the person's handle everywhere.
-		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil {
-			t.Fatal(err)
+		// The linked identities are the person's, in every project.
+		if b := memberNamed(t, s, "beta", "alice"); b.Handle != "@alice" || b.DiscordUID != "111" {
+			t.Fatalf("beta alice = %+v", b)
 		}
-		if r, _ := s.GetRoster("acme"); r.Humans[0].Handle != "@alice2" {
-			t.Fatalf("acme handle = %q, want @alice2", r.Humans[0].Handle)
+		// Another user's identity is refused, not stolen.
+		if err := jam.AddPerson(s, "beta", jam.Human{Name: "bob", Handle: "@alice"}); !errors.Is(err, jam.ErrAccountLinked) {
+			t.Fatalf("bob taking alice's handle: %v, want ErrAccountLinked", err)
 		}
 	})
 
@@ -750,24 +751,24 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		}
 	})
 
-	t.Run("roster_view_follows_connection_of_kind", func(t *testing.T) {
+	t.Run("members_follow_connection_of_kind", func(t *testing.T) {
 		s := newStore(t)
 		mustProject(t, s, "acme")
-		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
 			t.Fatal(err)
 		}
 		lin, ok := s.LookupName(ident.Connection, "linear")
 		if !ok {
-			t.Fatal("AddHuman with a handle must create the implicit linear connection")
+			t.Fatal("AddPerson with a handle must create the implicit linear connection")
 		}
 		if err := s.RenameConnection(lin, "linear-acme"); err != nil {
 			t.Fatal(err)
 		}
-		if r, _ := s.GetRoster("acme"); len(r.Humans) != 1 || r.Humans[0].Handle != "@alice" {
-			t.Fatalf("after renaming the linear connection, roster = %+v", r.Humans)
+		if m := memberNamed(t, s, "acme", "alice"); m.Handle != "@alice" {
+			t.Fatalf("after renaming the linear connection, alice = %+v", m)
 		}
 		// A new handle binds on the same (renamed) connection, not a new implicit one.
-		if err := s.AddHuman("acme", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
 			t.Fatal(err)
 		}
 		if n := len(s.ListConnections()); n != 1 {
@@ -841,12 +842,12 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		if a, ok := s2.LegacyHumanAlias("acme", "alice"); !ok || a != alice {
 			t.Fatalf("legacy alias = %q, %v", a, ok)
 		}
-		r, _ := s2.GetRoster("acme")
-		if len(r.Humans) != 1 || r.Humans[0].Handle != "@alice" || r.Humans[0].Login != "auth0|a" {
-			t.Fatalf("restored roster = %+v", r.Humans)
+		m := memberNamed(t, s2, "acme", "alice")
+		if m.Handle != "@alice" || !slices.Equal(m.User.Logins, []string{"auth0|a"}) || m.DiscordUID != "111" {
+			t.Fatalf("restored alice = %+v", m)
 		}
-		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
-			t.Fatalf("restored delivery = %+v, %v", d, ok)
+		if d, ok := m.Inbox("discord"); !ok || d != "inbox-a" {
+			t.Fatalf("restored inbox = %q, %v", d, ok)
 		}
 		p1, _ := s.GetProject("acme")
 		if p2, _ := s2.GetProject("acme"); p2.ChatService != p1.ChatService || jam.ChatKind(s2, p2) != "discord" {

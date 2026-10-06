@@ -60,6 +60,18 @@ var bucketTitle = map[jam.AttentionBucket]string{
 
 var bucketOrder = []jam.AttentionBucket{jam.BucketWaiting, jam.BucketActive, jam.BucketChannels}
 
+// legacyNames is how the legacy log named the participant in each of their
+// projects: their roster name there before the registry (else their name).
+func legacyNames(p jam.Participant, d Deps) map[string]string {
+	names := d.Store.LegacyHumanNames(p.UserID)
+	for _, proj := range p.Projects {
+		if _, ok := names[proj]; !ok && p.Name != "" {
+			names[proj] = p.Name
+		}
+	}
+	return names
+}
+
 // legacyChannels is the participant's History: their conversations in the
 // legacy log, projected as before the channel log (per project, as their
 // roster name), ids prefixed legacyPrefix, all read.
@@ -70,16 +82,19 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 	var all []jam.ChannelView
 	seen := map[string]bool{}
 	instances := d.Store.ListInstances()
+	names := legacyNames(p, d)
 	for _, proj := range p.Projects {
-		roster, ok := d.Store.GetRoster(proj)
+		name, ok := names[proj]
 		if !ok {
 			continue
 		}
-		self, ok := roster.HumanByIdentity(p.Issuer, p.Subject)
-		if !ok || self.Name == "" {
-			continue
+		roster := jam.Roster{}
+		if pr, ok := d.Store.GetProject(proj); ok {
+			for _, ch := range d.Store.ListChannels(pr.ID, jam.SourceRoom) {
+				roster.Channels = append(roster.Channels, jam.RosterChannel{Name: ch.Key})
+			}
 		}
-		target := intercom.Target{Kind: "human", Ref: self.Name}
+		target := intercom.Target{Kind: "human", Ref: name}
 		var insts []jam.Instance
 		for _, i := range instances {
 			if i.Project == proj {

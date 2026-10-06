@@ -1,6 +1,6 @@
 ---
 summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/me` where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Waiting on you → Active → Channels), with a New Message picker, per-(participant,channel) unread, and a live status strip for the sessions in each conversation. It reads the channel read-model and writes through the `/me/send` endpoint; it refreshes live over an SSE push (`GET /me/events`), with a 30s poll as fallback.
-read_when: You want a roster human to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/me` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
+read_when: You want a project member to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/me` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
 owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /me/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /me/read`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
 tier: leaf
@@ -9,7 +9,7 @@ updated: 2026-10-06
 
 # The participant intercom inbox (`/me`)
 
-A **roster human** reads and replies to their intercom channels in a two-pane web
+A **project member** reads and replies to their intercom channels in a two-pane web
 inbox served under `/me`, rather than through the Discord/Linear relays. It is the
 human analog of a studio agent's `/squawks` tools: the same durable squawk Log,
 seen from the human's side. It is served by `internal/jam/meui` (mirroring

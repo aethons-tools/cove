@@ -126,9 +126,10 @@ func TestAdminProjectMembers(t *testing.T) {
 	if len(members) != 1 || members[0].User != "alice" || len(members[0].Delivery) != 1 {
 		t.Fatalf("members = %+v", members)
 	}
-	// The roster view sees the member.
-	if r, _ := store.GetRoster("acme"); len(r.Humans) != 1 || r.Humans[0].Name != "alice" {
-		t.Fatalf("roster = %+v", r.Humans)
+	// The surfaces see the member.
+	acme, _ := store.GetProject("acme")
+	if ms := MembersOf(store, acme.ID); len(ms) != 1 || ms[0].User.Name != "alice" {
+		t.Fatalf("members = %+v", ms)
 	}
 	if rec := doJSON(t, h, "PUT", "/admin/projects/ghost/members/alice", MemberBody{}); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown project = %d, want 404", rec.Code)

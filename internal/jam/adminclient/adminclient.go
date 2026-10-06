@@ -310,13 +310,6 @@ func (c *Client) RemoveRoom(project, room string) error {
 	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room), nil, nil)
 }
 
-// GetRoster fetches project's roster: its channels, and its members as humans.
-func (c *Client) GetRoster(project string) (jam.Roster, error) {
-	var rr jam.Roster
-	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/roster", nil, &rr)
-	return rr, err
-}
-
 // SetEscalationPolicy replaces the tier chain for project's category wholesale
 // ("" targets the default/uncategorized chain).
 func (c *Client) SetEscalationPolicy(project, category string, tiers []jam.EscalationTier) error {

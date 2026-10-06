@@ -33,8 +33,9 @@ func TestAddRemoveChannel(t *testing.T) {
 	if rec := post(t, h, "/ui/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}); rec.Code != http.StatusOK {
 		t.Fatalf("add channel = %d: %s", rec.Code, rec.Body.String())
 	}
-	if r, _ := store.GetRoster("acme"); len(r.Channels) != 2 {
-		t.Fatalf("channels = %+v", r.Channels)
+	p, _ := store.GetProject("acme")
+	if rooms := jam.ListRooms(store, p); len(rooms) != 2 {
+		t.Fatalf("rooms = %+v", rooms)
 	}
 	if rec := post(t, h, "/ui/projects/acme/channels", url.Values{"name": {"x"}, "service": {"discord"}}); rec.Code != http.StatusBadRequest {
 		t.Errorf("channel without ref = %d, want 400", rec.Code)
@@ -42,8 +43,8 @@ func TestAddRemoveChannel(t *testing.T) {
 	if rec := del(t, h, "/ui/projects/acme/channels/eng"); rec.Code != http.StatusOK {
 		t.Fatalf("remove channel = %d", rec.Code)
 	}
-	if r, _ := store.GetRoster("acme"); len(r.Channels) != 1 || r.Channels[0].Name != "ops" {
-		t.Fatalf("channels after remove = %+v", r.Channels)
+	if rooms := jam.ListRooms(store, p); len(rooms) != 1 || rooms[0].Name != "ops" {
+		t.Fatalf("rooms after remove = %+v", rooms)
 	}
 }
 

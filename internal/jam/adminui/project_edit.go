@@ -3,14 +3,13 @@ package adminui
 import (
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// memberRow is a project member: their user, the handle the roster view shows,
+// memberRow is a project member: their user, their tracker handle,
 // and their delivery here in the edit form's line syntax.
 type memberRow struct {
 	UserID       ident.ID
@@ -47,24 +46,28 @@ func lines[T any](xs []T, f func(T) string) string {
 	return strings.Join(out, "\n")
 }
 
-// targetKnown reports whether an escalation target names someone on r.
-func targetKnown(target string, r jam.Roster) bool {
-	kind, name, _ := strings.Cut(target, ":")
-	switch kind {
-	case "user", "human": // human: is the pre-registry alias
-		return slices.ContainsFunc(r.Humans, func(h jam.Human) bool { return h.Name == name || string(h.UserID) == name })
-	case "channel":
-		return slices.ContainsFunc(r.Channels, func(c jam.RosterChannel) bool { return c.Name == name })
+// knownTargets is the set of escalation targets that name someone in a
+// project: user:<name|id> for each member (human: is the pre-registry alias),
+// channel:<name> for each room.
+func knownTargets(members []jam.Member, rooms []jam.RoomView) map[string]bool {
+	known := map[string]bool{}
+	for _, m := range members {
+		for _, k := range []string{"user:", "human:"} {
+			known[k+m.User.Name], known[k+string(m.User.ID)] = true, true
+		}
 	}
-	return false
+	for _, r := range rooms {
+		known["channel:"+r.Name] = true
+	}
+	return known
 }
 
-func chain(category string, tiers []jam.EscalationTier, r jam.Roster) chainView {
+func chain(category string, tiers []jam.EscalationTier, known map[string]bool) chainView {
 	c := chainView{Category: category, Spec: lines(tiers, jam.FormatEscalationTierSpec)}
 	for _, t := range tiers {
 		tv := tierView{Timeout: fmtDur(t.Timeout)}
 		for _, x := range t.Targets {
-			tv.Targets = append(tv.Targets, targetView{Text: x, Unknown: !targetKnown(x, r)})
+			tv.Targets = append(tv.Targets, targetView{Text: x, Unknown: !known[x]})
 		}
 		c.Tiers = append(c.Tiers, tv)
 	}

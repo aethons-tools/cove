@@ -159,10 +159,12 @@ type Actor struct {
 	Expiry    time.Time `json:"expiry"` // zero = no expiry
 }
 
-// Human is a roster member reachable by @-mention on a tracker thread.
+// Human is the pre-registry shape of a project's person: what older project
+// docs and v1/v2 config snapshots hold (migrated into users, memberships and
+// accounts at load — humans_migration.go), and AddPerson's input. Jam's
+// surfaces read people as Members (people.go).
 type Human struct {
-	// UserID is the registry user this roster human is (the roster view
-	// fills it); addressing matches a person by name or by this id.
+	// UserID is the registry user this human is, when known.
 	UserID ident.ID `json:"user_id,omitempty"`
 	Name   string   `json:"name"`   // the user's (Jam-wide) name, e.g. "alice"
 	Handle string   `json:"handle"` // tracker @-mention handle
@@ -200,35 +202,6 @@ func ValidateIdentity(ids []OIDCIdentity) error {
 	return nil
 }
 
-// rosterReader is the slice of Store HumanByLogin reads.
-type rosterReader interface {
-	GetRoster(project string) (Roster, bool)
-	UserByLogin(login string) (User, bool)
-}
-
-// HumanByLogin returns the roster Human in project who is the user holding
-// login (any of the user's logins). The empty login never matches, so an
-// unlinked human is never an owner.
-func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
-	if login == "" {
-		return Human{}, false
-	}
-	u, ok := store.UserByLogin(login)
-	if !ok {
-		return Human{}, false
-	}
-	rr, ok := store.GetRoster(project)
-	if !ok {
-		return Human{}, false
-	}
-	for _, h := range rr.Humans {
-		if h.Name == u.Name {
-			return h, true
-		}
-	}
-	return Human{}, false
-}
-
 // DeliveryProfile is how a Human receives messages on one non-tracker Service.
 // Address is the service-native delivery target: for "discord", the id of the
 // inbox channel Jam posts the human's DMs into.
@@ -237,7 +210,7 @@ type DeliveryProfile struct {
 	Address string `json:"address"`
 	// UserID binds the human to their account on the service: for "discord",
 	// the human's Discord user id (a snowflake). "" = unbound. A bound human's
-	// Discord replies are attributed by this id alone (see DiscordAuthor). At
+	// Discord replies are attributed by this id alone (see DiscordAuthorOf). At
 	// most one human per project may hold a given id.
 	UserID string `json:"user_id,omitempty"`
 }
@@ -284,112 +257,11 @@ func (h Human) discordUserIDs() []string {
 	return ids
 }
 
-// DiscordBound reports whether h is bound to a Discord user id.
-func (h Human) DiscordBound() bool { return len(h.discordUserIDs()) > 0 }
-
-// HumanByDiscordUser returns the one roster human bound to the Discord user id
-// userID. The empty id never matches, and an id somehow held by more than one
-// human matches nobody (fail closed: never guess an identity).
-func HumanByDiscordUser(r Roster, userID string) (Human, bool) {
-	if userID == "" {
-		return Human{}, false
-	}
-	var found Human
-	n := 0
-	for _, h := range r.Humans {
-		for _, id := range h.discordUserIDs() {
-			if id == userID {
-				found = h
-				n++
-				break
-			}
-		}
-	}
-	if n != 1 {
-		return Human{}, false
-	}
-	return found, true
-}
-
-// DeliveryFor returns the human's deliverable profile for service: one with
-// an address. (The roster view carries a discord profile holding only the
-// Discord user id when the person has no inbox in the project; that binds
-// attribution but is not somewhere to deliver.)
-func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
-	for _, d := range h.Delivery {
-		if d.Service == service && d.Address != "" {
-			return d, true
-		}
-	}
-	return DeliveryProfile{}, false
-}
-
-// DiscordInboxOwner returns the one roster human whose discord delivery
-// address is channel; ok=false when none or more than one human uses it (a
-// shared inbox), when channel is also a roster discord channel (a shared
-// conduit, not an inbox), or when channel is "". It is DiscordAuthor's channel
-// rule: a reply posted there is attributed to that human while they are not
-// bound to a Discord user id — the channel, not the Discord display name
-// (which anyone can set), is what proves who sent it.
-func DiscordInboxOwner(r Roster, channel string) (name string, ok bool) {
-	if channel == "" {
-		return "", false
-	}
-	for _, c := range r.Channels {
-		if c.Service == "discord" && c.Ref == channel {
-			return "", false
-		}
-	}
-	for _, h := range r.Humans {
-		p, has := h.DeliveryFor("discord")
-		if !has || p.Address != channel {
-			continue
-		}
-		if ok {
-			return "", false // a second human shares it
-		}
-		name, ok = h.Name, true
-	}
-	return name, ok
-}
-
-// DiscordAuthor returns the roster human a Discord message in project roster r
-// is from, and how it was decided (by "id" or by "channel"). ok=false means
-// nobody: the caller falls back to the display name, so the message is an
-// ordinary reply. In order:
-//
-//  1. a bot author is never a roster human;
-//  2. an author id bound to exactly one human (HumanByDiscordUser) is that
-//     human, whatever the channel;
-//  3. a channel that is uniquely one human's inbox (DiscordInboxOwner) is that
-//     human — but only while they are NOT bound: once bound, only their own
-//     Discord account counts as them, so a stranger in their inbox is not;
-//  4. otherwise nobody.
-//
-// Every doubt fails toward nobody, never toward an owner.
-func DiscordAuthor(r Roster, channel, authorID string, isBot bool) (name, by string, ok bool) {
-	if isBot {
-		return "", "", false
-	}
-	if h, ok := HumanByDiscordUser(r, authorID); ok {
-		return h.Name, "id", true
-	}
-	owner, ok := DiscordInboxOwner(r, channel)
-	if !ok {
-		return "", "", false
-	}
-	for _, h := range r.Humans {
-		if h.Name == owner && h.DiscordBound() {
-			return "", "", false
-		}
-	}
-	return owner, "channel", true
-}
-
-// RosterChannel is the roster view of a room (intercom slice 2a): Name is the
-// room's name, Service its bound connection's kind ("linear", "discord"), Ref
-// the bound surface (a tracker issue key like "ACME-1", a Discord channel id).
-// Rooms live in the channel registry (rooms.go); this view goes with 2b.
+// RosterChannel is the pre-registry shape of a room, as older project docs
+// and v2 config snapshots hold it (migrated into rooms at load — rooms.go):
+// Name is the room's name, Service its connection's kind ("linear",
+// "discord"), Ref the bound surface (a tracker issue key like "ACME-1", a
+// Discord channel id).
 type RosterChannel struct {
 	Name    string `json:"name"`
 	Service string `json:"service"`

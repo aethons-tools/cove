@@ -235,31 +235,6 @@ func (fs *MemStore) RemoveModelSpec(name string) error {
 	return nil
 }
 
-func (fs *MemStore) AddHuman(project string, h Human) error {
-	if h.Name == "" {
-		return fmt.Errorf("human name required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	plan, err := fs.prepareAddHuman(project, h)
-	if err != nil {
-		return err
-	}
-	fs.applyHumanPlan(plan)
-	return nil
-}
-
-func (fs *MemStore) RemoveHuman(project, name string) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	ms, ok, err := fs.prepareRemoveHuman(project, name)
-	if err != nil || !ok {
-		return err
-	}
-	fs.applyRemoveMember(ms.ProjectID, ms.UserID)
-	return nil
-}
-
 func (fs *MemStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

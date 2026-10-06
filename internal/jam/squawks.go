@@ -190,17 +190,13 @@ type targetOut struct {
 }
 
 func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
-	targets := ListTargets(actor, h.store.GetRole, h.store.GetRoster, h.now())
+	targets := ListTargets(h.store, actor, h.now())
 	out := make([]targetOut, 0, len(targets)+1)
 	if inst.Unit != "" {
 		out = append(out, targetOut{Target: "ticket:" + inst.Unit, Kind: "ticket", Name: inst.Unit})
 	}
 	for _, t := range targets {
-		kind := t.Kind
-		if kind == "human" {
-			kind = "user" // a person: user:<name>
-		}
-		out = append(out, targetOut{Target: kind + ":" + t.Name, Kind: kind, Name: t.Name})
+		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})
 	}
 	h.log.Info("intercom", "actor", actor.ID, "op", "targets", "count", len(out))
 	w.Header().Set("Content-Type", "application/json")

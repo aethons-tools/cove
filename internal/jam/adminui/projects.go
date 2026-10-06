@@ -64,7 +64,7 @@ func projectRows(store jam.Store) []projectRow {
 		p, _ := store.GetProject(name)
 		out = append(out, projectRow{
 			Name: name, Roles: len(store.ListRoles(name)), Actors: len(projectHolders(store, name)),
-			Studios: studios[name], Members: len(store.ListMembers(p.ID)), Channels: len(p.Roster.Channels),
+			Studios: studios[name], Members: len(store.ListMembers(p.ID)), Channels: len(store.ListChannels(p.ID, jam.SourceRoom)),
 			ChatService: chatServiceName(store, p), InUseBy: projectRef(store, name),
 		})
 	}
@@ -130,25 +130,20 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 			d.Coves = append(d.Coves, c)
 		}
 	}
-	handles := map[string]string{}
-	for _, h := range p.Roster.Humans {
-		handles[h.Name] = h.Handle
+	members := jam.MembersOf(store, p.ID)
+	for _, m := range members {
+		d.Members = append(d.Members, memberRow{UserID: m.User.ID, Name: m.User.Name, Handle: m.Handle,
+			Delivery: m.Delivery, DeliverySpec: lines(m.Delivery, jam.FormatDeliverySpec)})
 	}
-	for _, uid := range store.ListMembers(p.ID) {
-		u, _ := store.GetUser(uid)
-		ms, _ := store.GetMembership(p.ID, uid)
-		d.Members = append(d.Members, memberRow{UserID: uid, Name: u.Name, Handle: handles[u.Name],
-			Delivery: ms.Delivery, DeliverySpec: lines(ms.Delivery, jam.FormatDeliverySpec)})
-	}
-	slices.SortFunc(d.Members, func(a, b memberRow) int { return strings.Compare(a.Name, b.Name) })
 	d.Rooms = jam.ListRooms(store, p)
-	d.DefaultChain = chain("", p.Escalation, p.Roster)
+	known := knownTargets(members, d.Rooms)
+	d.DefaultChain = chain("", p.Escalation, known)
 	if len(p.Escalation) > 0 {
 		d.Escalation = append(d.Escalation, d.DefaultChain)
 	}
 	for _, c := range slices.Sorted(maps.Keys(p.EscalationByCategory)) {
 		if tiers := p.EscalationByCategory[c]; len(tiers) > 0 { // a cleared chain has none
-			d.Escalation = append(d.Escalation, chain(c, tiers, p.Roster))
+			d.Escalation = append(d.Escalation, chain(c, tiers, known))
 		}
 	}
 	d.ChatService = chatServiceName(store, p)

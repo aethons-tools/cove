@@ -84,6 +84,10 @@ func (e Entry) Label() string {
 	return e.Name
 }
 
+// ErrAccountLinked refuses binding a service identity (a tracker handle, a
+// Discord user id) that already belongs to another user.
+var ErrAccountLinked = errors.New("account is linked to another user")
+
 var (
 	ErrInvalidName        = errors.New("invalid name")
 	ErrNameTaken          = errors.New("name already in use")
@@ -131,6 +135,10 @@ type Directory interface {
 	// LegacyHumanAlias maps a pre-registry roster human (project name, human
 	// name) to the user it became. Frozen at migration; read-only.
 	LegacyHumanAlias(project, name string) (ident.ID, bool)
+	// LegacyHumanNames is the reverse: the roster names (project name →
+	// human name) user had before the registry — how the legacy log names
+	// them.
+	LegacyHumanNames(user ident.ID) map[string]string
 }
 
 // RegistryStore is the Store's registry: users, connections and accounts.

@@ -286,12 +286,12 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := putRoom(s, "acme", jam.RoomBody{Name: "chat", Connection: "discord", Ref: "123"}); err != nil {
 			t.Fatalf("PutRoom discord: %v", err)
 		}
-		want := []jam.RosterChannel{{Name: "chat", Service: "discord", Ref: "123"}, {Name: "eng", Service: "linear", Ref: "ACME-1"}}
-		if r, _ := s.GetRoster("acme"); !reflect.DeepEqual(r.Channels, want) {
-			t.Fatalf("roster channels = %+v, want %+v", r.Channels, want)
+		want := []string{"chat discord 123", "eng linear ACME-1"}
+		if got := roomSummary(s, "acme"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("rooms = %v, want %v", got, want)
 		}
-		if p, _ := s.GetProject("acme"); !reflect.DeepEqual(p.Roster.Channels, want) {
-			t.Fatalf("project roster channels = %+v", p.Roster.Channels)
+		if p, _ := s.GetProject("acme"); len(p.Roster.Channels) != 0 {
+			t.Fatalf("the project doc holds no roster channels: %+v", p.Roster.Channels)
 		}
 		p, _ := s.GetProject("acme")
 		rooms := s.ListChannels(p.ID, jam.SourceRoom)
@@ -318,24 +318,20 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := jam.RemoveRoom(s, "acme", "eng"); err != nil {
 			t.Fatalf("RemoveRoom: %v", err)
 		}
-		if r, _ := s.GetRoster("acme"); len(r.Channels) != 1 || r.Channels[0].Name != "chat" {
-			t.Fatalf("roster after remove = %+v", r.Channels)
+		if got := roomSummary(s, "acme"); len(got) != 1 || got[0] != "chat discord 123" {
+			t.Fatalf("rooms after remove = %v", got)
 		}
 		if got, _ := s.GetChannel(rooms[1].ID); got.Status != jam.StatusArchived {
-			t.Fatalf("a removed roster channel's room is archived: %+v", got)
+			t.Fatalf("a removed room is archived: %+v", got)
 		}
 	})
 
-	t.Run("roster_view_and_demoted_rooms", func(t *testing.T) {
+	t.Run("demoted_rooms", func(t *testing.T) {
 		s, p, c := setup(t)
 		// As the migration leaves two channels that shared a ref: the first
 		// keeps ingress, the other only posts there.
 		mustChannel(t, s, room(p, "zeta", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
 		alpha := mustChannel(t, s, room(p, "alpha", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindEgress}))
-		r, _ := s.GetRoster("acme")
-		if len(r.Channels) != 2 || r.Channels[0].Name != "zeta" {
-			t.Fatalf("roster = %+v: the channel that receives a ref's replies must come first", r.Channels)
-		}
 		// Re-saving the demoted channel unchanged keeps it as it is.
 		if err := putRoom(s, "acme", jam.RoomBody{Name: "alpha", Connection: "linear", Ref: "ACME-1"}); err != nil {
 			t.Fatalf("re-save demoted: %v", err)
@@ -378,8 +374,8 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if len(s2.ChannelMembers(live.ID)) != 0 {
 			t.Fatal("membership is runtime state and is not exported")
 		}
-		if r, _ := s2.GetRoster("acme"); len(r.Channels) != 1 || r.Channels[0] != (jam.RosterChannel{Name: "eng", Service: "linear", Ref: "ACME-1"}) {
-			t.Fatalf("imported roster channels = %+v", r.Channels)
+		if got := roomSummary(s2, "acme"); len(got) != 1 || got[0] != "eng linear ACME-1" {
+			t.Fatalf("imported rooms = %v", got)
 		}
 	})
 
@@ -395,9 +391,6 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		rooms := s.ListChannels(p.ID, jam.SourceRoom)
 		if len(rooms) != 1 || rooms[0].Key != "eng" || rooms[0].Bindings[0].Ref != "ACME-1" {
 			t.Fatalf("rooms = %+v", rooms)
-		}
-		if r, _ := s.GetRoster("acme"); len(r.Channels) != 1 || r.Channels[0].Name != "eng" {
-			t.Fatalf("roster channels = %+v", r.Channels)
 		}
 		if snap := s.ExportConfig(); len(snap.Projects[0].Roster.Channels) != 0 {
 			t.Fatalf("the stored doc no longer holds roster channels: %+v", snap.Projects[0].Roster.Channels)
@@ -436,4 +429,14 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 func putRoom(s jam.Store, project string, b jam.RoomBody) error {
 	_, _, err := jam.PutRoom(s, project, b)
 	return err
+}
+
+// roomSummary lists project's live rooms as "name connection-kind ref".
+func roomSummary(s jam.Store, project string) []string {
+	p, _ := s.GetProject(project)
+	var out []string
+	for _, r := range jam.ListRooms(s, p) {
+		out = append(out, r.Name+" "+r.Kind+" "+r.Ref)
+	}
+	return out
 }

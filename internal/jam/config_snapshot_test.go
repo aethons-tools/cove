@@ -30,7 +30,7 @@ func populated(t *testing.T) *MemStore {
 	if err := s.AddDestination(Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddHuman(DefaultProject, Human{Name: "alice", Handle: "@alice"}); err != nil {
+	if err := AddPerson(s, DefaultProject, Human{Name: "alice", Handle: "@alice"}); err != nil {
 		t.Fatal(err)
 	}
 	// excluded state:
@@ -113,7 +113,7 @@ func TestImportConfigRefusesWhenNotEmpty(t *testing.T) {
 		"roles":        func(s *MemStore) { _ = s.PutRole(DefaultProject, Role{Name: "r"}) },
 		"kits":         func(s *MemStore) { _, _ = s.PushKit("k", "cfg") },
 		"destinations": func(s *MemStore) { _ = s.AddDestination(Destination{Name: "d"}) },
-		"projects":     func(s *MemStore) { _ = s.AddHuman(DefaultProject, Human{Name: "h"}) },
+		"projects":     func(s *MemStore) { _ = AddPerson(s, DefaultProject, Human{Name: "h"}) },
 		"jam_context":  func(s *MemStore) { _ = s.SetJamContext(sessionctx.Layer{Core: "J"}) },
 	}
 	for name, seed := range cases {

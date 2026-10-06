@@ -1307,7 +1307,7 @@ func TestRaiseConnectorConflictRollsBack(t *testing.T) {
 func TestRaiseContextStudioNamesOwner(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	if err := store.AddHuman("default", Human{Name: "alice", Handle: "alice"}); err != nil {
+	if err := AddPerson(store, "default", Human{Name: "alice", Handle: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal, Prompt: "P"}); err != nil {

@@ -84,8 +84,8 @@ func TestRenameAndRemoveRoom(t *testing.T) {
 	if err := RenameRoom(s, "acme", string(v.ID), "help"); err != nil {
 		t.Fatalf("rename by id: %v", err)
 	}
-	if r, _ := s.GetRoster("acme"); r.Channels[0].Name != "help" {
-		t.Fatalf("roster = %+v", r.Channels)
+	if got := ListRooms(s, p); got[0].Name != "help" {
+		t.Fatalf("rooms = %+v", got)
 	}
 	if err := RemoveRoom(s, "acme", "help"); err != nil {
 		t.Fatalf("RemoveRoom: %v", err)
