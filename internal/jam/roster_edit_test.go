@@ -1,9 +1,6 @@
 package jam
 
 import (
-	"net/http"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -52,57 +49,5 @@ func TestEscalationTierSpecRoundTrip(t *testing.T) {
 		if _, err := ParseEscalationTierSpec(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
-	}
-}
-
-func TestPutRosterHuman(t *testing.T) {
-	st := newRoleStore(t)
-	must(t, st.CreateProject("acme"))
-	alice := Human{Name: "alice", Handle: "a", Login: "sub-a", Delivery: []DeliveryProfile{{Service: "discord", Address: "c", UserID: "111"}}}
-	must(t, PutRosterHuman(st, "acme", alice))
-	alice.Handle = "a2" // re-put under the same name updates
-	must(t, PutRosterHuman(st, "acme", alice))
-	if r, _ := st.GetRoster("acme"); len(r.Humans) != 1 || r.Humans[0].Handle != "a2" {
-		t.Fatalf("roster = %+v", r.Humans)
-	}
-	for name, h := range map[string]Human{
-		"no name":         {Handle: "x"},
-		"login taken":     {Name: "bob", Login: "sub-a"},
-		"discord id used": {Name: "bob", Delivery: []DeliveryProfile{{Service: "discord", Address: "d", UserID: "111"}}},
-		"bad delivery":    {Name: "bob", Delivery: []DeliveryProfile{{Service: "linear", Address: "d", UserID: "1"}}},
-		"bad identity":    {Name: "bob", Identity: []OIDCIdentity{{Issuer: "", Subject: "s"}}},
-	} {
-		if err := PutRosterHuman(st, "acme", h); WriteStatus(err, 0) != http.StatusBadRequest {
-			t.Errorf("%s: err = %v, want 400", name, err)
-		}
-	}
-	if err := PutRosterHuman(st, "ghost", Human{Name: "x"}); WriteStatus(err, 0) != http.StatusNotFound {
-		t.Errorf("unknown project = %v, want 404", err)
-	}
-}
-
-// Two humans racing for one login: exactly one wins.
-func TestPutRosterHumanLoginRace(t *testing.T) {
-	st := newRoleStore(t)
-	must(t, st.CreateProject("acme"))
-	var wg sync.WaitGroup
-	errs := make(chan error, 8)
-	for i := range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			errs <- PutRosterHuman(st, "acme", Human{Name: "h" + strings.Repeat("x", i), Login: "same"})
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	ok := 0
-	for err := range errs {
-		if err == nil {
-			ok++
-		}
-	}
-	if ok != 1 {
-		t.Fatalf("%d humans got the same login, want 1", ok)
 	}
 }

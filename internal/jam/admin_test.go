@@ -339,11 +339,10 @@ func TestAdminGrantAddRemove(t *testing.T) {
 func TestAdminRosterRoutes(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := putRosterHuman(t, store, "acme", Human{Name: "alice", Handle: "alice.h"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST human = %d", rec.Code)
+	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
+		t.Fatal(err)
 	}
-	rec = doJSON(t, h, "POST", "/admin/projects/acme/channels", Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"})
+	rec := doJSON(t, h, "POST", "/admin/projects/acme/channels", Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST channel = %d", rec.Code)
 	}
@@ -796,118 +795,6 @@ func mustJSON(t *testing.T, v any) []byte {
 	return b
 }
 
-// A roster human's login (the admin operator identity) round-trips through the
-// roster routes. Roster humans are Jam-wide users (1a-3a), so a login links
-// one person everywhere: that person may join another project, nobody else
-// may claim the login.
-func TestAdminRosterHumanLogin(t *testing.T) {
-	h, store := newTestAdmin(t)
-	mustCreateProject(t, store, "acme", "beta")
-	if rec := putRosterHuman(t, store, "acme", Human{Name: "alice", Handle: "alice.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
-		t.Fatalf("POST human = %d %s", rec.Code, rec.Body.String())
-	}
-	var rr Roster
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	if len(rr.Humans) != 1 || rr.Humans[0].Login != "auth0|abc" {
-		t.Fatalf("roster humans = %+v", rr.Humans)
-	}
-	// Re-upserting the same human with the same login is fine.
-	if rec := putRosterHuman(t, store, "acme", Human{Name: "alice", Handle: "alice2", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
-		t.Fatalf("re-upsert alice = %d %s", rec.Code, rec.Body.String())
-	}
-	// A different human claiming the same login in the same project is rejected.
-	if rec := putRosterHuman(t, store, "acme", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("duplicate login = %d, want 400", rec.Code)
-	}
-	// ...nor in another project: the login is alice's everywhere.
-	if rec := putRosterHuman(t, store, "beta", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("same login, another person, another project = %d, want 400", rec.Code)
-	}
-	// alice herself joins another project with her login.
-	if rec := putRosterHuman(t, store, "beta", Human{Name: "alice", Handle: "alice2", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
-		t.Fatalf("alice joins beta = %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-// A roster human's Discord user id binds one person Jam-wide (their discord
-// account), must be a snowflake (all digits), and only a discord profile may
-// carry one.
-func TestAdminRosterHumanDiscordUser(t *testing.T) {
-	h, store := newTestAdmin(t)
-	mustCreateProject(t, store, "acme", "beta")
-	bound := func(name, ch, uid string) Human {
-		return Human{Name: name, Handle: name + ".h", Delivery: []DeliveryProfile{{Service: "discord", Address: ch, UserID: uid}}}
-	}
-	if rec := putRosterHuman(t, store, "acme", bound("alice", "inbox-a", "111")); rec.Code != http.StatusCreated {
-		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
-	}
-	var rr Roster
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	if d, ok := rr.Humans[0].DeliveryFor("discord"); !ok || d.UserID != "111" {
-		t.Fatalf("roster humans = %+v", rr.Humans)
-	}
-	// Re-adding the same human with the same id is fine.
-	if rec := putRosterHuman(t, store, "acme", bound("alice", "inbox-a2", "111")); rec.Code != http.StatusCreated {
-		t.Fatalf("re-upsert alice = %d %s", rec.Code, rec.Body.String())
-	}
-	// A different human claiming the same id in the same project is rejected.
-	rec := putRosterHuman(t, store, "acme", bound("bob", "inbox-b", "111"))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"alice"`) {
-		t.Fatalf("duplicate discord user = %d %s, want 400 naming alice", rec.Code, rec.Body.String())
-	}
-	// ...nor in another project: the Discord account is alice's.
-	if rec := putRosterHuman(t, store, "beta", bound("bob", "inbox-b", "111")); rec.Code != http.StatusBadRequest {
-		t.Fatalf("same id, another person, another project = %d, want 400", rec.Code)
-	}
-	// alice joins beta with her own inbox there.
-	if rec := putRosterHuman(t, store, "beta", bound("alice", "inbox-beta", "111")); rec.Code != http.StatusCreated {
-		t.Fatalf("alice joins beta = %d %s", rec.Code, rec.Body.String())
-	}
-	// A non-snowflake id is rejected.
-	if rec := putRosterHuman(t, store, "acme", bound("carol", "inbox-c", "abc")); rec.Code != http.StatusBadRequest {
-		t.Fatalf("non-digit id = %d, want 400", rec.Code)
-	}
-	// A user id on a non-discord profile is rejected.
-	nd := Human{Name: "dan", Handle: "dan.h", Delivery: []DeliveryProfile{{Service: "linear", Address: "x", UserID: "222"}}}
-	if rec := putRosterHuman(t, store, "acme", nd); rec.Code != http.StatusBadRequest {
-		t.Fatalf("user id on linear profile = %d, want 400", rec.Code)
-	}
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	for _, hu := range rr.Humans {
-		if hu.Name != "alice" {
-			t.Fatalf("a rejected human was added: %+v", hu)
-		}
-	}
-}
-
-// A roster human's OIDC identity binding round-trips, and a malformed one
-// (empty issuer or subject) is rejected with 400, leaving the roster unchanged.
-func TestAdminRosterHumanOIDCIdentity(t *testing.T) {
-	h, store := newTestAdmin(t)
-	mustCreateProject(t, store, "acme")
-	good := Human{Name: "alice", Handle: "alice.h", Identity: []OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "alice-sub"}}}
-	if rec := putRosterHuman(t, store, "acme", good); rec.Code != http.StatusCreated {
-		t.Fatalf("POST alice = %d %s", rec.Code, rec.Body.String())
-	}
-	var rr Roster
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	if len(rr.Humans) != 1 || len(rr.Humans[0].Identity) != 1 || rr.Humans[0].Identity[0].Subject != "alice-sub" {
-		t.Fatalf("roster humans = %+v", rr.Humans)
-	}
-	for _, bad := range []OIDCIdentity{{Issuer: "", Subject: "x"}, {Issuer: "x", Subject: ""}} {
-		nd := Human{Name: "bob", Handle: "bob.h", Identity: []OIDCIdentity{bad}}
-		if rec := putRosterHuman(t, store, "acme", nd); rec.Code != http.StatusBadRequest {
-			t.Fatalf("malformed identity %+v = %d, want 400", bad, rec.Code)
-		}
-	}
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	for _, hu := range rr.Humans {
-		if hu.Name != "alice" {
-			t.Fatalf("a rejected human was added: %+v", hu)
-		}
-	}
-}
-
 func TestAdminConfigExportImport(t *testing.T) {
 	src := populated(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -1078,18 +965,4 @@ func TestAdminConfigImportInvalidContext(t *testing.T) {
 	if r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", r.StatusCode)
 	}
-}
-
-// putRosterHuman calls PutRosterHuman (the UI's roster-human write; the admin
-// API moved to /admin/users and members in 1a-3b) and records its outcome as
-// an HTTP status: 201, or the refusal's WriteStatus.
-func putRosterHuman(t *testing.T, store Store, project string, h Human) *httptest.ResponseRecorder {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	if err := PutRosterHuman(store, project, h); err != nil {
-		http.Error(rec, err.Error(), WriteStatus(err, http.StatusBadRequest))
-		return rec
-	}
-	rec.WriteHeader(http.StatusCreated)
-	return rec
 }

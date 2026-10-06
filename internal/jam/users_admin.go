@@ -81,8 +81,8 @@ type MemberView struct {
 // session.
 var ErrUserBusy = errors.New("user owns a live personal session")
 
-// registryErrStatus maps registry and project errors to HTTP statuses.
-func registryErrStatus(err error) int {
+// RegistryErrStatus maps registry and project errors to HTTP statuses.
+func RegistryErrStatus(err error) int {
 	for _, nf := range []error{ErrUserNotFound, ErrConnectionNotFound, ErrAccountNotFound, ErrMembershipNotFound, ErrProjectNotFound} {
 		if errors.Is(err, nf) {
 			return http.StatusNotFound
@@ -96,9 +96,9 @@ func registryErrStatus(err error) int {
 	return http.StatusBadRequest
 }
 
-// resolveRef finds the registry id ref names: an id of kind k as given, else
+// ResolveRegistryRef finds the registry id ref names: an id of kind k as given, else
 // the live entity of kind k with that name.
-func resolveRef(store Store, k ident.Kind, ref string) (ident.ID, error) {
+func ResolveRegistryRef(store Store, k ident.Kind, ref string) (ident.ID, error) {
 	if id, err := ident.Parse(ref); err == nil && id.Kind() == k {
 		if _, ok := store.Resolve(id); ok {
 			return id, nil
@@ -117,7 +117,7 @@ func resolveRef(store Store, k ident.Kind, ref string) (ident.ID, error) {
 	return "", fmt.Errorf("%w: %q", ErrProjectNotFound, ref)
 }
 
-func userView(store Store, u User) UserView {
+func NewUserView(store Store, u User) UserView {
 	v := UserView{User: u}
 	for _, c := range store.ListConnections() {
 		for _, a := range store.ListAccounts(c.ID) {
@@ -135,7 +135,7 @@ func userView(store Store, u User) UserView {
 	return v
 }
 
-func accountView(store Store, a Account) AccountView {
+func NewAccountView(store Store, a Account) AccountView {
 	v := AccountView{Account: a}
 	if c, ok := store.GetConnection(a.ConnectionID); ok {
 		v.Connection = c.Name
@@ -160,10 +160,67 @@ func ownedPersonalSession(store Store, name string) (string, bool) {
 	return "", false
 }
 
+// RenameUserChecked renames a user, refusing (ErrUserBusy) while they own a
+// live personal session: its owner is still recorded by name.
+func RenameUserChecked(store Store, id ident.ID, name string) error {
+	if err := checkNotOwningSession(store, id); err != nil {
+		return err
+	}
+	return store.RenameUser(id, name)
+}
+
+// RemoveUserChecked removes (tombstones) a user, refusing (ErrUserBusy) while
+// they own a live personal session.
+func RemoveUserChecked(store Store, id ident.ID) error {
+	if err := checkNotOwningSession(store, id); err != nil {
+		return err
+	}
+	return store.RemoveUser(id)
+}
+
+func checkNotOwningSession(store Store, id ident.ID) error {
+	if u, _ := store.GetUser(id); u.Status == StatusLive {
+		if sid, owns := ownedPersonalSession(store, u.Name); owns {
+			return fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid)
+		}
+	}
+	return nil
+}
+
+// UpsertAccountChecked upserts the account b describes and links it to b.User
+// when set. The user is resolved and checked live before anything is
+// written, so a refusal leaves no account behind.
+func UpsertAccountChecked(store Store, b AccountBody) (Account, error) {
+	conn, err := ResolveRegistryRef(store, ident.Connection, b.Connection)
+	if err != nil {
+		return Account{}, err
+	}
+	var uid ident.ID
+	if b.User != "" {
+		if uid, err = ResolveRegistryRef(store, ident.User, b.User); err != nil {
+			return Account{}, err
+		}
+		if u, _ := store.GetUser(uid); u.Status != StatusLive {
+			return Account{}, fmt.Errorf("%w: user %s", ErrRemoved, uid)
+		}
+	}
+	a, err := store.UpsertAccount(Account{ConnectionID: conn, ServiceUID: b.ServiceUID, Handle: b.Handle, Label: b.Label})
+	if err != nil {
+		return Account{}, err
+	}
+	if uid != "" {
+		if err := store.LinkAccount(a.ID, uid); err != nil {
+			return Account{}, err
+		}
+		a, _ = store.GetAccount(a.ID)
+	}
+	return a, nil
+}
+
 func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
-	fail := func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), registryErrStatus(err)) }
+	fail := func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), RegistryErrStatus(err)) }
 	user := func(w http.ResponseWriter, r *http.Request) (ident.ID, bool) {
-		id, err := resolveRef(store, ident.User, r.PathValue("user"))
+		id, err := ResolveRegistryRef(store, ident.User, r.PathValue("user"))
 		if err != nil {
 			fail(w, err)
 			return "", false
@@ -174,7 +231,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) {
 		out := []UserView{}
 		for _, u := range store.ListUsers() {
-			out = append(out, userView(store, u))
+			out = append(out, NewUserView(store, u))
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -189,7 +246,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 			return
 		}
 		log.Info("admin user created", "operator", OperatorID(r), "user", u.ID, "name", u.Name)
-		writeJSON(w, http.StatusCreated, userView(store, u))
+		writeJSON(w, http.StatusCreated, NewUserView(store, u))
 	})
 	mux.HandleFunc("GET /admin/users/{user}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := user(w, r)
@@ -197,7 +254,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 			return
 		}
 		u, _ := store.GetUser(id)
-		writeJSON(w, http.StatusOK, userView(store, u))
+		writeJSON(w, http.StatusOK, NewUserView(store, u))
 	})
 	put := func(op string, apply func(id ident.ID, r *http.Request) (bool, error)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -221,12 +278,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 			if !decode(w, r, &b) {
 				return false, nil
 			}
-			if u, _ := store.GetUser(id); u.Status == StatusLive {
-				if sid, owns := ownedPersonalSession(store, u.Name); owns {
-					return true, fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid)
-				}
-			}
-			return true, store.RenameUser(id, b.Name)
+			return true, RenameUserChecked(store, id, b.Name)
 		})(w, r)
 	})
 	mux.HandleFunc("PUT /admin/users/{user}/logins", func(w http.ResponseWriter, r *http.Request) {
@@ -252,13 +304,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		if !ok {
 			return
 		}
-		if u, _ := store.GetUser(id); u.Status == StatusLive {
-			if sid, owns := ownedPersonalSession(store, u.Name); owns {
-				fail(w, fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid))
-				return
-			}
-		}
-		if err := store.RemoveUser(id); err != nil {
+		if err := RemoveUserChecked(store, id); err != nil {
 			fail(w, err)
 			return
 		}
@@ -329,7 +375,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 	mux.HandleFunc("GET /admin/accounts", func(w http.ResponseWriter, r *http.Request) {
 		conns := store.ListConnections()
 		if ref := r.URL.Query().Get("connection"); ref != "" {
-			id, err := resolveRef(store, ident.Connection, ref)
+			id, err := ResolveRegistryRef(store, ident.Connection, ref)
 			if err != nil {
 				fail(w, err)
 				return
@@ -340,7 +386,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		out := []AccountView{}
 		for _, c := range conns {
 			for _, a := range store.ListAccounts(c.ID) {
-				out = append(out, accountView(store, a))
+				out = append(out, NewAccountView(store, a))
 			}
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -350,36 +396,13 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		if !decode(w, r, &b) {
 			return
 		}
-		conn, err := resolveRef(store, ident.Connection, b.Connection)
+		a, err := UpsertAccountChecked(store, b)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		var uid ident.ID
-		if b.User != "" {
-			if uid, err = resolveRef(store, ident.User, b.User); err != nil {
-				fail(w, err)
-				return
-			}
-			if u, _ := store.GetUser(uid); u.Status != StatusLive {
-				fail(w, fmt.Errorf("%w: user %s", ErrRemoved, uid))
-				return
-			}
-		}
-		a, err := store.UpsertAccount(Account{ConnectionID: conn, ServiceUID: b.ServiceUID, Handle: b.Handle, Label: b.Label})
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		if uid != "" {
-			if err := store.LinkAccount(a.ID, uid); err != nil {
-				fail(w, err)
-				return
-			}
-			a, _ = store.GetAccount(a.ID)
-		}
-		log.Info("admin account upserted", "operator", OperatorID(r), "account", a.ID, "connection", conn, "user", a.UserID)
-		writeJSON(w, http.StatusCreated, accountView(store, a))
+		log.Info("admin account upserted", "operator", OperatorID(r), "account", a.ID, "connection", a.ConnectionID, "user", a.UserID)
+		writeJSON(w, http.StatusCreated, NewAccountView(store, a))
 	})
 	link := func(w http.ResponseWriter, r *http.Request, userRef string) {
 		acc, err := ident.Parse(r.PathValue("account"))
@@ -389,7 +412,7 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		var uid ident.ID
 		if userRef != "" {
-			if uid, err = resolveRef(store, ident.User, userRef); err != nil {
+			if uid, err = ResolveRegistryRef(store, ident.User, userRef); err != nil {
 				fail(w, err)
 				return
 			}

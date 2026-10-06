@@ -122,7 +122,7 @@ func TestRosterView(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE", Grants: []jam.Grant{{Project: "acme", Role: "worker"}}}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roster").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String()
 	for _, want := range []string{"spider-2", "worker", "anthropic"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("roster view missing %q", want)
@@ -135,7 +135,7 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roster").Body.String(), "HASH-NOPE") {
+	if strings.Contains(get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String(), "HASH-NOPE") {
 		t.Error("roster view leaked a token hash")
 	}
 }

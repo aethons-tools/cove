@@ -82,32 +82,36 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	m := matcher(strings.ToLower(strings.TrimSpace(q)))
 
 	projects := searchGroup{Key: "projects", Name: "Projects"}
-	humans := searchGroup{Key: "humans", Name: "Roster humans"}
+	users := searchGroup{Key: "users", Name: "Users"}
 	channels := searchGroup{Key: "channels", Name: "Roster channels"}
+	for _, u := range store.ListUsers() {
+		v := jam.NewUserView(store, u)
+		fields := append([]string{u.Name}, u.Logins...)
+		for _, id := range u.OIDC {
+			fields = append(fields, id.Subject)
+		}
+		for _, a := range v.Accounts {
+			fields = append(fields, a.Handle, a.ServiceUID)
+		}
+		if m.any(fields...) {
+			sub := strings.Join(v.Projects, ", ")
+			for _, a := range v.Accounts {
+				if a.Handle != "" {
+					sub += " · @" + a.Handle
+					break
+				}
+			}
+			if len(u.Logins) > 0 {
+				sub += " · login " + u.Logins[0]
+			}
+			users.add(searchHit{Title: u.Name, Sub: sub, URL: userURL(u.ID), Exact: m.exact(u.Name)})
+		}
+	}
 	for _, name := range store.ListProjects() {
 		p, _ := store.GetProject(name)
 		if m.any(name) {
 			projects.add(searchHit{Title: name, URL: projectURL(name), Exact: m.exact(name),
 				Sub: pluralCount(len(store.ListRoles(name)), "role")})
-		}
-		for _, h := range p.Roster.Humans {
-			fields := []string{h.Name, h.Handle, h.Login}
-			for _, dp := range h.Delivery {
-				fields = append(fields, dp.Address, dp.UserID)
-			}
-			for _, id := range h.Identity {
-				fields = append(fields, id.Subject)
-			}
-			if m.any(fields...) {
-				sub := name
-				if h.Handle != "" {
-					sub += " · @" + h.Handle
-				}
-				if h.Login != "" {
-					sub += " · login " + h.Login
-				}
-				humans.add(searchHit{Title: "human:" + h.Name, Sub: sub, URL: projectURL(name)})
-			}
 		}
 		for _, c := range p.Roster.Channels {
 			if m.any(c.Name, c.Ref) {
@@ -152,7 +156,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			grants[i] = orDefaultProject(g.Project) + "/" + g.Role
 		}
 		if m.any(append([]string{a.ID}, grants...)...) {
-			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: "/ui/roster", Exact: m.exact(a.ID)})
+			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: "/ui/actors", Exact: m.exact(a.ID)})
 		}
 	}
 
@@ -198,7 +202,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
-	for _, g := range []searchGroup{studios, roles, projects, kits, dests, actors, humans, channels, squawks} {
+	for _, g := range []searchGroup{studios, roles, projects, kits, dests, actors, users, channels, squawks} {
 		if g.Count > 0 {
 			d.Groups = append(d.Groups, g)
 			d.Total += g.Count

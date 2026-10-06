@@ -67,7 +67,7 @@
   </section>
 
   <section class="card">
-    <header><h2>Actors</h2><span class="sub">holding a grant into this project — manage on the <a href="/ui/roster">Roster</a></span></header>
+    <header><h2>Actors</h2><span class="sub">holding a grant into this project — manage on the <a href="/ui/actors">Actors</a> page</span></header>
     <table>
       <thead><tr><th>Actor</th><th>Roles</th></tr></thead>
       <tbody>
@@ -78,38 +78,39 @@
   </section>
 
   <section class="card full">
-    <header><h2>Roster — humans</h2><span class="sub">who studios in this project can address</span></header>
+    <header><h2>Members</h2><span class="sub">the <a href="/ui/users">users</a> studios in this project can address, and where they get DMs here</span></header>
     <table>
-      <thead><tr><th>Name</th><th>Handle</th><th>Login</th><th>Delivery</th><th>OIDC identity</th><th></th></tr></thead>
+      <thead><tr><th>User</th><th>Handle</th><th>Delivery</th><th></th></tr></thead>
       <tbody>
-        {{range .Humans}}
-        <tr data-id="{{.Name}}">
-          <td class="mono"><b>{{.Name}}</b></td>
+        {{range .Members}}
+        <tr data-id="{{.UserID}}">
+          <td><a class="mono" href="{{userURL .UserID}}"><b>{{.Name}}</b></a></td>
           <td>{{if .Handle}}<span class="mono">@{{.Handle}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
-          <td>{{if .Login}}<span class="mono">{{.Login}}</span>{{else}}<span class="unset">unlinked</span>{{end}}</td>
-          <td>{{range .Delivery}}<div><span class="chip">{{.Service}}</span> <span class="mono">{{.Address}}</span>{{if .UserID}} <span class="unset">user {{.UserID}}</span>{{end}}</div>{{else}}<span class="unset">—</span>{{end}}</td>
-          <td>{{range .Identity}}<div class="mono">{{.Issuer}} <span class="unset">·</span> {{.Subject}}</div>{{else}}<span class="unset">—</span>{{end}}</td>
+          <td>{{range .Delivery}}<div><span class="chip">{{.Service}}</span> <span class="mono">{{.Address}}</span></div>{{else}}<span class="unset">—</span>{{end}}</td>
           <td class="actions">
             <details class="row-edit"><summary>Edit</summary>
-              <form hx-post="/ui/projects/{{$p}}/humans" hx-target="#project" hx-swap="outerHTML">
-                <input type="hidden" name="name" value="{{.Name}}">
-                {{template "human-fields" .}}
+              <form hx-post="/ui/projects/{{$p}}/members" hx-target="#project" hx-swap="outerHTML">
+                <input type="hidden" name="user" value="{{.UserID}}">
+                <label class="wide">Delivery <span class="hint">one per line, <code>service:address</code></span><textarea name="delivery" spellcheck="false">{{.DeliverySpec}}</textarea></label>
                 <div class="form-actions"><button type="submit" class="primary small">Save {{.Name}}</button></div>
               </form>
             </details>
-            <button class="danger small" hx-delete="/ui/projects/{{$p}}/humans/{{.Name}}" hx-target="#project" hx-swap="outerHTML"
-              hx-confirm="Remove {{.Name}} from {{$p}}'s roster?">Remove</button>
+            <button class="danger small" hx-delete="/ui/projects/{{$p}}/members/{{.UserID}}" hx-target="#project" hx-swap="outerHTML"
+              hx-confirm="Remove {{.Name}} from {{$p}}?">Remove</button>
           </td>
         </tr>
-        {{else}}<tr><td colspan="6" class="empty">No humans on the roster.</td></tr>{{end}}
+        {{else}}<tr><td colspan="4" class="empty">No members.</td></tr>{{end}}
       </tbody>
     </table>
     <details class="edit">
-      <summary>Add human</summary>
-      <form hx-post="/ui/projects/{{$p}}/humans" hx-target="#project" hx-swap="outerHTML">
-        <div class="grid"><label>Name <span class="req">required</span><span class="hint">roster-local, addressed as <code>human:&lt;name&gt;</code></span><input name="name" required></label></div>
-        {{template "human-fields" (blankHuman)}}
-        <div class="form-actions"><button type="submit" class="primary">Add human</button></div>
+      <summary>Add member</summary>
+      <form hx-post="/ui/projects/{{$p}}/members" hx-target="#project" hx-swap="outerHTML">
+        <input type="hidden" name="add" value="1">
+        <div class="grid">
+          <label>User <span class="req">required</span><span class="hint">a <a href="/ui/users">user</a>'s name</span><input name="user" data-ta="users" required autocomplete="off"></label>
+          <label class="wide">Delivery <span class="hint">one per line, <code>service:address</code>, e.g. <code>discord:&lt;inbox-channel-id&gt;</code></span><textarea name="delivery" spellcheck="false"></textarea></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Add member</button></div>
       </form>
     </details>
   </section>
@@ -183,16 +184,6 @@
     {{template "coves-tbl" .}}
   </section>
 </div>
-</div>
-{{end}}
-
-{{/* human-fields: a roster human's editable fields (not the name), from a humanRow. */}}
-{{define "human-fields"}}
-<div class="grid">
-  <label>Handle <span class="hint">tracker @-mention, without the @</span><input name="handle" value="{{.Handle}}"></label>
-  <label>Login <span class="hint">operator identity (OIDC sub) — owns personal sessions</span><input name="login" value="{{.Login}}"></label>
-  <label class="wide">Delivery <span class="hint">one per line, <code>service:address[:user-id]</code> (user id: discord only)</span><textarea name="delivery" spellcheck="false">{{.DeliverySpec}}</textarea></label>
-  <label class="wide">OIDC identity <span class="hint">one per line, <code>issuer:subject</code></span><textarea name="identity" spellcheck="false">{{.IdentitySpec}}</textarea></label>
 </div>
 {{end}}
 

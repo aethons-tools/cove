@@ -101,7 +101,7 @@ func TestGateAttributesOperator(t *testing.T) {
 	var gotLoopback string
 	g := operatorGate(nil)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ui/roster", nil)
+	req := httptest.NewRequest("GET", "/ui/actors", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
 	req.Host = "localhost"
 	g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func TestGateAttributesOperator(t *testing.T) {
 	var gotSession string
 	gs := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	rec = httptest.NewRecorder()
-	sreq := httptest.NewRequest("GET", "/ui/roster", nil)
+	sreq := httptest.NewRequest("GET", "/ui/actors", nil)
 	sreq.RemoteAddr = "203.0.113.7:5555"
 	sreq.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
 	gs.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

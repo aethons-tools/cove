@@ -36,9 +36,6 @@ at-jam project member add <project> alice --delivery discord:<inbox-channel-id>
 at-jam account add --connection discord --uid <alice's-discord-user-id> --user alice
 ```
 
-(The roster view still shows the pair as one `service:address[:user-id]`
-delivery profile, the admin UI's syntax.)
-
 The service and address must be non-empty. The optional user id is
 **discord-only** and all digits (a Discord snowflake); any other shape, or a user
 id on another service, exits `2` (the admin route answers **400**). A Discord

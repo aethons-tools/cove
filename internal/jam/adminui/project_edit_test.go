@@ -14,10 +14,7 @@ import (
 func TestProjectPageOffersPrefilledEdits(t *testing.T) {
 	body := get(t, projHandler(seedProjects(t)), "/ui/projects/acme").Body.String()
 	for _, want := range []string{
-		`hx-post="/ui/projects/acme/humans"`,
-		`name="handle" value="alice-h"`, `name="login" value="sub-alice"`,
-		"discord:dm-alice:123456789", "https://idp.example:oidc-alice",
-		`hx-delete="/ui/projects/acme/humans/alice"`,
+		`hx-post="/ui/projects/acme/members"`, "discord:dm-alice", `hx-delete="/ui/projects/acme/members/usr_`,
 		`hx-post="/ui/projects/acme/channels"`, `hx-delete="/ui/projects/acme/channels/eng"`,
 		`hx-post="/ui/projects/acme/escalation"`,
 		"human:alice@30m", "human:alice,channel:eng@10m",
@@ -27,59 +24,6 @@ func TestProjectPageOffersPrefilledEdits(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("project page missing %q", want)
 		}
-	}
-}
-
-func rosterHuman(t *testing.T, store jam.Store, name string) (jam.Human, bool) {
-	t.Helper()
-	r, _ := store.GetRoster("acme")
-	for _, h := range r.Humans {
-		if h.Name == name {
-			return h, true
-		}
-	}
-	return jam.Human{}, false
-}
-
-func TestAddEditRemoveHuman(t *testing.T) {
-	store := seedProjects(t)
-	h := projHandler(store)
-	rec := post(t, h, "/ui/projects/acme/humans", url.Values{
-		"name": {"bob"}, "handle": {"bob-h"}, "login": {"sub-bob"},
-		"delivery": {"discord:dm-bob:987654321\n\n"}, "identity": {"https://idp.example:oidc-bob"},
-	})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="project"`) {
-		t.Fatalf("add human = %d: %s", rec.Code, rec.Body.String())
-	}
-	bob, ok := rosterHuman(t, store, "bob")
-	if !ok || bob.Handle != "bob-h" || len(bob.Delivery) != 1 || bob.Delivery[0].UserID != "987654321" || len(bob.Identity) != 1 {
-		t.Fatalf("bob = %+v", bob)
-	}
-	// edit alice: this project's delivery comes from the form, so cleared lines
-	// clear; her handle is replaced; but login, OIDC and her Discord account are
-	// the Jam-wide person's (1a-3a) — a project form adds, never strips, them.
-	if rec := post(t, h, "/ui/projects/acme/humans", url.Values{"name": {"alice"}, "handle": {"alice-2"}, "login": {"sub-alice"}}); rec.Code != http.StatusOK {
-		t.Fatalf("edit alice = %d", rec.Code)
-	}
-	a, _ := rosterHuman(t, store, "alice")
-	if d, _ := a.DeliveryFor("discord"); a.Handle != "alice-2" || d.Address != "" || len(a.Identity) != 1 {
-		t.Fatalf("alice after edit = %+v", a)
-	}
-	for name, form := range map[string]url.Values{
-		"no name":      {"handle": {"x"}},
-		"login taken":  {"name": {"carol"}, "login": {"sub-bob"}},
-		"bad delivery": {"name": {"carol"}, "delivery": {"discord"}},
-		"bad identity": {"name": {"carol"}, "identity": {"no-colon"}},
-	} {
-		if rec := post(t, h, "/ui/projects/acme/humans", form); rec.Code != http.StatusBadRequest {
-			t.Errorf("%s = %d, want 400", name, rec.Code)
-		}
-	}
-	if rec := del(t, h, "/ui/projects/acme/humans/bob"); rec.Code != http.StatusOK {
-		t.Fatalf("remove bob = %d", rec.Code)
-	}
-	if _, ok := rosterHuman(t, store, "bob"); ok {
-		t.Errorf("bob still on the roster")
 	}
 }
 
@@ -165,7 +109,7 @@ func TestSetChatService(t *testing.T) {
 
 func TestProjectEditsRefuseCrossOriginAndUnknownProject(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	req := httptest.NewRequest(http.MethodPost, "/ui/projects/acme/humans", strings.NewReader("name=x"))
+	req := httptest.NewRequest(http.MethodPost, "/ui/projects/acme/members", strings.NewReader("user=x"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
 	rec := httptest.NewRecorder()
@@ -173,7 +117,7 @@ func TestProjectEditsRefuseCrossOriginAndUnknownProject(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("cross-origin = %d, want 403", rec.Code)
 	}
-	if rec := post(t, h, "/ui/projects/ghost/humans", url.Values{"name": {"x"}}); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/ui/projects/ghost/members", url.Values{"user": {"alice"}}); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown project = %d, want 404", rec.Code)
 	}
 }
