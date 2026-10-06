@@ -120,7 +120,7 @@ func TestPlanHumanMigrationFields(t *testing.T) {
 	if len(ms.Delivery) != 1 || ms.Delivery[0].Address != "chan-9" || ms.Delivery[0].UserID != "" {
 		t.Fatalf("membership = %+v", ms)
 	}
-	if plan.aliases[0] != (legacyAlias{Project: "acme", Name: "dave", User: u.ID}) {
+	if plan.aliases[0] != (LegacyAlias{Project: "acme", Name: "dave", UserID: u.ID}) {
 		t.Fatalf("alias = %+v", plan.aliases[0])
 	}
 }

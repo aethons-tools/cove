@@ -21,10 +21,12 @@ type HumanMigration struct {
 	Notes       []string `json:"notes,omitempty"`
 }
 
-// legacyAlias is one legacy_human_aliases row.
-type legacyAlias struct {
-	Project, Name string
-	User          ident.ID
+// LegacyAlias is one legacy_human_aliases row: the user a pre-registry roster
+// human (project name, human name) became.
+type LegacyAlias struct {
+	Project string   `json:"project"`
+	Name    string   `json:"name"`
+	UserID  ident.ID `json:"user_id"`
 }
 
 // roleWrite is a role rewritten by the migration (a renamed human's exact
@@ -42,7 +44,7 @@ type humanPlan struct {
 	users       []User
 	accounts    []Account
 	memberships []Membership
-	aliases     []legacyAlias
+	aliases     []LegacyAlias
 	projects    []Project // docs with Roster.Humans cleared (and renamed refs rewritten)
 	roles       []roleWrite
 	actors      []Actor
@@ -332,7 +334,7 @@ func (m *memState) planHumanMigration() humanPlan {
 			for _, id := range it.h.discordUserIDs() {
 				link("discord", id, "", u, it.h, it.project.Name)
 			}
-			plan.aliases = append(plan.aliases, legacyAlias{Project: it.project.Name, Name: it.h.Name, User: u.ID})
+			plan.aliases = append(plan.aliases, LegacyAlias{Project: it.project.Name, Name: it.h.Name, UserID: u.ID})
 			if u.Name != it.h.Name {
 				if renames[it.project.Name] == nil {
 					renames[it.project.Name] = map[string]string{}
@@ -553,7 +555,7 @@ func (m *memState) applyHumanPlan(p humanPlan) {
 		if m.aliases[al.Project] == nil {
 			m.aliases[al.Project] = map[string]ident.ID{}
 		}
-		m.aliases[al.Project][al.Name] = al.User
+		m.aliases[al.Project][al.Name] = al.UserID
 	}
 	for _, pr := range p.projects {
 		m.applyPutProject(pr)

@@ -676,13 +676,9 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
 			t.Fatalf("acme delivery = %+v, %v", d, ok)
 		}
-		// The export carries the view, so a v1 backup still restores its roster.
-		var exported int
-		for _, p := range s.ExportConfig().Projects {
-			exported += len(p.Roster.Humans)
-		}
-		if exported != 2 {
-			t.Fatalf("exported humans = %d, want 2", exported)
+		// A (v2) export carries the people in the registry, not as humans.
+		if snap := s.ExportConfig(); len(snap.Users) != 1 || len(snap.Memberships) != 2 {
+			t.Fatalf("exported users %d, memberships %d; want 1 and 2", len(snap.Users), len(snap.Memberships))
 		}
 	})
 
@@ -801,6 +797,149 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		}
 		if p, _ := s3.GetProject("beta"); p.ChatService != "" {
 			t.Fatalf("dangling chat service kept: %q", p.ChatService)
+		}
+	})
+
+	t.Run("export_import_v2_round_trips_registry", func(t *testing.T) {
+		s := newStore(t)
+		// A v1 restore builds the registry (and legacy aliases) from humans.
+		v1 := jam.ConfigSnapshot{Version: 1, Projects: []jam.Project{{Name: "acme", Roster: jam.Roster{Humans: []jam.Human{
+			{Name: "alice", Handle: "@alice", Login: "auth0|a", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}},
+		}}}}}
+		if err := s.ImportConfig(v1); err != nil {
+			t.Fatalf("v1 import: %v", err)
+		}
+		gone, _ := s.CreateUser(jam.User{Name: "gone"})
+		if err := s.RemoveUser(gone.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		snap := s.ExportConfig()
+		if snap.Version != jam.ConfigSnapshotVersion || len(snap.Users) != 2 || len(snap.Connections) != 2 || len(snap.Accounts) != 2 || len(snap.Memberships) != 1 || len(snap.LegacyAliases) != 1 {
+			t.Fatalf("v2 export = version %d, %d users, %d connections, %d accounts, %d memberships, %d aliases",
+				snap.Version, len(snap.Users), len(snap.Connections), len(snap.Accounts), len(snap.Memberships), len(snap.LegacyAliases))
+		}
+		for _, p := range snap.Projects {
+			if len(p.Roster.Humans) != 0 {
+				t.Fatalf("a v2 export carries people in the registry, not roster humans: %+v", p.Roster.Humans)
+			}
+		}
+
+		s2 := newStore(t)
+		if err := s2.ImportConfig(snap); err != nil {
+			t.Fatalf("v2 import: %v", err)
+		}
+		alice, _ := s.LookupName(ident.User, "alice")
+		if got, ok := s2.LookupName(ident.User, "alice"); !ok || got != alice {
+			t.Fatalf("alice = %q, want her id %q preserved", got, alice)
+		}
+		if e, ok := s2.Resolve(gone.ID); !ok || e.Label() != "gone (removed)" {
+			t.Fatalf("removed user = %+v, %v; tombstones back history and must survive", e, ok)
+		}
+		if a, ok := s2.LegacyHumanAlias("acme", "alice"); !ok || a != alice {
+			t.Fatalf("legacy alias = %q, %v", a, ok)
+		}
+		r, _ := s2.GetRoster("acme")
+		if len(r.Humans) != 1 || r.Humans[0].Handle != "@alice" || r.Humans[0].Login != "auth0|a" {
+			t.Fatalf("restored roster = %+v", r.Humans)
+		}
+		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
+			t.Fatalf("restored delivery = %+v, %v", d, ok)
+		}
+		p1, _ := s.GetProject("acme")
+		if p2, _ := s2.GetProject("acme"); p2.ChatService != p1.ChatService || jam.ChatKind(s2, p2) != "discord" {
+			t.Fatalf("restored chat service = %q, want %q", p2.ChatService, p1.ChatService)
+		}
+		// A target holding users is not empty.
+		if err := s2.ImportConfig(snap); !errors.Is(err, jam.ErrConfigNotEmpty) {
+			t.Fatalf("import into a populated registry: %v, want ErrConfigNotEmpty", err)
+		}
+	})
+
+	t.Run("import_v2_rejects_inconsistent_registry", func(t *testing.T) {
+		u := jam.User{ID: ident.New(ident.User), Name: "alice", Status: jam.StatusLive}
+		c := jam.Connection{ID: ident.New(ident.Connection), Kind: "discord", Name: "discord", Status: jam.StatusLive}
+		v2 := func(mut func(*jam.ConfigSnapshot)) jam.ConfigSnapshot {
+			s := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: []jam.Project{{ID: ident.New(ident.Project), Name: "acme"}},
+				Users: []jam.User{u}, Connections: []jam.Connection{c}}
+			mut(&s)
+			return s
+		}
+		for name, snap := range map[string]jam.ConfigSnapshot{
+			"duplicate user name": v2(func(s *jam.ConfigSnapshot) {
+				s.Users = append(s.Users, jam.User{ID: ident.New(ident.User), Name: "alice", Status: jam.StatusLive})
+			}),
+			"account on an unknown connection": v2(func(s *jam.ConfigSnapshot) {
+				s.Accounts = []jam.Account{{ID: ident.New(ident.Account), ConnectionID: ident.New(ident.Connection), ServiceUID: "1", Status: jam.StatusLive}}
+			}),
+			"account linked to an unknown user": v2(func(s *jam.ConfigSnapshot) {
+				s.Accounts = []jam.Account{{ID: ident.New(ident.Account), ConnectionID: c.ID, ServiceUID: "1", UserID: ident.New(ident.User), Status: jam.StatusLive}}
+			}),
+			"membership of an unknown project": v2(func(s *jam.ConfigSnapshot) {
+				s.Memberships = []jam.Membership{{ProjectID: ident.New(ident.Project), UserID: u.ID}}
+			}),
+			"alias to an unknown user": v2(func(s *jam.ConfigSnapshot) {
+				s.LegacyAliases = []jam.LegacyAlias{{Project: "acme", Name: "x", UserID: ident.New(ident.User)}}
+			}),
+			"user id of the wrong kind": v2(func(s *jam.ConfigSnapshot) {
+				s.Users[0].ID = ident.New(ident.Account)
+			}),
+		} {
+			if err := newStore(t).ImportConfig(snap); !errors.Is(err, jam.ErrInvalidConfig) {
+				t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
+			}
+		}
+	})
+
+	t.Run("import_v2_over_startup_connections", func(t *testing.T) {
+		src := newStore(t)
+		mustProject(t, src, "acme")
+		if err := src.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		c := mustConn(t, src, "linear", "linear")
+		// A label-only account (a handle displaced by the uid-wins rule).
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, Handle: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u1"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u1", Handle: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+		snap := src.ExportConfig()
+
+		// The target already has the connection a starting serve creates.
+		dst := newStore(t)
+		boot := mustConn(t, dst, "discord", "discord")
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatalf("v2 import over a startup connection: %v", err)
+		}
+		id, ok := dst.LookupName(ident.Connection, "discord")
+		srcID, _ := src.LookupName(ident.Connection, "discord")
+		if !ok || id != srcID || id == boot.ID {
+			t.Fatalf("live discord connection = %q, want the snapshot's %q", id, srcID)
+		}
+		if p, _ := dst.GetProject("acme"); jam.ChatKind(dst, p) != "discord" {
+			t.Fatalf("chat service = %q", p.ChatService)
+		}
+		if n := len(dst.ListAccounts(c.ID)); n != 2 {
+			t.Fatalf("accounts = %d, want both (one label-only)", n)
+		}
+
+		// A v1 snapshot reuses the startup connection instead of a second one.
+		dst2 := newStore(t)
+		boot2 := mustConn(t, dst2, "discord", "discord")
+		v1 := jam.ConfigSnapshot{Version: 1, Projects: []jam.Project{{Name: "acme", ChatService: "discord", Roster: jam.Roster{Humans: []jam.Human{
+			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox", UserID: "111"}}}}}}}}
+		if err := dst2.ImportConfig(v1); err != nil {
+			t.Fatalf("v1 import over a startup connection: %v", err)
+		}
+		if conns := dst2.ListConnections(); len(conns) != 1 || conns[0].ID != boot2.ID {
+			t.Fatalf("connections = %+v, want only the startup one", conns)
 		}
 	})
 }

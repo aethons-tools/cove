@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,8 +15,11 @@ import (
 )
 
 // ConfigSnapshotVersion is the on-the-wire/on-disk schema version of a config
-// backup. Import rejects any other value rather than mis-loading.
-const ConfigSnapshotVersion = 1
+// backup this build writes. 2 carries the identity registry (users,
+// connections, accounts, memberships, legacy aliases) with their ids; import
+// also reads 1, whose roster humans and kind-named chat services it migrates.
+// Import rejects any other value rather than mis-loading.
+const ConfigSnapshotVersion = 2
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
@@ -39,6 +44,14 @@ type ConfigSnapshot struct {
 	// (ModelSpecSchemaVersion); 0 (absent) = a pre-COV-242 backup, whose specs
 	// an import migrates (MigrateSnapshotModelSpecs).
 	ModelSpecSchema int `json:"model_spec_schema,omitempty"`
+
+	// The identity registry (v2): every entity, removed ones included (their
+	// ids back history), so a restore keeps every stored reference valid.
+	Users         []User        `json:"users,omitempty"`
+	Connections   []Connection  `json:"connections,omitempty"`
+	Accounts      []Account     `json:"accounts,omitempty"`
+	Memberships   []Membership  `json:"memberships,omitempty"`
+	LegacyAliases []LegacyAlias `json:"legacy_aliases,omitempty"`
 }
 
 // ErrConfigNotEmpty is returned by ImportConfig when the target already holds
@@ -91,18 +104,14 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 	sort.Slice(snap.ModelSpecs, func(i, j int) bool { return snap.ModelSpecs[i].Name < snap.ModelSpecs[j].Name })
 
 	for name, p := range m.projects {
-		p = m.viewProject(p) // roster humans travel in the snapshot until v2 (1a-5)
-		// The snapshot carries no connections until v2: write the chat
-		// service as its kind, which import maps to that kind's connection.
-		if c, ok := m.connections[ident.ID(p.ChatService)]; ok {
-			p.ChatService = c.Kind
-		}
+		p = copyProject(p) // the stored doc: people travel in the registry, not roster humans
 		p.Name = name
 		snap.Projects = append(snap.Projects, p)
 	}
 	sort.Slice(snap.Projects, func(i, j int) bool { return snap.Projects[i].Name < snap.Projects[j].Name })
 
 	snap.ModelSpecSchema = m.specSchema
+	m.exportRegistry(&snap)
 	if !m.jamContext.Empty() {
 		jc := m.jamContext
 		snap.JamContext = &jc
@@ -131,8 +140,8 @@ func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
 // ErrConfigNotEmpty (naming the offending aggregates) if any config aggregate
 // already has entries.
 func checkImport(m *memState, s ConfigSnapshot) error {
-	if s.Version != ConfigSnapshotVersion {
-		return fmt.Errorf("%w: got %d, want %d", ErrUnsupportedConfigVersion, s.Version, ConfigSnapshotVersion)
+	if s.Version != 1 && s.Version != ConfigSnapshotVersion {
+		return fmt.Errorf("%w: got %d, want 1 or %d", ErrUnsupportedConfigVersion, s.Version, ConfigSnapshotVersion)
 	}
 	if names := nonEmptyConfigAggregates(m); len(names) > 0 {
 		return fmt.Errorf("%w (non-empty: %s)", ErrConfigNotEmpty, strings.Join(names, ", "))
@@ -242,6 +251,11 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	if len(m.projects) > 0 {
 		names = append(names, "projects")
 	}
+	// Connections alone don't count: a starting serve creates the one its
+	// (deprecated) serve config names; import reconciles them.
+	if len(m.users) > 0 || len(m.accounts) > 0 {
+		names = append(names, "registry")
+	}
 	if !m.jamContext.Empty() {
 		names = append(names, "jam_context")
 	}
@@ -328,12 +342,171 @@ func applyImport(m *memState, s ConfigSnapshot) {
 func (fs *MemStore) ImportConfig(s ConfigSnapshot) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if err := checkImport(fs.memState, s); err != nil {
+	s, plan, err := importPlan(fs.memState, s)
+	if err != nil {
 		return err
 	}
 	applyImport(fs.memState, s)
-	// A snapshot may predate the registry (roster humans, kind-named chat
-	// services): migrate it.
-	fs.applyHumanPlan(fs.planRegistryMigration(0))
+	fs.applyHumanPlan(plan)
 	return nil
+}
+
+// exportRegistry adds the identity registry to a snapshot, sorted by id (or
+// key) for a stable backup. Caller holds mu.
+func (m *memState) exportRegistry(snap *ConfigSnapshot) {
+	for _, id := range slices.Sorted(maps.Keys(m.users)) {
+		snap.Users = append(snap.Users, copyUser(m.users[id]))
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.connections)) {
+		snap.Connections = append(snap.Connections, m.connections[id])
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.accounts)) {
+		snap.Accounts = append(snap.Accounts, m.accounts[id])
+	}
+	for _, pid := range slices.Sorted(maps.Keys(m.members)) {
+		for _, uid := range slices.Sorted(maps.Keys(m.members[pid])) {
+			snap.Memberships = append(snap.Memberships, copyMembership(m.members[pid][uid]))
+		}
+	}
+	for _, project := range slices.Sorted(maps.Keys(m.aliases)) {
+		for _, name := range slices.Sorted(maps.Keys(m.aliases[project])) {
+			snap.LegacyAliases = append(snap.LegacyAliases, LegacyAlias{Project: project, Name: name, UserID: m.aliases[project][name]})
+		}
+	}
+}
+
+// importPlan validates a snapshot for import into m (an empty store) and
+// returns it normalized (withReferencedProjects) together with the registry
+// writes the import makes: the snapshot's own registry (v2), then every
+// registry migration step its config still needs (a v1 snapshot's roster
+// humans and kind-named chat services). Caller holds the write lock.
+func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error) {
+	if err := checkImport(m, s); err != nil {
+		return ConfigSnapshot{}, humanPlan{}, err
+	}
+	s = withReferencedProjects(deepCopySnapshot(s))
+	var existing []Connection
+	for _, c := range m.connections {
+		existing = append(existing, c)
+	}
+	reg, scratch, err := planSnapshotRegistry(s, existing)
+	if err != nil {
+		return ConfigSnapshot{}, humanPlan{}, err
+	}
+	applyImport(scratch, s)
+	mig := scratch.planRegistryMigration(0)
+	reg.connections = append(reg.connections, mig.connections...)
+	reg.users = append(reg.users, mig.users...)
+	reg.accounts = append(reg.accounts, mig.accounts...)
+	reg.memberships = append(reg.memberships, mig.memberships...)
+	reg.aliases = append(reg.aliases, mig.aliases...)
+	reg.projects = append(reg.projects, mig.projects...)
+	reg.roles = append(reg.roles, mig.roles...)
+	reg.actors = append(reg.actors, mig.actors...)
+	reg.report = mig.report
+	return s, reg, nil
+}
+
+// planSnapshotRegistry replays a snapshot's registry into a scratch state
+// through the store's own rules — unique live names, logins and OIDC
+// bindings, unique service identities, references that resolve — and returns
+// it as registry writes, plus the scratch state (the snapshot's projects and
+// registry over the target's connections). Removed (tombstoned) users and
+// connections are kept as they are. existing are the (otherwise empty)
+// target's connections — those a starting serve created: one the snapshot
+// also names is tombstoned so the snapshot's takes over its name; the rest
+// stay. Any inconsistency is ErrInvalidConfig.
+func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *memState, error) {
+	bad := func(format string, args ...any) (humanPlan, *memState, error) {
+		return humanPlan{}, nil, fmt.Errorf("%w: registry: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
+	}
+	m := newMemState()
+	for _, p := range s.Projects {
+		m.projects[p.Name] = p
+	}
+	var plan humanPlan
+	for _, c := range existing {
+		if c.Status == StatusLive && slices.ContainsFunc(s.Connections, func(sc Connection) bool { return sc.Status == StatusLive && sc.Name == c.Name }) {
+			c.Status = StatusRemoved
+			plan.connections = append(plan.connections, c)
+		}
+		m.applyPutConnection(c)
+	}
+	checkID := func(id ident.ID, k ident.Kind) error {
+		if _, err := ident.Parse(string(id)); err != nil || id.Kind() != k {
+			return fmt.Errorf("%q is not a %s id", id, k)
+		}
+		if m.idExists(id) {
+			return fmt.Errorf("id %q is used twice", id)
+		}
+		return nil
+	}
+	for _, c := range s.Connections {
+		if c.Status == StatusRemoved {
+			if err := checkID(c.ID, ident.Connection); err != nil {
+				return bad("connection %q: %v", c.Name, err)
+			}
+		} else {
+			created, err := m.prepareCreateConnection(c)
+			if err != nil || created.ID != c.ID {
+				return bad("connection %q: %v", c.Name, err)
+			}
+		}
+		m.applyPutConnection(c)
+		plan.connections = append(plan.connections, c)
+	}
+	for _, u := range s.Users {
+		if u.Status == StatusRemoved {
+			if err := checkID(u.ID, ident.User); err != nil {
+				return bad("user %q: %v", u.Name, err)
+			}
+			u.Logins, u.OIDC = nil, nil // a tombstone holds no identity
+		} else {
+			created, err := m.prepareCreateUser(u)
+			if err != nil || created.ID != u.ID {
+				return bad("user %q: %v", u.Name, err)
+			}
+		}
+		m.applyPutUser(u)
+		plan.users = append(plan.users, copyUser(u))
+	}
+	for _, a := range s.Accounts {
+		if err := checkID(a.ID, ident.Account); err != nil {
+			return bad("account %s: %v", a.ID, err)
+		}
+		if _, ok := m.connections[a.ConnectionID]; !ok {
+			return bad("account %s: no connection %s", a.ID, a.ConnectionID)
+		}
+		if a.ServiceUID == "" && a.Handle == "" && a.Label == "" {
+			return bad("account %s has no service uid, handle or label", a.ID)
+		}
+		if a.UserID != "" {
+			if _, err := m.liveUser(a.UserID); err != nil {
+				return bad("account %s: %v", a.ID, err)
+			}
+		}
+		for _, o := range m.accounts {
+			if o.ConnectionID == a.ConnectionID && (a.ServiceUID != "" && o.ServiceUID == a.ServiceUID ||
+				a.Status == StatusLive && o.Status == StatusLive && a.Handle != "" && o.Handle == a.Handle) {
+				return bad("accounts %s and %s share a service identity", o.ID, a.ID)
+			}
+		}
+		m.applyPutAccount(a)
+		plan.accounts = append(plan.accounts, a)
+	}
+	for _, ms := range s.Memberships {
+		ms, err := m.preparePutMembership(ms)
+		if err != nil {
+			return bad("membership %s in %s: %v", ms.UserID, ms.ProjectID, err)
+		}
+		m.applyPutMembership(ms)
+		plan.memberships = append(plan.memberships, ms)
+	}
+	for _, al := range s.LegacyAliases {
+		if _, ok := m.users[al.UserID]; !ok {
+			return bad("legacy alias %s/%s: no user %s", al.Project, al.Name, al.UserID)
+		}
+		plan.aliases = append(plan.aliases, al)
+	}
+	return plan, m, nil
 }
