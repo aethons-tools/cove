@@ -3,6 +3,7 @@ package jam
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -496,3 +497,70 @@ func (m *memState) prepareLinkAccount(id, userID ident.ID) (Account, error) {
 }
 
 func (m *memState) applyPutConnection(c Connection) { m.connections[c.ID] = c }
+
+// ---- memberships ----
+
+func (m *memState) IsMember(project, user ident.ID) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.members[project][user]
+}
+
+func (m *memState) ListMembers(project ident.ID) []ident.ID {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return slices.Sorted(maps.Keys(m.members[project]))
+}
+
+func (m *memState) ListMemberships(user ident.ID) []ident.ID {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []ident.ID
+	for project, users := range m.members {
+		if users[user] {
+			out = append(out, project)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// prepareAddMember validates an AddMember: the project exists and the user is
+// live. It reports whether the membership is new.
+func (m *memState) prepareAddMember(project, user ident.ID) (bool, error) {
+	if _, ok := m.projectByID(project); !ok {
+		return false, fmt.Errorf("%w: %s", ErrProjectNotFound, project)
+	}
+	if _, err := m.liveUser(user); err != nil {
+		return false, err
+	}
+	return !m.members[project][user], nil
+}
+
+func (m *memState) prepareRemoveMember(project, user ident.ID) error {
+	if !m.members[project][user] {
+		return fmt.Errorf("%w: %s in %s", ErrMembershipNotFound, user, project)
+	}
+	return nil
+}
+
+func (m *memState) applyAddMember(project, user ident.ID) {
+	if m.members[project] == nil {
+		m.members[project] = map[ident.ID]bool{}
+	}
+	m.members[project][user] = true
+}
+
+func (m *memState) applyRemoveMember(project, user ident.ID) {
+	delete(m.members[project], user)
+	if len(m.members[project]) == 0 {
+		delete(m.members, project)
+	}
+}
+
+// applyDropMemberships ends every membership of user (RemoveUser).
+func (m *memState) applyDropMemberships(user ident.ID) {
+	for project := range m.members {
+		m.applyRemoveMember(project, user)
+	}
+}

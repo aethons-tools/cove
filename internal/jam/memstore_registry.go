@@ -38,6 +38,7 @@ func (fs *MemStore) RemoveUser(id ident.ID) error {
 	for _, a := range unlinked {
 		fs.applyPutAccount(a)
 	}
+	fs.applyDropMemberships(id)
 	return nil
 }
 
@@ -107,5 +108,25 @@ func (fs *MemStore) LinkAccount(id, userID ident.ID) error {
 		return err
 	}
 	fs.applyPutAccount(a)
+	return nil
+}
+
+func (fs *MemStore) AddMember(project, user ident.ID) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if _, err := fs.prepareAddMember(project, user); err != nil {
+		return err
+	}
+	fs.applyAddMember(project, user)
+	return nil
+}
+
+func (fs *MemStore) RemoveMember(project, user ident.ID) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := fs.prepareRemoveMember(project, user); err != nil {
+		return err
+	}
+	fs.applyRemoveMember(project, user)
 	return nil
 }

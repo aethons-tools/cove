@@ -57,6 +57,13 @@ type Account struct {
 	Status       Status   `json:"status"`
 }
 
+// Membership makes a user a member of a project. Nothing reads memberships
+// yet; the humans → users cutover (1a-3) moves the project roster onto them.
+type Membership struct {
+	ProjectID ident.ID `json:"project_id"`
+	UserID    ident.ID `json:"user_id"`
+}
+
 // Entry is what Resolve knows about any id: enough to render it.
 type Entry struct {
 	ID     ident.ID
@@ -83,6 +90,7 @@ var (
 	ErrAccountNotFound    = errors.New("account not found")
 	ErrConnectionInUse    = errors.New("connection is still referenced")
 	ErrRemoved            = errors.New("entity has been removed")
+	ErrMembershipNotFound = errors.New("membership not found")
 )
 
 // ValidateEntityName checks a registry name. Names are labels addressed as
@@ -115,6 +123,7 @@ type Directory interface {
 	UserByOIDC(issuer, subject string) (User, bool)
 	AccountByUID(conn ident.ID, uid string) (Account, bool)
 	AccountByHandle(conn ident.ID, handle string) (Account, bool)
+	IsMember(project, user ident.ID) bool
 }
 
 // RegistryStore is the Store's registry: users, connections and accounts.
@@ -128,7 +137,7 @@ type RegistryStore interface {
 	SetUserLogins(id ident.ID, logins []string) error
 	SetUserOIDC(id ident.ID, ids []OIDCIdentity) error
 	// RemoveUser tombstones the user, frees their logins and OIDC bindings,
-	// and unlinks their accounts.
+	// unlinks their accounts and ends their memberships.
 	RemoveUser(id ident.ID) error
 	GetUser(id ident.ID) (User, bool)
 	ListUsers() []User
@@ -152,4 +161,13 @@ type RegistryStore interface {
 	LinkAccount(id, userID ident.ID) error
 	GetAccount(id ident.ID) (Account, bool)
 	ListAccounts(conn ident.ID) []Account
+
+	// AddMember makes a live user a member of a project (a no-op if already).
+	AddMember(project, user ident.ID) error
+	// RemoveMember ends a membership (ErrMembershipNotFound if there is none).
+	RemoveMember(project, user ident.ID) error
+	// ListMembers returns a project's member user ids; ListMemberships a
+	// user's project ids. Both sorted.
+	ListMembers(project ident.ID) []ident.ID
+	ListMemberships(user ident.ID) []ident.ID
 }

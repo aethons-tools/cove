@@ -273,3 +273,6 @@ func (s *PostgresStore) loadRegistry(ctx context.Context) error {
 		return nil
 	})
 }
+
+func (s *PostgresStore) AddMember(ident.ID, ident.ID) error    { panic("pgstore: memberships: task 4") }
+func (s *PostgresStore) RemoveMember(ident.ID, ident.ID) error { panic("pgstore: memberships: task 4") }

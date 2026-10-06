@@ -38,6 +38,8 @@ type memState struct {
 	users       map[ident.ID]User
 	connections map[ident.ID]Connection
 	accounts    map[ident.ID]Account
+	// members is the project membership set: project id → user id → true.
+	members map[ident.ID]map[ident.ID]bool
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -61,6 +63,7 @@ func newMemState() *memState {
 		users:       map[ident.ID]User{},
 		connections: map[ident.ID]Connection{},
 		accounts:    map[ident.ID]Account{},
+		members:     map[ident.ID]map[ident.ID]bool{},
 		unread:      map[string]map[string]int64{},
 	}
 }
@@ -377,6 +380,9 @@ func (m *memState) grantProjects(a Actor) ([]Project, error) {
 // projectReference names a role or grant that still references project, for
 // RemoveProject's in-use refusal.
 func (m *memState) projectReference(project string) (string, bool) {
+	if n := len(m.members[m.projects[project].ID]); n > 0 {
+		return fmt.Sprintf("%d member(s)", n), true
+	}
 	for name := range m.roles[project] {
 		return fmt.Sprintf("role %s/%s", project, name), true
 	}
