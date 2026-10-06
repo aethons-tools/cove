@@ -186,8 +186,8 @@ A standing grant must name a declared session. Otherwise it is denied.
 ## Messaging
 
 A standing session has no ticket and no owner, so it has **no default
-recipient**. Its `send` must name a `to` (a `user:` or `channel:` target from the
-project roster), or it answers `400 no default recipient: pass "to"`
+channel**. Its `send` must name a `to` (a `user:`, `chat:`, `channel:` or
+`ticket:` target), or it answers `400 no default recipient: pass "to"`
 ([intercom.md](intercom.md)). What it may address is limited by its role's
 `--addressing`, like any studio. Its [session context](session-context.md) tells it this. A reply to one of its
 messages wakes it with its own resume text ("A message may have arrived — use the

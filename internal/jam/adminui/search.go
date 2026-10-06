@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -185,10 +184,12 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 
 	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/ui/intercom?q=" + url.QueryEscape(q)}
 	if msgs != nil {
-		var found []intercom.Squawk
-		for _, s := range msgs.List(intercom.Filter{}) {
-			if m.any(s.Body) {
-				found = append(found, s)
+		var found []Logged
+		for _, legacy := range []bool{false, true} {
+			for _, s := range msgs.Squawks(legacy) {
+				if m.any(s.Body) {
+					found = append(found, s)
+				}
 			}
 		}
 		sort.SliceStable(found, func(i, j int) bool { return found[i].At.After(found[j].At) })
@@ -196,7 +197,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		for _, s := range found[:min(len(found), searchSquawks)] {
 			squawks.Hits = append(squawks.Hits, searchHit{
 				Title: clip(s.Body, 160),
-				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From.String() + " → " + targetsString(s.To),
+				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From + " → " + squawkWhere(s),
 				URL:   "/ui/intercom?q=" + url.QueryEscape(q),
 			})
 		}
@@ -211,10 +212,15 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	return d
 }
 
-func targetsString(ts []intercom.Target) string {
-	out := make([]string, len(ts))
-	for i, t := range ts {
-		out[i] = t.String()
+// squawkWhere is where a squawk went: its channel, or a legacy squawk's
+// recipients.
+func squawkWhere(s Logged) string {
+	if s.Channel != "" {
+		return s.Channel
+	}
+	out := make([]string, len(s.To))
+	for i, t := range s.To {
+		out[i] = t.Target
 	}
 	return strings.Join(out, ", ")
 }

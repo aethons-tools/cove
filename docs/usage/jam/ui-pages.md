@@ -67,9 +67,9 @@ when a runtime supervisor is configured, **Teardown**.
   at its limit — see [roster.md](roster.md)).
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
-- **Squawks** — the newest 50 squawks to or from `actor:<id>`, rendered as on
-  the Intercom page, with a link to the Intercom page pre-filtered to it for
-  the rest.
+- **Squawks** — the newest 50 squawks in its conversations (and, from before
+  the channel log, to or from `actor:<id>`), rendered as on the Intercom page,
+  with a link to the Intercom page filtered to its own posts.
 
 A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,

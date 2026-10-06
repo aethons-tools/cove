@@ -1773,32 +1773,34 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
-	// Message Log: opened once (handle held for the serve lifetime) and shared
-	// between the /squawks writer (dual-write shadow, below) and the admin UI's
-	// read-only reader (further down). Postgres (the shared control-plane pool).
-	ml, err := intercompg.New(context.Background(), pgPool, log)
+	// The intercom's channel log, opened once for the serve lifetime in the
+	// shared control-plane Postgres; it continues the frozen legacy log (ml),
+	// which inboxes and the UIs' History still read.
+	pglog, err := intercompg.New(context.Background(), pgPool, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
-	var intercomLog intercom.Store = ml // Close is a no-op; the store owns the pool
+	ml := pglog.Legacy()
 	log.Info("Jam message log: postgres (shared control-plane database)")
-	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
-	// one handle, so wrapping it lets live views (/me/events) see each append.
-	logChanges := intercom.NewNotifier(intercomLog)
-	intercomLog = logChanges
-	sup.SetTailReader(intercomLog)
+	// Every writer (agent send, relay ingress, /me/send, Jam's notices) shares
+	// this one handle, so wrapping it lets live views (/me/events) see each append.
+	logChanges := intercom.NewNotifier(pglog)
+	var chlog intercom.Store = logChanges
+	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
 	// channels key on the requisitioner's tracker connection, resolved below
 	// (until then, or with no requisitioner, the linear connection if any).
 	var trackerConn atomic.Value // ident.ID
-	sup.SetSessionChannels(jam.NewIntercom(st, func() (ident.ID, bool) {
+	icTracker := func() (ident.ID, bool) {
 		if id, ok := trackerConn.Load().(ident.ID); ok {
 			return id, true
 		}
 		c, ok := st.ConnectionOfKind("linear")
 		return c.ID, ok
-	}, func() int64 { seq, _ := intercomLog.TailSeq(); return seq }, log))
+	}
+	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
+	sup.SetSessionChannels(ic)
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
@@ -1885,7 +1887,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, tickets, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
@@ -1894,11 +1896,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
 	// of the process. Settings: runtime.wake > runtime.requisitioner > defaults.
 	wcfg := cfg.wakeSettings()
-	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, intercomLog /*Inbox*/, wcfg, log)
+	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, jam.SessionInbox{Log: chlog, Legacy: ml} /*Inbox*/, wcfg, log)
 	// Personal-session idle ladder: nag the owner past the role's idle-after
 	// (squawks sent as the cove, delivered by the relay), optionally reclaim
 	// past reclaim-after.
-	nagger := intercomNagger{log: intercomLog, roster: st}
+	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
@@ -1918,7 +1920,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st, log: log, accounts: st}
+	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker}
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord {
@@ -1939,6 +1941,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam: relay markers:", err)
 			return 1
 		}
+		// The relays render only the channel log: a mark still in the legacy
+		// log moves to the cutover (see intercom.md, the cutover).
+		for _, service := range []string{"linear", "discord"} {
+			skipped, err := relayMarkers.settleCutover(service, chlog.CutoverSeq(), chlog.SeqOf)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: relay markers:", err)
+				return 1
+			}
+			if skipped > 0 {
+				log.Warn("relay: legacy squawks not yet delivered at the cutover are skipped", "service", service, "seqs", skipped)
+			}
+		}
 	}
 	var discordReceipts *fileReceipts
 	if runDiscord {
@@ -1955,6 +1969,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		discordTok = tokEnv[dcred]
 		log.Info("Jam relay (discord): connection", "connection", dconn.Name, "id", dconn.ID)
+		dir.discord = dconn.ID
 		if discordReceipts, err = newFileReceipts(receiptsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
@@ -2011,7 +2026,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 		// relay linear engine: polls the team-scoped comments feed and
-		// appends inbound human replies to the intercomLog opened above
+		// posts inbound replies into the channel log opened above
 		// (ingress), and delivers outbound Log messages to Linear (egress,
 		// COV-176 Task 4) — the Log is the single source of truth for both
 		// directions.
@@ -2031,16 +2046,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// low-water as LastMsg, a string) upgrading in place — see
 		// fileMarkers.needsSeed.
 		if relayMarkers.needsSeed("linear") {
-			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
 				return 1
 			}
 		}
-		eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go eng.Run(context.Background())
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
 	}
+	// Every live ticket session gets its ticket channel, bound to the issue on
+	// the tracker connection resolved above (sessions from before ticket
+	// channels existed), so replies on its ticket have somewhere to land.
+	if err := ic.Reconcile(); err != nil {
+		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
+	}
+
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for
@@ -2058,12 +2080,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log:         log,
 		}
 		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: discord egress seed:", err)
 				return 1
 			}
 		}
-		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		deng := relay.New(dsurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go deng.Run(context.Background())
 		log.Info("Jam relay (discord): resident, egress ON")
 	}
@@ -2108,7 +2130,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
 		// read-only reader.
-		var squawkReader adminui.SquawkReader = intercomLog
+		squawkReader := adminui.NewSquawkReader(st, ic, chlog, ml)
 
 		uiMux := http.NewServeMux()
 		gate := browserauth.Gate{
@@ -2175,13 +2197,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// It writes to the same intercom Log the agent send + relay ingress
 			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
-			sendH := jam.NewParticipantSendHandler(st, intercomLog, log)
+			sendH := jam.NewParticipantSendHandler(st, ic, log)
 			meSurface.Handle("/me/send", sendH)
-			// The inbox reads the same intercom Log.
-			var meLog jam.LogReader = intercomLog
+			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
@@ -2232,7 +2253,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
 // the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailSeq(lg intercom.Store) int64 {
+func logTailSeq(lg interface{ TailSeq() (int64, bool) }) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
 }

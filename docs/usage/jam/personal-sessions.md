@@ -21,8 +21,9 @@ profile for the owner.
 1. The session works its first prompt, delivered as-is. Its
    [session context](session-context.md) tells the agent it is your personal session and how to reach you.
 2. **The studio speaks first.** When it has results or needs input, it `send`s with
-   no `to`, which goes to its owner — you — as a message in your Discord inbox
-   channel. It may message **only** you: Jam enrolls it with an addressing
+   no `to`, which goes to its chat with you (its default channel) — a message in
+   your Discord inbox channel, and in your [`/me`](intercom-ui.md) inbox. Its nags
+   and notices go there too, and still arrive after it has ended. It may message **only** you: Jam enrolls it with an addressing
    override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
    the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);

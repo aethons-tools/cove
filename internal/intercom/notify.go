@@ -1,6 +1,10 @@
 package intercom
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/aethons-tools/cove/internal/ident"
+)
 
 // Notifier wraps a Store and signals subscribers after each successful Append,
 // so live views (the /me SSE stream) refresh on change instead of polling. The
@@ -20,8 +24,8 @@ func NewNotifier(s Store) *Notifier {
 }
 
 // Append appends through the wrapped store, then signals every subscriber.
-func (n *Notifier) Append(m Squawk) (Squawk, error) {
-	got, err := n.Store.Append(m)
+func (n *Notifier) Append(m Squawk, audience []ident.ID) (Squawk, error) {
+	got, err := n.Store.Append(m, audience)
 	if err != nil {
 		return got, err
 	}

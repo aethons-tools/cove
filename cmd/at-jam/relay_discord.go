@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/switchboard"
 )
@@ -49,7 +50,7 @@ func (s *discordSurface) Deliver(ctx context.Context, d relay.Delivery, m interc
 		return "", fmt.Errorf("discord deliver: post to %q: %w", d.Address, err)
 	}
 	if id != "" {
-		if err := s.receipts.Record(id, m.From.Ref, m.ID); err != nil {
+		if err := s.receipts.Record(id, string(m.From), m.ID, string(m.Channel)); err != nil {
 			// warn only (no body/token); a lost receipt only means a future
 			// reply to THIS message won't route — never a double-post.
 			if s.log != nil {
@@ -128,7 +129,9 @@ func encodeCursors(m map[string]string) string {
 // delivery (inbox) channel AND each roster channel whose Service is "discord"
 // (its Ref). Without the latter, a reply to a `channel:<name>` send would never
 // be seen — egress posts to the channel but ingress never polls it.
-func discordPolledChannels(store instanceRoster, project string) []string {
+func discordPolledChannels(store interface {
+	GetRoster(project string) (jam.Roster, bool)
+}, project string) []string {
 	r, ok := store.GetRoster(project)
 	if !ok {
 		return nil
@@ -155,13 +158,15 @@ func discordPolledChannels(store instanceRoster, project string) []string {
 	return out
 }
 
-// receipt is what Jam remembers about one message it posted to Discord:
-// the sending cove (so a reply routes back to it) and the posted squawk's id
-// (so the reply's ReplyTo names the message it answers). Message is "" for a
-// legacy receipt written before receipts carried it.
+// receipt is what Jam remembers about one message it posted to Discord: the
+// channel it was in (a reply joins that conversation), the posted squawk's id
+// (the reply's ReplyTo) and its author. A receipt from before the channel log
+// has no Channel (and maybe no Message): its reply goes to the author
+// session's default channel while that session lives.
 type receipt struct {
 	Actor   string `json:"actor"`
 	Message string `json:"message,omitempty"`
+	Channel string `json:"channel,omitempty"`
 }
 
 // UnmarshalJSON accepts both the current object form and the legacy bare
@@ -215,12 +220,12 @@ func newFileReceipts(path string) (*fileReceipts, error) {
 	return r, nil
 }
 
-// Record associates discordMsgID with the sending actor and the posted
-// squawk's id, and persists the store.
-func (r *fileReceipts) Record(discordMsgID, actorID, messageID string) error {
+// Record associates discordMsgID with the posted squawk (its author, id and
+// channel), and persists the store.
+func (r *fileReceipts) Record(discordMsgID, author, messageID, channel string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.m[discordMsgID] = receipt{Actor: actorID, Message: messageID}
+	r.m[discordMsgID] = receipt{Actor: author, Message: messageID, Channel: channel}
 	data, err := json.MarshalIndent(r.m, "", "  ")
 	if err != nil {
 		return err

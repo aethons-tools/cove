@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
@@ -23,14 +23,10 @@ type fakePresence struct {
 func (f *fakePresence) Status(a string) (sessionevents.Status, bool) { s, ok := f.st[a]; return s, ok }
 func (f *fakePresence) Subscribe() (<-chan struct{}, func())         { return f.ch, func() {} }
 
-// presenceFixture adds sessions to #eng, one per interesting state.
-func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
-	store, log, p := fixture()
-	eng := log.sq[0].To
-	for i, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh", "background"} {
-		log.sq = append(log.sq, intercom.Squawk{Seq: int64(i + 2), From: intercom.Target{Kind: "actor", Ref: a}, To: eng, Body: "hi", Project: "proj"})
-	}
-	store.insts = []jam.Instance{
+// presenceFixture adds sessions to eng, one per interesting state.
+func presenceFixture() (*env, jam.Participant, *fakePresence) {
+	e, p := fixture()
+	insts := []jam.Instance{
 		{ActorID: "busy", Name: "builder", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "idle", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "waiting", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
@@ -38,7 +34,17 @@ func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
 		{ActorID: "gone", Project: "proj", Phase: jam.PhaseGone},
 		{ActorID: "fresh", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "background", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityHolding},
-		// "unknown" has no Instance at all (deregistered): not shown.
+	}
+	for _, inst := range insts {
+		if err := e.st.PutInstance(inst); err != nil {
+			panic(err)
+		}
+	}
+	// "unknown" has no Instance at all (deregistered): not shown.
+	for _, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh", "background"} {
+		if err := e.st.JoinChannel(engID, ident.ID(a), 1); err != nil {
+			panic(err)
+		}
 	}
 	pr := &fakePresence{ch: make(chan struct{}, 1), st: map[string]sessionevents.Status{
 		"busy":       {State: sessionevents.StatusRunning, Tool: "Bash"},
@@ -46,13 +52,13 @@ func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
 		"waiting":    {State: sessionevents.StatusRunning, Tool: "Read"}, // Activity wins
 		"background": {State: sessionevents.StatusIdle},                  // turn over; Activity wins
 	}}
-	return store, log, p, pr
+	return e, p, pr
 }
 
 func TestPresenceRows(t *testing.T) {
-	store, log, p, pr := presenceFixture()
-	h := Handler(store, log, nil, WithPresence(pr))
-	req := jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape("named:eng"), nil), p)
+	e, p, pr := presenceFixture()
+	h := Handler(e.Deps, nil, WithPresence(pr))
+	req := jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape(engID), nil), p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
@@ -76,8 +82,8 @@ func TestPresenceRows(t *testing.T) {
 	}
 	// The full page carries the strip too, and the hook to refresh it.
 	full := httptest.NewRecorder()
-	h.ServeHTTP(full, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil), p))
-	for _, want := range []string{`id="presence"`, `hx-get="/me/presence?c=named:eng"`, `mePresence from:body`, "es.addEventListener('presence'", "builder</span> is running"} {
+	h.ServeHTTP(full, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil), p))
+	for _, want := range []string{`id="presence"`, `hx-get="/me/presence?c=` + engID + `"`, `mePresence from:body`, "es.addEventListener('presence'", "builder</span> is running"} {
 		if !strings.Contains(full.Body.String(), want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -85,18 +91,18 @@ func TestPresenceRows(t *testing.T) {
 }
 
 func TestPresenceWithoutTrackerFallsBackToPhase(t *testing.T) {
-	store, log, p, _ := presenceFixture()
-	h := Handler(store, log, nil)
+	e, p, _ := presenceFixture()
+	h := Handler(e.Deps, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape("named:eng"), nil), p))
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape(engID), nil), p))
 	if body := rec.Body.String(); !strings.Contains(body, "builder</span> is working") || !strings.Contains(body, "waiting</span> is waiting on you") {
 		t.Errorf("without a tracker, live sessions read as working:\n%s", body)
 	}
 }
 
 func TestEventsStreamsPresenceSignal(t *testing.T) {
-	store, log, p, pr := presenceFixture()
-	srv := eventsServer(t, Handler(store, log, nil, WithPresence(pr)), p)
+	e, p, pr := presenceFixture()
+	srv := eventsServer(t, Handler(e.Deps, nil, WithPresence(pr)), p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/me/events", nil)

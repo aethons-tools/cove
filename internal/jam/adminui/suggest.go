@@ -61,10 +61,24 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			}
 			return out
 		},
-		// participants: anyone a squawk can be from or to, across projects.
+		// participants: who a squawk can be from and where it can be — users,
+		// sessions and channels by id (the channel log), and the legacy log's
+		// kind:ref forms.
 		"participants": func(string) []string {
 			var out []string
+			for _, u := range store.ListUsers() {
+				out = append(out, string(u.ID))
+			}
+			for _, i := range store.ListInstances() {
+				out = append(out, i.ActorID, "actor:"+i.ActorID)
+			}
 			for _, name := range store.ListProjects() {
+				p, _ := store.GetProject(name)
+				for _, k := range []jam.SourceKind{jam.SourceTicket, jam.SourceRoom, jam.SourceChat} {
+					for _, c := range store.ListChannels(p.ID, k) {
+						out = append(out, string(c.ID))
+					}
+				}
 				if r, ok := store.GetRoster(name); ok {
 					for _, h := range r.Humans {
 						out = append(out, "human:"+h.Name)
@@ -73,9 +87,6 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 						out = append(out, "channel:"+c.Name)
 					}
 				}
-			}
-			for _, i := range store.ListInstances() {
-				out = append(out, "actor:"+i.ActorID)
 			}
 			return out
 		},

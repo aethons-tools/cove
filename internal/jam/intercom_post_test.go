@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // icFixture is a project "acme" with members alice and bob (carol is a user
@@ -18,6 +19,7 @@ import (
 type icFixture struct {
 	t                 *testing.T
 	store             *MemStore
+	log               *intercom.Log
 	ic                *Intercom
 	tail              int64
 	project           Project
@@ -63,7 +65,8 @@ func newICFixture(t *testing.T, addressing ...string) *icFixture {
 	for _, inst := range []Instance{f.ticket, f.personal, f.standing} {
 		must(s.PutInstance(inst))
 	}
-	f.ic = NewIntercom(s, func() (ident.ID, bool) { return f.tracker.ID, true }, func() int64 { return f.tail }, nil)
+	f.log = intercom.NewMemLog(nil)
+	f.ic = NewIntercom(s, func() (ident.ID, bool) { return f.tracker.ID, true }, f.log, func() int64 { return f.tail }, nil)
 	return f
 }
 

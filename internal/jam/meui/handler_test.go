@@ -1,74 +1,72 @@
 package meui
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-type fakeStore struct {
-	rosters map[string]jam.Roster
-	insts   []jam.Instance
-	cursors map[string]map[string]int64
+// engID is the fixture room's channel id.
+const engID = "chn_01j9q3eeeeeeeeeeeeeeeeeeee"
+
+// env is an inbox over a real store and channel log: project proj with
+// alice (the viewer, bound to an OIDC identity), a room eng, and alice's
+// "hi from alice" in it.
+type env struct {
+	Deps
+	st    *jam.MemStore
+	lg    *intercom.Log
+	alice jam.User
+	room  jam.Channel
 }
 
-func (f *fakeStore) GetRoster(p string) (jam.Roster, bool) { r, ok := f.rosters[p]; return r, ok }
-func (f *fakeStore) ListInstances() []jam.Instance         { return f.insts }
-func (f *fakeStore) UnreadCursors(participant string) map[string]int64 {
-	return f.cursors[participant]
-}
-func (f *fakeStore) CommitUnread(participant, channel string, seq int64) error {
-	if f.cursors == nil {
-		f.cursors = map[string]map[string]int64{}
+var fixtureAt = time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC)
+
+// post appends body from a participant into the room (trusted, as relay
+// ingress does), at the fixture time.
+func (e *env) post(from ident.ID, body, contentType string) intercom.Squawk {
+	m, err := e.Intercom.PostTrusted(e.room, intercom.Squawk{From: from, Body: body, ContentType: contentType, At: fixtureAt})
+	if err != nil {
+		panic(err)
 	}
-	if f.cursors[participant] == nil {
-		f.cursors[participant] = map[string]int64{}
-	}
-	f.cursors[participant][channel] = seq
-	return nil
+	return m
 }
 
-type fakeLog struct{ sq []intercom.Squawk }
-
-func (f fakeLog) ListSince(after int64, _ int) []intercom.Squawk {
-	var out []intercom.Squawk
-	for _, m := range f.sq {
-		if m.Seq > after {
-			out = append(out, m)
-		}
+func fixture() (*env, jam.Participant) {
+	st := jam.NewMemStore()
+	if err := st.CreateProject("proj"); err != nil {
+		panic(err)
 	}
-	return out
-}
-
-func fixture() (*fakeStore, fakeLog, jam.Participant) {
-	roster := jam.Roster{
-		Humans: []jam.Human{{
-			Name: "alice", Handle: "alice",
-			Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}},
-		}},
-		Channels: []jam.RosterChannel{{Name: "eng"}},
+	if err := st.AddHuman("proj", jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}}}); err != nil {
+		panic(err)
 	}
-	store := &fakeStore{rosters: map[string]jam.Roster{"proj": roster}}
-	log := fakeLog{sq: []intercom.Squawk{{
-		Seq:  1,
-		From: intercom.Target{Kind: "human", Ref: "alice"},
-		To:   []intercom.Target{{Kind: "channel", Ref: "eng"}},
-		Body: "hi from alice", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj",
-	}}}
-	p := jam.Participant{Issuer: "https://idp", Subject: "sub-alice", Projects: []string{"proj"}, Name: "alice"}
-	return store, log, p
+	proj, _ := st.GetProject("proj")
+	aliceID, _ := st.LookupName(ident.User, "alice")
+	alice, _ := st.GetUser(aliceID)
+	room, err := st.CreateChannel(jam.Channel{ID: engID, ProjectID: proj.ID, Kind: jam.SourceRoom, Key: "eng", Label: "eng"})
+	if err != nil {
+		panic(err)
+	}
+	lg := intercom.NewMemLog(nil)
+	ic := jam.NewIntercom(st, func() (ident.ID, bool) { return "", false }, lg, nil, nil)
+	e := &env{Deps: Deps{Store: st, Intercom: ic, Log: lg}, st: st, lg: lg, alice: alice, room: room}
+	e.post(alice.ID, "hi from alice", "")
+	p := jam.Participant{Issuer: "https://idp", Subject: "sub-alice", UserID: alice.ID, Projects: []string{"proj"}, Name: "alice"}
+	return e, p
 }
 
 func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
 
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -98,9 +96,9 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 }
 
 func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -115,9 +113,9 @@ func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
 }
 
 func TestInboxRefreshesOnLivePush(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -137,9 +135,9 @@ func TestInboxRefreshesOnLivePush(t *testing.T) {
 }
 
 func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -155,9 +153,9 @@ func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
 }
 
 func TestConversationOpensAndSendsAtBottom(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -173,9 +171,9 @@ func TestConversationOpensAndSendsAtBottom(t *testing.T) {
 }
 
 func TestStreamPollPausesWhileTextSelected(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -191,9 +189,9 @@ func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 }
 
 func TestStreamFragmentIsMessagesOnly(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -213,8 +211,8 @@ func TestStreamFragmentIsMessagesOnly(t *testing.T) {
 }
 
 func TestInboxFailsClosedWithoutParticipant(t *testing.T) {
-	store, log, _ := fixture()
-	h := Handler(store, log, nil)
+	e, _ := fixture()
+	h := Handler(e.Deps, nil)
 	req := httptest.NewRequest("GET", "/me/", nil) // no WithParticipant
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -224,10 +222,10 @@ func TestInboxFailsClosedWithoutParticipant(t *testing.T) {
 }
 
 func TestMarkReadCommitsCursor(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
 
-	form := url.Values{"channel": {"named:eng"}, "seq": {"1"}}
+	form := url.Values{"channel": {engID}, "seq": {"1"}}
 	req := httptest.NewRequest("POST", "/me/read", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req = jam.WithParticipant(req, p)
@@ -237,23 +235,29 @@ func TestMarkReadCommitsCursor(t *testing.T) {
 	if rec.Code != 204 {
 		t.Fatalf("POST /me/read = %d, want 204", rec.Code)
 	}
-	// Committed under the participant's self ref in the channel's project.
-	if got := store.cursors["human:alice"]["named:eng"]; got != 1 {
+	if got := e.st.ChannelReads(p.UserID)[engID]; got != 1 {
 		t.Errorf("cursor = %d, want 1", got)
+	}
+	// A channel the participant can't see is never marked.
+	other, err := e.st.CreateChannel(jam.Channel{ProjectID: e.room.ProjectID, Kind: jam.SourceChat, Key: "x", Label: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form = url.Values{"channel": {string(other.ID)}, "seq": {"5"}}
+	req = httptest.NewRequest("POST", "/me/read", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.ServeHTTP(httptest.NewRecorder(), jam.WithParticipant(req, p))
+	if _, ok := e.st.ChannelReads(p.UserID)[other.ID]; ok {
+		t.Error("a chat alice isn't in must not get a read cursor")
 	}
 }
 
 func TestStreamRendersMarkdownAndPlain(t *testing.T) {
-	store, _, p := fixture()
-	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
-	alice := intercom.Target{Kind: "human", Ref: "alice"}
-	at := time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC)
-	log := fakeLog{sq: []intercom.Squawk{
-		{Seq: 1, From: alice, To: eng, Body: "**bold** <script>x</script>", At: at, Project: "proj", ContentType: intercom.ContentMarkdown},
-		{Seq: 2, From: alice, To: eng, Body: "**literal** a_b", At: at, Project: "proj", ContentType: intercom.ContentPlain},
-	}}
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	e.post(e.alice.ID, "**bold** <script>x</script>", intercom.ContentMarkdown)
+	e.post(e.alice.ID, "**literal** a_b", intercom.ContentPlain)
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -269,9 +273,9 @@ func TestStreamRendersMarkdownAndPlain(t *testing.T) {
 }
 
 func TestComposerOffersPlainTextOptOut(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -289,9 +293,9 @@ func TestComposerOffersPlainTextOptOut(t *testing.T) {
 }
 
 func TestComposerPastesAsCodeBlock(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -314,9 +318,9 @@ func TestComposerPastesAsCodeBlock(t *testing.T) {
 }
 
 func TestComposerDraftStack(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -336,9 +340,9 @@ func TestComposerDraftStack(t *testing.T) {
 }
 
 func TestComposerKeepsReply(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -357,9 +361,9 @@ func TestComposerKeepsReply(t *testing.T) {
 }
 
 func TestCopyControls(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -379,12 +383,10 @@ func TestCopyControls(t *testing.T) {
 }
 
 func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
-	store, _, p := fixture()
-	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
-	alice := intercom.Target{Kind: "human", Ref: "alice"}
-	log := fakeLog{sq: []intercom.Squawk{{Seq: 1, From: alice, To: eng, Body: "**bold** & <b>", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj"}}}
-	h := Handler(store, log, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
+	e, p := fixture()
+	e.post(e.alice.ID, "**bold** & <b>", "")
+	h := Handler(e.Deps, nil)
+	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -403,5 +405,68 @@ func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 	}
 	if i, j := strings.Index(body, "localStorage.getItem('me-view')"), strings.Index(body, "</head>"); i < 0 || i > j {
 		t.Error("the saved view must be applied in <head>, before first paint")
+	}
+}
+
+func railFor(t *testing.T, h http.Handler, p jam.Participant) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/rail", nil), p))
+	return rec.Body.String()
+}
+
+// The rail lists the channels the viewer takes part in with their unread
+// deliveries, then the legacy log's conversations as a read-only History.
+func TestRailUnreadAndHistory(t *testing.T) {
+	e, p := fixture()
+	if err := e.st.AddHuman("proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	pl, err := e.Intercom.PlanPersonChat(bob, p.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "ping"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := intercom.NewLegacyMemLog()
+	if _, err := legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "old-cove"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}},
+		Body: "from the old log", Project: "proj"}); err != nil {
+		t.Fatal(err)
+	}
+	e.Legacy = legacy
+	h := Handler(e.Deps, nil)
+
+	rail := railFor(t, h, p)
+	for _, want := range []string{">bob<", `<span class="badge unread">1</span>`, "History (before the upgrade)", `href="/me/?c=legacy%3a`} {
+		if !strings.Contains(rail, want) {
+			t.Errorf("rail missing %q:\n%s", want, rail)
+		}
+	}
+	if err := e.st.CommitChannelRead(p.UserID, m.Channel, m.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if rail := railFor(t, h, p); strings.Contains(rail, "badge unread") {
+		t.Errorf("read chat still unread:\n%s", rail)
+	}
+
+	// A History conversation reads but takes no reply.
+	i := strings.Index(rail, `href="/me/?c=legacy%3a`)
+	id := rail[i+len(`href="/me/?c=`) : i+strings.Index(rail[i:], `">`)]
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+id, nil), p))
+	body := rec.Body.String()
+	if !strings.Contains(body, "from the old log") || !strings.Contains(body, `<div class="cv-readonly">`) || strings.Contains(body, `hx-post="/me/read"`) {
+		t.Errorf("history conversation (%q) = %s", id, body[strings.Index(body, `<section class="convo"`):])
+	}
+
+	// Leaving the project takes its channels off the rail at once.
+	if err := e.st.RemoveMember(e.room.ProjectID, p.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if rail := railFor(t, h, p); strings.Contains(rail, ">eng<") || strings.Contains(rail, ">bob<") {
+		t.Errorf("rail after leaving the project:\n%s", rail)
 	}
 }

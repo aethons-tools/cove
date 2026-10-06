@@ -24,7 +24,6 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
-	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
@@ -59,8 +58,8 @@ func browserCtx(t *testing.T) context.Context {
 // serveInbox serves the fixture inbox as participant p on a local server.
 func serveInbox(t *testing.T) *httptest.Server {
 	t.Helper()
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -93,7 +92,7 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	// must grow to four backticks.
 	var wrapped string
 	err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		copy(srv.URL, "a ```b``` c"),
 		chromedp.SendKeys(box, "see:", chromedp.ByQuery),
@@ -127,8 +126,8 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 
 func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	ctx := browserCtx(t)
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
 	// /me/send lives outside this package; answer it as a successful send.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/me/send" {
@@ -139,7 +138,7 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	box := `.composer textarea`
-	conv := srv.URL + "/me/?c=" + url.QueryEscape("named:eng")
+	conv := srv.URL + "/me/?c=" + url.QueryEscape(engID)
 
 	// A half-typed reply survives leaving the conversation (a full page load)
 	// and coming back.
@@ -179,13 +178,10 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 
 func TestBrowserCopyButtons(t *testing.T) {
 	ctx := browserCtx(t)
-	store, log, p := fixture()
+	e, p := fixture()
 	src := "Intro **bold**\n\n- one\n- two\n\n```\nline 1\nline 2\n```\n"
-	first := log.sq[0]
-	log.sq = append(log.sq, intercom.Squawk{
-		Seq: 2, From: intercom.Target{Kind: "cove", Ref: "bot"}, To: first.To, Body: src, At: first.At, Project: "proj",
-	})
-	h := Handler(store, log, nil)
+	e.post("bot", src, "")
+	h := Handler(e.Deps, nil)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -209,7 +205,7 @@ func TestBrowserCopyButtons(t *testing.T) {
 		return got
 	}
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg.agent pre`, chromedp.ByQuery),
 	); err != nil {
 		t.Fatal(err)
@@ -284,16 +280,13 @@ func TestBrowserCopyButtons(t *testing.T) {
 
 func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	ctx := browserCtx(t)
-	store, log, p := fixture()
+	e, p := fixture()
 	wide := "```\n" + strings.Repeat("x", 400) + "\n```"
-	first := log.sq[0]
 	// One wide block from someone else (left-aligned bubble) and one sent by
 	// the viewer (right-aligned, sized to its content rather than stretched).
-	log.sq = append(log.sq,
-		intercom.Squawk{Seq: 2, From: intercom.Target{Kind: "cove", Ref: "bot"}, To: first.To, Body: wide, At: first.At, Project: "proj"},
-		intercom.Squawk{Seq: 3, From: first.From, To: first.To, Body: wide, At: first.At, Project: "proj"},
-	)
-	h := Handler(store, log, nil)
+	e.post("bot", wide, "")
+	e.post(e.alice.ID, wide, "")
+	h := Handler(e.Deps, nil)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -310,7 +303,7 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	var viewport float64
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg .body.md pre`, chromedp.ByQuery),
 		chromedp.Evaluate(`window.innerWidth`, &viewport),
 		chromedp.Evaluate(`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
@@ -340,9 +333,9 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 
 func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 	ctx := browserCtx(t)
-	store, log, p, pr := presenceFixture()
+	e, p, pr := presenceFixture()
 	var mu sync.Mutex
-	h := Handler(store, log, nil, WithPresence(lockedPresence{pr, &mu}))
+	h := Handler(e.Deps, nil, WithPresence(lockedPresence{pr, &mu}))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -354,7 +347,7 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 	var order bool
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape("named:eng")),
+		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`#presence .sess.busy .dots`, chromedp.ByQuery),
 		chromedp.Evaluate(`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
 			p=document.getElementById('presence').getBoundingClientRect(),

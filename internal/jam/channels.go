@@ -97,7 +97,7 @@ func DMChannelID(a, b intercom.Target) string {
 // order). *intercom.Log and *intercompg.Store both satisfy it; tests use a
 // slice-backed fake.
 type LogReader interface {
-	ListSince(afterSeq int64, limit int) []intercom.Squawk
+	ListSince(afterSeq int64, limit int) []intercom.LegacySquawk
 }
 
 // ProjectChannels returns, for participant, the channels they are a member of
@@ -241,14 +241,14 @@ func sortChannels(chs []ChannelView) {
 // channelID — using the SAME id derivation as ProjectChannels, so a channel's
 // conversation is exactly the messages the rail counted. instances map a
 // studio's Unit to its channel; a nil/short log yields nothing.
-func ChannelSquawks(channelID string, log LogReader, instances []Instance) []intercom.Squawk {
+func ChannelSquawks(channelID string, log LogReader, instances []Instance) []intercom.LegacySquawk {
 	byUnit := map[string]Instance{}
 	for _, i := range instances {
 		if i.Unit != "" {
 			byUnit[i.Unit] = i
 		}
 	}
-	var out []intercom.Squawk
+	var out []intercom.LegacySquawk
 	for _, m := range log.ListSince(0, 0) {
 		if squawkMapsToChannel(m, channelID, byUnit) {
 			out = append(out, m)
@@ -259,7 +259,7 @@ func ChannelSquawks(channelID string, log LogReader, instances []Instance) []int
 
 // squawkMapsToChannel reports whether any recipient of m derives channelID,
 // mirroring the To-target classification in ProjectChannels.
-func squawkMapsToChannel(m intercom.Squawk, channelID string, byUnit map[string]Instance) bool {
+func squawkMapsToChannel(m intercom.LegacySquawk, channelID string, byUnit map[string]Instance) bool {
 	for _, t := range m.To {
 		var id string
 		switch t.Kind {

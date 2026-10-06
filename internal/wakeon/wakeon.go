@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -32,11 +33,12 @@ type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }
 
-// Inbox is the read side of the message Log the engine uses to detect
-// replies. Satisfied by *intercom.Log; may be nil (squawk log unconfigured →
-// no reply-waking, teardown/pause still run).
+// Inbox is the read side of the intercom the engine uses to detect replies:
+// a session's inbox after a seq (jam.SessionInbox — its deliveries, and the
+// legacy squawks addressed to it before the cutover). May be nil (no log →
+// no reply-waking; teardown and pause still run).
 type Inbox interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk
+	Since(p ident.ID, afterSeq int64, limit int) []intercom.Squawk
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -574,10 +576,15 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		return nil
 	}
 	var out []intercom.Squawk
-	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
-		if intercom.Classify(m.From) == intercom.External {
-			out = append(out, m)
+	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
+		// A person's or an account's post wakes the session. Another
+		// session's doesn't (two sessions in one channel would otherwise wake
+		// each other turn after turn) — it waits in the inbox for the next
+		// read; nor does a legacy squawk from another session.
+		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") || isSession(m.From) {
+			continue
 		}
+		out = append(out, m)
 	}
 	return out
 }
@@ -608,10 +615,14 @@ const (
 // (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
 // session is not woken, and an Idled one stays paused.
 func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.Squawk) bool {
-	if e.nags == nil || inst.Owner == "" {
+	if e.nags == nil || (inst.OwnerID == "" && inst.Owner == "") {
 		return false // ladder off: there are no nags to answer
 	}
-	owner := intercom.Target{Kind: "human", Ref: inst.Owner}
+	// The owner: their user id, or — for a reply from before the cutover —
+	// the legacy log's human:<name>.
+	isOwner := func(from ident.ID) bool {
+		return (inst.OwnerID != "" && from == inst.OwnerID) || (inst.Owner != "" && from == ident.ID("human:"+inst.Owner))
+	}
 	var release, other bool
 	var lastKeep int64
 	for _, m := range rs {
@@ -620,7 +631,7 @@ func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.S
 			other = true
 			continue
 		}
-		if m.From != owner {
+		if !isOwner(m.From) {
 			e.log.Warn("wakeon: ignoring a nag command from someone other than the owner", "actor", inst.ActorID, "command", word)
 			other = true
 			continue
@@ -681,3 +692,14 @@ func commandWord(body string) string {
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// isSession reports whether a participant is a session: a ses_ id, or a
+// grandfathered one (the only participant ids that aren't registry ids). A
+// legacy squawk's "kind:ref" author is not one.
+func isSession(id ident.ID) bool {
+	if strings.Contains(string(id), ":") {
+		return false
+	}
+	_, err := ident.Parse(string(id))
+	return err != nil || id.Kind() == ident.Session
+}

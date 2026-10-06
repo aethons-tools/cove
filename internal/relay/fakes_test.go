@@ -2,8 +2,11 @@ package relay
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
@@ -12,7 +15,7 @@ type fakeSurface struct {
 	mu            sync.Mutex
 	service       string
 	delivers      []deliverCall
-	deliverErrFor map[string]bool // target.String() -> return an error on Deliver
+	deliverErrFor map[string]bool // Delivery.Address -> return an error on Deliver
 	events        []Event
 	pollErr       error
 	next          string
@@ -20,8 +23,6 @@ type fakeSurface struct {
 type deliverCall struct {
 	MsgID      string
 	Address    string
-	Target     string // resolved target of this delivery, for assertions (set by tests via Directory)
-	Sender     string
 	BodyPrefix string
 }
 
@@ -29,7 +30,7 @@ func (f *fakeSurface) Service() string { return f.service }
 func (f *fakeSurface) Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, Sender: d.SenderName, BodyPrefix: d.BodyPrefix})
+	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, BodyPrefix: d.BodyPrefix})
 	if f.deliverErrFor[d.Address] {
 		return "", context.DeadlineExceeded
 	}
@@ -69,26 +70,41 @@ func (f *fakeCursors) SetIngress(service, project, cursor string) error {
 	return nil
 }
 
-// fakeDirectory: scripted mapping. projects, resolve (target->Delivery), route (Event->msg).
+// fakeDirectory: scripted mapping. surfaces keyed by channel; route keyed by
+// Event.ForeignID; posts go to lg with audience (a fixed reader), or fail.
 type fakeDirectory struct {
-	projects []string
-	// resolve: keyed by target.String(); absent => not owned/unreachable.
-	resolve map[string]Delivery
-	// route: keyed by Event.ForeignID => (from, to, replyTo); absent => unrouted.
-	route map[string]routed
-}
-type routed struct {
-	from    intercom.Target
-	to      []intercom.Target
-	replyTo string
+	projects  []string
+	surfaces  map[ident.ID][]Delivery // channel → its surfaces (origin-filtered like the real one)
+	route     map[string]Routed
+	lg        intercom.Store
+	audience  []ident.ID
+	postErr   bool
+	permanent bool
 }
 
 func (f *fakeDirectory) Projects(service string) []string { return f.projects }
-func (f *fakeDirectory) Resolve(service, project string, to, from intercom.Target) (Delivery, bool) {
-	d, ok := f.resolve[to.String()]
-	return d, ok
+func (f *fakeDirectory) Surfaces(service string, m intercom.Squawk) []Delivery {
+	var out []Delivery
+	for _, d := range f.surfaces[m.Channel] {
+		if m.Origin == "con_origin" && d.Address == m.OriginRef {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
-func (f *fakeDirectory) Route(service, project string, e Event) (intercom.Target, []intercom.Target, string, bool) {
+func (f *fakeDirectory) Route(service, project string, e Event) (Routed, bool) {
 	r, ok := f.route[e.ForeignID]
-	return r.from, r.to, r.replyTo, ok
+	return r, ok
+}
+func (f *fakeDirectory) Post(r Routed, m intercom.Squawk) error {
+	if f.postErr {
+		return errors.New("store down")
+	}
+	if f.permanent {
+		return fmt.Errorf("%w: channel archived", ErrPermanent)
+	}
+	m.Channel = r.Channel
+	_, err := f.lg.Append(m, f.audience)
+	return err
 }

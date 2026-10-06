@@ -114,9 +114,18 @@ The control plane lives in Postgres — the source of truth — while `serve`
 keeps an in-memory read cache (so the broker's hot path never round-trips the
 DB) and writes through to Postgres transactionally. `serve` applies its schema
 migrations automatically at startup and **fails closed** if it can't connect,
-migrate, or load. The squawk Log ([ui.md#intercom](ui.md#intercom)), session
+migrate, or load. The intercom's channel log ([ui.md#intercom](ui.md#intercom)), session
 events, and the allocation ledger live in the same database and pool (tables
 auto-created), so the intercom and session events are always on.
+
+### Upgrading to the channel log
+
+The release with intercom slice 2b moves the intercom onto the channel log
+(intercompg migration `0004`, under an advisory lock, at first start). **Stop
+every older Jam first** — an older one would keep writing the renamed legacy
+tables — and don't roll back past it. The earlier log stays as read-only
+history; what this changes for agents, relays and `/me` is in
+[intercom.md](intercom.md#enabling-it).
 
 ### Removed keys
 

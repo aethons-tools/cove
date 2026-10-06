@@ -198,11 +198,36 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.send(context.Background(), "hi", "human:alice", ""); err != nil {
+	out, err := c.send(context.Background(), "hi", "human:alice", "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/squawks" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+	if out != (sendOut{}) {
+		t.Fatalf("an older Jam's 204 is an empty result: %+v", out)
+	}
+}
+
+// A current Jam answers the squawk's id and channel.
+func TestMCPSendReturnsIDAndChannel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"m1","channel":{"id":"chn_x","kind":"ticket","label":"ACME-7"}}`))
+	}))
+	defer srv.Close()
+	c, _ := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	out, err := c.send(context.Background(), "hi", "", "")
+	if err != nil || out.ID != "m1" || out.Channel != (partyOut{ID: "chn_x", Kind: "ticket", Label: "ACME-7"}) {
+		t.Fatalf("send = %+v, %v", out, err)
 	}
 }
 

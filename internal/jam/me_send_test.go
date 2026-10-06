@@ -1,235 +1,106 @@
-package jam_test
+package jam
 
 import (
-	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
-	"github.com/aethons-tools/cove/internal/jam"
 )
 
-const (
-	testIssuer  = "https://idp.example"
-	testSubject = "sub-alice"
-)
-
-// meFakeStore is a participantSendStore: canned per-project rosters and a flat
-// instance list. No file, network, or VM.
-type meFakeStore struct {
-	rosters   map[string]jam.Roster
-	instances []jam.Instance
-}
-
-func (s *meFakeStore) GetRoster(project string) (jam.Roster, bool) {
-	r, ok := s.rosters[project]
-	return r, ok
-}
-func (s *meFakeStore) ListInstances() []jam.Instance { return s.instances }
-
-// meFakeAppender records the appended message, and can be scripted to fail.
-type meFakeAppender struct {
-	got []intercom.Squawk
-	err error
-}
-
-func (a *meFakeAppender) Append(m intercom.Squawk) (intercom.Squawk, error) {
-	a.got = append(a.got, m)
-	return m, a.err
-}
-
-// meWorld builds a one-project world (acme): alice bound to the test OIDC
-// identity, a named channel #eng, a waiting studio cove-1 on ACME-1, and a
-// running studio cove-2 on ACME-2.
-func meWorld() *meFakeStore {
-	return &meFakeStore{
-		rosters: map[string]jam.Roster{
-			"acme": {
-				Humans: []jam.Human{
-					{Name: "alice", Handle: "alice", Identity: []jam.OIDCIdentity{{Issuer: testIssuer, Subject: testSubject}}},
-					{Name: "bob"},
-				},
-				Channels: []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
-			},
-		},
-		instances: []jam.Instance{
-			{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
-			{ActorID: "cove-2", Project: "acme", Unit: "ACME-2", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
-		},
-	}
-}
-
-func aliceParticipant() jam.Participant {
-	return jam.Participant{Issuer: testIssuer, Subject: testSubject, Projects: []string{"acme"}, Name: "alice"}
-}
-
-// postSend drives the handler with a participant injected (as the gate does).
-func postSend(h *jam.ParticipantSendHandler, p jam.Participant, body string) *httptest.ResponseRecorder {
+// meSend posts body as participant u to /me/send.
+func meSend(t *testing.T, h http.Handler, u User, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(body))
-	r = jam.WithParticipant(r, p)
+	r = WithParticipant(r, Participant{UserID: u.ID, Name: u.Name, Projects: []string{"acme"}})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
 }
 
-func TestParticipantSend_ReplyToWaitingStudioAppendsToSessionActor(t *testing.T) {
-	app := &meFakeAppender{}
-	h := jam.NewParticipantSendHandler(meWorld(), app, nil)
-
-	w := postSend(h, aliceParticipant(), `{"to":"studio:ACME-1","body":"on it"}`)
-
-	if w.Code != 204 {
-		t.Fatalf("status = %d, want 204 (%s)", w.Code, w.Body.String())
+// A reply into a ticket's conversation reaches the session working it (so it
+// wakes it), as the person — who joins the conversation.
+func TestParticipantSendIntoAChannel(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
 	}
-	if len(app.got) != 1 {
-		t.Fatalf("appended %d messages, want 1", len(app.got))
+	ticket, _ := f.ic.DefaultChannel(f.ticket)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	if w := meSend(t, h, f.bob, `{"to":"`+string(ticket.ID)+`","body":"go ahead"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("send = %d %s", w.Code, w.Body)
 	}
-	m := app.got[0]
-	// From the participant's roster identity (never the body), addressed to the
-	// studio's SESSION actor so wake-on resumes it, external-origin, project set.
-	if m.From != (intercom.Target{Kind: "human", Ref: "alice"}) {
-		t.Errorf("from = %q, want human:alice", m.From.String())
+	got := f.log.InboxSince(ident.ID(f.ticket.ActorID), 0, 0)
+	if len(got) != 1 || got[0].From != f.bob.ID || got[0].Body != "go ahead" || got[0].Channel != ticket.ID {
+		t.Fatalf("session inbox = %+v", got)
 	}
-	if len(m.To) != 1 || m.To[0] != (intercom.Target{Kind: "actor", Ref: "cove-1"}) {
-		t.Errorf("to = %v, want [actor:cove-1]", m.To)
-	}
-	if intercom.Classify(m.From) != intercom.External {
-		t.Errorf("from must classify External (so wake-on treats it as a reply)")
-	}
-	if m.Body != "on it" || m.Project != "acme" {
-		t.Errorf("body/project = %q/%q, want %q/acme", m.Body, m.Project, "on it")
+	if !isMember(f.store, ticket.ID, f.bob.ID) {
+		t.Fatal("posting joins bob to the ticket's conversation")
 	}
 }
 
-func TestParticipantSend_NewMessageToHumanAndSession(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		to   string
-		want intercom.Target
-	}{
-		{"human recipient", "human:bob", intercom.Target{Kind: "human", Ref: "bob"}},
-		{"named channel", "channel:eng", intercom.Target{Kind: "channel", Ref: "eng"}},
-		{"session DM", "actor:cove-2", intercom.Target{Kind: "actor", Ref: "cove-2"}},
+// A new message to a person or a session starts (or reuses) a chat with them.
+func TestParticipantSendNewConversations(t *testing.T) {
+	f := newICFixture(t)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	for to, who := range map[string]ident.ID{
+		"user:" + string(f.alice.ID):    f.alice.ID,
+		"user:alice":                    f.alice.ID,
+		"session:" + f.personal.ActorID: ident.ID(f.personal.ActorID),
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			app := &meFakeAppender{}
-			h := jam.NewParticipantSendHandler(meWorld(), app, nil)
-			w := postSend(h, aliceParticipant(), `{"to":"`+tc.to+`","body":"hello"}`)
-			if w.Code != 204 {
-				t.Fatalf("status = %d, want 204 (%s)", w.Code, w.Body.String())
-			}
-			if len(app.got) != 1 || app.got[0].To[0] != tc.want {
-				t.Fatalf("to = %v, want [%s]", app.got, tc.want.String())
-			}
-		})
+		before := len(f.log.InboxSince(who, 0, 0))
+		if w := meSend(t, h, f.bob, `{"to":"`+to+`","body":"hello"}`); w.Code != http.StatusNoContent {
+			t.Fatalf("to %s = %d %s", to, w.Code, w.Body)
+		}
+		if got := f.log.InboxSince(who, 0, 0); len(got) != before+1 || got[len(got)-1].From != f.bob.ID {
+			t.Fatalf("to %s: %s's inbox = %+v", to, who, got)
+		}
+	}
+	if chats := f.store.ListChannels(f.project.ID, SourceChat); len(chats) != 2 {
+		t.Fatalf("chats = %+v, want bob+alice (reused by id and name) and bob+session", chats)
 	}
 }
 
-func TestParticipantSend_FromRefUsesTargetProjectRosterName(t *testing.T) {
-	// A global person bound in two projects under different roster names. A
-	// recipient that lives only in beta must be attributed from beta's name.
-	store := &meFakeStore{
-		rosters: map[string]jam.Roster{
-			"alpha": {Humans: []jam.Human{{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: testIssuer, Subject: testSubject}}}}},
-			"beta":  {Humans: []jam.Human{{Name: "alice-b", Identity: []jam.OIDCIdentity{{Issuer: testIssuer, Subject: testSubject}}}}},
-		},
-		instances: []jam.Instance{
-			{ActorID: "cove-b", Project: "beta", Unit: "BETA-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
-		},
-	}
-	app := &meFakeAppender{}
-	h := jam.NewParticipantSendHandler(store, app, nil)
-	p := jam.Participant{Issuer: testIssuer, Subject: testSubject, Projects: []string{"alpha", "beta"}, Name: "alice"}
-
-	w := postSend(h, p, `{"to":"studio:BETA-1","body":"hi"}`)
-
-	if w.Code != 204 {
-		t.Fatalf("status = %d, want 204 (%s)", w.Code, w.Body.String())
-	}
-	m := app.got[0]
-	if m.From != (intercom.Target{Kind: "human", Ref: "alice-b"}) {
-		t.Errorf("from = %q, want human:alice-b (the sender's name in the TARGET's project)", m.From.String())
-	}
-	if m.Project != "beta" {
-		t.Errorf("project = %q, want beta", m.Project)
-	}
-}
-
-func TestParticipantSend_Errors(t *testing.T) {
-	t.Run("no participant fails closed", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{}, nil)
-		r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"human:bob","body":"x"}`))
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r) // no WithParticipant
-		if w.Code != 401 {
-			t.Fatalf("status = %d, want 401", w.Code)
-		}
-	})
-	t.Run("wrong method", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{}, nil)
-		r := httptest.NewRequest("GET", "/me/send", nil)
-		r = jam.WithParticipant(r, aliceParticipant())
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code != 405 {
-			t.Fatalf("status = %d, want 405", w.Code)
-		}
-	})
-	t.Run("empty body", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{}, nil)
-		if w := postSend(h, aliceParticipant(), `{"to":"human:bob","body":""}`); w.Code != 400 {
-			t.Fatalf("status = %d, want 400", w.Code)
-		}
-	})
-	t.Run("empty to", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{}, nil)
-		if w := postSend(h, aliceParticipant(), `{"to":"","body":"x"}`); w.Code != 400 {
-			t.Fatalf("status = %d, want 400", w.Code)
-		}
-	})
-	t.Run("unknown recipient", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{}, nil)
-		if w := postSend(h, aliceParticipant(), `{"to":"human:nobody","body":"x"}`); w.Code != 404 {
-			t.Fatalf("status = %d, want 404", w.Code)
-		}
-	})
-	t.Run("nil appender → 503", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), nil, nil) // nil appender
-		if w := postSend(h, aliceParticipant(), `{"to":"human:bob","body":"x"}`); w.Code != 503 {
-			t.Fatalf("status = %d, want 503", w.Code)
-		}
-	})
-	t.Run("append failure → 502", func(t *testing.T) {
-		h := jam.NewParticipantSendHandler(meWorld(), &meFakeAppender{err: errors.New("disk full")}, nil)
-		if w := postSend(h, aliceParticipant(), `{"to":"human:bob","body":"x"}`); w.Code != 502 {
-			t.Fatalf("status = %d, want 502", w.Code)
-		}
-	})
-}
-
-func TestParticipantSend_ContentType(t *testing.T) {
-	for _, tc := range []struct {
-		name, body, want string
-		code             int
-	}{
-		{"default", `{"to":"human:bob","body":"**hi**"}`, "", 204},
-		{"plain opt-out", `{"to":"human:bob","body":"a_b","content_type":"text/plain"}`, intercom.ContentPlain, 204},
-		{"unknown", `{"to":"human:bob","body":"x","content_type":"image/png"}`, "", 400},
+func TestParticipantSendErrors(t *testing.T) {
+	f := newICFixture(t)
+	ownerChat, _ := f.ic.DefaultChannel(f.personal)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	for body, want := range map[string]int{
+		`{"to":"user:alice","body":""}`: http.StatusBadRequest,
+		`{"to":"","body":"x"}`:          http.StatusBadRequest,
+		`not json`:                      http.StatusBadRequest,
+		`{"to":"user:alice","body":"x","content_type":"text/html"}`: http.StatusBadRequest,
+		`{"to":"user:carol","body":"x"}`:                            http.StatusNotFound, // not a member
+		`{"to":"user:nobody","body":"x"}`:                           http.StatusNotFound,
+		`{"to":"session:nope","body":"x"}`:                          http.StatusNotFound,
+		`{"to":"chn_01j9q3zzzzzzzzzzzzzzzzzzzz","body":"x"}`:        http.StatusForbidden, // never tells whether it exists
+		`{"to":"` + string(ownerChat.ID) + `","body":"x"}`:          http.StatusForbidden, // alice's chat, not bob's
+		`{"to":"pigeon:alice","body":"x"}`:                          http.StatusNotFound,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			app := &meFakeAppender{}
-			h := jam.NewParticipantSendHandler(meWorld(), app, nil)
-			w := postSend(h, aliceParticipant(), tc.body)
-			if w.Code != tc.code {
-				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.code, w.Body.String())
-			}
-			if tc.code == 204 && (len(app.got) != 1 || app.got[0].ContentType != tc.want) {
-				t.Fatalf("appended = %+v, want content type %q", app.got, tc.want)
-			}
-			if tc.code != 204 && len(app.got) != 0 {
-				t.Fatal("a rejected send must not append")
-			}
-		})
+		if w := meSend(t, h, f.bob, body); w.Code != want {
+			t.Errorf("send %.50q = %d, want %d", body, w.Code, want)
+		}
+	}
+	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"user:alice","body":"x"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("no participant = %d", w.Code)
+	}
+	if w := meSend(t, NewParticipantSendHandler(f.store, nil, nil), f.bob, `{"to":"user:alice","body":"x"}`); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured = %d", w.Code)
+	}
+}
+
+func TestParticipantSendContentType(t *testing.T) {
+	f := newICFixture(t)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	if w := meSend(t, h, f.bob, `{"to":"user:alice","body":"a_b","content_type":"text/plain"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("send = %d", w.Code)
+	}
+	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].ContentType != intercom.ContentPlain {
+		t.Fatalf("inbox = %+v", got)
 	}
 }

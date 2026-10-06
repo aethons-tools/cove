@@ -20,7 +20,7 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com"}); err != nil {
 		t.Fatal(err)
 	}
-	log := newIntercomLog(t, intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
+	log := newIntercomLog(t, intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, log)
 	for page, wants := range map[string][]string{
 		"/ui/coves": {

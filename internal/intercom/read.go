@@ -2,16 +2,16 @@ package intercom
 
 import "time"
 
-// Filter selects messages for List. Zero fields are unbounded.
-type Filter struct {
+// LegacyFilter selects messages for List. Zero fields are unbounded.
+type LegacyFilter struct {
 	Project string
 	Since   time.Time // inclusive lower bound; zero = unbounded
 	Until   time.Time // exclusive upper bound; zero = unbounded
 }
 
 // ReadInbox returns, in append order, the messages addressed to t (t ∈ To).
-func (l *Log) ReadInbox(t Target) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) ReadInbox(t Target) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		for _, r := range m.To {
 			if r == t {
@@ -26,8 +26,8 @@ func (l *Log) ReadInbox(t Target) []Squawk {
 // ReadThread returns the root message (ID == rootID) followed by its direct
 // replies (ReplyTo == rootID), in append order. Deep (multi-level) threads are
 // deferred.
-func (l *Log) ReadThread(rootID string) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) ReadThread(rootID string) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		if m.ID == rootID || m.ReplyTo == rootID {
 			out = append(out, m)
@@ -37,8 +37,8 @@ func (l *Log) ReadThread(rootID string) []Squawk {
 }
 
 // List returns messages matching f, in append order.
-func (l *Log) List(f Filter) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) List(f LegacyFilter) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		if f.Project != "" && m.Project != f.Project {
 			continue
@@ -56,8 +56,8 @@ func (l *Log) List(f Filter) []Squawk {
 
 // ListSince returns messages with Seq > afterSeq, in append order, capped at
 // limit (afterSeq <= 0 = from start).
-func (l *Log) ListSince(afterSeq int64, limit int) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) ListSince(afterSeq int64, limit int) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		if m.Seq <= afterSeq {
 			continue
@@ -72,8 +72,8 @@ func (l *Log) ListSince(afterSeq int64, limit int) []Squawk {
 
 // ReadInboxSince returns messages addressed to t with Seq > afterSeq, capped
 // at limit (afterSeq <= 0 = from start).
-func (l *Log) ReadInboxSince(t Target, afterSeq int64, limit int) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) ReadInboxSince(t Target, afterSeq int64, limit int) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		if m.Seq <= afterSeq {
 			continue
@@ -94,8 +94,8 @@ func (l *Log) ReadInboxSince(t Target, afterSeq int64, limit int) []Squawk {
 // ReadInboxBefore returns messages addressed to t with Seq < beforeSeq, the
 // `limit` nearest below beforeSeq, in append (ascending) order (limit <= 0 =
 // unbounded). beforeSeq <= 0 means "from the end" (the last `limit`).
-func (l *Log) ReadInboxBefore(t Target, beforeSeq int64, limit int) []Squawk {
-	var out []Squawk
+func (l *LegacyLog) ReadInboxBefore(t Target, beforeSeq int64, limit int) []LegacySquawk {
+	var out []LegacySquawk
 	for _, m := range l.snapshot() {
 		if beforeSeq > 0 && m.Seq >= beforeSeq {
 			continue
@@ -116,7 +116,7 @@ func (l *Log) ReadInboxBefore(t Target, beforeSeq int64, limit int) []Squawk {
 
 // SeqOf returns the append-order Seq assigned to the message with the given
 // id, or (0, false) if no such message exists.
-func (l *Log) SeqOf(id string) (int64, bool) {
+func (l *LegacyLog) SeqOf(id string) (int64, bool) {
 	for _, m := range l.snapshot() {
 		if m.ID == id {
 			return m.Seq, true
@@ -126,7 +126,7 @@ func (l *Log) SeqOf(id string) (int64, bool) {
 }
 
 // TailSeq returns the last message's Seq, or (0, false) if the log is empty.
-func (l *Log) TailSeq() (int64, bool) {
+func (l *LegacyLog) TailSeq() (int64, bool) {
 	ms := l.snapshot()
 	if len(ms) == 0 {
 		return 0, false

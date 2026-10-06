@@ -48,12 +48,8 @@ It renders:
   [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
   live session timeline.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
-  the durable squawk Log. Filter by
-  project, participant (`kind:ref`, e.g. `channel:eng`), a body substring, and a
-  date window; filters live in the URL, so a filtered view is shareable. Manual
-  refresh (not a live tail); each recipient carries an internal/external reach
-  badge. Empty until the log has writers, and absent-config renders a
-  "not configured" notice. See [Intercom](#intercom) below.
+  the channel log, with the frozen legacy log on a Legacy tab. See
+  [Intercom](#intercom) below.
 - **Users / Actors / Roles / Kits / Destinations / Model-specs** — the control-plane objects as
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
@@ -147,37 +143,34 @@ agent `send` tool and the relay ingress write (never a parallel path); the UI is
 an in-process Log writer, not an egress engine.
 
 - **Identity is the resolved session**, never the body: the sender is the
-  gate-injected participant. The outgoing `from` is that person's roster name in
-  the *target's* project (a global person may have a different roster name/handle
-  per project); when a bare recipient is ambiguous across the participant's
-  projects, the first project (in roster-listing order) that resolves it wins.
-- **`to` is a recipient or a channel** — a New Message recipient target
-  (`human:<name>`, `actor:<session-id>`, `channel:<name-or-unit>`) or a reply to
-  an existing channel id from the inbox (`studio:<unit>`, `named:<name>`,
-  `dm:<x>|<y>`). A **studio** target (and a **session DM**) resolves to the
-  studio's *session actor*, so the append is external-origin and addressed to the
-  session — **wake-on resumes a waiting/idled studio** exactly as a relayed reply
-  does (unpause if idled; see [comms-addressing.md](comms-addressing.md) and the
-  wake-on engine). Any currently-active recipient is allowed — open addressing to
-  start, with no comms access-graph check.
-- **Errors mirror the agent send** (`/squawks`): a recipient that does not
-  resolve → **404**; an append failure →
-  **502**; an empty `to`/`body` → **400**.
+  gate-injected participant's user id.
+- **`to` is a channel or a new conversation** — an open conversation's channel id
+  (`chn_…`), or `user:<id|name>` / `session:<id>` to start (or reuse) a chat with
+  a member of one of the person's projects or a live session in one. The
+  [intercom](intercom.md#enabling-it) decides whether they may post there (a
+  chat they're in; a ticket or room of a project they belong to — they join it)
+  and records who hears it; a waiting session among them **wakes** exactly as on
+  a relayed reply.
+- **Errors mirror the agent send** (`/squawks`): a channel they may not post in,
+  or that doesn't exist, → **403** (alike); a person or session that doesn't
+  resolve → **404**; an append failure → **502**; an empty `to`/`body` → **400**.
 
 ## Intercom
 
-The Intercom page (`/ui/intercom`) is a read-only view of Jam's durable
-squawk Log (always available; it lives in Postgres — see
-[serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawk
-records: filter by project, participant (`kind:ref`, e.g. `channel:eng`), a body
-substring, and a date window (the `since`/`until` bounds are interpreted as UTC
+The Intercom page (`/ui/intercom`) is a read-only view of Jam's
+[channel log](intercom.md#enabling-it) (always available; it lives in Postgres — see
+[serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawks,
+each with its sender and channel (`<label> · <kind>`, linking to that channel's
+squawks): filter by project, participant (an id — a user, session, account or
+channel), a body substring, and a date window (the `since`/`until` bounds are interpreted as UTC
 day boundaries; a malformed date is ignored, with a notice, rather than
 silently applied). Filters live in the URL, so a filtered view is shareable via
 link.
 
 The page is a manual-refresh snapshot, not a live tail — reload to see new
-squawks. Each recipient carries a badge showing whether it was reached
-internally or externally. The table is empty until the log has writers.
+squawks. The **Legacy** tab (`?log=legacy`) shows the log from before the
+channel log, frozen, as it always did: filter by `kind:ref` participants, each
+recipient badged internal or external.
 
 Unlike the roster/kit/destination pages, Intercom has no mutation — the UI only
 reads the Log (still a full snapshot per load — pagination is a later phase).

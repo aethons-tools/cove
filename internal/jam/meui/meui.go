@@ -1,25 +1,31 @@
 // Package meui serves the participant intercom inbox under /me — a two-pane,
-// server-rendered (html/template + htmx) web UI over the channel read-model
-// (COV-198), the participant plane (COV-199), and the send endpoint (COV-200).
-// It mirrors internal/jam/adminui's proven mechanism but has its own two-pane
-// chrome and its own gate (no loopback trust); identity is per-request via
-// jam.ParticipantFrom.
+// server-rendered (html/template + htmx) web UI over the person's channels
+// (intercom slice 2b: jam.UserChannels on the channel log), with a read-only
+// History of the legacy log. It mirrors internal/jam/adminui's mechanism but
+// has its own two-pane chrome and its own gate (no loopback trust); identity
+// is per-request via jam.ParticipantFrom.
 package meui
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Store is the slice of jam.Store the inbox reads.
-type Store interface {
-	GetRoster(project string) (jam.Roster, bool)
-	ListInstances() []jam.Instance
-	UnreadCursors(participant string) map[string]int64
-	CommitUnread(participant, channel string, seq int64) error
+// Deps are what the inbox reads: the store, the intercom (who may see and
+// post where), the channel log, and the frozen legacy log (its History; nil
+// = none).
+type Deps struct {
+	Store    jam.Store
+	Intercom *jam.Intercom
+	Log      intercom.Store
+	Legacy   jam.LogReader
 }
+
+// legacyPrefix marks a History channel id (the legacy projection's ids).
+const legacyPrefix = "legacy:"
 
 // ChannelRow is one channel in the left rail, from the viewer's perspective.
 type ChannelRow struct {
@@ -35,40 +41,43 @@ type ChannelRow struct {
 }
 
 // RailGroup is one attention section of the rail (Waiting on you / Active /
-// Channels), non-empty.
+// Channels / History), non-empty.
 type RailGroup struct {
 	Bucket jam.AttentionBucket
 	Title  string
 	Rows   []ChannelRow
 }
 
+// bucketHistory groups the legacy log's conversations, read-only.
+const bucketHistory jam.AttentionBucket = "history"
+
 var bucketTitle = map[jam.AttentionBucket]string{
 	jam.BucketWaiting:  "Waiting on you",
 	jam.BucketActive:   "Active",
 	jam.BucketChannels: "Channels",
+	bucketHistory:      "History (before the upgrade)",
 }
 
 var bucketOrder = []jam.AttentionBucket{jam.BucketWaiting, jam.BucketActive, jam.BucketChannels}
 
-// channelsFor returns the participant's channels across all their projects,
-// de-duplicated by channel id. A participant is a global person; per project we
-// resolve their roster identity (name may differ per project) and project the
-// channels they're a member of, matching the send path's per-project resolution.
-func channelsFor(p jam.Participant, store Store, log jam.LogReader) []jam.ChannelView {
-	if log == nil {
-		return nil // no intercom Log configured → empty inbox
+// legacyChannels is the participant's History: their conversations in the
+// legacy log, projected as before the channel log (per project, as their
+// roster name), ids prefixed legacyPrefix, all read.
+func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
+	if d.Legacy == nil {
+		return nil
 	}
 	var all []jam.ChannelView
 	seen := map[string]bool{}
-	instances := store.ListInstances()
+	instances := d.Store.ListInstances()
 	for _, proj := range p.Projects {
-		roster, ok := store.GetRoster(proj)
+		roster, ok := d.Store.GetRoster(proj)
 		if !ok {
 			continue
 		}
 		self, ok := roster.HumanByIdentity(p.Issuer, p.Subject)
 		if !ok || self.Name == "" {
-			continue // not bound (or unnamed) in this project
+			continue
 		}
 		target := intercom.Target{Kind: "human", Ref: self.Name}
 		var insts []jam.Instance
@@ -77,12 +86,12 @@ func channelsFor(p jam.Participant, store Store, log jam.LogReader) []jam.Channe
 				insts = append(insts, i)
 			}
 		}
-		cursors := store.UnreadCursors(target.String())
-		for _, ch := range jam.ProjectChannels(target, log, roster, insts, cursors) {
+		for _, ch := range jam.ProjectChannels(target, d.Legacy, roster, insts, nil) {
 			if seen[ch.ID] {
 				continue
 			}
 			seen[ch.ID] = true
+			ch.ID, ch.Unread, ch.Phase, ch.Waiting = legacyPrefix+ch.ID, 0, "", false
 			all = append(all, ch)
 		}
 	}
@@ -91,12 +100,14 @@ func channelsFor(p jam.Participant, store Store, log jam.LogReader) []jam.Channe
 
 // groupRail groups channels into the attention-ordered rail (Waiting on you →
 // Active → Channels); within a group, most-recent first, then id. Empty groups
-// are dropped. selectedID marks the open channel. Pure — the UI's own logic,
-// separate from the read-model projection (jam.ProjectChannels).
+// are dropped. selectedID marks the open channel.
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
 	for _, ch := range chs {
 		b := ch.Bucket()
+		if strings.HasPrefix(ch.ID, legacyPrefix) {
+			b = bucketHistory
+		}
 		byBucket[b] = append(byBucket[b], ChannelRow{
 			ID:       ch.ID,
 			Label:    ch.Label,
@@ -110,7 +121,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 		})
 	}
 	var groups []RailGroup
-	for _, b := range bucketOrder {
+	for _, b := range append(bucketOrder, bucketHistory) {
 		rows := byBucket[b]
 		if len(rows) == 0 {
 			continue
@@ -126,8 +137,9 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	return groups
 }
 
-// Rail builds the participant's rail: their channels across all projects,
-// grouped by attention, with selectedID marked.
-func Rail(p jam.Participant, store Store, log jam.LogReader, selectedID string) []RailGroup {
-	return groupRail(channelsFor(p, store, log), selectedID)
+// Rail builds the participant's rail: their channels, grouped by attention,
+// then their History, with selectedID marked.
+func Rail(p jam.Participant, d Deps, selectedID string) []RailGroup {
+	chs := jam.UserChannels(d.Store, d.Intercom, d.Log, p.UserID)
+	return groupRail(append(chs, legacyChannels(p, d)...), selectedID)
 }

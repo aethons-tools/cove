@@ -7,13 +7,13 @@ import (
 )
 
 func TestLogTailSeq(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	if got := logTailSeq(lg); got != 0 {
 		t.Fatalf("empty log tail = %d, want 0", got)
 	}
 	var lastSeq int64
 	for i := 0; i < 3; i++ {
-		m, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "c"}, To: []intercom.Target{{Kind: "channel", Ref: "x"}}, Body: "hi", Project: "p"})
+		m, err := lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "c"}, To: []intercom.Target{{Kind: "channel", Ref: "x"}}, Body: "hi", Project: "p"})
 		if err != nil {
 			t.Fatalf("append: %v", err)
 		}

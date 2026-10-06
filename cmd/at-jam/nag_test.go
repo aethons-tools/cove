@@ -6,15 +6,41 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
-	"github.com/aethons-tools/cove/internal/relay"
 )
 
-func openTestLog(t *testing.T) *intercom.Log {
-	t.Helper()
-	lg := intercom.NewMemLog()
-	return lg
+// recNotifier records the notices the nagger posts (Intercom.Notify's own
+// behaviour — as the session, into its chat with its owner — is jam's test).
+type recNotifier struct{ got []intercom.Squawk }
+
+func (r *recNotifier) Notify(inst jam.Instance, id, body string) (intercom.Squawk, error) {
+	if id == "" {
+		id = "n" + string(rune('0'+len(r.got)))
+	}
+	m := intercom.Squawk{Seq: int64(len(r.got) + 1), ID: id, From: ident.ID(inst.ActorID), Body: body}
+	r.got = append(r.got, m)
+	return m, nil
+}
+
+// fakeRoster is the nagger's roster view: canned rosters and projects. A
+// project's ChatService names a connection whose kind is the name itself.
+type fakeRoster struct {
+	roster   map[string]jam.Roster
+	projects map[string]jam.Project
+}
+
+func (f *fakeRoster) GetRoster(p string) (jam.Roster, bool) {
+	r, ok := f.roster[p]
+	return r, ok
+}
+func (f *fakeRoster) GetProject(name string) (jam.Project, bool) {
+	p, ok := f.projects[name]
+	return p, ok
+}
+func (f *fakeRoster) GetConnection(id ident.ID) (jam.Connection, bool) {
+	return jam.Connection{ID: id, Kind: string(id), Name: string(id), Status: jam.StatusLive}, true
 }
 
 var nagInst = jam.Instance{
@@ -26,8 +52,8 @@ var nagInst = jam.Instance{
 // with the project, through the log's normal append path (id, time and Seq
 // assigned like any squawk).
 func TestIntercomNaggerAppendsSquawks(t *testing.T) {
-	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	lg := &recNotifier{}
+	n := intercomNagger{log: lg, roster: &fakeRoster{}}
 	ctx := context.Background()
 	if err := n.Nag(ctx, nagInst, 4*time.Hour+29*time.Second); err != nil {
 		t.Fatal(err)
@@ -35,17 +61,9 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	if err := n.NotifyReclaimed(ctx, nagInst, 72*time.Hour+30*time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.got
 	if len(got) != 2 {
-		t.Fatalf("appended %d squawks, want 2: %+v", len(got), got)
-	}
-	for _, m := range got {
-		if m.From != (intercom.Target{Kind: "actor", Ref: "pers-1"}) || len(m.To) != 1 || m.To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || m.Project != "acme" {
-			t.Fatalf("squawk shape = %+v", m)
-		}
-		if m.ID == "" || m.At.IsZero() {
-			t.Fatalf("squawk not prepared (id/at): %+v", m)
-		}
+		t.Fatalf("posted %d notices, want 2: %+v", len(got), got)
 	}
 	if want := "Your personal session pers-1 (pair) has been waiting on you for 4h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"; got[0].Body != want {
 		t.Fatalf("nag body = %q\nwant       %q", got[0].Body, want)
@@ -53,21 +71,18 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	if want := "Reclaimed your personal session pers-1 (pair) after 3d 0h 30m without a reply."; got[1].Body != want {
 		t.Fatalf("reclaim body = %q\nwant         %q", got[1].Body, want)
 	}
-	if got[1].Seq <= got[0].Seq {
-		t.Fatalf("Seq not assigned in append order: %d, %d", got[0].Seq, got[1].Seq)
-	}
 }
 
 // A nag carries a recognizable id (jam.NagMessageID) so a reply to it can be
 // told apart from a reply to anything else the cove sent.
 func TestNagCarriesNagID(t *testing.T) {
-	lg := openTestLog(t)
+	lg := &recNotifier{}
 	at := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	n := intercomNagger{log: lg, roster: &fakeStore{}, now: func() time.Time { return at }}
+	n := intercomNagger{log: lg, roster: &fakeRoster{}, now: func() time.Time { return at }}
 	if err := n.Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.got
 	if len(got) != 1 || got[0].ID != jam.NagMessageID("pers-1", at) || !jam.IsNagReply(got[0].ID, "pers-1") {
 		t.Fatalf("nag = %+v, want id %q", got, jam.NagMessageID("pers-1", at))
 	}
@@ -84,35 +99,35 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 	}
 	discordProj := map[string]jam.Project{"acme": {Name: "acme", ChatService: "discord"}}
 	for name, tc := range map[string]struct {
-		store *fakeStore
+		store *fakeRoster
 		want  string
 	}{
-		"unique inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"unique inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("inbox-A")}, {Name: "bob", Delivery: disc("inbox-B")},
 		}}}}, base + hint},
-		"shared inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"shared inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("shared")}, {Name: "bob", Delivery: disc("shared")},
 		}}}}, base},
-		"no discord profile": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"no discord profile": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice"},
 		}}}}, base},
-		"not a discord project": {&fakeStore{roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"not a discord project": {&fakeRoster{roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: disc("inbox-A")},
 		}}}}, base},
-		"no roster": {&fakeStore{projects: discordProj}, base},
-		"bound owner, shared inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"no roster": {&fakeRoster{projects: discordProj}, base},
+		"bound owner, shared inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}}, {Name: "bob", Delivery: disc("shared")},
 		}}}}, base + hint},
-		"bound owner, own inbox": {&fakeStore{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
+		"bound owner, own inbox": {&fakeRoster{projects: discordProj, roster: map[string]jam.Roster{"acme": {Humans: []jam.Human{
 			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A", UserID: "111"}}},
 		}}}}, base + hint},
 	} {
 		t.Run(name, func(t *testing.T) {
-			lg := openTestLog(t)
+			lg := &recNotifier{}
 			if err := (intercomNagger{log: lg, roster: tc.store}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 				t.Fatal(err)
 			}
-			if got := lg.List(intercom.Filter{})[0].Body; got != tc.want {
+			if got := lg.got[0].Body; got != tc.want {
 				t.Fatalf("nag body = %q\nwant       %q", got, tc.want)
 			}
 		})
@@ -121,8 +136,8 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 
 // The keep/release confirmations are sent as the cove to its owner, like nags.
 func TestNaggerConfirmations(t *testing.T) {
-	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	lg := &recNotifier{}
+	n := intercomNagger{log: lg, roster: &fakeRoster{}}
 	ctx := context.Background()
 	if err := n.NotifyKept(ctx, nagInst, 4*time.Hour); err != nil {
 		t.Fatal(err)
@@ -130,14 +145,11 @@ func TestNaggerConfirmations(t *testing.T) {
 	if err := n.NotifyReleased(ctx, nagInst); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.got
 	if len(got) != 2 {
-		t.Fatalf("appended %d, want 2", len(got))
+		t.Fatalf("posted %d, want 2", len(got))
 	}
 	for _, m := range got {
-		if m.From != (intercom.Target{Kind: "actor", Ref: "pers-1"}) || len(m.To) != 1 || m.To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || m.Project != "acme" {
-			t.Fatalf("squawk shape = %+v", m)
-		}
 		if jam.IsNagReply(m.ID, "pers-1") {
 			t.Fatalf("a confirmation is not a nag: %q", m.ID)
 		}
@@ -168,173 +180,19 @@ func TestFormatIdle(t *testing.T) {
 	}
 }
 
-// nagRosterStore is a real MemStore with a discord project whose owner alice
-// has a discord inbox, holding the personal session's Instance.
-func nagRosterStore(t *testing.T) *jam.MemStore {
-	t.Helper()
-	st := newTestStore(t)
-	mustCreateProject(t, st, "acme")
-	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetChatService("acme", "discord"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.PutInstance(nagInst); err != nil {
-		t.Fatal(err)
-	}
-	return st
-}
-
-// deliverOverDiscord runs a squawk through the relay's egress steps for the
-// discord engine — Resolve by the squawk's own project, then Deliver — and
-// returns the posted Discord message id.
-func deliverOverDiscord(t *testing.T, dir *directory, surf *discordSurface, m intercom.Squawk) (relay.Delivery, bool) {
-	t.Helper()
-	d, ok := dir.Resolve("discord", m.Project, m.To[0], m.From)
-	if !ok {
-		return d, false
-	}
-	if _, err := surf.Deliver(context.Background(), d, m); err != nil {
-		t.Fatal(err)
-	}
-	return d, true
-}
-
-// A nag lands in the owner's Discord inbox; the owner's Discord reply to it is
-// routed (via the delivery receipt) back to the cove's inbox as an external
-// reply — which is what wakes it.
-func TestNagReplyRoutesBackToCove(t *testing.T) {
-	st := nagRosterStore(t)
-	lg := openTestLog(t)
-	rec := mustReceipts(t)
-	dir := &directory{store: st, receipts: rec}
-	client := &fakeDiscordClient{postID: "D-nag"}
-	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
-
-	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
-		t.Fatal(err)
-	}
-	nag := lg.List(intercom.Filter{})[0]
-	d, ok := deliverOverDiscord(t, dir, surf, nag)
-	if !ok || d.Address != "inbox-A" || len(client.posts) != 1 || client.posts[0].channel != "inbox-A" {
-		t.Fatalf("nag not delivered to alice's inbox: %+v %v posts=%+v", d, ok, client.posts)
-	}
-
-	// alice replies to the nag in Discord → the ingress steps: Route, Append.
-	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "Alice D.", Surface: "inbox-A", ReplyToForeign: "D-nag", ForeignID: "D-reply", Body: "still here"})
-	if !ok || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "pers-1"}) {
-		t.Fatalf("reply to a nag not routed to the cove: to=%+v ok=%v", to, ok)
-	}
-	// posted in alice's own inbox → attributed to roster human alice, and it
-	// replies to the nag itself (so wake-on can recognize a keep/release).
-	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !jam.IsNagReply(replyTo, "pers-1") {
-		t.Fatalf("reply from=%+v replyTo=%q, want human:alice replying to nag %q", from, replyTo, nag.ID)
-	}
-	if _, err := lg.Append(intercom.Squawk{From: from, To: to, Body: "still here", Project: "acme", ReplyTo: replyTo}); err != nil {
-		t.Fatal(err)
-	}
-	inbox := lg.ReadInboxSince(intercom.Target{Kind: "actor", Ref: "pers-1"}, nag.Seq, 0)
-	if len(inbox) != 1 || intercom.Classify(inbox[0].From) != intercom.External {
-		t.Fatalf("cove inbox after reply = %+v, want one external reply", inbox)
-	}
-}
-
-// A bound owner's "release" reply to a nag, posted in a SHARED inbox, is routed
-// as human:<owner> replying to the nag itself — exactly what wake-on acts on —
-// while the same reply from another member of that inbox stays an ordinary
-// reply under their display name.
-func TestBoundOwnerReleaseFromSharedInbox(t *testing.T) {
-	st := newTestStore(t)
-	mustCreateProject(t, st, "acme")
-	for _, h := range []jam.Human{
-		{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared", UserID: "111"}}},
-		{Name: "bob", Handle: "bob.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "shared"}}},
-	} {
-		if err := st.AddHuman("acme", h); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := st.SetChatService("acme", "discord"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.PutInstance(nagInst); err != nil {
-		t.Fatal(err)
-	}
-	lg := openTestLog(t)
-	rec := mustReceipts(t)
-	dir := &directory{store: st, receipts: rec}
-	client := &fakeDiscordClient{postID: "D-nag"}
-	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
-
-	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
-		t.Fatal(err)
-	}
-	nag := lg.List(intercom.Filter{})[0]
-	if !strings.Contains(nag.Body, `Reply "keep"`) {
-		t.Fatalf("a bound owner's nag should offer keep/release: %q", nag.Body)
-	}
-	if d, ok := deliverOverDiscord(t, dir, surf, nag); !ok || d.Address != "shared" {
-		t.Fatalf("nag not delivered to the shared inbox: %+v %v", d, ok)
-	}
-
-	from, to, replyTo, ok := dir.Route("discord", "acme", relay.Event{Author: "Alice D.", AuthorID: "111", Surface: "shared", ReplyToForeign: "D-nag", ForeignID: "D-r1", Body: "release"})
-	if !ok || len(to) != 1 || to[0] != (intercom.Target{Kind: "actor", Ref: "pers-1"}) {
-		t.Fatalf("release not routed to the cove: to=%+v ok=%v", to, ok)
-	}
-	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !jam.IsNagReply(replyTo, "pers-1") {
-		t.Fatalf("release from=%+v replyTo=%q, want human:alice replying to nag %q", from, replyTo, nag.ID)
-	}
-
-	from, _, _, ok = dir.Route("discord", "acme", relay.Event{Author: "Bob D.", AuthorID: "222", Surface: "shared", ReplyToForeign: "D-nag", ForeignID: "D-r2", Body: "release"})
-	if !ok || from != (intercom.Target{Kind: "human", Ref: "Bob D."}) {
-		t.Fatalf("another member's release from=%+v ok=%v, want the display name", from, ok)
-	}
-}
-
-// The reclaim notice is appended just before the session is torn down, so the
-// relay usually delivers it after the Instance is gone: human delivery must
-// resolve from the squawk's project, not the sender's live Instance.
-func TestReclaimNoticeDeliversAfterInstanceRemoved(t *testing.T) {
-	st := nagRosterStore(t)
-	lg := openTestLog(t)
-	rec := mustReceipts(t)
-	dir := &directory{store: st, receipts: rec}
-	client := &fakeDiscordClient{postID: "D-reclaim"}
-	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
-
-	if err := (intercomNagger{log: lg, roster: st}).NotifyReclaimed(context.Background(), nagInst, 72*time.Hour); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.RemoveInstance("pers-1"); err != nil { // teardown deregisters it
-		t.Fatal(err)
-	}
-	if _, ok := st.GetInstance("pers-1"); ok {
-		t.Fatal("instance still present")
-	}
-	notice := lg.List(intercom.Filter{})[0]
-	d, ok := deliverOverDiscord(t, dir, surf, notice)
-	if !ok || d.Service != "discord" || d.Address != "inbox-A" {
-		t.Fatalf("reclaim notice did not resolve to alice's inbox after teardown: %+v %v", d, ok)
-	}
-	if len(client.posts) != 1 || client.posts[0].content != "pers-1: "+notice.Body {
-		t.Fatalf("posted = %+v", client.posts)
-	}
-}
-
 // NotifyEnded tells a personal session's owner it ended itself; an ownerless
 // session (standing, ticket) gets no notice.
 func TestIntercomNaggerNotifyEnded(t *testing.T) {
-	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	lg := &recNotifier{}
+	n := intercomNagger{log: lg, roster: &fakeRoster{}}
 	if err := n.NotifyEnded(context.Background(), nagInst, "wrapped up"); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.NotifyEnded(context.Background(), jam.Instance{ActorID: "s1", Project: "acme"}, "x"); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
-	if len(got) != 1 || got[0].To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || !strings.Contains(got[0].Body, "wrapped up") {
-		t.Fatalf("sent %+v; want one notice to alice, none for the ownerless session", got)
+	got := lg.got
+	if len(got) != 1 || got[0].From != "pers-1" || !strings.Contains(got[0].Body, "wrapped up") {
+		t.Fatalf("sent %+v; want one notice from pers-1, none for the ownerless session", got)
 	}
 }

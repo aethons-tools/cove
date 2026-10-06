@@ -66,7 +66,15 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, reportH, broker http.Handler) 
 // the intercom too) or a Requisitioner (whose coves have always had /escalate; with
 // no log their sends fail with a clean 503). With neither, the broker alone —
 // plus GET /connector, which is always mounted.
-func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, tickets jam.TicketReporter, log *slog.Logger) http.Handler {
+// messaging is the intercom a cove-facing handler serves: the posting rules,
+// the channel log and the legacy log inboxes still reach.
+type messaging struct {
+	ic     *jam.Intercom
+	log    intercom.Store
+	legacy jam.LegacyInbox
+}
+
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, log *slog.Logger) http.Handler {
 	// GET /connector (the identity's client env) and GET /context (its session
 	// context, recompiled live) are always served, ahead of the broker's
 	// destination routes.
@@ -85,17 +93,12 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg 
 			next.ServeHTTP(w, r)
 		})
 	}
-	if lg == nil && !requisitioner {
+	if msg == nil && !requisitioner {
 		return withCoveEndpoints(broker)
 	}
-	// Pass lg as both the reader and the appender only when it's genuinely
-	// non-nil: it is an intercom.Store interface value holding a real backend or
-	// a true nil interface, so this is a plain nil check (no typed-nil hazard).
-	var squawksH *jam.SquawksHandler
-	if lg != nil {
-		squawksH = jam.NewSquawksHandler(st, lg, lg, log)
-	} else {
-		squawksH = jam.NewSquawksHandler(st, nil, nil, log)
+	squawksH := jam.NewSquawksHandler(st, nil, nil, nil, log) // with no log, sends and reads answer 503
+	if msg != nil {
+		squawksH = jam.NewSquawksHandler(st, msg.ic, msg.log, msg.legacy, log)
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")

@@ -1,7 +1,7 @@
 ---
-summary: Discord delivery for a Project — a Human's delivery profiles (inbox channel + optional Discord user-id binding), the per-project chat service, the Discord egress and reply loop, and who a Discord reply is attributed to.
+summary: Discord delivery for a Project — a member's delivery profile (inbox channel) and Discord account, the per-project chat service, how chats and rooms are posted to Discord, the reply loop, and who a Discord reply is attributed to.
 read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>[:<user-id>]`), setting a project's chat service, or a Discord reply was routed or attributed (to a roster human vs a display name) differently than you expected.
-owns: Human.Delivery profiles and the `--delivery service:address[:user-id]` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bot / bound id / unbound owner's inbox / display name)
+owns: Human.Delivery profiles and the `--delivery service:address[:user-id]` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
 prereqs: comms-addressing.md for the Project roster and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
 updated: 2026-10-06
@@ -9,10 +9,11 @@ updated: 2026-10-06
 
 # Discord delivery & reply attribution
 
-In a Project whose chat service is `discord`, Jam delivers a studio's messages to
-humans' Discord **inbox channels** and routes their Discord **replies** back to the
-studio. A reply is attributed to a roster human **by Discord author id** once that
-human is bound; unbound humans are attributed by their own inbox channel, as before.
+In a Project whose chat service is `discord`, Jam posts people's chats to their
+Discord **inbox channels** and rooms to their bound Discord channels, and puts
+Discord **replies** back into the conversation they answer. A reply is attributed
+to a member **by Discord author id** once they are bound; unbound members by their
+own inbox channel.
 
 ## Delivery profiles & chat service
 
@@ -60,57 +61,54 @@ same admin-client flags as every other `at-jam` verb.
 
 ## Egress & the reply loop
 
-**Discord egress and reply-routing are both live.** A discord-project's
-`send(to=human:<name>)` posts to that human's Discord **inbox channel** when
-they have a `discord` delivery profile (falling back to the Linear
-`@`-mention when they don't); `send(to=channel:<name>)` posts to a discord
-roster channel's own `Ref` when the channel's `Service` is `discord`. Every
-Discord post is prefixed `"<cove>: "` (the sending studio's identity —
-`Delivery.BodyPrefix`, no webhook this slice; per-sender webhook
-username/avatar is a future polish). Delivery is exactly-once (the resident
-Discord relay engine's own `EgressMark`, seeded to the Log tail on first
-enable so turning it on never redelivers the backlog) — see
-[intercom.md](intercom.md#enabling-it) for the engine and
-[serve.md](serve.md) for the `runtime.discord.connection` config.
+**What's posted where.** The Discord relay renders the [channel log](intercom.md#enabling-it):
 
-**The reply loop:** when a human **replies** (Discord's own reply-to-message
-feature, not a bare follow-up post) to a studio's Discord post, Jam routes
-that reply back to the studio that sent the original squawk — the same
-[wake-on](intercom.md#waiting-for-a-reply-wake-on) a Linear reply triggers,
-so a Waiting studio resumes with the reply already in its inbox. Routing works
-by a **receipt** recorded on every Discord post (`discord-msg-id → {actor,
-message}`: the sending studio and the squawk's Log id). An inbound reply is
-matched by the id it *replies to*; its `reply_to` is the answered squawk's id,
-so it joins that squawk's thread. An older receipt (no squawk id) still routes,
-with `reply_to` `in:discord:<id>`. Who the reply is *from* is decided by
-[the attribution rules](#who-a-discord-reply-is-from). Consequences:
+- a **chat** onto the inbox channel of each person in it (but the post's
+  author) in a project whose chat service is `discord` — a person with no
+  Discord inbox is reached on Linear instead
+  ([comms-addressing.md](comms-addressing.md), delivery and reply semantics);
+- a **room** bound to a Discord channel onto that channel.
 
-- **Only a reply routes.** A bare (non-reply) squawk posted into a shared
-  inbox channel carries no id to look up against, so it can't be attributed
-  to any studio — it is silently dropped, by construction (this also means
-  Jam's own outbound Discord posts, echoed back on the same channel,
-  never mis-route to themselves; no separate self-post filter is needed).
-- **Receipts are currently unpruned** — one entry per post on local disk,
-  never collected (a known follow-up, not a correctness issue).
+Every post is prefixed `"<sender>: "` (a session's name, a person's name), and
+nothing goes back to the inbox or channel it came from — so in a group chat,
+alice's reply from her inbox reaches bob's. Delivery is exactly-once per
+surface (the relay's own `EgressMark`, seeded to the log's tail on first
+enable) — see [serve.md](serve.md) for the `runtime.discord.connection` config.
+
+**The reply loop:** when a person **replies** (Discord's own reply-to-message
+feature) to one of Jam's posts, Jam puts the reply in that post's conversation
+— the chat or room it was in — so the session(s) in it hear it and a waiting
+one [wakes](intercom.md#waiting-for-a-reply-wake-on). Routing works by a
+**receipt** recorded on every post (`discord-msg-id → {channel, squawk id,
+author}`); the reply's `reply_to` is the answered squawk's id, so it joins
+that squawk's thread. A receipt from before the channel log (no channel) still
+routes, to its session's default channel, while that session runs. Who the
+reply is *from* is decided by [the attribution rules](#who-a-discord-reply-is-from).
+
+- **In an inbox, only a reply routes.** A person's inbox is shared by all
+  their chats, so a bare post there belongs to none and is dropped (Jam's own
+  posts, echoed back, are dropped the same way). A bare post in a **room's**
+  channel goes to the room.
+- **Bots are not routed.**
+- **Receipts are currently unpruned** — one entry per post on local disk
+  (a known follow-up, not a correctness issue).
 
 ## Who a Discord reply is from
 
 Jam decides a reply's sender from Discord's immutable **author id**, never the
 display name (which anyone can set), in order:
 
-1. A **bot** author is never a roster human.
-2. An author id **bound** to exactly one roster human in the project → that
-   human (`human:<roster name>`), in **any** channel, shared inboxes included.
-3. A channel that is the `discord` address of **exactly one** roster human (and
-   not also a roster channel) → that human, **only while they are unbound**.
-4. Otherwise → `human:<Discord display name>`, an ordinary reply.
+1. An author id **bound** to exactly one member of the project → that user, in
+   **any** channel, shared inboxes included.
+2. A channel that is the `discord` inbox of **exactly one** member (and not also
+   a room's) → that user, **only while they are unbound**.
+3. Otherwise → the **account** their author id is recorded as on the discord
+   connection (labelled with their display name) — or, once an operator links
+   it to a user who is a member (`at-jam account list --connection discord`,
+   then `account link <account> <user>`), that user.
 
-Rule 3 keeps unbound rosters working as before; once a human is bound, only
-their own Discord account counts as them, so someone else posting in their
-inbox is attributed by display name. Binding is operator-asserted (like
-`--login`), not verified.
-Jam logs at debug whether a reply was attributed `by=id` or `by=channel`
-(never the message body). An unattributed (non-bot) author is recorded as an
-**unlinked account** on the discord connection — `at-jam account list
---connection discord` shows them; `account link <account> <user>` binds that
-Discord account to the user (rule 2).
+Rule 2 keeps unbound members working; once someone is bound, only their own
+Discord account counts as them, so someone else posting in their inbox is
+their own account. Binding is operator-asserted (like `--login`), not
+verified. Jam logs at debug whether a reply was attributed `by=id` or
+`by=channel` (never the message body).

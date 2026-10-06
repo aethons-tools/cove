@@ -5,40 +5,57 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+)
+
+const (
+	chOps   = ident.ID("chn_01j9q3aaaaaaaaaaaaaaaaaaaa")
+	chOther = ident.ID("chn_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	ses     = ident.ID("ses_01j9q3aaaaaaaaaaaaaaaaaaaa")
+	reader  = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	alice   = ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
 )
 
 func openLog(t *testing.T) *intercom.Log {
 	t.Helper()
-	lg := intercom.NewMemLog()
-	return lg
+	return intercom.NewMemLog(nil)
+}
+
+func post(t *testing.T, lg intercom.Store, m intercom.Squawk) intercom.Squawk {
+	t.Helper()
+	if m.Channel == "" {
+		m.Channel = chOps
+	}
+	if m.From == "" {
+		m.From = ses
+	}
+	if m.Body == "" {
+		m.Body = "hi"
+	}
+	got, err := lg.Append(m, nil)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	return got
 }
 
 func TestNewRebuildsSeenForItsService(t *testing.T) {
 	lg := openLog(t)
-	// two inbound-linear ids, one inbound-discord id, one normal outbound id
-	_, _ = lg.Append(intercom.Squawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{ID: "in:discord:c3", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "x"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "b"})
+	for _, id := range []string{"in:linear:c1", "in:linear:c2", "in:discord:c3", ""} {
+		post(t, lg, intercom.Squawk{ID: id})
+	}
 	e := New(&fakeSurface{service: "linear"}, lg, &fakeMarkers{}, &fakeCursors{}, &fakeDirectory{}, Config{}, nil)
-	if !e.seen["in:linear:c1"] || !e.seen["in:linear:c2"] {
-		t.Fatal("New must seed seen with this Service's inbound ids")
-	}
-	if e.seen["in:discord:c3"] {
-		t.Fatal("New must NOT seed another Service's inbound ids")
-	}
-	if len(e.seen) != 2 {
-		t.Fatalf("seen has %d ids, want 2", len(e.seen))
+	if !e.seen["in:linear:c1"] || !e.seen["in:linear:c2"] || e.seen["in:discord:c3"] || len(e.seen) != 2 {
+		t.Fatalf("seen = %v, want this Service's two inbound ids", e.seen)
 	}
 }
 
 func TestRunEgressDisabledOnlyIngress(t *testing.T) {
 	lg := openLog(t)
-	// an outbound (internal-authored, external target) message that egress WOULD deliver if enabled
-	_, _ = lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "x", Project: "acme"})
+	post(t, lg, intercom.Squawk{})
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:a": {Service: "linear", Address: "ACME-1"}}}
+	dir := &fakeDirectory{surfaces: map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}}}}
 	e := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{EgressEnabled: false, EgressPoll: time.Millisecond, IngressPoll: time.Millisecond}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go e.Run(ctx)

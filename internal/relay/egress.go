@@ -8,16 +8,16 @@ import (
 
 // egressBatch caps the number of messages read per egressTick from
 // ListSince, bounding per-tick work; a backlog larger than this drains
-// across multiple ticks. This is a deliberate trade-off, not
-// behavior-preserving vs. the old whole-log scan: if a message near the head
-// of the window has a permanently-failing target, LastSeq never advances, so
-// messages beyond LastSeq+egressBatch aren't attempted until it clears
-// (head-of-line blocking). Transient failures still self-heal on the next tick.
+// across multiple ticks. A message near the head with a permanently-failing
+// surface holds LastSeq (head-of-line blocking); transient failures heal on
+// the next tick.
 const egressBatch = 500
 
-// egressTick delivers every not-yet-delivered External target of each
-// internal-authored message above the low-water, exactly once, and advances the
-// bounded EgressMark.
+// egressTick delivers every not-yet-delivered surface of each squawk above
+// the low-water on this Service, exactly once, and advances the bounded
+// EgressMark. Every author's squawks are rendered — sessions', people's,
+// ingested ones' — except back onto the surface a squawk came from, which
+// the Directory leaves out.
 func (e *Engine) egressTick(ctx context.Context) {
 	service := e.surf.Service()
 	mark := e.mk.Egress(service)
@@ -26,13 +26,10 @@ func (e *Engine) egressTick(ctx context.Context) {
 	}
 	msgs := e.lg.ListSince(mark.LastSeq, egressBatch)
 
-	// Pass 1: deliver undelivered owned targets.
+	// Pass 1: deliver undelivered surfaces.
 	for _, m := range msgs {
-		if intercom.Classify(m.From) != intercom.Internal {
-			continue // echo guard: never re-egress an externally-authored message
-		}
-		owned := e.owned(service, m.Project, m)
-		if len(owned) == 0 {
+		surfaces := e.owned(service, m)
+		if len(surfaces) == 0 {
 			continue
 		}
 		got := mark.Pending[m.ID]
@@ -40,17 +37,15 @@ func (e *Engine) egressTick(ctx context.Context) {
 			got = map[string]bool{}
 			mark.Pending[m.ID] = got
 		}
-		for _, t := range owned {
-			key := t.String()
-			if got[key] {
+		for _, d := range surfaces {
+			if got[d.Address] {
 				continue
 			}
-			d, _ := e.dir.Resolve(service, m.Project, t, m.From)
 			if _, err := e.surf.Deliver(ctx, d, m); err != nil {
-				e.log.Warn("relay: egress deliver failed", "service", service, "msg", m.ID, "target", key, "error", err.Error())
+				e.log.Warn("relay: egress deliver failed", "service", service, "msg", m.ID, "surface", d.Address, "error", err.Error())
 				continue // leave unmarked → retried next tick
 			}
-			got[key] = true // mark AFTER deliver
+			got[d.Address] = true // mark AFTER deliver
 		}
 	}
 
@@ -68,30 +63,22 @@ func (e *Engine) egressTick(ctx context.Context) {
 	}
 }
 
-// owned returns m's External targets that resolve to THIS Service.
-func (e *Engine) owned(service, project string, m intercom.Squawk) []intercom.Target {
-	var out []intercom.Target
-	for _, t := range m.To {
-		if intercom.Classify(t) != intercom.External {
-			continue
+// owned returns m's surfaces on THIS Service.
+func (e *Engine) owned(service string, m intercom.Squawk) []Delivery {
+	var out []Delivery
+	for _, d := range e.dir.Surfaces(service, m) {
+		if d.Service == service {
+			out = append(out, d)
 		}
-		d, ok := e.dir.Resolve(service, project, t, m.From)
-		if !ok || d.Service != service {
-			continue
-		}
-		out = append(out, t)
 	}
 	return out
 }
 
-// egressDone reports whether every owned target of m has been delivered.
+// egressDone reports whether every surface of m has been delivered.
 func (e *Engine) egressDone(service string, m intercom.Squawk, pending map[string]map[string]bool) bool {
-	if intercom.Classify(m.From) != intercom.Internal {
-		return true // echo-guarded: nothing to deliver
-	}
 	got := pending[m.ID]
-	for _, t := range e.owned(service, m.Project, m) {
-		if !got[t.String()] {
+	for _, d := range e.owned(service, m) {
+		if !got[d.Address] {
 			return false
 		}
 	}
