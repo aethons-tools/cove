@@ -31,7 +31,7 @@ type EnrollResult struct {
 	Connector *snippet.Connector `json:"connector,omitempty"`
 }
 
-// ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
+// ActorSummary is a GET /admin/actors item: never a token or hash. Each grant
 // carries the effective destinations/credentials after overrides.
 type ActorSummary struct {
 	ID     string         `json:"id"`
@@ -480,7 +480,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /admin/roster", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /admin/actors", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, RosterSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
@@ -674,20 +674,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		rr, _ := store.GetRoster(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, rr)
 	})
-	mux.HandleFunc("POST /admin/projects/{project}/humans", func(w http.ResponseWriter, r *http.Request) {
-		var b Human
-		if !decode(w, r, &b) {
-			return
-		}
-		// Login / Discord-id uniqueness and delivery/identity validation are
-		// shared with the UI (PutRosterHuman).
-		if err := PutRosterHuman(store, r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
 	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
 		var b Channel
 		if !decode(w, r, &b) {
@@ -699,14 +685,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
 		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}/humans/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.RemoveHuman(r.PathValue("project"), r.PathValue("name")); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin roster human removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
-		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /admin/projects/{project}/channels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if err := store.RemoveChannel(r.PathValue("project"), r.PathValue("name")); err != nil {
@@ -909,6 +887,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerStanding(mux, store, sup, log)
 	registerEgress(mux, store, log)
 	registerContext(mux, store, log)
+	registerUsers(mux, store, log)
 
 	for _, o := range opts {
 		o(mux)
