@@ -49,6 +49,7 @@ type humanPlan struct {
 	roles       []roleWrite
 	actors      []Actor
 	instances   []Instance
+	standing    []StandingSessionRef // standing-session map entries to add
 	report      HumanMigration
 }
 
@@ -569,6 +570,9 @@ func (m *memState) applyHumanPlan(p humanPlan) {
 	for _, inst := range p.instances {
 		m.applyPutInstance(inst)
 	}
+	for _, s := range p.standing {
+		m.applyPutStandingSession(s.ProjectID, s.Role, s.Name, s.SessionID)
+	}
 }
 
 // mapsKeys is maps.Keys for slices.Sorted call sites over string-keyed maps.
@@ -585,8 +589,9 @@ func mapsKeys[V any](mm map[string]V) func(func(string) bool) {
 // rosterSchemaVersion is the registry migration level this binary brings a
 // store to: 1 = roster humans are users (1a-3a); 2 = a project's chat service
 // is a connection id, not a kind name (1a-4); 3 = stored policy names people
-// as user:<usr_id> and personal sessions carry their owner's id (1a-3d).
-const rosterSchemaVersion = 3
+// as user:<usr_id> and personal sessions carry their owner's id (1a-3d); 4 =
+// declared standing sessions are in the standing-session map (1b).
+const rosterSchemaVersion = 4
 
 // planRegistryMigration plans every registry migration step above level from
 // (a store's roster_schema; 0 for an import, whose snapshot may predate them
@@ -602,7 +607,31 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 	if from < 3 {
 		m.planPolicyRefs(&plan)
 	}
+	if from < 4 {
+		m.planStandingSessions(&plan)
+	}
 	return plan
+}
+
+// planStandingSessions maps every declared standing session without an entry
+// to the id it has always run under (StandingActorID), so a live session's
+// state volumes, inbox and receipts carry over; from then on a new one mints
+// a session id.
+func (m *memState) planStandingSessions(plan *humanPlan) {
+	for _, project := range slices.Sorted(mapsKeys(m.roles)) {
+		p, ok := m.projects[project]
+		if !ok || p.ID == "" {
+			continue
+		}
+		for _, role := range slices.Sorted(mapsKeys(m.roles[project])) {
+			for _, s := range m.roles[project][role].Allocation.Standing {
+				if _, ok := m.standing[standingKey{p.ID, role, s.Name}]; ok {
+					continue
+				}
+				plan.standing = append(plan.standing, StandingSessionRef{ProjectID: p.ID, Role: role, Name: s.Name, SessionID: StandingActorID(project, role, s.Name)})
+			}
+		}
+	}
 }
 
 // planPolicyRefs moves stored policy to user ids: every "human:<name>" in a

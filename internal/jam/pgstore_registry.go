@@ -438,7 +438,10 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	return s.loadLegacyAliases(ctx)
+	if err := s.loadLegacyAliases(ctx); err != nil {
+		return err
+	}
+	return s.loadStandingSessions(ctx)
 }
 
 // loadLegacyAliases fills the frozen legacy_human_aliases map. load's part; no lock.
@@ -457,6 +460,59 @@ func (s *PostgresStore) loadLegacyAliases(ctx context.Context) error {
 			s.aliases[project] = map[string]ident.ID{}
 		}
 		s.aliases[project][name] = ident.ID(user)
+	}
+	return rows.Err()
+}
+
+func (s *PostgresStore) PutStandingSession(project ident.ID, role, name, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.preparePutStandingSession(project, role, name, sessionID); err != nil {
+		return err
+	}
+	if err := s.registryTx("PutStandingSession", func(ctx context.Context, tx pgx.Tx) error {
+		return putStandingSessionTx(ctx, tx, project, role, name, sessionID)
+	}); err != nil {
+		return err
+	}
+	s.applyPutStandingSession(project, role, name, sessionID)
+	return nil
+}
+
+func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role, name, sessionID string) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO standing_sessions (project_id, role, name, session_id) VALUES ($1,$2,$3,$4)
+		 ON CONFLICT (project_id, role, name) DO UPDATE SET session_id = EXCLUDED.session_id`,
+		project, role, name, sessionID)
+	return err
+}
+
+func (s *PostgresStore) RemoveStandingSession(project ident.ID, role, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("RemoveStandingSession", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM standing_sessions WHERE project_id = $1 AND role = $2 AND name = $3`, project, role, name)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveStandingSession(project, role, name)
+	return nil
+}
+
+// loadStandingSessions fills the standing-session map. load's part; no lock.
+func (s *PostgresStore) loadStandingSessions(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT project_id, role, name, session_id FROM standing_sessions`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load standing_sessions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project, role, name, id string
+		if err := rows.Scan(&project, &role, &name, &id); err != nil {
+			return err
+		}
+		s.applyPutStandingSession(ident.ID(project), role, name, id)
 	}
 	return rows.Err()
 }

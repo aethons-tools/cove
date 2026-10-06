@@ -13,7 +13,7 @@ import (
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, model_specs, projects, intercom_unread_cursors, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, model_specs, projects, intercom_unread_cursors, standing_sessions, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants`); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -31,5 +31,6 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.accounts = map[ident.ID]Account{}
 	s.members = map[ident.ID]map[ident.ID]Membership{}
 	s.aliases = map[string]map[string]ident.ID{}
+	s.standing = map[standingKey]string{}
 	return nil
 }

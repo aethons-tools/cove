@@ -52,6 +52,9 @@ type ConfigSnapshot struct {
 	Accounts      []Account     `json:"accounts,omitempty"`
 	Memberships   []Membership  `json:"memberships,omitempty"`
 	LegacyAliases []LegacyAlias `json:"legacy_aliases,omitempty"`
+	// StandingSessions maps declared standing sessions to their sessions, so
+	// a restore keeps them on their state.
+	StandingSessions []StandingSessionRef `json:"standing_sessions,omitempty"`
 }
 
 // ErrConfigNotEmpty is returned by ImportConfig when the target already holds
@@ -373,6 +376,10 @@ func (m *memState) exportRegistry(snap *ConfigSnapshot) {
 			snap.LegacyAliases = append(snap.LegacyAliases, LegacyAlias{Project: project, Name: name, UserID: m.aliases[project][name]})
 		}
 	}
+	for k, id := range m.standing {
+		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: id})
+	}
+	slices.SortFunc(snap.StandingSessions, func(a, b StandingSessionRef) int { return strings.Compare(a.SessionID, b.SessionID) })
 }
 
 // importPlan validates a snapshot for import into m (an empty store) and
@@ -403,6 +410,7 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 	reg.projects = append(reg.projects, mig.projects...)
 	reg.roles = append(reg.roles, mig.roles...)
 	reg.actors = append(reg.actors, mig.actors...)
+	reg.standing = append(reg.standing, mig.standing...)
 	reg.report = mig.report
 	return s, reg, nil
 }
@@ -507,6 +515,13 @@ func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *
 			return bad("legacy alias %s/%s: no user %s", al.Project, al.Name, al.UserID)
 		}
 		plan.aliases = append(plan.aliases, al)
+	}
+	for _, ss := range s.StandingSessions {
+		if err := m.preparePutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID); err != nil {
+			return bad("standing session %s/%s: %v", ss.Role, ss.Name, err)
+		}
+		m.applyPutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID)
+		plan.standing = append(plan.standing, ss)
 	}
 	return plan, m, nil
 }
