@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -130,7 +131,30 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	if names := nonEmptyConfigAggregates(m); len(names) > 0 {
 		return fmt.Errorf("%w (non-empty: %s)", ErrConfigNotEmpty, strings.Join(names, ", "))
 	}
+	if err := validateSnapshotProjectIDs(m, s); err != nil {
+		return err
+	}
 	return validateSnapshotContext(s)
+}
+
+// validateSnapshotProjectIDs checks the ids a snapshot gives its projects: each
+// must be a well-formed project id, unique in the snapshot and unused in the
+// store. An empty id is allowed (withReferencedProjects mints one).
+func validateSnapshotProjectIDs(m *memState, s ConfigSnapshot) error {
+	seen := map[ident.ID]bool{}
+	for _, p := range s.Projects {
+		if p.ID == "" {
+			continue
+		}
+		if _, err := ident.Parse(string(p.ID)); err != nil || p.ID.Kind() != ident.Project {
+			return fmt.Errorf("%w: project %q has invalid id %q", ErrInvalidConfig, p.Name, p.ID)
+		}
+		if seen[p.ID] || m.idExists(p.ID) {
+			return fmt.Errorf("%w: project %q reuses id %q", ErrInvalidConfig, p.Name, p.ID)
+		}
+		seen[p.ID] = true
+	}
+	return nil
 }
 
 // ErrInvalidConfig is returned by ImportConfig for a snapshot whose authored
@@ -221,10 +245,17 @@ func nonEmptyConfigAggregates(m *memState) []string {
 // withReferencedProjects returns s with an empty record added for every project
 // a role or grant names but s.Projects lacks — a snapshot exported before
 // projects were first-class — so an import never leaves a dangling reference.
+// Every project without an id (a snapshot exported before projects had ids)
+// gets a fresh one. It is idempotent: a second pass keeps the first's ids.
 func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
+	projects := make([]Project, 0, len(s.Projects))
 	have := map[string]bool{}
 	for _, p := range s.Projects {
+		if p.ID == "" {
+			p.ID = newProject(p.Name).ID
+		}
 		have[p.Name] = true
+		projects = append(projects, p)
 	}
 	add := func(name string) {
 		if name == "" {
@@ -232,7 +263,7 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 		}
 		if !have[name] {
 			have[name] = true
-			s.Projects = append(s.Projects, Project{Name: name})
+			projects = append(projects, newProject(name))
 		}
 	}
 	for p := range s.Roles {
@@ -243,6 +274,7 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 			add(g.Project)
 		}
 	}
+	s.Projects = projects
 	return s
 }
 

@@ -460,4 +460,52 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatal("a re-created project must get a new id")
 		}
 	})
+
+	t.Run("export_import_keeps_project_ids", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		want, _ := s.GetProject("acme")
+		s2 := newStore(t)
+		if err := s2.ImportConfig(s.ExportConfig()); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		if got, _ := s2.GetProject("acme"); got.ID != want.ID {
+			t.Fatalf("imported id = %q, want %q", got.ID, want.ID)
+		}
+	})
+
+	t.Run("import_mints_missing_project_ids", func(t *testing.T) {
+		s := newStore(t)
+		snap := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion,
+			Projects: []jam.Project{{Name: "acme"}},
+			Roles:    map[string]map[string]jam.Role{"beta": {"r": {Name: "r"}}}}
+		if err := s.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		for _, name := range []string{"acme", "beta"} {
+			p, ok := s.GetProject(name)
+			if !ok || p.ID.Kind() != ident.Project {
+				t.Fatalf("%s = %+v, %v", name, p, ok)
+			}
+			if e, ok := s.Resolve(p.ID); !ok || e.Name != name {
+				t.Fatalf("Resolve(%s) = %+v, %v", name, e, ok)
+			}
+		}
+	})
+
+	t.Run("import_rejects_bad_project_ids", func(t *testing.T) {
+		dup := ident.New(ident.Project)
+		for name, ps := range map[string][]jam.Project{
+			"wrong kind": {{ID: ident.New(ident.User), Name: "acme"}},
+			"malformed":  {{ID: "prj_nope", Name: "acme"}},
+			"duplicate":  {{ID: dup, Name: "acme"}, {ID: dup, Name: "beta"}},
+		} {
+			s := newStore(t)
+			if err := s.ImportConfig(jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: ps}); !errors.Is(err, jam.ErrInvalidConfig) {
+				t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
+			}
+		}
+	})
 }
