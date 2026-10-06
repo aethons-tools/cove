@@ -160,8 +160,10 @@ func ensureRuntime(root *yaml.Node) ([]Change, error) {
 	return nil, nil
 }
 
-// ensureHook adds or replaces the one marked provision entry, keeping the
-// operator's other hooks and their order, and dropping duplicate marked entries.
+// ensureHook adds or replaces the one managed provision entry, keeping the
+// operator's other hooks and their order. A managed entry is a marked one or a
+// legacy hand-written one (it installs Sysbox from the nestybox/sysbox release
+// URL); the first is adopted in place and any further ones are dropped.
 func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	prov := value(root, "provision")
 	if prov == nil || isNull(prov) {
@@ -176,16 +178,21 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	var kept []*yaml.Node
 	found := false
 	for _, e := range prov.Content {
-		if !isMarked(e) {
+		marked := isMarked(e)
+		if !marked && !isLegacy(e) {
 			kept = append(kept, e)
 			continue
 		}
 		if found {
-			changes = append(changes, Change{What: "removed a duplicate at-jam Sysbox provision hook"})
+			changes = append(changes, Change{What: "removed a duplicate Sysbox provision hook"})
 			continue
 		}
 		found = true
-		if mode := value(e, "mode"); mode == nil || mode.Value != "system" || value(e, "script").Value != want {
+		switch {
+		case !marked:
+			*e = *hookNode(want)
+			changes = append(changes, Change{What: "replaced a hand-written Sysbox provision hook with the managed one (Sysbox " + version + ")"})
+		case value(e, "mode") == nil || value(e, "mode").Value != "system" || value(e, "script").Value != want:
 			*e = *hookNode(want)
 			changes = append(changes, Change{What: "updated the Sysbox provision hook (Sysbox " + version + ")"})
 		}
@@ -202,12 +209,18 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	return changes, nil
 }
 
-func isMarked(e *yaml.Node) bool {
+func isMarked(e *yaml.Node) bool { return scriptContains(e, Marker) }
+
+// isLegacy matches a hand-written hook that installs Sysbox: every manual recipe
+// downloads the release from github.com/nestybox/sysbox.
+func isLegacy(e *yaml.Node) bool { return scriptContains(e, "nestybox/sysbox") }
+
+func scriptContains(e *yaml.Node, sub string) bool {
 	if e.Kind != yaml.MappingNode {
 		return false
 	}
 	s := value(e, "script")
-	return s != nil && s.Kind == yaml.ScalarNode && strings.Contains(s.Value, Marker)
+	return s != nil && s.Kind == yaml.ScalarNode && strings.Contains(s.Value, sub)
 }
 
 func hookNode(script string) *yaml.Node {

@@ -163,19 +163,88 @@ func TestApplyOverwritesDifferentRuntimePath(t *testing.T) {
 func TestApplyDedupesMarkedHooks(t *testing.T) {
 	once, _ := apply(t, freshConfig, opts)
 	p := decode(t, []byte(once))
-	var doc yaml.Node // re-encode with a second marked entry appended
+	var doc yaml.Node // re-encode with a user hook, then a second marked entry
 	if err := yaml.Unmarshal([]byte(once), &doc); err != nil {
 		t.Fatal(err)
 	}
 	prov := value(doc.Content[0], "provision")
-	prov.Content = append(prov.Content, hookNode(p.Provision[0].Script))
+	user := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	setScalar(user, "mode", "user")
+	setScalar(user, "script", "echo mine")
+	prov.Content = append(prov.Content, user, hookNode(p.Provision[0].Script))
 	b, _ := yaml.Marshal(&doc)
 	out, ch := apply(t, string(b), opts)
-	if got := decode(t, []byte(out)); len(got.Provision) != 1 {
-		t.Fatalf("duplicates kept: %+v", got.Provision)
+	got := decode(t, []byte(out))
+	if len(got.Provision) != 2 || !strings.Contains(got.Provision[0].Script, Marker) || got.Provision[1].Script != "echo mine" {
+		t.Fatalf("first marked entry must be kept in place: %+v", got.Provision)
 	}
 	if len(ch) != 1 || !strings.Contains(ch[0].What, "duplicate") {
 		t.Fatalf("changes = %+v", ch)
+	}
+}
+
+const legacyHook = `provision:
+  - mode: system
+    script: |
+      #!/usr/bin/env bash
+      curl -fsSL -o /tmp/sysbox.deb https://github.com/nestybox/sysbox/releases/download/v0.6.7/sysbox-ce_0.6.7.linux_amd64.deb
+      apt-get install -y /tmp/sysbox.deb
+`
+
+func TestApplyAdoptsLegacyHook(t *testing.T) {
+	out, ch := apply(t, legacyHook, opts)
+	p := decode(t, []byte(out))
+	if len(p.Provision) != 1 || !strings.Contains(p.Provision[0].Script, Marker) || strings.Contains(p.Provision[0].Script, "0.6.7") {
+		t.Fatalf("legacy hook not replaced: %+v", p.Provision)
+	}
+	var found bool
+	for _, c := range ch {
+		found = found || strings.Contains(c.What, "replaced a hand-written Sysbox provision hook with the managed one (Sysbox "+MinSysboxVersion+")")
+	}
+	if !found {
+		t.Fatalf("replacement not reported: %+v", ch)
+	}
+}
+
+func TestApplyLegacyHookKeepsPosition(t *testing.T) {
+	in := "provision:\n  - mode: user\n    script: echo a\n" + strings.TrimPrefix(legacyHook, "provision:\n") +
+		"  - mode: user\n    script: echo b\n"
+	out, _ := apply(t, in, opts)
+	p := decode(t, []byte(out))
+	if len(p.Provision) != 3 || p.Provision[0].Script != "echo a" || !strings.Contains(p.Provision[1].Script, Marker) || p.Provision[2].Script != "echo b" {
+		t.Fatalf("order wrong: %+v", p.Provision)
+	}
+}
+
+func TestApplyLegacyPlusMarkedKeepsFirst(t *testing.T) {
+	once, _ := apply(t, freshConfig, opts)
+	marked := decode(t, []byte(once)).Provision[0].Script
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(legacyHook), &doc); err != nil {
+		t.Fatal(err)
+	}
+	prov := value(doc.Content[0], "provision")
+	prov.Content = append(prov.Content, hookNode(marked))
+	b, _ := yaml.Marshal(&doc)
+	out, ch := apply(t, string(b), opts)
+	p := decode(t, []byte(out))
+	if len(p.Provision) != 1 || !strings.Contains(p.Provision[0].Script, Marker) {
+		t.Fatalf("want one managed hook: %+v", p.Provision)
+	}
+	var dup bool
+	for _, c := range ch {
+		dup = dup || strings.Contains(c.What, "duplicate")
+	}
+	if !dup {
+		t.Fatalf("duplicate not reported: %+v", ch)
+	}
+}
+
+func TestApplyLeavesUnrelatedSysboxHookAlone(t *testing.T) {
+	out, _ := apply(t, "provision:\n  - mode: user\n    script: echo sysbox\n", opts)
+	p := decode(t, []byte(out))
+	if len(p.Provision) != 2 || p.Provision[0].Script != "echo sysbox" {
+		t.Fatalf("unrelated hook touched: %+v", p.Provision)
 	}
 }
 
